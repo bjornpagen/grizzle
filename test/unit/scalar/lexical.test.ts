@@ -1,22 +1,32 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { generated, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyRelation, relation, schema } from "#compiler/public/schema.ts"
+import { decimalText, str } from "#compiler/public/text.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
-import { formSource, type LexicalTarget, lexicalValue } from "#compiler/scalar/lexical.ts"
+import {
+	decimalTextMaxBytes,
+	formOctets,
+	formSource,
+	type LexicalTarget,
+	lexicalValue
+} from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import { buildNfa, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -88,10 +98,12 @@ describe("lexical forms", () => {
 							run.note(c.shape)
 							const label = `${Formatter.format(c.target)} ${Formatter.format(c.text)}`
 							const scanned = lexicalValue(c.target, c.text, roundDouble)
+							const octets = formOctets(c.target)
 							assert.equal(
-								matches(nfaOf(formSource(c.target)), c.text),
+								matches(nfaOf(formSource(c.target)), c.text) &&
+									(octets === undefined || utf8Length(c.text) <= octets),
 								c.member,
-								`${label}: pattern`
+								`${label}: pattern and bytes`
 							)
 							assert.equal(scanned !== undefined, c.member, `${label}: scan`)
 							if (c.member) {
@@ -130,7 +142,8 @@ describe("lexical forms", () => {
 							"double",
 							"boolean",
 							"date",
-							"doubleText"
+							"doubleText",
+							"decimalText"
 						]),
 						caseHang,
 						box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
@@ -385,6 +398,151 @@ describe("a parse's lexical precondition", () => {
 									verdict === "bounded" ? "ResourceBound" : "PartialOperation"
 								assert.equal(checked.error.reason._tag, expected, pattern)
 							}
+						})
+				)
+			)
+	)
+})
+
+/** How a decimal case bounds its operand's bytes: not at all, or at a drawn count, by its type or by a guard. */
+type DecimalBound = { readonly kind: "none" } | { readonly kind: "bytes"; readonly bytes: number }
+
+/** What the checker answered a decimal case, by how it stated the operand. */
+type DecimalFeature =
+	| `${Route} admitted`
+	| `${Route} refused by its language`
+	| `${Route} refused by its bytes`
+
+/** A bound of none, a few bytes, or one byte either side of the most the form's members hold. */
+const decimalBoundGen: Gen<DecimalBound> = weighted<DecimalBound>([
+	[2, constant({ kind: "none" })],
+	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: decimalTextMaxBytes.value + offset }))],
+	[1, map(int(0, 12), (bytes) => ({ kind: "bytes", bytes }))]
+])
+
+/**
+ * A decimal case's relation: its text `t` typed by the pattern within the bound (str.bytes), or any text under a matches
+ * guard of the pattern and a guard of its bytes at the bound, and a field generated from whether the parse is at
+ * least zero.
+ */
+const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): AnyRelation => {
+	const no = computeCore.literal(pg.boolean, false)
+	const parsedSign = (t: unknown): unknown =>
+		computeCore.cond(
+			computeCore.ge(computeCore.parseDecimal(t), 0n),
+			computeCore.literal(pg.boolean, true),
+			no
+		)
+	if (route === "type") {
+		const typed = regexField<string, string, readonly []>(pattern, [])
+		const t = bound.kind === "none" ? typed : str.bytes(bound.bytes, typed)
+		return relation.generated("R", { id: uuid, t }, ["id"], (r) => ({
+			n: generatedField(pg.boolean, parsedSign(r.t), [])
+		}))
+	}
+	return relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+		n: generatedField(
+			pg.boolean,
+			computeCore.when(
+				computeCore.matches(r.t, pattern),
+				(t: unknown) =>
+					bound.kind === "none"
+						? parsedSign(t)
+						: computeCore.when(
+								computeCore.within(computeCore.octetLength(t), 0, bound.bytes),
+								() => parsedSign(t),
+								no
+							),
+				no
+			),
+			[]
+		)
+	}))
+}
+
+describe("a decimal's parse", () => {
+	it.effect(
+		"is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/scalar/lexical-decimal-proved",
+						draw: drawn((source) => ({
+							pattern: `^(?:${source.draw(patternOver(alphabet))})$`,
+							route: source.draw(element<Route>(["type", "guard"])),
+							bound: source.draw(decimalBoundGen)
+						})),
+						literal: Formatter.format,
+						coverage: required<DecimalFeature>(
+							[
+								"type admitted",
+								"type refused by its language",
+								"type refused by its bytes",
+								"guard admitted",
+								"guard refused by its language",
+								"guard refused by its bytes"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
+						kept: [],
+						runs: 600,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes the text analysis and the bound prove"
+						}
+					},
+					({ pattern, route, bound }, run) =>
+						Effect.sync(() => {
+							const analyzed = analyzeText(pattern, "u", SourceLoc("str.regex", []))
+							if (!analyzed.ok) {
+								return
+							}
+							const verdict = inclusion(nfaOf(pattern), nfaOf(decimalText)).kind
+							const check = analyzed.value.check
+							const patternBytes =
+								check.kind === "tautology" || check.bounds === undefined
+									? Number.POSITIVE_INFINITY
+									: check.bounds.bytes
+							const bytes = Math.min(
+								patternBytes,
+								bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
+							)
+							const withinBytes = bytes <= decimalTextMaxBytes.value
+							const checked = checkedIn(
+								schema("DecimalLexical", { R: decimalRelation(pattern, route, bound) }, [])
+							)
+							const label = `/${pattern}/ by ${route} within ${Formatter.format(bound)}`
+							if (verdict === "included" && withinBytes) {
+								assert.ok(checked.ok, `${label}: ${checked.ok ? "" : checked.error.message}`)
+								run.note(`${route} admitted`)
+								return
+							}
+							assert.ok(!checked.ok, `${label}: refused`)
+							const reason = checked.error.reason
+							if (verdict === "bounded") {
+								assert.equal(reason._tag, "ResourceBound", label)
+								return
+							}
+							assert.ok(reason._tag === "PartialOperation", `${label}: refused as ${reason._tag}`)
+							assert.equal(reason.precondition, "lexical", label)
+							assert.deepEqual(
+								reason.guard.remedy,
+								verdict === "included"
+									? { kind: "octets", bytes: decimalTextMaxBytes.value }
+									: { kind: "matches", pattern: "decimalText" },
+								label
+							)
+							run.note(
+								verdict === "included"
+									? `${route} refused by its bytes`
+									: `${route} refused by its language`
+							)
 						})
 				)
 			)

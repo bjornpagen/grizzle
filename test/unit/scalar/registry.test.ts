@@ -116,7 +116,7 @@ import {
 	descriptorOf,
 	isSerial
 } from "#test/unit/scalar/support.ts"
-import { decimalText, plantedStringGen } from "#test/unit/values/support.ts"
+import { numericText, plantedStringGen } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
 const caps = (field: unknown) => succeeded(describeField(field, SourceLoc("test", []))).scalar.caps
@@ -1004,7 +1004,7 @@ const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 		carrier: "numeric",
 		type: scalarOf(pgDescriptors.numeric(9, 2)),
 		live: oneOf<unknown>([
-			decimalText,
+			numericText,
 			element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Decimal.of("0.062"), 2n, 1])
 		]),
 		judge: numericJudge

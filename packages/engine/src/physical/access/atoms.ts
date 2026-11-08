@@ -270,6 +270,7 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "regexpReplace":
 		case "btrim":
 		case "parseDouble":
+		case "parseDecimal":
 		case "cosineDistance":
 		case "union":
 		case "intersection":

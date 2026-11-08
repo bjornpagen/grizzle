@@ -45,12 +45,13 @@ export type Precondition =
 
 /**
  * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,
- * scalar/lexical.ts lexicalTargetOf), a Compute.cast's, cut to the values the type holds exactly; or every decimal text
- * of a double (`doubleText`), Compute.parseDouble's, whose every member rounds to a double. The registry states it per
- * overload and a proof carries it, so a language proved inside one form never stands for the other's precondition:
- * the two forms over double precision differ, and the proof kernel compares them.
+ * scalar/lexical.ts lexicalTargetOf), a Compute.cast's, cut to the values the type holds exactly; every decimal text
+ * of a double (`doubleText`), Compute.parseDouble's, whose every member rounds to a double; or every decimal text
+ * within the bytes whose every value plain numeric holds (`decimalText`), Compute.parseDecimal's. The registry states
+ * it per overload and a proof carries it, so a language proved inside one form never stands for another's
+ * precondition: the forms over one type differ, and the proof kernel compares them.
  */
-export type ParseForm = "target" | "doubleText"
+export type ParseForm = "target" | "doubleText" | "decimalText"
 
 /** A fact about every value of a term that its type states: never zero, never below zero, never NaN or an infinity. */
 export type Fact = "nonzero" | "nonnegative" | "finite"

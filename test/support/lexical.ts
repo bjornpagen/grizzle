@@ -12,9 +12,10 @@ import {
 } from "@grizzle/testing/gen"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
+import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { nonEmpty } from "#test/support/assert.ts"
+import { defined, nonEmpty } from "#test/support/assert.ts"
+import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 
 /**
@@ -65,7 +66,8 @@ export const targetGen = (maxPrecision: number): Gen<LexicalTarget> => {
 		double: constant({ kind: "double" }),
 		boolean: constant({ kind: "boolean" }),
 		date: constant({ kind: "date" }),
-		doubleText: constant({ kind: "doubleText" })
+		doubleText: constant({ kind: "doubleText" }),
+		decimalText: constant({ kind: "decimalText" })
 	}
 	return oneOf<LexicalTarget>(nonEmpty(Rec.values(ofKind), "a generator per kind"))
 }
@@ -95,6 +97,8 @@ export type Shape =
 	| "date invalid"
 	| "double text finite"
 	| "double text special"
+	| "decimal text"
+	| "decimal text past bytes"
 	| "corrupted"
 
 export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
@@ -110,6 +114,8 @@ export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	"date invalid",
 	"double text finite",
 	"double text special",
+	"decimal text",
+	"decimal text past bytes",
 	"corrupted"
 ]
 
@@ -433,6 +439,121 @@ export const doubleTextGen: Gen<string> = weighted([
 	[9, (source) => source.draw(spelledGen(source.draw(boolean), source.draw(doubleDecimalGen)))]
 ])
 
+const nonzeroDigit = characterOf(["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+
+/** `count` digits, a drawn head, a run of one drawn digit and a drawn tail, so thousands of digits cost a few draws. */
+const runOfDigits =
+	(count: number): Gen<string> =>
+	(source) => {
+		const head = source.draw(digits(0, Math.min(count, 24)))
+		const tail = source.draw(digits(0, Math.min(count - head.length, 6)))
+		const run = Str.repeat(count - head.length - tail.length)(source.draw(digit))
+		return `${head}${run}${tail}`
+	}
+
+/**
+ * A count of digits from `low` to `high`, most often at an edge a decimal's parse turns on: a few; 253 to 258, about
+ * the widest numeric(p, s) form's 256 integer and 255 fraction digits; or the most the form's bytes leave, `high`.
+ */
+const countWithin = (low: number, high: number): Gen<number> =>
+	map(
+		weighted([
+			[3, int(low, Math.min(low + 5, high))],
+			[3, int(253, 258)],
+			[2, int(Math.max(high - 3, low), high)],
+			[1, int(low, high)]
+		]),
+		(n) => Math.min(Math.max(n, low), high)
+	)
+
+/** A count of zeros, most often none, at the edge of a part's `count` digits now and then: how many lead or trail. */
+const zerosWithin = (count: number): Gen<number> =>
+	map(
+		weighted([
+			[5, constant(0)],
+			[2, int(1, 3)],
+			[1, int(0, count)]
+		]),
+		(n) => Math.min(n, count)
+	)
+
+/** An integer part of `count` digits, past any leading zeros its first nonzero one. */
+const integerPart =
+	(count: number): Gen<string> =>
+	(source) => {
+		const zeros = source.draw(zerosWithin(count))
+		return zeros === count
+			? Str.repeat(count)("0")
+			: `${Str.repeat(zeros)("0")}${source.draw(nonzeroDigit)}${source.draw(runOfDigits(count - zeros - 1))}`
+	}
+
+/** A fraction part of `count` digits, before any trailing zeros its last nonzero one. */
+const fractionPart =
+	(count: number): Gen<string> =>
+	(source) => {
+		const zeros = source.draw(zerosWithin(count))
+		return zeros === count
+			? Str.repeat(count)("0")
+			: `${source.draw(runOfDigits(count - zeros - 1))}${source.draw(nonzeroDigit)}${Str.repeat(zeros)("0")}`
+	}
+
+/** How a decimal text spells its point: none, a trailing one, digits on both sides, a bare fraction. */
+type DecimalSpelling = "integer" | "trailing point" | "both" | "bare fraction"
+
+/**
+ * A decimal text within `bytes` bytes, a member of the grammar of xs:decimal's lexical space: an optional sign, then an
+ * integer, an integer and a trailing point, digits either side of a point, or a bare fraction, each part's count of
+ * digits at an edge (countWithin), leading and trailing zeros among them, its last digit ending at `bytes` now and then.
+ */
+const decimalWithin =
+	(bytes: number): Gen<string> =>
+	(source) => {
+		const s = source.draw(sign)
+		const room = bytes - s.length
+		const spelling = source.draw(
+			element<DecimalSpelling>(["integer", "trailing point", "both", "bare fraction"])
+		)
+		switch (spelling) {
+			case "integer":
+				return `${s}${source.draw(integerPart(source.draw(countWithin(1, room))))}`
+			case "trailing point":
+				return `${s}${source.draw(integerPart(source.draw(countWithin(1, room - 1))))}.`
+			case "both": {
+				const integer = source.draw(countWithin(1, room - 2))
+				const fraction = source.draw(countWithin(1, room - 1 - integer))
+				return `${s}${source.draw(integerPart(integer))}.${source.draw(fractionPart(fraction))}`
+			}
+			case "bare fraction":
+				return `${s}.${source.draw(fractionPart(source.draw(countWithin(1, room - 1))))}`
+		}
+	}
+
+/**
+ * A member of decimalText's form: a decimal text within decimalTextMaxBytes, at the digit counts the widest numeric(p, s)
+ * form and the form's own bytes turn on, or a spelling of zero.
+ */
+export const decimalTextGen: Gen<string> = weighted([
+	[1, element(["0", "-0", "+0", "0.", ".0", "-.000", "000", "-0.0"])],
+	[9, decimalWithin(decimalTextMaxBytes.value)]
+])
+
+/**
+ * A decimal text's candidate: a member of the grammar, of the form where it is within decimalTextMaxBytes, its value the
+ * one xs:decimal's lexical mapping gives it (test/support/oracle/evaluate/decimal-text.ts).
+ */
+const decimalCandidate = (target: LexicalTarget, text: string): Candidate => {
+	const read = defined(referenceDecimal(text), "a member of the grammar")
+	const value = Decimal.fromParts(read.negative, read.digits, Number(read.scale))
+	const member = text.length <= decimalTextMaxBytes.value
+	return {
+		target,
+		text,
+		member,
+		value: member && value.ok ? value.value : undefined,
+		shape: member ? "decimal text" : "decimal text past bytes"
+	}
+}
+
 /** One corruption of a member: a space, a doubled sign or point, a letter, or nothing left. */
 const corruptions = [" ", "+-", "..", "x", ""] as const
 
@@ -458,6 +579,14 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 				shape:
 					text === "NaN" || Str.endsWith("INF")(text) ? "double text special" : "double text finite"
 			}))
+		case "decimalText":
+			return map(
+				weighted([
+					[4, decimalTextGen],
+					[1, decimalWithin(decimalTextMaxBytes.value + 3)]
+				]),
+				(text) => decimalCandidate(target, text)
+			)
 	}
 }
 

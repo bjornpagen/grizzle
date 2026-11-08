@@ -21,7 +21,7 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { decimalGen, decimalText } from "#test/unit/values/support.ts"
+import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
 /** Groups of spellings of one Decimal value, and values alone. */
 const decimalGroups: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
@@ -266,7 +266,7 @@ interface Constructed {
 }
 
 const constructedGen: Gen<Constructed> = oneOf<Constructed>([
-	map(decimalText, (text): Constructed => ({ by: "Decimal.fromString", value: decimalOf(text) })),
+	map(numericText, (text): Constructed => ({ by: "Decimal.fromString", value: decimalOf(text) })),
 	map(minorUnits, (units): Constructed => ({ by: "Money.fromCanonical", value: moneyOf(units) })),
 	(source): Constructed => {
 		const start = source.draw(bigint(-10n, 10n))

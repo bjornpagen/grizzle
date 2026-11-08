@@ -4,7 +4,14 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
-import { baseOf, contractOf, type NumericTypmod, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	contractOf,
+	type NumericTypmod,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { type Inclusion, inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import type { AdmittedSource, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
@@ -28,6 +35,12 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
  * `NaN` (the grammar of XML Schema 1.1's xs:double lexical space), each member the double IEEE 754-2019's conversion
  * from decimal character sequences gives it: its exact value rounded to the nearest double, ties to even, ±Infinity
  * past the greatest finite double, and a zero of the mantissa's sign below half the least subnormal.
+ *
+ * And one more, the parse Compute.parseDecimal reads (`decimalText`): every decimal text,
+ * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits (the grammar of XML Schema 1.1's xs:decimal lexical space), within
+ * decimalTextMaxBytes UTF-8 bytes, so plain numeric holds each member's value, the one xs:decimal's lexical mapping
+ * gives it, exactly. Its pattern is the grammar alone, and the byte bound cuts it beside the pattern (formOctets), as
+ * str.bytes cuts a pattern: a regex counts no run past regexMaxRepeat, and numeric's limits are runs of digits.
  */
 export type LexicalTarget =
 	| { readonly kind: "integer"; readonly carrier: "int2" | "int4" | "int8" }
@@ -36,6 +49,7 @@ export type LexicalTarget =
 	| { readonly kind: "boolean" }
 	| { readonly kind: "date" }
 	| { readonly kind: "doubleText" }
+	| { readonly kind: "decimalText" }
 
 /** The value a member of a lexical form names, as the target's carrier holds it on the host. */
 export type LexicalValue = bigint | Decimal | number | boolean | CalendarDate
@@ -50,13 +64,34 @@ const decimalWritable = ({ precision, scale }: NumericTypmod): boolean =>
 	scale <= regexMaxRepeat.value &&
 	precision - scale - 1 <= regexMaxRepeat.value
 
-/** The lexical target of a parse's form (ir/proof.ts ParseForm): its target type's own, or every double's text. */
+/**
+ * The most UTF-8 bytes of a member of decimalText's form: every decimal text of at most this many bytes names a value
+ * plain numeric holds, its point taking a byte, so it has at most numericMaxFractionDigits digits past the point and no
+ * more before it than numericMaxIntegerDigits; one byte more admits `.` and numericMaxFractionDigits + 1 digits, which
+ * numeric_in refuses as "value overflows numeric format".
+ */
+export const decimalTextMaxBytes: Limit = derived({
+	owner: "grizzle's lexical forms",
+	unit: "UTF-8 bytes",
+	scope: "a decimal text Compute.parseDecimal reads, the bytes of its form's every member",
+	from: [numericMaxFractionDigits, numericMaxIntegerDigits],
+	derivation:
+		"numericMaxFractionDigits + 1, the point and the most fraction digits numeric holds, at most numericMaxIntegerDigits so its integer digits fit as well",
+	compute: ([fraction, integer]) => Math.min(fraction.value + 1, integer.value)
+})
+
+/**
+ * The lexical target of a parse's form (ir/proof.ts ParseForm): its target type's own, every double's text, or every
+ * decimal text.
+ */
 export const parseTargetOf = (form: ParseForm, type: ScalarType): LexicalTarget | undefined => {
 	switch (form) {
 		case "target":
 			return lexicalTargetOf(type)
 		case "doubleText":
 			return { kind: "doubleText" }
+		case "decimalText":
+			return { kind: "decimalText" }
 	}
 }
 
@@ -219,6 +254,12 @@ const doubleForm = (): string => {
 const doubleTextForm = (): string =>
 	"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN"
 
+/**
+ * Every decimal text: a sign and digits on either side of a point, of any digits, the grammar of XML Schema 1.1's
+ * xs:decimal lexical space.
+ */
+const decimalTextForm = (): string => "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)"
+
 /** The proleptic Gregorian dates 0001-01-01 to 9999-12-31, leap days by the leap year rule over the year's digits. */
 const dateForm = (): string => {
 	const year = "(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})"
@@ -250,9 +291,29 @@ export const formSource = (target: LexicalTarget): string => {
 				return dateForm()
 			case "doubleText":
 				return doubleTextForm()
+			case "decimalText":
+				return decimalTextForm()
 		}
 	})()
 	return `^(?:${body})$`
+}
+
+/**
+ * The byte bound a form holds its members within beside its pattern, as str.bytes holds a pattern's: decimalText's,
+ * decimalTextMaxBytes; none for every other form, whose pattern alone is the form.
+ */
+export const formOctets = (target: LexicalTarget): number | undefined => {
+	switch (target.kind) {
+		case "decimalText":
+			return decimalTextMaxBytes.value
+		case "integer":
+		case "decimal":
+		case "double":
+		case "boolean":
+		case "date":
+		case "doubleText":
+			return undefined
+	}
 }
 
 /**
@@ -438,12 +499,27 @@ export const doubleOfText = (text: string): number | undefined =>
 	isDoubleText(text) ? Number(text.replace("INF", "Infinity")) : undefined
 
 /**
+ * The value a decimal text names (decimalTextForm), by xs:decimal's lexical mapping: its digits, signed, over ten to
+ * the count of its fraction digits, exactly, in Decimal's one form; undefined for a text no member of the form, one
+ * past decimalTextMaxBytes among them. A member is ASCII, so its characters are its bytes.
+ */
+export const decimalOfText = (text: string): Decimal | undefined => {
+	const n = numeralOf(text)
+	if (n === undefined || text.length > decimalTextMaxBytes.value) {
+		return undefined
+	}
+	const { units, scale } = unitsOf(n)
+	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, scale)
+	return made.ok ? made.value : undefined
+}
+
+/**
  * The value a text names under a target's lexical form, or undefined when it is no member of the form: the form
  * decided again by a scan of the text, never by its pattern, so the two definitions of each form are held to agree
  * (test/unit/scalar/lexical.test.ts). The value is the one XML Schema's lexical mapping gives the member and
  * PostgreSQL's input function reads from it: an integer exactly; a decimal exactly, which the form leaves unrounded at
  * the typmod; a double rounded once, half to even, from its exact rational value by `round`; a boolean by its literal;
- * a date as its own text; a double's decimal text by doubleOfText.
+ * a date as its own text; a double's decimal text by doubleOfText; a decimal text by decimalOfText.
  */
 export const lexicalValue = (
 	target: LexicalTarget,
@@ -469,6 +545,8 @@ export const lexicalValue = (
 		}
 		case "doubleText":
 			return doubleOfText(text)
+		case "decimalText":
+			return decimalOfText(text)
 	}
 }
 

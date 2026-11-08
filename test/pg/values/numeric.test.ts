@@ -13,7 +13,7 @@ import { assert, contains, defined, succeeded, unorderedEqual } from "#test/supp
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { decimalGen, decimalText, orderOf } from "#test/unit/values/support.ts"
+import { decimalGen, numericText, orderOf } from "#test/unit/values/support.ts"
 
 interface Case {
 	readonly ord: number
@@ -47,7 +47,7 @@ const drawnCase = weighted<Omit<Case, "ord">>([
 	[
 		7,
 		(source) => ({
-			v: source.draw(decimalText),
+			v: source.draw(numericText),
 			p: source.draw(precision),
 			s: source.draw(scale)
 		})

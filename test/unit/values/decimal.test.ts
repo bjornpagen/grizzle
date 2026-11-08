@@ -40,7 +40,7 @@ import {
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { decimalGen, decimalText } from "#test/unit/values/support.ts"
+import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
 /**
@@ -656,7 +656,7 @@ describe("Decimal admission of a JavaScript caller's value", () => {
 					{
 						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-wild",
-						draw: drawn(lsw<string>({ live: decimalText, stale: Option.none(), wild: WILD_KINDS })),
+						draw: drawn(lsw<string>({ live: numericText, stale: Option.none(), wild: WILD_KINDS })),
 						literal: Formatter.format,
 						coverage: required<DrawnFeature<never>>(
 							["live", ...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)],

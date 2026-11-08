@@ -39,7 +39,7 @@ import {
 	nativeOp,
 	type Undefined
 } from "#compiler/scalar/compute/registry.ts"
-import { doubleOfText } from "#compiler/scalar/lexical.ts"
+import { decimalOfText, doubleOfText } from "#compiler/scalar/lexical.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
 import { collapsed } from "#compiler/scalar/regex/whitespace.ts"
@@ -398,9 +398,9 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
  * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, a text's
  * concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
- * as PostgreSQL's translate reads them), a double's parse from its decimal text, span endpoints, LEAST and
- * GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and disjointness,
- * and a set with one more handle, over its handles. Each case checks its operands' host kinds; the IR's typing
+ * as PostgreSQL's translate reads them), a double's parse from its decimal text, a decimal's from its text, span
+ * endpoints, LEAST and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset
+ * and disjointness, and a set with one more handle, over its handles. Each case checks its operands' host kinds; the IR's typing
  * guarantees them, so a mismatch is `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
  */
 const apply = (
@@ -530,6 +530,13 @@ const apply = (
 				return mismatch(op)
 			}
 			const value = doubleOfText(a)
+			return value === undefined ? undefinedAt("lexical") : Result.ok(value)
+		}
+		case "parseDecimal": {
+			if (!isString(a)) {
+				return mismatch(op)
+			}
+			const value = decimalOfText(a)
 			return value === undefined ? undefinedAt("lexical") : Result.ok(value)
 		}
 		case "translate": {
@@ -896,6 +903,7 @@ const nullAware = (
 		case "neg":
 		case "not":
 		case "octetLength":
+		case "parseDecimal":
 		case "parseDouble":
 		case "power":
 		case "quot":

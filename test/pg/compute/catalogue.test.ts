@@ -52,7 +52,7 @@ import {
 	testPg,
 	v
 } from "#test/unit/compute/support.ts"
-import { decimalText } from "#test/unit/values/support.ts"
+import { numericText } from "#test/unit/values/support.ts"
 
 type Gate = "int2" | "int4" | "int8" | "numeric" | "float8" | "float4" | "money"
 
@@ -306,7 +306,7 @@ const operandsGen: Gen<Operands> = (source) => ({
 	int2: source.draw(batchOf(integerGen("int2"), 80)),
 	int4: source.draw(batchOf(integerGen("int4"), 80)),
 	int8: source.draw(batchOf(integerGen("int8"), 80)),
-	numeric: source.draw(batchOf((s) => [s.draw(decimalText), s.draw(paddingGen)] as const, 120)),
+	numeric: source.draw(batchOf((s) => [s.draw(numericText), s.draw(paddingGen)] as const, 120)),
 	numericBoundaryPaddings: source.draw(
 		array(paddingGen, { min: boundaries.numeric.length, max: boundaries.numeric.length })
 	),

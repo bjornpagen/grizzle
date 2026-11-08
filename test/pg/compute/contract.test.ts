@@ -36,7 +36,7 @@ import {
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
-import { decimalText } from "#test/unit/values/support.ts"
+import { numericText } from "#test/unit/values/support.ts"
 
 /**
  * One contract under test: its field, its base, the edge values every case sends, and the generated values a case
@@ -152,7 +152,7 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 		],
 		(t) => Decimal.of(t)
 	)
-	const numerics: Gen<LiteralDesc> = map(decimalText, (t) => Decimal.of(t))
+	const numerics: Gen<LiteralDesc> = map(numericText, (t) => Decimal.of(t))
 	const doubleEdges: ReadonlyArray<LiteralDesc> = [
 		0,
 		0.5,

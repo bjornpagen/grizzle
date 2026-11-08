@@ -529,6 +529,13 @@ The command line's own refusals, by stage:
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to
   a typmod you do not mean.
+- Parse an `xs:decimal` text with `Compute.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
+  widest `pg.numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is
+  `decimalText` within `decimalTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(decimalText))`, or
+  guard it, `Compute.when(Compute.matches(x, decimalText), (x) => Compute.when(Compute.within(Compute.octetLength(x),
+  0, 16384), () => Compute.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
+  `Compute.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
+  a rule over it then passes on a text that does not parse. State what the rule holds of such a text in the rule.
 - Each login is a PostgreSQL role, `roleNameOf(login)`, and each role a PostgreSQL role that cannot log in,
   `roleNameOf(role)`, with its schema of views, `schemaNameOf(role)`; the schema's own is `schemaNameOf(schema)`. Take
   every one from there, never spell or rebuild one: each is the name the installation creates, and each throws

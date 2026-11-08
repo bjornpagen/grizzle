@@ -176,7 +176,9 @@ import {
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import {
+	decimalTextMaxBytes,
 	formIncludes,
+	formOctets,
 	formSource,
 	type LexicalTarget,
 	lexicalTargetOf,
@@ -407,6 +409,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"translate",
 	"collapse",
 	"parseDouble",
+	"parseDecimal",
 	"lower",
 	"upper",
 	"width",
@@ -868,8 +871,9 @@ const languagePremise = (
 /**
  * What proves a parse's operand a member of its lexical form, the target `form` (scalar/lexical.ts parseTargetOf):
  * a text literal by its own value, checked as the host parses it; any other text by its refinement whose language is
- * included in the form (languagePremise, scalar/lexical.ts formIncludes). Undefined where neither proves it: a parse
- * into a type of no form, a text of no refinement, or one whose language holds a value the form does not.
+ * included in the form's pattern (languagePremise, scalar/lexical.ts formIncludes) and whose bytes lie within the
+ * form's byte bound where it has one (formOctets). Undefined where neither proves it: a parse into a type of no form, a
+ * text of no refinement, one whose language holds a value the form's pattern does not, or one of more bytes.
  */
 const lexicalPremise = (
 	a: Lowered,
@@ -885,12 +889,17 @@ const lexicalPremise = (
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
-	return languagePremise(
+	const premise = languagePremise(
 		a,
 		`/${formSource(form)}/u`,
 		(regex) => formIncludes(regex, form, patterns),
 		at
 	)
+	const octets = formOctets(form)
+	return premise === undefined ||
+		(octets !== undefined && (premise.bytes === undefined || premise.bytes > octets))
+		? undefined
+		: premise
 }
 
 /**
@@ -949,10 +958,44 @@ export const withinGuards = (carrier: Carrier): boolean => {
 	}
 }
 
-/** The pattern a parse's guard matches its text against: the target's lexical form, or every double's decimal text. */
-const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" } = {
+/**
+ * The pattern a parse's guard matches its text against: the target's lexical form, every double's decimal text, or
+ * every decimal text.
+ */
+const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" | "decimalText" } = {
 	target: "lexicalForm",
-	doubleText: "doubleText"
+	doubleText: "doubleText",
+	decimalText: "decimalText"
+}
+
+/**
+ * The remedy of a parse whose operand is not proved a member of its form: Compute.matches of the form's pattern
+ * (parseRemedy); and for a form whose byte bound cuts its pattern (formOctets), a bound on the operand's bytes at it
+ * where the operand's language already lies inside the pattern and octetLength stands, as for a cast into str.bytes.
+ */
+const lexicalRemedy = (
+	form: ParseForm,
+	operand: Lowered,
+	target: ScalarType,
+	mode: LowerEnv["mode"],
+	patterns: PatternAutomata
+): GuardTest => {
+	const matches: GuardTest = { kind: "matches", pattern: parseRemedy[form] }
+	const lexical = parseTargetOf(form, target)
+	const octets = lexical === undefined ? undefined : formOctets(lexical)
+	const regex = textOf(operand.nominal)?.regex
+	if (
+		lexical === undefined ||
+		octets === undefined ||
+		mode === "query" ||
+		regex === undefined ||
+		regex === "wildcard"
+	) {
+		return matches
+	}
+	return formIncludes(regex, lexical, patterns).kind === "included"
+		? { kind: "octets", bytes: octets }
+		: matches
 }
 
 /**
@@ -994,7 +1037,7 @@ const guardTest = (
 		case "language":
 			return languageRemedy(operand, target, mode, patterns)
 		case "lexical":
-			return { kind: "matches", pattern: parseRemedy[precondition.form] }
+			return lexicalRemedy(precondition.form, operand, target, mode, patterns)
 	}
 }
 
@@ -1121,6 +1164,14 @@ const guardOf = (
 						remedy,
 						text: `a text whose type proves a double's decimal text, str.regex(doubleText) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
 					}
+				case "decimalText": {
+					const bytes = decimalTextMaxBytes.value
+					const within = `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
+					return {
+						remedy,
+						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText)) or a refinement of it, or, where octetLength stands, Compute.when(Compute.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
+					}
+				}
 			}
 		case "octets":
 			return {
@@ -1173,6 +1224,13 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 				digits: Math.min(bounds.digits, numericMaxIntegerDigits.value),
 				scale: bounds.scale
 			})
+
+/**
+ * The bounds of a decimal text's value where the text has at most `bytes` UTF-8 bytes: at most that many digits before
+ * its point and, the point taking one, one fewer after it, finite and never NaN.
+ */
+const decimalBounds = (bytes: number): Bounds =>
+	ofDigits(bytes, Math.max(bytes - 1, 0), { infinite: false, nan: false })
 
 /**
  * How a cast converts: a registered cast over a caller's term, whose preconditions its facts and bounds prove (prove);
@@ -2419,6 +2477,30 @@ class Lowering<R extends Refs> {
 		)
 	}
 
+	/**
+	 * Compute.parseDecimal(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
+	 * numeric of no typmod. The registry's one overload, text to numeric, admits its operand, and it is defined where x
+	 * is a member of every decimal text within decimalTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
+	 * space within the bytes whose every value numeric holds (the lexical precondition over `decimalText`, proved by
+	 * `prove` from x's language and its byte bound). Its value has at most as many integer digits as x has bytes and one
+	 * fewer fraction digits (decimalBounds), so x's byte bound proves the cast of it into a numeric(p, s) that holds
+	 * them; a literal's, which no type bounds, is numeric's own.
+	 */
+	parseDecimal(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		const op = this.overload("parseDecimal", [x.actual], at)
+		const bytes = textOf(x.nominal)?.byteBound
+		const bounds = bytes === undefined ? undefined : decimalBounds(bytes)
+		return this.native(
+			op,
+			[x],
+			this.resultType(op, bounds),
+			bounds,
+			at,
+			`Compute.parseDecimal(${exprText(x.expr)})`
+		)
+	}
+
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
 	set(
 		fn: string,
@@ -3055,7 +3137,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat.value} digits on either side of its point, double precision's, boolean's and date's`
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat.value} digits on either side of its point, double precision's, boolean's and date's; Compute.parseDecimal(x) reads any decimal text into numeric exactly`
 			)
 		}
 		if (!op.partial) {
@@ -3151,6 +3233,7 @@ class Lowering<R extends Refs> {
 			translate: 3,
 			collapse: 1,
 			parseDouble: 1,
+			parseDecimal: 1,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -3453,6 +3536,8 @@ class Lowering<R extends Refs> {
 				return this.collapse(arg(0), here)
 			case "parseDouble":
 				return this.parseDouble(arg(0), here)
+			case "parseDecimal":
+				return this.parseDecimal(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)
@@ -3497,7 +3582,7 @@ class Lowering<R extends Refs> {
 			? stop(
 					"UnsupportedOperation",
 					at,
-					`Compute.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Compute.cast(x, T) into a type with a lexical form, under Compute.when(Compute.matches(x, lexicalForm(T)), …)`
+					`Compute.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Compute.parseDecimal(x), or by Compute.cast(x, T) into a type with a lexical form, under Compute.when(Compute.matches(x, lexicalForm(T)), …)`
 				)
 			: this.castNode(a, anyNumeric, { kind: "registered", op }, at)
 	}

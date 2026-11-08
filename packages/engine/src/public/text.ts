@@ -13,6 +13,7 @@ export {
 	maxStringLength,
 	messageMaxBytes
 } from "#compiler/core/limits.ts"
+export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 export { type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
@@ -41,6 +42,15 @@ export type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
  * language inside it, parses into a double total.
  */
 export const doubleText: string = formSource({ kind: "doubleText" })
+
+/**
+ * decimalText: the pattern of every decimal text, Compute.parseDecimal's operand, under flags "u":
+ * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits, the grammar of XML Schema 1.1's xs:decimal lexical space. The parse
+ * reads a text of its language within decimalTextMaxBytes UTF-8 bytes, 16,384, every one of which names a value plain
+ * numeric holds: a text of a language inside it whose bytes its type or a guard bounds within them parses into
+ * numeric total, to its exact value.
+ */
+export const decimalText: string = formSource({ kind: "decimalText" })
 
 /**
  * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T): a field of it casts into T total, so

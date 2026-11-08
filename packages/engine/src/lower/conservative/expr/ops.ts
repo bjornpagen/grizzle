@@ -299,6 +299,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return collapseText(args, sql.run)
 		case "parseDouble":
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
+		case "parseDecimal":
+			return args.length === 1 && first !== undefined ? cast(first, types.numeric) : undefined
 	}
 }
 

@@ -10,7 +10,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, datePartSlices, toCalendarDate } from "#compiler/ir/date.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
-import { formSource, type LexicalTarget, lexicalValue } from "#compiler/scalar/lexical.ts"
+import {
+	formOctets,
+	formSource,
+	type LexicalTarget,
+	lexicalValue
+} from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertDouble } from "#compiler/scalar/values/float.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -34,12 +39,14 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * whether the text is a member of its target's lexical form and on the value it names.
  *
  * - **Membership:** PostgreSQL's verdict on the form's ARE, the translation the text analysis gives str.regex domains
- *   and Compute.matches (text/refinement.ts), equals the host scan's (scalar/lexical.ts lexicalValue), which the unit
- *   suite holds to the form's pattern and to the specification.
+ *   and Compute.matches (text/refinement.ts), and on its octet_length within the form's byte bound where it has one,
+ *   equals the host scan's (scalar/lexical.ts lexicalValue), which the unit suite holds to the form's pattern and to
+ *   the specification.
  * - **Value:** where PostgreSQL finds a member, the parse grizzle prints (the cast `t::T`, numeric's typmod included,
- *   and for a date make_date over the text's parts, sql/lexical.ts) reads to the host's value: an integer, a decimal by
- *   equality, a double exactly (PostgreSQL's float8in against the host's rational rounding, half to even), a boolean,
- *   and a date by its day number after 0001-01-01, so no DateStyle enters the comparison.
+ *   plain numeric for a decimal text, and for a date make_date over the text's parts, sql/lexical.ts) reads to the
+ *   host's value: an integer, a decimal by equality, a double exactly (PostgreSQL's float8in against the host's
+ *   rational rounding, half to even), a boolean, and a date by its day number after 0001-01-01, so no DateStyle enters
+ *   the comparison.
  * - **No DateStyle:** the session runs under DateStyle `SQL, DMY`, so a parse that read the session's date order
  *   (date_in, text::date) would read 2024-03-04 as another day; make_date reads none.
  * - **No raise:** every member parses without an error, which a raise would make the batch's statement fail; the
@@ -67,6 +74,8 @@ const targetType = (
 			return types.double
 		case "boolean":
 			return types.boolean
+		case "decimalText":
+			return types.numeric
 	}
 }
 
@@ -88,6 +97,7 @@ const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
 		case "decimal":
 		case "double":
 		case "boolean":
+		case "decimalText":
 			return cast(t, targetType(target))
 	}
 }
@@ -105,6 +115,7 @@ const agrees = (target: LexicalTarget, text: string, value: unknown): boolean =>
 		case "integer":
 			return typeof value === "bigint" && BigInt(text) === value
 		case "decimal":
+		case "decimalText":
 			return value instanceof Decimal && Decimal.fromOutput(text).equals(value)
 		case "double":
 		case "doubleText":
@@ -116,6 +127,13 @@ const agrees = (target: LexicalTarget, text: string, value: unknown): boolean =>
 				typeof value === "string" && Number(text) === dayNumber(succeeded(toCalendarDate(value)))
 			)
 	}
+}
+
+/** PostgreSQL's membership of `t` in a target's form: a match of its ARE, `$2`, within its byte bound, if any. */
+const memberSql = (target: LexicalTarget): string => {
+	const match = "u.t COLLATE pg_catalog.pg_c_utf8 ~ $2::text"
+	const octets = formOctets(target)
+	return octets === undefined ? match : `(${match} AND pg_catalog.octet_length(u.t) <= ${octets})`
 }
 
 /** A target's key, which groups a batch's candidates into one statement per target. */
@@ -154,8 +172,8 @@ layer(Substrate.layer)("lexical parse: the host and PostgreSQL 19 agree", (it) =
 								for (const group of Rec.values(groups)) {
 									const target = defined(group[0], "a group's first candidate").target
 									const rows = yield* db.values(
-										`SELECT (u.t COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text,
-										        CASE WHEN u.t COLLATE pg_catalog.pg_c_utf8 ~ $2::text THEN ${parseSql(target)} END
+										`SELECT (${memberSql(target)})::text,
+										        CASE WHEN ${memberSql(target)} THEN ${parseSql(target)} END
 										 FROM unnest($1::text[]) WITH ORDINALITY AS u(t, i) ORDER BY u.i`,
 										[Arr.map(group, (x: Candidate) => x.text), areOf(target)]
 									)

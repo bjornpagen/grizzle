@@ -1,6 +1,7 @@
 import { Array as Arr, Option, Result } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type ColumnRef,
 	describeOp,
@@ -31,12 +32,14 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
+import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 import * as F from "#test/support/oracle/evaluate/float.ts"
 import {
@@ -125,6 +128,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "translate":
 		case "collapse":
 		case "parseDouble":
+		case "parseDecimal":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -664,6 +668,17 @@ const catalogApply = (
 			}
 			const value = referenceDouble(a)
 			return value === undefined ? undefinedAt("lexical") : Result.succeed(value)
+		}
+		case "parseDecimal": {
+			if (!isString(a)) {
+				return mismatch(op)
+			}
+			const read = referenceDecimal(a)
+			const value =
+				read === undefined || utf8Length(a) > decimalTextMaxBytes.value
+					? undefined
+					: Decimal.fromParts(read.negative, read.digits, Number(read.scale))
+			return value?.ok === true ? Result.succeed(value.value) : undefinedAt("lexical")
 		}
 		case "union":
 		case "intersection":

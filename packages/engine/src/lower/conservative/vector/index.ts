@@ -155,6 +155,7 @@ export const lowerVectorOp = (
 		case "endsWith":
 		case "collapse":
 		case "parseDouble":
+		case "parseDecimal":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)
 	}
 }

@@ -201,10 +201,9 @@ export type PreconditionKind =
 /**
  * The test a PartialOperation's guard puts in Compute.when over its operand, which fits the operand's type: over a
  * number, Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite, or Compute.within between the bounds
- * the operation is defined within; over a text, Compute.matches against the target's pattern, its lexical form or
- * the decimal text of a double (doubleText), or a
- * bound on its UTF-8 bytes at the target's str.bytes bound, Compute.within(Compute.octetLength(x), 0, bytes), where
- * octetLength stands;
+ * the operation is defined within; over a text, Compute.matches against the target's pattern, its lexical form, the
+ * decimal text of a double (doubleText) or a decimal text (decimalText), or a bound on its UTF-8 bytes at the target's
+ * str.bytes bound or a form's, Compute.within(Compute.octetLength(x), 0, bytes), where octetLength stands;
  * and, where no Compute test proves the precondition of the operand's type (a contract's predicate over a text, a
  * boolean, a uuid or a date), none: a value of the target's own type, a parameter its binding checks or a literal its
  * admission judges.
@@ -218,7 +217,10 @@ export type GuardTest =
 	| { readonly kind: "positive" }
 	| { readonly kind: "isFinite" }
 	| { readonly kind: "within" }
-	| { readonly kind: "matches"; readonly pattern: "target" | "lexicalForm" | "doubleText" }
+	| {
+			readonly kind: "matches"
+			readonly pattern: "target" | "lexicalForm" | "doubleText" | "decimalText"
+	  }
 	| { readonly kind: "octets"; readonly bytes: number }
 	| { readonly kind: "typed" }
 	| { readonly kind: "proves"; readonly contract: string }

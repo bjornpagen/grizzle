@@ -1102,6 +1102,7 @@ const checks = Object.freeze({
 	replaceWhitespace,
 	collapse: unary("collapse"),
 	parseDouble: unary("parseDouble"),
+	parseDecimal: unary("parseDecimal"),
 	cosineDistance: binary("cosineDistance", "literal"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
@@ -1249,6 +1250,7 @@ export const compute = Object.freeze({
 	replaceWhitespace: (x: unknown) => plain(checks.replaceWhitespace(x, []), "text"),
 	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
+	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
@@ -1384,6 +1386,8 @@ export const computeCore = Object.freeze({
 	collapse: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.collapse(x, extra)),
 	parseDouble: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.parseDouble(x, extra)),
+	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.parseDecimal(x, extra)),
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {

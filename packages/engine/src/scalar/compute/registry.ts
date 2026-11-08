@@ -104,7 +104,8 @@ type Owner = "catalog" | "vector"
  * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a set with one more handle is set_bit at a closed id's
  * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
  * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with; a double's parse is a reading of its text's digits
- * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts).
+ * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
+ * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes.
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -126,6 +127,7 @@ type SqlForm =
 				| "adjoin"
 				| "endsWith"
 				| "parseDouble"
+				| "parseDecimal"
 	  }
 	| {
 			/** whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space. */
@@ -209,6 +211,7 @@ export type NativeFn =
 	| "regexpReplace"
 	| "btrim"
 	| "parseDouble"
+	| "parseDecimal"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -274,6 +277,7 @@ export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<Na
 		translate: ["translate"],
 		collapse: ["collapse"],
 		parseDouble: ["parseDouble"],
+		parseDecimal: ["parseDecimal"],
 		cosineDistance: ["cosineDistance"],
 		union: ["union"],
 		intersection: ["intersection"],
@@ -747,6 +751,25 @@ const textParseDouble: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * A decimal's parse from its text (scalar/lexical.ts decimalOfText), xs:decimal's lexical mapping into numeric of no
+ * typmod, exactly, defined where the text is one within decimalTextMaxBytes ("lexical" over `decimalText`), which the
+ * lowering proves by language inclusion and the operand's byte bound: `x::numeric`, numeric_in over textout's text, an
+ * I/O conversion (CoerceViaIO) as Compute.cast's parse is, IMMUTABLE, so it is one value wherever it stands, a
+ * generated column among them. Every member names a value numeric holds, its digits past the point at most
+ * NUMERIC_DSCALE_MAX, so numeric_in neither rounds nor raises.
+ */
+const textParseDecimal: FixedOverload = frozen({
+	fn: "parseDecimal",
+	operands: positional(["text"]),
+	result: "numeric",
+	sql: { kind: "parseDecimal" },
+	catalog: { kind: "input", target: catalogTypeName.numeric },
+	volatility: "immutable",
+	totality: requires([lexical("decimalText")]),
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -855,6 +878,8 @@ const endpoint = (
  *   bytes within translateMaxBytes, and a check or generated column holding it fails a write whose operand is longer;
  * - a double's parse from its decimal text, `lexical` over every double's text, everywhere: no function it reads
  *   allocates past its operand's own size;
+ * - a decimal's parse from its text, `lexical` over every decimal text within decimalTextMaxBytes, everywhere: numeric_in
+ *   reads a member of at most that many bytes into a value numeric holds;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -1007,6 +1032,7 @@ const catalogOverloads = {
 	"btrim(text)": fnCall("btrim", "btrim", ["text"], "text", total, "value"),
 	"collapse:text": textCollapse,
 	"parseDouble:text": textParseDouble,
+	"parseDecimal:text": textParseDecimal,
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",

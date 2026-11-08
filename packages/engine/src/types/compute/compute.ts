@@ -1110,6 +1110,21 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<number, PA, ComputedOrigin<OA>, "double precision">>
 	/**
+	 * The numeric a decimal text names, exactly, by XML Schema's xs:decimal lexical mapping: its digits, signed, over ten
+	 * to the count of its fraction digits, a computed numeric of no typmod, so no count of digits changes its value. Its
+	 * text is `decimalText`, the grammar of XML Schema 1.1's xs:decimal lexical space, within `decimalTextMaxBytes`
+	 * UTF-8 bytes, 16,384, past which a text may name a value numeric does not hold: compilation proves the operand's
+	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(decimalText))` or a
+	 * refinement of it) or by guards, `Compute.when(Compute.matches(x, decimalText), (x) =>
+	 * Compute.when(Compute.within(Compute.octetLength(x), 0, 16384), () => Compute.parseDecimal(x), otherwise),
+	 * otherwise)`, or refuses the parse as PartialOperation (`lexical`). Its result has at most as many integer digits
+	 * as the operand has bytes, and one fewer fraction digits. Admitted in contract predicates, row checks, generated
+	 * fields and queries.
+	 */
+	parseDecimal<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
 	 * which the grammar check reads at the type level as str.regex's does, or a text term that meets the subject's type,

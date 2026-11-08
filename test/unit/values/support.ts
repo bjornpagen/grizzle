@@ -44,7 +44,7 @@ const exponent: Gen<number | undefined> = weighted([
  * An exact decimal literal: sign, integer digits, fraction digits, and sometimes an exponent. A literal with no integer
  * digit has fraction digits, so every drawn text is one.
  */
-export const decimalText: Gen<string> = (source) => {
+export const numericText: Gen<string> = (source) => {
 	const sign = source.draw(element(["", "", "-", "+"]))
 	const whole = source.draw(digits(24))
 	const frac =
@@ -55,7 +55,7 @@ export const decimalText: Gen<string> = (source) => {
 	return `${sign}${whole}${frac === undefined ? "" : `.${frac}`}${exp === undefined ? "" : `e${exp}`}`
 }
 
-const finiteDecimal: Gen<Decimal> = map(decimalText, (text) => succeeded(Decimal.fromString(text)))
+const finiteDecimal: Gen<Decimal> = map(numericText, (text) => succeeded(Decimal.fromString(text)))
 
 /**
  * Shared helpers and generators for the value-carrier tests (test/unit/values and test/pg/values).
