@@ -1,4 +1,5 @@
 import type { Case } from "@grizzle/testing/explore"
+import type { Reached } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
 import { agree } from "@grizzle/testing/oracle"
 import {
@@ -94,16 +95,33 @@ export type Moving =
 	| "statement selection of a referring fact"
 
 /**
- * A transaction's UPDATE of a stored fact, in one of five modes, named: which relation and which of its facts as the
- * transaction stands there, which non-empty set of its fields it sets (a pick over the sets) and the picks their
- * values come from; the same, with the fields one of the relation's references runs through linked to a fact it refers
- * to (which reference, which fact); which of the facts some fact refers to moves to the key its picks draw; the same,
- * with the facts that refer to it moved after it to its new key, so a rekey of a referred fact commits as often as it
- * is refused; or which fact a referring side's selector does not pick moves into it, with the facts that referred to
- * it under the selection it leaves deleted before it and the facts it then needs inserted after it (drawn by its
- * picks), so a selection commits as often as it is refused. `at` places it among the transaction's member statements.
+ * A transaction's UPDATE of a stored fact, in one of seven modes, named. Each mode that moves a fact has a twin, one
+ * aimed at a commit and one at a refusal at COMMIT, since the suite requires both endings of each move, and draws only
+ * among the moves its aim allows: of a fact of a relation that may be updated, to a key no other fact holds.
+ *
+ * - fields: which relation and which of its facts as the transaction stands there, which non-empty set of its fields it
+ *   sets (a pick over the sets) and the picks their values come from;
+ * - linked: the same, of a relation that refers, with the fields one of its references runs through set to a fact it
+ *   refers to, and its selector's values (which reference, which fact);
+ * - dangling: the same, with those fields set to values no fact it may refer to holds (which reference, which values);
+ * - carried: which of the facts something refers to by their key moves to which key no fact of its relation holds
+ *   (its target), with what refers to it moved after it, and what refers to that in turn, each to a key no fact holds;
+ * - referred: the same rekey, alone, so what refers to it is left without it;
+ * - selected: which fact a referring side's selector does not pick moves into it, with the facts that referred to it
+ *   under the selection it leaves deleted before it and the facts it then needs inserted after it (drawn by its picks);
+ * - entered: the same move into the selection, alone.
+ *
+ * `at` places it among the transaction's member statements.
  */
-const updateModes = ["fields", "linked", "referred", "carried", "selected"] as const
+const updateModes = [
+	"fields",
+	"linked",
+	"dangling",
+	"carried",
+	"referred",
+	"selected",
+	"entered"
+] as const
 type UpdateMode = (typeof updateModes)[number]
 interface UpdateSketch {
 	readonly mode: UpdateMode
@@ -131,16 +149,21 @@ export interface DirectCase {
 	readonly transactions: ReadonlyArray<TransactionSketch>
 }
 
-const updateSketchGen: Gen<UpdateSketch> = (source) => ({
-	mode: source.draw(element(updateModes)),
-	relation: source.draw(pickGen),
-	index: source.draw(pickGen),
-	fields: source.draw(pickGen),
-	values: source.draw(array(pickGen, { min: 6, max: 6 })),
-	link: source.draw(pickGen),
-	target: source.draw(pickGen),
-	at: source.draw(pickGen)
-})
+/** An UPDATE sketch whose mode `mode` draws. */
+const updateSketchOf =
+	(mode: Gen<UpdateMode>): Gen<UpdateSketch> =>
+	(source) => ({
+		mode: source.draw(mode),
+		relation: source.draw(pickGen),
+		index: source.draw(pickGen),
+		fields: source.draw(pickGen),
+		values: source.draw(array(pickGen, { min: 6, max: 6 })),
+		link: source.draw(pickGen),
+		target: source.draw(pickGen),
+		at: source.draw(pickGen)
+	})
+
+const updateSketchGen = updateSketchOf(element(updateModes))
 
 /**
  * A planted UPDATE, placed before the transaction's members: the first stored fact of `relation`, as the transaction
@@ -205,6 +228,41 @@ export const directCaseGen =
 		}
 	}
 
+/**
+ * The ending of each move a direct suite requires, with the twin mode aimed at it. A drawn case meets that mode where
+ * its state holds a fact for the mode to move only now and then, so a witness plants it while the ending is pending
+ * (aimedCase).
+ */
+const aims: ReadonlyArray<readonly [Reached<DirectFeature>, UpdateMode]> = [
+	[["statement update key", "committed"], "carried"],
+	[["statement rekey of a referred fact", "refused at COMMIT"], "referred"],
+	[["statement move of a referring fact", "committed"], "carried"],
+	[["statement move of a referring fact", "refused at COMMIT"], "dangling"],
+	[["statement selection of a referring fact", "committed"], "selected"],
+	[["statement selection of a referring fact", "refused at COMMIT"], "entered"]
+]
+
+/**
+ * The case a witness runs: its drawn one, or, while the ending of a move `aims` names is pending, the drawn one with
+ * one more transaction, an UPDATE of the mode aimed at it alone, drawn from the case's tape.
+ */
+export const aimedCase = (k: DirectCase, c: Case<DirectFeature>): DirectCase => {
+	const pending = Option.getOrUndefined(c.steering)
+	return Option.match(
+		Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true),
+		{
+			onNone: () => k,
+			onSome: ([, mode]) => ({
+				...k,
+				transactions: [
+					...k.transactions,
+					{ members: none, updates: [c.draw(updateSketchOf(constant(mode)))] }
+				]
+			})
+		}
+	)
+}
+
 /** A direct writer's statement, resolved against the state the transaction has reached. */
 type Statement =
 	| { readonly kind: "insert"; readonly relation: string; readonly fact: HostFact }
@@ -216,6 +274,15 @@ type Statement =
 			readonly to: HostFact
 			readonly set: ReadonlyArray<string>
 	  }
+
+/** An UPDATE among a writer's statements. */
+type UpdateStatement = Extract<Statement, { readonly kind: "update" }>
+
+/** A rekey of a referred fact, and the UPDATEs that carry what refers to it after it. */
+interface Rekey {
+	readonly rekey: UpdateStatement
+	readonly carried: ReadonlyArray<UpdateStatement>
+}
 
 /** The element a pick selects from a list, or none from an empty one. */
 const pickIn = <A>(list: ReadonlyArray<A>, pick: number): Option.Option<A> => {
@@ -375,10 +442,10 @@ const carriedReferrers = (
 	relation: string,
 	fact: HostFact,
 	to: HostFact
-): ReadonlyArray<Statement> => {
+): ReadonlyArray<UpdateStatement> => {
 	const key = relationOf(host, relation).key
 	return Arr.flatMap(host.relations, (source) =>
-		Arr.flatMap(factsOf(state, source.name), (referrer): ReadonlyArray<Statement> => {
+		Arr.flatMap(factsOf(state, source.name), (referrer): ReadonlyArray<UpdateStatement> => {
 			const refs = Arr.filter(
 				referencesOf(host, source.name),
 				(ref) =>
@@ -412,6 +479,40 @@ const carriedReferrers = (
 			]
 		})
 	)
+}
+
+/**
+ * The UPDATEs that carry what refers to `fact` of `relation` to `to`, its new key, and what refers to each carried fact
+ * whose key moves with it in turn, each fact carried once, in the order a breadth-first walk from `fact` meets them: a
+ * group closed under reference, so a rekey in a cycle of references moves the whole cycle.
+ */
+const carriedGroup = (
+	host: HostSchema,
+	state: HostState,
+	relation: string,
+	fact: HostFact,
+	to: HostFact
+): ReadonlyArray<UpdateStatement> => {
+	const identityOf = (r: string, f: HostFact) =>
+		`${r}\u0000${projection(f, relationOf(host, r).key)}`
+	const carried = new Set([identityOf(relation, fact)])
+	const out: Array<UpdateStatement> = []
+	const pending: Array<Pick<UpdateStatement, "relation" | "from" | "to">> = [
+		{ relation, from: fact, to }
+	]
+	for (let moved = pending.shift(); moved !== undefined; moved = pending.shift()) {
+		for (const st of carriedReferrers(host, state, moved.relation, moved.from, moved.to)) {
+			if (carried.has(identityOf(st.relation, st.from))) {
+				continue
+			}
+			carried.add(identityOf(st.relation, st.from))
+			out.push(st)
+			if (rekeys(host, st)) {
+				pending.push(st)
+			}
+		}
+	}
+	return out
 }
 
 /**
@@ -462,10 +563,78 @@ const drawnOver = (
 	return to
 }
 
+/** Every assignment of `fields` its relation's domains draw, the last field's values varying fastest. */
+const tuplesOf = (
+	domains: Domains,
+	relation: string,
+	fields: ReadonlyArray<string>
+): ReadonlyArray<HostFact> => {
+	const unit: ReadonlyArray<HostFact> = [{}]
+	return Arr.reduce(fields, unit, (tuples, field) =>
+		Arr.flatMap(tuples, (tuple) =>
+			Arr.map(
+				defined(domains[relation]?.[field], `the domain of ${relation}.${field}`),
+				(x): HostFact => ({ ...tuple, [field]: x })
+			)
+		)
+	)
+}
+
+/**
+ * Whether an UPDATE moves its fact as `state` lets it: its relation is mutable, and no other fact of it holds the key
+ * it moves its fact to.
+ */
+const movesFreely = (host: HostSchema, state: HostState, st: UpdateStatement): boolean => {
+	const relation = relationOf(host, st.relation)
+	const own = projection(st.from, relation.key)
+	const at = projection(st.to, relation.key)
+	return (
+		relation.mutable &&
+		Arr.every(factsOf(state, st.relation), (f) => {
+			const held = projection(f, relation.key)
+			return held !== at || held === own
+		})
+	)
+}
+
+/**
+ * The values an UPDATE writes to make a fact of `ref`'s referring side refer through it: the side's selector values,
+ * and at the fields it refers through either the values a fact of the side it refers to holds there, as the transaction
+ * stands there (linked), or values its domains draw that no such fact holds (dangling); none when there are none.
+ */
+const pointing = (
+	domains: Domains,
+	state: HostState,
+	ref: { readonly from: HostSide; readonly to: HostSide },
+	mode: "linked" | "dangling",
+	pick: number
+): Option.Option<HostFact> => {
+	const referred = Arr.filter(factsOf(state, ref.to.relation), (f) => selected(f, ref.to.selection))
+	const at: ReadonlyArray<HostFact> =
+		mode === "linked"
+			? Arr.map(referred, (target) =>
+					Rec.fromEntries(
+						Arr.map(ref.from.fields, (field, i) => {
+							const toField = defined(ref.to.fields[i], `the field ${field} pairs with`)
+							return [field, defined(target[toField], `${ref.to.relation}'s ${toField}`)] as const
+						})
+					)
+				)
+			: Arr.filter(
+					tuplesOf(domains, ref.from.relation, ref.from.fields),
+					(values) =>
+						!Arr.some(
+							referred,
+							(f) => projection(f, ref.to.fields) === projection(values, ref.from.fields)
+						)
+				)
+	return Option.map(pickIn(at, pick), (values) => ({ ...pinned(ref.from.selection), ...values }))
+}
+
 /**
  * An UPDATE sketch resolved against `state`: its UPDATE, with the UPDATEs of the facts a carried rekey moves, or the
  * DELETEs of the facts a selected fact leaves stranded and the INSERTs of what it then needs, or nothing when there is
- * no fact for it to update.
+ * no fact for it to update or no key for a rekey to move it to.
  */
 const resolveUpdate = (
 	host: HostSchema,
@@ -475,22 +644,41 @@ const resolveUpdate = (
 ): ReadonlyArray<Statement> => {
 	const mode = u.mode
 	if (mode === "referred" || mode === "carried") {
-		return Option.match(pickIn(referredFacts(host, state), u.index), {
+		/**
+		 * Each referred fact's rekeys to a key no fact of its relation holds that move what refers to it, each with the
+		 * UPDATEs that carry what refers to it, every one of which moves freely.
+		 */
+		const movable = Arr.flatMap(referredFacts(host, state), ({ relation, fact }) => {
+			const key = relationOf(host, relation).key
+			const [first, ...rest] = Arr.flatMap(
+				Arr.filter(
+					tuplesOf(domains, relation, key),
+					(destination) => projection(destination, key) !== projection(fact, key)
+				),
+				(destination: HostFact): ReadonlyArray<Rekey> => {
+					const to = { ...fact, ...destination }
+					const rekey: UpdateStatement = { kind: "update", relation, from: fact, to, set: key }
+					const carried = carriedGroup(host, state, relation, fact, to)
+					return Arr.isReadonlyArrayNonEmpty(carried) &&
+						Arr.every([rekey, ...carried], (st) => movesFreely(host, state, st))
+						? [{ rekey, carried }]
+						: []
+				}
+			)
+			return first === undefined ? [] : [[first, ...rest] as const]
+		})
+		return Option.match(pickIn(movable, u.index), {
 			onNone: (): ReadonlyArray<Statement> => [],
-			onSome: ({ relation, fact }) => {
-				const key = relationOf(host, relation).key
-				const to = drawnOver(domains, relation, fact, key, u.values)
-				const rekey: Statement = { kind: "update", relation, from: fact, to, set: key }
-				return mode === "carried"
-					? [rekey, ...carriedReferrers(host, state, relation, fact, to)]
-					: [rekey]
+			onSome: (destinations) => {
+				const { rekey, carried } = pickFrom(destinations, u.target)
+				return mode === "carried" ? [rekey, ...carried] : [rekey]
 			}
 		})
 	}
-	if (mode === "selected") {
+	if (mode === "entered" || mode === "selected") {
 		const references = Arr.flatMap(host.laws, needs)
 		const unselected = Arr.flatMap(references, (ref) =>
-			ref.from.selection.kind === "every"
+			ref.from.selection.kind === "every" || !relationOf(host, ref.from.relation).mutable
 				? []
 				: Arr.map(
 						Arr.filter(
@@ -510,6 +698,9 @@ const resolveUpdate = (
 					from: fact,
 					to,
 					set: Rec.keys(pinned(ref.from.selection))
+				}
+				if (mode === "entered") {
+					return [update]
 				}
 				const stranded = strandedReferrers(host, state, ref.from.relation, fact, to)
 				const [, ...supports] = withSupports(
@@ -535,42 +726,34 @@ const resolveUpdate = (
 			}
 		})
 	}
+	/** A linked or dangling update moves a fact of a relation that refers and may be updated, a fields update any fact. */
+	const relations =
+		mode === "fields"
+			? host.relations
+			: Arr.filter(
+					host.relations,
+					(r) => r.mutable && Arr.isReadonlyArrayNonEmpty(referencesOf(host, r.name))
+				)
 	return Option.toArray(
-		Option.flatMap(pickIn(host.relations, u.relation), (relation) =>
+		Option.flatMap(pickIn(relations, u.relation), (relation) =>
 			Option.map(pickIn(factsOf(state, relation.name), u.index), (from): Statement => {
 				const fields = Arr.map(relation.fields, (f) => f.name)
 				/** A non-empty set of the fields, by the bits of a pick in [1, 2^n). */
 				const mask = 1 + pickIndex(u.fields, 2 ** fields.length - 1)
 				const drawn = Arr.flatMap(fields, (field, i) => (((mask >> i) & 1) === 1 ? [field] : []))
 				const to = drawnOver(domains, relation.name, from, drawn, u.values)
-				/** A linked update also writes the fields that make it refer to a picked target fact. */
+				/** A linked or dangling update also writes the fields that make it refer through a picked reference. */
 				const links =
-					mode === "linked"
-						? Arr.flatMap(
+					mode === "fields"
+						? []
+						: Arr.flatMap(
 								Option.toArray(pickIn(referencesOf(host, relation.name), u.link)),
 								(ref) =>
 									Arr.flatMap(
-										Option.toArray(
-											pickIn(
-												Arr.filter(factsOf(state, ref.to.relation), (f) =>
-													selected(f, ref.to.selection)
-												),
-												u.target
-											)
-										),
-										(target): ReadonlyArray<readonly [string, HostValue]> => [
-											...Rec.toEntries(pinned(ref.from.selection)),
-											...Arr.map(ref.from.fields, (field, i) => {
-												const toField = defined(ref.to.fields[i], `the field ${field} pairs with`)
-												return [
-													field,
-													defined(target[toField], `${ref.to.relation}'s ${toField}`)
-												] as const
-											})
-										]
+										Option.toArray(pointing(domains, state, ref, mode, u.target)),
+										(values) => Rec.toEntries(values)
 									)
 							)
-						: []
 				const linked: Array<string> = []
 				for (const [field, x] of links) {
 					to[field] = x
@@ -867,7 +1050,7 @@ const statementFeatures = (
 const updateFeatures = (
 	host: HostSchema,
 	state: HostState,
-	st: Extract<Statement, { readonly kind: "update" }>
+	st: UpdateStatement
 ): ReadonlyArray<DirectFeature> => {
 	const refs = referencesOf(host, st.relation)
 	const moves = Arr.some(

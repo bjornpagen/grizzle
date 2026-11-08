@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { type Family, type Mode, populationsOf } from "#test/support/laws/boxes.ts"
 import {
+	aimedCase,
 	type DirectCase,
 	type DirectFeature,
 	directCaseGen,
@@ -46,9 +47,10 @@ export type Planted = Readonly<Record<Mode, ReadonlyArray<Kept<DirectCase, Direc
  * a transaction refused at COMMIT; and one that moves a fact's references, and one that moves a fact into a referring
  * side's selection, each in a transaction that commits and in one refused at COMMIT), a refusal at a statement by a
  * key, a refusal at COMMIT by a foreign key when the family's schemas install one (every deferred law is one: fin.md
- * §7), and commits; the immutable population, an UPDATE refused by privilege; and every schema, a commit. What a
- * family's population reaches too rarely is planted as kept cases, replayed before the streams (Planted). Shrinking and
- * the time bound are the family suite's.
+ * §7), and commits; the immutable population, an UPDATE refused by privilege; and every schema, a commit. A witness
+ * aims each ending of a move still pending with an UPDATE of the mode aimed at it alone (direct.ts aimedCase), since a
+ * move needs a fact in the state to move. Kept cases are replayed before the streams (Planted). Shrinking and the time
+ * bound are the family suite's.
  */
 export const directSuite = <P>(family: Family<P>, cases: number, planted: Planted): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
@@ -118,7 +120,15 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 								const direct = installed.world(
 									familyWriters(family.schema(p)(installed.declared)).direct
 								)
-								yield* runDirect(installed, direct, family.host(p), family.domains, k, c, ended)
+								yield* runDirect(
+									installed,
+									direct,
+									family.host(p),
+									family.domains,
+									aimedCase(k, c),
+									c,
+									ended
+								)
 							})
 					)
 				})
