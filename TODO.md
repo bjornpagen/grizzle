@@ -17,8 +17,6 @@ with the next release.
 - **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
   where the nested path says factShape; the re-insert witness residual (a stored owner re-inserted beside a refused new
   owner).
-- **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
-  illegal state the types still represent (found by FULLROLE).
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
   copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
   - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two
@@ -44,8 +42,6 @@ with the next release.
   the cap of 4,096 (core/limits.ts), and chaining two withPattern steps reaches about 35,800 product positions. The
   reviewer checks the value in its importer instead. Wanted: a cap set from a measured cost, or a pattern composition
   that doesn't multiply positions.
-- **role's write list naming a relation twice** (`{ write: ["A", "A"] }`) is admitted by the types and refused by the
-  engine as writeTwice (found by FULLROLE).
 - **Failing at HEAD on 2026-11-07, none on a qti-pie path:**
   - test/types/schema/agreement.test.ts: about 15 cases where the types miss the "the sides' field types differ"
     refusal, and derivedMirrors is never reached;

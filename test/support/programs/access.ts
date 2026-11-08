@@ -9,9 +9,11 @@ export {
 	ChangeSet,
 	Db,
 	DbLayer,
+	lawsOf,
 	login,
 	query,
 	role,
+	schema,
 	v,
 	wholeEntriesOf,
 	writableNamesOf

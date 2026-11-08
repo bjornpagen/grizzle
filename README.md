@@ -1956,7 +1956,9 @@ Three declarations, all in the [example](#example):
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
 - **`role(schema, name, entries, { write?, refresh? })`**: what one kind of user sees. An entry is a table of the
-  schema, whole, or a query over it. `write` lists the entries it writes, `refresh` the derived tables it refreshes.
+  schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is a type
+  error), `refresh` the derived tables it refreshes. A role is no schema: `role`, `login`, `schema.extend`,
+  `wholeEntriesOf`, `writableNamesOf` and `lawsOf` take a schema, and a role passed to one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
   owning their workloads, each over the schema, a schema it extends, or one of the login's roles. Every role is in
   exactly one login, under a name other than the login's, and is reached through it by name, `Web.roles.member`. Two

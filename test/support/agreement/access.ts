@@ -1,5 +1,5 @@
 import { floorPopulation, type Situations } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Result as EffectResult, Record as Rec } from "effect"
@@ -8,8 +8,10 @@ import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { lawsOf } from "#compiler/program/laws.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import {
 	login,
@@ -72,10 +74,13 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query entry
  *   refuses it (OutsideRole);
  * - a full role over the level, its entries wholeEntriesOf(level) and its write list none, writableNamesOf(level),
- *   those and a name role refuses to write, or a drawn list, and a drawn refresh list, typechecks exactly when
- *   role(...) builds it, and then its relations' names and its write list are exactly those of the engine's
- *   Description of it, and a program over the base reading the closed relation runs on it exactly when the engine
- *   compiles it there.
+ *   those and a name role refuses to write, or a drawn list that may name one twice, and a drawn refresh list,
+ *   typechecks exactly when role(...) builds it, refused for naming one twice exactly when the engine admits each name
+ *   of the list alone and refuses the list, and then its relations' names and its write list are exactly those of the
+ *   engine's Description of it, and a program over the base reading the closed relation runs on it exactly when the
+ *   engine compiles it there;
+ * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, writableNamesOf, lawsOf), given the
+ *   level or the case's first role value, typechecks exactly when the engine admits its base: a role is no schema.
  *
  * The places a Task entry reads a context are every place a definition can: a match of Org or of Session, Org under
  * a negation, in an interior stage and through an imported query, or none. Each refusal stands under
@@ -162,14 +167,19 @@ type LevelName = (typeof levelNames)[number]
 
 /**
  * The names role refuses in a full role's write list, the stray after writableNamesOf: the roster, the closed relation,
- * and each derived relation. A second copy of a name the list holds is no stray: the types never see a list's repeats.
+ * and each derived relation. A second copy of a name writableNamesOf holds is no stray: that list's length is unknown
+ * to the types, so they see no repeat in it; the listed kind draws the repeats a list's type shows.
  */
 const strayNames = ["Tier", "TierInfo", ...derivedNames] as const
 type StrayName = (typeof strayNames)[number]
 
+/** The names writableNamesOf gives over either level: its ordinary relations, which a full role writes whole. */
+const writableNames = ["Account", "Task"] as const
+
 /**
  * A full role's write list, as the program spells it: left out, every relation it may write (writableNamesOf), those
- * and a stray, or a drawn list of the level's names in order.
+ * and a stray, or a drawn list of the names it may write, perhaps one of them twice, and perhaps one more of the
+ * level's names.
  */
 type FullWrite =
 	| { readonly kind: "omitted" }
@@ -182,6 +192,21 @@ interface FullSpec {
 	readonly write: FullWrite
 	readonly refresh: ReadonlyArray<LevelName>
 }
+
+/** The builders that take a schema, each of which a case gives a base of its own. */
+const schemaTakers = [
+	"role",
+	"login",
+	"schema.extend",
+	"wholeEntriesOf",
+	"writableNamesOf",
+	"lawsOf"
+] as const
+type SchemaTaker = (typeof schemaTakers)[number]
+
+/** What a schema-taking builder is given: the case's level, or its first role's value, which is no schema. */
+const baseKinds = ["schema", "role"] as const
+type BaseKind = (typeof baseKinds)[number]
 
 /** One role of a case's login: its Task entry's place, and, over Reports, its derived entries and refresh list. */
 interface RoleSpec {
@@ -208,6 +233,8 @@ interface AccessSpec {
 	readonly base: { readonly role: number; readonly program: BaseProgram }
 	/** A full role over the level, outside the login. */
 	readonly full: FullSpec
+	/** Each builder that takes a schema, given the level or the first role's value. */
+	readonly over: { readonly [B in SchemaTaker]: BaseKind }
 }
 
 /** What a case reached: each role's place and every verdict. */
@@ -222,6 +249,8 @@ export type AccessNote =
 	| `base ${BaseProgram} ${"admitted" | "refused"}`
 	| `full ${"admitted" | "refused"}`
 	| `full write ${FullWrite["kind"]}`
+	| "full write repeated"
+	| `${SchemaTaker} over a ${BaseKind} ${"admitted" | "refused"}`
 	| "two roles"
 	| "over an extension"
 
@@ -241,7 +270,13 @@ const fullWriteGen: Gen<FullWrite> = (source) => {
 		case "every and":
 			return { kind, stray: source.draw(element(strayNames)) }
 		case "listed":
-			return { kind, names: Arr.filter(levelNames, () => coin(source, 3)) }
+			return {
+				kind,
+				names: [
+					...source.draw(array(element(writableNames), { min: 0, max: 3 })),
+					...(coin(source, 2) ? [] : [source.draw(element(levelNames))])
+				]
+			}
 	}
 }
 
@@ -279,7 +314,15 @@ const specGen: Gen<AccessSpec> = (source) => {
 			role: source.draw(int(0, count - 1)),
 			program: source.draw(element(basePrograms))
 		},
-		full: fullGen(source)
+		full: fullGen(source),
+		over: {
+			role: source.draw(element(baseKinds)),
+			login: source.draw(element(baseKinds)),
+			"schema.extend": source.draw(element(baseKinds)),
+			wholeEntriesOf: source.draw(element(baseKinds)),
+			writableNamesOf: source.draw(element(baseKinds)),
+			lawsOf: source.draw(element(baseKinds))
+		}
 	}
 }
 
@@ -360,15 +403,17 @@ interface AccessVerdict {
 	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
 	readonly base: boolean
 	readonly full: FullVerdict
+	/** Whether each schema-taking builder admits the base it is given. */
+	readonly over: { readonly [B in SchemaTaker]: boolean }
 }
 
 /**
- * The engine's reading of a case's full role: refused by role(...), or admitted with the names of its entries and its
- * write list as its Description holds them, and whether the program over the base matching the closed relation
- * compiles for it.
+ * The engine's reading of a case's full role: refused by role(...), for a repeat in its write list or not, or admitted
+ * with the names of its entries and its write list as its Description holds them, and whether the program over the
+ * base matching the closed relation compiles for it.
  */
 type FullVerdict =
-	| { readonly kind: "refused" }
+	| { readonly kind: "refused"; readonly repeat: boolean }
 	| {
 			readonly kind: "admitted"
 			readonly entries: ReadonlyArray<string>
@@ -399,11 +444,16 @@ const fullOptions = (
  */
 const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 	const level = spec.level === "Reports" ? Reports : Work
-	const built = catchCompileError(() =>
-		role(level, "full", wholeEntriesOf(level), fullOptions(spec.full, level))
-	)
+	const options = fullOptions(spec.full, level)
+	const built = catchCompileError(() => role(level, "full", wholeEntriesOf(level), options))
 	if (!built.ok) {
-		return { kind: "refused" }
+		const writes = (names: ReadonlyArray<string>): boolean =>
+			catchCompileError(() => role(level, "writes", wholeEntriesOf(level), { write: names })).ok
+		const list = options.write
+		return {
+			kind: "refused",
+			repeat: list !== undefined && !writes(list) && Arr.every(list, (n) => writes([n]))
+		}
 	}
 	const desc = roleDescOf(built.value)
 	if (desc === undefined) {
@@ -415,6 +465,51 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 		write: desc.write,
 		base: compileTemplate(accountSeats, built.value, testCompile).ok
 	}
+}
+
+/** The builders that take a schema, as a JavaScript caller sees them, taking any base at all. */
+interface SchemaTaking {
+	role(base: unknown, name: string, relations: Readonly<Record<string, EntryValue>>): unknown
+	login(base: unknown, name: string, roles: readonly [AnyRole], options: readonly []): unknown
+	extend(
+		base: unknown,
+		relations: Readonly<Record<string, never>>,
+		statements: readonly [],
+		extra: readonly []
+	): unknown
+	wholeEntriesOf(base: unknown): unknown
+	writableNamesOf(base: unknown): unknown
+	lawsOf(base: unknown): unknown
+}
+const schemaTaking: SchemaTaking = {
+	role,
+	login,
+	extend: schema.extend,
+	wholeEntriesOf,
+	writableNamesOf,
+	lawsOf
+}
+
+/** Whether a schema-taking builder admits the base the case gives it, the level or the first role's value. */
+const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): boolean => {
+	const level = spec.level === "Reports" ? Reports : Work
+	const base: unknown = spec.over[builder] === "schema" ? level : first
+	return catchCompileError(() => {
+		switch (builder) {
+			case "role":
+				return schemaTaking.role(base, "over", { Account })
+			case "login":
+				return schemaTaking.login(base, "over", [role(level, "taken", { Account })], [])
+			case "schema.extend":
+				return schemaTaking.extend(base, {}, [], [])
+			case "wholeEntriesOf":
+				return schemaTaking.wholeEntriesOf(base)
+			case "writableNamesOf":
+				return schemaTaking.writableNamesOf(base)
+			case "lawsOf":
+				return schemaTaking.lawsOf(base)
+		}
+	}).ok
 }
 
 const verdictOf = (spec: AccessSpec): AccessVerdict => {
@@ -456,7 +551,15 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 			defined(values[spec.base.role], "the base program's role"),
 			testCompile
 		).ok,
-		full: fullVerdictOf(spec)
+		full: fullVerdictOf(spec),
+		over: {
+			role: overVerdictOf(spec, values[0], "role"),
+			login: overVerdictOf(spec, values[0], "login"),
+			"schema.extend": overVerdictOf(spec, values[0], "schema.extend"),
+			wholeEntriesOf: overVerdictOf(spec, values[0], "wholeEntriesOf"),
+			writableNamesOf: overVerdictOf(spec, values[0], "writableNamesOf"),
+			lawsOf: overVerdictOf(spec, values[0], "lawsOf")
+		}
 	}
 }
 
@@ -482,6 +585,14 @@ const caseGen: Gen<AccessCase> = (source) => {
 	notes.add(`base ${spec.base.program} ${verdict.base ? "admitted" : "refused"}`)
 	notes.add(`full ${verdict.full.kind}`)
 	notes.add(`full write ${spec.full.write.kind}`)
+	if (verdict.full.kind === "refused" && verdict.full.repeat) {
+		notes.add("full write repeated")
+	}
+	for (const builder of schemaTakers) {
+		notes.add(
+			`${builder} over a ${spec.over[builder]} ${verdict.over[builder] ? "admitted" : "refused"}`
+		)
+	}
 	if (spec.roles.length > 1) {
 		notes.add("two roles")
 	}
@@ -493,6 +604,9 @@ const caseGen: Gen<AccessCase> = (source) => {
 
 /** The refusal a program over the base takes on a Db of a role that holds no relation of it whole. */
 const baseRefusal: TypeRefusal = "a program over no level of the database's schema"
+
+/** The refusal a full role's write list takes when it names a relation twice. */
+const repeatRefusal: TypeRefusal = "a write list names each role relation once"
 
 const contextRefusal: TypeRefusal =
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold"
@@ -537,7 +651,9 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 	switch (verdict.kind) {
 		case "refused":
 			return [
-				"// @ts-expect-error -- TS2345: role refuses the full role's write or refresh list",
+				verdict.repeat
+					? `// @ts-expect-error -- TS2345 refusal: ${repeatRefusal}`
+					: "// @ts-expect-error -- TS2345: role refuses the full role's write or refresh list",
 				declaration
 			]
 		case "admitted":
@@ -550,6 +666,38 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 				"\tdb.execute(accountSeats, {})"
 			]
 	}
+}
+
+/** A schema-taking builder given its base, in the program: under its directive where the engine refuses the base. */
+const overLines = (
+	spec: AccessSpec,
+	builder: SchemaTaker,
+	admitted: boolean,
+	i: number
+): ReadonlyArray<string> => {
+	const base = spec.over[builder] === "schema" ? spec.level : `R${i}_${spec.roles[0].name}`
+	const call = (() => {
+		switch (builder) {
+			case "role":
+				return `role(${base}, "b${i}", { Account })`
+			case "login":
+				return `login(${base}, "b${i}", [role(${spec.level}, "c${i}", { Account })])`
+			case "schema.extend":
+				return `schema.extend(${base}, {}, [])`
+			case "wholeEntriesOf":
+				return `wholeEntriesOf(${base})`
+			case "writableNamesOf":
+				return `writableNamesOf(${base})`
+			case "lawsOf":
+				return `lawsOf(${base})`
+		}
+	})()
+	return [
+		...(admitted
+			? []
+			: [`// @ts-expect-error -- TS2345: ${builder} takes a schema, and a role is none`]),
+		`export const B${i}_${schemaTakers.indexOf(builder)} = ${call}`
+	]
 }
 
 /** Db.open's first argument, in the program. */
@@ -631,6 +779,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 				]
 			: []),
 		...fullBlock(spec, verdict.full, i),
+		...Arr.flatMap(schemaTakers, (builder) => overLines(spec, builder, verdict.over[builder], i)),
 		""
 	]
 }
@@ -664,6 +813,11 @@ export const accessRequired: Situations<AccessNote> = [
 	"full admitted",
 	"full refused",
 	...Arr.map(fullWriteKinds, (kind): AccessNote => `full write ${kind}`),
+	"full write repeated",
+	...Arr.flatMap(schemaTakers, (builder): ReadonlyArray<AccessNote> => [
+		`${builder} over a schema admitted`,
+		`${builder} over a role refused`
+	]),
 	"two roles",
 	"over an extension"
 ]

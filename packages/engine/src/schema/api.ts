@@ -125,12 +125,13 @@ import type {
 	ContextField,
 	ContextFieldBases,
 	ContextOptions,
+	DistinctWrites,
 	EntriesCheck,
 	EntryContexts,
 	EntryValue,
 	RefreshableKeys,
 	Role,
-	RoleOptions,
+	RoleOptionRecord,
 	RoleRelations,
 	WritableKeys
 } from "#compiler/types/schema/world.ts"
@@ -552,8 +553,10 @@ export const context = <
 ): Context<Name, Fields> => contextBuilder<Name, Fields>(name, fields, ...options)
 
 /**
- * A schema whose relations are defined over the base: whole relations of the base, each under its own name, and
- * queries over it. `write` names role relations, `refresh` derived whole entries.
+ * Relations defined over the base, a schema: whole relations of the base, each under its own name, and queries over
+ * it. `write` names role relations, each once, `refresh` derived whole entries. A repeat in the write list is read
+ * against the options object beside its `write`, as login reads its workloads' shared names, so the call's diagnostic
+ * names the refusal.
  */
 export const role = <
 	Base extends AnySchema,
@@ -565,6 +568,6 @@ export const role = <
 	base: Base,
 	name: Name,
 	relations: Rs & EntriesCheck<Base, Rs>,
-	...options: RoleOptions<W, F>
+	...options: readonly [] | readonly [options: RoleOptionRecord<W, F> & DistinctWrites<W>]
 ): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], EntryContexts<Rs>> =>
 	roleBuilder<Base, Name, Rs, W, F>(base, name, relations, ...options)

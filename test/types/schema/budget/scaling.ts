@@ -9,10 +9,11 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * `laws` laws: the first contains its parent in P's ids, as issue #9's schema does; then, field by field, a key on the
  * field and a containment of the field in P's ids, in turn. Beside them stand a roster K and `closed` closed relations
  * C0 … over it, which no role holds. Over that schema it writes `roles` full roles, each its base's whole entries
- * (wholeEntriesOf) beside a query entry of its own, writing every relation it may (writableNamesOf), each read as
- * issue #9 reads one, `ChangeSet.empty(role)` and `query(role)`, and over the base, for each of the last `readers`
- * relations, a ChangeSet and a query that read it by name: its addition, holding every written field, and a rule
- * matching every field.
+ * (wholeEntriesOf) beside a query entry of its own, writing every relation it may, spelled as `writes` says:
+ * writableNamesOf(S), or a literal list of their names, which role reads for a repeat; each read as issue #9 reads
+ * one, `ChangeSet.empty(role)` and `query(role)`; and over the base, for each of the last `readers` relations, a
+ * ChangeSet and a query that read it by name: its addition, holding every written field, and a rule matching every
+ * field.
  */
 type SchemaShape = {
 	readonly relations: number
@@ -20,6 +21,7 @@ type SchemaShape = {
 	readonly laws: number
 	readonly fields: number
 	readonly roles: number
+	readonly writes: "writableNamesOf" | "listed"
 	readonly readers: number
 }
 
@@ -39,7 +41,15 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	{
 		name: "relations",
 		sizes: [250, 500, 1000],
-		shape: (relations) => ({ relations, closed: 1, laws: 1, fields: 1, roles: 0, readers: 1 })
+		shape: (relations) => ({
+			relations,
+			closed: 1,
+			laws: 1,
+			fields: 1,
+			roles: 0,
+			writes: "writableNamesOf",
+			readers: 1
+		})
 	},
 	{
 		name: "full-role entries",
@@ -50,23 +60,61 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles: 1,
+			writes: "writableNamesOf",
+			readers: 1
+		})
+	},
+	{
+		name: "write-list names",
+		sizes: [300, 600, 1200],
+		shape: (relations) => ({
+			relations,
+			closed: 1,
+			laws: 1,
+			fields: 1,
+			roles: 1,
+			writes: "listed",
 			readers: 1
 		})
 	},
 	{
 		name: "laws per relation",
 		sizes: [4, 8, 16],
-		shape: (laws) => ({ relations: 100, closed: 1, laws, fields: 16, roles: 1, readers: 1 })
+		shape: (laws) => ({
+			relations: 100,
+			closed: 1,
+			laws,
+			fields: 16,
+			roles: 1,
+			writes: "writableNamesOf",
+			readers: 1
+		})
 	},
 	{
 		name: "roles per schema",
 		sizes: [4, 8, 16],
-		shape: (roles) => ({ relations: 100, closed: 1, laws: 1, fields: 1, roles, readers: 1 })
+		shape: (roles) => ({
+			relations: 100,
+			closed: 1,
+			laws: 1,
+			fields: 1,
+			roles,
+			writes: "writableNamesOf",
+			readers: 1
+		})
 	},
 	{
 		name: "fields per relation",
 		sizes: [8, 16, 32],
-		shape: (fields) => ({ relations: 25, closed: 1, laws: 1, fields, roles: 1, readers: 25 })
+		shape: (fields) => ({
+			relations: 25,
+			closed: 1,
+			laws: 1,
+			fields,
+			roles: 1,
+			writes: "writableNamesOf",
+			readers: 25
+		})
 	}
 ]
 
@@ -93,9 +141,23 @@ const seenEntry = (g: number, relations: number): string =>
 	return r.match(R${g % relations}, { id }).find({ id })
 })`
 
+/** Every relation a full role may write, as `writes` spells it: writableNamesOf(S), or a literal list of names. */
+const writesSource = (shape: SchemaShape): string => {
+	switch (shape.writes) {
+		case "writableNamesOf":
+			return "writableNamesOf(S)"
+		case "listed":
+			return `["P", ${Arr.join(
+				Arr.map(indices(shape.relations), (i) => `"R${i}"`),
+				", "
+			)}]`
+	}
+}
+
 /** A complete program at `shape`, its imports read through the gates' prelude as `entries` reaches it. */
 export const schemaScaleSource = (shape: SchemaShape, entries: PreludeAt): string => {
 	const last = shape.relations - 1
+	const writes = writesSource(shape)
 	const fields = fieldNames(shape.fields)
 	const heading = Arr.join(
 		Arr.map(["id", "parent", ...fields], (f) => `${f}: uuid`),
@@ -142,7 +204,7 @@ ${Arr.join(
 		indices(shape.roles),
 		(
 			g
-		) => `export const Full${g} = role(S, "full${g}", { ...wholeEntriesOf(S), Seen${g}: ${seenEntry(g, shape.relations)} }, { write: writableNamesOf(S) })
+		) => `export const Full${g} = role(S, "full${g}", { ...wholeEntriesOf(S), Seen${g}: ${seenEntry(g, shape.relations)} }, { write: ${writes} })
 export const empty${g} = ChangeSet.empty(Full${g})
 export const over${g} = query(Full${g})
 `

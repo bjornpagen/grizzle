@@ -70,6 +70,7 @@ import type {
 	Tree
 } from "#compiler/types/schema/statements.ts"
 import type {
+	AnyRole,
 	AnyWorld,
 	WorldSerialFields,
 	WorldUnwrittenFields,
@@ -890,7 +891,7 @@ type DisjointReads<A, B> = [keyof A & keyof B] extends [never]
 	: Refusal<"read-back names are distinct: the ChangeSets share a read-back name">
 
 export interface ChangeSetConstructor {
-	empty<S extends AnySchema>(
+	empty<S extends AnySchema | AnyRole>(
 		schema: S
 	): ChangeSet<S, unknown, never, unknown, never, readonly [], Unwritten>
 	/** The commutative combination: one add-wins transition, its strata combined position by position. */

@@ -372,10 +372,10 @@ const refusingLaws = (
  * schedules resolve a writer's backend by.
  */
 export const familyWriters = (base: AnySchema) => {
-	/** Every entry a role may hold: no world relation, and no closed relation, which installs as constants alone. */
+	/** Every entry a role may hold: no closed relation, which installs as constants alone. */
 	const relations: Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>> = Rec.fromEntries(
 		Arr.flatMap(Rec.toEntries(base.relations), ([name, r]) =>
-			r.kind === "world" || r.kind === "closedRelation" ? [] : [[name, r] as const]
+			r.kind === "closedRelation" ? [] : [[name, r] as const]
 		)
 	)
 	const write = Arr.filter(Rec.keys(relations), (name) => relations[name]?.kind === "relation")

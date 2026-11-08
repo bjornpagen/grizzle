@@ -1,6 +1,14 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
-import type { Carriers, Headed, Invariant, Origin, Refusal } from "#compiler/types/core/phantom.ts"
+import type {
+	Carriers,
+	Headed,
+	Invariant,
+	IsOneLiteral,
+	Origin,
+	Refusal,
+	UnionToIntersection
+} from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
 	AnyDerived,
@@ -16,6 +24,7 @@ import type {
 } from "#compiler/types/fields/field.ts"
 import type { ContextsOf, QueryBase } from "#compiler/types/query/query.ts"
 import type {
+	AnyClosed,
 	AnyClosedRelation,
 	AnyRelation,
 	AnyRoster,
@@ -32,6 +41,7 @@ import type {
 	StatementsOf,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
+import type { Statement } from "#compiler/types/schema/statements.ts"
 
 /**
  * A context field: text, uuid, boolean, an integer type, a contract over one of them, or a closed handle; never a
@@ -94,13 +104,14 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  * - A context is the session's relation parameters: a source of at most one fact, bound once per Db from the verified
  *   token. Its fields are claims of scalar types (ContextField). It belongs to no schema, so a rule of any query over
  *   any schema matches it; no law takes it and no ChangeSet writes it.
- * - A role is a schema whose relations are defined over its base. A whole entry is a relation of the base, itself,
- *   under its own name; a query entry is a world relation (World), a query over the base installed as a plain view,
- *   whose fields are its definition's heading and whose keys are those its definition's evidence proves, as a derived
- *   relation's are. The role keeps the base's laws among its whole entries. A role holding every relation of its base
- *   whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it; its entries are
- *   wholeEntriesOf(base) (WholeEntriesOf). `write` names the role relations it may write, every one it may write whole
- *   being writableNamesOf(base) (WritableNameOf), `refresh` the derived whole entries it may refresh.
+ * - A role is relations defined over its base, a schema, and is no schema itself. A whole entry is a relation of the
+ *   base, itself, under its own name; a query entry is a world relation (World), a query over the base installed as a
+ *   plain view, whose fields are its definition's heading and whose keys are those its definition's evidence proves,
+ *   as a derived relation's are. The role keeps the base's laws among its whole entries. A role holding every relation
+ *   of its base whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it;
+ *   its entries are wholeEntriesOf(base) (WholeEntriesOf). `write` names the role relations it may write, each once
+ *   (DistinctWrites), every one it may write whole being writableNamesOf(base) (WritableNameOf), `refresh` the derived
+ *   whole entries it may refresh.
  * - A login is one credential and one pool for roles over one base. DbLayer.make takes one; Db.open opens a role of
  *   the layer's login.
  *
@@ -280,10 +291,17 @@ type KeptStatement<St, Relations> = St extends unknown
 
 export type KeptStatements<Base, Relations> = KeptStatement<StatementsOf<Base>[number], Relations>
 
-/** Any role: the members every one has. A role is a schema: it has a name, relations and statements. */
-export interface AnyRole extends AnySchema {
+/**
+ * Any role: the members every one has. A role is no schema: it is relations defined over its base, a schema, and keeps
+ * the base's laws among its whole entries, so its name, relations and statements are its own members, and no builder
+ * that takes a schema takes it.
+ */
+export interface AnyRole extends Built {
 	readonly kind: "role"
+	readonly name: string
 	readonly base: AnySchema
+	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived | AnyWorld>>
+	readonly statements: ReadonlyArray<Statement>
 	readonly write: ReadonlyArray<string>
 	readonly refresh: ReadonlyArray<string>
 }
@@ -308,6 +326,34 @@ export interface Role<
 	readonly write: ReadonlyArray<Write>
 	readonly refresh: ReadonlyArray<Refresh>
 }
+
+/** The positions a list's type fixes, each a numeric key: an element of a rest of unknown length has none. */
+type Positions<W> = keyof W & `${number}`
+
+/**
+ * Under each name of a list that is one literal, the positions it stands at: one, or a union of several. A widened name
+ * or a union of names, which may be any one of them, stands under none.
+ */
+type PositionsByName<W> = {
+	readonly [I in Positions<W> as IsOneLiteral<W[I]> extends true ? W[I] & string : never]: I
+}
+
+/**
+ * The names standing at more than one position. One mapped pass places each name and one reads each name's positions,
+ * so a list of n names costs n at any length, with no recursion to run out of depth.
+ */
+type NamedTwice<P> = {
+	[N in keyof P]-?: [P[N]] extends [UnionToIntersection<P[N]>] ? never : N
+}[keyof P]
+
+/**
+ * A role's write list names each role relation once: a relation named twice is two entries writing one relation, which
+ * role refuses at run time too (writeTwice). A repeat the list's type does not show, at a widened name, a union of
+ * names, or in a list of unknown length such as writableNamesOf's, is role's to refuse at run time.
+ */
+export type DistinctWrites<W> = [NamedTwice<PositionsByName<W>>] extends [never]
+	? unknown
+	: Refusal<"a write list names each role relation once">
 
 /**
  * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write and

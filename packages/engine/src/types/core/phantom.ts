@@ -927,6 +927,7 @@ export const typeRefusals = [
 	"a value its contract refuses: it lacks a fact the contract declares",
 	"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)",
 	"a whole entry is a relation of the base under its own name",
+	"a write list names each role relation once",
 	"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them",
 	"alternatives takes at least one arm",
 	"an Option needs a child the evidence proves at most one per parent",

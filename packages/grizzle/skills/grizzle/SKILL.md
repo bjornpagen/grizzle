@@ -497,6 +497,10 @@ The command line's own refusals, by stage:
   the login's roles only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is admitted, and a membership handing
   the login any privilege or ownership is refused. This has not been run against RDS.
+- A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
+  `writableNamesOf` and `lawsOf` take a schema, and a role passed to one is a type error; `query`, `ChangeSet.empty`
+  and `workload` take either. A role's `write` names each entry once: a name listed twice is a type error, and
+  `RoleRefused` (`writeTwice`) for a JavaScript caller.
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row

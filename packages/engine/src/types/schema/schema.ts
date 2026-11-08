@@ -34,7 +34,6 @@ import type {
 	Statement,
 	Tree
 } from "#compiler/types/schema/statements.ts"
-import type { AnyWorld } from "#compiler/types/schema/world.ts"
 
 /**
  * Schemas, schema extension, and the projections that read a schema's captured statements. The builders schema and
@@ -57,6 +56,7 @@ export interface Schema<
 	Named extends ReadonlyArray<Statement>,
 	Base extends AnySchema = never
 > extends Phantom<{ readonly extends: Base }> {
+	readonly kind: "schema"
 	readonly name: Name
 	readonly relations: Relations
 	readonly statements: readonly [...StatementsBelow<Base>, ...StatementsFromNames<Named, Relations>]
@@ -193,12 +193,14 @@ export type StatementsReadBack<Statements, Relations> = StatementsFromNames<
 >
 
 /**
- * Any schema: the members every one has. Every Schema whose relations are a record of relations is one, and so is
- * every role (world.ts), whose query entries are world relations.
+ * Any schema: the members every one has. Every Schema whose relations are a record of relations is one. A role is no
+ * schema (world.ts AnyRole): it is defined over one, so what takes a schema (role, login, schema.extend, lawsOf) never
+ * takes a role, and what reads a schema or a role (query, ChangeSet.empty, workload) names both.
  */
 export interface AnySchema extends Built {
+	readonly kind: "schema"
 	readonly name: string
-	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived | AnyWorld>>
+	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>
 	readonly statements: ReadonlyArray<Statement>
 }
 

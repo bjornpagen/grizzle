@@ -204,6 +204,7 @@ const rootSchema = <
 	return ownValue(
 		{
 			...builtMark,
+			kind: "schema",
 			name,
 			relations: frozenCopy(relations),
 			statements: frozenTuple(read),
@@ -330,6 +331,7 @@ const extend = <
 	return ownValue(
 		{
 			...builtMark,
+			kind: "schema",
 			name: base.name,
 			relations: frozenCopy({ ...base.relations, ...relations }),
 			statements: all,

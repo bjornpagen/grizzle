@@ -1034,9 +1034,9 @@ export type UnadmittedSchemaDesc = Located & {
 }
 
 /**
- * Worlds. A role is a schema whose relations are defined over its base: each entry is a whole relation of the base
- * under its own name, or a world relation, a query over the base installed as a plain view. `write` and `refresh` name
- * role relations. A login is one credential and one pool for roles over one base.
+ * Worlds. A role is relations defined over its base, a schema: each entry is a whole relation of the base under its
+ * own name, or a world relation, a query over the base installed as a plain view. `write` and `refresh` name role
+ * relations. A login is one credential and one pool for roles over one base.
  */
 export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "whole"; readonly name: string })

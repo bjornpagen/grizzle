@@ -28,7 +28,7 @@ type WritableBy<S> = S extends AnyRole ? Phantom<{ readonly writes: WriteListOf<
 type ProgramAt<S, L> = QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>) | KeyAt<L>
 
 export type WorkloadConstructor = <
-	S extends AnySchema,
+	S extends AnySchema | AnyRole,
 	const Programs extends Record<string, ProgramAt<S, LevelsOf<S>>>
 >(
 	schema: S,
@@ -46,4 +46,4 @@ export interface Workload<S, Programs> {
 }
 
 /** Any workload: the members every one has. */
-export type AnyWorkload = Workload<AnySchema, Readonly<Record<string, unknown>>>
+export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, unknown>>>
