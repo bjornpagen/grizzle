@@ -8,11 +8,12 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, map, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
+import { contractOf, type NumericBound, numericBoundOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -21,13 +22,19 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import * as N from "#compiler/scalar/compute/numeric.ts"
 import { computeNodes, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { strictRead } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
+import { asDecimal } from "#test/support/oracle/reference/values.ts"
 
 /** Whether a lowered program counts by FILTER: a count(*) with a FILTER clause in any statement. */
 const countsByFilter = (statements: ReadonlyArray<{ readonly ast: SqlStatement }>): boolean => {
@@ -342,5 +349,87 @@ describe("min, max, LEAST and GREATEST", () => {
 					})
 			)
 		)
+	)
+})
+
+/** What the mean of an argument's greatest value is: that value, the value rounded up past it, or zero. */
+type MeanFeature =
+	| "kept at its argument's scale"
+	| "rounded up into a new integer digit"
+	| "rounded to zero"
+	| "an argument holding zero alone"
+
+/**
+ * An argument's bound: integer digits within two of 0 or of -1000, the digits of the unit a mean rounds to at numeric's
+ * display scale, and a scale within two of 0 or of that display scale, 1000.
+ */
+const argumentBoundGen: Gen<NumericBound> = (source) => ({
+	digits: source.draw(oneOf([int(-1002, -998), int(-2, 2)])),
+	scale: source.draw(oneOf([int(0, 2), int(998, 1002)]))
+})
+
+/** The integer digits of a nonzero finite value: the least d with |value| below 10^d. */
+const integerDigits = (coefficient: bigint, minScale: number): number =>
+	coefficient.toString().length - minScale
+
+describe("a numeric mean's result bound", () => {
+	it.effect(
+		"holds the mean of its argument's greatest value, PostgreSQL's numeric_avg, and that mean reaches its integer digits",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/compute/mean-bound",
+						generator: argumentBoundGen,
+						literal: Formatter.format,
+						limit: 80,
+						box: "a computed numeric argument of integer digits -1002 to -998 or -2 to 2 and scale 0 to 2 or 998 to 1002",
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference evaluator's numeric_avg, written from numeric.c (test/support/oracle/reference/aggregate.ts numericMean), read back by the strict reader"
+						},
+						coverage: requiredInSpace<MeanFeature>([
+							"kept at its argument's scale",
+							"rounded up into a new integer digit",
+							"rounded to zero",
+							"an argument holding zero alone"
+						]),
+						caseHang
+					},
+					(bound, c) =>
+						Effect.sync(() => {
+							const argType = numericValue(bound)
+							const result = succeeded(
+								aggregateOverload({ name: "mean", arg: argType }, SourceLoc("test", [])),
+								"the mean's overload"
+							).result
+							const greatest = succeeded(
+								N.fromUnits(
+									10n ** BigInt(Math.max(bound.digits + bound.scale, 0)) - 1n,
+									bound.scale
+								),
+								"the argument's greatest value"
+							)
+							const mean = asDecimal(aggregate("avg", [greatest], argType))
+							succeeded(strictRead(result, mean.text), "the mean within its bound")
+							const p = mean.parts
+							if (p.kind !== "finite" || p.coefficient === 0n) {
+								c.note(greatest.isZero() ? "an argument holding zero alone" : "rounded to zero")
+								return
+							}
+							c.note(
+								mean.equals(greatest)
+									? "kept at its argument's scale"
+									: "rounded up into a new integer digit"
+							)
+							assert.equal(
+								integerDigits(p.coefficient, p.minScale),
+								defined(numericBoundOf(result), "the mean's bound").digits,
+								"the mean reaches its bound's integer digits"
+							)
+						})
+				)
+			)
 	)
 })
