@@ -9,9 +9,11 @@
  *   repeated row;
  * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment statement,
  *   delivers one under another name, or reports a narrowed column type is a structural difference, never a reference
- *   built to match it: each fault is planted in the conservative program of a generated case, and the comparison must
- *   report exactly the differences the plant makes, read off the program's statement labels (compare.ts
- *   labeledStatements) before and after it.
+ *   built to match it: a fault the conservative program of a generated case offers a target for is planted in it, or
+ *   none, and the comparison must report exactly the differences the plant makes, read off the program's statement
+ *   labels (compare.ts labeledStatements) before and after it, and none where it plants nothing. The cases are the
+ *   generator's own with an attaching root, so most programs offer an attachment to drop or rename; the steered phase
+ *   aims at a fault still pending wherever the program offers it.
  *
  * That the reference agrees with PostgreSQL's capture of every hard spelling is the conservative gate's
  * (conservative.test.ts), whose generated facts store NaN, -0, display scales and supplementary-plane text.
@@ -37,15 +39,16 @@ import {
 	mapTree,
 	type StatementTree
 } from "#compiler/lower/conservative/types.ts"
-import { assert, containsText, unorderedEqual } from "#test/support/assert.ts"
+import { assert, containsText, defined, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	labeledStatements,
 	repeatsOn,
 	type StructuralDifference
 } from "#test/support/oracle/compare.ts"
-import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
+import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import { float4 } from "#test/support/oracle/gen/domain.ts"
+import { defaultQueryConfig, queryGenerators } from "#test/support/oracle/gen/query.ts"
 import { projectRoot, rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { mutantLowering } from "#test/support/oracle/mutants/index.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
@@ -70,6 +73,15 @@ const structureFaults: readonly [StructureFault, ...ReadonlyArray<StructureFault
 	"an attachment renamed",
 	"a column's type narrowed"
 ]
+
+/** What a planted lowering delivers: the conservative program with one fault planted, or unchanged. */
+type PlantFeature = StructureFault | "no fault"
+
+/** The roots the structure cases draw: an attachment, each with its nested chain, over a generated body. */
+const attachedRoot = queryGenerators({
+	...defaultQueryConfig,
+	roots: { plain: 0, attach: 1, hetero: 0 }
+}).root
 
 /** The name the planted lowering takes, the left side of every comparison. */
 const planted = "planted"
@@ -108,6 +120,9 @@ interface Plant {
 	readonly program: ConservativeProgram
 	readonly expected: ReadonlyArray<StructuralDifference>
 }
+
+/** A plant and what it plants. */
+type Offered = readonly [PlantFeature, Plant]
 
 /**
  * The plant of `fault` in `program`, its target picked by `pick` among those the program offers: an attachment for a
@@ -201,6 +216,23 @@ const plantIn = (
 	}
 }
 
+/**
+ * Every plant `program` offers, `pick` choosing each fault's target: the program unchanged, whose comparison reports
+ * no difference, then each fault it offers a target for.
+ */
+const plantsOf = (
+	program: ConservativeProgram,
+	pick: number
+): readonly [Offered, ...ReadonlyArray<Offered>] => [
+	["no fault", { program, expected: [] }],
+	...Arr.flatMap(structureFaults, (fault): ReadonlyArray<Offered> =>
+		Option.match(plantIn(program, fault, pick), {
+			onNone: () => [],
+			onSome: (plant) => [[fault, plant]]
+		})
+	)
+]
+
 layer(Substrate.layer)("the reference side of the oracle discriminates", (it) => {
 	it.effect(
 		"tells the I1 mutant from the reference in its floor cases and shrinks to the printed case",
@@ -274,8 +306,7 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					{
 						suite: "oracle/reference-structure",
 						draw: drawn((source) => ({
-							case: source.draw(queryCaseGen(defaultGenConfig)),
-							fault: source.draw(element(structureFaults)),
+							case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
 							pick: source.draw(pickGen)
 						})),
 						literal: Formatter.format,
@@ -283,7 +314,10 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 							kind: "specification",
 							name: "the structural differences a plant makes, read off the program's statement labels before and after it"
 						},
-						coverage: required<StructureFault>(structureFaults, { cases: 300, sense: notesOnly }),
+						coverage: required<PlantFeature>(["no fault", ...structureFaults], {
+							cases: 300,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
@@ -293,19 +327,21 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					},
 					(drawnCase, c) =>
 						Effect.gen(function* () {
-							const plants: Array<Plant> = []
+							const chosen: Array<Offered> = []
 							const lowering: Lowering = {
 								name: planted,
 								lower: (input) =>
-									Result.map(conservative.lower(input), (program) =>
-										Option.match(plantIn(program, drawnCase.fault, drawnCase.pick), {
-											onNone: () => program,
-											onSome: (plant) => {
-												plants.push(plant)
-												return plant.program
-											}
-										})
-									)
+									Result.map(conservative.lower(input), (program) => {
+										const offered = plantsOf(program, drawnCase.pick)
+										const aimed = Arr.filter(offered, ([feature]) =>
+											Option.exists(c.steering, (pending) => pending.has(feature))
+										)
+										const plant = c.draw(
+											element(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : offered)
+										)
+										chosen.push(plant)
+										return plant[1].program
+									})
 							}
 							const outcome = yield* runOracle(
 								drawnCase.case,
@@ -313,13 +349,9 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 								reference,
 								defaultRunOptions
 							)
-							const [plant] = plants
-							yield* c.assume(plant !== undefined)
-							if (plant === undefined) {
-								return
-							}
-							c.note(drawnCase.fault)
-							assert.equal(outcome.comparison.equal, false)
+							const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
+							c.note(feature)
+							assert.equal(outcome.comparison.equal, plant.expected.length === 0)
 							unorderedEqual(outcome.comparison.structural, plant.expected)
 						})
 				)
