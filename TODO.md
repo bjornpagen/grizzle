@@ -14,9 +14,8 @@ with the next release.
   - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after
     removeLastHandle then renameRoster, the roster domain's CHECK calls a names constant other than the one the test
     expects. A possible rename defect, so it goes first;
-- **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
-  where the nested path says factShape; the re-insert witness residual (a stored owner re-inserted beside a refused new
-  owner).
+- **Leftovers from the fallback audits:** the re-insert witness residual (a stored owner re-inserted beside a refused
+  new owner).
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
   copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
   - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two

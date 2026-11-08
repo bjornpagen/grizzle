@@ -31,7 +31,9 @@ import { layoutKey } from "#compiler/analysis/theory/fill.ts"
  * members the columns that wait on it; on settling it, its settling columns. The fill order states each column's stage
  * and admits no column whose source a later stage fills, so every column a rule reads is filled when it is read.
  */
+import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import type { EncodingFailure, EncodingPlace, ValueFault } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -107,20 +109,59 @@ export type HostEvaluator = (
 ) => Result.Result<unknown, EvalStop>
 
 /**
- * Why a nesting cannot be filled: an expression the host cannot evaluate over a row (its stop, as the evaluator gives
- * it); a generated field a fill reads that is NULL, a closed read at a key its relation holds no row at, which its
- * column's NOT NULL refuses; or a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse;
- * each at its row, by the path of count fields and member positions from the nesting's root, and its column.
+ * Why a fill has no value for a column, the nesting's walk and a family's edit alike: an expression the host cannot
+ * evaluate over its row, a fold's selection among them (its stop, as the evaluator gives it); a generated field the fill
+ * reads that is NULL, a closed read at a key its relation holds no row at, which its column's NOT NULL refuses; or a
+ * fold's after or a copy outside its column's carrier, which PostgreSQL would refuse.
+ */
+export type FillStop =
+	| { readonly kind: "evaluation"; readonly stop: EvalStop }
+	| { readonly kind: "null" }
+	| { readonly kind: "range"; readonly family: FamilyId }
+
+/**
+ * Why a nesting cannot be filled (`FillStop`), at its row, by the path of count fields and member positions from the
+ * nesting's root, and its column.
  */
 export type FillRefusal = {
 	readonly path: ReadonlyArray<string | number>
 	readonly relation: string
 	readonly column: string
-} & (
-	| { readonly kind: "evaluation"; readonly stop: EvalStop }
-	| { readonly kind: "null" }
-	| { readonly kind: "range"; readonly family: FamilyId }
-)
+} & FillStop
+
+/** The fault each fill stop refuses its write with: a value outside its column's carrier, integerRange; any other, a
+ * value no fact could give the row, factShape. */
+const fillFaults: { readonly [K in FillStop["kind"]]: ValueFault } = {
+	evaluation: "factShape",
+	null: "factShape",
+	range: "integerRange"
+}
+
+/** A fill's stop as the encoding failure its write is refused with at `place`, before any statement is sent. */
+export const fillFailure = (stop: FillStop, place: EncodingPlace): EncodingFailure =>
+	encodeFailure(fillFaults[stop.kind], place)
+
+/**
+ * Whether a fold steps over a row of `relation`, read field by field by `read`: each conjunct of its selection in
+ * order, up to the first that is not true, NULL holding of no row; stopped at the first the host cannot evaluate.
+ */
+export const selects = (
+	relation: LawRelation,
+	fold: FamilyFold,
+	evaluate: HostEvaluator,
+	read: (field: string) => unknown
+): Result.Result<boolean, FillStop> => {
+	for (const w of fold.where) {
+		const holds = evaluate(relation, w, read)
+		if (!holds.ok) {
+			return Result.err({ kind: "evaluation", stop: holds.error })
+		}
+		if (holds.value !== true) {
+			return Result.ok(false)
+		}
+	}
+	return Result.ok(true)
+}
 
 /** A nesting's fills, built once for the families of a schema and the installation's codes. */
 export type Filler = (root: HostNode) => Result.Result<FilledNode, FillRefusal>
@@ -494,9 +535,29 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 	}
 }
 
+/**
+ * A fold plane's after at a row its selection holds of: `combine(before, x)` (`combineHost`), admitted to the plane's
+ * carrier as PostgreSQL would store it; stopped where it leaves the carrier, as PostgreSQL would refuse its row (22003).
+ */
+export const stepped = (
+	fold: FamilyFold,
+	family: FamilyId,
+	plane: 0 | 1,
+	befores: ReadonlyArray<unknown>,
+	x: unknown,
+	spec: CarrierSpec
+): Result.Result<unknown, FillStop> => {
+	const after = combineHost(fold, plane, befores, x, spec)
+	if (after === undefined) {
+		return Result.err({ kind: "range", family })
+	}
+	const admitted = admitValue(spec, after)
+	return admitted.ok ? Result.ok(admitted.value) : Result.err({ kind: "range", family })
+}
+
 /** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
  * leaves it. */
-export const combineHost = (
+const combineHost = (
 	fold: FamilyFold,
 	plane: 0 | 1,
 	befores: ReadonlyArray<unknown>,
@@ -627,35 +688,12 @@ const pathOf = (row: Row): ReadonlyArray<string | number> => {
 }
 
 /** A refusal at a row's column. */
-const refusalAt = (
-	row: Row,
-	column: Column,
-	refusal:
-		| { readonly kind: "evaluation"; readonly stop: EvalStop }
-		| { readonly kind: "null" }
-		| { readonly kind: "range"; readonly family: FamilyId }
-): FillRefusal => ({
+const refusalAt = (row: Row, column: Column, stop: FillStop): FillRefusal => ({
 	path: pathOf(row),
 	relation: row.layout.relation.name,
 	column: column.name,
-	...refusal
+	...stop
 })
-
-/** A value of a column's carrier, admitted as PostgreSQL would store it, or refused as outside it. */
-const admittedAt = (
-	row: Row,
-	column: Column,
-	family: FamilyId,
-	value: unknown
-): Result.Result<unknown, FillRefusal> => {
-	if (value === undefined) {
-		return Result.err(refusalAt(row, column, { kind: "range", family }))
-	}
-	const admitted = admitValue(column.spec, value)
-	return admitted.ok
-		? Result.ok(admitted.value)
-		: Result.err(refusalAt(row, column, { kind: "range", family }))
-}
 
 /** A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees. */
 const filledBefore = (from: Row, key: ColumnKey, reader: Row): unknown => {
@@ -734,33 +772,19 @@ const ruleValue = (
 				}
 				befores.push(v.value)
 			}
-			for (const w of rule.fold.where) {
-				const holds = evaluate(row.layout.relation, w, readerOf(row, evaluate))
-				if (!holds.ok) {
-					return Result.err(refusalAt(row, column, { kind: "evaluation", stop: holds.error }))
-				}
-				if (holds.value !== true) {
-					return Result.ok(befores[rule.plane])
-				}
+			const selected = selects(row.layout.relation, rule.fold, evaluate, readerOf(row, evaluate))
+			if (!selected.ok) {
+				return Result.err(refusalAt(row, column, selected.error))
 			}
-			if (rule.x === undefined) {
-				return admittedAt(
-					row,
-					column,
-					rule.family,
-					combineHost(rule.fold, rule.plane, befores, undefined, column.spec)
-				)
+			if (!selected.value) {
+				return Result.ok(befores[rule.plane])
 			}
-			const x = valueOf(row, rule.x, evaluate)
+			const x = rule.x === undefined ? Result.ok(undefined) : valueOf(row, rule.x, evaluate)
 			if (!x.ok) {
 				return x
 			}
-			return admittedAt(
-				row,
-				column,
-				rule.family,
-				combineHost(rule.fold, rule.plane, befores, x.value, column.spec)
-			)
+			const after = stepped(rule.fold, rule.family, rule.plane, befores, x.value, column.spec)
+			return after.ok ? after : Result.err(refusalAt(row, column, after.error))
 		}
 		case "generated": {
 			const v = evaluate(row.layout.relation, rule.expr, readerOf(row, evaluate))

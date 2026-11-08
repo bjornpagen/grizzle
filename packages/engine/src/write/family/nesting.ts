@@ -43,7 +43,7 @@ import {
 	familyKey,
 	fieldKey,
 	type FilledNode,
-	type FillRefusal,
+	fillFailure,
 	filler as fillerOf,
 	type Filler,
 	type HostEvaluator,
@@ -278,10 +278,6 @@ export interface NestedSet {
 /** A stratum's nested writes before any fact: no fact and no row. */
 export const nestedSet = (): NestedSet => ({ tops: new Map(), rows: new Map() })
 
-/** A fill's refusal as the member's encoding failure: the value it could not fill is outside its column's type. */
-const fillFailure = (member: string, refused: FillRefusal): EncodingFailure =>
-	encodeFailure(refused.kind === "range" ? "integerRange" : "factShape", slotPlace(member))
-
 /**
  * The facts of a nested member `member` added into `into`, the stratum's nested set, by the nesting's levels'
  * normalizers for that member; their own rows, each insert's own relation's when it is no tree's, for its slot's own
@@ -324,7 +320,7 @@ export const nestedRows = (
 		}
 		const filled = nesting.filler(host.value)
 		if (!filled.ok) {
-			return Result.err(fillFailure(member, filled.error))
+			return Result.err(fillFailure(filled.error, slotPlace(member)))
 		}
 		const root = filled.value
 		const own = Object.freeze(
