@@ -35,7 +35,6 @@ owner first. Passing tests are not required to publish. Every agent commits stra
   re-insert witness residual (a stored owner re-inserted beside a refused new owner).
 - **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
   illegal state the types still represent (found by FULLROLE).
-- **qti-pie's other limits:** #8 float cast totality past the double form.
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
   copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
   - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two
@@ -56,6 +55,14 @@ owner first. Passing tests are not required to publish. Every agent commits stra
     no family's member), plus insertAll's record type. Today pantry casts.
   - `patternLawsOf(schema)`: the per-field pattern laws, beside lawsOf. A tautology pattern states no law, and pantry
     can't see that today.
+  - A named check's constraint name: export how a check's installed constraint name is derived from its statement
+    name (conversionOf, internal today: E1_derived installs as e_1_derived), or put the name in the catalogue comment
+    as foreign keys have it. pantry's interactions.db.test.ts writes "e_1_derived" by hand until then.
+- **The regex position cap** (qti-pie's upstream reviewer, aidenzepp/qti-pie#46, comment 6701102861): one pattern for
+  a `data-ssml` value (every JSON spelling of Data-SSML's names and values) needs about 4,400 regex positions against
+  the cap of 4,096 (core/limits.ts), and chaining two withPattern steps reaches about 35,800 product positions. The
+  reviewer checks the value in its importer instead. Wanted: a cap set from a measured cost, or a pattern composition
+  that doesn't multiply positions.
 - **role's write list naming a relation twice** (`{ write: ["A", "A"] }`) is admitted by the types and refused by the
   engine as writeTwice (found by FULLROLE).
 - **Failing at HEAD on 2026-11-07, none on a qti-pie path:**
