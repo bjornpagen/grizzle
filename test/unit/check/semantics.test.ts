@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { codePoint, element, int, oneOf, string } from "@grizzle/testing/gen"
+import { codePoint, element, type Gen, int, oneOf, string, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
@@ -17,21 +17,34 @@ import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { assert, defined, failed, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
-import { decodedMember } from "#test/support/fixtures/ir/desc.ts"
+import {
+	assert,
+	defined,
+	failed,
+	refusalLoc,
+	refused,
+	succeeded,
+	unorderedEqual
+} from "#test/support/assert.ts"
+import { decodedMember, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { numeric } from "#test/support/oracle/gen/domain.ts"
+import { int4, numeric } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
+import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import type { Param, ProgramRead, Rule } from "#test/support/oracle/public/program.ts"
+import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
 import { kindOfType, schemaDescOf } from "#test/unit/check/drawn.ts"
 import {
 	imported,
 	lit,
 	match,
+	not,
 	orderBy,
+	param,
 	plainVar,
 	queryDesc,
 	ref,
@@ -57,6 +70,72 @@ import {
 	paramVerdict
 } from "#test/unit/check/params.ts"
 import { Lab } from "#test/unit/check/schemas.ts"
+
+/** Items and the labels they are tagged with, by small integers. */
+const Tagged: SchemaDesc = {
+	name: "Tagged",
+	relations: [
+		relation("Item", { id: f.integer }, ["id"]),
+		relation("Tag", { item: f.integer, label: f.integer }, ["item", "label"])
+	],
+	statements: [],
+	extends: undefined
+}
+
+/** Tagged as the reference reads its Base nodes. */
+const taggedFacts: GenSchema = {
+	name: "Tagged",
+	relations: [
+		{
+			name: "Item",
+			columns: [{ name: "id", type: int4 }],
+			primaryKey: ["id"],
+			keys: [],
+			mutable: false
+		},
+		{
+			name: "Tag",
+			columns: [
+				{ name: "item", type: int4 },
+				{ name: "label", type: int4 }
+			],
+			primaryKey: ["item", "label"],
+			keys: [],
+			mutable: false
+		}
+	],
+	closed: [],
+	containments: []
+}
+
+/** The items no Tag holds at the label `l`, a parameter the query declares. */
+const untagged = queryDesc(
+	rule({
+		vars: vars("Item", "id"),
+		matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
+		where: [not(relationSource("Tag"), { item: ref("Item", "id"), label: param("l", f.integer) })],
+		head: { id: ref("Item", "id") },
+		interiors: [],
+		attach: []
+	})
+)
+
+/** A database of Tagged, over items 0 to 3 and labels 0 to 2, and the label an import binds `l` to. */
+interface TaggedCase {
+	readonly items: ReadonlyArray<number>
+	readonly tags: ReadonlyArray<readonly [number, number]>
+	readonly label: number
+}
+
+const taggedCaseGen: Gen<TaggedCase> = (source) => ({
+	items: source.draw(subarray([0, 1, 2, 3])),
+	tags: source.draw(
+		subarray(
+			Arr.flatMap([0, 1, 2, 3], (item) => Arr.map([0, 1, 2], (label) => [item, label] as const))
+		)
+	),
+	label: source.draw(int(0, 2))
+})
 
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
@@ -481,5 +560,80 @@ describe("the checker's parameter, member and bound rules", () => {
 				)
 			)
 		}
+	)
+
+	it.effect(
+		"bind a negated match's parameter, which an import binds to a literal, to that literal",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "the items no Tag holds at the item and the bound label"
+						},
+						suite: "unit/check/semantics-negated-literal",
+						draw: drawn(taggedCaseGen),
+						literal: Formatter.format,
+						coverage: required<"an item tagged at the label" | "an item tagged at another label">(
+							["an item tagged at the label", "an item tagged at another label"],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const importer = queryDesc(
+								rule({
+									vars: [plainVar("i")],
+									matches: [match(imported(untagged, { l: lit(c.label) }), { id: varRef("i") })],
+									where: [],
+									head: { id: varRef("i") },
+									interiors: [],
+									attach: []
+								})
+							)
+							const q = succeeded(
+								checkQuery(checking(Tagged), importer, checkOptions("query")),
+								"the import"
+							)
+							const answer = Reference.of(q.dag, {
+								schema: taggedFacts,
+								facts: canonicalFacts({
+									Item: Arr.map(c.items, (id) => [{ kind: "int", value: BigInt(id) }]),
+									Tag: Arr.map(c.tags, ([item, label]) => [
+										{ kind: "int", value: BigInt(item) },
+										{ kind: "int", value: BigInt(label) }
+									])
+								}),
+								params: {},
+								observer: unobserved
+							}).eval(q.dag.roots[0], noBindings)
+							const tagged = (item: number, at: (label: number) => boolean): boolean =>
+								Arr.some(c.tags, ([i, l]) => i === item && at(l))
+							unorderedEqual(
+								Arr.map(answer.rows, (row) => row[0]),
+								Arr.map(
+									Arr.filter(c.items, (item) => !tagged(item, (l) => l === c.label)),
+									(item) => BigInt(item)
+								)
+							)
+							for (const item of c.items) {
+								if (tagged(item, (l) => l === c.label)) {
+									k.note("an item tagged at the label")
+								}
+								if (tagged(item, (l) => l !== c.label) && !tagged(item, (l) => l === c.label)) {
+									k.note("an item tagged at another label")
+								}
+							}
+						})
+				)
+			)
 	)
 })
