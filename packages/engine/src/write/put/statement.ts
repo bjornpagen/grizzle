@@ -372,7 +372,7 @@ const guardedPut = (
 	}
 	const guarded = refusalGuard({ supply, schema: w.names.schema, verdicts: rv, arms: arms(rv) })
 	return {
-		...returnedRows(supply, "keyed", deliver(rv), [cteRef(rv)], guarded.guard),
+		...returnedRows("keyed", deliver(rv), [cteRef(rv)], guarded.guard),
 		with: { ctes: concatNonEmpty(ctes, [verdictCte, guarded.cte]), recursive: false }
 	}
 }
@@ -479,7 +479,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 		if (probe === undefined || cU === undefined) {
 			return {
 				ast: {
-					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
+					...returnedRows("keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -605,7 +605,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
+					...returnedRows("keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -754,7 +754,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
+					...returnedRows("keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,

@@ -16,7 +16,7 @@ import type { LawField } from "#compiler/ir/law.ts"
 import type { KeyNormalized, NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
-import { isBytes } from "#compiler/scalar/values/bytes.ts"
+import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admittedText,
@@ -153,9 +153,10 @@ const supplied = (fact: unknown, fields: ReadonlyArray<string>): number => {
  * The codec's identities are factIdentity's over the slot heading, the identity this module keys facts by. */
 const admit = (
 	normalize: RelationNormalizer,
-	facts: Iterable<unknown>
+	facts: Iterable<unknown>,
+	book: DigestBook
 ): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure> => {
-	const normalized = normalize(facts)
+	const normalized = normalize(facts, book)
 	if (!normalized.ok) {
 		return normalized
 	}
@@ -320,7 +321,7 @@ const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => val
  * A key field's admitted value as a key value: ownership refuses a key over a set or bytes, so neither is a key field's.
  */
 const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
-	if (isSet(value) || isBytes(value)) {
+	if (isSet(value) || isAdmittedBytes(value)) {
 		throw defect("a key field over a set or bytes, which ownership refuses")
 	}
 	return value
@@ -512,6 +513,8 @@ export const normalizeChangeSet = (
 	inputs: MemberFacts
 ): Result.Result<Normalization, EncodingFailure> => {
 	const out = new Map<ParamId, NormalizedSlot>()
+	/** The write's bytes values, each the one value of its digest (scalar/values/bytes.ts DigestBook). */
+	const book = new DigestBook()
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
 	const nested = new Map<number, NestedSet>()
 	const reached = new Map<number, Map<string, SlotFacts>>()
@@ -546,13 +549,13 @@ export const normalizeChangeSet = (
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const rows = nestedRows(input.nesting, member.name, given, set)
+						const rows = nestedRows(input.nesting, member.name, given, set, book)
 						if (!rows.ok) {
 							return rows.error._tag === "GeneratedNull"
 								? Result.ok({ kind: "generatedNull", law: rows.error.law, values: rows.error.key })
 								: Result.err(rows.error)
 						}
-						const own = admit(member.normalize, rows.value)
+						const own = admit(member.normalize, rows.value, book)
 						if (!own.ok) {
 							return own
 						}
@@ -568,7 +571,7 @@ export const normalizeChangeSet = (
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const admittedFacts = admit(member.normalize, given)
+						const admittedFacts = admit(member.normalize, given, book)
 						if (!admittedFacts.ok) {
 							return admittedFacts
 						}
@@ -603,11 +606,11 @@ export const normalizeChangeSet = (
 						if (!byClass.ok) {
 							return byClass
 						}
-						const complete = admit(member.normalize.complete, byClass.value.complete)
+						const complete = admit(member.normalize.complete, byClass.value.complete, book)
 						if (!complete.ok) {
 							return complete
 						}
-						const generated = admit(member.normalize.generated, byClass.value.generated)
+						const generated = admit(member.normalize.generated, byClass.value.generated, book)
 						if (!generated.ok) {
 							return generated
 						}

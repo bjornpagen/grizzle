@@ -35,6 +35,7 @@ import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { encodeAddition, type NestedAddition } from "#compiler/write/changeset/value.ts"
 import type { MemberKey, Row } from "#compiler/write/family/draw.ts"
@@ -310,7 +311,8 @@ export const nestedRows = (
 	nesting: Nesting,
 	member: string,
 	facts: Iterable<unknown>,
-	into: NestedSet
+	into: NestedSet,
+	book: DigestBook
 ): Result.Result<ReadonlyArray<NestedFact>, EncodingFailure | NestedGeneratedNull> => {
 	const normalizers = new Map(
 		nesting.levels.map((l): readonly [string, RelationNormalizer] => [
@@ -336,7 +338,7 @@ export const nestedRows = (
 		if (!split.ok) {
 			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(nesting, normalizers, split.value)
+		const host = hostNodes(nesting, normalizers, split.value, book)
 		if (!host.ok) {
 			return host
 		}
@@ -452,7 +454,8 @@ const canonical = (nesting: Nesting, type: LawField["type"], value: unknown): st
 const hostNodes = (
 	nesting: Nesting,
 	normalizers: ReadonlyMap<string, RelationNormalizer>,
-	root: NestedAddition
+	root: NestedAddition,
+	book: DigestBook
 ): Result.Result<HostNode, EncodingFailure> => {
 	/** Every addition in pre-order, with the level it stands at. */
 	const order: Array<{ readonly addition: NestedAddition; readonly at: LevelOf }> = []
@@ -482,7 +485,7 @@ const hostNodes = (
 		if (normalize === undefined) {
 			throw defect(`the level of ${addition.relation} a nesting reaches`)
 		}
-		const admitted = normalize([addition.fact])
+		const admitted = normalize([addition.fact], book)
 		if (!admitted.ok) {
 			return admitted
 		}

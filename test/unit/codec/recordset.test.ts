@@ -33,6 +33,7 @@ import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -218,7 +219,7 @@ describe("relation normalization", () => {
 									member,
 									...facts.slice(at % (facts.length + 1))
 								]
-								const result = normalize(members)
+								const result = normalize(members, new DigestBook())
 								const failure = !result.ok ? result.error : result.value
 								assert.ok(failure instanceof EncodingFailure, plant)
 								assert.equal(failure.reason._tag, reason, plant)
@@ -413,7 +414,7 @@ describe("relation normalization", () => {
 						},
 						(facts) =>
 							Effect.sync(() => {
-								const normal = succeeded(normalize(facts))
+								const normal = succeeded(normalize(facts, new DigestBook()))
 								const byIdentity = new TupleMap<
 									FactIdentity,
 									{ readonly fact: { readonly [field: string]: unknown } }
@@ -752,7 +753,7 @@ describe("the arrays of every field type", () => {
 						},
 						(facts) =>
 							Effect.sync(() => {
-								const normal = succeeded(normalize(facts))
+								const normal = succeeded(normalize(facts, new DigestBook()))
 								const { arrays, count } = succeeded(encode(facts))
 								assert.equal(count, normal.count)
 								assert.equal(arrays.length, everyType.length)

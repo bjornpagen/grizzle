@@ -1,5 +1,4 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { resultWidth } from "#compiler/codec/delivery.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -125,7 +124,6 @@ import {
 	type PlacedStatement,
 	type ReadBackOf,
 	readBackSpecs,
-	resultDelivery,
 	resultHeading,
 	singleStatementSpec,
 	type SentForm,
@@ -817,7 +815,7 @@ const optimizedPlacement = (
 						shares,
 						mapNonEmpty(writes, (x) => ({
 							statement: x.statement,
-							width: resultWidth(resultDelivery(x.step.result))
+							width: resultHeading(x.step.result).length
 						})),
 						start
 					)
@@ -837,7 +835,10 @@ const optimizedPlacement = (
 					{
 						kind: "single",
 						stratum: step.stratum,
-						parts: mapNonEmpty(writes, (x) => ({ step: x.step })),
+						parts: mapNonEmpty(writes, (x) => ({
+							step: x.step,
+							width: resultHeading(x.step.result).length
+						})),
 						uniqueAborts: writes.flatMap((x) => x.step.uniqueAborts)
 					},
 					singleStatementSpec(single, deps, b.codes),

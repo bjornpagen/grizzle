@@ -22,7 +22,7 @@
  * | uuid | uuid_out text |
  * | date | date_out text under DateStyle ISO |
  * | text | the string |
- * | bytes | no text: the cell is the value its delivery assembled (codec/delivery.ts), its one text its windows-1252 decode |
+ * | bytes | no text: the cell is the value its delivery assembled (codec/delivery.ts), its one text its SHA-256 digest |
  * | code | int2out text, read as the handle the code names |
  * | bits | bit_out text, read as the set of handles |
  * | range4, range8, rangeDate | range_out of a bounded half-open range |
@@ -38,10 +38,11 @@
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { bytesValueOf, outputTextOf } from "#compiler/core/decoder.ts"
 import { bitInputText, hexOfBitText } from "#compiler/core/hex.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { bytesText } from "#compiler/scalar/values/bytes.ts"
+import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	type Converter,
 	convertByCarrier,
@@ -56,16 +57,18 @@ export interface ScalarReader {
 	readonly spec: CarrierSpec
 	/**
 	 * A delivered cell of this type as its canonical host value, trusting it: PostgreSQL's output text converted, or a
-	 * bytes column's assembled value itself.
+	 * bytes column's assembled value with its digest (scalar/values/bytes.ts AdmittedBytes).
 	 */
 	readonly convert: (cell: Cell) => CarrierHost[Carrier]
 	/**
 	 * The one text of the value a cell holds, read off the cell: two cells of this type have equal cell texts exactly
-	 * when their values are equal. The cell itself for the carriers whose output is already one text per value;
-	 * numeric with trailing fractional zeros dropped, which is the value's canonical text; a float's "-0" as "0", and
-	 * otherwise float4out's or float8out's own shortest spelling; a vector's "-0" components as "0"; a boolean's "t"/"f"
-	 * as "true"/"false"; a set's 0s and 1s as X and their hex digits; a bytes value's windows-1252 decode, its one text
-	 * (scalar/values/bytes.ts bytesText). Chosen once per column; no allocation where the cell is already the one text.
+	 * when their values are equal, but bytes. The cell itself for the carriers whose output is already one text per
+	 * value; numeric with trailing fractional zeros dropped, which is the value's canonical text; a float's "-0" as "0",
+	 * and otherwise float4out's or float8out's own shortest spelling; a vector's "-0" components as "0"; a boolean's
+	 * "t"/"f" as "true"/"false"; a set's 0s and 1s as X and their hex digits; a bytes value's SHA-256 digest
+	 * (core/sha256.ts sha256Hex), which two values share only if their bytes are equal or they are a SHA-256 collision,
+	 * so a reader that takes two cells of one text as one compares their bytes too. Chosen once per column; no
+	 * allocation where the cell is already the one text.
 	 */
 	readonly cellText: (cell: Cell) => string
 }
@@ -166,8 +169,8 @@ export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader =>
 		? Object.freeze({
 				type,
 				spec,
-				convert: bytesValueOf,
-				cellText: (cell: Cell) => bytesText(bytesValueOf(cell))
+				convert: (cell: Cell) => new AdmittedBytes(bytesValueOf(cell)),
+				cellText: (cell: Cell) => sha256Hex(bytesValueOf(cell))
 			})
 		: textReaderOf(type, spec)
 }

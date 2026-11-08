@@ -117,7 +117,7 @@ const paramText = nominal<string, ParamText>()
 /**
  * The parameter text of a value `spec` admitted: its canonical text, which PostgreSQL's input function of its type reads.
  * The one site of the fact that no bytes value is a parameter text: a bytes value travels in binary (codec/bytea.ts),
- * and its canonical text, its windows-1252 decode, is no input of byteain, so one here is a defect.
+ * and its canonical text, its digest, is no input of byteain, so one here is a defect.
  */
 const parameterText = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec,
@@ -160,7 +160,7 @@ export const admittedParam = (spec: CarrierSpec, value: unknown): ParamText =>
  * parameter text.
  */
 export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | Bytes =>
-	spec.carrier === "bytes" ? admitted(spec, value) : admittedParam(spec, value)
+	spec.carrier === "bytes" ? admitted(spec, value).bytes : admittedParam(spec, value)
 
 /**
  * A plain text's parameter text: a name, a fingerprint or a JSON document grizzle's own statements send as text, written

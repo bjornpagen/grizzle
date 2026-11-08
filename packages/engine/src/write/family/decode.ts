@@ -13,7 +13,6 @@ import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import { admitValue } from "#compiler/scalar/values/identity.ts"
 import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
 	drawnAt,
@@ -23,7 +22,6 @@ import {
 	groupOfOwner,
 	keyOf,
 	membersByGroup,
-	specOf,
 	type StoredFamily,
 	type StoredGroup,
 	type StoredMember,
@@ -48,8 +46,8 @@ const layoutColumns = (layout: RowLayout): ReadonlyArray<RowLayout["columns"][nu
  * One family's reads' rows decoded (statements.ts suffixReadSql), every read of the family's (order.ts planRead) as one
  * set, each answer of `arms` read on its own: each `o` row an owner, its key and its read columns; each `m` row a
  * member, its key and its row layout's columns, each kind's rows read by its columns' delivery and each cell through
- * its column's codec. A row two reads return is one, an owner by its group and a member by its key. A cell the codec
- * does not admit is the read's EncodingFailure.
+ * its column's reader, trusting PostgreSQL's output. A row two reads return is one, an owner by its group and a member
+ * by its key. A row missing a cell is the read's EncodingFailure.
  */
 const decodeSuffix = (
 	ctx: FillContext,
@@ -78,9 +76,7 @@ const decodeSuffix = (
 		if (cell === undefined) {
 			return Result.err(failure)
 		}
-		const converted = scalarReader(type, ctx.codes).convert(cell)
-		const value = admitValue(specOf(ctx, type), converted)
-		return value.ok ? Result.ok(value.value) : Result.err(failure)
+		return Result.ok(scalarReader(type, ctx.codes).convert(cell))
 	}
 	for (const answer of arms) {
 		for (const cells of assembled(ownerDelivery, answer.get("o") ?? noRows)) {
@@ -146,7 +142,7 @@ export const decodeRead = (
  * A chain read's rows decoded (statements.ts chainReadSql), every read of the chain's (order.ts planRead) as one set:
  * each row set's rows by relation and key, a refilled tree's nodes among them, each every column of its row
  * layout; and a refilled family's stored suffixes at the chain's end, as a family's read decodes them (`decodeRead`).
- * A cell the codec does not admit is the read's EncodingFailure.
+ * A row missing a cell is the read's EncodingFailure.
  */
 export interface ChainRows {
 	readonly rows: ReadonlyArray<{
@@ -190,14 +186,7 @@ export const decodeChain = (
 					if (cell === undefined) {
 						return Result.err(failure)
 					}
-					const value = admitValue(
-						specOf(ctx, c.type),
-						scalarReader(c.type, ctx.codes).convert(cell)
-					)
-					if (!value.ok) {
-						return Result.err(failure)
-					}
-					values.set(c.key, value.value)
+					values.set(c.key, scalarReader(c.type, ctx.codes).convert(cell))
 				}
 				const key = keyOf(ctx, set.layout, values)
 				out.push({ relation: set.relation.name, key, values })

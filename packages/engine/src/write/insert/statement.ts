@@ -1,7 +1,6 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -18,7 +17,12 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { type DeliveredColumn, deliveredColumn, deliveredRows } from "#compiler/lower/delivery.ts"
+import {
+	type TextDelivered,
+	textDelivered,
+	textItself,
+	textRows
+} from "#compiler/lower/delivery.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
 	EmittedSql,
@@ -31,7 +35,7 @@ import type {
 	TypeRef,
 	With
 } from "#compiler/sql/ast.ts"
-import { cast, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
+import { call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
@@ -498,34 +502,39 @@ export const unrefined = (t: ScalarType): ScalarType => {
 export const compareHeading = (fields: ReadonlyArray<LawField>): Heading =>
 	fields.map((f) => ({ name: f.name, type: unrefined(rowType(f)) }))
 
-/** One column a write statement returns: its value, how it is delivered (lower/delivery.ts), and its name. */
+/** One column a write statement returns: its value, its result text (lower/delivery.ts), and its name. */
 export interface ReturnedColumn {
 	readonly expr: Expr
-	readonly delivered: DeliveredColumn
+	readonly delivered: TextDelivered
 	readonly alias: string
 }
 
-/** The returned column `alias` of `expr`, a value of type `type`, delivered as its type is. */
-export const returnedColumn = (expr: Expr, type: ScalarType, alias: string): ReturnedColumn => ({
-	expr,
-	delivered: deliveredColumn(type),
-	alias
-})
+/**
+ * The returned column `alias` of `expr`, a value of type `type`: its result text, but a bytes value's SHA-256 digest,
+ * `encode(sha256(expr), 'hex')`, the identity the outcome nets it by (scalar/values/bytes.ts BytesDigest), which is
+ * all the outcome reads of it, so no write sends a bytes value back.
+ */
+export const returnedColumn = (expr: Expr, type: ScalarType, alias: string): ReturnedColumn =>
+	type.carrier === "bytes"
+		? {
+				expr: call("encode", [call("sha256", [expr]), lit.text("hex", types.text)]),
+				delivered: textItself,
+				alias
+			}
+		: { expr, delivered: textDelivered(type), alias }
 
 /**
  * The SELECT of the rows a write statement returns: `columns` of each row of `from` where `where` holds, under the
- * proof `rows`, as their delivery sends them (lower/delivery.ts deliveredRows), so a bytes column travels in chunks,
- * which the outcome reads each execution's of (write/program/artifact.ts writeRows). Its names are drawn from
- * `supply`, the statement's. Its WITH is the caller's.
+ * proof `rows`, each its result text (lower/delivery.ts textRows), a bytes column its digest (`returnedColumn`), so a
+ * write's answer is whole. Its WITH is the caller's.
  */
 export const returnedRows = (
-	supply: NameSupply,
 	rows: RowsProof,
 	columns: ReadonlyArray<ReturnedColumn>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
 ): Select =>
-	deliveredRows(
+	textRows(
 		{
 			kind: "select",
 			with: undefined,
@@ -540,9 +549,7 @@ export const returnedRows = (
 			offset: undefined
 		},
 		columns.map((c) => c.delivered),
-		[],
-		supply,
-		bytesChunkLength.value
+		[]
 	)
 
 /** A value as its exact result text (codec resultTextCasts): money through numeric. */

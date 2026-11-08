@@ -12,6 +12,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type NestedSet, nestedRows, nestedSet } from "#compiler/write/family/nesting.ts"
 import { inForce } from "#compiler/write/family/order.ts"
@@ -170,7 +171,7 @@ const keyedTexts = (set: NestedSet): ReadonlyArray<string> => {
 const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, length: number) => {
 	const { nesting, member } = nestedInput(program)
 	const set = nestedSet()
-	succeeded(nestedRows(nesting, member, factsOf(facts, length), set))
+	succeeded(nestedRows(nesting, member, factsOf(facts, length), set, new DigestBook()))
 	return keyedTexts(set)
 }
 

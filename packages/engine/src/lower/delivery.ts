@@ -25,7 +25,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 
 /** A text column: the casts that make its result text. */
-interface TextDelivered {
+export interface TextDelivered {
 	readonly kind: "text"
 	readonly casts: ReadonlyArray<"numeric" | "text">
 }
@@ -36,15 +36,24 @@ export type DeliveredColumn = TextDelivered | { readonly kind: "bytes" }
 /** Whether a column is a text column. */
 const isText = (column: DeliveredColumn): column is TextDelivered => column.kind === "text"
 
+/**
+ * The text column of a value of type `type`, its result text (codec/scalar.ts resultTextCasts): a type of no result
+ * text, bytes, is a defect there.
+ */
+export const textDelivered = (type: ScalarType): TextDelivered => ({
+	kind: "text",
+	casts: resultTextCasts(type)
+})
+
 /** The delivered column of a value of type `type`: bytes in chunks, every other type as its result text. */
 export const deliveredColumn = (type: ScalarType): DeliveredColumn =>
-	type.carrier === "bytes" ? { kind: "bytes" } : { kind: "text", casts: resultTextCasts(type) }
+	type.carrier === "bytes" ? { kind: "bytes" } : textDelivered(type)
 
 /** A column whose value is a text already, a fused attachment's array: its result text is itself cast to text. */
 export const textColumn: DeliveredColumn = Object.freeze({ kind: "text", casts: ["text"] as const })
 
 /** A column whose value is its own result text, a MERGE's merge_action(): no cast. */
-export const textItself: DeliveredColumn = Object.freeze({ kind: "text", casts: [] as const })
+export const textItself: TextDelivered = Object.freeze({ kind: "text", casts: [] as const })
 
 /** The cell kind a delivered column's cell travels as. */
 const kindOf = (column: DeliveredColumn): CellKind => column.kind
@@ -84,10 +93,32 @@ const targetsWith = <C extends DeliveredColumn>(
 }
 
 /**
+ * The rows of `rows`, whose targets are the values of text columns `columns` in order, each result row led by the
+ * constant targets `leading`: each target cast to its result text in place (`resultCast`), their delivery whole.
+ */
+export const textRows = (
+	rows: PlainQuery,
+	columns: ReadonlyArray<TextDelivered>,
+	leading: ReadonlyArray<Target>
+): PlainQuery => ({
+	...rows,
+	body: {
+		...rows.body,
+		targets: [
+			...leading,
+			...targetsWith(rows.body, columns).map(({ target: t, column }) => ({
+				...t,
+				expr: resultCast(t.expr, column.casts)
+			}))
+		]
+	}
+})
+
+/**
  * The rows of `rows`, whose targets are the values of `columns` in order, as their delivery sends them
  * (codec/delivery.ts), each result row led by the constant targets `leading`, a union arm's tag:
  *
- * - whole, no column bytes: `rows` with each target cast to its result text in place (`resultCast`);
+ * - whole, no column bytes: `textRows`;
  * - chunked: every chunk of every row, from `rows` numbered in its own order:
  *
  *       WITH <rows' WITH>
@@ -111,19 +142,7 @@ export const deliveredRows = (
 	chunkLength: number
 ): PlainQuery => {
 	if (columns.every(isText)) {
-		return {
-			...rows,
-			body: {
-				...rows.body,
-				targets: [
-					...leading,
-					...targetsWith(rows.body, columns).map(({ target: t, column }) => ({
-						...t,
-						expr: resultCast(t.expr, column.casts)
-					}))
-				]
-			}
-		}
+		return textRows(rows, columns, leading)
 	}
 	const paired = targetsWith(rows.body, columns)
 	const bytes = paired.flatMap(({ column }, at) => (column.kind === "bytes" ? [at] : []))

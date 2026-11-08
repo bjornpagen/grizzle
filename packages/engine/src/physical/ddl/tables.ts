@@ -23,7 +23,6 @@ import type {
 } from "#compiler/ir/law.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
-import { addBytesLengths, bytesLengths } from "#compiler/physical/bytes/storage.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
 import { closedMembership } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
@@ -495,9 +494,9 @@ export interface KeyIndex {
  *   and never with an action, so cyclic foreign keys need no order between tables.
  *
  * The deferral rule is the law model's; the names are the law model's and ownership's; this module only spells them.
- * Each vector column also carries its cosine-domain CHECK (`vectorNorms`), each date column its range CHECK
- * (`dateRanges`), and each bytes column its length CHECK (`bytesLengths`). Every table is added before the objects on
- * it, so the inline constraints are planned first. */
+ * Each vector column also carries its cosine-domain CHECK (`vectorNorms`) and each date column its range CHECK
+ * (`dateRanges`); a bytes column carries none, since its type's own bound is its value's (core/limits.ts bytesMaxLength).
+ * Every table is added before the objects on it, so the inline constraints are planned first. */
 export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const inline: Inline = new Map()
 	const plans = planNatives(b, inline)
@@ -508,10 +507,6 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const ranges = dateRanges(b)
 	for (const r of ranges) {
 		declareInline(inline, r.relation, r.constraint)
-	}
-	const lengths = bytesLengths(b)
-	for (const l of lengths) {
-		declareInline(inline, l.relation, l.constraint)
 	}
 	const planned = plannedTables(b)
 	for (const t of planned) {
@@ -540,7 +535,6 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 	}
 	addVectorNorms(b, norms)
 	addDateRanges(b, ranges)
-	addBytesLengths(b, lengths)
 	return {
 		keyIndexes: addNatives(b, plans),
 		tables: planned.map((t) => b.names.relation(t.relation)),

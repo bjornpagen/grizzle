@@ -4,6 +4,7 @@ import { compareCodePoints } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { admittedText, type FactIdentity } from "#compiler/scalar/values/identity.ts"
 
 /** Strings by code point. */
@@ -194,9 +195,13 @@ export const outcomeCounts = (
 		...netStrata(relationChanges(strata, relation)).counts
 	}))
 
-/** The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
- * field-name order, as factIdentity gives it (`identity.ts`). The rows are PostgreSQL's output, converted by the
- * fields' own codecs under the installation's codes, so nothing is admitted again. */
+/**
+ * The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
+ * field-name order, as factIdentity gives it (`identity.ts`), a bytes field's the digest the statement returned of it
+ * (codec/row.ts tupleConverter), which is its canonical text. The rows are PostgreSQL's output, converted by the
+ * fields' own codecs under the installation's codes, so nothing is admitted again. Only returned digests meet here, so
+ * two facts of one identity whose bytes differ would be a SHA-256 collision between rows PostgreSQL wrote.
+ */
 export const relationIdentity = (
 	heading: Heading,
 	codes: Codebook
@@ -204,5 +209,12 @@ export const relationIdentity = (
 	const fields = heading
 		.map((column) => ({ name: column.name, spec: carrierSpecOf(column.type, codes) }))
 		.toSorted(Order.mapInput(codePointOrder, (field: { readonly name: string }) => field.name))
-	return (fact) => Object.freeze(fields.map((field) => admittedText(field.spec, fact[field.name])))
+	return (fact) =>
+		Object.freeze(
+			fields.map((field) =>
+				field.spec.carrier === "bytes"
+					? digestOf(fact[field.name])
+					: admittedText(field.spec, fact[field.name])
+			)
+		)
 }

@@ -10,11 +10,10 @@ import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import {
+	type AdmittedBytes,
 	admitBytes,
-	type Bytes,
-	bytesText,
 	compareBytes,
-	isBytes
+	isAdmittedBytes
 } from "#compiler/scalar/values/bytes.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
@@ -77,8 +76,8 @@ export interface CarrierHost {
 	/** A date's host value is its ISO 8601 text, its one form (values/date.ts). */
 	readonly date: CalendarDate
 	readonly text: string
-	/** A bytes value's host value is a Uint8Array over its own ArrayBuffer (values/bytes.ts). */
-	readonly bytes: Bytes
+	/** A bytes value's host value is its bytes with their digest (values/bytes.ts AdmittedBytes). */
+	readonly bytes: AdmittedBytes
 	/** A closed id's host value is its handle. */
 	readonly code: string
 	/** A set's host value is its handles. */
@@ -301,7 +300,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	uuid: isString,
 	date: (value): value is CalendarDate => toCalendarDate(value).ok,
 	text: isString,
-	bytes: isBytes,
+	bytes: isAdmittedBytes,
 	code: isString,
 	bits: isStringSet,
 	range4: isSpanOf(isNumber),
@@ -333,7 +332,7 @@ const canonicalTexts: CanonicalTexts = {
 	uuid: (v) => v,
 	date: (v) => v,
 	text: (v) => v,
-	bytes: (v) => bytesText(v),
+	bytes: (v) => v.digest,
 	code: (v, spec) => String(codeOf(spec.roster, v)),
 	bits: (v, spec) => handlesText(spec.roster, v),
 	range4: (v) => spanText(v),
@@ -358,8 +357,9 @@ const canonicalTexts: CanonicalTexts = {
  *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
  *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text); a bytes value's is
- *   its windows-1252 decode, one UTF-16 code unit a byte (values/bytes.ts bytesText), the fact identity's part and no
- *   parameter text: every bytes value travels in binary (codec/bytea.ts).
+ *   its SHA-256 digest (values/bytes.ts BytesDigest), the fact identity's part and no parameter text: every bytes value
+ *   travels in binary (codec/bytea.ts). Two bytes values of one digest are one only when their bytes are equal, which
+ *   every host site that takes two facts of one identity as one checks (`sameFact`).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
  *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
  *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.
@@ -397,7 +397,7 @@ const comparators: Comparators = {
 	uuid: (x, y) => compareOrdered(x, y),
 	date: (x, y) => compareOrdered(x, y),
 	text: (x, y) => compareCodePoints(x, y),
-	bytes: (x, y) => compareBytes(x, y),
+	bytes: (x, y) => compareBytes(x.bytes, y.bytes),
 	code: (x, y, spec) => sign(codeOf(spec.roster, x) - codeOf(spec.roster, y)),
 	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),
 	range4: (x, y) => compareSpan(x, y),

@@ -48,16 +48,17 @@ import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Cell, ParamText } from "#compiler/core/wire.ts"
+import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { admitValue, factIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { echoed, paramText } from "#test/support/wire.ts"
+import { echoed, outputText, paramText } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 /**
@@ -628,7 +629,7 @@ describe("fact identity", () => {
 	)
 })
 
-/** A row of a heading drawn from every descriptor: each cell the text of a Live value, a bytes value's itself. */
+/** A row of a heading drawn from every descriptor: each cell the text of a Live value, a bytes value's digest. */
 const rowCaseGen: Gen<{
 	readonly columns: ReadonlyArray<Carried>
 	readonly values: ReadonlyArray<unknown>
@@ -637,10 +638,13 @@ const rowCaseGen: Gen<{
 	return { columns, values: Arr.map(columns, (c) => source.draw(c.live)) }
 }
 
-/** A row's cell as the test writes it: a text column's parameter text, or a bytes column's admitted value. */
+/**
+ * A row's cell as the test writes it: a text column's parameter text, or a bytes column's digest, all a write statement
+ * returns of a bytes value (write/insert/statement.ts returnedColumn).
+ */
 type RowCell =
 	| { readonly kind: "text"; readonly column: Carried; readonly text: ParamText }
-	| { readonly kind: "bytes"; readonly value: Uint8Array<ArrayBuffer> }
+	| { readonly kind: "bytes"; readonly digest: string }
 
 describe("the tuple converter", () => {
 	it.effect(
@@ -668,7 +672,7 @@ describe("the tuple converter", () => {
 								if (column.type.carrier === "bytes") {
 									const admitted = admitValue({ carrier: "bytes" }, values[i])
 									assert.ok(admitted.ok, `${column.label}: a Live value was refused`)
-									return { kind: "bytes", value: admitted.value }
+									return { kind: "bytes", digest: admitted.value.digest }
 								}
 								const encoded = scalarCodec(column.type, kindCodes).encode(values[i])
 								assert.ok(encoded.ok, `${column.label}: a Live value was refused`)
@@ -679,15 +683,17 @@ describe("the tuple converter", () => {
 								Arr.map(columns, (c) => ({ name: "c", type: c.type })),
 								kindCodes
 							)(
-								Arr.map(cells, (cell): Cell =>
-									cell.kind === "bytes" ? cell.value : echoed(cell.column.type, cell.text)
+								Arr.map(cells, (cell): OutputText =>
+									cell.kind === "bytes"
+										? outputText(cell.digest)
+										: echoed(cell.column.type, cell.text)
 								)
 							)
 							assert.ok(Object.isFrozen(tuple))
 							assert.equal(tuple.length, columns.length)
 							for (const [i, cell] of cells.entries()) {
 								if (cell.kind === "bytes") {
-									assert.deepEqual(tuple[i], cell.value)
+									assert.equal(digestOf(tuple[i]), cell.digest)
 								} else {
 									assert.deepEqual(
 										scalarCodec(cell.column.type, kindCodes).encode(tuple[i]),

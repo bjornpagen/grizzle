@@ -1,16 +1,9 @@
-import {
-	assembled,
-	cellKindOf,
-	type Delivery,
-	deliveryOf,
-	resultWidth
-} from "#compiler/codec/delivery.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { AssembledRows, OutputRows } from "#compiler/core/wire.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
@@ -174,9 +167,10 @@ export interface FamilyStep {
 }
 
 /** One write action of a single statement: its step, whose rows are the statement's rows tagged with the part's index,
- * each the tag and then the result row of the step's delivery (resultDelivery), the rest of the row padding. */
+ * each the tag and then the step's `width` columns, the rest of the row padding. */
 interface WritePart {
 	readonly step: Extract<WriteStep, { readonly kind: "write" }>
+	readonly width: number
 }
 
 /** What a statement's rows are read as: the relation they are facts of, and their result. */
@@ -200,42 +194,26 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	}
 }
 
-/** How a write statement's returned rows travel (codec/delivery.ts): its result columns', each by its type. */
-export const resultDelivery = (result: (WriteStatement | PutStatement)["result"]): Delivery =>
-	deliveryOf(resultHeading(result).map((c) => cellKindOf(c.type)))
-
-/**
- * The write steps a statement's rows are read as, each with its own rows, from `answers`, one per execution of the
- * statement, each read by its step's delivery (resultDelivery), an execution's chunks never another's: a write step's
- * and a family step's are the statement's, a single statement's parts' are its rows of their tag, cut to their
- * delivery's result rows; no other step has rows the outcome reads.
- */
+/** The write steps a statement's rows are read as, each with its own rows: a write step's and a family step's are the
+ * statement's, a single statement's parts' are its rows of their tag, cut to their width; no other step has rows the
+ * outcome reads. */
 export const writeRows = (
 	step: WriteStep,
-	answers: ReadonlyArray<OutputRows>
+	rows: ReadonlyArray<ReadonlyArray<OutputText>>
 ): ReadonlyArray<{
 	readonly step: RowsStep
-	readonly rows: AssembledRows
+	readonly rows: ReadonlyArray<ReadonlyArray<OutputText>>
 }> => {
 	switch (step.kind) {
 		case "write":
-		case "family": {
-			const delivery = resultDelivery(step.result)
-			return [{ step, rows: answers.flatMap((answer) => assembled(delivery, answer)) }]
-		}
+		case "family":
+			return [{ step, rows }]
 		case "single":
 			return step.parts.map((part, tag) => {
 				const own = String(tag)
-				const delivery = resultDelivery(part.step.result)
-				const width = resultWidth(delivery)
 				return {
 					step: part.step,
-					rows: answers.flatMap((answer) =>
-						assembled(
-							delivery,
-							answer.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + width)] : []))
-						)
-					)
+					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : []))
 				}
 			})
 		case "carrier":

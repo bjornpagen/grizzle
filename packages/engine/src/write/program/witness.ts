@@ -39,7 +39,7 @@ import {
 	valueMember
 } from "#compiler/scalar/compute/evaluate.ts"
 import { type CarrierValue, irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { isBytes } from "#compiler/scalar/values/bytes.ts"
+import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import {
@@ -211,7 +211,7 @@ const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => val
 
 /** A key field's admitted value as a key value, or undefined for a set's or bytes', which no key holds. */
 const keyHost = (value: CarrierHost[Carrier]): KeyHost | undefined =>
-	isSet(value) || isBytes(value) ? undefined : value
+	isSet(value) || isAdmittedBytes(value) ? undefined : value
 
 /**
  * The key a fact of `relation` states, its first declared key whose every field it carries, the primary key first;

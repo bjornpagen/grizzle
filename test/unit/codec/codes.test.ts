@@ -30,6 +30,7 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
+import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
@@ -266,7 +267,7 @@ const headingOf = (live: number): string => {
 		slot: { kind: "none" },
 		codes: book
 	})
-	return succeeded(normalize([]), "an empty input normalizes").heading
+	return succeeded(normalize([], new DigestBook()), "an empty input normalizes").heading
 }
 
 describe("a relation input over closed ids and sets", () => {

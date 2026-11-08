@@ -1,8 +1,8 @@
 import { scalarReader } from "#compiler/codec/read.ts"
-import type { Cell, OutputRows, OutputText } from "#compiler/core/wire.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
-import { isBytes } from "#compiler/scalar/values/bytes.ts"
+import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
@@ -84,7 +84,7 @@ type RowChange =
 	| { readonly side: "added"; readonly tag: AddedTag; readonly fact: Fact }
 	| { readonly side: "removed"; readonly tag: RemovedTag; readonly fact: Fact }
 
-type ChangesConverter = (row: ReadonlyArray<Cell>) => ReadonlyArray<RowChange>
+type ChangesConverter = (row: ReadonlyArray<OutputText>) => ReadonlyArray<RowChange>
 
 /** The changes of one write statement's rows, converted as its StatementSpec converts them, by its result
  * (`changeTags`): an insert's rows are facts its action made present, a deletion's facts made absent; an upsert's rows
@@ -142,23 +142,23 @@ const stepIdentity = (
 		: identity
 
 /**
- * The changes of an artifact's statements from their rows; `answersOf(i)` is statement i's answers, one per execution
- * as PostgreSQL sent it, none when the runtime skipped it, and is read only for the statements of the strata. Per
- * stratum of the artifact (`byStratum`), its change to each written relation its write steps returned rows for, keyed
- * by fact identity (`stratumChange`); a write step writes only relations of `context.written`. The changes are each
- * stratum's facts made present and absent, tagged by the member kind that requested them, netted across strata by fact
- * identity into delta.added, delta.removed and the counts, and the outcome kind the counts decide. It reads fields
- * grizzle controls only, never PostgreSQL's message or DETAIL prose.
+ * The changes of an artifact's statements from their rows; `rowsOf(i)` is statement i's rows, none when the runtime
+ * skipped it, and is read only for the statements of the strata. Per stratum of the artifact (`byStratum`), its change
+ * to each written relation its write steps returned rows for, keyed by fact identity (`stratumChange`); a write step
+ * writes only relations of `context.written`. The changes are each stratum's facts made present and absent, tagged by
+ * the member kind that requested them, netted across strata by fact identity into delta.added, delta.removed and the
+ * counts, and the outcome kind the counts decide. It reads fields grizzle controls only, never PostgreSQL's message or
+ * DETAIL prose.
  */
 export const interpretRows = (
 	context: OutcomeContext,
 	artifact: WriteArtifact,
-	answersOf: (position: number) => ReadonlyArray<OutputRows>
+	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<OutputText>>
 ): WriteChanges => {
 	const changes = byStratum(artifact.statements).map((statements) => {
 		const returned = statements
 			.flatMap((s) =>
-				writeRows(s.step, answersOf(s.index)).map((w) => ({
+				writeRows(s.step, rowsOf(s.index)).map((w) => ({
 					...w,
 					counts: s.step.kind === "family" && s.step.statement === "count"
 				}))
@@ -243,7 +243,7 @@ export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
 			 * set or bytes.
 			 */
 			const value = scalarReader(column.type, context.codes).convert(text)
-			if (isVector(value) || isSet(value) || isBytes(value)) {
+			if (isVector(value) || isSet(value) || isAdmittedBytes(value)) {
 				return undefined
 			}
 			values[field] = value

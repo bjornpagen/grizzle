@@ -90,7 +90,8 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	generate_subscripts: "row",
 	make_date: "row",
 	encode: "row",
-	generate_series: "row"
+	generate_series: "row",
+	sha256: "row"
 }
 
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */

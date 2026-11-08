@@ -156,7 +156,7 @@ export interface FillContext {
 }
 
 /** A type's carrier spec under the installation's codes. */
-export const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
+const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
 
 /**
  * A host value's parameter text in its type's carrier: a key's, which the read and the delete send and which its

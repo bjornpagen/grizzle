@@ -29,6 +29,7 @@ import type {
 	RelationParamEncoder
 } from "#compiler/ir/products.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitFact,
 	admitted,
@@ -91,9 +92,13 @@ export interface NormalizedRelation extends AdmittedRelation {
 	readonly rows: ReadonlyArray<ReadonlyArray<ParamText>>
 }
 
-/** A relation input's admission: a ChangeSet member's, or a nested write's level's. */
+/**
+ * A relation input's admission: a ChangeSet member's, or a nested write's level's, its bytes values held in its write's
+ * `book` (scalar/values/bytes.ts DigestBook), so a digest is one value across the write.
+ */
 export type RelationNormalizer = (
-	facts: Iterable<unknown>
+	facts: Iterable<unknown>,
+	book: DigestBook
 ) => Result.Result<AdmittedRelation, EncodingFailure>
 
 /** A relation parameter's normalization, its facts' text rows written beside them. */
@@ -129,7 +134,7 @@ const binaryArray: ColumnArray = (input, column, facts) =>
 	byteaArray(
 		input,
 		column,
-		facts.map((fact) => admitted({ carrier: "bytes" }, fact[column]))
+		facts.map((fact) => admitted({ carrier: "bytes" }, fact[column]).bytes)
 	)
 
 /**
@@ -288,7 +293,8 @@ export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
 	const ownHeading = headingText(s.plan)
-	const normalize: RelationNormalizer = (facts) => {
+	const bytesFields = s.heading.flatMap((f) => (f.spec.carrier === "bytes" ? [f.name] : []))
+	const normalize: RelationNormalizer = (facts, book) => {
 		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
 		for (const fact of facts) {
 			if (fact === null || fact === undefined) {
@@ -309,6 +315,11 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 				return Result.err(encodeFailure(admission.error.fault, placeOf(s, admission.error.field)))
 			}
 			const { identity, fact: value } = admission.value
+			for (const field of bytesFields) {
+				if (!book.holds(admitted({ carrier: "bytes" }, value[field]))) {
+					return Result.err(encodeFailure("bytesCollision", placeOf(s, field)))
+				}
+			}
 			if (!byIdentity.has(identity)) {
 				byIdentity.set(identity, { fact: value })
 			}
@@ -519,7 +530,8 @@ export const normalArray = (
  * of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since the
  * input's array carries it as its base type, so a fact outside them is refused at bind (refinedValue) before any SQL;
  * and each fact's text row, its arrays' elements, every field's text its value's canonical text, so equal inputs give
- * equal rows whatever their order. No parameter is of bytes, the one carrier of no parameter text. A ChangeSet
+ * equal rows whatever their order. No parameter is of bytes, the one carrier of no parameter text, so the book its
+ * admission holds bytes values in is its own and holds none (scalar/values/bytes.ts DigestBook). A ChangeSet
  * member's facts are no parameter: one outside its column's domain is refused by the domain's law (relationNormalizer).
  */
 export const parameterNormalizer = (spec: RelationSpec): ParameterNormalizer =>
@@ -532,7 +544,7 @@ const parameterNormalizerOf = (built: BuiltSpec): ParameterNormalizer => {
 		return member === undefined ? [] : [{ field: c.field, member }]
 	})
 	return (facts) => {
-		const normalized = normalize(facts)
+		const normalized = normalize(facts, new DigestBook())
 		if (!normalized.ok) {
 			return normalized
 		}

@@ -55,7 +55,7 @@ import {
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
-import { isBytes } from "#compiler/scalar/values/bytes.ts"
+import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	admitted,
@@ -740,7 +740,7 @@ const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => val
 
 /** A key field's admitted value as a key value, none for a set's or bytes', which no key holds. */
 const keyHostOf = (value: CarrierHost[Carrier]): KeyHost | undefined =>
-	isSet(value) || isBytes(value) ? undefined : value
+	isSet(value) || isAdmittedBytes(value) ? undefined : value
 
 /**
  * A row's key as the walk holds it: its relation's first declared key, the primary key first, whose every field the

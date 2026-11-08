@@ -719,7 +719,6 @@ export const buildInsert = (
 		return {
 			ast: {
 				...returnedRows(
-					supply,
 					"keyed",
 					outFields.map((f) => returnedColumn(verdict(retCol(f)), rowType(f), retCol(f))),
 					[cteRef(rv)],

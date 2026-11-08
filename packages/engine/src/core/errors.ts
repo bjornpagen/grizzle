@@ -819,6 +819,7 @@ export const valueFaultWords = [
 	"textSurrogate",
 	"bytesType",
 	"bytesLength",
+	"bytesCollision",
 	"bytesLiteral",
 	"codeHandle",
 	"bitsType",

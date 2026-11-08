@@ -7,8 +7,8 @@ import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
  * is written and read back whole, and that is all: its one capability is storage, so no key, unique or containment
  * holds a bytes field, and no rule, selection, filter, computation, parameter, generated field, fold or check reads one.
  * It is written in binary and delivered in chunks, which the statement's delivery assembles into the value
- * (codec/delivery.ts), and a value is at most core/limits.ts bytesMaxLength bytes, whose identity one string holds;
- * every stored bytes column carries the CHECK of that bound (physical/bytes/storage.ts).
+ * (codec/delivery.ts); a write returns only its SHA-256 digest, its identity (scalar/values/bytes.ts BytesDigest). A
+ * value is at most core/limits.ts bytesMaxLength bytes, the longest bytea, so its column needs no CHECK.
  */
 export const bytesDescriptor = defineField(
 	{},

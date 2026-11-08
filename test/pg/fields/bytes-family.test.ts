@@ -19,7 +19,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * A family's members carrying bytes, on PostgreSQL 19rc1: an owner is inserted with members nested in order, each
+ * A family's members carrying bytes, on PostgreSQL 19rc1: an owner of a bytes value of its own, which its nested write
+ * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
  * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
  * (core/limits.ts bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
  * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
@@ -103,7 +104,7 @@ const notes = (d: Drawn): ReadonlyArray<Feature> => {
 	return out
 }
 
-const Owner = relation("Owner", { id: uuid, members: drawnField(natural) }, ["id"])
+const Owner = relation("Owner", { id: uuid, badge: bytes, members: drawnField(natural) }, ["id"])
 const Member = relation("Member", { id: uuid, owner: uuid, at: drawnField(natural), body: bytes }, [
 	"id"
 ])
@@ -164,11 +165,23 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 										id: uuidOf(100 + i),
 										body: streamBytes(x.length, x.seed)
 									}))
+									const badge = streamBytes(d.values.length + 3, 7)
 									const inserted = yield* db.apply(
-										ChangeSet.empty(o.schema).insert(Owner, [{ id: owner, members }]),
+										ChangeSet.empty(o.schema).insert(Owner, [{ id: owner, badge, members }]),
 										{}
 									)
 									assert.equal(inserted.kind, "accepted", "the owner and its members are written")
+									const owners = yield* (yield* db.execute(
+										query(o.schema).rule((r) => {
+											const { id, badge: held } = v(Owner, "o")
+											return r.match(Owner, { id, badge: held }).find({ id, badge: held })
+										}),
+										{}
+									)).collect
+									assert.ok(
+										owners.length === 1 && sameBytes(defined(owners[0], "the owner").badge, badge),
+										"the owner's own bytes, admitted with its nested members, read back whole"
+									)
 									const stored = query(o.schema).rule((r) => {
 										const { id, owner: of, at, body } = v(Member, "m")
 										return r.match(Member, { id, owner: of, at, body }).find({ id, at, body })

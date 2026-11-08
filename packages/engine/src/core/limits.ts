@@ -594,31 +594,18 @@ const varlenaHeaderBytes = published({
 })
 
 /**
- * The most bytes one bytea holds as grizzle writes it: a value arrives in binary, which bytearecv copies into an
- * allocation of its bytes and its header, and palloc refuses an allocation past MaxAllocSize.
+ * The most bytes one bytes value holds, the most one bytea holds: a value arrives in binary, which bytearecv copies into
+ * an allocation of its bytes and its header, and palloc refuses an allocation past MaxAllocSize, which also bounds a
+ * varlena's length word, so no bytea of any writer is longer. A longer value is refused at its boundary (bytesLength),
+ * before any SQL.
  */
-const byteaMaxBytes = derived({
+export const bytesMaxLength: Limit = derived({
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
-	scope: "one bytea value, as bytearecv reads it from a binary parameter",
+	scope: "one bytes value, one bytea, as bytearecv reads it from a binary parameter",
 	from: [maxAllocSize, varlenaHeaderBytes],
 	derivation: `bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes (${postgresSource}/src/backend/utils/adt/bytea.c#L365, verified 2026-11-07), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so nbytes is at most MaxAllocSize - VARHDRSZ`,
 	compute: ([alloc, header]) => alloc.value - header.value
-})
-
-/**
- * The most bytes one bytes value holds: its one text, its windows-1252 decode of one UTF-16 code unit a byte, is one
- * JavaScript string (scalar/values/bytes.ts bytesText), and one bytea holds it. A longer value is refused at its
- * boundary (bytesLength), and every stored bytes column carries the CHECK of this bound, so no writer stores one.
- */
-export const bytesMaxLength: Limit = derived({
-	owner: "grizzle's bytes carrier (scalar/values/bytes.ts)",
-	unit: "bytes",
-	scope: "one bytes value, whose one text is one JavaScript string and which one bytea holds",
-	from: [maxStringLength, byteaMaxBytes],
-	derivation:
-		"a bytes value's one text is one UTF-16 code unit a byte, a string of at most maxStringLength code units, and a bytea holds at most byteaMaxBytes bytes, so the lesser of the two",
-	compute: ([units, bytea]) => Math.min(units.value, bytea.value)
 })
 
 /**

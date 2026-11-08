@@ -15,6 +15,7 @@ import {
 	numericBoundOf,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
+import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
@@ -482,7 +483,7 @@ const readers: {
 	uuid: () => (text) => toResult(toUuid(text)),
 	date: () => (text) => toResult(toCalendarDate(text)),
 	text: () => (text) => toResult(validateText(text)),
-	bytes: () => readBytes,
+	bytes: () => (text) => Result.map(readBytes(text), (bytes) => new AdmittedBytes(bytes)),
 	code: (spec) => readCode(spec.roster),
 	bits: (spec) => readBits(spec.roster),
 	range4: () => readSpan("int4"),

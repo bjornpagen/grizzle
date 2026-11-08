@@ -58,7 +58,9 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
 	bytesType: "bytes: a Uint8Array",
-	bytesLength: `bytes whose one text one JavaScript string holds and one bytea holds: at most ${bytesMaxLength.value} bytes`,
+	bytesLength: `bytes one bytea holds: at most ${bytesMaxLength.value} bytes`,
+	bytesCollision:
+		"bytes whose SHA-256 digest no other bytes value of the write shares: two different values of one digest are a SHA-256 collision, refused rather than taken as one",
 	bytesLiteral:
 		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
 	codeHandle: "a handle of the closed relation's roster",

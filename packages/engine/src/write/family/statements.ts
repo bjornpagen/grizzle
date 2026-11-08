@@ -299,17 +299,15 @@ const returnedFields = (
 	}))
 
 /**
- * The data-modifying CTE `name` and the SELECT of its returned columns as their delivery sends them, as every write
- * statement returns rows (write/insert/statement.ts returnedRows), its names drawn from `supply`.
+ * The data-modifying CTE `name` and the SELECT of its returned columns' texts, as every write statement returns rows
+ * (write/insert/statement.ts returnedRows).
  */
 const returningSelect = (
-	supply: NameSupply,
 	name: string,
 	body: CteBody,
 	returned: ReadonlyArray<Returned>
 ): SqlStatement => ({
 	...returnedRows(
-		supply,
 		"keyed",
 		returned.map((r) => returnedColumn(col(name, r.column), r.type, r.column)),
 		[cteRef(name)],
@@ -410,7 +408,6 @@ export const rowStatement = (
 			const input = arraysOf(w, supply, keyCarried)
 			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
-				supply,
 				r,
 				{
 					kind: "delete",
@@ -456,7 +453,6 @@ export const rowStatement = (
 			const fresh = returnedFields(supply, keyFirst(relation))
 			const old = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
-				supply,
 				r,
 				{
 					kind: "update",
@@ -483,7 +479,6 @@ export const rowStatement = (
 			const input = arraysOf(w, supply, all)
 			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
-				supply,
 				r,
 				{
 					kind: "insert",
@@ -562,7 +557,6 @@ export const countStatement = (
 	const column = (f: LawField): string => w.names.column(owner.name, f.name)
 	const k = keys.length
 	const ast = returningSelect(
-		supply,
 		r,
 		{
 			kind: "update",

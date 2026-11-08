@@ -29,6 +29,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -40,7 +41,7 @@ import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/de
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { bytesText, isBytes } from "#compiler/scalar/values/bytes.ts"
+import { isBytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
@@ -365,7 +366,7 @@ type SentChecked = Checked & { readonly sent: boolean }
 
 /**
  * A delivered row as PostgreSQL sent it: each column's cell text by its field name, a bytes value's its one text (its
- * windows-1252 decode), and each attachment's children by its name, in the delivered order. Its texts spell each value
+ * SHA-256 digest), and each attachment's children by its name, in the delivered order. Its texts spell each value
  * as the server wrote it, the one witness of the spellings a delivery met once grizzle delivers every value in its one
  * form.
  */
@@ -378,7 +379,7 @@ const sentRow = (row: Row, layout: Layout): SentRow => ({
 	texts: new Map(
 		Arr.map([...layout.columns], ([field, at]): readonly [string, string] => {
 			const cell = defined(row.cells[at], `the cell ${at} of ${field}`)
-			return [field, typeof cell === "string" ? cell : bytesText(cell)]
+			return [field, typeof cell === "string" ? cell : sha256Hex(cell)]
 		})
 	),
 	children: new Map(

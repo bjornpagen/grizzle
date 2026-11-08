@@ -79,8 +79,8 @@ import {
 } from "#compiler/plan/common.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 
-/** The answers of a statement the flight did not send. */
-const noAnswers: ReadonlyArray<Raw> = []
+/** The rows of a statement the flight did not send. */
+const noRows: Raw = []
 
 /**
  * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
@@ -518,21 +518,17 @@ export const runWrite = <R>(
 		}
 		const outcomes = ran.success
 		/**
-		 * The answers of each sent write statement, by its position in the artifact, one per execution in the order they
-		 * ran, each read on its own (write/program/artifact.ts writeRows); a statement not sent answered none.
+		 * The rows of each sent write statement, by its position in the artifact, its executions' in the order they
+		 * ran; a statement not sent answered none.
 		 */
-		const raws = new Map<number, Array<Raw>>()
+		const raws = new Map<number, Raw>()
 		for (const [one, outcome] of Arr.zip(sent, outcomes)) {
 			if (one.kind !== "statement") {
 				continue
 			}
 			const s = one.statement
 			const before = raws.get(s.index)
-			if (before === undefined) {
-				raws.set(s.index, [outcome.rows])
-			} else {
-				before.push(outcome.rows)
-			}
+			raws.set(s.index, before === undefined ? outcome.rows : [...before, ...outcome.rows])
 		}
 		/**
 		 * The read-backs' Rows, read from the statements after the written ones: a read-back whose answer repeats a row is
@@ -545,6 +541,6 @@ export const runWrite = <R>(
 					reason: new UnreadableAnswer({ index: written + unreadable.index, fate: unreadable.fate })
 				})
 		)
-		const changes = interpretRows(program.outcomeContext, artifact, (i) => raws.get(i) ?? noAnswers)
+		const changes = interpretRows(program.outcomeContext, artifact, (i) => raws.get(i) ?? noRows)
 		return committedOutcome(changes.outcome, changes.counts, reads.read(readsRow(delivered)))
 	})

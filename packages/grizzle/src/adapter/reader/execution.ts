@@ -26,6 +26,7 @@ import {
 	cellKindOf,
 	type Delivery,
 	deliveryOf,
+	sameBytes,
 	scalarReader
 } from "#compiler/plan/decode.ts"
 import {
@@ -496,17 +497,35 @@ const noSlots: ReadonlyArray<ReadonlyArray<Row>> = Object.freeze([])
 const noRows: ReadonlyArray<Row> = Object.freeze([])
 
 /**
- * Whether two of `rows` have one identity (RowIdentity): a repeat, which no statement grizzle delivers holds, since
- * every delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
+ * Whether two cells of one identity hold one value: always, but a bytes cell, whose identity is its digest, holds its
+ * bytes (scalar/values/bytes.ts sameBytes).
+ */
+const sameCells = (a: ReadonlyArray<Cell>, b: ReadonlyArray<Cell>): boolean =>
+	a.every((cell, at) => {
+		const other = b[at]
+		return (
+			typeof cell === "string" ||
+			(other !== undefined && typeof other !== "string" && sameBytes(cell, other))
+		)
+	})
+
+/**
+ * Whether two of `rows` are one row: one identity (RowIdentity), and the same bytes where a column holds bytes (sameCells),
+ * so two rows of one digest that differ are two. A repeat is what no statement grizzle delivers holds, since every
+ * delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
 const repeats = (rows: AssembledRows, identity: RowIdentity): boolean => {
-	const seen = new TupleMap<ReadonlyArray<string>, ReadonlyArray<Cell>>()
+	const seen = new TupleMap<ReadonlyArray<string>, Array<ReadonlyArray<Cell>>>()
 	for (const cells of rows) {
 		const one = identity(cells)
-		if (seen.has(one)) {
+		const held = seen.get(one)
+		if (held === undefined) {
+			seen.set(one, [cells])
+		} else if (held.some((other) => sameCells(other, cells))) {
 			return true
+		} else {
+			held.push(cells)
 		}
-		seen.set(one, cells)
 	}
 	return false
 }

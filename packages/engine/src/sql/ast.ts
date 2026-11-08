@@ -312,7 +312,8 @@ export const builtinFunctionNames = [
 	"generate_subscripts",
 	"make_date",
 	"encode",
-	"generate_series"
+	"generate_series",
+	"sha256"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
