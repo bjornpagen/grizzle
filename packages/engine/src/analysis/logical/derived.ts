@@ -1,30 +1,28 @@
 import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { type KeyAlternative, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
+import { type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 
 /**
  * A key a derived or world relation inherits from its definition: its columns, columns of its heading in heading order,
- * the proof that they are a key, and the other minimal keys of its factors its definition proves, which a Base over the
- * view states beside it (ir/keys.ts ViewKey alternatives): none but on the first key of a proof.
+ * and the proof that they are a key, whose factors' alternatives a Base over the view states beside it (ir/keys.ts
+ * ViewKey alternatives): the root's proof has them, and a key one alternative away from it is proved alone.
  */
 export interface InheritedKey<C extends HeadingColumn> {
 	readonly columns: NonEmptyReadonlyArray<C>
 	readonly proof: KeyProof
-	readonly alternatives: ReadonlyArray<KeyAlternative>
 }
 
 /**
  * A definition's proved keys as a derived relation's keys, over its heading's columns: of each of the root's proofs
- * (logical/props.ts), its key with its factors' alternatives, then each key one alternative away from it, each proved
- * by its own derivation (`prove`), each in heading order, narrowest first, then by the heading positions of their
- * columns. Every other minimal key of the definition chooses among their factors, which the first key's alternatives
- * state, so a definition of k independent factors of two keys each is k + 1 keys, each with its unique index, never
- * 2^k. A key is over classes of equal columns and states each class by its first column in heading order, so a view
- * has one unique index per key of its classes; another column of a class stands for its first (ViewKey members).
- * When the root has the empty key, at most one fact, the one key is the first heading column `representable` admits as
- * a one-column key, or the whole heading when it admits none (whose own check then refuses it), its proof the empty
- * key's.
+ * (logical/props.ts), its key, then each key one alternative away from it, each proved by its own derivation
+ * (`prove`), each in heading order, narrowest first, then by the heading positions of their columns. Every other
+ * minimal key of the definition chooses among its factors, which the first key's alternatives state, so a definition
+ * of k independent factors of two keys each is k + 1 keys, each with its unique index, never 2^k. A key is over classes
+ * of equal columns and states each class by its first column in heading order, so a view has one unique index per key
+ * of its classes; another column of a class stands for its first (ViewKey members). When the root has the empty key,
+ * at most one fact, the one key is the first heading column `representable` admits as a one-column key, or the whole
+ * heading when it admits none (whose own check then refuses it), its proof the empty key's.
  *
  * The keys a derived relation inherits from its definition.
  *
@@ -48,21 +46,23 @@ export const inheritedKeys = <C extends HeadingColumn>(
 	const empty = proved.find((k) => k.key.length === 0)
 	if (empty !== undefined) {
 		const single = heading.find((c) => representable(c))
-		return [{ columns: single === undefined ? heading : [single], proof: empty, alternatives: [] }]
+		return [{ columns: single === undefined ? heading : [single], proof: empty }]
 	}
 	const position = new Map(heading.map((c, i) => [c.name, i]))
 	const at = (c: C) => defined(position.get(c.name), "a key's column is a column of its heading")
 	const listed = proved.flatMap((proof) => [
-		{ proof, alternatives: proof.alternatives },
-		...proof.alternatives.flatMap((a) => {
-			const swapped = prove(keyWith(proof, a))
-			return swapped === undefined ? [] : [{ proof: swapped, alternatives: [] }]
-		})
+		proof,
+		...proof.factors.flatMap((f) =>
+			f.alternatives.flatMap((a) => {
+				const swapped = prove(keyWith(proof, f, a))
+				return swapped === undefined ? [] : [swapped]
+			})
+		)
 	])
 	return listed
-		.flatMap((k): ReadonlyArray<InheritedKey<C>> => {
-			const columns = heading.filter((c) => k.proof.key.includes(c.name))
-			return isNonEmpty(columns) ? [{ columns, proof: k.proof, alternatives: k.alternatives }] : []
+		.flatMap((proof): ReadonlyArray<InheritedKey<C>> => {
+			const columns = heading.filter((c) => proof.key.includes(c.name))
+			return isNonEmpty(columns) ? [{ columns, proof }] : []
 		})
 		.toSorted((a, b) => {
 			if (a.columns.length !== b.columns.length) {

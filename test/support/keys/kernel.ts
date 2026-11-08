@@ -112,7 +112,7 @@ const partsBeneath = (part: KeyProof | Implication): ReadonlyArray<KeyProof | Im
 	}
 	const members = [
 		...Arr.map(part.members, (m) => m.determines),
-		...Arr.map(part.alternatives, (a) => a.determines)
+		...Arr.flatMap(part.factors, (f) => Arr.map(f.alternatives, (a) => a.determines))
 	]
 	switch (part.basis.kind) {
 		case "rows":
@@ -437,33 +437,37 @@ export class KeyKernel {
 				break
 			}
 		}
-		/** The key column each factor's first column stands at, by its alternatives' `of`. */
-		const factorOf = new Map<string, ReadonlyArray<string>>()
-		for (const a of p.alternatives) {
-			const stands = `${at}: alternative [${Arr.join(a.columns, ", ")}] for [${Arr.join(a.of, ", ")}]`
-			appendAll(faults, checked.implication(a.determines))
-			if (a.of.length === 0 || !within(a.of, p.key) || !within(a.columns, heading)) {
-				faults.push(`${stands}: not heading columns standing for key columns`)
-			}
-			const claimed = Arr.flatMap(a.of, (c) => {
-				const f = factorOf.get(c)
-				return f === undefined ? [] : [f]
-			})
-			if (Arr.some(claimed, (f) => !sameSet(f, a.of))) {
-				faults.push(`${stands}: a factor overlapping another`)
-			}
-			for (const c of a.of) {
-				factorOf.set(c, a.of)
-			}
-			if (
-				a.determines.node !== p.node ||
-				!sameSet(a.determines.from, a.columns) ||
-				!within(a.of, this.#derived(a.determines))
-			) {
-				faults.push(`${stands}: its derivation does not derive the key columns from it`)
+		const factored = Arr.flatMap(p.factors, (f) => f.key)
+		if (factored.length !== new Set(factored).size || !sameSet(factored, p.key)) {
+			faults.push(`${at}: factors whose keys do not partition the key`)
+		}
+		for (const f of p.factors) {
+			for (const a of f.alternatives) {
+				const stands = `${at}: alternative [${Arr.join(a.columns, ", ")}] for [${Arr.join(f.key, ", ")}]`
+				appendAll(faults, checked.implication(a.determines))
+				if (!within(a.columns, heading)) {
+					faults.push(`${stands}: not heading columns`)
+				}
+				const given = Arr.filter(a.determines.from, (c) => !a.columns.includes(c))
+				if (
+					a.determines.node !== p.node ||
+					!within(a.columns, a.determines.from) ||
+					!within(
+						given,
+						Arr.filter(p.key, (c) => !f.key.includes(c))
+					) ||
+					!within(f.key, this.#derived(a.determines))
+				) {
+					faults.push(
+						`${stands}: its derivation does not derive the factor's key from it and other factors' key columns`
+					)
+				}
 			}
 		}
-		const standable = new Set([...p.key, ...Arr.flatMap(p.alternatives, (a) => a.columns)])
+		const standable = new Set([
+			...p.key,
+			...Arr.flatMap(p.factors, (f) => Arr.flatMap(f.alternatives, (a) => a.columns))
+		])
 		for (const m of p.members) {
 			const stands = `${at}: member ${m.column} for ${m.of}`
 			appendAll(faults, checked.implication(m.determines))
@@ -628,8 +632,8 @@ export class KeyKernel {
 				return Arr.some(
 					alternatives,
 					(a) =>
-						sameSet(a.columns, d.from) &&
-						sameSet(a.of, d.to) &&
+						((sameSet([...a.columns, ...a.given], d.from) && sameSet(a.of, d.to)) ||
+							(sameSet([...a.of, ...a.given], d.from) && sameSet(a.columns, d.to))) &&
 						a.context === r.context &&
 						a.premises.length === r.premises.length &&
 						Arr.every(a.premises, (q, i) => {
@@ -1484,7 +1488,7 @@ export class KeyKernel {
 			}
 		}
 		Arr.forEach(p.members, (m) => fromImplication(m.determines))
-		Arr.forEach(p.alternatives, (a) => fromImplication(a.determines))
+		Arr.forEach(p.factors, (f) => Arr.forEach(f.alternatives, (a) => fromImplication(a.determines)))
 		switch (p.basis.kind) {
 			case "rows":
 				fromImplication(p.basis.implication)

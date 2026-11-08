@@ -1692,8 +1692,11 @@ const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
 		members: S.array(
 			S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
 		),
-		alternatives: S.array(
-			S.struct({ of: keySetShape, columns: keySetShape, determines: implicationShape })
+		factors: S.array(
+			S.struct({
+				key: S.nonEmptyUniqueStrings("a factor's key columns"),
+				alternatives: S.array(S.struct({ columns: keySetShape, determines: implicationShape }))
+			})
 		),
 		basis: S.tagged("kind", {
 			rows: S.struct({ implication: implicationShape }),
@@ -1722,6 +1725,7 @@ const viewKeyShape: S.Shape<ViewKey> = S.struct({
 		S.struct({
 			of: keySetShape,
 			columns: keySetShape,
+			given: keySetShape,
 			premises: S.array(premiseShape),
 			context: evidenceContextShape
 		})

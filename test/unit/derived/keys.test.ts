@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -14,7 +14,15 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
@@ -180,6 +188,28 @@ const joinSketchGen: Gen<JoinSketch> = (source) => ({
 	head: source.draw(int(0, 2 ** joinVariables - 1)),
 	order: source.draw(shuffled(indices(joinVariables), { min: joinVariables, max: joinVariables }))
 })
+
+/** A relation keyed by either of its two fields, so the variables bound to them are alternatives of each other. */
+const eitherKeyed: JoinRelation = { width: 2, keys: [1, 2] }
+
+/**
+ * A join of two relations keyed by either of their two fields, each field bound to a variable of its own and every
+ * variable in the head: its keys are two factors, each with an alternative, which joinSketchGen draws too rarely to rely
+ * on.
+ */
+const twoFactorSketchGen: Gen<JoinSketch> = (source) => {
+	const variables = source.draw(
+		shuffled(indices(joinVariables), { min: joinVariables, max: joinVariables })
+	)
+	return {
+		matched: Arr.map(Arr.chunksOf(nonEmpty(variables, "the variables"), 2), (pair) => ({
+			relation: eitherKeyed,
+			bindings: Arr.map(pair, (variable): Binding => ({ kind: "bound", variable }))
+		})),
+		head: 2 ** joinVariables - 1,
+		order: source.draw(shuffled(indices(joinVariables), { min: joinVariables, max: joinVariables }))
+	}
+}
 
 /** Whether position `at` is in `mask`. */
 const holds = (mask: number, at: number): boolean => (mask & (1 << at)) !== 0
@@ -365,18 +395,36 @@ type JoinFeature =
 	| "the whole heading"
 	| "a key narrower than the heading"
 	| "several keys"
+	| "a key of two factors, each with an alternative"
 	| "a candidate key determines"
 	| "a join of several relations"
 
+/** The column of `k` that `other`, a key of its width, stands in place of: none unless they differ in exactly one. */
+const swappedColumn = (
+	k: ReadonlyArray<number>,
+	other: ReadonlyArray<number>
+): Option.Option<number> => {
+	const lacked = Arr.filter(k, (x) => !other.includes(x))
+	return other.length === k.length && lacked.length === 1 ? Arr.head(lacked) : Option.none()
+}
+
+/** Whether a key has alternatives for two of its columns: two other keys, each in place of a different one. */
+const twoFactors = (keys: ReadonlyArray<ReadonlyArray<number>>): boolean =>
+	Arr.some(
+		keys,
+		(k) => Arr.dedupe(Arr.getSomes(Arr.map(keys, (other) => swappedColumn(k, other)))).length > 1
+	)
+
 /**
- * What a join's keys reached: several, one narrower than its heading or the whole heading alone, a candidate key whose
- * dependency the keys need, and a join of several relations.
+ * What a join's keys reached: several, one narrower than its heading or the whole heading alone, a key of two factors
+ * each with an alternative, a candidate key whose dependency the keys need, and a join of several relations.
  */
 const joinFeatures = (
 	j: Join,
 	keys: ReadonlyArray<ReadonlyArray<number>>
 ): ReadonlyArray<JoinFeature> => [
 	...(keys.length > 1 ? ["several keys" as const] : []),
+	...(twoFactors(keys) ? ["a key of two factors, each with an alternative" as const] : []),
 	Arr.some(keys, (k) => k.length < j.head.length)
 		? "a key narrower than the heading"
 		: "the whole heading",
@@ -389,6 +437,330 @@ const joinFeatures = (
 	...(j.matched.length > 1 ? ["a join of several relations" as const] : []),
 	...(deepEquals(j.named, j.head) ? [] : ["a head out of its variables' order" as const])
 ]
+
+/**
+ * The join a witness checks: its drawn one, or, while a key of two factors each with an alternative is pending, a
+ * planted one (twoFactorSketchGen), whose factors' alternatives the analysis lists after the proof, out of heading order
+ * until inheritedKeys sorts them.
+ */
+const aimedJoin = (drawnJoin: Join, c: Case<JoinFeature>): Join =>
+	Option.exists(c.steering, (pending) =>
+		pending.has("a key of two factors, each with an alternative")
+	)
+		? joinOf(c.draw(twoFactorSketchGen))
+		: drawnJoin
+
+/** What reads a product's view a level above: nothing, the view whole, or the view whole beside a relation of its base. */
+type Above =
+	| { readonly kind: "none" }
+	| { readonly kind: "whole" }
+	| { readonly kind: "beside"; readonly relation: number }
+
+/**
+ * A product: a join of one to four relations, most keyed by either of their first two fields, each field bound to a
+ * variable of its own, to an earlier field's variable (a join on it) or left free, every relation binding one; its head
+ * a drawn subset of the variables in a drawn order (a projection); and what reads its view a level above.
+ */
+interface ProductSketch {
+	readonly join: JoinSketch
+	readonly above: Above
+}
+
+/** How a product binds a field: to a variable of its own, to an earlier field's, or not at all. */
+type ProductBinding = "own" | "shared" | "free"
+
+/** A relation of a product: most keyed by either of their first two fields, the rest as a join's relations are. */
+const productRelationGen: Gen<JoinRelation> = weighted([
+	[3, map(int(2, 3), (width): JoinRelation => ({ width, keys: [1, 2] }))],
+	[1, joinRelationGen]
+])
+
+const productBindingGen: Gen<ProductBinding> = weighted([
+	[6, constant<ProductBinding>("own")],
+	[1, constant<ProductBinding>("shared")],
+	[1, constant<ProductBinding>("free")]
+])
+
+const aboveGen =
+	(relations: number): Gen<Above> =>
+	(source) =>
+		source.draw(
+			weighted<Above>([
+				[2, constant<Above>({ kind: "none" })],
+				[1, constant<Above>({ kind: "whole" })],
+				[1, map(int(0, relations - 1), (relation): Above => ({ kind: "beside", relation }))]
+			])
+		)
+
+/**
+ * A product over `relations`, each field bound by `binding`: a variable of its own is the next one minted, a shared
+ * field takes a drawn earlier one, and a relation that bound none binds its first field to one of its own. Each
+ * variable is in the head as `inHead` draws.
+ */
+const productGen =
+	(
+		relations: Gen<Arr.NonEmptyReadonlyArray<JoinRelation>>,
+		binding: Gen<ProductBinding>,
+		inHead: Gen<boolean>
+	): Gen<ProductSketch> =>
+	(source) => {
+		const drawn = source.draw(relations)
+		let minted = 0
+		const mint = (): Binding => {
+			minted += 1
+			return { kind: "bound", variable: minted - 1 }
+		}
+		const bindingOf = (kind: ProductBinding): Binding =>
+			kind === "free"
+				? { kind: "free" }
+				: kind === "shared" && minted > 0
+					? { kind: "bound", variable: source.draw(int(0, minted - 1)) }
+					: mint()
+		const matched = Arr.map(drawn, (relation): Matched => {
+			const bindings = Arr.map(indices(relation.width), () => bindingOf(source.draw(binding)))
+			return {
+				relation,
+				bindings: Arr.some(bindings, (b) => b.kind === "bound")
+					? bindings
+					: [mint(), ...bindings.slice(1)]
+			}
+		})
+		const variables = indices(minted)
+		return {
+			join: {
+				matched,
+				head: Arr.reduce(variables, 0, (mask, x) => (source.draw(inHead) ? mask | (1 << x) : mask)),
+				order: source.draw(shuffled(variables, { min: minted, max: minted }))
+			},
+			above: source.draw(aboveGen(drawn.length))
+		}
+	}
+
+const productSketchGen: Gen<ProductSketch> = productGen(
+	map(array(productRelationGen, { min: 1, max: 4 }), (relations) =>
+		nonEmpty(relations, "the relations")
+	),
+	productBindingGen,
+	weighted([
+		[3, constant(true)],
+		[1, constant(false)]
+	])
+)
+
+/** Four relations keyed by either of their two fields, each field a variable of its own in the head: four factors. */
+const fourFactorSketchGen: Gen<ProductSketch> = productGen(
+	constant<Arr.NonEmptyReadonlyArray<JoinRelation>>([
+		eitherKeyed,
+		eitherKeyed,
+		eitherKeyed,
+		eitherKeyed
+	]),
+	constant<ProductBinding>("own"),
+	constant(true)
+)
+
+/** A product resolved: its join, and what reads its view a level above. */
+interface Product {
+	readonly join: Join
+	readonly above: Above
+}
+
+const productOf = (sketch: ProductSketch): Product => ({
+	join: joinOf(sketch.join),
+	above: sketch.above
+})
+
+/** The name a level above gives a field of the relation it reads beside the view. */
+const besideName = (field: number): string => `w${field}`
+
+/** Every set of `size` of `columns`, each in their order. */
+const subsetsOfSize = (
+	columns: ReadonlyArray<string>,
+	size: number
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const [first, ...rest] = columns
+	if (size === 0) {
+		return [[]]
+	}
+	return first === undefined
+		? []
+		: [
+				...Arr.map(subsetsOfSize(rest, size - 1), (s) => [first, ...s]),
+				...subsetsOfSize(rest, size)
+			]
+}
+
+/** The distinct parts on `side` of a family of keys, each spelled by its sorted columns. */
+const partsOn = (
+	family: ReadonlyArray<ReadonlyArray<string>>,
+	side: ReadonlyArray<string>
+): ReadonlyArray<string> =>
+	Arr.dedupe(
+		Arr.map(family, (k) => Arr.join(Arr.sort(Arr.intersection(k, side), Order.String), ","))
+	)
+
+/**
+ * The finest partition of a family of minimal keys' columns that the family is the product of, each part with the
+ * family's distinct parts on it, by brute force. A part splits off the columns left when the family's parts on it, times
+ * its parts on the rest, are as many as its parts on all of them; the finest part holding a column is the least such
+ * part holding it, since two parts that split off meet in one that does.
+ */
+const finestFactors = (
+	keys: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const factors: Array<ReadonlyArray<string>> = []
+	let left = Arr.dedupe(Arr.flatten(keys))
+	for (let [column] = left; column !== undefined; [column] = left) {
+		const held = column
+		const others = Arr.filter(left, (c) => c !== held)
+		const splits = (part: ReadonlyArray<string>): boolean =>
+			partsOn(keys, part).length * partsOn(keys, Arr.difference(left, part)).length ===
+			partsOn(keys, left).length
+		const part = Arr.findFirst(
+			Arr.flatMap(indices(others.length + 1), (size) =>
+				Arr.map(subsetsOfSize(others, size), (s) => [held, ...s])
+			),
+			splits
+		)
+		const factor = Option.getOrElse(part, () => left)
+		factors.push(partsOn(keys, factor))
+		left = Arr.difference(left, factor)
+	}
+	return factors
+}
+
+/** The unique indexes a view of minimal keys `keys` states: the key, and one per alternative of each finest factor. */
+const productIndexes = (keys: ReadonlyArray<ReadonlyArray<string>>): number =>
+	1 + Arr.reduce(finestFactors(keys), 0, (n, parts) => n + parts.length - 1)
+
+/**
+ * The laws a product's view keeps: the derived relation keys' rules; every key it indexes a minimal key; the keys it
+ * states, each key's factors chosen among their alternatives, exactly the minimal keys; and one unique index for the key
+ * and each alternative of each factor of their finest product, k + 1 for k factors of two keys each.
+ */
+const productLaws = (
+	r: Parameters<typeof keyRules>[0] & {
+		readonly read: { readonly keys: Parameters<typeof viewStated>[0] }
+	},
+	minimal: ReadonlyArray<ReadonlyArray<string>>
+): void => {
+	keyRules(r)
+	assert.ok(
+		Arr.every(r.keys, (k) =>
+			Arr.some(minimal, (m) => deepEquals<ReadonlyArray<string>>(m, k.fields))
+		),
+		`every key ${r.name} indexes is a minimal key`
+	)
+	unorderedEqual(
+		viewStated(r.read.keys),
+		Arr.map(minimal, (k) => Arr.sort(k, Order.String))
+	)
+	assert.equal(
+		r.keys.length,
+		productIndexes(minimal),
+		`${r.name}: one index per alternative of a factor`
+	)
+}
+
+type ProductFeature =
+	| "four factors of two minimal keys each"
+	| "a factor's minimal key of several columns"
+	| "a projection dropping a column"
+	| "relations joined on a variable"
+	| "a level reading the view whole"
+	| "a level reading the view beside one of its relations"
+
+/** What a product and its view's minimal keys reached. */
+const productFeatures = (
+	p: Product,
+	keys: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ProductFeature> => {
+	const bound = Arr.flatMap(p.join.matched, (m) => Arr.flatMap(m.bindings, variableOf))
+	const alternated = Arr.filter(finestFactors(keys), (parts) => parts.length > 1)
+	return [
+		...(alternated.length >= 4 ? ["four factors of two minimal keys each" as const] : []),
+		...(Arr.some(alternated, (parts) => Arr.some(parts, Str.includes(",")))
+			? ["a factor's minimal key of several columns" as const]
+			: []),
+		...(p.join.head.length < Arr.dedupe(bound).length
+			? ["a projection dropping a column" as const]
+			: []),
+		...(Arr.dedupe(bound).length < bound.length ? ["relations joined on a variable" as const] : []),
+		...(p.above.kind === "whole" ? ["a level reading the view whole" as const] : []),
+		...(p.above.kind === "beside"
+			? ["a level reading the view beside one of its relations" as const]
+			: [])
+	]
+}
+
+/**
+ * The definition a level above a product's view reads it by, and its minimal keys: the view whole, each column bound to
+ * a variable of the head under its own name, whose keys are the view's; or beside a relation of the base, each of its
+ * fields in the head, whose keys are each of the view's with each of the relation's, its keys apart from each other.
+ */
+const aboveOf = (
+	p: Product,
+	view: ReturnType<typeof runtimeDerived>,
+	level: ReturnType<typeof runtimeSchema.extend>
+):
+	| { readonly definition: QueryValue; readonly minimal: ReadonlyArray<ReadonlyArray<string>> }
+	| undefined => {
+	const j = p.join
+	const minimal = Arr.map(
+		minimalKeys(j, (r) => r.keys),
+		(k) => Arr.map(k, headName)
+	)
+	const viewTerms = (r: RuleValue) => {
+		const d = varsOver(view, "d")
+		const terms = Rec.fromEntries(Arr.map(j.head, (x) => [headName(x), d[headName(x)]] as const))
+		return { ruled: r.match(view, terms), terms }
+	}
+	switch (p.above.kind) {
+		case "none":
+			return undefined
+		case "whole":
+			return {
+				definition: queryOver(level).rule((r: RuleValue) => {
+					const { ruled, terms } = viewTerms(r)
+					return ruled.find(terms)
+				}),
+				minimal
+			}
+		case "beside": {
+			const at = p.above.relation
+			const value = defined(j.base.values[at], "the relation beside the view")
+			const relation = defined(j.matched[at], "the relation beside the view").relation
+			const fields = indices(relation.width)
+			return {
+				definition: queryOver(level).rule((r: RuleValue) => {
+					const { ruled, terms } = viewTerms(r)
+					const e = varsOver(value, "e")
+					return ruled
+						.match(
+							value,
+							Rec.fromEntries(Arr.map(fields, (f) => [fieldName(f), e[fieldName(f)]] as const))
+						)
+						.find({
+							...terms,
+							...Rec.fromEntries(Arr.map(fields, (f) => [besideName(f), e[fieldName(f)]] as const))
+						})
+				}),
+				minimal: Arr.flatMap(minimal, (k) =>
+					Arr.map(relation.keys, (mask) => [
+						...k,
+						...Arr.map(bitsOf(mask, relation.width), besideName)
+					])
+				)
+			}
+		}
+	}
+}
+
+/** The product a witness checks: its drawn one, or, while four factors of two keys are pending, a planted one. */
+const aimedProduct = (drawnProduct: Product, c: Case<ProductFeature>): Product =>
+	Option.exists(c.steering, (pending) => pending.has("four factors of two minimal keys each"))
+		? productOf(c.draw(fourFactorSketchGen))
+		: drawnProduct
 
 /**
  * A field of the stored relation beside its uuid key `id`: a text of up to 255 characters, PostgreSQL's repetition
@@ -833,6 +1205,7 @@ describe("derived relation keys", () => {
 								"the whole heading",
 								"a key narrower than the heading",
 								"several keys",
+								"a key of two factors, each with an alternative",
 								"a candidate key determines",
 								"a join of several relations",
 								"a head out of its variables' order",
@@ -848,8 +1221,9 @@ describe("derived relation keys", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(j, c) =>
+					(drawnJoin, c) =>
 						Effect.sync(() => {
+							const j = aimedJoin(drawnJoin, c)
 							const expected = minimalKeys(j, (r) => r.keys)
 							const d = defined(
 								succeeded(
@@ -891,6 +1265,82 @@ describe("derived relation keys", () => {
 								Arr.contains(reached, "several keys")
 							) {
 								c.pair("a head out of its variables' order", "several keys")
+							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"index a product of relations keyed by either of two fields once per alternative of a factor, through projections, joins and a level above, stating exactly its minimal keys",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/derived/product-keys",
+						draw: sketched(productSketchGen, productOf),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the head's minimal sets whose closure under each matched relation's keys holds it, a level above's those with each key of the relation beside the view, and the finest partition of their columns they are the product of, found over every part"
+						},
+						coverage: required<ProductFeature>(
+							[
+								"four factors of two minimal keys each",
+								"a factor's minimal key of several columns",
+								"a projection dropping a column",
+								"relations joined on a variable",
+								"a level reading the view whole",
+								"a level reading the view beside one of its relations",
+								["four factors of two minimal keys each", "a level reading the view whole"]
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(drawnProduct, c) =>
+						Effect.sync(() => {
+							const p = aimedProduct(drawnProduct, c)
+							const j = p.join
+							const minimal = Arr.map(
+								minimalKeys(j, (r) => r.keys),
+								(k) => Arr.map(k, headName)
+							)
+							const view = runtimeDerived("D", j.definition, [])
+							const level = runtimeSchema.extend(j.base.schema, { D: view }, [], [])
+							const above = aboveOf(p, view, level)
+							const analysis = succeeded(
+								Result.map(
+									checkedIn(
+										above === undefined
+											? level
+											: runtimeSchema.extend(
+													level,
+													{ E: runtimeDerived("E", above.definition, []) },
+													[],
+													[]
+												)
+									),
+									derivedAnalysis
+								)
+							)
+							productLaws(defined(analysis.relations["D"]), minimal)
+							if (above !== undefined) {
+								productLaws(defined(analysis.relations["E"]), above.minimal)
+							}
+							const reached = productFeatures(p, minimal)
+							c.noteAll(reached)
+							if (
+								Arr.contains(reached, "four factors of two minimal keys each") &&
+								Arr.contains(reached, "a level reading the view whole")
+							) {
+								c.pair("four factors of two minimal keys each", "a level reading the view whole")
 							}
 						})
 				)

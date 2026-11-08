@@ -33,7 +33,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type { KeyProof } from "#compiler/ir/keys.ts"
+import { type KeyProof, soleFactor } from "#compiler/ir/keys.ts"
 import {
 	type AggregateSpecOver,
 	type CompletedOrder,
@@ -380,7 +380,7 @@ export const statedKey = (key: KeySet): KeyProof => ({
 	key,
 	basis: { kind: "rows", implication: { node: statedNode, from: key, steps: [] } },
 	members: [],
-	alternatives: [],
+	factors: soleFactor(key),
 	premises: [],
 	context: "queryLocal"
 })

@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
@@ -211,125 +211,194 @@ export const minimalKeys = <W>(
 	return antichain.toSorted((a, b) => order(a.key, b.key))
 }
 
-/**
- * The independent factors of a table's minimal keys: the columns that can stand in a minimal key, partitioned so that
- * no dependency joins two parts, each part with the dependencies within it. Every minimal key of the table is one
- * minimal key of each factor together, and every such choice is one (a product), so the factors state 2^k keys in 2k
- * when each of k factors has two.
- *
- * The columns that can stand in a minimal key are found by pruning: a column some dependency determines and no
- * dependency still standing reads is never in a minimal key, since a key holding it determines it from its other
- * columns, its value reaching nothing a later step needs; a dependency whose every determined column was pruned stands
- * no longer, and the columns it read are judged again, until none is pruned. What remains splits into the connected
- * parts of the standing dependencies, each joining its determinants with the columns it determines among them; a
- * column no dependency touches is a factor alone, in every key. A start determines the heading exactly when it holds a
- * key of every factor, under that factor's dependencies alone, since the pruned columns follow from the factors in the
- * reverse of the order they were pruned in.
- *
- * Linear in the table's size: each dependency is retired once, each column pruned once.
- */
-export const independentFactors = (
-	columns: ReadonlyArray<string>,
-	dependencies: ReadonlyArray<{ readonly from: KeySet; readonly to: KeySet }>
-): {
-	readonly factors: ReadonlyArray<NonEmptyReadonlyArray<string>>
-	readonly factorOf: ReadonlyMap<string, number>
-} => {
-	/** Each dependency with its determined columns not yet pruned: zero once it stands no longer. */
-	const states = dependencies.map((d) => ({ d, standing: d.to.length }))
-	/** Each column's standing dependencies reading it, and the dependencies determining it. */
-	const readers = new Map<string, number>()
-	const determiners = new Map<string, Array<(typeof states)[number]>>()
-	for (const state of states) {
-		const d = state.d
-		if (d.to.length === 0) {
-			continue
-		}
-		for (const c of d.from) {
-			readers.set(c, (readers.get(c) ?? 0) + 1)
-		}
-		for (const c of d.to) {
-			const by = determiners.get(c)
-			if (by === undefined) {
-				determiners.set(c, [state])
+/** A dependency of the factor search: its determinants, each once, and the columns it determines as it now stands. */
+interface Row {
+	readonly from: ReadonlyArray<string>
+	to: ReadonlyArray<string>
+}
+
+/** Each column's dependencies reading it. */
+const readersOf = (rows: ReadonlyArray<Row>): ReadonlyMap<string, ReadonlyArray<Row>> => {
+	const readers = new Map<string, Array<Row>>()
+	for (const row of rows) {
+		for (const c of row.from) {
+			const reading = readers.get(c)
+			if (reading === undefined) {
+				readers.set(c, [row])
 			} else {
-				by.push(state)
+				reading.push(row)
 			}
 		}
 	}
-	const pruned = new Set<string>()
-	const queue = columns.filter((c) => determiners.has(c) && !readers.has(c))
-	for (let c = queue.pop(); c !== undefined; c = queue.pop()) {
-		if (pruned.has(c)) {
-			continue
+	return readers
+}
+
+/**
+ * A closure that grows: what the columns added so far determine under `rows` but `skipped`. Each dependency fires once
+ * its last determinant is known, so the closure of everything ever added is linear in the table's size.
+ */
+const growing = (
+	rows: ReadonlyArray<Row>,
+	readers: ReadonlyMap<string, ReadonlyArray<Row>>,
+	skipped: Row | undefined
+): { readonly known: ReadonlySet<string>; readonly add: (columns: Iterable<string>) => void } => {
+	const known = new Set<string>()
+	const queue: Array<string> = []
+	const missing = new Map<Row, number>()
+	const reach = (c: string): void => {
+		if (!known.has(c)) {
+			known.add(c)
+			queue.push(c)
 		}
-		pruned.add(c)
-		for (const state of determiners.get(c) ?? []) {
-			state.standing -= 1
-			if (state.standing > 0) {
-				continue
-			}
-			for (const r of state.d.from) {
-				const reading = (readers.get(r) ?? 0) - 1
-				readers.set(r, reading)
-				if (reading === 0 && determiners.has(r)) {
-					queue.push(r)
+	}
+	const fire = (row: Row): void => {
+		if (row !== skipped) {
+			row.to.forEach(reach)
+		}
+	}
+	const drain = (): void => {
+		for (let c = queue.pop(); c !== undefined; c = queue.pop()) {
+			for (const row of readers.get(c) ?? []) {
+				const left = (missing.get(row) ?? row.from.length) - 1
+				missing.set(row, left)
+				if (left === 0) {
+					fire(row)
 				}
 			}
 		}
 	}
-	/** Union-find over the columns that remain, by the standing dependencies. */
-	const parent = new Map<string, string>()
-	const find = (c: string): string => {
-		const path: Array<string> = []
-		let at = c
-		for (let up = parent.get(at); up !== undefined; up = parent.get(at)) {
-			path.push(at)
-			at = up
+	for (const row of rows) {
+		if (row.from.length === 0) {
+			fire(row)
 		}
-		for (const below of path) {
-			parent.set(below, at)
-		}
-		return at
 	}
-	for (const { d, standing } of states) {
-		if (standing === 0) {
-			continue
+	drain()
+	return {
+		known,
+		add: (columns) => {
+			for (const c of columns) {
+				reach(c)
+			}
+			drain()
 		}
-		const [first, ...rest] = [...d.from, ...d.to.filter((c) => !pruned.has(c))]
-		if (first === undefined) {
-			continue
-		}
-		for (const c of rest) {
-			const a = find(first)
-			const b = find(c)
-			if (a !== b) {
-				parent.set(b, a)
+	}
+}
+
+/**
+ * The dependencies with each one of several determinants stating only what the others do not reach from them, in
+ * table order, each judged against the ones before it as they now stand and the ones after it as stated: the same
+ * closure of every start. A dependency a parent closes over a key of its input's independent factors, or a view's key
+ * beside its alternatives, determines what each factor's own dependencies already reach, and states none of it here.
+ * A dependency of one determinant joins nothing its targets do not: what it reaches through the others, it reaches
+ * through dependencies its determinant stands in.
+ *
+ * One closure per dependency of several determinants.
+ */
+const irredundant = (
+	dependencies: ReadonlyArray<{ readonly from: KeySet; readonly to: KeySet }>
+): ReadonlyArray<Row> => {
+	const rows: ReadonlyArray<Row> = dependencies.map((d) => ({
+		from: [...new Set(d.from)],
+		to: d.to
+	}))
+	const readers = readersOf(rows)
+	for (const judged of rows.filter((row) => row.from.length > 1)) {
+		const closed = growing(rows, readers, judged)
+		closed.add(judged.from)
+		judged.to = judged.to.filter((c) => !closed.known.has(c))
+	}
+	return rows.filter((row) => row.to.length > 0)
+}
+
+/**
+ * The strongly connected sets of `columns` under `next`, each emitted before every set it reaches, so a set comes after
+ * all that determine it (Tarjan, its sets reversed).
+ */
+const stronglyConnected = (
+	columns: ReadonlyArray<string>,
+	next: (column: string) => ReadonlyArray<string>
+): ReadonlyArray<NonEmptyReadonlyArray<string>> => {
+	const index = new Map<string, number>()
+	const stack: Array<string> = []
+	const onStack = new Set<string>()
+	const out: Array<NonEmptyReadonlyArray<string>> = []
+	const visit = (c: string): number => {
+		const at = index.size
+		index.set(c, at)
+		let least = at
+		stack.push(c)
+		onStack.add(c)
+		for (const d of next(c)) {
+			const seen = index.get(d)
+			if (seen === undefined) {
+				least = Math.min(least, visit(d))
+			} else if (onStack.has(d)) {
+				least = Math.min(least, seen)
 			}
 		}
+		if (least === at) {
+			const set: Array<string> = []
+			for (let top = stack.pop(); top !== undefined; top = stack.pop()) {
+				onStack.delete(top)
+				set.push(top)
+				if (top === c) {
+					break
+				}
+			}
+			out.push([c, ...set.filter((m) => m !== c)])
+		}
+		return least
 	}
-	const factors: Array<[string, ...Array<string>]> = []
-	const factorOf = new Map<string, number>()
-	/** Each root's factor, with its index among the factors. */
-	const byRoot = new Map<
-		string,
-		{ readonly at: number; readonly factor: [string, ...Array<string>] }
-	>()
 	for (const c of columns) {
-		if (pruned.has(c)) {
-			continue
+		if (!index.has(c)) {
+			visit(c)
 		}
-		const root = find(c)
-		const known = byRoot.get(root)
-		if (known === undefined) {
-			const factor: [string, ...Array<string>] = [c]
-			byRoot.set(root, { at: factors.length, factor })
-			factorOf.set(c, factors.length)
-			factors.push(factor)
-		} else {
-			factorOf.set(c, known.at)
-			known.factor.push(c)
+	}
+	return out.toReversed()
+}
+
+/**
+ * The factors of a table's minimal keys: the columns that can stand in a minimal key, in parts no key's choice in one
+ * constrains in another, each in an order where a part's keys may lean only on the parts before it. Every minimal key
+ * of the table is one minimal key of each factor, given the columns of the factors before it, together, and every such
+ * choice is one (a product), so the factors state 2^k keys in 2k when each of k factors has two.
+ *
+ * The parts are the strongly connected sets of the columns under what the dependencies reading them determine, read off
+ * the dependencies irredundant (above), in an order where every set comes after all that determine it. A dependency
+ * determining a column of a set reads only it and the sets before it, so a key holds a key of each set given the sets
+ * before it, which every key determines, and each set's keys are found apart: the product. A dependency's targets the
+ * others reach from its determinants join nothing, so a key of k independent factors that a parent closes over, or a
+ * view states beside its factors' alternatives, leaves them k factors; a set the ones before it determine whole is in
+ * no minimal key and is no factor: a column a key determines, a cycle of columns another factor's key determines, a
+ * column two factors each determine. Each factor's columns are in table order.
+ *
+ * Linear in the table's size after the irredundant dependencies.
+ */
+export const independentFactors = (
+	columns: ReadonlyArray<string>,
+	stated: ReadonlyArray<{ readonly from: KeySet; readonly to: KeySet }>
+): {
+	readonly factors: ReadonlyArray<NonEmptyReadonlyArray<string>>
+	readonly factorOf: ReadonlyMap<string, number>
+} => {
+	const rows = irredundant(stated)
+	const readers = readersOf(rows)
+	const inTable = new Set(columns)
+	const before = growing(rows, readers, undefined)
+	const factors: Array<NonEmptyReadonlyArray<string>> = []
+	const factorOf = new Map<string, number>()
+	const next = (c: string): ReadonlyArray<string> =>
+		(readers.get(c) ?? []).flatMap((row) => row.to.filter((t) => inTable.has(t)))
+	for (const set of stronglyConnected(columns, next)) {
+		const members = new Set(set)
+		const ordered = columns.filter((c) => members.has(c))
+		if (isNonEmpty(ordered) && !set.every((c) => before.known.has(c))) {
+			for (const c of ordered) {
+				factorOf.set(c, factors.length)
+			}
+			factors.push(ordered)
 		}
+		before.add(set)
 	}
 	return { factors, factorOf }
 }

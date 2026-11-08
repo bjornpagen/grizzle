@@ -2,7 +2,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
 import {
@@ -32,19 +32,23 @@ import {
 	implication,
 	isHidden,
 	type KeyAlternative,
+	type KeyClasses,
+	type KeyFactor,
 	type KeyMember,
 	type KeyProof,
 	keyAlternative,
+	keyFactor,
+	keyFactors,
 	keyIn,
 	keyMember,
 	keyWithin,
-	listedKeys,
 	matchBinds,
 	producedFact,
 	projectionCloses,
 	rowsKeep,
 	rowsKey,
 	type Separation,
+	soleFactor,
 	unionKey,
 	unionKeyDetermines,
 	type ViewKey,
@@ -790,7 +794,10 @@ const determinantsOf = (props: Props): ReadonlyArray<KeySet> => {
 	for (const d of [
 		[],
 		...props.dependencies.map((x) => x.from),
-		...props.keys.flatMap((k) => [k.key, ...k.alternatives.map((a) => a.columns)])
+		...props.keys.flatMap((k) => [
+			k.key,
+			...k.factors.flatMap((f) => f.alternatives.map((a) => a.determines.from))
+		])
 	]) {
 		const text = inHeadingOrder(attributes, d).join("\u0001")
 		if (!seen.has(text)) {
@@ -1112,12 +1119,15 @@ type Subject = Pick<Props, "node" | "reading" | "attachment">
  * dependencies, each read through the classes, are every minimal key, one per class key. k pairs of equal columns
  * over a key of their first columns give one key, where every choice of a column per pair would give 2^k.
  *
- * Rows of one heading group have one proof over the independent factors of their dependencies (closure.ts
- * independentFactors), read over the attributes the whole heading determines, hidden ones included, since an attribute
- * no key reaches determines nothing a key needs: each factor's minimal keys over its representatives, found under the
- * factor's own dependencies, a set of them a key of the factor when its closure holds every attribute of the factor.
- * The first of each is in the proof's key and the others are its alternatives, so k independent relations of two keys
- * each are one proof of k alternatives, never 2^k proofs.
+ * Rows of one heading group have one proof over the factors of their dependencies (closure.ts independentFactors),
+ * read over the attributes the whole heading determines, hidden ones included, since an attribute no key reaches
+ * determines nothing a key needs: each factor's minimal keys over its representatives, given the key columns of the
+ * factors before it, a set of them a key of the factor when its closure with those holds every attribute of the factor.
+ * The first of each is the factor's key in the proof's key and the others are its alternatives, each derived with the
+ * earlier factors' key columns its derivation reads, so k independent relations of two keys each are one proof of k
+ * factors of one alternative each, never 2^k proofs, however many projections, joins and views a parent closes their
+ * key over: a dependency a parent closes over the product of the factors' keys determines what each factor's own
+ * dependencies reach, and joins no two of them.
  */
 const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
 	const { node } = subject
@@ -1161,7 +1171,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	/** The proof of `key` from the key its closure reaches. */
 	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
 		reach.kind === "rows"
-			? rowsKey(node.id, key, derivation(reach.reached, columns), membersOf(key), [])
+			? rowsKey(node.id, key, derivation(reach.reached, columns), membersOf(key), soleFactor(key))
 			: keyWithin(
 					node.id,
 					key,
@@ -1220,27 +1230,57 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 			[...representatives, ...rest.hidden.filter((h) => reachable.has(h))],
 			stated
 		)
+		const deps = stated.map((x) => x.d)
+		/** What `cs` determine with the key columns `given` of the factors before theirs. */
+		const closes = (cs: Iterable<string>, given: ReadonlyArray<string>): Closure<never> =>
+			closure<never>(node.id, attributes, deps, [...cs, ...given], () => undefined)
+		/**
+		 * Another minimal key of a factor, with its derivation of every attribute of the factor from it and the key columns
+		 * `before` of the factors before it that the derivation reads: none for a factor no dependency of an earlier one
+		 * reaches. So a parent closing over it reaches what the factor's key does.
+		 */
+		const alternativeOf = (
+			other: KeySet,
+			factor: ReadonlyArray<string>,
+			before: ReadonlyArray<string>
+		): KeyAlternative => {
+			const read = new Set(derivation(closes(other, before), factor).steps.flatMap((d) => d.from))
+			return keyAlternative(
+				other,
+				derivation(
+					closes(
+						other,
+						before.filter((c) => read.has(c))
+					),
+					factor
+				)
+			)
+		}
 		const chosen: Array<string> = []
-		const alternatives: Array<KeyAlternative> = []
+		const found: Array<KeyFactor> = []
 		for (const [i, factor] of factors.entries()) {
 			const within = (c: string) => factorOf.get(c) === i
-			/** The factor's dependencies: those reading only its attributes, a class's equalities among them. */
-			const inFactor = stated.filter((x) => x.from.every(within))
-			const deps = inFactor.map((x) => x.d)
-			const closes = (cs: Iterable<string>): Closure<never> =>
-				closure<never>(node.id, attributes, deps, cs, () => undefined)
+			const before = [...chosen]
 			const delivered = factor.filter((c) => !isHidden(c))
 			const [first, ...others] = minimalKeys(
 				delivered,
 				[delivered],
-				(cs) => (covers(closes(cs), factor) ? true : undefined),
-				inFactor.map((x) => ({ from: x.from, to: new Set(x.to.filter(within)) }))
+				(cs) => (covers(closes(cs, before), factor) ? true : undefined),
+				stated.flatMap((x) => {
+					const to = x.to.filter(within)
+					return to.length === 0 ? [] : [{ from: x.from, to: new Set(to) }]
+				})
 			).map((k) => k.key)
 			/** Every factor's delivered columns determine it, so its search finds a key: the first, or those columns. */
 			const key = first ?? delivered
 			appendAll(chosen, key)
-			for (const other of others) {
-				alternatives.push(keyAlternative(key, other, derivation(closes(other), key)))
+			if (isNonEmpty(key)) {
+				found.push(
+					keyFactor(
+						key,
+						others.map((other) => alternativeOf(other, factor, before))
+					)
+				)
 			}
 		}
 		const key = inHeadingOrder(columns, chosen)
@@ -1248,8 +1288,8 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 			node.id,
 			key,
 			derivation(coverOf(table, key), columns),
-			membersOf([...key, ...alternatives.flatMap((a) => a.columns)]),
-			alternatives
+			membersOf([...key, ...found.flatMap((f) => f.alternatives.flatMap((a) => a.columns))]),
+			found
 		)
 	}
 	const keys = rest.discriminant.length === 0 ? [productKey()] : withinKeys()
@@ -1346,7 +1386,7 @@ const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => 
 		...keys.map((k) => declaredKey(k.fields, all, k.premises, k.context)),
 		...keys.flatMap((k) =>
 			k.alternatives.flatMap((a) =>
-				[...a.of, ...a.columns].every((c) => all.includes(c)) ? [viewAlternative(a)] : []
+				[...a.of, ...a.columns, ...a.given].every((c) => all.includes(c)) ? viewAlternative(a) : []
 			)
 		)
 	]
@@ -2029,6 +2069,17 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	})
 }
 
+/**
+ * Every key a proof states, each over its classes: one minimal key of each of its choices, together (ir/keys.ts
+ * keyFactors). A union's key search exchanges nothing across its arms, so it is seeded with every key of every arm,
+ * 2^k of a product of k factors of two keys each.
+ */
+const statedKeys = (proof: KeyProof): ReadonlyArray<KeyClasses> =>
+	keyFactors(proof).reduce<ReadonlyArray<KeyClasses>>(
+		(keys, choice) => keys.flatMap((k) => choice.map((c) => [...k, ...c])),
+		[[]]
+	)
+
 /** Each arm's `f`, or undefined when some arm has none. */
 const everyArm = <B>(
 	arms: NonEmptyReadonlyArray<Props>,
@@ -2144,15 +2195,14 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	}
 	const separators = all.filter((c) => arms.every((a) => literalAt(a, c) !== undefined))
 	/**
-	 * Each key an arm lists (its proof's key and each key one alternative away, ir/keys.ts listedKeys) within the heading,
-	 * by any columns of its classes, with the separators: the minimization keeps the columns of its classes every arm
-	 * proves. Then the whole heading: minimizing it from the end finds a key that holds a
-	 * different key of each arm beside the separators, which no one arm's key reaches.
+	 * Each key an arm states (statedKeys) within the heading, by any columns of its classes, with the separators: the
+	 * minimization keeps the columns of its classes every arm proves. Then the whole heading: minimizing it from the end
+	 * finds a key that holds a different key of each arm beside the separators, which no one arm's key reaches.
 	 */
 	const candidates: Array<ReadonlyArray<string>> = [
 		...arms.flatMap((a) =>
 			a.keys.flatMap((k) =>
-				listedKeys(k).flatMap((classes) =>
+				statedKeys(k).flatMap((classes) =>
 					classes.every((members) => members.some((c) => all.includes(c)))
 						? [[...classes.flat().filter((c) => all.includes(c)), ...separators]]
 						: []

@@ -1026,7 +1026,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
-- **`derived(name, query)`** stores a query's rows as a materialized view, with a unique index on each key the query provably has. `schema.extend` adds it to a schema, and a role's `refresh` list names what the role may refresh.
+- **`derived(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` adds it to a schema, and a role's `refresh` list names what the role may refresh.
 - **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts and prepares them on each connection, and `grizzle generate` derives the indexes they need.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
@@ -1163,7 +1163,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
 | `workload(...)` | the indexes and extended statistics its programs need; the programs compiled when the app starts and prepared on each connection |
-| `derived(...)` | a materialized view, with a unique index on each key it provably has |
+| `derived(...)` | a materialized view, uniquely indexed on the keys it provably has |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
 
 None of it is a trigger or a policy you keep in step by hand. Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
@@ -2308,11 +2308,14 @@ export const purge = ChangeSet.empty(Blog)
 ## Derived tables
 
 `derived(name, query)` stores a query's rows as a materialized view; add it to a schema with `schema.extend`. The
-query takes no parameter, matches no context, has at least one field, and its rules share one set of columns. Each
-key the query provably has gets a unique index. Columns the query makes equal count as one column of a key, so k
-equal pairs make one key, not 2^k: the index holds the first of them, and any of them stands for it in a `get`, a
-nested result or an order. A derived table changes only when `db.refresh(...tables)` refreshes it, on a role whose
-`refresh` list names it, all of one call's tables in one transaction. `db.refresh()` with no table is a type error:
+query takes no parameter, matches no context, has at least one field, and its rules share one set of columns. The
+keys a query of one rule provably has are a choice of one key in each of its independent parts, such as one of the two
+keys of each table it joins: the view gets a unique index on one key and on each key one choice away from it, so k such
+tables make k + 1 indexes, not 2^k, and every key of the product stands in a `get`, a nested result or an order. A query
+of several rules gets a unique index on each key it provably has. Columns the query makes equal count as one column of
+a key, so k equal pairs make one key, not 2^k: the index holds the first of them, and any of them stands for it. A
+derived table changes only when `db.refresh(...tables)` refreshes it, on a role whose `refresh` list names it, all of
+one call's tables in one transaction. `db.refresh()` with no table is a type error:
 narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` first. Rules are declared on stored tables only,
 never on derived ones.
 

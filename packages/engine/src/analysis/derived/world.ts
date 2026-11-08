@@ -13,7 +13,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { classMembers, type ViewRead } from "#compiler/ir/keys.ts"
+import { classMembers, type ViewRead, viewAlternatives } from "#compiler/ir/keys.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { WholeKey } from "#compiler/logical/props.ts"
@@ -48,7 +48,7 @@ const wholeHeadingKey = (
 	whole: WholeKey,
 	heading: NonEmptyReadonlyArray<DeclaredColumn>
 ): NonEmptyReadonlyArray<InheritedKey<DeclaredColumn>> | undefined =>
-	whole.kind === "set" ? [{ columns: heading, proof: whole.key, alternatives: [] }] : undefined
+	whole.kind === "set" ? [{ columns: heading, proof: whole.key }] : undefined
 
 /**
  * The analysis of one query entry over its base's checked schema.
@@ -146,12 +146,7 @@ export const analyzeWorld = (
 				premises: k.proof.premises,
 				context: k.proof.context,
 				members: classMembers(k.proof),
-				alternatives: k.alternatives.map((a) => ({
-					of: a.of,
-					columns: a.columns,
-					premises: k.proof.premises,
-					context: k.proof.context
-				}))
+				alternatives: viewAlternatives(k.proof)
 			}))
 		}
 	})

@@ -194,7 +194,9 @@ const claimedVariants = (k: KeyProof): ReadonlyArray<KeySet> => {
 		Arr.flatMap(classMembers(k), (m) =>
 			columns.includes(m.of) ? [Arr.map(columns, (c) => (c === m.of ? m.column : c))] : []
 		)
-	const alternatives = Arr.map(k.alternatives, (a) => keyWith(k, a))
+	const alternatives = Arr.flatMap(k.factors, (f) =>
+		Arr.map(f.alternatives, (a) => keyWith(k, f, a))
+	)
 	return [k.key, ...swapped(k.key), ...alternatives, ...Arr.flatMap(alternatives, swapped)]
 }
 
