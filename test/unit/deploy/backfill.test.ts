@@ -20,6 +20,13 @@
  * - **Reversals:** removing a family drops its law columns and natives, and its fields as declared, keeping every row; a
  *   field its caller wrote that the target draws is drawn anew over the caller's values; one the target leaves to its
  *   caller keeps its drawn values.
+ * - **Reshaped:** a family drawn over stored rows that a later migration renames, declared: its owner relation, its count
+ *   or both, which name its law columns (counted; ordered over hidden accumulators; ordered over named ones, whose
+ *   rename leaves Member nothing to draw but the owner's count copied); or whose kind it changes, counted to ordered over
+ *   a new drawn index, or ordered to counted, its index left to its caller with the values drawn; or whose fold over
+ *   named accumulators it moves into a new owner field, the old end dropped or left to its caller, which leaves the
+ *   backfill the owner's new end alone to draw. Every value the family holds after it is the reference's over the
+ *   stored rows in key order, as it was drawn.
  *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
@@ -44,9 +51,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { Step as PlanStep } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations, Rename, Step as PlanStep } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { SlotsDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
@@ -66,12 +74,12 @@ import {
 	select,
 	tree
 } from "#compiler/public/schema.ts"
-import type { AnySchema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import { type Node, numbered } from "#test/support/families/tree.ts"
+import * as Desc from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -85,6 +93,7 @@ import {
 import {
 	asDrafted,
 	compile,
+	type DeploySubject,
 	draftedAt,
 	fromEmpty,
 	fromSnapshot,
@@ -94,16 +103,17 @@ import {
 import { plainPlan } from "#test/support/migrate/review.ts"
 
 /** A migration from `before` to `after`: both installations, compiled as `grizzle generate` drafts them, and both
- * drafts, the first from nothing. */
+ * drafts, the first from nothing, or, for a successor (successorOf), from the migration before it. */
 interface Migration {
-	readonly before: AnySchema
+	readonly before: DeploySubject
+	readonly after: DeploySubject
 	readonly first: Installation
 	readonly firstDraft: GenerateResult
 	readonly second: Installation
 	readonly secondDraft: GenerateResult
 }
 
-const migrationOf = (before: AnySchema, after: AnySchema): Migration => {
+const migrationOf = (before: DeploySubject, after: DeploySubject): Migration => {
 	const first = compile(before, asDrafted)
 	const firstDraft = succeeded(
 		generate({
@@ -126,32 +136,40 @@ const migrationOf = (before: AnySchema, after: AnySchema): Migration => {
 			name: "second"
 		})
 	)
-	return { before, first, firstDraft, second, secondDraft }
+	return { before, after, first, firstDraft, second, secondDraft }
 }
 
-/** The draft that takes `m`'s target to `to`, dropping `drops`, each a relation and a field of it, as declared. */
-const removalOf = (
-	m: Migration,
-	to: AnySchema,
-	drops: ReadonlyArray<readonly [string, string]>
-): GenerateResult =>
-	succeeded(
-		generate({
-			installation: compile(to, asDrafted),
-			timestamp: draftedAt(3),
-			previous: fromSnapshot(m.secondDraft.snapshot),
-			workload: noWorkload,
-			declared: {
-				renames: [],
-				drops: Arr.map(drops, ([relation, field]) => ({
-					kind: "field",
-					relation: parsedName(relation),
-					field: parsedName(field)
-				}))
-			},
-			name: "third"
-		})
-	)
+/** The migration that takes `m`'s target to `to` under `declared`, drafted from the snapshot `m` leaves. */
+const successorOf = (m: Migration, to: DeploySubject, declared: Declarations): Migration => {
+	const second = compile(to, asDrafted)
+	return {
+		before: m.after,
+		after: to,
+		first: m.second,
+		firstDraft: m.secondDraft,
+		second,
+		secondDraft: succeeded(
+			generate({
+				installation: second,
+				timestamp: draftedAt(3),
+				previous: fromSnapshot(m.secondDraft.snapshot),
+				workload: noWorkload,
+				declared,
+				name: "third"
+			})
+		)
+	}
+}
+
+/** The declarations of dropping `drops`, each a relation and a field of it. */
+const droppedFields = (drops: ReadonlyArray<readonly [string, string]>): Declarations => ({
+	renames: [],
+	drops: Arr.map(drops, ([relation, field]) => ({
+		kind: "field",
+		relation: parsedName(relation),
+		field: parsedName(field)
+	}))
+})
 
 /** The table a stored relation of an installation is installed as. */
 const tableOf = (i: Installation, relation: string): string => {
@@ -188,27 +206,10 @@ interface Rows {
 	readonly rows: ReadonlyArray<Readonly<Record<string, number>>>
 }
 
-/** What the second draft leaves on the model after the first is installed and `stored` loaded in order. */
-const migrated = (m: Migration, stored: ReadonlyArray<Rows>): State => {
-	const schemaName = m.second.names.schema
-	const loaded = Arr.reduce(stored, freshState(schemaName, m.firstDraft), (state, r) =>
-		load(
-			state,
-			tableOf(m.first, r.relation),
-			Arr.map(
-				r.rows,
-				(row) =>
-					new Map(
-						Arr.map(
-							Rec.toEntries(row),
-							([field, value]) => [fieldColumn(m.first, r.relation, field), int(value)] as const
-						)
-					)
-			)
-		)
-	)
-	const run = interpret(schemaName, loaded, plainPlan(m.secondDraft), (p) => {
-		throw new Error(`the backfill leaves no placeholder, but drafted a ${p.kind}`)
+/** What `m`'s second draft leaves on the model when it runs over `state`. */
+const continued = (m: Migration, state: State): State => {
+	const run = interpret(m.second.names.schema, state, plainPlan(m.secondDraft), (p) => {
+		throw new Error(`the migration asks no placeholder, but drafted a ${p.kind}`)
 	})
 	if (Result.isFailure(run)) {
 		throw new Error(
@@ -217,6 +218,28 @@ const migrated = (m: Migration, stored: ReadonlyArray<Rows>): State => {
 	}
 	return run.success
 }
+
+/** What the second draft leaves on the model after the first is installed and `stored` loaded in order. */
+const migrated = (m: Migration, stored: ReadonlyArray<Rows>): State =>
+	continued(
+		m,
+		Arr.reduce(stored, freshState(m.first.names.schema, m.firstDraft), (state, r) =>
+			load(
+				state,
+				tableOf(m.first, r.relation),
+				Arr.map(
+					r.rows,
+					(row) =>
+						new Map(
+							Arr.map(
+								Rec.toEntries(row),
+								([field, value]) => [fieldColumn(m.first, r.relation, field), int(value)] as const
+							)
+						)
+				)
+			)
+		)
+	)
 
 /** An integer cell of a model row, by column. */
 const intCell = (row: ReadonlyMap<string, Cell>, column: string): bigint => {
@@ -976,35 +999,364 @@ const concatMigrated = (
 	tokens: ReadonlyArray<StoredToken>
 ): State => {
 	const m = concatCase.migration
-	const schemaName = m.second.names.schema
 	const textOf = (value: string): TypedLiteral => ({ kind: "text", value })
-	const loaded = load(
+	return continued(
+		m,
 		load(
-			freshState(schemaName, m.firstDraft),
-			tableOf(m.first, "Attr"),
-			Arr.map(owners, (id) => new Map([[fieldColumn(m.first, "Attr", "id"), int(id)]]))
-		),
-		tableOf(m.first, "Token"),
-		Arr.map(
-			tokens,
-			(t) =>
-				new Map([
-					[fieldColumn(m.first, "Token", "token"), int(t.token)],
-					[fieldColumn(m.first, "Token", "attr"), int(t.attr)],
-					[fieldColumn(m.first, "Token", "piece"), textOf(t.piece)]
-				])
+			load(
+				freshState(m.first.names.schema, m.firstDraft),
+				tableOf(m.first, "Attr"),
+				Arr.map(owners, (id) => new Map([[fieldColumn(m.first, "Attr", "id"), int(id)]]))
+			),
+			tableOf(m.first, "Token"),
+			Arr.map(
+				tokens,
+				(t) =>
+					new Map([
+						[fieldColumn(m.first, "Token", "token"), int(t.token)],
+						[fieldColumn(m.first, "Token", "attr"), int(t.attr)],
+						[fieldColumn(m.first, "Token", "piece"), textOf(t.piece)]
+					])
+			)
 		)
 	)
-	const run = interpret(schemaName, loaded, plainPlan(m.secondDraft), (p) => {
-		throw new Error(`the backfill leaves no placeholder, but drafted a ${p.kind}`)
-	})
-	if (Result.isFailure(run)) {
-		throw new Error(`the migration fails on the model: ${run.failure.reason}`)
-	}
-	return run.success
 }
 
-/** A family added to stored rows, and the rows it is added to. */
+/** How a version of the reshaped schema declares its family: counted, its index hidden; ordered over the drawn field
+ * at; or counted beside at, a field its caller writes, as an ordered family turned counted leaves it. */
+type FamilyForm = "counted" | "ordered" | "counted beside at"
+
+/** How a reshaped family folds each member's x into its owner's end, by sum: not at all, over hidden accumulators, or
+ * over Member's named before and after, which only an ordered family may name. */
+type Accumulators = "none" | "hidden" | "named"
+
+/** The names a reshaped family is declared under: its owner relation's and its count's. */
+interface Naming {
+	readonly owner: string
+	readonly count: string
+}
+
+/** The owner's field a reshaped family's fold ends in, and the owner's fields beside it and its count. */
+interface Ending {
+	readonly end: string
+	readonly beside: Readonly<Record<string, Desc.FixtureField>>
+}
+
+const reshaping = "Reshaping"
+const sumAccumulator = Desc.f.accumulated(Desc.f.integer, 0)
+
+/** Owner and Member before any family: each owner's id and tag, each member's key, its owner g and its step x. */
+const unreshaped: Desc.SchemaDesc = {
+	name: reshaping,
+	relations: [
+		Desc.relation("Owner", { id: Desc.f.integer, tag: Desc.f.integer }, ["id"]),
+		Desc.relation("Member", { member: Desc.f.integer, g: Desc.f.integer, x: Desc.f.integer }, [
+			"member"
+		])
+	],
+	statements: [],
+	extends: undefined
+}
+
+const indexFields: { readonly [F in FamilyForm]: Readonly<Record<string, Desc.FixtureField>> } = {
+	counted: {},
+	ordered: { at: Desc.f.drawn },
+	"counted beside at": { at: Desc.f.natural }
+}
+
+const accumulatorFields: {
+	readonly [A in Accumulators]: Readonly<Record<string, Desc.FixtureField>>
+} = {
+	none: {},
+	hidden: {},
+	named: { before: sumAccumulator, after: sumAccumulator }
+}
+
+/** The family statement of a form over `slots`. */
+const familyStatement = (form: FamilyForm, slots: SlotsDesc): Desc.AuthoredStatementDesc =>
+	form === "ordered"
+		? Desc.ordered(Desc.on("Member", ["g", "at"]), slots)
+		: Desc.counted(Desc.on("Member", ["g"]), slots)
+
+/** The sum fold of a reshaped family into its owner's end, as `accumulators` keeps it: its statements, and the end
+ * field it adds to the owner. */
+const sumFold = (
+	accumulators: Accumulators,
+	slots: SlotsDesc,
+	owner: string,
+	end: string
+): {
+	readonly statements: ReadonlyArray<Desc.AuthoredStatementDesc>
+	readonly ends: Readonly<Record<string, Desc.FixtureField>>
+} => {
+	const into = Desc.on(owner, ["id", end])
+	switch (accumulators) {
+		case "none":
+			return { statements: [], ends: {} }
+		case "hidden":
+			return {
+				statements: [Desc.fold(slots, "sum", Desc.on("Member", ["g", "x"]), into)],
+				ends: { [end]: sumAccumulator }
+			}
+		case "named":
+			return {
+				statements: [
+					Desc.fold(slots, "sum", Desc.on("Member", ["g", "x", "before", "after"]), into)
+				],
+				ends: { [end]: sumAccumulator }
+			}
+	}
+}
+
+/** The reshaped schema: its family of Member per owner in `form`, folded as `accumulators` says into the owner's end as
+ * `ending` places it, its owner relation and its count named as `naming` says. */
+const reshapedSchema = (
+	form: FamilyForm,
+	accumulators: Accumulators,
+	naming: Naming,
+	ending: Ending
+): Desc.SchemaDesc => {
+	const slots = Desc.fin(naming.owner, naming.count)
+	const folded = sumFold(accumulators, slots, naming.owner, ending.end)
+	return {
+		name: reshaping,
+		relations: [
+			Desc.relation(
+				naming.owner,
+				{
+					id: Desc.f.integer,
+					tag: Desc.f.integer,
+					[naming.count]: Desc.f.drawn,
+					...folded.ends,
+					...ending.beside
+				},
+				["id"]
+			),
+			Desc.relation(
+				"Member",
+				{
+					member: Desc.f.integer,
+					g: Desc.f.integer,
+					x: Desc.f.integer,
+					...indexFields[form],
+					...accumulatorFields[accumulators]
+				},
+				["member"]
+			)
+		],
+		statements: [familyStatement(form, slots), ...folded.statements],
+		extends: undefined
+	}
+}
+
+/** The fold case of a reshaped schema's migration, its owner relation named `owner`. */
+const reshapedCase = (migration: Migration, owner: string): FoldCase => ({
+	migration,
+	owner,
+	member: "Member",
+	key: "member",
+	group: "g",
+	step: "x",
+	copies: []
+})
+
+/** A family drawn over stored rows by one migration and reshaped by the next. */
+interface Reshaped {
+	readonly drawn: FoldCase
+	readonly reshaped: FoldCase
+}
+
+/** The families a later migration renames: counted, its accumulators hidden as they must be; ordered over hidden
+ * accumulators; and ordered over named ones, whose rename draws nothing on Member but the owner's count copied. */
+const renamedFamilies = ["counted", "ordered", "ordered with named accumulators"] as const
+type RenamedFamily = (typeof renamedFamilies)[number]
+
+const renamedForms: {
+	readonly [R in RenamedFamily]: readonly [FamilyForm, Accumulators]
+} = {
+	counted: ["counted", "hidden"],
+	ordered: ["ordered", "hidden"],
+	"ordered with named accumulators": ["ordered", "named"]
+}
+
+/** What of a family a later migration renames, declared. */
+const renamings = ["its owner", "its count", "its owner and its count"] as const
+type Renaming = (typeof renamings)[number]
+
+const declaredNaming: Naming = { owner: "Owner", count: "n" }
+const declaredEnding: Ending = { end: "end", beside: {} }
+
+const ownerRenamed: Rename = {
+	from: { kind: "relation", relation: parsedName("Owner") },
+	to: { kind: "relation", relation: parsedName("Holder") }
+}
+
+/** n renamed to size, on the owner relation under its name `owner` after the migration. */
+const countRenamed = (owner: string): Rename => ({
+	from: { kind: "field", relation: parsedName("Owner"), field: parsedName("n") },
+	to: { kind: "field", relation: parsedName(owner), field: parsedName("size") }
+})
+
+const renamingsOf: {
+	readonly [R in Renaming]: { readonly naming: Naming; readonly renames: ReadonlyArray<Rename> }
+} = {
+	"its owner": { naming: { owner: "Holder", count: "n" }, renames: [ownerRenamed] },
+	"its count": { naming: { owner: "Owner", count: "size" }, renames: [countRenamed("Owner")] },
+	"its owner and its count": {
+		naming: { owner: "Holder", count: "size" },
+		renames: [ownerRenamed, countRenamed("Holder")]
+	}
+}
+
+/** Each renamed family drawn over stored rows, then renamed each way. */
+const renamedCases: {
+	readonly [F in RenamedFamily]: { readonly [R in Renaming]: Reshaped }
+} = Rec.map(renamedForms, ([form, accumulators]) => {
+	const drawnMigration = migrationOf(
+		unreshaped,
+		reshapedSchema(form, accumulators, declaredNaming, declaredEnding)
+	)
+	return Rec.map(renamingsOf, ({ naming, renames }) => ({
+		drawn: reshapedCase(drawnMigration, declaredNaming.owner),
+		reshaped: reshapedCase(
+			successorOf(drawnMigration, reshapedSchema(form, accumulators, naming, declaredEnding), {
+				renames,
+				drops: []
+			}),
+			naming.owner
+		)
+	}))
+})
+
+/** A family's kind changed by a later migration: counted to ordered over a new drawn index, or ordered to counted, its
+ * index left to its caller. A fold over either keeps accumulators the new index would reorder, which the backfill
+ * refuses, so these families fold nothing. */
+const kindChanges = ["counted to ordered", "ordered to counted"] as const
+type KindChange = (typeof kindChanges)[number]
+
+const kindChangeForms: { readonly [K in KindChange]: readonly [FamilyForm, FamilyForm] } = {
+	"counted to ordered": ["counted", "ordered"],
+	"ordered to counted": ["ordered", "counted beside at"]
+}
+
+const kindChanged: { readonly [K in KindChange]: Reshaped } = Rec.map(
+	kindChangeForms,
+	([from, to]) => {
+		const drawnMigration = migrationOf(
+			unreshaped,
+			reshapedSchema(from, "none", declaredNaming, declaredEnding)
+		)
+		return {
+			drawn: reshapedCase(drawnMigration, declaredNaming.owner),
+			reshaped: reshapedCase(
+				successorOf(
+					drawnMigration,
+					reshapedSchema(to, "none", declaredNaming, declaredEnding),
+					noDeclarations
+				),
+				declaredNaming.owner
+			)
+		}
+	}
+)
+
+/** Where a later migration moves the end of an ordered family's fold over named accumulators: into the owner's new
+ * field total, its old end dropped, declared, or left to its caller with the sums folded into it. Member keeps its
+ * accumulators, so the backfill draws the owner's new end alone, each owner's from its last member's after. */
+const endMoves = ["the old end dropped", "the old end left to its caller"] as const
+type EndMove = (typeof endMoves)[number]
+
+const endMovesOf: {
+	readonly [M in EndMove]: { readonly ending: Ending; readonly declared: Declarations }
+} = {
+	"the old end dropped": {
+		ending: { end: "total", beside: {} },
+		declared: droppedFields([["Owner", "end"]])
+	},
+	"the old end left to its caller": {
+		ending: { end: "total", beside: { end: Desc.f.integer } },
+		declared: noDeclarations
+	}
+}
+
+const endMoved: { readonly [M in EndMove]: Reshaped } = (() => {
+	const drawnMigration = migrationOf(
+		unreshaped,
+		reshapedSchema("ordered", "named", declaredNaming, declaredEnding)
+	)
+	return Rec.map(endMovesOf, ({ ending, declared }) => ({
+		drawn: reshapedCase(drawnMigration, declaredNaming.owner),
+		reshaped: reshapedCase(
+			successorOf(
+				drawnMigration,
+				reshapedSchema("ordered", "named", declaredNaming, ending),
+				declared
+			),
+			declaredNaming.owner
+		)
+	}))
+})()
+
+/** The text a member of a family with no fold reads as: its key, its slot and its copy of the count. */
+const slotText = (member: bigint | number, at: bigint | number, copy: bigint | number): string =>
+	`${member}@${at}/${copy}`
+
+/** What a family with no fold holds over the stored rows: each owner's members in key order, numbered from 0, each
+ * with its owner's count, and each owner's count. */
+const slotsExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stored>) => ({
+	members: Arr.sort(
+		Arr.flatMap(owners, (owner) => {
+			const mine = ownedBy(stored, owner)
+			return Arr.map(mine, (m, at) => slotText(m.key, at, mine.length))
+		}),
+		Order.String
+	),
+	owners: Arr.sort(
+		Arr.map(owners, (owner) => `${owner}: ${ownedBy(stored, owner).length}`),
+		Order.String
+	)
+})
+
+/** What the migrated model holds of a family with no fold: each member's slot and copy, each owner's count. */
+const slotsObserved = (c: FoldCase, state: State) => {
+	const target = c.migration.second
+	const family: Family = defined(target.laws.families[0])
+	return {
+		members: rowsOf(c.migration, state, c.member, (cell) =>
+			slotText(
+				cell(fieldColumn(target, c.member, c.key)),
+				cell(columnOf(family.index)),
+				cell(family.copy)
+			)
+		),
+		owners: rowsOf(
+			c.migration,
+			state,
+			c.owner,
+			(cell) => `${cell(fieldColumn(target, c.owner, "id"))}: ${cell(family.count.column)}`
+		)
+	}
+}
+
+/** Each stored member's key and the value its field at holds after `c`'s migration, the caller's now. */
+const callerIndexObserved = (c: FoldCase, state: State): ReadonlyArray<string> =>
+	rowsOf(
+		c.migration,
+		state,
+		c.member,
+		(cell) =>
+			`${cell(fieldColumn(c.migration.second, c.member, c.key))}@${cell(fieldColumn(c.migration.second, c.member, "at"))}`
+	)
+
+/** Each stored member's key and its slot among its owner's members in key order, as the family drew it. */
+const keyOrderSlots = (
+	owners: ReadonlyArray<number>,
+	stored: ReadonlyArray<Stored>
+): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.flatMap(owners, (owner) => Arr.map(ownedBy(stored, owner), (m, at) => `${m.key}@${at}`)),
+		Order.String
+	)
 type Backfill =
 	| {
 			readonly kind: "fold"
@@ -1019,6 +1371,25 @@ type Backfill =
 			readonly tokens: ReadonlyArray<StoredToken>
 	  }
 	| { readonly kind: "new members"; readonly owners: number }
+	| {
+			readonly kind: "renamed"
+			readonly family: RenamedFamily
+			readonly renaming: Renaming
+			readonly owners: number
+			readonly stored: ReadonlyArray<Stored>
+	  }
+	| {
+			readonly kind: "kind changed"
+			readonly change: KindChange
+			readonly owners: number
+			readonly stored: ReadonlyArray<Stored>
+	  }
+	| {
+			readonly kind: "end moved"
+			readonly move: EndMove
+			readonly owners: number
+			readonly stored: ReadonlyArray<Stored>
+	  }
 
 /** The owners' ids: 0 to `count - 1`, at least one. */
 const ownersOf = (count: number): ReadonlyArray<number> => Arr.makeBy(count, (i) => i)
@@ -1103,7 +1474,35 @@ const backfillGen: Gen<Backfill> = oneOf<Backfill>([
 			}))
 		}
 	},
-	map(between(1, 3), (owners) => ({ kind: "new members", owners }))
+	map(between(1, 3), (owners) => ({ kind: "new members", owners })),
+	(source) => {
+		const owners = source.draw(between(1, 3))
+		return {
+			kind: "renamed",
+			family: source.draw(element(renamedFamilies)),
+			renaming: source.draw(element(renamings)),
+			owners,
+			stored: source.draw(membersGen(owners))
+		}
+	},
+	(source) => {
+		const owners = source.draw(between(1, 3))
+		return {
+			kind: "kind changed",
+			change: source.draw(element(kindChanges)),
+			owners,
+			stored: source.draw(membersGen(owners))
+		}
+	},
+	(source) => {
+		const owners = source.draw(between(1, 3))
+		return {
+			kind: "end moved",
+			move: source.draw(element(endMoves)),
+			owners,
+			stored: source.draw(membersGen(owners))
+		}
+	}
 ])
 
 type BackfillFeature =
@@ -1122,6 +1521,10 @@ type BackfillFeature =
 	| "siblings stored out of key order"
 	| "a piece beyond ASCII"
 	| "an empty piece"
+	| `renamed: ${RenamedFamily}`
+	| `renamed: ${Renaming}`
+	| KindChange
+	| `end moved: ${EndMove}`
 
 const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 	const unsorted = (keys: ReadonlyArray<number>) =>
@@ -1137,19 +1540,22 @@ const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			? (["an owner of three members"] as const)
 			: [])
 	]
+	const members = (
+		owners: number,
+		stored: ReadonlyArray<Stored>
+	): ReadonlyArray<BackfillFeature> => [
+		...owned(
+			owners,
+			Arr.map(stored, (m) => m.owner)
+		),
+		...(unsorted(Arr.map(stored, (m) => m.key))
+			? (["members stored out of key order"] as const)
+			: []),
+		...(Arr.some(stored, (m) => m.x < 0) ? (["a negative step"] as const) : [])
+	]
 	switch (b.kind) {
 		case "fold":
-			return [
-				b.family,
-				...owned(
-					b.owners,
-					Arr.map(b.stored, (m) => m.owner)
-				),
-				...(unsorted(Arr.map(b.stored, (m) => m.key))
-					? (["members stored out of key order"] as const)
-					: []),
-				...(Arr.some(b.stored, (m) => m.x < 0) ? (["a negative step"] as const) : [])
-			]
+			return [b.family, ...members(b.owners, b.stored)]
 		case "tree": {
 			const byId = (id: number) => Arr.findFirst(b.stored, (n) => n.id === id)
 			return [
@@ -1186,6 +1592,12 @@ const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			]
 		case "new members":
 			return ["new members"]
+		case "renamed":
+			return [`renamed: ${b.family}`, `renamed: ${b.renaming}`, ...members(b.owners, b.stored)]
+		case "kind changed":
+			return [b.change, ...members(b.owners, b.stored)]
+		case "end moved":
+			return [`end moved: ${b.move}`, ...members(b.owners, b.stored)]
 	}
 }
 
@@ -1204,6 +1616,18 @@ const foldCaseOf = (family: Extract<Backfill, { readonly kind: "fold" }>["family
 /** The catalog a migration leaves is the one its target installs from nothing, every constraint validated. */
 const assertFresh = (m: Migration, state: State): void =>
 	assert.deepEqual(catalogOf(state), catalogOf(freshState(m.second.names.schema, m.secondDraft)))
+
+/** What a folded family drawn over `stored` and then reshaped must hold: the reference fold's values over the stored
+ * rows in key order, and the catalog its reshaped target installs from nothing. */
+const judgeReshapedFold = (r: Reshaped, owners: number, stored: ReadonlyArray<Stored>): void => {
+	const ids = ownersOf(owners)
+	const state = continued(
+		r.reshaped.migration,
+		migrated(r.drawn.migration, foldRows(r.drawn, ids, stored))
+	)
+	assert.deepEqual(foldObserved(r.reshaped, state), foldExpected(ids, stored))
+	assertFresh(r.reshaped.migration, state)
+}
 
 /** What a family's backfill must leave, judged against its references, its catalog and its plan's order. */
 const judgeBackfill = (b: Backfill): void => {
@@ -1253,6 +1677,28 @@ const judgeBackfill = (b: Backfill): void => {
 				"every owner keeps the empty family's values"
 			)
 			assertFresh(m, state)
+			return
+		}
+		case "renamed":
+			return judgeReshapedFold(renamedCases[b.family][b.renaming], b.owners, b.stored)
+		case "end moved":
+			return judgeReshapedFold(endMoved[b.move], b.owners, b.stored)
+		case "kind changed": {
+			const k = kindChanged[b.change]
+			const owners = ownersOf(b.owners)
+			const state = continued(
+				k.reshaped.migration,
+				migrated(k.drawn.migration, foldRows(k.drawn, owners, b.stored))
+			)
+			assert.deepEqual(slotsObserved(k.reshaped, state), slotsExpected(owners, b.stored))
+			if (b.change === "ordered to counted") {
+				assert.deepEqual(
+					callerIndexObserved(k.reshaped, state),
+					keyOrderSlots(owners, b.stored),
+					"the index its caller now writes keeps the values the family drew"
+				)
+			}
+			assertFresh(k.reshaped.migration, state)
 		}
 	}
 }
@@ -1344,18 +1790,13 @@ const assertRemoved = (
 	stored: ReadonlyArray<Rows>,
 	drops: ReadonlyArray<readonly [string, string]>
 ): void => {
-	const removal = removalOf(m, m.before, drops)
-	const schemaName = m.first.names.schema
-	const run = interpret(schemaName, migrated(m, stored), plainPlan(removal), (p) => {
-		throw new Error(`a removal asks no placeholder, but drafted a ${p.kind}`)
-	})
-	assert.ok(Result.isSuccess(run), "the removal runs on the model")
-	assert.deepEqual(catalogOf(run.success), catalogOf(freshState(schemaName, m.firstDraft)))
+	const removed = continued(successorOf(m, m.before, droppedFields(drops)), migrated(m, stored))
+	assert.deepEqual(catalogOf(removed), catalogOf(freshState(m.first.names.schema, m.firstDraft)))
 	for (const r of stored) {
 		const fields = Arr.flatMap(r.rows, (row) => Rec.keys(row))
 		const heading = Arr.dedupe(fields)
 		assert.deepEqual(
-			valuesOf(m, run.success, r.relation, heading),
+			valuesOf(m, removed, r.relation, heading),
 			Arr.sort(
 				Arr.map(r.rows, (row) =>
 					Arr.join(
@@ -1383,21 +1824,18 @@ const judgeReversal = (r: Reversal): void => {
 		case "left to its caller": {
 			const owners = ownersOf(r.owners)
 			const before = migrated(countedCase.migration, foldRows(countedCase, owners, r.stored))
-			const schemaName = countedCase.migration.second.names.schema
-			const run = interpret(
-				schemaName,
-				before,
-				plainPlan(removalOf(countedCase.migration, countedWritten, [])),
-				(p) => {
-					throw new Error(
-						`leaving a field to its caller asks no placeholder, but drafted a ${p.kind}`
-					)
-				}
+			const left = continued(
+				successorOf(countedCase.migration, countedWritten, noDeclarations),
+				before
 			)
-			assert.ok(Result.isSuccess(run), "the migration runs on the model")
 			assert.deepEqual(
-				catalogOf(run.success),
-				catalogOf(freshState(schemaName, migrationOf(countedWritten, countedWritten).firstDraft)),
+				catalogOf(left),
+				catalogOf(
+					freshState(
+						countedCase.migration.second.names.schema,
+						migrationOf(countedWritten, countedWritten).firstDraft
+					)
+				),
 				"the family's law columns and natives are gone"
 			)
 			for (const [relation, fields] of [
@@ -1414,7 +1852,7 @@ const judgeReversal = (r: Reversal): void => {
 						)
 					)
 				assert.deepEqual(
-					read(run.success),
+					read(left),
 					read(before),
 					`${relation} keeps its drawn values as the caller's`
 				)
@@ -1473,7 +1911,11 @@ describe("backfilling a family added to stored rows, generated", () => {
 								"a grandchild",
 								"siblings stored out of key order",
 								"a piece beyond ASCII",
-								"an empty piece"
+								"an empty piece",
+								...Arr.map(renamedFamilies, (f) => `renamed: ${f}` as const),
+								...Arr.map(renamings, (r) => `renamed: ${r}` as const),
+								...kindChanges,
+								...Arr.map(endMoves, (m) => `end moved: ${m}` as const)
 							],
 							{ cases: 300, sense: notesOnly }
 						),
