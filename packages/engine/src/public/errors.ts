@@ -29,4 +29,4 @@ export {
 } from "#compiler/core/errors.ts"
 export type { ConstraintName } from "#compiler/core/ids.ts"
 export type { SourceLoc } from "#compiler/core/loc.ts"
-export type { Sqlstate } from "#compiler/core/sqlstate.ts"
+export { Sqlstate } from "#compiler/core/sqlstate.ts"

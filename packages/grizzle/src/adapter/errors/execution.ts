@@ -36,7 +36,7 @@ import {
 import {
 	type CompileError,
 	type EncodingFailure,
-	type SchemaFingerprint,
+	SchemaFingerprint,
 	sqlstateClass,
 	sqlstates,
 	type TransientReason as EngineTransientReason
@@ -306,27 +306,49 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
 }
 
 /**
- * The refusal SERIALIZABLE gives any transaction, a read's or a write's, as its TransientFailure: 40001, no serial
- * order, or 40P01, a deadlock; undefined for any other report.
+ * The refusal SERIALIZABLE gives any transaction, admission's, a read's or a write's, from the server's report: 40001,
+ * no serial order, or 40P01, a deadlock; undefined for any other report. The one reading of it: a call's
+ * TransientFailure (serializationRefusal) and admission's AdmissionTransient (admission/admit.ts admissionFailure).
  */
-export const serializationRefusal = (error: ServerError): TransientFailure | undefined =>
+export const serializableRefusal = (
+	error: ServerError
+): SerializationFailure | Deadlock | undefined =>
 	error.sqlstate === sqlstates.serializationFailure
-		? new TransientFailure({ reason: new SerializationFailure(), error })
+		? new SerializationFailure()
 		: error.sqlstate === sqlstates.deadlockDetected
-			? new TransientFailure({ reason: new Deadlock(), error })
+			? new Deadlock()
 			: undefined
+
+/** SERIALIZABLE's refusal of a call's transaction as its TransientFailure, or undefined for any other report. */
+export const serializationRefusal = (error: ServerError): TransientFailure | undefined => {
+	const reason = serializableRefusal(error)
+	return reason === undefined ? undefined : new TransientFailure({ reason, error })
+}
 
 /**
  * The database does not hold the snapshot this Db was admitted at, so the call ran nothing: the fence every transaction
- * of a Db takes first refused it, for `reason`. `snapshot` is the fingerprint the Db was opened with, and `error` the
- * server's report: the lock's 55P03, or the guard's 55Z02 or 55Z01. Not retryable: the same call on the same Db meets it
- * again until the migration completes, and after it a Db of the snapshot the database then holds runs the call.
+ * of a Db takes first refused it, for `reason`. `snapshot` is the fingerprint the Db was opened with, its snapshot.json's
+ * `fingerprint`, which the constructor admits, and `error` the server's report: the lock's 55P03, or the guard's 55Z02
+ * or 55Z01. Not retryable: the same call on the same Db meets it again until the migration completes, and after it a Db
+ * of the snapshot the database then holds runs the call.
  */
 export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
 	readonly reason: StaleReason
 	readonly snapshot: SchemaFingerprint
 	readonly error: ServerError
 }> {
+	constructor(refused: {
+		readonly reason: StaleReason
+		readonly snapshot: string
+		readonly error: ServerError
+	}) {
+		super({
+			reason: refused.reason,
+			snapshot: SchemaFingerprint(refused.snapshot),
+			error: refused.error
+		})
+	}
+
 	override get message(): string {
 		return `the database does not hold the snapshot ${this.snapshot} the Db was opened with: ${this.reason.message}`
 	}

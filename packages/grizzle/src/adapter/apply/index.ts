@@ -23,7 +23,7 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import { HandleReleased } from "#adapter/errors/failures.ts"
-import { rejectedOutcome } from "#adapter/outcomes/index.ts"
+import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { programTexts, whileLive } from "#adapter/reader/reader.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { mintNaming } from "#adapter/wire/naming.ts"
@@ -96,7 +96,7 @@ const applyBound = <R>(
 	Effect.gen(function* () {
 		const inputs = yield* Effect.mapError(hostInputs(entry, params), inputApplyError)
 		if (inputs.kind === "rejected") {
-			return rejectedOutcome<R>({ kind: "every", laws: [inputs.law] }, inputs.witness)
+			return applyOutcome.invariantRejected({ kind: "every", laws: [inputs.law] }, inputs.witness)
 		}
 		return yield* Effect.scoped(
 			Effect.flatMap(

@@ -386,6 +386,28 @@ export type ApplyOutcome<Reads> =
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
 
+/**
+ * The outcome values' constructors, the ones the adapter answers with (adapter/outcomes), so an application's test
+ * builds the exact outcome db.apply answers.
+ */
+export interface ApplyOutcomeConstructor {
+	/**
+	 * A committed application: `accepted` with `counts` when some relation's count is nonzero, and `no-change`
+	 * otherwise, each with the read-backs `reads`. The kind follows the counts alone, as db.apply decides it.
+	 */
+	committed<Reads>(
+		counts: Extract<ApplyOutcome<Reads>, { readonly kind: "accepted" }>["counts"],
+		reads: Reads
+	): Extract<ApplyOutcome<Reads>, { readonly kind: "accepted" | "no-change" }>
+	/** A rejected application: the laws `refused` names and how grizzle decided them, with the `witness`. */
+	invariantRejected(
+		refused: Refused,
+		witness: Witness
+	): Extract<ApplyOutcome<never>, { readonly kind: "invariant-rejected" }>
+	/** An application a query entry refused: a fact its addition requested lies outside the world `relation`. */
+	outsideWorld(relation: string): Extract<ApplyOutcome<never>, { readonly kind: "outside-world" }>
+}
+
 export interface QueryResult<Head> {
 	/** The rows, as an Effect: each run of it runs the query again. */
 	readonly collect: Effect.Effect<ReadonlyArray<Head>, ReadError>

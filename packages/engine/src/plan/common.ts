@@ -51,6 +51,7 @@ export {
 	type ConstraintName,
 	type DomainName,
 	type Identifier,
+	type IdentityKind,
 	type LawId,
 	type ParamId,
 	type RelationIdent,
@@ -75,7 +76,7 @@ export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
 export type { Result } from "#compiler/core/result.ts"
 export { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
-export { parseSqlstate, type Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
+export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { compareCodePoints } from "#compiler/core/text.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { TupleMap } from "#compiler/core/tuple-map.ts"

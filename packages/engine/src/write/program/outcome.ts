@@ -12,7 +12,6 @@ import {
 	type NettedRelation,
 	netStrata,
 	outcomeCounts,
-	outcomeKind,
 	type RelationCounts,
 	type RemovedTag,
 	relationChanges,
@@ -32,7 +31,6 @@ import { putRowConverter } from "#compiler/write/put/rows.ts"
 
 /** The changes an artifact's statements made. */
 interface WriteChanges {
-	readonly outcome: "accepted" | "no-change"
 	/** One entry per written relation, in code point order. */
 	readonly counts: ReadonlyArray<RelationCounts>
 	/** Per stratum of the artifact, each relation it changed and what it changed. */
@@ -147,8 +145,8 @@ const stepIdentity = (
  * to each written relation its write steps returned rows for, keyed by fact identity (`stratumChange`); a write step
  * writes only relations of `context.written`. The changes are each stratum's facts made present and absent, tagged by
  * the member kind that requested them, netted across strata by fact identity into delta.added, delta.removed and the
- * counts, and the outcome kind the counts decide. It reads fields grizzle controls only, never PostgreSQL's message or
- * DETAIL prose.
+ * counts, whose outcome kind the shell's outcome value decides from them (delta/net.ts outcomeKind). It reads fields
+ * grizzle controls only, never PostgreSQL's message or DETAIL prose.
  */
 export const interpretRows = (
 	context: OutcomeContext,
@@ -190,7 +188,7 @@ export const interpretRows = (
 	for (const relation of written) {
 		deltas.set(relation, netStrata(relationChanges(changes, relation)))
 	}
-	return { outcome: outcomeKind(counts), counts, strata: changes, deltas }
+	return { counts, strata: changes, deltas }
 }
 
 /** The witness decoder of a WriteProgram (`WitnessDecoder`), converting grizzle's own texts without a check into a

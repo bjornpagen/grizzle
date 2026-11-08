@@ -2496,6 +2496,11 @@ A broken rule is an outcome, not an error. Errors are tagged classes in the Effe
   directly: `{ kind: "check", relation: "Grant", name: "WithinGrant" }`.
 - **`outside-world`**: the role's table a row cannot belong to.
 
+`ApplyOutcome.committed(counts, reads)`, `ApplyOutcome.invariantRejected(refused, witness)` and
+`ApplyOutcome.outsideWorld(relation)` build these values, the ones `db.apply` answers with, so a test of your code
+builds the exact outcome. `committed` is `accepted` when some count is nonzero and `no-change` otherwise, as `db.apply`
+decides it.
+
 `refused.laws` is never empty. `refused.kind` says how grizzle decided them:
 
 - **`every`**: each rule is decided broken. A row check refusing a row you stated names every rule of that table's
@@ -2593,9 +2598,10 @@ and never spell it.
 
 - **`reason`** is what happened, a tagged value, so `Effect.catchReason`, `catchReasons` and `unwrapReason` reach it:
   `Effect.catchReason("TransientFailure", "PutTargetConflict", f)` handles one case and keeps the rest. `stage` follows
-  from the reason, and `message` is a sentence naming it; read details from the reason, never the message. Reasons are
-  exported as types only. The exported classes are the errors, plus `CredentialError` and `TokenError`, which your
-  `password` Effect and your `verify` fail with.
+  from the reason, and `message` is a sentence naming it; read details from the reason, never the message. Every error
+  and reason class is exported as a value, the class grizzle builds it with, so a test of your code builds the exact
+  value a call fails with, never a cast: `new ReadFailure({ reason: new InputTooLarge({ bound }) })`. Your `password`
+  Effect fails with `CredentialError`, and your `verify` with `TokenError`.
 - **`TransientFailure`**: the attempt changed nothing and may succeed if run again. Its reason is `SerializationFailure`
   (40001), `Deadlock` (40P01), a concurrent transaction's work the statement met (`PutTargetConflict`,
   `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`), or `StaleStatement`, a prepared
@@ -2605,7 +2611,8 @@ and never spell it.
   running it again. A write the socket failed before COMMIT's last byte left the process is `TransportFailure`
   instead: COMMIT never reached the server.
 - **`StaleSnapshot`**: the database is not at the `Db`'s snapshot, and the call ran nothing; its reason is `Migrating`
-  or `Migrated` ([Deploying](#deploying)).
+  or `Migrated` ([Deploying](#deploying)), and its `snapshot` the `fingerprint` of the snapshot.json the `Db` was opened
+  with.
 - **`TransportFailure`**: the connection failed before the write could commit, and nothing changed. A connection that
   can't be had (a failing `password` Effect, TLS, the server, a released layer) is this for a write, and `ReadFailure`
   at stage `acquire` for a read. Waiting for a session never fails: a call waits until it has one or is interrupted.
@@ -2616,7 +2623,10 @@ and never spell it.
   `message` quotes the server's. The server writes in the language of `lc_messages`, the database owner's setting;
   grizzle reads an error by its SQLSTATE and the fields it names, never its words. These can quote the values a
   statement was given, though never a value outside the role's view, so what you log is your choice: grizzle logs
-  nothing.
+  nothing. `new ServerError({ sqlstate, message, constraint, schema, table, column, dataType, detail, hint })` builds
+  one from a report as grizzle reads it, each field stated, `undefined` where the server gave none, and an empty one
+  naming nothing. `Sqlstate.parse(code)` is the `sqlstate`, or `undefined` for a code that is no SQLSTATE. A test's
+  retryable write failure is then `new TransientFailure({ reason: new SerializationFailure(), error })`.
 
 <details>
 <summary>Every error reason</summary>

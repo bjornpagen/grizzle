@@ -37,7 +37,7 @@ import {
 import { servesSchema } from "#adapter/admission/snapshots.ts"
 import type { ClaimValue } from "#adapter/db/claims.ts"
 import { toResult } from "#adapter/engine.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
+import { OpenError, serializableRefusal } from "#adapter/errors/execution.ts"
 import {
 	AdmissionFailed,
 	type AdmissionMismatch,
@@ -45,9 +45,6 @@ import {
 	AdmissionTransient,
 	type BatchFailure,
 	CatalogRowRefused,
-	Deadlock,
-	SerializationFailure,
-	type ServerError,
 	type StaleReason
 } from "#adapter/errors/failures.ts"
 
@@ -165,34 +162,21 @@ const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectNa
 type AdmissionFailure = AdmissionFailed["failure"]
 
 /**
- * The refusal SERIALIZABLE gives admission's transaction, from the server's report: no serial order (40001) or a
- * deadlock (40P01), or none for any other report.
- */
-const serializableRefusal = (error: ServerError): Option.Option<AdmissionTransient["reason"]> =>
-	error.sqlstate === sqlstates.serializationFailure
-		? Option.some(new SerializationFailure())
-		: error.sqlstate === sqlstates.deadlockDetected
-			? Option.some(new Deadlock())
-			: Option.none()
-
-/**
  * Admission could not run to a verdict, as Db.open's reason: SERIALIZABLE's refusal of its transaction, exactly 40001
- * or 40P01, is retryable and changed nothing (AdmissionTransient); every other report, a session's failure, rows the
- * catalog cannot give and statements that do not compile are AdmissionFailed.
+ * or 40P01 (errors/execution.ts serializableRefusal), is retryable and changed nothing (AdmissionTransient); every other
+ * report, a session's failure, rows the catalog cannot give and statements that do not compile are AdmissionFailed.
  */
 export const admissionFailure = (failure: AdmissionFailure): OpenError => {
 	switch (failure._tag) {
-		case "ServerError":
+		case "ServerError": {
+			const reason = serializableRefusal(failure)
 			return new OpenError({
-				reason: Option.getOrElse(
-					Option.map(
-						serializableRefusal(failure),
-						(reason): AdmissionFailed | AdmissionTransient =>
-							new AdmissionTransient({ reason, error: failure })
-					),
-					() => new AdmissionFailed({ failure })
-				)
+				reason:
+					reason === undefined
+						? new AdmissionFailed({ failure })
+						: new AdmissionTransient({ reason, error: failure })
 			})
+		}
 		case "ConnectionLost":
 		case "CommitLost":
 		case "DriverFailure":

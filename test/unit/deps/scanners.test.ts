@@ -6,7 +6,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { isCUtf8 } from "#adapter/admission/expectation.ts"
-import { parseSqlstate } from "#compiler/core/sqlstate.ts"
+import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -56,7 +56,7 @@ describe("scanners that replace a RegExp under src", () => {
 		})
 	)
 
-	it.effect("parseSqlstate reads exactly /^[0-9A-Z]{5}$/, as the text itself", (ctx) =>
+	it.effect("Sqlstate.parse reads exactly /^[0-9A-Z]{5}$/, as the text itself", (ctx) =>
 		Effect.gen(function* () {
 			const reference = regex("^[0-9A-Z]{5}$")
 			yield* searched(
@@ -77,7 +77,7 @@ describe("scanners that replace a RegExp under src", () => {
 					},
 					(text) =>
 						Effect.sync(() => {
-							const parsed: string | undefined = parseSqlstate(text)
+							const parsed: string | undefined = Sqlstate.parse(text)
 							assert.equal(parsed, reference.test(text) ? text : undefined)
 						})
 				)

@@ -7,20 +7,20 @@ import {
 	transientReason
 } from "#adapter/errors/execution.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
-import type { ApplyOutcome } from "#adapter/types/db.ts"
+import type { ApplyOutcome, ApplyOutcomeConstructor } from "#adapter/types/db.ts"
 import {
 	rosterDomainDefect,
 	type ViolationClassifier,
 	type WrittenAt
 } from "#adapter/witness/classify.ts"
-import type {
-	FamilyId,
-	Refused,
-	RelationCounts,
-	StatementAt,
-	UniqueAbort,
-	Witness,
-	WriteStep
+import {
+	type FamilyId,
+	outcomeKind,
+	type Refused,
+	type StatementAt,
+	type UniqueAbort,
+	type Witness,
+	type WriteStep
 } from "#compiler/plan/change.ts"
 import { sqlstates } from "#compiler/plan/common.ts"
 
@@ -278,27 +278,25 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 /** The public counts of a WriteProgram's netted outcome: one entry per written relation, in code point order. */
 type PublicCounts = Extract<ApplyOutcome<unknown>, { readonly kind: "accepted" }>["counts"]
 
-const publicCounts = (counts: ReadonlyArray<RelationCounts>): PublicCounts =>
+/** Each entry's counts, as the outcome holds them: its relation and its three counts, frozen. */
+const publicCounts = (counts: PublicCounts): PublicCounts =>
 	Object.freeze(
 		Arr.map(counts, (c) =>
 			Object.freeze({ relation: c.relation, added: c.added, deleted: c.deleted, put: c.put })
 		)
 	)
 
-/** The outcome value of a committed application, its read-backs the record the reads decoder assembled. */
-export const committedOutcome = <R>(
-	kind: "accepted" | "no-change",
-	counts: ReadonlyArray<RelationCounts>,
-	reads: R
-): ApplyOutcome<R> =>
-	kind === "accepted"
-		? Object.freeze({ kind, counts: publicCounts(counts), reads })
-		: Object.freeze({ kind, reads })
-
-/** The outcome value of a rejected application. */
-export const rejectedOutcome = <R>(refused: Refused, witness: Witness): ApplyOutcome<R> =>
-	Object.freeze({ kind: "invariant-rejected", refused, witness })
-
-/** The outcome value of an application a query entry refused: a fact its addition requested is outside the entry. */
-export const outsideOutcome = <R>(relation: string): ApplyOutcome<R> =>
-	Object.freeze({ kind: "outside-world", relation })
+/**
+ * The outcome values, each frozen, built only here: a committed application's, its kind following its counts
+ * (delta/net.ts outcomeKind) and its read-backs the record the reads decoder assembled; a rejected application's; and
+ * one a query entry refused. The public barrel exports them as ApplyOutcome (public/db.ts).
+ */
+export const applyOutcome: ApplyOutcomeConstructor = {
+	committed: (counts, reads) =>
+		outcomeKind(counts) === "accepted"
+			? Object.freeze({ kind: "accepted", counts: publicCounts(counts), reads })
+			: Object.freeze({ kind: "no-change", reads }),
+	invariantRejected: (refused, witness) =>
+		Object.freeze({ kind: "invariant-rejected", refused, witness }),
+	outsideWorld: (relation) => Object.freeze({ kind: "outside-world", relation })
+}

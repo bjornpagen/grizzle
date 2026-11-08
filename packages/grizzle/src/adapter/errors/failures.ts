@@ -1,16 +1,18 @@
 import { type Array as Arr, Data } from "effect"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
 import type { Family, Law, Unsendable } from "#compiler/plan/change.ts"
-import type {
-	ColumnIdent,
-	CompileError,
-	ConstraintName,
-	DomainName,
-	Identifier,
-	LiteralBound,
-	MessageBound,
-	RelationIdent,
-	Sqlstate
+import {
+	admittedIdentifier,
+	type ColumnIdent,
+	type CompileError,
+	type ConstraintName,
+	type DomainName,
+	type Identifier,
+	type IdentityKind,
+	type LiteralBound,
+	type MessageBound,
+	type RelationIdent,
+	type Sqlstate
 } from "#compiler/plan/common.ts"
 
 /**
@@ -23,15 +25,47 @@ import type {
  * (CredentialError) or the layer's verify (TokenError) failed with or threw. The adapter classifies each failure once,
  * where it happens: a connection attempt where pg reports it (wire/session.ts), a statement's answer where its flight
  * drains (wire/batch.ts), an admission where it compares (adapter/admission).
+ *
+ * Each class is its value's one constructor, the adapter's and the public barrel's alike, so an application's test
+ * builds the exact value grizzle fails with. A constructor that reads a name the server or the installation gave (a
+ * ServerError's report, a reason's constraint, a StaleSnapshot's fingerprint) admits it as the installed name it is,
+ * so no caller holds a brand to build one.
  */
 
 /**
+ * An ErrorResponse as the server wrote it: its SQLSTATE (Sqlstate.parse), its message, and each field it named or
+ * gave, the constraint, the schema, the table, the column, the data type, DETAIL and HINT, undefined where it gave none.
+ * Every field is stated.
+ */
+export interface ErrorResponse {
+	readonly sqlstate: Sqlstate
+	readonly message: string
+	readonly constraint: string | undefined
+	readonly schema: string | undefined
+	readonly table: string | undefined
+	readonly column: string | undefined
+	readonly dataType: string | undefined
+	readonly detail: string | undefined
+	readonly hint: string | undefined
+}
+
+/** A field as the server gave it: an empty one says nothing, as an absent one does. */
+const said = (text: string | undefined): string | undefined => (text === "" ? undefined : text)
+
+/** A name the server gave, as the installed name it is, or undefined where it named none. */
+const named = <K extends IdentityKind>(text: string | undefined): Identifier<K> | undefined => {
+	const name = said(text)
+	return name === undefined ? undefined : admittedIdentifier(name)
+}
+
+/**
  * An ErrorResponse: PostgreSQL refused a statement with one. It keeps the SQLSTATE, the message (its `message`), DETAIL
- * and HINT as the server gave them, and the identity fields, each the installed name it is, admitted once where the
- * wire reads the ErrorResponse: the constraint, the schema, the table, the column, and the data type, which a domain
- * constraint's violation reports as its domain; each undefined when the server did not report it. It is built in one
- * place, from pg's DatabaseError (adapter/wire/failure.ts serverFailure), and every failure the server raised carries
- * it as it is, so no layer re-states, re-admits or drops what the server said; the application decides what to log.
+ * and HINT as the server gave them, and the identity fields, each the installed name it is, admitted here: the
+ * constraint, the schema, the table, the column, and the data type, which a domain constraint's violation reports as its
+ * domain; each undefined when the server did not report it or reported it empty. Its constructor reads the
+ * ErrorResponse, the wire's of pg's DatabaseError (adapter/wire/failure.ts serverFailure) as an application's test's,
+ * and every failure the server raised carries it as it is, so no layer re-states, re-admits or drops what the server
+ * said; the application decides what to log.
  */
 export class ServerError extends Data.TaggedError("ServerError")<{
 	readonly sqlstate: Sqlstate
@@ -43,7 +77,21 @@ export class ServerError extends Data.TaggedError("ServerError")<{
 	readonly dataType: DomainName | undefined
 	readonly detail: string | undefined
 	readonly hint: string | undefined
-}> {}
+}> {
+	constructor(report: ErrorResponse) {
+		super({
+			sqlstate: report.sqlstate,
+			message: report.message,
+			constraint: named(report.constraint),
+			schema: named(report.schema),
+			table: named(report.table),
+			column: named(report.column),
+			dataType: named(report.dataType),
+			detail: said(report.detail),
+			hint: said(report.hint)
+		})
+	}
+}
 
 /** The server's report, as a sentence names it: its SQLSTATE and its message. */
 const reportText = (error: ServerError): string => `SQLSTATE ${error.sqlstate}: ${error.message}`
@@ -667,6 +715,10 @@ export class GeneratedSerialUnique extends Data.TaggedError("GeneratedSerialUniq
 	readonly relation: string
 	readonly constraint: ConstraintName
 }> {
+	constructor(met: { readonly relation: string; readonly constraint: string }) {
+		super({ relation: met.relation, constraint: admittedIdentifier(met.constraint) })
+	}
+
 	override get message(): string {
 		const stored = "one a concurrent writer stored"
 		return `a serial value generated for ${this.relation} met ${stored}, on ${this.constraint}`
@@ -693,6 +745,10 @@ export class UnseenOccupant extends Data.TaggedError("UnseenOccupant")<{
 	readonly relation: string
 	readonly constraint: ConstraintName
 }> {
+	constructor(met: { readonly relation: string; readonly constraint: string }) {
+		super({ relation: met.relation, constraint: admittedIdentifier(met.constraint) })
+	}
+
 	override get message(): string {
 		const occupant = "an occupant this transaction's snapshot did not see"
 		return `an insert into ${this.relation} met ${occupant}, on ${this.constraint}`

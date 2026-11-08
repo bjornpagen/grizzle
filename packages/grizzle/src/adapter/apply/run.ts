@@ -24,12 +24,10 @@ import {
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
+	applyOutcome,
 	type Classified,
 	classifyServerError,
-	committedOutcome,
-	type FailureOrigin,
-	outsideOutcome,
-	rejectedOutcome
+	type FailureOrigin
 } from "#adapter/outcomes/index.ts"
 import type { ExecutionInputs, HostParams } from "#adapter/reader/execution.ts"
 import { readParams, relationStreams } from "#adapter/reader/params.ts"
@@ -292,9 +290,9 @@ export const hostInputs = (
 const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (classified.kind) {
 		case "rejected":
-			return Effect.succeed(rejectedOutcome(classified.refused, classified.witness))
+			return Effect.succeed(applyOutcome.invariantRejected(classified.refused, classified.witness))
 		case "outside":
-			return Effect.succeed(outsideOutcome(classified.relation))
+			return Effect.succeed(applyOutcome.outsideWorld(classified.relation))
 		case "failed":
 			return Effect.fail(classified.error)
 		case "defect":
@@ -512,7 +510,10 @@ export const runWrite = <R>(
 		if (Result.isFailure(ran)) {
 			const failure = ran.failure
 			if (failure._tag === "GeneratedRejection") {
-				return rejectedOutcome<R>({ kind: "every", laws: [failure.law] }, failure.witness)
+				return applyOutcome.invariantRejected(
+					{ kind: "every", laws: [failure.law] },
+					failure.witness
+				)
 			}
 			return yield* failure._tag === "EncodingFailure"
 				? Effect.fail(failure)
@@ -546,5 +547,5 @@ export const runWrite = <R>(
 				})
 		)
 		const changes = interpretRows(program.outcomeContext, artifact, (i) => raws.get(i) ?? noRows)
-		return committedOutcome(changes.outcome, changes.counts, reads.read(readsRow(delivered)))
+		return applyOutcome.committed(changes.counts, reads.read(readsRow(delivered)))
 	})

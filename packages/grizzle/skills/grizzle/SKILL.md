@@ -442,6 +442,12 @@ The command line's own refusals, by stage:
   and a server's error by its `sqlstate` and the fields it names, never by its words, which follow `lc_messages`.
   Retry only `TransientFailure`, and `Db.open`'s `OpenError` whose reason is `AdmissionTransient`, with `Effect.retry`
   and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
+- In a test, build a failure or an outcome with grizzle's own constructors, never a cast or an object literal in a
+  class's place: every error and reason class is exported as a value, the class grizzle builds it with
+  (`new ReadFailure({ reason: new InputTooLarge({ bound }) })`); a server's report is `new ServerError({ sqlstate,
+  message, constraint, schema, table, column, dataType, detail, hint })`, each field stated, its `sqlstate` from
+  `Sqlstate.parse(code)`, which is `undefined` for a code that is no SQLSTATE; and `ApplyOutcome.committed(counts,
+  reads)`, `invariantRejected(refused, witness)` and `outsideWorld(relation)` build what `db.apply` answers.
 - A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
   as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's

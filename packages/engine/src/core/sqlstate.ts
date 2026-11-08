@@ -1,7 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 
 declare const sqlstateBrand: unique symbol
-/** A SQLSTATE: five characters, each a digit or an ASCII capital (unchecked; parseSqlstate is the parse). */
+/** A SQLSTATE: five characters, each a digit or an ASCII capital (unchecked; Sqlstate.parse is the parse). */
 export type Sqlstate = string & { readonly [sqlstateBrand]: true }
 const brand = nominal<string, Sqlstate>()
 
@@ -22,7 +22,7 @@ const sqlstateLength = 5
 const sqlstateClassLength = 2
 
 /** The code a server reported, as a SQLSTATE, or undefined for any other text. */
-export const parseSqlstate = (code: string): Sqlstate | undefined => {
+const parse = (code: string): Sqlstate | undefined => {
 	if (code.length !== sqlstateLength) {
 		return undefined
 	}
@@ -34,6 +34,12 @@ export const parseSqlstate = (code: string): Sqlstate | undefined => {
 	}
 	return brand(code)
 }
+
+/**
+ * The SQLSTATE operations, beside the Sqlstate type of the same name: `parse`, the one way to a Sqlstate from a code's
+ * text, which the wire reads pg's report through and an application's test builds a ServerError's code with.
+ */
+export const Sqlstate = Object.freeze({ parse })
 
 /**
  * SQLSTATEs: the one table of every condition grizzle branches on, and the parse of a reported code.
