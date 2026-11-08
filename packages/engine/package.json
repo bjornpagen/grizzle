@@ -1,6 +1,6 @@
 {
 	"name": "@bjornpagen/grizzle-engine",
-	"version": "1.0.0-beta.0",
+	"version": "1.0.0-beta.1",
 	"description": "The compiler behind @bjornpagen/grizzle: turns TypeScript tables, rules, permissions and queries into PostgreSQL 19 SQL",
 	"keywords": [
 		"postgresql",

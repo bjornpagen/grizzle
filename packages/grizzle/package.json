@@ -1,6 +1,6 @@
 {
 	"name": "@bjornpagen/grizzle",
-	"version": "1.0.0-beta.0",
+	"version": "1.0.0-beta.1",
 	"description": "Declare your tables, rules, permissions and queries in TypeScript, and get PostgreSQL 19 constraints, row-level security, indexes, reviewed SQL migrations and exactly typed queries",
 	"keywords": [
 		"postgresql",
