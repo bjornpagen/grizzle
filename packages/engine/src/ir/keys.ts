@@ -208,7 +208,8 @@ export interface KeyProof extends Grounds {
 	readonly members: ReadonlyArray<KeyMember>
 	/**
 	 * The key's factors: their keys disjoint, together the key, each factor after the ones whose key columns its
-	 * alternatives' derivations read. Their alternatives' derivations are the grounds' too.
+	 * alternatives' derivations read and otherwise in the order of its columns. Their alternatives' derivations are the
+	 * grounds' too.
 	 */
 	readonly factors: ReadonlyArray<KeyFactor>
 }

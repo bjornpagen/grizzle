@@ -310,9 +310,16 @@ const irredundant = (
 	return rows.filter((row) => row.to.length > 0)
 }
 
+/** A strongly connected set of columns, and the sets it leans on: each with a column a dependency reaching it reads. */
+interface Part {
+	readonly columns: NonEmptyReadonlyArray<string>
+	readonly leansOn: Set<Part>
+}
+
 /**
- * The strongly connected sets of `columns` under `next`, each emitted before every set it reaches, so a set comes after
- * all that determine it (Tarjan, its sets reversed).
+ * The strongly connected sets of `columns` under `next` (Tarjan), ordered so that each set comes after every set that
+ * reaches it, and otherwise in the order of its first column: each column's set in turn, after the sets it leans on
+ * that have not come yet.
  */
 const stronglyConnected = (
 	columns: ReadonlyArray<string>,
@@ -321,7 +328,7 @@ const stronglyConnected = (
 	const index = new Map<string, number>()
 	const stack: Array<string> = []
 	const onStack = new Set<string>()
-	const out: Array<NonEmptyReadonlyArray<string>> = []
+	const partOf = new Map<string, Part>()
 	const visit = (c: string): number => {
 		const at = index.size
 		index.set(c, at)
@@ -345,7 +352,10 @@ const stronglyConnected = (
 					break
 				}
 			}
-			out.push([c, ...set.filter((m) => m !== c)])
+			const part: Part = { columns: [c, ...set.filter((m) => m !== c)], leansOn: new Set() }
+			for (const m of part.columns) {
+				partOf.set(m, part)
+			}
 		}
 		return least
 	}
@@ -354,7 +364,31 @@ const stronglyConnected = (
 			visit(c)
 		}
 	}
-	return out.toReversed()
+	for (const [c, part] of partOf) {
+		for (const d of next(c)) {
+			const reached = partOf.get(d)
+			if (reached !== undefined && reached !== part) {
+				reached.leansOn.add(part)
+			}
+		}
+	}
+	const out: Array<NonEmptyReadonlyArray<string>> = []
+	const placed = new Set<Part>()
+	const place = (part: Part): void => {
+		if (placed.has(part)) {
+			return
+		}
+		placed.add(part)
+		part.leansOn.forEach(place)
+		out.push(part.columns)
+	}
+	for (const c of columns) {
+		const part = partOf.get(c)
+		if (part !== undefined) {
+			place(part)
+		}
+	}
+	return out
 }
 
 /**
@@ -364,13 +398,13 @@ const stronglyConnected = (
  * choice is one (a product), so the factors state 2^k keys in 2k when each of k factors has two.
  *
  * The parts are the strongly connected sets of the columns under what the dependencies reading them determine, read off
- * the dependencies irredundant (above), in an order where every set comes after all that determine it. A dependency
- * determining a column of a set reads only it and the sets before it, so a key holds a key of each set given the sets
- * before it, which every key determines, and each set's keys are found apart: the product. A dependency's targets the
- * others reach from its determinants join nothing, so a key of k independent factors that a parent closes over, or a
- * view states beside its factors' alternatives, leaves them k factors; a set the ones before it determine whole is in
- * no minimal key and is no factor: a column a key determines, a cycle of columns another factor's key determines, a
- * column two factors each determine. Each factor's columns are in table order.
+ * the dependencies irredundant (above), each after all that determine it and otherwise in the order of its first
+ * column. A dependency determining a column of a set reads only it and the sets before it, so a key holds a key of each
+ * set given the sets before it, which every key determines, and each set's keys are found apart: the product. A
+ * dependency's targets the others reach from its determinants join nothing, so a key of k independent factors that a
+ * parent closes over, or a view states beside its factors' alternatives, leaves them k factors; a set the ones before
+ * it determine whole is in no minimal key and is no factor: a column a key determines, a cycle of columns another
+ * factor's key determines, a column two factors each determine. Each factor's columns are in table order.
  *
  * Linear in the table's size after the irredundant dependencies.
  */
