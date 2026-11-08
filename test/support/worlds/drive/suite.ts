@@ -31,7 +31,13 @@ import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { claimRefusalsOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
-import { actionGen, withOpener } from "#test/support/worlds/generate/action.ts"
+import {
+	actionGen,
+	type Way,
+	wayGen,
+	waysOf,
+	withOpener
+} from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
@@ -499,34 +505,39 @@ const refreshesWrittenRead = (
 const afterApplyCalls: Arr.NonEmptyReadonlyArray<ActionKind> = ["read", "refresh"]
 
 /**
- * What an apply reaches, and then the calls through the same Db after it: every feature the apply notes, and every
- * feature a read or refresh the box offers through the Db then notes, as the model predicts them. A deletion shows on a
+ * What the calls through a Db after an apply reach, read of the apply's outcome: every feature a read or refresh the box
+ * offers through the Db then notes, as the model predicts them, in each state the apply leaves. A deletion shows on a
  * derived relation only on the read or refresh after the delete, so an apply aimed by this read is one a pending
  * deletion feature is one call past.
  */
+const callsAfterApply = (
+	state: ModelState,
+	action: Action,
+	observation: ActionOutcome
+): ReadonlyArray<WorldFeature> =>
+	action.kind === "apply"
+		? Arr.flatMap(branchesOf(state, action), ({ observation: applied, next }) =>
+				applied.kind === observation.kind
+					? Arr.flatMap(afterApplyCalls, (kind) =>
+							Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
+								(a.kind === "read" || a.kind === "refresh") && a.session === action.session
+									? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
+									: []
+							)
+						)
+					: []
+			)
+		: []
+
+/** What an apply reaches, and then the calls through the same Db after it (callsAfterApply). */
 const afterApply = (
 	state: ModelState,
 	action: Action,
 	observation: ActionOutcome
-): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "apply") {
-		return []
-	}
-	return [
-		...notedOf(state, action, observation),
-		...Arr.flatMap(branchesOf(state, action), ({ observation: applied, next }) =>
-			applied.kind === observation.kind
-				? Arr.flatMap(afterApplyCalls, (kind) =>
-						Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
-							(a.kind === "read" || a.kind === "refresh") && a.session === action.session
-								? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
-								: []
-						)
-					)
-				: []
-		)
-	]
-}
+): ReadonlyArray<WorldFeature> =>
+	action.kind === "apply"
+		? [...notedOf(state, action, observation), ...callsAfterApply(state, action, observation)]
+		: []
 
 /**
  * A lead for a suite requiring what a deletion shows on a derived relation: an open of a role that refreshes a derived
@@ -1335,135 +1346,120 @@ export const steeredOnce = (weights: Weights, c: Pick<Case<WorldFeature>, "steer
 }
 
 /**
- * A state an inductive case builds past its planned Db sessions, one action before what it reaches: the required
- * features that action reaches there, and the weights of the moves that build it, each aimed on every draw.
+ * A state an inductive case builds past its planned Db sessions, one action before what it reaches: its first move, an
+ * action of `kind` the box offers in the planned state that `worth` admits, read of its outcome through `read` for
+ * what the case's one action reaches once the moves after it (`after`) are made; and those moves, each aimed on every
+ * draw at what the first move was aimed at. What a lead reaches is its look-ahead's to decide, never a list of features.
  */
-export interface InductiveLead {
-	readonly targets: Arr.NonEmptyReadonlyArray<WorldFeature>
-	readonly moves: (weights: Weights) => Arr.NonEmptyReadonlyArray<Weights>
-}
-
-/**
- * What only a Db's apply shows of a world object: a key probe refusing a key outside the entry it writes, and the
- * witness it shows there (features.ts applyObjects); a direct writer's call of a probe is accepted or refused as an
- * attempt.
- */
-const appliedProbe = (feature: WorldFeature): boolean =>
-	startingWith("object:key-probe:refused-outside", "object:key-probe:witness-shown")(feature)
-
-/**
- * What a Db's write shows: its op feature, whatever the membership of what it met, the claims it ran under and its
- * outcome, and a probe refusing a key outside the entry it writes and the witness it shows there (appliedProbe).
- */
-const dbWrite = (feature: WorldFeature): boolean => {
-	const [tag, kind, , , writer] = Str.split(feature, ":")
-	return (tag === "op" && kind === "apply" && writer === "db") || appliedProbe(feature)
-}
-
-/** The features of an inductive lead, and its moves toward them. */
-interface InductiveShape {
-	readonly reaches: (feature: WorldFeature) => boolean
-	readonly moves: (
+interface InductiveLead {
+	readonly kind: "direct-begin" | "open-db" | "apply"
+	readonly worth: Aiming["worth"]
+	readonly read: Aiming["read"]
+	readonly after: (
 		weights: Weights,
-		targets: Arr.NonEmptyReadonlyArray<WorldFeature>
-	) => Arr.NonEmptyReadonlyArray<Weights>
+		targets: Arr.NonEmptyReadonlyArray<string>
+	) => ReadonlyArray<Weights>
 }
 
 /**
- * The features the inductive suite leads a begun transaction toward (inductiveLeads): a direct writer's op features, the
- * world objects its statements meet, and the SQLSTATE a hand-set claim its field refuses meets where a statement reads
- * it, but what only a Db's apply shows (appliedProbe). It splits the required features among the leads, each case's one
- * action aimed at its lead's alone; it gates no lead's moves. A case whose planned state holds a direct writer aims its
- * one action at every required feature, and so does a led case once no lead's target is pending.
- */
-const begunTargets = (feature: WorldFeature): boolean =>
-	startingWith(
-		"op:direct:",
-		"op:direct-end:",
-		"object:",
-		"claim-refused:",
-		"claim-refused-read:"
-	)(feature) && !appliedProbe(feature)
-
-/**
- * The inductive suite's leads over `required`, each with a required feature to reach:
- * - a transaction begun one statement from a direct writer's feature (afterBegin, begunTargets): the role it took on and
- *   the claims it set, none, some or malformed, decide which facts lie inside, outside and hidden from its world and
- *   which world function it may call;
+ * The inductive suite's leads, each a state one action before what it reaches:
+ * - a transaction begun, one statement or its end from what it reaches (afterBegin): the role it took on and the claims
+ *   it set, none, some or malformed, decide which facts lie inside, outside and hidden from its world and which world
+ *   function it may call;
  * - a transaction one statement in, aimed so that its COMMIT or, after a delete, a read of it reaches a feature
- *   (afterWrite): a law checked at COMMIT that the statement broke, or a fact
- *   the transaction deleted, gone from what it reads;
- * - a Db that deleted a fact a derived relation is computed from, one read or refresh before the derived relation shows
- *   it or drops it (staleDerivedMoves);
- * - a Db opened one apply from what a Db's write shows (aimedOpen, dbWrite): the role it opens as and the claims its
- *   token carries decide which facts lie inside, outside and hidden from the entry each apply writes, and an apply
- *   waits on a direct transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the
- *   write a feature needs: a write under claims that disagree with a fact it submits needs a token carrying every
- *   context an entry reads whose head holds a field a claim fixes.
+ *   (afterWrite): a law checked at COMMIT that the statement broke, or a fact the transaction deleted, gone from what it
+ *   reads;
+ * - a Db the planned state holds, one apply in, a read or refresh through it from what it reaches (callsAfterApply): a
+ *   derived relation that shows a fact the apply deleted, or drops it;
+ * - a Db opened, one read or apply from what it reaches: the role it opens as and the claims its token carries decide
+ *   which facts lie inside, outside and hidden from each entry it reads or writes, and an apply waits on a direct
+ *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs.
  */
-export const inductiveLeads = (
-	required: ReadonlyArray<Reached<WorldFeature>>
-): ReadonlyArray<InductiveLead> => {
-	const shapes: ReadonlyArray<InductiveShape> = [
-		{
-			reaches: begunTargets,
-			moves: (weights, targets) => [
-				aimedBegin(weights, targets, { read: afterBegin, worth: everyBegin })
-			]
-		},
-		{
-			reaches: (f) => atCommitRefusals(f) || goneFromItsWorld(f),
-			moves: (weights, targets) => oneStatementIn(weights, targets, afterWrite)
-		},
-		{ reaches: startingWith("deletion:derived-"), moves: staleDerivedMoves },
-		{ reaches: dbWrite, moves: (weights, targets) => [aimedOpen(weights, targets, ["apply"])] }
-	]
-	return Arr.flatMap(shapes, (shape) =>
-		Arr.match(requiredFeatures(required, shape.reaches), {
-			onEmpty: (): ReadonlyArray<InductiveLead> => [],
-			onNonEmpty: (targets) => [{ targets, moves: (weights) => shape.moves(weights, targets) }]
-		})
-	)
+const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
+	{ kind: "direct-begin", worth: everyBegin, read: afterBegin, after: () => [] },
+	{
+		kind: "direct-begin",
+		worth: everyBegin,
+		read: afterAStatementOf(afterWrite),
+		after: (weights, targets) => [aimedStatement(weights, targets, afterWrite)]
+	},
+	{ kind: "apply", worth: everyActionWorth, read: callsAfterApply, after: () => [] },
+	{
+		kind: "open-db",
+		worth: everyActionWorth,
+		read: afterOpen(["read", "apply"], notedOf),
+		after: () => []
+	}
+]
+
+/** A move of a lead past a planned state: the action its first move took there, or a draw under its weights. */
+export type LeadMove =
+	| { readonly kind: "taken"; readonly action: Action }
+	| { readonly kind: "drawn"; readonly weights: Weights }
+
+/** The action a lead's move performs in a state: the one it took, or one drawn from the case's tape. */
+export const moveAction = (draw: CaseDraw, state: ModelState, move: LeadMove): Action => {
+	switch (move.kind) {
+		case "taken":
+			return move.action
+		case "drawn":
+			return drawAction(draw, state, move.weights)
+	}
 }
 
 /**
- * What a led inductive case does past its planned Db sessions: the weights of its lead's moves, steered, and the
- * features its one action then aims at.
+ * What a led inductive case does past its planned Db sessions: its lead's moves, and the features its one action then
+ * aims at.
  */
 export interface Led {
-	readonly moves: ReadonlyArray<Weights>
-	readonly aims: ReadonlyArray<Reached<WorldFeature>>
+	readonly moves: ReadonlyArray<LeadMove>
+	readonly aims: ReadonlyArray<Reached<string>>
 }
 
 /**
- * The lead of a led inductive case, drawn from its tape: where the case steers, among the leads with a target still
- * pending, none once no lead's is, so a steered case spends no move on what the population already holds and its one
- * action goes to what is still pending from the Db sessions it planned; where the case may not steer, among all of
- * them, so the rotating stream's led cases are plain draws of the suite's distribution. Its moves are steered toward
- * what is pending (steered); its one action aims at the lead's pending targets, or at `required` where the case may
- * not steer. A led case without a lead takes no move.
+ * The lead of a led inductive case in its planned state, drawn from its tape evenly among the leads: the required
+ * features it aims at are those still pending where the case steers, every one where it may not, and its look-ahead
+ * from the planned state finds those its moves reach (waysOf). Its first move is one of those ways (wayGen), its later
+ * moves are steered toward what is pending (steered), and its one action aims at the features its first move was found
+ * to reach. A lead whose look-ahead reaches none takes no move, and the case aims its one action at `required`, so a
+ * case runs at most one look-ahead past its planned state.
  */
 export const leadOf = (
-	leads: ReadonlyArray<InductiveLead>,
 	required: ReadonlyArray<Reached<WorldFeature>>,
 	weights: Weights,
+	state: ModelState,
 	c: Pick<Case<WorldFeature>, "steering" | "draw">
 ): Led => {
 	const pending = pendingOf(c.steering, required)
-	const pendingIn = (lead: InductiveLead): ReadonlyArray<WorldFeature> =>
-		Arr.filter(lead.targets, (f) => Option.exists(pending, (isPending) => isPending(f)))
-	const open = Arr.filter(leads, (lead) => Arr.isReadonlyArrayNonEmpty(pendingIn(lead)))
-	return Arr.match(Option.isSome(pending) ? open : leads, {
-		onEmpty: (): Led => ({ moves: [], aims: required }),
-		onNonEmpty: (candidates): Led => {
-			const lead = c.draw(element(candidates))
-			const still = pendingIn(lead)
-			return {
-				moves: Arr.map(lead.moves(weights), (w) => steered(w, pending, nothingReached)),
-				aims: Arr.isReadonlyArrayNonEmpty(still) ? still : required
-			}
-		}
+	const unled: Led = { moves: [], aims: required }
+	const [first, ...rest] = requiredFeatures(required, (f) =>
+		Option.match(pending, { onNone: () => true, onSome: (isPending) => isPending(f) })
+	)
+	if (first === undefined) {
+		return unled
+	}
+	const lead = c.draw(element(inductiveLeads))
+	const [way, ...ways] = waysOf(state, [lead.kind], weights.roles, {
+		features: [first, ...rest],
+		read: lead.read,
+		worth: lead.worth,
+		scope: aimScope
 	})
+	if (way === undefined) {
+		return unled
+	}
+	const reaching: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Way>> = [way, ...ways]
+	const targets = Arr.map(reaching, (w) => Arr.headNonEmpty(w).feature)
+	return {
+		moves: [
+			{ kind: "taken", action: c.draw(wayGen(reaching)) },
+			...Arr.map(lead.after(weights, targets), (w): LeadMove => ({
+				kind: "drawn",
+				weights: steered(w, pending, nothingReached)
+			}))
+		],
+		aims: targets
+	}
 }
 
 /** What a suite sees of one action its program performed: the state it ran in, its answer and the state after it. */

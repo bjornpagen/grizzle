@@ -1172,12 +1172,49 @@ const focusedOn = (roles: RoleFocus, a: Action): boolean =>
 	roles.kind === "every" ||
 	roles.roles.includes(a.role.role)
 
+/** An action the box offers and a feature aimed at that it reaches as the model predicts it. */
+export interface Way {
+	readonly feature: string
+	readonly action: Action
+}
+
 /**
- * An aimed draw (Weights.aims): among the features aimed at that an action the box of the aim's scope offers in the
- * state reaches as the model predicts it (within the run's kinds, an own role opened only within its focus), one evenly, then an action
- * reaching it evenly; the run's own draw where none is reachable. Built only when drawn, over every action the box
- * offers, each stepped once (reachedBy), so a required feature one step away is never missed for want of a sample. The
- * box and its steps are the draw's own: nothing derived from a state outlives the draw.
+ * The ways an aim takes in a state, grouped by the feature each reaches: every action the box of the aim's scope offers
+ * there (within the run's kinds, an own role opened only within its focus, and those the aim finds worth a step), each
+ * stepped once (reachedBy), with each feature aimed at that it reaches. A required feature one step away is never
+ * missed for want of a sample, and nothing derived from the state outlives the call.
+ */
+export const waysOf = (
+	state: ModelState,
+	kinds: Weights["kinds"],
+	roles: RoleFocus,
+	aiming: Aiming
+): ReadonlyArray<Arr.NonEmptyReadonlyArray<Way>> => {
+	const aimed: ReadonlySet<string> = new Set<string>(aiming.features)
+	const aimedKinds: ReadonlyArray<ActionKind> = Arr.filter(actionKinds, (k) =>
+		Arr.contains(kinds, k)
+	)
+	const offered = Arr.filter(
+		Arr.flatMap(aimedKinds, (k) => enumerateKind(state, k, aiming.scope)),
+		(a) => focusedOn(roles, a) && aiming.worth(a, state)
+	)
+	const reaching = Arr.flatMap(offered, (a) =>
+		Arr.flatMap([...reachedBy(aiming.read, state, a)], (f): ReadonlyArray<Way> =>
+			aimed.has(f) ? [{ feature: f, action: a }] : []
+		)
+	)
+	return Record.values(Arr.groupBy(reaching, (r): string => r.feature))
+}
+
+/** One of the ways an aim takes: a feature among those it reaches, evenly, then an action reaching it, evenly. */
+export const wayGen =
+	(ways: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Way>>): Gen<Action> =>
+	(source) =>
+		source.draw(element(source.draw(element(ways)))).action
+
+/**
+ * An aimed draw (Weights.aims): one of the ways the aim takes in the state (waysOf, wayGen), built only when drawn; the
+ * run's own draw where none is reachable.
  */
 const aimedGen =
 	(
@@ -1188,25 +1225,8 @@ const aimedGen =
 		drawn: Gen<Action>
 	): Gen<Action> =>
 	(source) => {
-		const aimed: ReadonlySet<string> = new Set<string>(aiming.features)
-		const aimedKinds: ReadonlyArray<ActionKind> = Arr.filter(actionKinds, (k) =>
-			Arr.contains(kinds, k)
-		)
-		const offered = Arr.filter(
-			Arr.flatMap(aimedKinds, (k) => enumerateKind(state, k, aiming.scope)),
-			(a) => focusedOn(roles, a) && aiming.worth(a, state)
-		)
-		const reaching = Arr.flatMap(offered, (a) =>
-			Arr.flatMap([...reachedBy(aiming.read, state, a)], (f) =>
-				aimed.has(f) ? [{ feature: f, action: a }] : []
-			)
-		)
-		const [first, ...rest] = Record.values(Arr.groupBy(reaching, (r): string => r.feature))
-		if (first === undefined) {
-			return source.draw(drawn)
-		}
-		const ways = source.draw(element([first, ...rest]))
-		return source.draw(element(ways)).action
+		const [first, ...rest] = waysOf(state, kinds, roles, aiming)
+		return source.draw(first === undefined ? drawn : wayGen([first, ...rest]))
 	}
 
 /**

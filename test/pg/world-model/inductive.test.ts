@@ -26,9 +26,9 @@ import {
 	docsAtBoundRealities,
 	docsInstalls,
 	drawAction,
-	inductiveLeads,
 	type Led,
 	leadOf,
+	moveAction,
 	stage,
 	steeredOnce,
 	unnoted
@@ -93,9 +93,6 @@ const cases = 64
  * action away.
  */
 const situations = requiredWorldFeatures
-
-/** The leads a led case draws from (drive/suite.ts inductiveLeads). */
-const leads = inductiveLeads(situations)
 
 /** How many cases the steered phase may run, as a multiple of the cases. */
 const steeredFactor = 10
@@ -550,17 +547,17 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								reachedPlan(planned, ic.plan)
 								const led: Led =
 									ic.plan.after.kind === "led"
-										? leadOf(leads, situations, ic.weights, c)
+										? leadOf(situations, ic.weights, planned, c)
 										: { moves: [], aims: situations }
 								const reached = yield* Effect.reduce(
 									led.moves,
 									(): ModelState => planned,
-									(state, weights, index) =>
+									(state, move, index) =>
 										Effect.map(
 											runStep(
 												world,
 												state,
-												drawAction(c.draw, state, weights),
+												moveAction(c.draw, state, move),
 												setup.length + index,
 												unnoted
 											),
