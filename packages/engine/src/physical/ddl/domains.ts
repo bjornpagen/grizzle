@@ -18,7 +18,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import type { DomainCheck, DomainCheckTerm } from "#compiler/ir/law.ts"
+import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import {
@@ -27,7 +27,7 @@ import {
 	type RegexRef,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
-import { domainCheck } from "#compiler/laws/model/model.ts"
+import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { type ContractSource, domainBase } from "#compiler/physical/ddl/names.ts"
@@ -36,6 +36,7 @@ import type { Owned } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
 import { domainValue, membership, textDomainDdl } from "#compiler/text/refinement.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {
@@ -49,6 +50,45 @@ export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
 	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
 		? t.text.regex
 		: undefined
+
+/** A stored field whose pattern states a law: its relation, the field, its pattern, and the law, spelled as the field
+ * declares its pattern. */
+export interface FieldPatternLaw {
+	readonly relation: TableRelation
+	readonly field: LawField
+	readonly regex: RegexRef
+	readonly law: Extract<Law, { readonly kind: "pattern" }>
+}
+
+/**
+ * The pattern laws of a schema's law model: one per field of a stored relation that a structural text domain types
+ * (structuralRegex), by relation name, each relation's fields in declared order. A tautology erases (text/refinement.ts),
+ * a contract's pattern is its contract's law, and a closed relation, a derived relation or a context field stores no
+ * field, so none of them states one. The installation lists its text domains' laws from these
+ * (physical/install/compile.ts) and patternLawsOf returns their laws, so the two can never disagree.
+ */
+export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw> =>
+	[...model.relations.values()].flatMap(({ relation }) =>
+		relation.fields.flatMap((field): ReadonlyArray<FieldPatternLaw> => {
+			const regex = structuralRegex(field.type)
+			return regex === undefined
+				? []
+				: [
+						Object.freeze({
+							relation,
+							field,
+							regex,
+							law: Object.freeze({
+								kind: "pattern",
+								relation: relation.name,
+								field: field.name,
+								source: regex.source,
+								flags: regex.flags
+							})
+						})
+					]
+		})
+	)
 
 /** A column outside the stored relations that an installer extension types by a text refinement: a derived relation's
  * view column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its
@@ -121,7 +161,8 @@ export interface TextDomain {
 	readonly uses: ReadonlyArray<TextDomainUse>
 }
 
-interface TextDomainPlan {
+/** A structural text domain as planned: it types every column whose pattern has its key. */
+export interface TextDomainPlan {
 	/** The canonical pattern key of the regex it types. */
 	readonly key: string
 	readonly domain: TextDomain

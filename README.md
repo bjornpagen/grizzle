@@ -2482,8 +2482,9 @@ PostgreSQL draws.
 
 **Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. The outcome names
-the contract's rule or the field's pattern rule. Fields of one pattern share a domain, and PostgreSQL reports the
-domain, never the column, so grizzle judges the row on the host to name the field:
+the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
+grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
+the host to name the field, its rule spelled as that field spells its pattern:
 `{ kind: "pattern", relation: "Item", field: "slug", source: "^[a-z-]{1,64}$", flags: "u" }`. A value PostgreSQL
 generates into a refined field, or grizzle fills into a fold's accumulator or end, is refused the same way; its witness
 is `unreported` where only a refill writes the row, such as a stored owner whose family the write appends to.
@@ -2522,6 +2523,13 @@ rule. `constraintNameOf(law)` is the name PostgreSQL holds a row check under, fr
 `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a check
 declared as `E1_derived` is `"e_1_derived"`. A direct writer's refusal by the check names it, so take it from grizzle
 and never spell it.
+
+`patternLawsOf(schema)` lists the pattern rules, which no statement states: one
+`{ kind: "pattern", relation, field, source, flags }` per stored field whose pattern states one, spelled as that field
+spells it, by relation name and each relation's fields in declared order. They are exactly the pattern rules an outcome
+names. A pattern every text matches, such as `"^.*$"` under `"su"`, states none: grizzle drops it, and the column is
+plain text. Neither does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the
+schema fixes. It compiles the rules too, so call it once and keep the list.
 
 **Errors**, by operation:
 

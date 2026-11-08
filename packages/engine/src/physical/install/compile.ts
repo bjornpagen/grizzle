@@ -47,11 +47,12 @@ import {
 	type ContextContract,
 	contextContracts,
 	contractDigest,
+	type FieldPatternLaw,
+	fieldPatternLaws,
 	planTextDomains,
-	structuralRegex,
 	type TextColumnUse,
 	type TextDomain,
-	textDomainIdentity
+	type TextDomainPlan
 } from "#compiler/physical/ddl/domains.ts"
 import {
 	type ContractSource,
@@ -297,59 +298,56 @@ const canonicalUse = (a: DomainUse, b: DomainUse): number =>
 	compareStrings(a.table, b.table) || compareStrings(a.column, b.column)
 
 /**
- * Each structural text domain's constraint, with the law of every stored field it types (identity.patternLaw), each
- * described as its field spells its pattern, and each field's column with that law, which a violation on that column
- * reports, in canonical use order (table identifier, then column identifier). The law model plans no text domain, so
- * the installation that names them lists them. A domain is named by its definition (textDomainIdentity), so patterns
- * of one membership share one, and a domain no stored field types (a view column's, a context field's, a closed
- * payload's) states no law and lists no constraint: PostgreSQL refuses a value there in a statement no write states,
- * and no outcome names it.
+ * Each structural text domain's constraint, with the law of every stored field it types (fieldPatternLaws), each
+ * described as its field spells its pattern and identified by identity.patternLaw, and each field's column with that
+ * law, which a violation on that column reports, in canonical use order (table identifier, then column identifier). The
+ * law model plans no text domain, so the installation that names them lists them. A field's domain is the planned one
+ * of its pattern's key (planTextDomains), which types its column: patterns of one membership share one, named by the
+ * definition its CHECK spells, so a field whose pattern is spelled otherwise is that domain's too, and two keys of one
+ * definition are one domain. A domain no stored field types (a view column's, a context field's, a closed payload's)
+ * states no law and lists no constraint: PostgreSQL refuses a value there in a statement no write states, and no
+ * outcome names it.
  */
 const textDomainConstraintLaws = (
-	relations: ReadonlyArray<TableRelation>
+	plans: ReadonlyArray<TextDomainPlan>,
+	fields: ReadonlyArray<FieldPatternLaw>
 ): ReadonlyArray<ConstraintLaw> => {
 	const byDomain = new Map<
 		string,
-		{ readonly named: Identity<"textDomain">; readonly uses: [DomainUse, ...Array<DomainUse>] }
+		{ readonly domain: TextDomain; readonly uses: Array<DomainUse> }
 	>()
-	for (const r of relations) {
-		for (const f of r.fields) {
-			const regex = structuralRegex(f.type)
-			if (regex === undefined) {
-				continue
-			}
-			const named = textDomainIdentity(regex)
-			const use: DomainUse = Object.freeze({
-				table: r.ident,
-				column: f.column,
-				law: Object.freeze({
-					law: identifierOf(identity.patternLaw(named, r.name, f.name)),
-					described: Object.freeze({
-						kind: "pattern",
-						relation: r.name,
-						field: f.name,
-						source: regex.source,
-						flags: regex.flags
+	for (const { key, domain } of plans) {
+		const known = byDomain.get(domain.name) ?? { domain, uses: [] }
+		for (const { relation, field, regex, law } of fields) {
+			if (regex.key === key) {
+				known.uses.push(
+					Object.freeze({
+						table: relation.ident,
+						column: field.column,
+						law: Object.freeze({
+							law: identifierOf(identity.patternLaw(domain.named, relation.name, field.name)),
+							described: law
+						})
 					})
-				})
-			})
-			const known = byDomain.get(named.identifier)
-			if (known === undefined) {
-				byDomain.set(named.identifier, { named, uses: [use] })
-			} else {
-				known.uses.push(use)
+				)
 			}
 		}
+		byDomain.set(domain.name, known)
 	}
-	return [...byDomain.values()].map(({ named, uses }): ConstraintLaw => {
-		const ordered = sortNonEmpty(uses, canonicalUse)
-		return {
-			kind: "domainConstraint",
-			name: identifierOf(identity.domainCheck(named)),
-			owner: identifierOf(named),
-			laws: mapNonEmpty(ordered, (u) => u.law),
-			uses: ordered
+	return [...byDomain.values()].flatMap(({ domain, uses }): ReadonlyArray<ConstraintLaw> => {
+		if (!isNonEmpty(uses)) {
+			return []
 		}
+		const ordered = sortNonEmpty(uses, canonicalUse)
+		return [
+			{
+				kind: "domainConstraint",
+				name: domain.constraint,
+				owner: domain.name,
+				laws: mapNonEmpty(ordered, (u) => u.law),
+				uses: ordered
+			}
+		]
 	})
 }
 
@@ -531,7 +529,7 @@ export const installationOver = (
 			 * installation lists every contract's domain constraint, as it lists the text domains'. */
 			const constraintLaws: Array<ConstraintLaw> = [
 				...model.constraints.filter((c) => c.kind !== "domainConstraint"),
-				...textDomainConstraintLaws(stored),
+				...textDomainConstraintLaws(textPlans, fieldPatternLaws(model)),
 				...contractConstraintLaws(names, contracts, stored)
 			]
 			for (const extension of extensions) {

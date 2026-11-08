@@ -3,7 +3,8 @@ import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { StatementDesc } from "#compiler/ir/desc.ts"
-import { compileLaws } from "#compiler/laws/model/model.ts"
+import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
+import { fieldPatternLaws } from "#compiler/physical/ddl/domains.ts"
 import { parseBuiltSchema } from "#compiler/program/schema.ts"
 import { canonicalStatementText, own } from "#compiler/schema/own.ts"
 import { orThrow } from "#compiler/schema/protocol.ts"
@@ -31,6 +32,15 @@ const ownedAs = (statement: Statement): ReadonlyArray<StatementDesc> => {
 		: expansion.statements
 }
 
+/** The law model of a schema built by schema(...) or schema.extend, compiled once for `operation`; CompileError, thrown,
+ * for any other value, a role's included, and for a schema that does not compile. */
+const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
+	orThrow(
+		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
+			Result.flatMap(own(built.desc), compileLaws)
+		)
+	)
+
 /**
  * lawsOf(schema): every statement of a schema built by schema(...) or schema.extend, in its declared order, its base's
  * first, each beside the laws an `invariant-rejected` outcome names when that statement is broken (types/changeset
@@ -44,11 +54,7 @@ const ownedAs = (statement: Statement): ReadonlyArray<StatementDesc> => {
 export const lawsOf = <S extends AnySchema>(
 	schema: S
 ): ReadonlyArray<StatementLaws<S["statements"][number]>> => {
-	const { owned, theory } = orThrow(
-		Result.flatMap(parseBuiltSchema(schema, captureLoc("lawsOf", [])), (built) =>
-			Result.flatMap(own(built.desc), compileLaws)
-		)
-	)
+	const { owned, theory } = lawModelOf(schema, "lawsOf")
 	const described = theory.laws.map((law) => ({
 		statements: law.statements,
 		law: lawDescription(law)
@@ -70,3 +76,17 @@ export const lawsOf = <S extends AnySchema>(
 		})
 	)
 }
+
+/**
+ * patternLawsOf(schema): the laws a schema's patterns state, beside lawsOf's: one per stored field whose pattern
+ * (str.regex) states a law, `{ kind: "pattern", relation, field, source, flags }` spelled as that field declares its
+ * pattern, by relation name, each relation's fields in declared order. They are exactly the pattern laws an
+ * `invariant-rejected` outcome names, since the installation lists its text domains' laws from the same fields
+ * (physical/ddl/domains.ts fieldPatternLaws). A pattern every text matches states none, as grizzle erases it, and
+ * neither does a contract's pattern, whose refusal names the contract, nor a closed relation's payload, which no write
+ * stores. It throws CompileError for any other value, a role's included, and for a schema that does not compile.
+ */
+export const patternLawsOf = (
+	schema: AnySchema
+): ReadonlyArray<Extract<Law, { readonly kind: "pattern" }>> =>
+	Object.freeze(fieldPatternLaws(lawModelOf(schema, "patternLawsOf")).map((p) => p.law))

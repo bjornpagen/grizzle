@@ -34,8 +34,6 @@ with the next release.
 - **Exports qti-pie asked for after the freeze:**
   - `insertableNamesOf(schema)` / `InsertableNameOf<S>`: the relations a ChangeSet inserts at top level (writable and
     no family's member), plus insertAll's record type. Today pantry casts.
-  - `patternLawsOf(schema)`: the per-field pattern laws, beside lawsOf. A tautology pattern states no law, and pantry
-    can't see that today.
 - **The regex position cap** (qti-pie's upstream reviewer, aidenzepp/qti-pie#46, comment 6701102861): one pattern for
   a `data-ssml` value (every JSON spelling of Data-SSML's names and values) needs about 4,400 regex positions against
   the cap of 4,096 (core/limits.ts), and chaining two withPattern steps reaches about 35,800 product positions. The

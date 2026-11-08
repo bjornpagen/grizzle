@@ -426,8 +426,11 @@ The command line's own refusals, by stage:
 - A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
   as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's
-  name. A pattern's law names its field, `{ kind: "pattern", relation, field, source, flags }`, so two fields of one
-  pattern are two laws. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
+  name. A pattern's law names its field, `{ kind: "pattern", relation, field, source, flags }`, spelled as that field
+  spells its pattern, so two fields of one pattern are two laws. `patternLawsOf(schema)` lists every pattern law a
+  schema states, one per stored field, and none for a pattern every text matches, which grizzle drops, or for a
+  contract's pattern, whose law is the contract's: compare refusals against it with `sameLaw`, never keep that list
+  by hand. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
   PostgreSQL tried first, where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such
   as a query's, or a check that reads a value grizzle does not hold, such as a count or an end a put keeps from the
   stored row): the row may break other checks too, and another version of grizzle may name another of them. `some`
