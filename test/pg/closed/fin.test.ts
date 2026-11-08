@@ -12,16 +12,20 @@
  * reads:
  *
  * - **the containment CHECK:** a row of CheckProbe holding the key is accepted exactly where Slotted holds the key, and
- *   refused with 23514 elsewhere;
+ *   elsewhere refused by the containment's law, 23514 on the CHECK that reports it;
  * - **C.at in a generated field:** a row of AtProbe is accepted with exactly the key's own payload where Slotted holds
- *   the key, and refused with 23514 elsewhere: an absent key reads NULL, which the payload's roster domain refuses, its
- *   CHECK being IS TRUE, before the column's NOT NULL is reached;
+ *   the key, and elsewhere refused by the generated field's law, `{ kind: "generated", relation, field }`: an absent key
+ *   reads NULL, which every domain admits, so the generated column's NOT NULL refuses it, 23502 on that column;
  * - **C.row in a generated field:** each prefix's set in RowProbe is exactly the codes Slotted's rows complete it with,
  *   the empty set for a prefix past its owner's count;
  * - **R07's membership read:** a query matching Item against Slotted on every key field delivers exactly the items
  *   whose key Slotted holds, read through its key set with the rewrite's certificate;
  * - **a containment into a projection:** a row of ProjProbe holding an owner and a slot code is accepted exactly where
- *   some row of Slotted holds both, the side (version, parent, last field) a dependent space of its own.
+ *   some row of Slotted holds both, the side (version, parent, last field) a dependent space of its own, and elsewhere
+ *   refused by that containment's law.
+ *
+ * A refusal is judged by the law PostgreSQL's report names, as grizzle's writer names it, never by its SQLSTATE alone: a
+ * roster domain's 23514 names no law, grizzle's own defect, and is no refusal any probe expects.
  *
  * No two distinct keys share a cell: an alias would read another key's presence, payload or completions. Each case
  * installs every closed constant, the owner functions' too, as its hex literal, padded with 0 bits to whole digits, so
@@ -36,14 +40,17 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { type Codebook, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { constraintLaw } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { bits, closedId, generated, natural, slot } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	codebookOfStates,
@@ -58,10 +65,10 @@ import {
 	paramTexts,
 	testCompile
 } from "#test/support/compile.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { installationNamesOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import type { PgErrorFields, SqlError } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -225,7 +232,10 @@ const heldKeys = (c: FinCase): ReadonlyArray<Key> =>
 /** A key's text, for a Map and a report. */
 const keyText = (key: Key): string => Arr.join(Arr.map(keyCodes(key), String), ",")
 
-/** The case's schema: Model, Slotted, and the probes CheckProbe, AtProbe, RowProbe and Item, by shape. */
+/**
+ * The case's schema: Model, Slotted, and the probes CheckProbe, AtProbe, RowProbe, ProjProbe and Item, by shape, with
+ * the containments of CheckProbe and ProjProbe into Slotted.
+ */
 const schemaOf = (name: string, c: FinCase) => {
 	const Model = closed.relation(
 		"Model",
@@ -287,6 +297,14 @@ const schemaOf = (name: string, c: FinCase) => {
 				{ ...probe, from: closedId(Position), to: closedId(Position) },
 				["id"]
 			)
+			const checked = contained(
+				on(CheckProbe, "version", "kind", "from", "to"),
+				on(Slotted, "version", "parent", "from", "to")
+			)
+			const projected = contained(
+				on(ProjProbe, "version", "kind", "last"),
+				on(Slotted, "version", "parent", "to")
+			)
 			const base = schema(
 				name,
 				{
@@ -304,16 +322,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					Item,
 					ProjProbe
 				},
-				[
-					contained(
-						on(CheckProbe, "version", "kind", "from", "to"),
-						on(Slotted, "version", "parent", "from", "to")
-					),
-					contained(
-						on(ProjProbe, "version", "kind", "last"),
-						on(Slotted, "version", "parent", "to")
-					)
-				]
+				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {
 				const it = v(Item, "item")
@@ -322,7 +331,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					.match(Slotted, { version: it.version, parent: it.kind, from: it.from, to: it.to })
 					.find({ id: it.id })
 			})
-			return { base, membership }
+			return { base, membership, laws: { checked, projected } }
 		}
 		case "last": {
 			const Slotted = closed.relation(
@@ -343,6 +352,14 @@ const schemaOf = (name: string, c: FinCase) => {
 			}))
 			const ProjProbe = relation("ProjProbe", { ...probe, last: closedId(Position) }, ["id"])
 			const Item = relation("Item", { ...probe, at: closedId(Position) }, ["id"])
+			const checked = contained(
+				on(CheckProbe, "version", "kind", "at"),
+				on(Slotted, "version", "parent", "at")
+			)
+			const projected = contained(
+				on(ProjProbe, "version", "kind", "last"),
+				on(Slotted, "version", "parent", "at")
+			)
 			const base = schema(
 				name,
 				{
@@ -360,16 +377,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					Item,
 					ProjProbe
 				},
-				[
-					contained(
-						on(CheckProbe, "version", "kind", "at"),
-						on(Slotted, "version", "parent", "at")
-					),
-					contained(
-						on(ProjProbe, "version", "kind", "last"),
-						on(Slotted, "version", "parent", "at")
-					)
-				]
+				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {
 				const it = v(Item, "item")
@@ -378,7 +386,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					.match(Slotted, { version: it.version, parent: it.kind, at: it.at })
 					.find({ id: it.id })
 			})
-			return { base, membership }
+			return { base, membership, laws: { checked, projected } }
 		}
 		case "symbol": {
 			const Slotted = closed.relation(
@@ -417,6 +425,14 @@ const schemaOf = (name: string, c: FinCase) => {
 				{ ...probe, label: closedId(Label), position: closedId(Position) },
 				["id"]
 			)
+			const checked = contained(
+				on(CheckProbe, "version", "kind", "label", "position"),
+				on(Slotted, "version", "parent", "label", "position")
+			)
+			const projected = contained(
+				on(ProjProbe, "version", "kind", "last"),
+				on(Slotted, "version", "parent", "position")
+			)
 			const base = schema(
 				name,
 				{
@@ -434,16 +450,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					Item,
 					ProjProbe
 				},
-				[
-					contained(
-						on(CheckProbe, "version", "kind", "label", "position"),
-						on(Slotted, "version", "parent", "label", "position")
-					),
-					contained(
-						on(ProjProbe, "version", "kind", "last"),
-						on(Slotted, "version", "parent", "position")
-					)
-				]
+				[checked, projected]
 			)
 			const membership = query(base).rule((r) => {
 				const it = v(Item, "item")
@@ -463,7 +470,7 @@ const schemaOf = (name: string, c: FinCase) => {
 					})
 					.find({ id: it.id })
 			})
-			return { base, membership }
+			return { base, membership, laws: { checked, projected } }
 		}
 	}
 }
@@ -486,13 +493,68 @@ const insertSql = (
 /** An id's code: Id has no hole, so the n-th probe's id is code n. */
 const idCode = (n: number): number => codeOf(codecFor(idState), `i${n}`)
 
-/** A statement's outcome: success, or the SQLSTATE PostgreSQL refused it with. */
-const outcomeOf = (attempt: Effect.Effect<unknown, SqlError>) =>
+/**
+ * A refused write into one relation, by the law PostgreSQL's report names on the relation's table, as an outcome names
+ * it (types/changeset Law), grizzle's writer's `invariant-rejected` alike: a CHECK's (23514) by the law its constraint
+ * reports; a NOT NULL's (23502) on a generated field's column, which names no constraint, by that field's law, its term
+ * having no value at the row; or unnamed, a report that names no law of the relation, a roster domain's refusal among
+ * them.
+ */
+type Refusal =
+	| { readonly kind: "rejected"; readonly law: Law }
+	| { readonly kind: "unnamed"; readonly report: string }
+
+/** The law PostgreSQL's report of a refused write into `relation` names (see Refusal), or none. */
+const reportedLaw = (
+	installation: Installation,
+	relation: string,
+	fields: PgErrorFields
+): Law | undefined => {
+	const table = installation.names.relation(relation)
+	if (!Option.contains(fields.schema, table.schema) || !Option.contains(fields.table, table.name)) {
+		return undefined
+	}
+	if (fields.code === sqlstates.notNullViolation) {
+		const generatedField = Arr.findFirst(
+			defined(installation.checked.relations.get(relation)).fields,
+			(f) => f.writing.kind === "generated" && Option.contains(fields.column, f.column)
+		)
+		return Option.getOrUndefined(
+			Option.map(generatedField, (f): Law => ({ kind: "generated", relation, field: f.name }))
+		)
+	}
+	const law =
+		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
+			? constraintLaw(
+					installation.constraintToLaw,
+					{ kind: "table", name: table.name },
+					fields.constraint
+				)
+			: undefined
+	return law === undefined ? undefined : installation.described.get(law)
+}
+
+/** What PostgreSQL's report of a refused write into `relation` names (see Refusal). */
+const refusalOf = (installation: Installation, relation: string, error: SqlError): Refusal => {
+	if (error.reason._tag === "ConnectionError") {
+		return { kind: "unnamed", report: error.reason.message }
+	}
+	const law = reportedLaw(installation, relation, error.reason.fields)
+	return law === undefined
+		? { kind: "unnamed", report: Formatter.format(error.reason.fields) }
+		: { kind: "rejected", law }
+}
+
+/** A write's outcome into `relation`: accepted, or its refusal. */
+const outcomeOf = (
+	installation: Installation,
+	relation: string,
+	attempt: Effect.Effect<unknown, SqlError>
+): Effect.Effect<Option.Option<Refusal>> =>
 	Effect.map(Effect.result(attempt), (r) =>
 		Result.match(r, {
-			onSuccess: () => Option.none<string>(),
-			onFailure: (e) =>
-				Option.some(e.reason._tag === "ServerError" ? e.reason.fields.code : e.reason.message)
+			onSuccess: () => Option.none(),
+			onFailure: (e) => Option.some(refusalOf(installation, relation, e))
 		})
 	)
 
@@ -578,6 +640,14 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							)
 							yield* transaction(s.admin, installationSql(compiled))
 							const names = compiled.names
+							const lawNames = installationNamesOf(compiled)
+							const rejected = (law: Law): Option.Option<Refusal> =>
+								Option.some({ kind: "rejected", law })
+							const checkRefused = rejected(lawNames.described(lawNames.lawOf(built.laws.checked)))
+							const projectionRefused = rejected(
+								lawNames.described(lawNames.lawOf(built.laws.projected))
+							)
+							const atRefused = rejected({ kind: "generated", relation: "AtProbe", field: "w" })
 							const block = blockOf(c.shape)
 							const fields = ["id", "version", "kind", ...Arr.map(block, (b) => b.field)]
 							const probes = probesOf(c.shape)
@@ -587,19 +657,23 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							for (const [n, key] of probes.entries()) {
 								const at = payloadAt.get(keyText(key))
 								const check = yield* outcomeOf(
+									compiled,
+									"CheckProbe",
 									s.admin.query(insertSql(names, "CheckProbe", fields, valuesOf(key, n)), [])
 								)
 								assert.deepEqual(
 									check,
-									at === undefined ? Option.some("23514") : Option.none(),
+									at === undefined ? checkRefused : Option.none(),
 									`the containment CHECK at ${keyText(key)}`
 								)
 								const read = yield* outcomeOf(
+									compiled,
+									"AtProbe",
 									s.admin.query(insertSql(names, "AtProbe", fields, valuesOf(key, n)), [])
 								)
 								assert.deepEqual(
 									read,
-									at === undefined ? Option.some("23514") : Option.none(),
+									at === undefined ? atRefused : Option.none(),
 									`C.at's generated field at ${keyText(key)}`
 								)
 								if (aliases(c, key)) {
@@ -675,6 +749,8 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 								for (const last of [0, 1, 2]) {
 									const n = owner * 3 + last
 									const verdict = yield* outcomeOf(
+										compiled,
+										"ProjProbe",
 										s.admin.query(
 											insertSql(
 												names,
@@ -687,7 +763,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 									)
 									assert.deepEqual(
 										verdict,
-										projected.has(`${owner}:${last}`) ? Option.none() : Option.some("23514"),
+										projected.has(`${owner}:${last}`) ? Option.none() : projectionRefused,
 										`the containment into Slotted's projection at owner ${owner}, ${last}`
 									)
 								}

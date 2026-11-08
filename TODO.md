@@ -9,8 +9,6 @@ with the next release.
 
 ### Next
 - **Test failures that reach no qti-pie path** (each an after-beta agent):
-  - test/pg/closed/fin.test.ts: C.at's generated field at an absent key now gives 23502, and the test still expects 23514
-    (stale since 0e4454d3);
   - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after
     removeLastHandle then renameRoster, the roster domain's CHECK calls a names constant other than the one the test
     expects. A possible rename defect, so it goes first;
