@@ -14,7 +14,10 @@
  *   privilege (42501): every function a CHECK or a generated column calls, through a cast into a domain or not, is
  *   granted.
  *
- * Planted bug: the installer's reachability stops following a statement's types, and every seed fails.
+ * The required situation is a constant that only a written table's casts reach: the live-codes constant a set's bits
+ * domain's CHECK calls, reached from a source writer's generated column of a containment selected by that set (see
+ * test/support/executes.ts). Planted bug: the installer's reachability stops following a statement's types, and every
+ * seed fails.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

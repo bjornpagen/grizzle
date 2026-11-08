@@ -10,9 +10,12 @@
  * privilege, and nothing less, which a write needs: PostgreSQL checks EXECUTE against the invoker on every function a
  * CHECK, a generated column or a domain's CHECK calls.
  *
- * The required situation is a constant that only a written table's casts reach, a domain no field of the table is
- * typed by: a selected containment's generated column, or a check's set value. Planted bug: the installer's
- * reachability stops following a statement's types, and every seed fails.
+ * The required situation is a constant that only a written table's casts reach: a containment selected by a set adds to
+ * its source a generated column of the set's bits domain, its value a literal cast into that domain, and a role that
+ * writes the source and holds no relation with a set over the selector's roster holds no USAGE on the domain, so only
+ * the cast reaches the live-codes constant its CHECK calls. A check's set value is cast into its own field's domain,
+ * which its writer holds, and a closed id selector's column and handle are smallint, so neither reaches one alone.
+ * Planted bug: the installer's reachability stops following a statement's types, and every seed fails.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

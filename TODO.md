@@ -9,8 +9,6 @@ with the next release.
 
 ### Next
 - **Test failures that reach no qti-pie path** (each an after-beta agent):
-  - test/unit/physical/executes.test.ts and test/pg/physical/executes.test.ts: "a constant only a written table's casts
-    reach" is never reached;
   - test/pg/closed/fin.test.ts: C.at's generated field at an absent key now gives 23502, and the test still expects 23514
     (stale since 0e4454d3);
   - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after

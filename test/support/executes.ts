@@ -1,4 +1,4 @@
-import { array, element, type Gen, subset } from "@grizzle/testing/gen"
+import { array, element, type Gen, subset, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -20,24 +20,30 @@ import { defined, nonEmpty } from "#test/support/assert.ts"
  * relations whose fields are typed by their domains, laws whose CHECKs and generated columns cast into those domains,
  * and roles that hold drawn relations whole and write drawn ones of them.
  *
- * - A selected containment `contained(on(S, ref), on(select(T, (t) => t.eq(t.sel, constant)), "id"))` places T's
- *   constant on S as a generated law column typed by sel's domain, a roster's or a set's, so S's table casts into a
- *   domain none of S's fields is typed by.
+ * - A selected containment `contained(on(S, ref), on(select(T, (t) => t.eq(t.selector, constant)), "id"))` places T's
+ *   constant on S as a generated law column of the selector's base type: a closed id's is smallint and its handle an
+ *   integer literal, and a set's is the set's bits domain, its value a literal cast into that domain. A role that
+ *   writes S and holds no relation with a set over the selector's roster holds no USAGE on that domain, so only S's
+ *   cast reaches the live-codes constant its CHECK calls.
  * - A check over a set field compares it with a set value, `ne(field, Bits.of(roster, handles))`, a literal cast into
- *   the set's domain; over a closed id it compares with a handle.
+ *   the field's own domain; over a closed id it compares with a handle.
  */
 type RosterName = "Flag" | "Kind"
 type RelationName = "Item" | "Part" | "Note"
 type RoleName = "clerk" | "keeper"
 
-/** A field's kind: a closed id, a set, the contract Count over integer, a plain integer, or a uuid that refers. */
-type FieldKind = "code" | "set" | "count" | "plain" | "ref"
-
-export interface FieldSketch {
+/** A field over a roster: a closed id or a set, the kinds a selector and a check read. */
+interface RosterField {
 	readonly name: string
-	readonly kind: FieldKind
+	readonly kind: "code" | "set"
 	readonly roster: RosterName
 }
+
+/** A field: one over a roster, the contract Count over integer, a plain integer, or the uuid a selected containment
+ * refers by. */
+export type FieldSketch =
+	| RosterField
+	| { readonly name: string; readonly kind: "count" | "plain" | "ref" }
 
 interface RelationSketch {
 	readonly name: RelationName
@@ -51,15 +57,18 @@ type LawSketch =
 			readonly source: RelationName
 			readonly ref: string
 			readonly target: RelationName
-			readonly selector: FieldSketch
+			readonly selector: RosterField
 			readonly handle: string
 	  }
 	| {
 			readonly kind: "check"
 			readonly relation: RelationName
-			readonly field: FieldSketch
+			readonly field: RosterField
 			readonly handles: Arr.NonEmptyReadonlyArray<string>
 	  }
+
+/** A selected containment of the world. */
+type SelectedLaw = Extract<LawSketch, { readonly kind: "selected" }>
 
 /** A role: the relations it holds whole, which it reads, and those of them it writes. */
 interface RoleSketch {
@@ -68,11 +77,14 @@ interface RoleSketch {
 	readonly writes: ReadonlyArray<RelationName>
 }
 
+/** A roster: its name and its handles. */
+interface RosterSketch {
+	readonly name: RosterName
+	readonly handles: Arr.NonEmptyReadonlyArray<string>
+}
+
 export interface ExecutesWorld {
-	readonly rosters: ReadonlyArray<{
-		readonly name: RosterName
-		readonly handles: Arr.NonEmptyReadonlyArray<string>
-	}>
+	readonly rosters: Arr.NonEmptyReadonlyArray<RosterSketch>
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSketch>
 	readonly laws: ReadonlyArray<LawSketch>
 	readonly roles: Arr.NonEmptyReadonlyArray<RoleSketch>
@@ -82,110 +94,183 @@ const rosterNames: Arr.NonEmptyReadonlyArray<RosterName> = ["Flag", "Kind"]
 const relationNames: Arr.NonEmptyReadonlyArray<RelationName> = ["Item", "Part", "Note"]
 const roleNames: Arr.NonEmptyReadonlyArray<RoleName> = ["clerk", "keeper"]
 const handleNames: Arr.NonEmptyReadonlyArray<string> = ["red", "blue", "green"]
-const fieldKinds: Arr.NonEmptyReadonlyArray<FieldKind> = ["code", "set", "count", "plain", "ref"]
+const rosterKinds: Arr.NonEmptyReadonlyArray<RosterField["kind"]> = ["code", "set"]
 
-/** The fields of a relation: one to four, each a drawn kind over a drawn roster, named for its kind and position. */
+/** The kinds of a relation's own fields: every kind but a ref, which a selected containment brings. */
+type OwnKind = Exclude<FieldSketch["kind"], "ref">
+
+const ownKinds: Arr.NonEmptyReadonlyArray<OwnKind> = ["code", "set", "count", "plain"]
+
+/** A relation's own field as drawn, before its name: its kind, and a roster for a kind over one. */
+type OwnFieldDraw =
+	| { readonly kind: RosterField["kind"]; readonly roster: RosterName }
+	| { readonly kind: Exclude<OwnKind, RosterField["kind"]> }
+
+/** An own field of a drawn kind, a closed id or a set over a drawn roster. */
+const ownFieldGen =
+	(rosters: Arr.NonEmptyReadonlyArray<RosterName>): Gen<OwnFieldDraw> =>
+	(source) => {
+		const kind = source.draw(element(ownKinds))
+		switch (kind) {
+			case "code":
+			case "set":
+				return { kind, roster: source.draw(element(rosters)) }
+			case "count":
+			case "plain":
+				return { kind }
+		}
+	}
+
+/** A relation's own fields: one to four, named for their kind and position. */
 const fieldsGen =
 	(rosters: Arr.NonEmptyReadonlyArray<RosterName>): Gen<ReadonlyArray<FieldSketch>> =>
 	(source) =>
-		Arr.map(
-			source.draw(
-				array((s) => ({ kind: s.draw(element(fieldKinds)), roster: s.draw(element(rosters)) }), {
-					min: 1,
-					max: 4
-				})
-			),
-			(f, i): FieldSketch => ({ name: `${f.kind}${i}`, kind: f.kind, roster: f.roster })
+		Arr.map(source.draw(array(ownFieldGen(rosters), { min: 1, max: 4 })), (f, i): FieldSketch => ({
+			...f,
+			name: `${f.kind}${i}`
+		}))
+
+/** A selected containment as drawn: the two relations it joins, its selector's kind and roster, and the handle it
+ * selects. */
+interface SelectedDraw {
+	readonly source: RelationName
+	readonly target: RelationName
+	readonly kind: RosterField["kind"]
+	readonly roster: RosterName
+	readonly handle: string
+}
+
+/** A selected containment between one of `pairs`, by a closed id or a set over a drawn roster equal to a drawn handle. */
+const selectedGen =
+	(
+		pairs: Arr.NonEmptyReadonlyArray<{
+			readonly source: RelationName
+			readonly target: RelationName
+		}>,
+		rosters: Arr.NonEmptyReadonlyArray<RosterSketch>
+	): Gen<SelectedDraw> =>
+	(source) => {
+		const pair = source.draw(element(pairs))
+		const kind = source.draw(element(rosterKinds))
+		const roster = source.draw(element(rosters))
+		return { ...pair, kind, roster: roster.name, handle: source.draw(element(roster.handles)) }
+	}
+
+/** A role that holds a drawn subset of `relations` whole and writes a drawn subset of those, none included. */
+const holdingRoleGen =
+	(name: RoleName, relations: Arr.NonEmptyReadonlyArray<RelationName>): Gen<RoleSketch> =>
+	(source) => {
+		const holds = nonEmpty(
+			source.draw(subset(relations, { min: 1, max: relations.length })),
+			"a role holds a relation at least"
 		)
+		return { name, holds, writes: source.draw(subset(holds, { min: 0, max: holds.length })) }
+	}
+
+/** A role that holds and writes one selected containment's source alone, and reads none of its targets. */
+const sourceWriterGen =
+	(name: RoleName, sources: Arr.NonEmptyReadonlyArray<RelationName>): Gen<RoleSketch> =>
+	(source) => {
+		const only = source.draw(element(sources))
+		return { name, holds: [only], writes: [only] }
+	}
+
+/** The handles of the roster `roster` of `rosters`. */
+const handlesOf = (
+	rosters: ExecutesWorld["rosters"],
+	roster: RosterName
+): Arr.NonEmptyReadonlyArray<string> =>
+	defined(
+		Option.getOrUndefined(Arr.findFirst(rosters, (r) => r.name === roster)),
+		`the roster ${roster}`
+	).handles
 
 /**
- * A world: one or two rosters of two or three handles; one to three relations; laws drawn among those the relations
- * admit, a selected containment from each relation's refs into another relation selected by a closed id or a set,
- * and checks over the sets and closed ids; one or two roles, each holding a drawn subset of the relations whole and
- * writing a drawn subset of those, none included, so a role writes a relation whose laws cast into a domain no
- * relation it holds is typed by.
+ * A world: one or two rosters of two or three handles; two or three relations of their own fields; one or two selected
+ * containments between them, each bringing its own fields, a ref on its source and its selector on its target; checks
+ * over the sets and closed ids; one or two roles, each holding a drawn subset of the relations whole and writing a drawn
+ * subset of those, none included, or writing one containment's source alone. A source writer of a containment selected
+ * by a set that holds no other set over its roster writes a cast into a domain it holds no USAGE on, which only its
+ * table's casts reach.
  */
 export const executesWorldGen: Gen<ExecutesWorld> = (source) => {
-	const rosters = Arr.map(source.draw(subset(rosterNames, { min: 1, max: 2 })), (name) => ({
-		name,
-		handles: nonEmpty(
-			source.draw(subset(handleNames, { min: 2, max: 3 })),
-			"a roster of two or three handles"
-		)
-	}))
-	const rosterList = nonEmpty(
-		Arr.map(rosters, (r) => r.name),
+	const rosters = nonEmpty(
+		Arr.map(source.draw(subset(rosterNames, { min: 1, max: 2 })), (name): RosterSketch => ({
+			name,
+			handles: nonEmpty(
+				source.draw(subset(handleNames, { min: 2, max: 3 })),
+				"a roster of two or three handles"
+			)
+		})),
 		"one roster at least"
 	)
-	const handlesOf = (roster: RosterName): Arr.NonEmptyReadonlyArray<string> =>
-		defined(
-			Option.getOrUndefined(Arr.findFirst(rosters, (r) => r.name === roster)),
-			`the roster ${roster}`
-		).handles
-	const relations = nonEmpty(
-		Arr.map(source.draw(subset(relationNames, { min: 1, max: 3 })), (name) => ({
+	const rosterList = Arr.map(rosters, (r) => r.name)
+	const own = nonEmpty(
+		Arr.map(source.draw(subset(relationNames, { min: 2, max: 3 })), (name) => ({
 			name,
 			fields: source.draw(fieldsGen(rosterList))
 		})),
-		"one relation at least"
+		"two relations at least"
 	)
-	const selectors = (t: RelationSketch): ReadonlyArray<FieldSketch> =>
-		Arr.filter(t.fields, (f: FieldSketch) => f.kind === "code" || f.kind === "set")
-	const selected: ReadonlyArray<
-		Omit<Extract<LawSketch, { readonly kind: "selected" }>, "kind" | "handle">
-	> = Arr.flatMap(relations, (s: RelationSketch) =>
-		Arr.flatMap(
-			Arr.filter(s.fields, (f: FieldSketch) => f.kind === "ref"),
-			(ref: FieldSketch) =>
-				Arr.flatMap(
-					Arr.filter(relations, (t: RelationSketch) => t.name !== s.name),
-					(t: RelationSketch) =>
-						Arr.map(selectors(t), (selector: FieldSketch) => ({
-							source: s.name,
-							ref: ref.name,
-							target: t.name,
-							selector
-						}))
-				)
-		)
+	const relationList = Arr.map(own, (r) => r.name)
+	const pairs = nonEmpty(
+		Arr.flatMap(relationList, (s) =>
+			Arr.flatMap(relationList, (t) => (s === t ? [] : [{ source: s, target: t }]))
+		),
+		"two relations make a pair"
 	)
-	const checked = Arr.flatMap(relations, (r) =>
-		Arr.map(
-			Arr.filter(r.fields, (f) => f.kind === "code" || f.kind === "set"),
-			(field) => ({ relation: r.name, field })
-		)
-	)
-	const laws: Array<LawSketch> = []
-	for (const s of source.draw(subset(selected, { min: 0, max: selected.length }))) {
-		laws.push({
+	const selected = Arr.map(
+		nonEmpty(
+			source.draw(array(selectedGen(pairs, rosters), { min: 1, max: 2 })),
+			"one selected containment at least"
+		),
+		(d, i): SelectedLaw => ({
 			kind: "selected",
-			...s,
-			handle: source.draw(element(handlesOf(s.selector.roster)))
+			source: d.source,
+			ref: `ref${i}`,
+			target: d.target,
+			selector: { name: `selector${i}`, kind: d.kind, roster: d.roster },
+			handle: d.handle
 		})
-	}
+	)
+	const relations = Arr.map(own, (r) => ({
+		name: r.name,
+		fields: [
+			...r.fields,
+			...Arr.flatMap(selected, (l): ReadonlyArray<FieldSketch> =>
+				l.source === r.name ? [{ name: l.ref, kind: "ref" }] : []
+			),
+			...Arr.flatMap(selected, (l): ReadonlyArray<FieldSketch> =>
+				l.target === r.name ? [l.selector] : []
+			)
+		]
+	}))
+	const checked = Arr.flatMap(relations, (r) =>
+		Arr.flatMap(r.fields, (field) =>
+			field.kind === "code" || field.kind === "set" ? [{ relation: r.name, field }] : []
+		)
+	)
+	const laws: Array<LawSketch> = [...selected]
 	for (const c of source.draw(subset(checked, { min: 0, max: checked.length }))) {
 		laws.push({
 			kind: "check",
 			...c,
 			handles: nonEmpty(
-				source.draw(subset(handlesOf(c.field.roster), { min: 1, max: 2 })),
+				source.draw(subset(handlesOf(rosters, c.field.roster), { min: 1, max: 2 })),
 				"a check's handles"
 			)
 		})
 	}
+	const sources = Arr.map(selected, (l) => l.source)
 	const roles = nonEmpty(
-		Arr.map(source.draw(subset(roleNames, { min: 1, max: 2 })), (name) => {
-			const holds = nonEmpty(
-				source.draw(
-					subset(
-						Arr.map(relations, (r) => r.name),
-						{ min: 1, max: relations.length }
-					)
-				),
-				"a role holds a relation at least"
+		Arr.map(source.draw(subset(roleNames, { min: 1, max: 2 })), (name) =>
+			source.draw(
+				weighted([
+					[1, holdingRoleGen(name, relationList)],
+					[1, sourceWriterGen(name, sources)]
+				])
 			)
-			return { name, holds, writes: source.draw(subset(holds, { min: 0, max: holds.length })) }
-		}),
+		),
 		"one role at least"
 	)
 	return { rosters, relations, laws, roles }
@@ -225,7 +310,7 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 		})
 	)
 	const relationOf = (n: RelationName) => defined(relations.get(n), `the relation ${n}`)
-	const constantOf = (f: FieldSketch, handles: Arr.NonEmptyReadonlyArray<string>) =>
+	const constantOf = (f: RosterField, handles: Arr.NonEmptyReadonlyArray<string>) =>
 		f.kind === "set" ? Bits.of(rosterOf(f.roster), handles) : rosterOf(f.roster).handle(handles[0])
 	const statements = Arr.map(w.laws, (law, i) => {
 		switch (law.kind) {
