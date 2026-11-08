@@ -90,9 +90,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   planner is tempted to serve wrongly: an equality pair beside a range over the same two columns in the other order,
  *   which one index serves; a law probe of the remainder deposits on line, the selected side's own selection;
  *   a descending key lookup beside a law probe of a flag's rows on the same column, which the lookup's index of every
- *   row serves, so no partial index belongs beside it; and law probes of the held bookings on (room, id), on id and on
- *   room, whose partial index on (id, room) PostgreSQL sweeps for the probe on room, a residue no plan the engine makes
- *   avoids (serving.ts).
+ *   row serves, so no partial index belongs beside it; law probes of the held bookings on (id, room) and on room, whose
+ *   partial index leads with room, since PostgreSQL reads the probe on room through it rather than through the span
+ *   key's index of every row it is planned on; and law probes of the held bookings on (room, id), on id and on room,
+ *   whose partial index on (id, room) PostgreSQL sweeps for the probe on room, a residue no plan the engine makes avoids
+ *   (serving.ts).
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
@@ -610,7 +612,22 @@ const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, ServingFeature | Re
 		draws: "",
 		reaches: [
 			"read through another planned index than the engine's",
-			"swept through another partial B-tree, skip-scan costing it below the heap an index of every row fetches",
+			"swept through another B-tree in no more buffers than its own index alone",
+			"a created index needed"
+		]
+	},
+	{
+		note: "law probes of the held bookings on (id, room) and on room, whose partial index leads with room, so PostgreSQL reads the probe on room through it rather than fetch the heap through the span key's GiST index of every row",
+		sketch: Arr.map([["id", "room"], ["room"]] as const, (columns): Intent => ({
+			kind: "law",
+			relation: "Booking",
+			keys: Arr.map(columns, (column) => ({ column, desc: false })),
+			rows: "flag true"
+		})),
+		draws: "",
+		reaches: [
+			"a law probe of selected rows",
+			"read through another planned index than the engine's",
 			"a created index needed"
 		]
 	}
@@ -1782,7 +1799,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 		reaches: [
 			"a workload installed",
 			"read through another planned index than the engine's",
-			"swept through another GiST index, gistcostestimate blind to its key order"
+			"swept through another index, awaiting upstream/gist-costestimate-column-position"
 		]
 	}
 ]

@@ -68,6 +68,31 @@ const conditioned: Readonly<Record<Shape, boolean>> = {
 	nearest: false
 }
 
+/**
+ * The fields among a request's `fields`, in key order, one of which leads, among its keys of many values (`many`), every
+ * order of an index that serves the request (physical/indexes/engine.ts, the placements): any of many values for an
+ * equality or an overlap; one of the prefix before a range's bounded key, or that key after a prefix of few values; an
+ * order's first of many values; none for the nearest vectors, which one column holds.
+ */
+const leadsOf: Readonly<
+	Record<
+		Shape,
+		(
+			fields: ReadonlyArray<string>,
+			many: (fields: ReadonlyArray<string>) => ReadonlyArray<string>
+		) => ReadonlyArray<string>
+	>
+> = {
+	equality: (fields, many) => many(fields),
+	range: (fields, many) => {
+		const prefix = many(fields.slice(0, -1))
+		return Arr.isReadonlyArrayNonEmpty(prefix) ? prefix : many(fields.slice(-1))
+	},
+	ordered: (fields, many) => many(fields).slice(0, 1),
+	overlap: (fields, many) => many(fields),
+	nearest: () => []
+}
+
 /** Whether a shape's probe takes its values from a row the relation holds: an order takes none. */
 const sampledShape: Readonly<Record<Shape, boolean>> = {
 	equality: true,
@@ -718,11 +743,16 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 /**
  * What PostgreSQL made of a probe: served through a planned index; swept through one, the scan meeting every rule but
  * reading past what its result requires, in more than one descent or more buffers than the bound; or not served, and
- * why.
+ * why. A scan of an index carries the buffers it touched (scanReads).
  */
 type Verdict =
-	| { readonly kind: "served"; readonly through: PlannedIndex }
-	| { readonly kind: "swept"; readonly through: PlannedIndex; readonly why: string }
+	| { readonly kind: "served"; readonly through: PlannedIndex; readonly touched: number }
+	| {
+			readonly kind: "swept"
+			readonly through: PlannedIndex
+			readonly touched: number
+			readonly why: string
+	  }
 	| { readonly kind: "unserved"; readonly why: string }
 
 const sorts: ReadonlySet<string> = new Set(["Sort", "Incremental Sort"])
@@ -869,9 +899,10 @@ const verdictOf = (
 		return { kind: "unserved", why: `a sort above the scan of ${index}` }
 	}
 	const swept = Option.orElse(extraDescents(scan, index), () => overBound(scan, index, scanned))
+	const touched = scanReads(scan, scanned).touched
 	return Option.isSome(swept)
-		? { kind: "swept", through, why: swept.value }
-		: { kind: "served", through }
+		? { kind: "swept", through, touched, why: swept.value }
+		: { kind: "served", through, touched }
 }
 
 const analyzed = { serialize: { kind: "off" }, wal: false } as const
@@ -912,13 +943,19 @@ const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
 		)
 	})
 
+/** The upstream notes (upstream/<name>) a residue awaits: each a PostgreSQL behaviour a patch there changes. */
+const upstreamNotes = ["gist-costestimate-column-position"] as const
+type UpstreamNote = (typeof upstreamNotes)[number]
+
 /**
- * A sweep of another planned index than the request's own that no plan the engine makes avoids, by the PostgreSQL
- * behaviour behind it.
+ * Why PostgreSQL swept another planned index than the request's own, where no order of that index's keys serves the
+ * probe beside the requests it serves (keyOrdersConflict), so no plan the engine makes avoids the sweep (see
+ * judgeServing): PostgreSQL's cost model, awaiting the upstream note that changes it, or PostgreSQL right, reading the
+ * probe in no more buffers than the request's own index alone does.
  */
 type Residue =
-	| "swept through another GiST index, gistcostestimate blind to its key order"
-	| "swept through another partial B-tree, skip-scan costing it below the heap an index of every row fetches"
+	| { readonly kind: "cost model"; readonly awaiting: UpstreamNote }
+	| { readonly kind: "right" }
 
 /** What the judgment noted of one request or one created index. */
 export type ServingFeature =
@@ -926,10 +963,21 @@ export type ServingFeature =
 	| "served by a key or enforcement index"
 	| "served by a created index"
 	| "read through another planned index than the engine's"
-	| Residue
+	| `swept through another index, awaiting upstream/${UpstreamNote}`
+	| "swept through another B-tree in no more buffers than its own index alone"
 	| "a GiST index serving a B-tree request"
 	| "a created index needed"
 	| "a relation its key bounds below the load, not judged"
+
+/** What the judgment notes of a residue. */
+const residueFeature = (residue: Residue): ServingFeature => {
+	switch (residue.kind) {
+		case "cost model":
+			return `swept through another index, awaiting upstream/${residue.awaiting}`
+		case "right":
+			return "swept through another B-tree in no more buffers than its own index alone"
+	}
+}
 
 /**
  * PostgreSQL's judgment of the index engine (physical/indexes/engine.ts) over an installation at volume: whether each
@@ -970,30 +1018,35 @@ export type ServingFeature =
  *   an equality on it, half its entries, against a bound of 74. A nearest-vector probe has no such bound: HNSW reads a
  *   neighbourhood of its graph whatever the result.
  *
- * Two sweeps of another planned index than the request's own are ones no plan the engine makes avoids, and are excused
- * (residueOf), each through an index that holds every field the probe fixes, no order of whose keys serves the probe
- * beside the requests it serves, since no field of many values the probe fixes is fixed by all of them
- * (keyOrdersConflict). The request's own index alone must still serve the probe.
+ * A sweep of another planned index than the request's own is excused (residueOf) only where no plan the engine makes
+ * avoids it, and only by the PostgreSQL behaviour behind it (Residue); the request's own index alone must still serve
+ * the probe. No plan avoids it where that index holds every field the probe fixes and no order of its keys serves the
+ * probe beside the requests it serves (keyOrdersConflict): an order serving a request leads, among its keys of many
+ * values, with a field the request's shape lets lead (leadsOf), and no field may lead for the probe and for all of
+ * them. A second index for the exposed request avoids none: PostgreSQL chooses between two GiST indexes holding a probe's fields, when
+ * their estimates tie, by which was created last (upstream/gist-costestimate-column-position EVIDENCE.txt 2d), and the
+ * request a key's index serves needs no index of its own.
  *
- * - A GiST index's. gistcostestimate is blind to column position: it costs a GiST scan by the selectivity of all its
- *   conditions wherever their columns stand (genericcostestimate), and charges its descent ceil(ln N) comparisons where
- *   btcostestimate charges ceil(log2 N), so at the one leaf a selective result needs, PostgreSQL prefers that index to a
- *   B-tree the probe's fields lead, or to a GiST index of as many pages, and sweeps it. When a relation's requests need
- *   conflicting key orders, as a span predicate on (fixed, span), another on (span) and an equality lookup on (fixed) do,
- *   one of them is exposed whatever the plan. Measured on PostgreSQL 19 at this volume, an equality on a numeric of 141
- *   values costs 6.50 through a GiST index on (span, numeric) of 144 pages, which it sweeps in 145 buffers, and 6.51
- *   through a B-tree on (numeric, float8) of 97 pages, which reads 3.
- * - A partial B-tree's, read for a probe of its selection whose own index holds every row. When the distinct values of
- *   the columns before the probe's outnumber the index's pages, btcostestimate's skip-scan costing gives up skipping and
- *   costs a sweep of the whole index; an index-only sweep of a partial index fetches no heap page, where a scan of an
- *   index of every row fetches one per entry, the selection's and the rest it rechecks, and PostgreSQL sweeps the partial
- *   index, rightly, in fewer buffers. The engine orders a created index for the requests no planned index serves, so
- *   when the requests on a selection need conflicting key orders, as law probes of the held bookings on (room, id) and
- *   on (id) beside one on (room) that the span key's GiST index serves do, the one an index of every row serves is
- *   exposed; leading with room would take a second partial index, for (id).
- *   Measured on PostgreSQL 19 at this volume, that probe on room costs 364.04 through the partial B-tree on (id, room) of
- *   73 pages, which it sweeps in 74 buffers over 2 descents, and 442.90 through the span key's GiST index, which reads 117
- *   for its 150 entries.
+ * - Through a GiST index, PostgreSQL's cost model, awaiting upstream/gist-costestimate-column-position.
+ *   gistcostestimate costs a GiST scan by the selectivity of all its conditions wherever their columns stand
+ *   (genericcostestimate), and charges its descent ceil(ln N) comparisons where btcostestimate charges ceil(log2 N), so
+ *   at the one leaf a selective result needs, PostgreSQL prefers that index to a B-tree the probe's fields lead, or to
+ *   a GiST index of as many pages, and sweeps it. When a relation's requests need conflicting key orders, as a span
+ *   predicate on (fixed, span), another on (span) and an equality lookup on (fixed) do, one of them is exposed whatever
+ *   the plan. Measured on PostgreSQL 19 at this volume, an equality on a numeric of 141 values costs 6.50 through a GiST
+ *   index on (span, numeric) of 144 pages, which it sweeps in 145 buffers, and 6.51 through a B-tree on (numeric,
+ *   float8) of 97 pages, which reads 3. The residue goes, by hard cutover, once a PostgreSQL grizzle pins costs column
+ *   position.
+ * - Through a B-tree, PostgreSQL right: it read the probe in no more buffers than the request's own index alone. When
+ *   the distinct values of the columns before the probe's outnumber the index's pages, btcostestimate's skip-scan
+ *   costing gives up skipping and costs a sweep of the whole index; an index-only sweep of a partial index fetches no
+ *   heap page, where a scan of an index of every row fetches one per entry, the selection's and the rest it rechecks.
+ *   So law probes of the held bookings on (room, id) and on (id), beside one on (room) that the span key's GiST index
+ *   serves, take a partial index on (id, room), which PostgreSQL sweeps for the probe on room; leading it with room
+ *   would take a second partial index, for (id). Measured on PostgreSQL 19 at this volume, that probe on room costs
+ *   364.04 through the partial B-tree on (id, room) of 73 pages, which it sweeps in 74 buffers over 2 descents, and
+ *   442.90 through the span key's GiST index, which reads 117 for its 150 entries. A B-tree swept in more buffers than
+ *   the request's own index alone reads is a misjudgment no upstream note covers, and a problem.
  *
  * Each index the engine created must be needed: with it dropped, in a transaction rolled back, some request it serves
  * is no longer served. An index PostgreSQL can do without is one the engine built beside another that already serves
@@ -1049,51 +1102,59 @@ export const judgeServing = (
 			const p = probes.get(r)
 			return p ?? assert.fail("a request with no probe")
 		}
-		/**
-		 * Whether no order of `through`'s keys serves the probe beside the requests it serves: it holds every field the
-		 * probe fixes, and no field of many values the probe fixes is fixed by every request it serves, so no order leads,
-		 * among its columns of many values, with a field that serves the probe beside them.
-		 */
-		const keyOrdersConflict = (through: PlannedIndex, probe: Probe): boolean => {
-			const few = tableFor(through.relation).few
-			const many = Arr.filter(
-				probe.bound,
-				(field) => !few.has(installed.installation.names.column(through.relation, field))
-			)
-			return (
-				Arr.isReadonlyArrayNonEmpty(probe.bound) &&
-				Arr.every(probe.bound, (field) => Arr.some(through.keys, (k) => keyText(k) === field)) &&
-				!Arr.some(many, (field) =>
-					Arr.every(through.requests, (r) => probeFor(r).bound.includes(field))
-				)
+		/** The fields of `relation` among `fields` that hold many values, so that fixing one bounds a scan. */
+		const manyOf = (relation: string, fields: ReadonlyArray<string>): ReadonlyArray<string> => {
+			const few = tableFor(relation).few
+			return Arr.filter(
+				fields,
+				(field) => !few.has(installed.installation.names.column(relation, field))
 			)
 		}
 		/**
-		 * The residue behind PostgreSQL's sweep of `through`, another planned index than `host`, the request's own, when it
-		 * is one (see the header): with the key orders in conflict, a GiST index's, whose key order gistcostestimate is
-		 * blind to, or a partial B-tree's read in place of an index of every row, which btcostestimate's skip-scan costing
-		 * prices as a sweep below that index's heap fetches. A hash index holds one column, so has no key order to
-		 * conflict.
+		 * Whether no order of `through`'s keys serves the probe beside the requests it serves: the probe fixes a field of
+		 * many values, `through` holds every field the probe fixes, and no field that may lead an order serving the probe
+		 * (leadsOf) may lead one serving each request through serves that some field leads.
+		 */
+		const keyOrdersConflict = (through: PlannedIndex, probe: Probe): boolean => {
+			const many = (fields: ReadonlyArray<string>) => manyOf(through.relation, fields)
+			const leads = leadsOf[probe.shape](probe.bound, many)
+			const constraining = Arr.filter(
+				Arr.map(through.requests, (r) =>
+					leadsOf[shapeOf(r)](
+						Arr.map(requestKeys(r), (k) => k.field),
+						many
+					)
+				),
+				Arr.isReadonlyArrayNonEmpty
+			)
+			return (
+				Arr.isReadonlyArrayNonEmpty(leads) &&
+				Arr.every(probe.bound, (field) => Arr.some(through.keys, (k) => keyText(k) === field)) &&
+				!Arr.some(leads, (field) => Arr.every(constraining, (led) => led.includes(field)))
+			)
+		}
+		/**
+		 * The residue behind PostgreSQL's sweep of `through`, another planned index than the request's own, `swept` the
+		 * buffers that sweep touched and `alone` those the request's own index alone touched for the probe (see the
+		 * header), when the key orders conflict: through a GiST index, gistcostestimate's blindness to column position,
+		 * awaiting upstream/gist-costestimate-column-position; through a B-tree, PostgreSQL right when it read no more
+		 * than the request's own index alone. A hash index holds one column and an HNSW probe fixes none, so neither has a
+		 * key order to conflict.
 		 */
 		const residueOf = (
 			through: PlannedIndex,
-			host: PlannedIndex,
-			probe: Probe
+			probe: Probe,
+			swept: number,
+			alone: number
 		): Option.Option<Residue> => {
 			if (!keyOrdersConflict(through, probe)) {
 				return Option.none()
 			}
 			switch (through.method) {
 				case "gist":
-					return Option.some(
-						"swept through another GiST index, gistcostestimate blind to its key order"
-					)
+					return Option.some({ kind: "cost model", awaiting: "gist-costestimate-column-position" })
 				case "btree":
-					return through.rows.kind === "selected" && host.rows.kind === "all"
-						? Option.some(
-								"swept through another partial B-tree, skip-scan costing it below the heap an index of every row fetches"
-							)
-						: Option.none()
+					return swept <= alone ? Option.some({ kind: "right" }) : Option.none()
 				case "hash":
 				case "hnsw":
 					return Option.none()
@@ -1131,12 +1192,48 @@ export const judgeServing = (
 				}
 				return statements
 			})
-		const problems: Array<string> = []
 		/**
-		 * Every request is served: through the index PostgreSQL chooses, held to the engine's claim when it is the
-		 * request's own, or swept through another planned index, a residue no plan the engine makes avoids; and when
-		 * PostgreSQL chooses another, through its own alone, every other index of the relation dropped, held to the claim.
+		 * What PostgreSQL's read of a probe of `host`'s comes to (see the header): a problem; or none, served through the
+		 * index it chose, held to the engine's claim when it is `host`, and through `host` alone too when it is another,
+		 * every other index of the relation dropped; or, when that other is swept, the residue no plan the engine makes
+		 * avoids.
 		 */
+		const readOf = (
+			host: PlannedIndex,
+			probe: Probe,
+			verdict: Extract<Verdict, { readonly kind: "served" | "swept" }>
+		) =>
+			Effect.gen(function* () {
+				const problem = (why: string) =>
+					Result.fail(`${probe.label}, planned on ${host.index.name}: ${why}`)
+				if (verdict.through.index.name === host.index.name) {
+					return verdict.kind === "swept"
+						? problem(verdict.why)
+						: Result.succeed(Option.none<Residue>())
+				}
+				const isolated = yield* withoutOthers(host)
+				const [alone] = yield* planned([probe], isolated)
+				if (alone === undefined) {
+					return assert.fail(`${probe.label}: no plan through ${host.index.name} alone`)
+				}
+				const claim = verdictOf(
+					probe,
+					alone[1],
+					new Map([[host.index.name, host]]),
+					facts,
+					() => true
+				)
+				if (claim.kind !== "served") {
+					return Result.fail(`${probe.label}, planned on ${host.index.name}, alone: ${claim.why}`)
+				}
+				if (verdict.kind === "served") {
+					return Result.succeed(Option.none<Residue>())
+				}
+				const residue = residueOf(verdict.through, probe, verdict.touched, claim.touched)
+				return Option.isSome(residue) ? Result.succeed(residue) : problem(verdict.why)
+			})
+		const problems: Array<string> = []
+		/** Every request is served (readOf). */
 		const served = (host: PlannedIndex) =>
 			Effect.gen(function* () {
 				const plans = yield* planned(Arr.map(host.requests, probeFor), [])
@@ -1148,32 +1245,14 @@ export const judgeServing = (
 						facts,
 						(index) => index === host.index.name
 					)
-					const residue =
-						verdict.kind === "swept" && verdict.through.index.name !== host.index.name
-							? residueOf(verdict.through, host, probe)
-							: Option.none()
-					if (verdict.kind === "unserved" || (verdict.kind === "swept" && Option.isNone(residue))) {
+					if (verdict.kind === "unserved") {
 						problems.push(`${probe.label}, planned on ${host.index.name}: ${verdict.why}`)
 						continue
 					}
-					const other = verdict.through.index.name !== host.index.name
-					if (other) {
-						const isolated = yield* withoutOthers(host)
-						const [alone] = yield* planned([probe], isolated)
-						if (alone === undefined) {
-							return assert.fail(`${probe.label}: no plan through ${host.index.name} alone`)
-						}
-						const claim = verdictOf(
-							probe,
-							alone[1],
-							new Map([[host.index.name, host]]),
-							facts,
-							() => true
-						)
-						if (claim.kind !== "served") {
-							problems.push(`${probe.label}, planned on ${host.index.name}, alone: ${claim.why}`)
-							continue
-						}
+					const read = yield* readOf(host, probe, verdict)
+					if (Result.isFailure(read)) {
+						problems.push(read.failure)
+						continue
 					}
 					note(`${probe.shape} probe served`)
 					note(
@@ -1181,11 +1260,11 @@ export const judgeServing = (
 							? "served by a created index"
 							: "served by a key or enforcement index"
 					)
-					if (other) {
+					if (verdict.through.index.name !== host.index.name) {
 						note("read through another planned index than the engine's")
 					}
-					if (Option.isSome(residue)) {
-						note(residue.value)
+					if (Option.isSome(read.success)) {
+						note(residueFeature(read.success.value))
 					}
 					if (host.method === "gist" && request.method === "btree") {
 						note("a GiST index serving a B-tree request")

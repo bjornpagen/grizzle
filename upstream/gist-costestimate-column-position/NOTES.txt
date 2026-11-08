@@ -43,7 +43,7 @@ owner files it by hand.
      - Run repro.sql against master in a throwaway cluster, as in EVIDENCE.txt 1.
      - The costs and buffers must match EVIDENCE.txt 2, apart from the ANALYZE-sample variation it records in 2h.
 
-3. Why it matters to grizzle.
+3. Why it matters to grizzle, and what grizzle waits on.
    - The index engine (packages/engine/src/physical/indexes/engine.ts) plans each request onto an index it claims
      serves it. The serving judge (test/pg/physical/serving.ts, judgeServing) runs every request's probe under
      EXPLAIN (ANALYZE, BUFFERS) and holds it to a buffer bound.
@@ -52,23 +52,32 @@ owner files it by hand.
      - Whichever column leads, one single-column probe is exposed.
      - PostgreSQL sweeps the GiST index that holds the probe's column outside its lead, in place of the index that
        serves it. repro.sql's sections 2 to 5 are those two orders in stock SQL.
-   - The judge excuses exactly those sweeps.
-     - serving.ts residueOf (line 994) names them "swept through another GiST index, gistcostestimate blind to its key
-       order", when keyOrdersConflict (974) holds.
+     - No second index avoids it. A B-tree for the exposed probe loses to the GiST index (this report). A GiST index
+       for it ties with the other, and the newest wins (2d, EVIDENCE.txt 3): a creation order grizzle cannot hold,
+       since a later migration or a restore reorders it.
+   - The judge excuses exactly those sweeps, and only those of a GiST index.
+     - serving.ts residueOf returns { kind: "cost model", awaiting: "gist-costestimate-column-position" }, the one
+       member of serving.ts's UpstreamNote, and the judgment notes "swept through another index, awaiting
+       upstream/gist-costestimate-column-position".
+     - Only when keyOrdersConflict holds: the GiST index holds every field the probe fixes, the probe fixes one of
+       many values, and no field that may lead an order serving the probe may lead one serving each request the index
+       serves.
      - The request's own index alone must still serve the probe.
-   - serving.ts's header (897 to 903) records the measurement at the suite's 20000 rows.
+   - judgeServing's header records the measurement at the suite's 20000 rows.
      - 6.50 through a GiST index on (span, numeric) of 144 pages, which it sweeps in 145 buffers.
      - 6.51 through a B-tree on (numeric, float8) of 97 pages, which reads 3.
      - The 0.01 gap is this report's 0.0125 = (ceil(log2 20000) - ceil(ln 20000)) * 0.0025 = (15 - 10) * 0.0025.
        Both indexes must then be costed at one page, since a page more would cost 4.0, and both at height 1, the
        GiST's (int) log100(144) and the 97-page B-tree's.
-   - serving.test.ts keeps a case (line 1716), a join key beside span predicates whose GiST index PostgreSQL sweeps,
-     that a drawn workload reaches.
-   - TODO.md item 10's GiST bullet: "Closing it needs gistcostestimate to see column position, an upstream change."
-     - This folder is that change's first step. Nothing in grizzle waits on it.
-     - residueOf's GiST case goes, by hard cutover, once a release grizzle pins carries a fix. The kept case then
-       becomes a served probe.
-   - This research refines that bullet in two places (main's call whether to edit TODO.md):
+   - serving.test.ts keeps a case, a join key beside span predicates whose GiST index PostgreSQL sweeps, that a drawn
+     workload reaches.
+   - What grizzle waits on: a PostgreSQL release whose gistcostestimate costs a GiST scan by where its conditions'
+     columns stand, and grizzle's pin moved to it (scripts/pg/pin.env).
+     - Then, by hard cutover, "gist-costestimate-column-position" leaves UpstreamNote: residueOf's GiST arm and the
+       kept case's feature stop compiling and go, and the kept case becomes a served probe.
+     - Nothing else in grizzle waits on it. The judge's other residue, a B-tree PostgreSQL sweeps in no more buffers
+       than the request's own index alone reads, is PostgreSQL right, and waits on nothing.
+   - This research refines the residue's statement in two places:
      - A GiST-against-GiST tie needs no equal size.
        - Any two GiST indexes tie exactly when both pro-rata counts round to one page and both (int) log100(pages)
          agree.

@@ -52,9 +52,6 @@ with the next release.
 - **`bench:full` on a quiet machine.**
 - **Housekeeping:** delete the lane scratch under ~/.cache/grizzle-release (about 14 GB).
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
-- **Sweeps under conflicting key orders,** the residues no plan avoids, which the serving judge excuses
-  (test/pg/physical/serving.ts residueOf). GiST's cost model is blind to column position
-  (upstream/gist-costestimate-column-position, for PostgreSQL 20); the partial B-tree sweep is PostgreSQL being right.
 - **RDS IAM** against a real RDS.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
   Reconcile them, then copy the library into edullm with the shared lint standard.

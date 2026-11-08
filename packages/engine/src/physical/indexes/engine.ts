@@ -819,12 +819,15 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * takes the order a narrower range or order over its columns fixes, an equality lookup on scalars becomes a GiST index
  * when a GiST request over its columns refines it, and a GiST index leads with a column of many values a later GiST
  * request binds (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`, which serves both).
- * A GiST request's draft is refined too by every other request of its relation it can serve, one another index already
- * serves among them, the GiST requests first, never widening its rows for one: PostgreSQL costs
- * a GiST scan by the selectivity of all its conditions whatever their columns' places (genericcostestimate), so it may
- * read a request through any GiST index that holds its columns, and on PostgreSQL 19 it reads a span predicate on
- * `(span)` through `(fixed, span)`, which it sweeps, rather than through the `(span, other)` it is planned on. Within a
- * block the columns keep the request's own order. Since the draft looks ahead, the plan's order only fixes the outcome:
+ * The draft is refined too, after those, by every other request of its relation it can serve that another index
+ * already serves, the requests of its own access method first, never widening its rows for one, since PostgreSQL may
+ * read such a request through it. It costs a GiST scan by the selectivity of all its conditions whatever their
+ * columns' places (genericcostestimate), so it may read a request through any GiST index that holds its columns, and
+ * on PostgreSQL 19 it reads a span predicate on `(span)` through `(fixed, span)`, which it sweeps, rather than through
+ * the `(span, other)` it is planned on; and it may read a law's probe of a selection through a partial index of it, an
+ * index-only sweep fetching no heap page, rather than through the key's index of every row it is planned on, so law
+ * probes of the held rows on `(id, room)` and on `room`, beside a span key on `(room, during)`, create `(room, id)`.
+ * Within a block the columns keep the request's own order. Since the draft looks ahead, the plan's order only fixes the outcome:
  * it is canonical, so the plan does not depend on the order requests arrive in.
  * Its keys are canonical under reversal: a key no ordered request directs takes the first key's direction, and an index
  * whose first key descends is created reversed, so an order and its exact reverse are one index. Its identity is its
@@ -977,8 +980,8 @@ const hostOrder = (entry: Planned): Comparator<Candidate> =>
 	])
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later
- * requests of its relation no planned index serves yet; for a GiST request, every other request of its relation too, the
- * GiST requests first. */
+ * requests of its relation no planned index serves yet, then every other request of its relation, which another index
+ * serves; those of its own access method first. */
 const ahead = (
 	entry: Planned,
 	plan: ReadonlyArray<Planned>,
@@ -991,18 +994,13 @@ const ahead = (
 			(q) =>
 				q.request.relation === entry.request.relation && !candidates.some((c) => serves(c.index, q))
 		)
-	const unserved = later.map((planned): Ahead => ({ kind: "unserved", planned }))
-	if (ownMethod(entry) !== "gist") {
-		return unserved
-	}
-	const served = plan
-		.filter(
-			(q) => q !== entry && q.request.relation === entry.request.relation && !later.includes(q)
-		)
-		.map((planned): Ahead => ({ kind: "served", planned }))
-	return [...unserved, ...served].toSorted(
-		mapInput(compareBooleans, (q: Ahead) => ownMethod(q.planned) !== "gist")
+	const served = plan.filter(
+		(q) => q !== entry && q.request.relation === entry.request.relation && !later.includes(q)
 	)
+	return [
+		...later.map((planned): Ahead => ({ kind: "unserved", planned })),
+		...served.map((planned): Ahead => ({ kind: "served", planned }))
+	].toSorted(mapInput(compareBooleans, (q: Ahead) => ownMethod(q.planned) !== ownMethod(entry)))
 }
 
 /** The draft of the index created for `planned` (see `planIndexes`): its own, refined by each request it reads ahead, in
