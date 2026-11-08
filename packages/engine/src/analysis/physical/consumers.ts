@@ -66,9 +66,7 @@ export const consumerOutput = (consumer: Consumer, input: RelNode): RelNode =>
 interface EdgeOf<S extends ConsumerSensitivity, C extends Consumer> {
 	readonly consumer: C
 	readonly input: RelNode
-	/** The treatment the consumer's kind gives the input. */
-	readonly declared: ConsumerSensitivity
-	/** The treatment once the consumer's own realization is accounted for. */
+	/** The treatment the consumer gives the input, its own realization accounted for. */
 	readonly sensitivity: S
 }
 
@@ -115,7 +113,7 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 	/** A preserving consumer realized with an exact duplicate-eliminating operator absorbs its input's repeats. */
 	const by = (role: InputRole): NodeConsumer => ({ kind: "node", node, role })
 	const pass = (input: RelNode, role: InputRole): ConsumerEdge => {
-		const fields = { consumer: by(role), input, declared: "preserves" as const }
+		const fields = { consumer: by(role), input }
 		return env.realization(node) === "distinct"
 			? { ...fields, sensitivity: "ignores" }
 			: { ...fields, sensitivity: "preserves" }
@@ -124,14 +122,12 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 	const observe = (input: RelNode, role: InputRole): ConsumerEdge => ({
 		consumer: by(role),
 		input,
-		declared: "observes",
 		sensitivity: "observes",
 		requires: heading(env.props(input))
 	})
 	const ignore = (input: RelNode, role: InputRole): ConsumerEdge => ({
 		consumer: by(role),
 		input,
-		declared: "ignores",
 		sensitivity: "ignores"
 	})
 	switch (node.kind) {
@@ -183,12 +179,11 @@ const rootEdge = (root: RelNode, env: ClassifyEnv): ConsumerEdge => {
 		case "observes":
 			return {
 				...fields,
-				declared: "observes",
 				sensitivity: "observes",
 				requires: heading(env.props(root))
 			}
 		case "ignores":
-			return { ...fields, declared: "ignores", sensitivity: "ignores" }
+			return { ...fields, sensitivity: "ignores" }
 	}
 }
 
