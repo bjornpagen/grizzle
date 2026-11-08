@@ -11,12 +11,6 @@ export type Level =
 	| { readonly kind: "schema"; readonly desc: SchemaDesc; readonly content: SchemaContent }
 	| ({ readonly kind: "role" } & RoleLevel)
 
-/**
- * What a query is written over: a level, or none, a query rebuilt from its Description alone, which names relations
- * but no schema, so no level holds it and it holds no level: a rule over it matches no query, and no rule matches it.
- */
-export type WrittenOver = Level | { readonly kind: "description" }
-
 /** Whether `lower` is one of the levels of `higher`, compared by content.
  * A schema records the schema it extends, so its levels are itself and every schema below it (`LevelsOf`). A rule over S
  * matches a query written over any level of S, and a ChangeSet over S accepts members and read-backs written over any

@@ -33,7 +33,7 @@ import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { buildLoc, isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
-import { isLevelOver, type WrittenOver } from "#compiler/schema/level.ts"
+import { isLevelOver, type Level } from "#compiler/schema/level.ts"
 import { isPlainRecord, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
@@ -713,10 +713,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 }
 
 /** What a query value was written over, which must be a level of the ChangeSet's. */
-const requireLevel = (written: WrittenOver, over: BuiltOver, label: string): void => {
-	if (written.kind === "description") {
-		throw malformed(label, "a query built by query(S) over a schema or a role")
-	}
+const requireLevel = (written: Level, over: BuiltOver, label: string): void => {
 	if (!isLevelOver(written, over)) {
 		throw malformed(
 			label,

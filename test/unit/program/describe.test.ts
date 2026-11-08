@@ -8,6 +8,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText } from "#compiler/ir/desc.ts"
@@ -16,8 +17,8 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { queryFromDescription } from "#test/support/describe.ts"
+import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { fromQueryDescription, queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -36,8 +37,8 @@ import { regex } from "arkregex"
  * vocabulary, with describeQuery's inverse (test/support/describe.ts queryFromDescription), over every generated query
  * read (test/support/oracle/public): a query rebuilt from its
  * Description, sent as JSON or not, is the same Description and lowers to the same statements; lowering is
- * byte-identical across runs; a query rebuilt without its schema lowers to a refusal; and a Description is checked
- * against the schema it is given.
+ * byte-identical across runs; a bare Description, which names no schema, lowers to a refusal; and a Description is
+ * checked against the schema it is given.
  *
  * A Description as the rebuild receives it: the value itself, and the value read back from its JSON text.
  */
@@ -88,12 +89,14 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 									assert.equal(text(rebuilt), text(q))
 									assert.deepEqual(lowerQuery(rebuilt), Result.ok(lowered))
 								}
-								/** Rebuilt without its schema, the query has nothing to lower against. */
-								const without = succeeded(
-									queryFromDescription(d, undefined),
-									"a rebuild with no schema"
+								/** A bare Description names no schema, so the compiler has none to lower it against. */
+								const bare = succeeded(fromQueryDescription(d), "the Description read back")
+								assert.deepEqual(
+									refusalLoc(
+										refused(lowerQuery(bare), "MalformedDescription", "lowered with no schema")
+									),
+									SourceLoc("compile", [])
 								)
-								refused(lowerQuery(without), "MalformedDescription", "lowered with no schema")
 								for (const feature of programFeatures(read.query)) {
 									if (Arr.some(programForms, (f) => f === feature)) {
 										k.note(feature)
@@ -133,13 +136,14 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 					(name, k) =>
 						Effect.sync(() => {
 							const Elsewhere = relation(name, { task: uuid, budget: pg.bigint }, ["task"])
+							const Elsewheres = schema("Elsewhere", { [name]: Elsewhere }, [])
 							const d = describeQuery(
-								query(schema("Elsewhere", { [name]: Elsewhere }, [])).rule((r) => {
+								query(Elsewheres).rule((r) => {
 									const { task, budget } = v(Elsewhere, "elsewhere")
 									return r.match(Elsewhere, { task, budget }).find({ task, budget })
 								})
 							)
-							succeeded(queryFromDescription(d, undefined), "a Description rebuilds on its own")
+							succeeded(queryFromDescription(d, Elsewheres), "a schema with the relation")
 							refused(
 								queryFromDescription(d, Work),
 								"MalformedDescription",

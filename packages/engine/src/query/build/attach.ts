@@ -26,7 +26,7 @@ import {
 import { queryState } from "#compiler/query/build/state.ts"
 import { fieldTerm, type UntypedTerm, untypedTerm } from "#compiler/query/build/terms.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { WrittenOver } from "#compiler/schema/level.ts"
+import type { Level } from "#compiler/schema/level.ts"
 import { isName, malformed, requireName } from "#compiler/schema/protocol.ts"
 import { mint, named, record } from "#compiler/schema/record.ts"
 import type { Carrier, Carriers, Minted, Term } from "#compiler/types/core/phantom.ts"
@@ -262,7 +262,7 @@ export const runAttach = <V>(
 	name: string,
 	run: (scope: AttachScope) => V,
 	label: string,
-	over: WrittenOver
+	over: Level
 ): { readonly desc: AttachDesc; readonly child: V } => {
 	const loc = buildLoc(label, [name])
 	const scope = newAttachScope()

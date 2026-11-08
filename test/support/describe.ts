@@ -14,7 +14,7 @@ import {
 	queryOf
 } from "#compiler/query/build/query.ts"
 import { described, isOrdered, type QueryState, stageHeading } from "#compiler/query/build/state.ts"
-import { levelOf, type WrittenOver } from "#compiler/schema/level.ts"
+import { type Level, levelOf } from "#compiler/schema/level.ts"
 import { checkedIn } from "#test/support/policy.ts"
 
 /** A payload its carrier parsed, or MalformedDescription where its grammar admits no such payload. */
@@ -42,14 +42,8 @@ export const fromQueryDescription = (
 	description: unknown
 ): Result.Result<QueryDesc, CompileError> => descFromJson("query", description)
 
-/**
- * What a rebuilt query is written over: its schema's or role's level, or, with no schema, no level (WrittenOver), so
- * no rule matches it; a value that is neither a schema nor a role is refused.
- */
-const writtenOver = (schema: unknown): Result.Result<WrittenOver, CompileError> => {
-	if (schema === undefined) {
-		return Result.ok({ kind: "description" })
-	}
+/** What a rebuilt query is written over: its schema's or role's level; a value that is neither is refused. */
+const writtenOver = (schema: unknown): Result.Result<Level, CompileError> => {
 	const level = levelOf(schema)
 	return level === undefined
 		? Result.err(
@@ -62,8 +56,8 @@ const writtenOver = (schema: unknown): Result.Result<WrittenOver, CompileError> 
 }
 
 /**
- * A query or ordered value rebuilt from its Description: the same combinators, over a heading the Description states,
- * typed where its descriptors say so. Its heading carries no column: it is described, and delivers no records. A
+ * A query or ordered value rebuilt from its Description over `schema`, a schema or role value: the same combinators,
+ * over a heading the Description states, typed where its descriptors say so. Its heading carries no column: it is described, and delivers no records. A
  * Description spells every name, so it waits on no attachment child.
  */
 export const queryFromDesc = (
@@ -87,23 +81,21 @@ export const queryFromDesc = (
 /**
  * The inverse of describeQuery: a QueryDescription back to a query value (queryFromDesc). A value that does not decode
  * as a query's Description is MalformedDescription. A Description names relations, not the schema that declares
- * them, so the rebuilt value is schemaless unless the caller names the schema, which is parsed as the compiler's
- * boundary parses it and the Description checked against it.
+ * them, so the caller names the schema, which is parsed as the compiler's boundary parses it and the Description
+ * checked against it.
  */
 export const queryFromDescription = (
 	description: unknown,
 	schema: unknown
 ): Result.Result<QueryValue | OrderedValue, CompileError> =>
 	Result.flatMap(fromQueryDescription(description), (desc) =>
-		schema === undefined
-			? queryFromDesc(desc, undefined)
-			: Result.flatMap(
-					Result.flatMap(checkedIn(schema), (checked) =>
-						checkQuery(checked, desc, {
-							read: "rows",
-							label: "query"
-						})
-					),
-					() => queryFromDesc(desc, schema)
-				)
+		Result.flatMap(
+			Result.flatMap(checkedIn(schema), (checked) =>
+				checkQuery(checked, desc, {
+					read: "rows",
+					label: "query"
+				})
+			),
+			() => queryFromDesc(desc, schema)
+		)
 	)

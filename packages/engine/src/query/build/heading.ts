@@ -7,7 +7,7 @@ import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
 import { describeField, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import type { WrittenOver } from "#compiler/schema/level.ts"
+import type { Level } from "#compiler/schema/level.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -90,7 +90,7 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
  * and of the levels below it, by name, so a closedId field described only by its Description still resolves its
  * handles.
  */
-export const schemaInfo = (value: unknown, over: WrittenOver): SchemaInfo => {
+export const schemaInfo = (value: unknown, over: Level): SchemaInfo => {
 	const desc = schemaDescOf(value) ?? roleDescOf(value)?.base
 	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 	for (let at = desc; at !== undefined; at = at.extends) {

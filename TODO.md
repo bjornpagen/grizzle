@@ -17,8 +17,8 @@ with the next release.
   - test/pg/substrate/tree.ts clearSql is a DELETE; make it TRUNCATE, as fin.ts does;
   - test/types/compute: building the program synchronously blocks vitest's worker-start timer under heavy load.
 - **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
-  where the nested path says factShape; WrittenOver's "description" arm exists only for test/support/describe.ts; the
-  re-insert witness residual (a stored owner re-inserted beside a refused new owner).
+  where the nested path says factShape; the re-insert witness residual (a stored owner re-inserted beside a refused new
+  owner).
 - **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
   illegal state the types still represent (found by FULLROLE).
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps

@@ -127,8 +127,8 @@ const kindOfBase = (name: BaseName): "closed" | "relation" | "derived" => baseRe
 
 /**
  * A role entry as a case states it: a whole relation of the base, or of another schema, under a name; a query over an
- * ordinary relation finding its fields but `omit`; a query over another schema; a query described over a relation the
- * base lacks; a query reading a parameter, attaching, searching approximately, or ordered.
+ * ordinary relation finding its fields but `omit`; a query over another schema; a query over the base reading a
+ * relation the base lacks; a query reading a parameter, attaching, searching approximately, or ordered.
  */
 type EntrySpec =
 	| { readonly kind: "whole"; readonly relation: BaseName }
@@ -180,17 +180,10 @@ const entryValue = (spec: EntrySpec): unknown => {
 			})
 		}
 		case "outside":
-			return succeeded(
-				queryFromDesc(
-					queryValueDesc(
-						queryOver(Other).rule((r: RuleValue) => {
-							const vars = varsOver(Stray, "stray")
-							return r.match(Stray, vars).find(vars)
-						})
-					),
-					undefined
-				)
-			)
+			return queryOver(Reports).rule((r: RuleValue) => {
+				const vars = varsOver(Stray, "stray")
+				return r.match(Stray, vars).find(vars)
+			})
 		case "parameter": {
 			const r = ordinaries[spec.relation]
 			return queryOver(Reports).rule((rule: RuleValue) => {

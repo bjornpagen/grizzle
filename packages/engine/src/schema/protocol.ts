@@ -176,9 +176,9 @@ export const queryDescOf = (value: unknown, label: string): QueryDesc => {
 }
 
 /**
- * The schema or role value each query value the builder made over one is over, registered by the builder
+ * The schema or role value each query value the builder made is over, registered by the builder
  * (query/build/query.ts): what role admission reads to refuse a query entry built over anything but its base or one of
- * its levels. A query rebuilt from its Description alone carries none.
+ * its levels. A value the builder did not make carries none.
  */
 const querySchemas = new WeakMap<object, object>()
 

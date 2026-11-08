@@ -218,7 +218,6 @@ const property =
 			assert.equal(text(rebuilt(viaDescription(desc), gen.schema)), text(q))
 			assert.equal(isOrderedValue(back), ending.kind === "ordered")
 			assert.deepEqual(names(back), names(q))
-			assert.deepEqual(names(rebuilt(desc, undefined)), names(q))
 			/**
 			 * Rebuilding a prefix of the chain and applying the rest, then the ending, gives the whole chain's Description.
 			 */

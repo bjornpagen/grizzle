@@ -23,7 +23,7 @@ import {
 } from "#compiler/query/build/scope.ts"
 import { untyped } from "#compiler/scalar/compute/term.ts"
 import { describeField, type ScalarEnv } from "#compiler/scalar/registry.ts"
-import type { WrittenOver } from "#compiler/schema/level.ts"
+import type { Level } from "#compiler/schema/level.ts"
 import {
 	fieldDescOf as fieldDesc,
 	isPlainRecord,
@@ -175,7 +175,7 @@ type SourceScope =
 	| { readonly kind: "anywhere" }
 	| { readonly kind: "interior"; readonly ctx: RuleContext }
 	| { readonly kind: "self"; readonly token: object }
-	| { readonly kind: "written"; readonly over: WrittenOver }
+	| { readonly kind: "written"; readonly over: Level }
 
 const anywhere: SourceScope = Object.freeze({ kind: "anywhere" })
 

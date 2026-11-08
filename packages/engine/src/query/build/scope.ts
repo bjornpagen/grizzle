@@ -3,8 +3,7 @@ import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { InteriorDesc } from "#compiler/ir/desc.ts"
 import type { VarRef } from "#compiler/ir/open.ts"
 import type { ScalarEnv } from "#compiler/scalar/registry.ts"
-import { isLevelOver, type WrittenOver } from "#compiler/schema/level.ts"
-import { malformed } from "#compiler/schema/protocol.ts"
+import { isLevelOver, type Level } from "#compiler/schema/level.ts"
 
 /** A builder location: the label, the path under it (empty at the label itself) and the user's call site. */
 export const buildLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
@@ -12,16 +11,9 @@ export const buildLoc = (label: string, path: ReadonlyArray<string | number>): S
 
 /**
  * Refuses a query written over `written` that a rule or query over `over` reads, where it is no level of `over`'s
- * schema: a match's or a negation's source (rule.ts) and an attachment's child (attach.ts runAttach), ForeignLevel. A
- * query rebuilt from its Description alone is written over no schema, so no level holds it or is held by it.
+ * schema: a match's or a negation's source (rule.ts) and an attachment's child (attach.ts runAttach), ForeignLevel.
  */
-export const requireLevel = (written: WrittenOver, over: WrittenOver, label: string): void => {
-	if (written.kind === "description" || over.kind === "description") {
-		throw malformed(
-			label,
-			"a query, and the rule or query that reads it, written over a schema: a query rebuilt from its Description alone names none, so no level holds it or is held by it"
-		)
-	}
+export const requireLevel = (written: Level, over: Level, label: string): void => {
 	if (!isLevelOver(written, over)) {
 		throw CompileError.make({
 			_tag: "ForeignLevel",
@@ -33,13 +25,13 @@ export const requireLevel = (written: WrittenOver, over: WrittenOver, label: str
 }
 
 /**
- * What a query knows about the schema it is written over: the schema value, when the query was built by query(S), what
- * it is written over (schema/level.ts WrittenOver), which a rule that matches the query must be over a level above, and
- * the field environment that resolves a closed reference's roster by name.
+ * What a query knows about the schema it is written over: the schema or role value it is built over, that value's level
+ * (schema/level.ts Level), which a rule that matches the query must be over a level above, and the field environment
+ * that resolves a closed reference's roster by name.
  */
 export interface SchemaInfo {
 	readonly value: unknown
-	readonly over: WrittenOver
+	readonly over: Level
 	readonly env: ScalarEnv
 }
 
