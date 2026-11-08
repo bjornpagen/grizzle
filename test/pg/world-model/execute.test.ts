@@ -173,10 +173,11 @@ const statementOf = (
 }
 
 /**
- * Where a case plants its value over a reality, each fact a stored one where the reality holds one: a message's of any
- * relation without a serial field (from the pools where it holds none); a DETAIL's of a relation the reality holds facts
- * of whose key PostgreSQL shows the admin (heldIn), drawn only where there is one; a witness's of a document, inserted
- * with another owner and a word count no document of its organization holds.
+ * Where a case plants its value over a reality, one arm per situation the scan reports it in, each fact a stored one
+ * where the reality holds one: a message's, one arm per statement, of any relation without a serial field (from the
+ * pools where it holds none); a DETAIL's of a relation the reality holds facts of whose key PostgreSQL shows the admin
+ * (heldIn), an arm only where there is one; a witness's of a document, inserted with another owner and a word count no
+ * document of its organization holds.
  */
 const plantedGen = (reality: HostState): Gen<Planted> => {
 	const stored = (relation: RelationSpec): Gen<HostFact> =>
@@ -184,15 +185,12 @@ const plantedGen = (reality: HostState): Gen<Planted> => {
 			onEmpty: () => () => pooledFact(relation),
 			onNonEmpty: (facts) => element(facts)
 		})
-	const message: Gen<Planted> = (source) => {
-		const relation = source.draw(element(plain))
-		return {
-			kind: "message",
-			statement: source.draw(element(tableStatements)),
-			relation,
-			fact: source.draw(stored(relation))
+	const message =
+		(statement: TableStatement): Gen<Planted> =>
+		(source) => {
+			const relation = source.draw(element(plain))
+			return { kind: "message", statement, relation, fact: source.draw(stored(relation)) }
 		}
-	}
 	const detail =
 		(
 			held: Arr.NonEmptyReadonlyArray<readonly [RelationSpec, Arr.NonEmptyReadonlyArray<HostFact>]>
@@ -219,14 +217,15 @@ const plantedGen = (reality: HostState): Gen<Planted> => {
 			)
 		}
 	}
-	return oneOf([
-		message,
-		...Arr.match(heldIn(reality), {
-			onEmpty: (): ReadonlyArray<Gen<Planted>> => [],
-			onNonEmpty: (held) => [detail(held)]
-		}),
-		witness
-	])
+	return oneOf(
+		Arr.appendAll(Arr.map(tableStatements, message), [
+			...Arr.match(heldIn(reality), {
+				onEmpty: (): ReadonlyArray<Gen<Planted>> => [],
+				onNonEmpty: (held) => [detail(held)]
+			}),
+			witness
+		])
+	)
 }
 
 /** A case over the host schema the installation's names give: a lawful reality, then where to plant. */
