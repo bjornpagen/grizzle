@@ -10,7 +10,7 @@ import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { literalDescFor } from "#compiler/scalar/registry.ts"
-import type { Bytes } from "#compiler/scalar/values/bytes.ts"
+import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admitValue,
@@ -159,8 +159,8 @@ export const admittedParam = (spec: CarrierSpec, value: unknown): ParamText =>
  * MemberCell): a bytes value itself, which its column's binary array carries (codec/bytea.ts), and any other its
  * parameter text.
  */
-export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | Bytes =>
-	spec.carrier === "bytes" ? admitted(spec, value).bytes : admittedParam(spec, value)
+export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | AdmittedBytes =>
+	spec.carrier === "bytes" ? admitted(spec, value) : admittedParam(spec, value)
 
 /**
  * A plain text's parameter text: a name, a fingerprint or a JSON document grizzle's own statements send as text, written

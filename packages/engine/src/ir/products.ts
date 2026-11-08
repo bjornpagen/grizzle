@@ -9,7 +9,7 @@ import type {
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
+import type { OutputText, Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -79,6 +79,19 @@ export interface LiteralBound {
 	readonly limit: number
 }
 
+/**
+ * A relation input no statement can carry, refused before any of its bytes is read: the statement that carries it, its
+ * write's whole input or, for a nested write, one row of it, would send a Bind message of at least `bytes` with its
+ * placeholders (codec/recordset.ts ReadRelation), past the longest message PostgreSQL reads, `limit` bytes
+ * (core/limits.ts messageMaxBytes), which the shell raises as InputTooLarge. `input` names the member.
+ */
+export interface MessageBound {
+	readonly _tag: "MessageBound"
+	readonly input: string
+	readonly bytes: number
+	readonly limit: number
+}
+
 declare const keyNormalizedBrand: unique symbol
 
 /**
@@ -88,7 +101,14 @@ declare const keyNormalizedBrand: unique symbol
  * Branded: the write's normalization (write/normalize/normalize.ts normalizeChangeSet) mints it, after its key check
  * and nowhere else.
  */
-export type KeyNormalized = NormalFacts & { readonly [keyNormalizedBrand]: true }
+export type KeyNormalized = KeyedFacts & { readonly [keyNormalizedBrand]: true }
+
+/**
+ * A member slot's normal facts with the binary array of each of its bytes columns, by field, each written once for the
+ * whole write from its facts' values (codec/bytea.ts byteaArray) and carried by every placeholder of that column
+ * (codec/recordset.ts memberArray), so a value is copied once however many statements read its member.
+ */
+export type KeyedFacts = NormalFacts & { readonly binary: ReadonlyMap<string, ParamBinary> }
 
 /**
  * An array encoder over normal facts of kind `F`: of the facts written as a statement's arrays over the columns its

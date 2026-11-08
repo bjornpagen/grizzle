@@ -24,31 +24,29 @@ export class BytesDigest {
 }
 
 /**
- * An admitted bytes value: its bytes and their digest, worked out once at admission, so a fact's identity reads it
- * without reading the bytes again (scalar/values/identity.ts canonicalText); within one write, one digest is one value
- * (`DigestBook`). A delivered bytes value read for the host is one too, its digest worked out as it is read
- * (codec/read.ts scalarReader).
+ * An admitted bytes value: the caller's array itself, never copied, and the digest of its bytes worked out once at
+ * admission, so a fact's identity reads it without reading the bytes again (scalar/values/identity.ts canonicalText);
+ * within one write, one digest is one value (`DigestBook`). The one copy grizzle makes of it is its place in its
+ * column's binary array (codec/bytea.ts byteaArray), which checks the copy against the digest, so a value its caller
+ * changed after admission is refused rather than sent. A delivered bytes value read for the host is one too, its digest
+ * worked out as it is read (codec/read.ts scalarReader).
  */
 export class AdmittedBytes extends BytesDigest {
-	readonly bytes: Bytes
-	constructor(bytes: Bytes) {
+	readonly bytes: Uint8Array
+	constructor(bytes: Uint8Array) {
 		super(sha256Hex(bytes))
 		this.bytes = bytes
 	}
 }
 
 /**
- * The encode-time boundary of a bytes value, read once from the caller's Uint8Array as it is now into a copy grizzle
- * alone holds, over an ArrayBuffer of its own: so the fact's identity and the bytes sent are the same, whatever the
- * caller does to its array after admission. A value that is no Uint8Array, or one over a detached buffer, which reads
- * as no bytes at all, is bytesType; one longer than core/limits.ts bytesMaxLength, which no bytea holds, is
- * bytesLength. One admitted already is itself, as every carrier's admission takes its own host value as it is, which a
- * nested write's facts meet twice (write/family/nesting.ts).
+ * The encode-time boundary of a bytes value, which reads its length and nothing else: a value that is no Uint8Array, or
+ * one over a detached buffer, which reads as no bytes at all, is bytesType; one longer than core/limits.ts
+ * bytesMaxLength, which no bytea holds, is bytesLength. A value it passes is the caller's array itself, whose bytes
+ * are read only once its input is known to fit its statement (write/normalize/normalize.ts), for its digest
+ * (`AdmittedBytes`).
  */
-export const admitBytes = (value: unknown): Result.Result<AdmittedBytes, ValueFault> => {
-	if (value instanceof AdmittedBytes) {
-		return Result.ok(value)
-	}
+export const checkBytes = (value: unknown): Result.Result<Uint8Array, ValueFault> => {
 	if (!(value instanceof Uint8Array)) {
 		return Result.err("bytesType")
 	}
@@ -59,7 +57,19 @@ export const admitBytes = (value: unknown): Result.Result<AdmittedBytes, ValueFa
 	if (value.length > bytesMaxLength.value) {
 		return Result.err("bytesLength")
 	}
-	return Result.ok(new AdmittedBytes(new Uint8Array(value)))
+	return Result.ok(value)
+}
+
+/**
+ * A bytes value checked (`checkBytes`) and admitted with its digest; one admitted already is itself, as every carrier's
+ * admission takes its own host value as it is, which a nested write's facts meet twice (write/family/nesting.ts).
+ */
+export const admitBytes = (value: unknown): Result.Result<AdmittedBytes, ValueFault> => {
+	if (value instanceof AdmittedBytes) {
+		return Result.ok(value)
+	}
+	const checked = checkBytes(value)
+	return checked.ok ? Result.ok(new AdmittedBytes(checked.value)) : checked
 }
 
 /** Whether a value has the bytes host type: a Uint8Array over an ArrayBuffer. */

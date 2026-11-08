@@ -2508,6 +2508,9 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		if (failure instanceof CompileError) {
 			return refusedAt("change", failure, spec, code)
 		}
+		if (failure._tag === "LiteralBound" || failure._tag === "MessageBound") {
+			throw new Error(`the engine refuses a drawn ChangeSet's input as too large: ${failure._tag}`)
+		}
 		const place = failure.place
 		return place._tag === "Slot" && Arr.some(freeParams(spec.change), ([n]) => n === place.name)
 			? {

@@ -2,7 +2,7 @@
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
-import { byteaArray } from "#compiler/codec/bytea.ts"
+import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	countParam,
@@ -18,26 +18,30 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ArrayTexts,
 	IdentifiedFact,
+	KeyedFacts,
 	LiteralBound,
 	NormalFacts,
 	RelationParamEncoder
 } from "#compiler/ir/products.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { DigestBook } from "#compiler/scalar/values/bytes.ts"
+import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
-	admitFact,
 	admitted,
 	compareFactIdentities,
+	digestFact,
 	type FactIdentity,
 	type HeadingField,
 	type HeadingPlan,
 	headingPlan,
+	type ReadFact,
+	readFact,
 	specContent
 } from "#compiler/scalar/values/identity.ts"
 
@@ -93,13 +97,32 @@ export interface NormalizedRelation extends AdmittedRelation {
 }
 
 /**
- * A relation input's admission: a ChangeSet member's, or a nested write's level's, its bytes values held in its write's
- * `book` (scalar/values/bytes.ts DigestBook), so a digest is one value across the write.
+ * A relation input read (scalar/values/identity.ts readFact), none of its bytes read yet, with what its binary arrays
+ * take at least (codec/bytea.ts): `together`, each bytes column's array over its reads of distinct parts, which are
+ * distinct facts, so a statement that carries the whole input carries at least that; `widest`, the arrays of its
+ * widest fact alone, which a statement that carries that fact carries at least.
  */
-export type RelationNormalizer = (
-	facts: Iterable<unknown>,
-	book: DigestBook
-) => Result.Result<AdmittedRelation, EncodingFailure>
+export interface ReadRelation {
+	readonly reads: ReadonlyArray<ReadFact>
+	readonly together: number
+	readonly widest: number
+}
+
+/**
+ * A relation input's admission, a ChangeSet member's or a nested write's level's, in two steps, so its caller measures
+ * it between them (write/normalize/normalize.ts): `read`, the null ban and each fact read, no bytes read; then `admit`,
+ * each bytes value digested and held in its write's `book` (scalar/values/bytes.ts DigestBook), so a digest is one
+ * value across the write, the facts deduplicated and put in canonical order. `columns` is how many arrays it travels
+ * as, each one placeholder.
+ */
+export interface RelationNormalizer {
+	readonly columns: number
+	readonly read: (facts: Iterable<unknown>) => Result.Result<ReadRelation, EncodingFailure>
+	readonly admit: (
+		read: ReadRelation,
+		book: DigestBook
+	) => Result.Result<AdmittedRelation, EncodingFailure>
+}
 
 /** A relation parameter's normalization, its facts' text rows written beside them. */
 export type ParameterNormalizer = (
@@ -109,8 +132,8 @@ export type ParameterNormalizer = (
 interface BuiltColumn {
 	readonly field: string
 	readonly codec: ScalarCodec
-	/** The column's array of the facts' values, in its carrier's form (arrayForms). */
-	readonly array: ColumnArray
+	/** How the column travels as one placeholder's array, in its carrier's form (arrayForms). */
+	readonly form: ArrayForm
 }
 
 /**
@@ -123,26 +146,30 @@ type ColumnArray = (
 	facts: ReadonlyArray<Fact>
 ) => Result.Result<Param, LiteralBound>
 
-/** A text array literal of the values' canonical texts (columnLiteral), within the longest string. */
-const textArray =
-	(codec: ScalarCodec): ColumnArray =>
-	(input, column, facts) =>
-		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)
+/**
+ * How a column travels: as a text array literal its placeholder writes (`text`), or, a bytes column, as the binary
+ * array its member wrote once for the whole write (ir/products.ts KeyedFacts), which its placeholder carries.
+ */
+type ArrayForm =
+	| { readonly kind: "text"; readonly array: ColumnArray }
+	| { readonly kind: "binary" }
 
-/** A binary bytea[] of the admitted bytes values (codec/bytea.ts byteaArray), within the longest message. */
-const binaryArray: ColumnArray = (input, column, facts) =>
-	byteaArray(
-		input,
-		column,
-		facts.map((fact) => admitted({ carrier: "bytes" }, fact[column]).bytes)
-	)
+/** A text array literal of the values' canonical texts (columnLiteral), within the longest string. */
+const textArray = (codec: ScalarCodec): ArrayForm => ({
+	kind: "text",
+	array: (input, column, facts) =>
+		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)
+})
+
+/** A bytes column's form: its member's binary array, whose values no text carries at their own size. */
+const binaryArray: ArrayForm = { kind: "binary" }
 
 /**
  * How each carrier's column travels as one placeholder's array: a text array literal of its canonical texts, and a
- * bytes column's a binary bytea[], whose values no text carries at their own size. Chosen once per column, when its
- * relation's spec is built, so no fact meets the choice.
+ * bytes column's its member's binary bytea[]. Chosen once per column, when its relation's spec is built, so no fact
+ * meets the choice.
  */
-const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ColumnArray } = {
+const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm } = {
 	int2: textArray,
 	int4: textArray,
 	int8: textArray,
@@ -177,7 +204,7 @@ interface BuiltSpec {
 const buildSpec = (spec: RelationSpec): BuiltSpec => {
 	const columns = spec.columns.map((column): BuiltColumn => {
 		const codec = scalarCodec(column.type, spec.codes)
-		return { field: column.field, codec, array: arrayForms[codec.spec.carrier](codec) }
+		return { field: column.field, codec, form: arrayForms[codec.spec.carrier](codec) }
 	})
 	const heading = columns.map((c): HeadingField => ({ name: c.field, spec: c.codec.spec }))
 	return {
@@ -293,9 +320,22 @@ export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
 	const ownHeading = headingText(s.plan)
-	const bytesFields = s.heading.flatMap((f) => (f.spec.carrier === "bytes" ? [f.name] : []))
-	const normalize: RelationNormalizer = (facts, book) => {
-		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
+	const bytesAt = s.plan.entries.flatMap((f, at) => (f.spec.carrier === "bytes" ? [at] : []))
+	/** The bytes one fact's value at bytes field `at` takes in its column's array, past the array's header. */
+	const elements = (read: ReadFact, at: number): number => {
+		const value = read.values[at]
+		if (value instanceof AdmittedBytes) {
+			return byteaElementBytes(value.bytes.length)
+		}
+		if (!(value instanceof Uint8Array)) {
+			throw defect("a read fact's bytes field holds the caller's array")
+		}
+		return byteaElementBytes(value.length)
+	}
+	const read = (facts: Iterable<unknown>): Result.Result<ReadRelation, EncodingFailure> => {
+		const reads: Array<ReadFact> = []
+		const distinct = new TupleMap<ReadonlyArray<string>, ReadFact>()
+		let widest = 0
 		for (const fact of facts) {
 			if (fact === null || fact === undefined) {
 				return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))
@@ -310,24 +350,51 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 					}
 				}
 			}
-			const admission = admitFact(s.plan, fact)
-			if (!admission.ok) {
-				return Result.err(encodeFailure(admission.error.fault, placeOf(s, admission.error.field)))
+			const one = readFact(s.plan, fact)
+			if (!one.ok) {
+				return Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
 			}
-			const { identity, fact: value } = admission.value
-			for (const field of bytesFields) {
-				if (!book.holds(admitted({ carrier: "bytes" }, value[field]))) {
+			reads.push(one.value)
+			if (bytesAt.length > 0) {
+				if (!distinct.has(one.value.parts)) {
+					distinct.set(one.value.parts, one.value)
+				}
+				widest = Math.max(
+					widest,
+					bytesAt.reduce((sum, at) => sum + byteaHeaderBytes(1) + elements(one.value, at), 0)
+				)
+			}
+		}
+		let together = 0
+		for (const at of bytesAt) {
+			together += byteaHeaderBytes(distinct.size)
+			for (const one of distinct.values()) {
+				together += elements(one, at)
+			}
+		}
+		return Result.ok({ reads, together, widest })
+	}
+	const admit = (
+		relation: ReadRelation,
+		book: DigestBook
+	): Result.Result<AdmittedRelation, EncodingFailure> => {
+		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
+		for (const one of relation.reads) {
+			const { identity, fact } = digestFact(s.plan, one)
+			for (const at of bytesAt) {
+				const field = defined(s.plan.entries[at], "a bytes field of the heading").name
+				if (!book.holds(admitted({ carrier: "bytes" }, fact[field]))) {
 					return Result.err(encodeFailure("bytesCollision", placeOf(s, field)))
 				}
 			}
 			if (!byIdentity.has(identity)) {
-				byIdentity.set(identity, { fact: value })
+				byIdentity.set(identity, { fact })
 			}
 		}
 		const normal = normalFacts(byIdentity, ownHeading)
 		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))
 	}
-	return normalize
+	return { columns: columns.length, read, admit }
 }
 
 /**
@@ -416,6 +483,18 @@ const appended = (
 	return undefined
 }
 
+/**
+ * The literal of `text` alone, as `columnLiteral` writes it, measured without writing it: its UTF-16 code units, its
+ * braces, quotes and escaping backslashes among them (`elementOverhead`), and its UTF-8 bytes, the text's own
+ * (core/sha256.ts utf8Length) and one for each character the literal adds, all of them ASCII.
+ */
+export const literalAlone = (
+	text: ParamText
+): { readonly units: number; readonly bytes: number } => {
+	const added = "{}".length + elementOverhead(text)
+	return { units: text.length + added, bytes: utf8Length(text) + added }
+}
+
 /** A written literal's text: its elements between braces. */
 const closed = (literal: OpenLiteral): ParamText => arrayLiteral(`{${literal.elements.join(",")}}`)
 
@@ -500,28 +579,68 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
 	)
 
 /**
- * The writer of a placeholder's array of normal facts under `spec` (ir/products.ts ArrayEncoder): of the facts written
- * in the spec's column order, the array at a part, its column's literal (columnLiteral), a bytes column's binary bytea[]
- * of its admitted values (codec/bytea.ts byteaArray), or, of no column, their count.
- * Each placeholder writes its own array and no other, and never admits a fact again. Its columns are its input's whole
- * heading in the statement's order, which every statement over an input declares, so the facts are normal under the
- * spec's heading; facts normal under another are the compiler's defect, never the caller's input, since admitting them
- * again under it could only refuse them.
+ * The placeholder of `spec`'s column at `part` over normal facts: its heading checked against the spec's, and the
+ * column, or none for an input of no column. Its columns are its input's whole heading in the statement's order, which
+ * every statement over an input declares, so the facts are normal under the spec's heading; facts normal under another
+ * are the compiler's defect, never the caller's input, since admitting them again under it could only refuse them.
+ */
+const placeholderOf = (spec: RelationSpec) => {
+	const built = buildSpec(spec)
+	const ownHeading = headingText(built.plan)
+	return (normal: NormalFacts, part: number): BuiltColumn | undefined => {
+		if (normal.heading !== ownHeading) {
+			throw defect(`a placeholder of ${spec.relation} reads a heading other than its input's`)
+		}
+		return built.columns.length === 0
+			? undefined
+			: defined(built.columns[part], "a placeholder's column among its input's columns")
+	}
+}
+
+/**
+ * The writer of a relation parameter's placeholder's array of normal facts under `spec` (ir/products.ts
+ * RelationEncoder): of the facts written in the spec's column order, the array at a part, its column's literal
+ * (columnLiteral), or, of no column, their count. Each placeholder writes its own array and no other, and never admits
+ * a fact again. No parameter is of bytes, so a binary column here is the compiler's defect.
  */
 export const normalArray = (
 	spec: RelationSpec
 ): ((normal: NormalFacts, part: number) => Result.Result<Param, LiteralBound>) => {
-	const built = buildSpec(spec)
-	const ownHeading = headingText(built.plan)
+	const placeholder = placeholderOf(spec)
 	return (normal, part) => {
-		if (normal.heading !== ownHeading) {
-			throw defect(`a placeholder of ${spec.relation} reads a heading other than its input's`)
-		}
-		if (built.columns.length === 0) {
+		const column = placeholder(normal, part)
+		if (column === undefined) {
 			return Result.ok(countParam(normal.facts.length))
 		}
-		const column = defined(built.columns[part], "a placeholder's column among its input's columns")
-		return column.array(spec.relation, column.field, normal.facts)
+		if (column.form.kind === "binary") {
+			throw defect(`a relation parameter's column ${column.field} of bytes`)
+		}
+		return column.form.array(spec.relation, column.field, normal.facts)
+	}
+}
+
+/**
+ * The writer of a member placeholder's array (ir/products.ts MemberEncoder): a text column's literal its placeholder
+ * writes, as a relation parameter's (`normalArray`), and a bytes column's binary array its member wrote once for the
+ * whole write (ir/products.ts KeyedFacts), which every placeholder of the column carries.
+ */
+export const memberArray = (
+	spec: RelationSpec
+): ((normal: KeyedFacts, part: number) => Result.Result<Param, LiteralBound>) => {
+	const placeholder = placeholderOf(spec)
+	return (normal, part) => {
+		const column = placeholder(normal, part)
+		if (column === undefined) {
+			return Result.ok(countParam(normal.facts.length))
+		}
+		return column.form.kind === "binary"
+			? Result.ok(
+					defined(
+						normal.binary.get(column.field),
+						`the binary array of ${column.field}, a bytes column`
+					)
+				)
+			: column.form.array(spec.relation, column.field, normal.facts)
 	}
 }
 
@@ -544,7 +663,11 @@ const parameterNormalizerOf = (built: BuiltSpec): ParameterNormalizer => {
 		return member === undefined ? [] : [{ field: c.field, member }]
 	})
 	return (facts) => {
-		const normalized = normalize(facts, new DigestBook())
+		const read = normalize.read(facts)
+		if (!read.ok) {
+			return read
+		}
+		const normalized = normalize.admit(read.value, new DigestBook())
 		if (!normalized.ok) {
 			return normalized
 		}

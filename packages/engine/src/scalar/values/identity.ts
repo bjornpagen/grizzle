@@ -1,7 +1,7 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, compareQuotedTuples, validateText } from "#compiler/core/text.ts"
@@ -10,8 +10,9 @@ import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import {
-	type AdmittedBytes,
+	AdmittedBytes,
 	admitBytes,
+	checkBytes,
 	compareBytes,
 	isAdmittedBytes
 } from "#compiler/scalar/values/bytes.ts"
@@ -527,23 +528,26 @@ const ownField = (fact: object, name: string): Result.Result<unknown, FactFault>
 	})
 
 /**
- * Admits a fact against its heading: a plain object whose own keys are exactly the heading's field names, each value
- * admitted by its carrier. Its shape and each field are read once (hostRead), and only the admitted values are kept.
- * The identity is each field's canonical text in field-name order (FactIdentity).
+ * A fact read against its heading and its values admitted, its bytes values not yet digested: each field's value in the
+ * heading's name order, a bytes field's the caller's array (values/bytes.ts checkBytes), and each field's part of its
+ * identity, a bytes field's its length, so two reads of one fact share their parts and two facts whose parts differ
+ * are two facts. Reading a fact reads none of its bytes, so an input can be measured from its parts and lengths alone
+ * before any is (codec/recordset.ts RelationNormalizer).
+ */
+export interface ReadFact {
+	readonly values: ReadonlyArray<unknown>
+	readonly parts: ReadonlyArray<string>
+}
+
+/**
+ * Reads a fact against its heading: a plain object whose own keys are exactly the heading's field names, each value
+ * admitted by its carrier but a bytes value, which is checked and kept as it is (`ReadFact`). Its shape and each field
+ * are read once (hostRead).
  *
  * A per-fact hot path: the heading's plan is worked out once per heading, and each fact costs one pass over its
  * fields with no per-field closure, tuple or Option beyond the field's own read.
  */
-export const factIdentity = (
-	heading: ReadonlyArray<HeadingField>,
-	fact: unknown
-): Result.Result<AdmittedFact, FactFault> => admitFact(headingPlan(heading), fact)
-
-/** factIdentity over a heading already planned (headingPlan): the per-fact path of a codec that planned its heading. */
-export const admitFact = (
-	plan: HeadingPlan,
-	fact: unknown
-): Result.Result<AdmittedFact, FactFault> => {
+export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFact, FactFault> => {
 	if (typeof fact !== "object" || fact === null) {
 		return Result.err({ fault: "factShape", field: undefined })
 	}
@@ -559,24 +563,88 @@ export const admitFact = (
 		return Result.err({ fault: "factShape", field: undefined })
 	}
 	const { entries, names } = plan
-	/** A prototype-less object, so assigning "__proto__" defines an ordinary property. */
-	const kept: Record<string, unknown> = {}
-	Reflect.setPrototypeOf(kept, null)
-	const identity: Array<string> = []
+	const values: Array<unknown> = []
+	const parts: Array<string> = []
 	for (const field of entries) {
 		const read = ownField(fact, field.name)
 		if (!read.ok) {
 			return Result.err(read.error)
 		}
+		if (field.spec.carrier === "bytes") {
+			const bytes =
+				read.value instanceof AdmittedBytes ? Result.ok(read.value) : checkBytes(read.value)
+			if (!bytes.ok) {
+				return Result.err({ fault: bytes.error, field: field.name })
+			}
+			values.push(bytes.value)
+			parts.push(String(lengthOf(bytes.value)))
+			continue
+		}
 		const value = admitValue(field.spec, read.value)
 		if (!value.ok) {
 			return Result.err({ fault: value.error, field: field.name })
 		}
-		kept[field.name] = value.value
-		identity.push(canonicalText(field.spec, value.value))
+		values.push(value.value)
+		parts.push(canonicalText(field.spec, value.value))
 	}
 	if (names === "repeated") {
 		return Result.err({ fault: "factShape", field: undefined })
 	}
-	return Result.ok({ fact: Object.freeze(kept), identity: Object.freeze(identity) })
+	return Result.ok({ values, parts })
+}
+
+/** The length of a read bytes value: the caller's array's, or an admitted value's bytes'. */
+const lengthOf = (value: Uint8Array | AdmittedBytes): number =>
+	value instanceof AdmittedBytes ? value.bytes.length : value.length
+
+/**
+ * A read fact's bytes field `name` admitted with its digest: the caller's array digested, or a value admitted already
+ * as it is; any other value there is a defect of the read that holds it.
+ */
+const admittedRead = (value: unknown, name: string): AdmittedBytes => {
+	if (value instanceof AdmittedBytes) {
+		return value
+	}
+	if (!(value instanceof Uint8Array)) {
+		throw defect(`a read fact's bytes field ${name}, the caller's array`)
+	}
+	return new AdmittedBytes(value)
+}
+
+/**
+ * A read fact admitted whole: each bytes value admitted with its digest (values/bytes.ts AdmittedBytes), which is its
+ * part of the fact's identity (FactIdentity), every other part the read's.
+ */
+export const digestFact = (plan: HeadingPlan, read: ReadFact): AdmittedFact => {
+	/** A prototype-less object, so assigning "__proto__" defines an ordinary property. */
+	const kept: Record<string, unknown> = {}
+	Reflect.setPrototypeOf(kept, null)
+	const identity: Array<string> = []
+	for (const [at, field] of plan.entries.entries()) {
+		const value = read.values[at]
+		if (field.spec.carrier !== "bytes") {
+			kept[field.name] = value
+			identity.push(defined(read.parts[at], "a read fact's part of each field"))
+			continue
+		}
+		const bytes = admittedRead(value, field.name)
+		kept[field.name] = bytes
+		identity.push(bytes.digest)
+	}
+	return { fact: Object.freeze(kept), identity: Object.freeze(identity) }
+}
+
+/**
+ * Admits a fact against its heading (`readFact`, `digestFact`). The identity is each field's canonical text in
+ * field-name order (FactIdentity).
+ */
+export const factIdentity = (
+	heading: ReadonlyArray<HeadingField>,
+	fact: unknown
+): Result.Result<AdmittedFact, FactFault> => admitFact(headingPlan(heading), fact)
+
+/** factIdentity over a heading already planned (headingPlan): the per-fact path of a codec that planned its heading. */
+const admitFact = (plan: HeadingPlan, fact: unknown): Result.Result<AdmittedFact, FactFault> => {
+	const read = readFact(plan, fact)
+	return read.ok ? Result.ok(digestFact(plan, read.value)) : read
 }

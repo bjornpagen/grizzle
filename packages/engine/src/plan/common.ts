@@ -110,6 +110,7 @@ export type {
 	ConstraintOwner,
 	Encoder,
 	LiteralBound,
+	MessageBound,
 	ParamDecl,
 	RelationParamDecl,
 	StatementSpec,

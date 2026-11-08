@@ -572,7 +572,9 @@ const property = (
 		}
 		const expected = writtenRows(spec, rows)
 		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
-		const normalized = succeeded(normalizeChangeSet(program.value.frontend, members))
+		const normalized = succeeded(
+			normalizeChangeSet(program.value.frontend, members, inForce(bindFrame))
+		)
 		if (normalized.kind !== "normalized") {
 			return assert.fail(`the instance normalizes, not ${Formatter.format(normalized)}`)
 		}

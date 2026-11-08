@@ -40,8 +40,30 @@ const wtf8 = (text: string): Uint8Array =>
 export const utf8 = (text: string): Uint8Array =>
 	text.isWellFormed() ? encoder.encode(text) : wtf8(text)
 
-/** The UTF-8 byte length of a text, lone surrogates counting three bytes, as in `utf8`. */
-export const utf8Length = (text: string): number => utf8(text).length
+/**
+ * The UTF-8 byte length of a text, lone surrogates counting three bytes, as in `utf8`, counted from its code units
+ * without encoding it: one byte below U+0080, two below U+0800, four for a surrogate pair, and three for any other unit.
+ */
+export const utf8Length = (text: string): number => {
+	let bytes = 0
+	for (let at = 0; at < text.length; at += 1) {
+		const unit = text.charCodeAt(at)
+		if (unit < 0x80) {
+			bytes += 1
+		} else if (unit < 0x800) {
+			bytes += 2
+		} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at + 1))) {
+			bytes += 4
+			at += 1
+		} else {
+			bytes += 3
+		}
+	}
+	return bytes
+}
+
+/** Whether a code unit is a low surrogate, the second of a pair; NaN, past a text's end, is none. */
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
 
 /** The SHA-256 digest of a message, as lowercase hex. A text is hashed as the bytes `utf8` writes. */
 export const sha256Hex = (input: Uint8Array | string): string =>

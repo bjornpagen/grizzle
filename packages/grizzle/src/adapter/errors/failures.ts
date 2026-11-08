@@ -8,6 +8,7 @@ import type {
 	DomainName,
 	Identifier,
 	LiteralBound,
+	MessageBound,
 	RelationIdent,
 	Sqlstate
 } from "#compiler/plan/common.ts"
@@ -510,7 +511,10 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  *   message PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes);
  * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
  *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
- *   (write/family/order.ts Unsendable).
+ *   (write/family/order.ts Unsendable);
+ * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
+ *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'
+ *   lengths before any of its bytes is read or copied.
  *
  * None bounds a count of rows: a ChangeSet input, a relation parameter or a family of any number of facts travels
  * whenever each row's texts fit.
@@ -535,6 +539,12 @@ export type InputBound =
 			readonly count: string
 			readonly member: string
 			readonly row: Unsendable
+	  }
+	| {
+			readonly kind: "input"
+			readonly input: string
+			readonly bytes: number
+			readonly limit: number
 	  }
 
 /**
@@ -561,6 +571,8 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 						: `its ${row.statement} statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
 				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no ${row.statement} statement even alone: ${past}; shorten the row's values`
 			}
+			case "input":
+				return `the arrays of input ${bound.input} would make a Bind message of at least ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
 		}
 	}
 }
@@ -575,6 +587,12 @@ export const familyRowBound = (family: Family, row: Unsendable): InputTooLarge =
 			member: family.member.name,
 			row
 		}
+	})
+
+/** The bound of a member no statement can carry, as the engine reports it from its values' lengths. */
+export const messageBound = (bound: MessageBound): InputTooLarge =>
+	new InputTooLarge({
+		bound: { kind: "input", input: bound.input, bytes: bound.bytes, limit: bound.limit }
 	})
 
 /** The bound of a relation input's column whose array no string can hold, as the engine reports it. */

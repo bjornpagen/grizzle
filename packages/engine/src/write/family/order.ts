@@ -43,17 +43,17 @@
  * go in any order.
  */
 import { byteaArray, byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
-import { arrayTexts, columnLiteral } from "#compiler/codec/recordset.ts"
+import { columnLiteral, literalAlone } from "#compiler/codec/recordset.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { ReadonlyTupleMap, ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
-import type { Bytes } from "#compiler/scalar/values/bytes.ts"
+import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	type CountRow,
 	countTexts,
@@ -205,20 +205,17 @@ type Alone =
 	| { readonly kind: "binary"; readonly bytes: number; readonly element: number }
 
 /**
- * The array of `cell` alone: a text's literal, from the transport's own encoder (codec/recordset.ts arrayTexts), or
- * none when it is longer than `limit` code units; a bytes value's binary bytea[], which no string bounds.
+ * The array of `cell` alone, measured from its length, never written: a text's literal (codec/recordset.ts
+ * literalAlone), or none when it is longer than `limit` code units; a bytes value's binary bytea[] (codec/bytea.ts),
+ * which no string bounds.
  */
 const aloneOf = (cell: MemberCell, limit: number): Alone | undefined => {
 	if (typeof cell !== "string") {
-		const element = byteaElementBytes(cell.length)
+		const element = byteaElementBytes(cell.bytes.length)
 		return { kind: "binary", bytes: byteaHeaderBytes(1) + element, element }
 	}
-	const literal = arrayTexts("", [""], [[cell]], limit)
-	if (!literal.ok) {
-		return undefined
-	}
-	const written = defined(literal.value[0], "an input of one column writes one literal")
-	return { kind: "literal", units: written.length, bytes: utf8Length(written) }
+	const literal = literalAlone(cell)
+	return literal.units > limit ? undefined : { kind: "literal", ...literal }
 }
 
 /**
@@ -231,9 +228,9 @@ export const columnArray = (
 	input: string,
 	column: string,
 	cells: ReadonlyArray<MemberCell>
-): Result.Result<Param, LiteralBound> => {
+): Result.Result<Param, LiteralBound | EncodingFailure> => {
 	const texts: Array<ParamText> = []
-	const values: Array<Bytes> = []
+	const values: Array<AdmittedBytes> = []
 	for (const cell of cells) {
 		if (typeof cell === "string") {
 			texts.push(cell)

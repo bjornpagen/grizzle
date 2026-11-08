@@ -18,6 +18,7 @@ import {
 	familyRowBound,
 	type InputTooLarge,
 	literalBound,
+	messageBound,
 	type MissingCapability,
 	StaleStatement,
 	UnreadableAnswer
@@ -71,6 +72,7 @@ import {
 	type CompileError,
 	type EncodingFailure,
 	type LiteralBound,
+	type MessageBound,
 	type ParamDecl,
 	type ParamMap,
 	type ParamValue,
@@ -119,7 +121,7 @@ export type InputFailure = EncodingFailure | InputTooLarge | CompileError
  * immutable owner's family refuses, which only the run time could decide, as the same CompileError its static form is.
  */
 export const valuesFailure = (
-	failure: EncodingFailure | LiteralBound | FamilyRowBound | CompileError
+	failure: EncodingFailure | LiteralBound | MessageBound | FamilyRowBound | CompileError
 ): InputFailure => {
 	switch (failure._tag) {
 		case "EncodingFailure":
@@ -127,6 +129,8 @@ export const valuesFailure = (
 			return failure
 		case "LiteralBound":
 			return literalBound(failure)
+		case "MessageBound":
+			return messageBound(failure)
 		case "FamilyRowBound":
 			return familyRowBound(failure.family, failure.row)
 	}
@@ -262,7 +266,7 @@ export const hostInputs = (
 		 */
 		const bound = bindWrite(program, { members, params: host, transport: inForce(bindFrame) })
 		if (!bound.ok) {
-			return yield* Effect.fail(bound.error)
+			return yield* Effect.fail(valuesFailure(bound.error))
 		}
 		if (bound.value.kind === "invariant-rejected") {
 			return {

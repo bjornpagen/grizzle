@@ -17,7 +17,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, LawField, RelationInfo } from "#compiler/ir/law.ts"
-import type { LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
+import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -250,7 +250,7 @@ const unplannedFill: Fill = Object.freeze({ kind: "unplanned" })
 /** The witness of a refusal no row the ChangeSet states is found breaking. */
 const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
 
-type BindResult =
+export type BindResult =
 	| BoundWrite
 	| {
 			readonly kind: "invariant-rejected"
@@ -276,9 +276,9 @@ type BindResult =
 export const bindWrite = (
 	program: CompiledWrite,
 	inputs: BindInputs
-): Result.Result<BindResult, EncodingFailure | CompileError> => {
+): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
 	const { frontend, edits: programEdits } = program
-	const normalization = normalizeChangeSet(frontend, inputs.members)
+	const normalization = normalizeChangeSet(frontend, inputs.members, inputs.transport)
 	if (!normalization.ok) {
 		return Result.err(normalization.error)
 	}
@@ -1296,12 +1296,13 @@ export const bindWrite = (
 	}
 	/**
 	 * A planned statement's arrays: its rows' cells, column by column (order.ts columnArray), each literal within the
-	 * longest string.
+	 * longest string, each bytes value copied once into its column's binary array, a value its caller changed since
+	 * admission refused there.
 	 */
 	const arraysOf = (
 		relation: string,
 		statement: FamilyStatement
-	): Result.Result<ReadonlyArray<Param>, LiteralBound> => {
+	): Result.Result<ReadonlyArray<Param>, LiteralBound | EncodingFailure> => {
 		const rows = textsOf(statement)
 		const width = rows[0]?.length ?? 0
 		const arrays: Array<Param> = []

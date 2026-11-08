@@ -34,6 +34,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
+import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
@@ -53,6 +54,7 @@ import {
 	type HostEvaluator,
 	type HostNode
 } from "#compiler/write/family/fold.ts"
+import type { Transport } from "#compiler/write/family/order.ts"
 import { type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
 
 /** A family a nesting reaches, at its depth: 1 for a family of the insert's own rows, n + 1 for one whose owners are a
@@ -305,15 +307,21 @@ const nestedRefusal = (
  * The facts of a nested member `member` added into `into`, the stratum's nested set, by the nesting's levels'
  * normalizers for that member; their own rows, each insert's own relation's when it is no tree's, for its slot's own
  * normalization. Each fact is split along its sequences, its levels admitted, filled, and cut into whole rows. A fact
- * `into` holds already, at its key with every row it nests, adds nothing.
+ * `into` holds already, at its key with every row it nests, adds nothing. A level's row whose binary arrays no Bind
+ * message of `transport` carries alone, with the row's placeholders, is refused as its MessageBound before any of its
+ * bytes is read, since a family write's statements are cut row by row (write/family/order.ts).
  */
 export const nestedRows = (
 	nesting: Nesting,
 	member: string,
 	facts: Iterable<unknown>,
 	into: NestedSet,
-	book: DigestBook
-): Result.Result<ReadonlyArray<NestedFact>, EncodingFailure | NestedGeneratedNull> => {
+	book: DigestBook,
+	transport: Transport
+): Result.Result<
+	ReadonlyArray<NestedFact>,
+	EncodingFailure | MessageBound | NestedGeneratedNull
+> => {
 	const normalizers = new Map(
 		nesting.levels.map((l): readonly [string, RelationNormalizer] => [
 			levelKey(l.relation, l.at),
@@ -338,7 +346,7 @@ export const nestedRows = (
 		if (!split.ok) {
 			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(nesting, normalizers, split.value, book)
+		const host = hostNodes(nesting, normalizers, split.value, { member, book, transport })
 		if (!host.ok) {
 			return host
 		}
@@ -455,8 +463,12 @@ const hostNodes = (
 	nesting: Nesting,
 	normalizers: ReadonlyMap<string, RelationNormalizer>,
 	root: NestedAddition,
-	book: DigestBook
-): Result.Result<HostNode, EncodingFailure> => {
+	write: {
+		readonly member: string
+		readonly book: DigestBook
+		readonly transport: Transport
+	}
+): Result.Result<HostNode, EncodingFailure | MessageBound> => {
 	/** Every addition in pre-order, with the level it stands at. */
 	const order: Array<{ readonly addition: NestedAddition; readonly at: LevelOf }> = []
 	const pending: Array<{ readonly addition: NestedAddition; readonly at: LevelOf }> = [
@@ -485,7 +497,16 @@ const hostNodes = (
 		if (normalize === undefined) {
 			throw defect(`the level of ${addition.relation} a nesting reaches`)
 		}
-		const admitted = normalize([addition.fact], book)
+		const read = normalize.read([addition.fact])
+		if (!read.ok) {
+			return read
+		}
+		const { frame, messageBytes } = write.transport
+		const bytes = frame.statement + normalize.columns * frame.parameter + read.value.widest
+		if (bytes > messageBytes) {
+			return Result.err({ _tag: "MessageBound", input: write.member, bytes, limit: messageBytes })
+		}
+		const admitted = normalize.admit(read.value, write.book)
 		if (!admitted.ok) {
 			return admitted
 		}

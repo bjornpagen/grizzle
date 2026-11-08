@@ -33,7 +33,6 @@ import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -44,7 +43,7 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
-import { kindCodes, types } from "#test/unit/codec/support.ts"
+import { kindCodes, normalizedBy, types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
 /**
@@ -219,7 +218,7 @@ describe("relation normalization", () => {
 									member,
 									...facts.slice(at % (facts.length + 1))
 								]
-								const result = normalize(members, new DigestBook())
+								const result = normalizedBy(normalize, members)
 								const failure = !result.ok ? result.error : result.value
 								assert.ok(failure instanceof EncodingFailure, plant)
 								assert.equal(failure.reason._tag, reason, plant)
@@ -414,7 +413,7 @@ describe("relation normalization", () => {
 						},
 						(facts) =>
 							Effect.sync(() => {
-								const normal = succeeded(normalize(facts, new DigestBook()))
+								const normal = succeeded(normalizedBy(normalize, facts))
 								const byIdentity = new TupleMap<
 									FactIdentity,
 									{ readonly fact: { readonly [field: string]: unknown } }
@@ -753,7 +752,7 @@ describe("the arrays of every field type", () => {
 						},
 						(facts) =>
 							Effect.sync(() => {
-								const normal = succeeded(normalize(facts, new DigestBook()))
+								const normal = succeeded(normalizedBy(normalize, facts))
 								const { arrays, count } = succeeded(encode(facts))
 								assert.equal(count, normal.count)
 								assert.equal(arrays.length, everyType.length)

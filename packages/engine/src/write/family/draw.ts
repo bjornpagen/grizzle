@@ -9,7 +9,7 @@
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
-import type { Bytes } from "#compiler/scalar/values/bytes.ts"
+import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 
 /** An owner, or a group, by its key's texts, in the order the family's group fields pair with them. */
 export type Owner = NonEmptyReadonlyArray<ParamText>
@@ -18,10 +18,10 @@ export type Owner = NonEmptyReadonlyArray<ParamText>
 export type MemberKey = NonEmptyReadonlyArray<ParamText>
 
 /**
- * One column of a row as the transport carries it: its parameter text, or a bytes column's value, which travels in its
- * column's binary bytea[] (codec/bytea.ts), since no text carries a bytes value at its own size.
+ * One column of a row as the transport carries it: its parameter text, or a bytes column's admitted value, which travels
+ * in its column's binary bytea[] (codec/bytea.ts), since no text carries a bytes value at its own size.
  */
-export type MemberCell = ParamText | Bytes
+export type MemberCell = ParamText | AdmittedBytes
 
 /** The cells of a row's columns beside its key, in its relation's row layout. */
 export type Member = ReadonlyArray<MemberCell>

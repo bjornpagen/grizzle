@@ -28,6 +28,7 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { withinMessage } from "#test/support/worlds/execute/offline.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -196,11 +197,13 @@ describe("a nested addition's facts", () => {
 								const value = ChangeSet.empty(Sequenced).insert(Owner, additionsOf(owners))
 								const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
 								const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-								const bound = bindWrite(program, {
-									members,
-									params: {},
-									transport: inForce(bindFrame)
-								})
+								const bound = withinMessage(
+									bindWrite(program, {
+										members,
+										params: {},
+										transport: inForce(bindFrame)
+									})
+								)
 								const memberFacts = Arr.flatMap(owners, (o) => o.members)
 								if (Arr.some(owners, (o) => Option.isSome(o.beyond.written))) {
 									c.note("the owner states its accumulated end")

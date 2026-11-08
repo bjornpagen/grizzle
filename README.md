@@ -1579,10 +1579,13 @@ PostgreSQL's other spellings are the same fields.
   round trip, wherever it is delivered: a query's rows, an attachment's, a page's, a family's stored members. grizzle
   writes the chunks into a fresh `Uint8Array` you own, so a value never passes through one string. A write reads back
   only a value's SHA-256 digest, which is how the host knows it: two values of one digest that differ are a SHA-256
-  collision, refused as an `EncodingFailure` (`bytesCollision`) rather than taken as one. Its bound, 1,073,741,819
-  bytes (`bytesMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming its field,
-  before any SQL. An attachment whose rows hold a bytes field is a statement of its own, so one under rows that read
-  `.approximateNearest` is refused: query the nearest rows, then attach to their keys in a second query.
+  collision, refused as an `EncodingFailure` (`bytesCollision`) rather than taken as one. grizzle reads your array
+  where it is and copies it once, into its column's binary array, as the call is sent, checking the copy against the
+  digest: an array you change or detach after passing it to `db.apply`, before the call is sent, is an
+  `EncodingFailure` (`bytesChanged`) rather than sent unlike the value the write was worked out from. Its bound,
+  1,073,741,819 bytes (`bytesMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming
+  its field, before any SQL. An attachment whose rows hold a bytes field is a statement of its own, so one under rows
+  that read `.approximateNearest` is refused: query the nearest rows, then attach to their keys in a second query.
 - **Patterns.** Text always carries one, with flags `"u"` (the default) or `"su"`. The syntax is JavaScript's under
   `u`, cut to what PostgreSQL matches the same way: characters and escapes, classes and ranges, `\d`, `\w` and their
   complements, `.`, groups, `|`, `^` and `$` for the start and end of the whole text, and greedy `?`, `*`, `+` and
@@ -2635,6 +2638,9 @@ schema fixes. It compiles the rules too, so call it once and keep the list.
   across calls.
 - `familyRow`: one row a family write places, vacates or recounts is past one of those bounds alone, so no statement
   can carry it. Shorten the row's values.
+- `input`: a ChangeSet member's arrays, or one row of a nested write, would make a Bind message past that limit, with
+  the input and the least length its statement would take. It is counted from your values' lengths before any of
+  their bytes is read or copied. Split the input across calls.
 
 **`CompileError`**'s reason holds where it refused, `at`, and:
 
@@ -2966,7 +2972,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 `messageMaxBytes`, `maxStringLength` and `bytesMaxLength` are exported as `Limit` values, whose `.value` is the number.
 
-- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone, a family write's included.
+- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone, a family write's included: one copy of each value, made as the call is sent, after its member is measured from its values' lengths.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
 - **A generated text is at most 536,870,888 UTF-16 code units**, about 512 MiB of ASCII: each SQL statement, migration file, `snapshot.json` and fingerprint text. `generate` and `check` refuse a schema past it with `ResourceBound`.
 - **A closed relation is as large as its key's code space**: a cell per combination of its key fields' codes, written in its migration as one hex literal of a digit per four bits of code space times its cell's bits, whatever its rows. Prefer dense coordinates, such as slots, whose space is each owner's counts, to a sparse product of rosters ([Closed relations](#closed-relations)). Its constant has at most 2,147,483,640 bits, PostgreSQL's longest bit string, payload codes whose product is at most 2,147,483,647, the most a cell read as an integer holds, and a literal of at most 536,870,888 digits. Past any, the schema is `ResourceBound` when it compiles, the literal's as `stringLength`. `grizzle check` refuses a literal its comment or its function's name does not digest, naming the first cell that differs from the declared rows, and that cell's key.

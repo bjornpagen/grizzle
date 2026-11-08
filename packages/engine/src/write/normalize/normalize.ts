@@ -1,4 +1,5 @@
 import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
+import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
@@ -10,10 +11,17 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareTextTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
+import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { KeyNormalized, NormalFacts } from "#compiler/ir/products.ts"
+import type {
+	KeyedFacts,
+	KeyNormalized,
+	LiteralBound,
+	MessageBound,
+	NormalFacts
+} from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -38,6 +46,7 @@ import {
 	nestedRowsOf,
 	nestedSet
 } from "#compiler/write/family/nesting.ts"
+import type { Transport } from "#compiler/write/family/order.ts"
 import type { MemberSlot, SlotFacts, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
@@ -52,7 +61,36 @@ export type NormalizedSlot = KeyNormalized & {
 }
 
 /** The one mint of KeyNormalized: a slot's normal facts after normalization's same-key checks. */
-const keyNormalized = nominal<NormalFacts, KeyNormalized>()
+const keyNormalized = nominal<KeyedFacts, KeyNormalized>()
+
+/**
+ * A slot's normal facts with the binary array of each of its bytes columns (ir/products.ts KeyedFacts), each written
+ * once from its facts' values, in their canonical order (codec/bytea.ts byteaArray): the one copy the write makes of
+ * a member's bytes, which every placeholder of the column carries. An array no message carries is its LiteralBound,
+ * and a value its caller changed since admission its EncodingFailure, before any SQL is sent.
+ */
+const keyedFacts = (
+	slot: MemberSlot,
+	relation: string,
+	normal: NormalFacts
+): Result.Result<KeyedFacts, EncodingFailure | LiteralBound> => {
+	const binary = new Map<string, ParamBinary>()
+	for (const field of slot.heading) {
+		if (field.type.carrier !== "bytes") {
+			continue
+		}
+		const array = byteaArray(
+			relation,
+			field.name,
+			normal.facts.map((fact) => admitted({ carrier: "bytes" }, fact[field.name]))
+		)
+		if (!array.ok) {
+			return array
+		}
+		binary.set(field.name, array.value)
+	}
+	return Result.ok({ ...normal, binary })
+}
 
 /**
  * A slot's normal facts with each fact replaced by `facts`, their identities kept, as normalization would hold them:
@@ -69,7 +107,11 @@ export const refilledSlot = (
 		refilled.set(e.identity, { fact: Object.freeze(facts(e.fact)) })
 	}
 	const normal = slot.slot.normalForm(refilled)
-	return Object.freeze({ ...keyNormalized(normal), slot: slot.slot, count: normal.facts.length })
+	return Object.freeze({
+		...keyNormalized({ ...normal, binary: slot.binary }),
+		slot: slot.slot,
+		count: normal.facts.length
+	})
 }
 
 /** A same-key conflict between two additions, or two deletions, of one stratum: invariant-rejected with the key law and
@@ -147,16 +189,37 @@ const supplied = (fact: unknown, fields: ReadonlyArray<string>): number => {
 	return n
 }
 
-/** The admitted facts of `facts` against a slot's heading, by its member's normalizer, refused with the codec's fault at
- * the member slot. The codec checks no key: normalization refuses a same-key pair itself (step 3).
+/**
+ * The admitted facts of `facts`, member `member`'s, against a slot's heading, by its member's normalizer, refused with
+ * the codec's fault at the member slot. The codec checks no key: normalization refuses a same-key pair itself (step 3).
+ * Its facts are read first, none of their bytes read (codec/recordset.ts ReadRelation), and an input whose arrays no
+ * Bind message of `transport` carries, with the statement's own fields and its placeholders, is refused as its
+ * MessageBound before any is: before a digest is worked out or a copy made.
  *
- * The codec's identities are factIdentity's over the slot heading, the identity this module keys facts by. */
+ * The codec's identities are factIdentity's over the slot heading, the identity this module keys facts by.
+ */
 const admit = (
 	normalize: RelationNormalizer,
+	member: string,
 	facts: Iterable<unknown>,
-	book: DigestBook
-): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure> => {
-	const normalized = normalize(facts, book)
+	book: DigestBook,
+	transport: Transport
+): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure | MessageBound> => {
+	const read = normalize.read(facts)
+	if (!read.ok) {
+		return read
+	}
+	const bytes =
+		transport.frame.statement + normalize.columns * transport.frame.parameter + read.value.together
+	if (bytes > transport.messageBytes) {
+		return Result.err({
+			_tag: "MessageBound",
+			input: member,
+			bytes,
+			limit: transport.messageBytes
+		})
+	}
+	const normalized = normalize.admit(read.value, book)
 	if (!normalized.ok) {
 		return normalized
 	}
@@ -510,9 +573,20 @@ const sameKey = <I>(
  * statement that reads it. */
 export const normalizeChangeSet = (
 	frontend: WriteFrontend,
-	inputs: MemberFacts
-): Result.Result<Normalization, EncodingFailure> => {
+	inputs: MemberFacts,
+	transport: Transport
+): Result.Result<Normalization, EncodingFailure | MessageBound | LiteralBound> => {
 	const out = new Map<ParamId, NormalizedSlot>()
+	/**
+	 * Each slot's normal facts, distinct by identity over its heading and in identity order, which its encoders take as
+	 * they are: their binary arrays are written once every input is measured and judged, so a write refused anywhere
+	 * copies no value (`keyedFacts`).
+	 */
+	const normals: Array<{
+		readonly slot: MemberSlot
+		readonly relation: string
+		readonly normal: NormalFacts
+	}> = []
 	/** The write's bytes values, each the one value of its digest (scalar/values/bytes.ts DigestBook). */
 	const book = new DigestBook()
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
@@ -549,13 +623,13 @@ export const normalizeChangeSet = (
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const rows = nestedRows(input.nesting, member.name, given, set, book)
+						const rows = nestedRows(input.nesting, member.name, given, set, book, transport)
 						if (!rows.ok) {
 							return rows.error._tag === "GeneratedNull"
 								? Result.ok({ kind: "generatedNull", law: rows.error.law, values: rows.error.key })
 								: Result.err(rows.error)
 						}
-						const own = admit(member.normalize, rows.value, book)
+						const own = admit(member.normalize, member.name, rows.value, book, transport)
 						if (!own.ok) {
 							return own
 						}
@@ -571,7 +645,7 @@ export const normalizeChangeSet = (
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const admittedFacts = admit(member.normalize, given, book)
+						const admittedFacts = admit(member.normalize, member.name, given, book, transport)
 						if (!admittedFacts.ok) {
 							return admittedFacts
 						}
@@ -606,11 +680,23 @@ export const normalizeChangeSet = (
 						if (!byClass.ok) {
 							return byClass
 						}
-						const complete = admit(member.normalize.complete, byClass.value.complete, book)
+						const complete = admit(
+							member.normalize.complete,
+							member.name,
+							byClass.value.complete,
+							book,
+							transport
+						)
 						if (!complete.ok) {
 							return complete
 						}
-						const generated = admit(member.normalize.generated, byClass.value.generated, book)
+						const generated = admit(
+							member.normalize.generated,
+							member.name,
+							byClass.value.generated,
+							book,
+							transport
+						)
 						if (!generated.ok) {
 							return generated
 						}
@@ -643,13 +729,7 @@ export const normalizeChangeSet = (
 			sets.delete.delete(id)
 		}
 		for (const [category, slot] of slotOf) {
-			/** Distinct by identity over the slot heading and in identity order: the slot's normal facts, which its
-			 * encoders take as they are. */
-			const normal = slot.normalForm(sets[category])
-			out.set(
-				slot.slot,
-				Object.freeze({ ...keyNormalized(normal), slot, count: normal.facts.length })
-			)
+			normals.push({ slot, relation: relation.name, normal: slot.normalForm(sets[category]) })
 		}
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
@@ -684,6 +764,16 @@ export const normalizeChangeSet = (
 			}
 		}
 		rows.set(stratum, held)
+	}
+	for (const { slot, relation, normal } of normals) {
+		const keyed = keyedFacts(slot, relation, normal)
+		if (!keyed.ok) {
+			return keyed
+		}
+		out.set(
+			slot.slot,
+			Object.freeze({ ...keyNormalized(keyed.value), slot, count: normal.facts.length })
+		)
 	}
 	return Result.ok({ kind: "normalized", slots: out, nested: rows })
 }

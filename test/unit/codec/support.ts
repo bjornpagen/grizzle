@@ -1,9 +1,12 @@
 import type { Result } from "effect"
 import { scalarReader } from "#compiler/codec/read.ts"
+import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import * as Engine from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -88,3 +91,10 @@ export const codecOf = (type: ScalarType, codes: Codebook): TestCodec => {
 		cellText: (text: string) => reader.cellText(outputText(text))
 	})
 }
+
+/**
+ * A relation input admitted whole by its normalizer: read, then admitted with a book of its own (codec/recordset.ts
+ * RelationNormalizer), as a write admits a member past its measure.
+ */
+export const normalizedBy = (normalizer: RelationNormalizer, facts: Iterable<unknown>) =>
+	Engine.flatMap(normalizer.read(facts), (read) => normalizer.admit(read, new DigestBook()))

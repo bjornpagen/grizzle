@@ -59,6 +59,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
 	bytesType: "bytes: a Uint8Array",
 	bytesLength: `bytes one bytea holds: at most ${bytesMaxLength.value} bytes`,
+	bytesChanged:
+		"bytes its caller leaves as they were from their admission to their send: a value changed meanwhile is refused rather than sent unlike the identity the write worked out from it",
 	bytesCollision:
 		"bytes whose SHA-256 digest no other bytes value of the write shares: two different values of one digest are a SHA-256 collision, refused rather than taken as one",
 	bytesLiteral:

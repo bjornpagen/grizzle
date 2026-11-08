@@ -4,12 +4,16 @@
  * bytearecv, no hex to parse. The driver sends a Uint8Array parameter with format code 1 and every other parameter as
  * text, each by its own format code, so one statement mixes the two (pg-protocol's serializer, `writeValues`).
  */
+import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { messageMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
-import type { Bytes } from "#compiler/scalar/values/bytes.ts"
+import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 
 /** A binary parameter, minted by the encoders of this module alone. */
 const binary = nominal<Uint8Array<ArrayBuffer>, ParamBinary>()
@@ -60,20 +64,34 @@ export const byteaHeaderBytes = (count: number): number =>
 export const byteaElementBytes = (length: number): number => int32Bytes + length
 
 /**
+ * Whether a value's buffer is detached, which admission refuses (scalar/values/bytes.ts checkBytes), so its caller
+ * detached it since.
+ */
+const detached = (value: Uint8Array): boolean => {
+	const buffer: ArrayBufferLike = value.buffer
+	return buffer instanceof ArrayBuffer && buffer.detached
+}
+
+/**
  * One column's bytea[] in the array binary format (src/backend/utils/adt/arrayfuncs.c array_send and array_recv): one
  * dimension of `values.length` elements from 1, no NULL, element type bytea, then each value's length and bytes in
- * order; an empty input is the array of no dimension. Its length is counted before it is built, so an array longer than
- * any message PostgreSQL reads (core/limits.ts messageMaxBytes), which no placeholder could carry, is refused as
- * `column`'s bound of `input` before a byte of it is allocated.
+ * order; an empty input is the array of no dimension. Its length is counted from its values' lengths before it is
+ * built, so an array longer than any message PostgreSQL reads (core/limits.ts messageMaxBytes), which no placeholder
+ * could carry, is refused as `column`'s bound of `input` before a byte of it is allocated. Each value is copied into it
+ * once, from its caller's array (scalar/values/bytes.ts AdmittedBytes), the one copy grizzle makes of it, and the copy
+ * is checked against the value's digest: a value its caller changed since admission, its bytes, its length or its
+ * buffer, detached since, is refused as bytesChanged at `input`, so the bytes sent are the bytes every identity of the
+ * write was worked out from.
  */
 export const byteaArray = (
 	input: string,
 	column: string,
-	values: ReadonlyArray<Bytes>
-): Result.Result<ParamBinary, LiteralBound> => {
+	values: ReadonlyArray<AdmittedBytes>
+): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
+	const lengths = values.map((value) => value.bytes.length)
 	let length = byteaHeaderBytes(values.length)
-	for (const value of values) {
-		length += byteaElementBytes(value.length)
+	for (const n of lengths) {
+		length += byteaElementBytes(n)
 	}
 	if (length > messageMaxBytes.value) {
 		return Result.err({
@@ -98,10 +116,17 @@ export const byteaArray = (
 		field(values.length)
 		field(lowerBound)
 	}
-	for (const value of values) {
-		field(value.length)
-		out.set(value, at)
-		at += value.length
+	for (const [i, value] of values.entries()) {
+		const n = defined(lengths[i], "the length of each value counted")
+		if (value.bytes.length !== n || detached(value.bytes)) {
+			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+		}
+		field(n)
+		out.set(value.bytes, at)
+		if (sha256Hex(out.subarray(at, at + n)) !== value.digest) {
+			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+		}
+		at += n
 	}
 	return Result.ok(binary(out))
 }

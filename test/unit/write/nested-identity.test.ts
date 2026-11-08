@@ -171,7 +171,9 @@ const keyedTexts = (set: NestedSet): ReadonlyArray<string> => {
 const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, length: number) => {
 	const { nesting, member } = nestedInput(program)
 	const set = nestedSet()
-	succeeded(nestedRows(nesting, member, factsOf(facts, length), set, new DigestBook()))
+	succeeded(
+		nestedRows(nesting, member, factsOf(facts, length), set, new DigestBook(), inForce(bindFrame))
+	)
 	return keyedTexts(set)
 }
 

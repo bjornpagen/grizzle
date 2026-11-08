@@ -9,13 +9,17 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import type { CodecFault } from "#compiler/core/errors.ts"
+import type { CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
+import * as Engine from "#compiler/core/result.ts"
+import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import type {
 	EnumeratedInput,
 	MemberSlot,
@@ -261,12 +265,32 @@ const oracleOf = (strata: ReadonlyArray<ReadonlyArray<Member>>): OracleChangeSet
 	return OracleChangeSet.sequence(defined(first, "a first stratum"), ...argumentsOf(rest))
 }
 
+/**
+ * A normalization's result, its failure a codec's: no ChangeSet these cases draw is past the message bound, so a bound
+ * here is the case's own error.
+ */
+const withinBounds = (
+	result: Engine.Result<Normalization, EncodingFailure | LiteralBound | MessageBound>
+): Engine.Result<Normalization, EncodingFailure> => {
+	if (result.ok) {
+		return result
+	}
+	const failure = result.error
+	if (failure._tag !== "EncodingFailure") {
+		throw new Error(`a drawn ChangeSet refused as too large: ${failure._tag}`)
+	}
+	return Engine.err(failure)
+}
+
 /** A ChangeSet compiled over Small and normalized with its members collected as the runtime collects them. */
 const normalizedOf = (changes: ChangeSetValue) =>
 	Effect.gen(function* () {
 		const frontend = compiled(Small, changes)
 		const facts = yield* collectInputs(frontend, parsedOf(changes).inputs)
-		return { frontend, result: normalizeChangeSet(frontend, facts) }
+		return {
+			frontend,
+			result: withinBounds(normalizeChangeSet(frontend, facts, inForce(bindFrame)))
+		}
 	})
 
 const sameOutcome = (a: AddWinsOutcome, b: AddWinsOutcome): void => {

@@ -1,4 +1,9 @@
-import { normalArray, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
+import {
+	memberArray,
+	normalArray,
+	positionalColumns,
+	type RelationSpec
+} from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -223,7 +228,7 @@ const memberSlotOf = (
 	kind: "member",
 	slot: slot.slot,
 	part: partIndex(slot.part),
-	encode: normalArray(placeholderSpec(slot.relation, slot.columns, codes))
+	encode: memberArray(placeholderSpec(slot.relation, slot.columns, codes))
 })
 
 /**

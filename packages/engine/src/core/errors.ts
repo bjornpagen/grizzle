@@ -820,6 +820,7 @@ export const valueFaultWords = [
 	"bytesType",
 	"bytesLength",
 	"bytesCollision",
+	"bytesChanged",
 	"bytesLiteral",
 	"codeHandle",
 	"bitsType",
