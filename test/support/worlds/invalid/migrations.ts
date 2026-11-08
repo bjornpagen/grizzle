@@ -1,6 +1,7 @@
 import { element, filter, map } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Predicate, Record } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
+import { conversionOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { violations } from "#test/support/laws/model.ts"
 import { sameDomain } from "#test/support/worlds/generate/domain.ts"
@@ -80,9 +81,9 @@ const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
 
 /**
  * Whether a law would take an identity a law of the base already holds: grizzle names a containment's foreign key by
- * its source relation and fields, a key's constraint by its relation and fields, and a check by its name, and refuses
- * two laws of one identity when it compiles the installation (IdentifierCollision); any other law is taken by an equal
- * one.
+ * its source relation and fields, a key's constraint by its relation and fields, and a check by its relation and its
+ * declared name's conversion, and refuses two laws of one identity when it compiles the installation
+ * (IdentifierCollision); any other law is taken by an equal one.
  */
 export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 	switch (law.kind) {
@@ -105,7 +106,13 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 				)
 			)
 		case "check":
-			return Arr.some(base.laws, (old) => old.kind === "check" && old.name === law.name)
+			return Arr.some(
+				base.laws,
+				(old) =>
+					old.kind === "check" &&
+					old.relation === law.relation &&
+					conversionOf(old.name) === conversionOf(law.name)
+			)
 		case "spanKey":
 		case "alternatives":
 			return Arr.some(base.laws, (old) => samePlain(old, law))
@@ -113,10 +120,18 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 }
 
 /**
+ * The declared name of a new row check over a relation: its stem and the count of the relation's checks, a name of a
+ * few bytes whatever the relation and its fields are named, so it fits PostgreSQL's identifier limit as a declared name
+ * must; one a check of the relation already takes leaves its law to takenIdentity.
+ */
+const newCheckName = (base: BaseSpec, relation: string, stem: "Below" | "AtMost"): string =>
+	`${stem}${Arr.filter(base.laws, (law) => law.kind === "check" && law.relation === relation).length}`
+
+/**
  * New laws over the base's relations, each of an identity no law of the base holds: a key over one field; a row check
  * holding an integer field below each value a fact holds there, which that fact fails, and at most the largest, which
- * every fact meets; and a containment of one relation's field in another's single-field key. At most one fact of a
- * relation per fact of another is the key over one field (fin.md §6), among the keys.
+ * every fact meets, each named by newCheckName; and a containment of one relation's field in another's single-field
+ * key. At most one fact of a relation per fact of another is the key over one field (fin.md §6), among the keys.
  */
 const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 	const base = state.install.base
@@ -137,7 +152,7 @@ const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 			})
 			const below = Arr.map(held, (v): LawSpec => ({
 				kind: "check",
-				name: `Below${r.name}${f.name}`,
+				name: newCheckName(base, r.name, "Below"),
 				relation: r.name,
 				predicate: { kind: "compare", field: f.name, op: "<", value: v }
 			}))
@@ -148,7 +163,7 @@ const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 						...below,
 						{
 							kind: "check",
-							name: `AtMost${r.name}${f.name}`,
+							name: newCheckName(base, r.name, "AtMost"),
 							relation: r.name,
 							predicate: {
 								kind: "compare",

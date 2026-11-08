@@ -699,6 +699,8 @@ const oneStatementIn = (
  * from which such a refusal still pending is a statement and the COMMIT away, a statement after which the COMMIT
  * reaches one (commitAfter), and the COMMIT, each aimed on every draw at the required features of a refused COMMIT. The
  * refusal comes two moves after the BEGIN that decides whose law it is, past the one-step reach of a suite's own aims.
+ * It names the refused COMMITs it serves, where the other leads aim at every pending feature, because its BEGIN's
+ * look-ahead steps a COMMIT after every statement, too costly to run in every led program of every suite that takes it.
  */
 export const breakingAtCommit =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
@@ -761,7 +763,9 @@ const opensAfter = (
  * A lead for a suite requiring the opens a catalog change refuses: while a required refused open is pending, a catalog
  * change from which one is one open away (opensAfter, aimed on every draw among the box's perturbations), and that open,
  * aimed at the required refused opens the program has not reached yet. A catalog change past the contract leaves a
- * program only opens and drift, so a suite takes this lead last.
+ * program only opens and drift, so a suite takes this lead last. It names the refused opens it serves, where the other
+ * leads aim at every pending feature, because a tamper drawn when no pending feature lies past one would cut a program
+ * short for nothing.
  */
 export const openPastATamper =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
@@ -815,7 +819,9 @@ const readsAfterMigration = (
  * A lead for a suite requiring what a Db shows once a migration moved past its snapshot: while it is pending, a live
  * open of a Db, a migration after which a read through an open Db reaches it (readsAfterMigration, aimed on every draw
  * among the box's migrations), and that read, aimed at it. The read comes two moves after the open whose snapshot it
- * holds, past the one-step reach of a suite's own aims.
+ * holds, past the one-step reach of a suite's own aims. It names the stale-snapshot read it serves, where the other
+ * leads aim at every pending feature, because a migration drawn when no pending feature lies past one would leave
+ * every Db of the program stale for nothing.
  */
 export const callPastAMigration =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
