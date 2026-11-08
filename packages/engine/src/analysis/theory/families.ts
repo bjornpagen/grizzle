@@ -1,4 +1,9 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import {
+	type FamilyStated,
+	familyStatement,
+	ownSpelling
+} from "#compiler/analysis/theory/spelling.ts"
 import { foldRule } from "#compiler/check/fold.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
@@ -72,25 +77,54 @@ export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}
 /** fin(O, n), as a refusal and a display spell a family. */
 export const slotsText = (id: FamilyId): string => `fin(${id.owner}, ${id.count})`
 
-/** A drawn law column of a family at the naming door: ‹n›, a counted family's ‹i›, a tree's ‹ps›. */
+/** A drawn law column of a family at the naming door: ‹n›, a counted family's ‹i›, a tree's ‹ps›, by the family's law. */
 const drawnColumn = (
 	kind: Extract<LawColumnStatement, { readonly owner: string }>["kind"] &
 		("copy" | "index" | "parentStart"),
-	id: FamilyId
-): ColumnIdent => identifierOf(identity.lawColumn({ kind, owner: id.owner, count: id.count }))
+	id: FamilyId,
+	family: Identifier<"law">
+): ColumnIdent =>
+	identifierOf(identity.lawColumn({ kind, owner: id.owner, count: id.count, family }))
 
 /**
  * A fold's hidden accumulator at the naming door: the before or after of plane `plane` of the fold whose law is `fold`,
  * by that law's identity, which is no position among the family's folds, so removing another fold renames none of its
- * columns.
+ * columns, and by its family's law.
  */
 const accumulatorColumn = (
 	kind: "before" | "after",
-	id: FamilyId,
+	f: FamilyShape,
 	fold: Identifier<"law">,
 	plane: 0 | 1
 ): ColumnIdent =>
-	identifierOf(identity.lawColumn({ kind, owner: id.owner, count: id.count, fold, plane }))
+	identifierOf(
+		identity.lawColumn({
+			kind,
+			owner: f.id.owner,
+			count: f.id.count,
+			family: f.law,
+			fold,
+			plane
+		})
+	)
+
+/** What a family's or tree's law states of it (spelling.ts FamilyStated): its member's terms are its group's member
+ * fields, then its index where the index is a field. */
+export const familyStated = (
+	f: Pick<Family, "id" | "member" | "group" | "index" | "members">
+): FamilyStated => ({
+	id: f.id,
+	member: f.member.name,
+	terms: [...f.group.map((p) => p.member), ...(f.index.kind === "field" ? [f.index.field] : [])],
+	kind:
+		f.members.kind === "tree"
+			? { kind: "tree", root: f.members.root }
+			: { kind: "family", order: f.index.kind === "field" ? "ordered" : "counted" }
+})
+
+/** A family's or tree's law's identifier, as the theory names the law (theory.ts lawIdentityOf). */
+const familyLaw = (stated: FamilyStated): Identifier<"law"> =>
+	identifierOf(identity.law(familyStatement(stated, ownSpelling)))
 
 /** The ordinary relation `name`: a family's owner and member are stored relations a ChangeSet writes. */
 const ordinary = (
@@ -197,27 +231,31 @@ export const familyShape = (
 	}
 	const group = groupOf(owner, member, s.member.terms, loc)
 	const last = s.member.terms[width - 1]
-	const index: NativeColumn =
+	const indexField =
 		s.order === "ordered" && last !== undefined
-			? {
-					kind: "field",
-					field: drawnField(
-						member,
-						fieldTerm(member, last, "an ordered family's index", loc),
-						"index",
-						loc
-					)
-				}
-			: { kind: "law", column: drawnColumn("index", id) }
+			? drawnField(member, fieldTerm(member, last, "an ordered family's index", loc), "index", loc)
+			: undefined
+	const members = Object.freeze({ kind: "every" as const })
+	const law = familyLaw({
+		id,
+		member: member.name,
+		terms: [...group.map((p) => p.member), ...(indexField === undefined ? [] : [indexField])],
+		kind: { kind: "family", order: indexField === undefined ? "counted" : "ordered" }
+	})
+	const index: NativeColumn =
+		indexField === undefined
+			? { kind: "law", column: drawnColumn("index", id, law) }
+			: { kind: "field", field: indexField }
 	return Object.freeze({
 		id,
+		law,
 		owner,
 		count,
 		member,
 		group,
 		index,
-		copy: drawnColumn("copy", id),
-		members: Object.freeze({ kind: "every" })
+		copy: drawnColumn("copy", id, law),
+		members
 	})
 }
 
@@ -289,20 +327,22 @@ export const treeShape = (
 	}
 	const group: TreeFamilyShape["group"] = [{ member: parent, owner: key }]
 	const index: NativeColumn = { kind: "field", field: at }
+	const law = familyLaw({ id, member: t.name, terms: [parent, at], kind: { kind: "tree", root } })
 	return Object.freeze({
 		id,
+		law,
 		owner: t,
 		count,
 		member: t,
 		group,
 		index,
-		copy: drawnColumn("copy", id),
+		copy: drawnColumn("copy", id, law),
 		members: Object.freeze({
 			kind: "tree",
 			root,
 			start: interval("start"),
 			end: interval("end"),
-			parentStart: drawnColumn("parentStart", id)
+			parentStart: drawnColumn("parentStart", id, law)
 		})
 	})
 }
@@ -529,6 +569,7 @@ interface PlaneEntry {
 
 /** A fold of a family before its selection is lowered (ir/family.ts FamilyFold). */
 export interface FoldEntry {
+	readonly law: Identifier<"law">
 	readonly monoid: MonoidName
 	/** The step side's conjuncts over the member's row, which the theory lowers into its DAG. */
 	readonly where: ReadonlyArray<ExprDesc>
@@ -717,11 +758,11 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 		return {
 			before:
 				pair === undefined
-					? { kind: "law", column: accumulatorColumn("before", f.id, law, plane) }
+					? { kind: "law", column: accumulatorColumn("before", f, law, plane) }
 					: { kind: "field", field: pair.before },
 			after:
 				pair === undefined
-					? { kind: "law", column: accumulatorColumn("after", f.id, law, plane) }
+					? { kind: "law", column: accumulatorColumn("after", f, law, plane) }
 					: { kind: "field", field: pair.after },
 			end,
 			identity: identityLiteral
@@ -729,6 +770,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	})
 	const step: FamilyFold["step"] = x === undefined ? { kind: "one" } : { kind: "value", field: x }
 	return Object.freeze({
+		law,
 		monoid: s.monoid,
 		where: s.step.selection.conjuncts,
 		step,

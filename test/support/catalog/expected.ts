@@ -566,6 +566,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "begin":
 			case "commit":
 			case "rollback":
+			case "setConstraintsImmediate":
 				break
 		}
 	}

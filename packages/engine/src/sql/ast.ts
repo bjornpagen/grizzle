@@ -1721,10 +1721,13 @@ export interface CreateConstant {
 }
 
 /** Every transaction is SERIALIZABLE. */
+/** Transaction control: BEGIN, COMMIT, ROLLBACK, and SET CONSTRAINTS ALL IMMEDIATE, under which every deferrable
+ * constraint's check runs at the end of each statement, so no trigger event waits for the commit. */
 export type Txn =
 	| { readonly kind: "begin"; readonly readOnly: boolean }
 	| { readonly kind: "commit" }
 	| { readonly kind: "rollback" }
+	| { readonly kind: "setConstraintsImmediate" }
 
 /** REFRESH MATERIALIZED VIEW [CONCURRENTLY]. */
 export interface Refresh {

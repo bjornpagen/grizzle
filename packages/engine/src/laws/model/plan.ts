@@ -118,7 +118,8 @@ export type LawColumnPlan =
 	| {
 			readonly kind: "indexPred"
 			readonly relation: RelationInfo
-			readonly family: FamilyId
+			/** What it is at the naming door: its family's predecessor. */
+			readonly named: DrawnStatement & { readonly kind: "predecessor" }
 			/** The family's count, whose values the index and its predecessor hold. */
 			readonly field: LawField
 			/** The drawn index the predecessor is pred of. */
@@ -1743,7 +1744,7 @@ class FamilyPlanner {
 				: lawColumn({
 						kind: "indexPred",
 						relation: member,
-						family: f.id,
+						named: { kind: "predecessor", owner: f.id.owner, count: f.id.count, family: f.law },
 						field: f.count,
 						index: index.column
 					})
@@ -1897,15 +1898,8 @@ class FamilyPlanner {
 
 	/** A drawn column of the family that is no fold's, at the naming door. */
 	#familyNamed(kind: "copy" | "index" | "parentStart"): DrawnStatement {
-		const id = this.#family.id
-		switch (kind) {
-			case "copy":
-				return { kind: "copy", owner: id.owner, count: id.count }
-			case "index":
-				return { kind: "index", owner: id.owner, count: id.count }
-			case "parentStart":
-				return { kind: "parentStart", owner: id.owner, count: id.count }
-		}
+		const { id, law } = this.#family
+		return { kind, owner: id.owner, count: id.count, family: law }
 	}
 
 	/** A tree's members as a resolved selection: every row whose start is above 0 (φ₀). */
@@ -1942,7 +1936,14 @@ class FamilyPlanner {
 					this.#member,
 					plane.end,
 					{ kind, family: id, fold: at, plane: index },
-					{ kind, owner: id.owner, count: id.count, fold: law, plane: index }
+					{
+						kind,
+						owner: id.owner,
+						count: id.count,
+						family: this.#family.law,
+						fold: law,
+						plane: index
+					}
 				)
 				if (kind === "before") {
 					this.#hidden.set(c.column, { start: plane.identity, type: plane.end.type })
@@ -2242,6 +2243,6 @@ const lawColumnText = (c: LawColumnPlan): string => {
 					: ""
 			}`
 		case "indexPred":
-			return `indexPred ${c.family.owner}.${c.family.count}`
+			return `indexPred ${c.named.owner}.${c.named.count}`
 	}
 }

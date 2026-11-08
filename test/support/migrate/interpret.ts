@@ -3513,6 +3513,8 @@ class Model {
 					this.#update(s)
 				}
 				return
+			case "setConstraintsImmediate":
+				return
 			case "insert":
 			case "delete":
 			case "merge":

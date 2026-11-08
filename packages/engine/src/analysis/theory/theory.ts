@@ -1,7 +1,7 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
-import { slotsText } from "#compiler/analysis/theory/families.ts"
+import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
 import {
 	type ContractUse,
@@ -15,14 +15,23 @@ import {
 	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import {
+	familyStatement,
+	ownSpelling,
+	sideDisplay,
+	sidePart,
+	sideStem,
+	sideTerms,
+	type Spelling,
+	spelledSlots
+} from "#compiler/analysis/theory/spelling.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
 	identity,
-	type LawStatement,
-	type Part
+	type LawStatement
 } from "#compiler/core/identity.ts"
 
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
@@ -30,9 +39,9 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
+import { type FieldDesc, fieldTermsOf } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
-import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import {
@@ -213,32 +222,6 @@ export interface Theory extends CheckedTheory {
 	readonly evidence: TheoryEvidence
 }
 
-/**
- * A side as a law's identity states it: its relation, its terms, a constant by its typed literal's identity, and its
- * conjuncts by their canonical texts.
- */
-const sidePart = (side: ResolvedSourceSide): Part => [
-	side.relation,
-	side.terms.map((t) =>
-		t.kind === "constant" ? [t.kind, identityValueOf(t.literal).part] : [t.kind, t.field]
-	),
-	side.selection.conjuncts.map((c) => c.text)
-]
-
-/** A side as a law's stem spells it: its relation, then the fields each conjunct reads. */
-const sideStem = (side: ResolvedSourceSide): ReadonlyArray<string> => [
-	side.relation,
-	...side.selection.conjuncts.flatMap((c) => c.reads.map((f) => f.name))
-]
-
-/** A side as a law's display spells it: its relation and terms, then each conjunct by its canonical text. */
-const sideDisplay = (side: ResolvedSourceSide): string => {
-	const conjuncts = side.selection.conjuncts
-	return `${side.relation}(${side.terms.map(termText).join(", ")})${
-		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.text).join(" and ")}`
-	}`
-}
-
 /** A contract's law: its name, which one contract has wherever its domain is installed. */
 const contractStatement = (contract: string): LawStatement => ({
 	parts: ["contract", contract],
@@ -247,83 +230,65 @@ const contractStatement = (contract: string): LawStatement => ({
 })
 
 /**
- * What a law is, independent of where its statement sits among the others, as the naming door states it: a key by its
- * relation and fields, a key over a projected side by that side, a check by its relation and name, a contract by its
- * name, a containment by its sides (terms and selections included), a family by its order, its slots and its member's
- * terms, a tree by its slots, its member's terms and its root field, and a fold by its slots, its monoid and its two
- * sides, each led by the law's shape. Adding or removing an unrelated statement never changes it: a fold's position
- * among its family's folds is no part of it.
+ * What a law is, independent of where its statement sits among the others, as the naming door states it under
+ * `spell`: a key by its relation and fields, a key over a projected side by that side, a check by its relation and
+ * name, a contract by its name, a containment by its sides (terms and selections included), a family by its order, its
+ * slots and its member's terms, a tree by its slots, its member's terms and its root field (spelling.ts
+ * familyStatement), and a fold by its slots, its monoid and its two sides, each led by the law's shape. Adding or
+ * removing an unrelated statement never changes it: a fold's position among its family's folds is no part of it.
  */
-const lawStatement = (law: LawIdentity): LawStatement => {
+export const lawStatement = (law: LawIdentity, spell: Spelling): LawStatement => {
 	const d = law.detail
 	switch (d.kind) {
 		case "key": {
-			const fields = fieldNames(d.key.fields)
+			const relation = spell.relation(d.relation)
+			const fields = fieldNames(d.key.fields).map((f) => spell.field(d.relation, f))
 			return {
-				parts: [law.shape, d.relation, fields],
-				stem: [d.relation, law.shape === "pk" ? "pk" : "key", ...fields],
-				display: `${law.shape === "pk" ? "primary key" : "key"} ${d.relation}(${fields.join(", ")})`
+				parts: [law.shape, relation, fields],
+				stem: [relation, law.shape === "pk" ? "pk" : "key", ...fields],
+				display: `${law.shape === "pk" ? "primary key" : "key"} ${relation}(${fields.join(", ")})`
 			}
 		}
-		case "check":
+		case "check": {
+			const relation = spell.relation(d.relation)
 			return {
-				parts: [law.shape, d.relation, d.name],
-				stem: [d.relation, "check", d.name],
-				display: `check ${d.name} of ${d.relation}`
+				parts: [law.shape, relation, d.name],
+				stem: [relation, "check", d.name],
+				display: `check ${d.name} of ${relation}`
 			}
+		}
 		case "contract":
 			return contractStatement(d.contract)
 		case "projectedKey":
 			return {
-				parts: [law.shape, sidePart(d.side)],
-				stem: [...sideStem(d.side), "key", ...d.side.terms.map(termText)],
-				display: `key ${sideDisplay(d.side)}`
+				parts: [law.shape, sidePart(d.side, spell)],
+				stem: [...sideStem(d.side, spell), "key", ...sideTerms(d.side, spell)],
+				display: `key ${sideDisplay(d.side, spell)}`
 			}
 		case "containment":
 			return {
-				parts: [law.shape, sidePart(d.from), sidePart(d.to), "contained"],
-				stem: [...sideStem(d.from), "in", d.to.relation],
-				display: `${sideDisplay(d.from)} ${law.shape === "coverage" ? "covered by" : "in"} ${sideDisplay(d.to)}`
+				parts: [law.shape, sidePart(d.from, spell), sidePart(d.to, spell), "contained"],
+				stem: [...sideStem(d.from, spell), "in", spell.relation(d.to.relation)],
+				display: `${sideDisplay(d.from, spell)} ${law.shape === "coverage" ? "covered by" : "in"} ${sideDisplay(d.to, spell)}`
 			}
 		case "family":
-		case "tree": {
-			const f = d.family
-			const terms = [
-				...f.group.map((p) => p.member.name),
-				...(f.index.kind === "field" ? [f.index.field.name] : [])
-			]
-			const order = f.index.kind === "field" ? "ordered" : "counted"
-			const member = `${f.member.name}(${terms.join(", ")})`
-			return f.members.kind === "tree"
-				? {
-						parts: [law.shape, f.id.owner, f.id.count, terms, f.members.root.name],
-						stem: [f.member.name, "tree", f.id.count],
-						display: `tree ${member} in ${slotsText(f.id)} by ${f.members.root.name}`
-					}
-				: {
-						parts: [law.shape, order, f.id.owner, f.id.count, f.member.name, terms],
-						stem: [f.member.name, order, f.id.owner, f.id.count],
-						display: `${order} ${member} in ${slotsText(f.id)}`
-					}
-		}
-		case "fold":
+		case "tree":
+			return familyStatement(familyStated(d.family), spell)
+		case "fold": {
+			const owner = spell.relation(d.family.owner)
+			const count = spell.field(d.family.owner, d.family.count)
 			return {
-				parts: [
-					law.shape,
-					d.family.owner,
-					d.family.count,
-					d.monoid,
-					sidePart(d.step),
-					sidePart(d.end)
-				],
-				stem: [d.family.owner, d.family.count, d.monoid, "fold"],
-				display: `${d.monoid} fold over ${slotsText(d.family)} of ${sideDisplay(d.step)} into ${sideDisplay(d.end)}`
+				parts: [law.shape, owner, count, d.monoid, sidePart(d.step, spell), sidePart(d.end, spell)],
+				stem: [owner, count, d.monoid, "fold"],
+				display: `${d.monoid} fold over ${spelledSlots(d.family, spell)} of ${sideDisplay(d.step, spell)} into ${sideDisplay(d.end, spell)}`
 			}
+		}
 	}
 }
 
 /** A law's identity at the naming door: its LawId is the identity's identifier. */
-export const lawIdentityOf = (law: LawIdentity): Identity<"law"> => identity.law(lawStatement(law))
+export const lawIdentityOf = (law: LawIdentity): Identity<"law"> =>
+	identity.law(lawStatement(law, ownSpelling))
 
 /** A contract's law at the naming door, a context field's contract's included, which no theory of the base states. */
 export const contractLawIdentity = (contract: string): Identity<"law"> =>

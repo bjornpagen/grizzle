@@ -123,6 +123,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "begin":
 		case "commit":
 		case "rollback":
+		case "setConstraintsImmediate":
 		case "refresh":
 		case "analyze":
 		case "createCarrier":

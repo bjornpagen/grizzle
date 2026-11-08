@@ -2209,6 +2209,7 @@ class StatementAuditor {
 			case "begin":
 			case "commit":
 			case "rollback":
+			case "setConstraintsImmediate":
 				return
 			case "refresh":
 				this.objectName(statement.view, "materialized view", "view")

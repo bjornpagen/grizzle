@@ -118,7 +118,7 @@ interface StatedCheck {
  * lowered, and a family's or a tree's shape before the containments it carries and the folds over it. Every written
  * detail is one of these too, so a law's identity reads either.
  */
-type StatedDetail =
+export type StatedDetail =
 	| Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" }>
 	| StatedCheck
 	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds"> }
@@ -1628,6 +1628,7 @@ export class Normalizer {
 			const folds = entry.folds.map((f): FamilyFold => {
 				const region = b.scan(shape.member, shape.member.fields, [])
 				return Object.freeze({
+					law: f.law,
 					monoid: f.monoid,
 					where: Object.freeze(
 						f.where.map((c) => lowerTotal(b, this.env, c, f.loc, rowLeaf(shape.member, region)))
@@ -1739,7 +1740,7 @@ const fieldEquality = (
 }
 
 /** Whether a row check's predicate reads `field`. */
-const mentions = (e: ExprDesc, field: string): boolean => {
+export const mentions = (e: ExprDesc, field: string): boolean => {
 	switch (e.kind) {
 		case "field":
 			return e.field === field

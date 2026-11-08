@@ -547,7 +547,7 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
  * each once, in the order of their canonical texts. A conjunction is the set of its conjuncts, so two selections of one
  * set of conjuncts are one selection, and one of none reads every fact.
  */
-const canonicalSelection = (selection: SelectionDesc): SelectionDesc => {
+export const canonicalSelection = (selection: SelectionDesc): SelectionDesc => {
 	const byText = new Map(
 		selection.conjuncts
 			.flatMap(conjunctsOf)

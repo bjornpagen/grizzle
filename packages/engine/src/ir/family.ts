@@ -8,7 +8,7 @@
  * predecessor (each member to the one before it) and last (the owner to its last member). A containment of an axis's
  * shape rides it, its pairs joining the axis's, so a family adds one foreign key per axis whatever its laws.
  */
-import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
+import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -18,6 +18,8 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 /** One family: each owner's members indexed by exactly 0 … n − 1. */
 export interface Family {
 	readonly id: FamilyId
+	/** The family's own law, which names its drawn law columns (core/identity.ts LawColumnStatement). */
+	readonly law: Identifier<"law">
 	/** O: an ordinary relation of the schema, as its member is. */
 	readonly owner: RelationInfo
 	/** n: a drawn natural of the owner. */
@@ -60,6 +62,8 @@ export interface AxisPair {
 
 /** A fold over a family: its monoid, the members it steps over, its step, and its planes. */
 export interface FamilyFold {
+	/** The fold's own law, which names its hidden accumulators (core/identity.ts LawColumnStatement). */
+	readonly law: Identifier<"law">
 	readonly monoid: MonoidName
 	/** The step side's selection over the member's row, each a conjunct: none steps over every member. */
 	readonly where: ReadonlyArray<ScalarExpr>

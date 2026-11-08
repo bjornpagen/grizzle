@@ -11,7 +11,9 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
+import { familyStatement, ownSpelling } from "#compiler/analysis/theory/spelling.ts"
 import { identity, identifierOf, parseDeclaredName } from "#compiler/core/identity.ts"
+import type { Identifier } from "#compiler/core/ids.ts"
 import { type Family, orderOf } from "#compiler/ir/family.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -47,8 +49,6 @@ const relationOf = (name: string): RelationInfo =>
 	defined(checked.relations.get(name), `the checked relation ${name}`)
 
 const at = fieldOf("at", 1)
-const lawIndex = identifierOf(identity.lawColumn({ kind: "index", owner: "Owner", count: "count" }))
-const copy = identifierOf(identity.lawColumn({ kind: "copy", owner: "Owner", count: "count" }))
 
 /** One case: the index's arm, the members' kind, and whether the family folds. */
 interface Shape {
@@ -66,10 +66,32 @@ const shapes: Gen<Shape> = (s) => ({
 const familyOf = (shape: Shape): Family => {
 	const owner = relationOf("Owner")
 	const member = relationOf("Member")
+	const id = { owner: "Owner", count: "count" }
+	const root = fieldOf("root", 2)
+	const law = identifierOf(
+		identity.law(
+			familyStatement(
+				{
+					id,
+					member: "Member",
+					terms: shape.index === "field" ? [fieldOf("owner", 0), at] : [fieldOf("owner", 0)],
+					kind:
+						shape.members === "tree"
+							? { kind: "tree", root }
+							: { kind: "family", order: shape.index === "field" ? "ordered" : "counted" }
+				},
+				ownSpelling
+			)
+		)
+	)
+	const drawn = (kind: "index" | "copy"): Identifier<"lawColumn"> =>
+		identifierOf(identity.lawColumn({ kind, owner: "Owner", count: "count", family: law }))
+	const copy = drawn("copy")
 	const index: NativeColumn =
-		shape.index === "field" ? { kind: "field", field: at } : { kind: "law", column: lawIndex }
+		shape.index === "field" ? { kind: "field", field: at } : { kind: "law", column: drawn("index") }
 	return {
-		id: { owner: "Owner", count: "count" },
+		id,
+		law,
 		owner,
 		count: fieldOf("count", 1),
 		member,
@@ -81,7 +103,7 @@ const familyOf = (shape: Shape): Family => {
 				? { kind: "every" }
 				: {
 						kind: "tree",
-						root: fieldOf("root", 2),
+						root,
 						start: fieldOf("start", 3),
 						end: fieldOf("end", 4),
 						parentStart: copy
@@ -90,6 +112,7 @@ const familyOf = (shape: Shape): Family => {
 		folds: shape.folds
 			? [
 					{
+						law,
 						monoid: "count",
 						where: [],
 						step: { kind: "one" },

@@ -161,7 +161,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		])
 		/** The declared renames carried out first, every drop checked declared; then the holders whose names the target
 		 * gives objects of another kind set aside. */
-		const applied = applyDeclarations(previous, state, input.declared, temporaries)
+		const applied = applyDeclarations(previous, state, installation, input.declared, temporaries)
 		const asides = asidesOf(applied.previous, state.manifest.objects, temporaries)
 		const plan = unwrap(
 			diff({

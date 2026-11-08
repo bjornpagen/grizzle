@@ -186,6 +186,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "begin":
 		case "commit":
 		case "rollback":
+		case "setConstraintsImmediate":
 		case "refresh":
 		case "analyze":
 		case "comment":

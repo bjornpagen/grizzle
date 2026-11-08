@@ -144,6 +144,7 @@ export const relationAccess = (statement: SqlStatement): RelationAccess => {
 		case "begin":
 		case "commit":
 		case "rollback":
+		case "setConstraintsImmediate":
 		case "refresh":
 			return none
 	}

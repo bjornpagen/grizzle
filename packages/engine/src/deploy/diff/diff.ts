@@ -228,6 +228,13 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	constant: 16
 }
 
+/** SET CONSTRAINTS ALL IMMEDIATE, before a backfill's UPDATEs: an UPDATE of rows the migration's own transaction wrote
+ * (a table rewritten by a generated column's ADD COLUMN, or updated by an earlier UPDATE) queues the check of every
+ * deferrable foreign key over them until the commit, and PostgreSQL refuses to alter a table with a check pending
+ * (55006), as the backfill's DROP DEFAULT and every constraint added after it do. Under it each check runs at the end of
+ * its UPDATE, over values the backfill leaves as they were. */
+const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
+
 /** A drop drafted with its kind's place in the drop order. */
 interface Drop {
 	readonly rank: number
@@ -651,29 +658,32 @@ class Differ {
 									: keptColumn
 						]
 					})
-					const lawColumns = previousObjects.flatMap(
-						(p): ReadonlyArray<readonly [string, ColumnFate]> => {
-							const w = installed(p)
-							if (w.kind !== "lawColumn" || nameKey(w.table) !== key) {
-								return []
-							}
-							const now = this.next.get(p.ident)
-							return [
-								[
-									w.column,
-									now === undefined
-										? droppedColumn
-										: same(p.ddl, now.ddl)
-											? keptColumn
-											: redefinedColumn
-								]
-							]
+					const lawColumns = previousObjects.flatMap((p) => {
+						const w = installed(p)
+						if (w.kind !== "lawColumn" || nameKey(w.table) !== key) {
+							return []
 						}
-					)
+						const now = this.next.get(p.ident)
+						const fate =
+							now === undefined
+								? droppedColumn
+								: same(p.ddl, now.ddl)
+									? keptColumn
+									: redefinedColumn
+						const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
+						return [{ column: w.column, reads, fate }]
+					})
 					return [
 						[
 							o.ident,
-							{ object: o, order, old, create, fates: new Map([...fields, ...lawColumns]), changes }
+							{
+								object: o,
+								order,
+								old,
+								create,
+								fates: generatedOver(new Map(fields), lawColumns),
+								changes
+							}
 						]
 					]
 				}
@@ -943,14 +953,18 @@ class Differ {
 	 * first, then the keys and CHECKs, the indexes and the statistics objects. PostgreSQL would carry each across the
 	 * conversion under its old definition, or refuse the conversion under it (a foreign key compares only once both its
 	 * sides are converted), so the target's is built again as
-	 * on any relation that may hold rows. Of what a law column dropped and added again takes, it drops the foreign keys:
-	 * the law column's DROP COLUMN drops every constraint and index of its own table over it, but refuses one a foreign
-	 * key of another table depends on (2BP01), an arm's into an alternatives parent's key over its arm tag. */
+	 * on any relation that may hold rows. Of what a column dropped and added again takes, it drops the foreign keys and
+	 * the generated law columns: the column's DROP COLUMN drops every constraint and index of its own table over it, but
+	 * refuses one a foreign key of another table depends on (2BP01), an arm's into an alternatives parent's key over its
+	 * arm tag, and a generated column that reads it. */
 	dropReplaced(): void {
 		const drops = this.previous
 			.flatMap(({ object: o, fate }) => {
 				const v = installed(o)
-				if (fate.kind !== "replaced" || (fate.how === "redefined" && v.kind !== "foreignKey")) {
+				if (
+					fate.kind !== "replaced" ||
+					(fate.how === "redefined" && v.kind !== "foreignKey" && v.kind !== "lawColumn")
+				) {
 					return []
 				}
 				const drop = replacementDrop(v)
@@ -1475,7 +1489,10 @@ class Differ {
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})
-		this.sql("structure.backfill", [...updates, ...dropDefaults])
+		this.sql("structure.backfill", [
+			...(updates.length === 0 ? [] : [checkedAtOnce, ...updates]),
+			...dropDefaults
+		])
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
@@ -2602,13 +2619,16 @@ const writingsOf = (
 
 /** Whether a field is grizzle's to write: drawn from the nested arrays, or accumulated on the host. */
 const isDrawn = (w: SnapshotWriting | undefined): boolean =>
-	w === "drawn" || (typeof w === "object" && "accumulated" in w)
+	typeof w === "object" && ("drawn" in w || "accumulated" in w)
 
 /**
- * The field changes of a table with each field its caller wrote that the target draws or accumulates rewritten
- * (rows-first §6 as amended): its column is added again under its placeholder and backfilled, so the caller's values
- * give way to the drawn ones. A drawn or accumulated field the target leaves to its caller keeps its column and its
- * values, which are lawful, as the caller's data; its family's law columns and natives go with the family.
+ * The field changes of a table with each field the target draws or accumulates otherwise than the previous snapshot
+ * records it rewritten (rows-first §6 as amended): a field its caller wrote, or one drawn or accumulated by another
+ * filler (SnapshotWriting), its family, fold, copy or start changed. Its column is added again under its placeholder
+ * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames reads
+ * as its previous record (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
+ * caller keeps its column and its values, which are lawful, as the caller's data; its family's law columns and natives
+ * go with the family.
  */
 const redrawn = (
 	changes: ReadonlyMap<string, FieldChange>,
@@ -2617,11 +2637,44 @@ const redrawn = (
 ): ReadonlyMap<string, FieldChange> =>
 	new Map(
 		[...changes].map(([column, change]): readonly [string, FieldChange] =>
-			before.get(column) === "caller" && isDrawn(after.get(column))
+			isDrawn(after.get(column)) && !same(before.get(column), after.get(column))
 				? [column, { kind: "rewritten" }]
 				: [column, change]
 		)
 	)
+
+/**
+ * A kept table's column fates with its law columns': each its own (kept, redefined or dropped), but a generated law
+ * column that reads a column the migration replaces (converted in place, or dropped and added again), through any
+ * chain of generated law columns, is redefined: PostgreSQL drops a column only once every generated column that reads
+ * it is gone (2BP01), so the migration drops it before the column it reads, with everything built over it, and adds it
+ * again where the target holds it (dropReplaced).
+ */
+const generatedOver = (
+	fields: ReadonlyMap<string, ColumnFate>,
+	lawColumns: ReadonlyArray<{
+		readonly column: string
+		readonly reads: ReadonlyArray<string>
+		readonly fate: ColumnFate
+	}>
+): ColumnFates => {
+	const fates = new Map<string, ColumnFate>([
+		...fields,
+		...lawColumns.map((c) => [c.column, c.fate] as const)
+	])
+	const replaced = (column: string): boolean => {
+		const fate = fates.get(column)?.kind
+		return fate === "converted" || fate === "redefined"
+	}
+	for (let grew = true; grew;) {
+		const reached = lawColumns.filter((c) => !replaced(c.column) && c.reads.some(replaced))
+		for (const c of reached) {
+			fates.set(c.column, redefinedColumn)
+		}
+		grew = reached.length > 0
+	}
+	return fates
+}
 
 /** A field's change in a table's changes (fieldChangesOf): every field both declarations hold has one. */
 const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): FieldChange => {

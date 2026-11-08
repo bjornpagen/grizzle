@@ -59,6 +59,7 @@ import {
 	type WorkloadAccess
 } from "#compiler/ir/products.ts"
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -128,19 +129,60 @@ const recordedDigest = (domain: string, value: unknown, options: EncodeOptions):
 	return d.value
 }
 
-/** How a field is written, as the snapshot records it: a generated field by the digest of its expression, an
- * accumulated one by the digest of its start value. */
-const writingOf = (w: Writing): SnapshotWriting => {
+/** What fills a drawn or accumulated field, as its record digests it: its role and its laws. */
+const fillerForm = (field: LawField, filler: Filler | undefined, spell: FillSpelling) => {
+	if (filler === undefined) {
+		throw defect(`the theory names what fills the field ${field.name}`)
+	}
+	return { role: filler.role, laws: filler.laws.map(spell.law) }
+}
+
+/** How a field is written, as the snapshot records it (SnapshotWriting): a generated field by the digest of its
+ * expression as ownership declares it (`declared`), a drawn one by the digest of what draws it, an accumulated one by
+ * the digest of its start value, typed as the theory types it, and of what fills it, each spelled by `spell`. */
+const recordedWriting = (
+	field: LawField,
+	declared: Writing,
+	filler: Filler | undefined,
+	spell: FillSpelling
+): SnapshotWriting => {
+	const w = field.writing
 	switch (w.kind) {
 		case "caller":
-		case "drawn":
 		case "serial":
 			return w.kind
 		case "generated":
-			return { generated: recordedDigest("generation", w.expr, withoutSourceLocs) }
+			if (declared.kind !== "generated") {
+				throw defect(`ownership declares the field ${field.name} generated, as its theory does`)
+			}
+			return { generated: recordedDigest("generation", declared.expr, withoutSourceLocs) }
+		case "drawn":
+			return { drawn: recordedDigest("drawn", fillerForm(field, filler, spell), everyProperty) }
 		case "accumulated":
-			return { accumulated: recordedDigest("accumulated-start", w.start, everyProperty) }
+			return {
+				accumulated: recordedDigest(
+					"accumulated",
+					{ start: spell.literal(w.start, field), filler: fillerForm(field, filler, spell) },
+					everyProperty
+				)
+			}
 	}
+}
+
+/** A stored relation's field's writing as `spell` spells what fills it (recordedWriting), its expression read off
+ * its ownership. */
+export const fieldWriting = (
+	installation: Installation,
+	fillers: ReadonlyMap<string, ReadonlyMap<string, Filler>>,
+	relation: string,
+	field: LawField,
+	spell: FillSpelling
+): SnapshotWriting => {
+	const declared = installation.owned.relations[relation]?.fields[field.name]
+	if (declared === undefined) {
+		throw defect(`ownership holds the field ${field.name} of the stored relation ${relation}`)
+	}
+	return recordedWriting(field, declared.writing, fillers.get(relation)?.get(field.name), spell)
 }
 
 /** Every property of a value but its rosters. */
@@ -158,19 +200,14 @@ const recordedType = (type: ScalarType): string =>
 const theoryOf = (installation: Installation): SnapshotTheory => {
 	const owned = installation.owned
 	const theory = installation.laws.theory
-	/** A stored relation's field as the snapshot records it, its writing read off its ownership. */
-	const fieldOf = (relation: string, f: LawField): SnapshotField => {
-		const declared = owned.relations[relation]?.fields[f.name]
-		if (declared === undefined) {
-			throw defect(`ownership holds the field ${f.name} of the stored relation ${relation}`)
-		}
-		return {
-			name: f.name,
-			column: f.column,
-			type: recordedType(f.type),
-			writing: writingOf(declared.writing)
-		}
-	}
+	const fillers = fillersOf(theory)
+	/** A stored relation's field as the snapshot records it. */
+	const fieldOf = (relation: string, f: LawField): SnapshotField => ({
+		name: f.name,
+		column: f.column,
+		type: recordedType(f.type),
+		writing: fieldWriting(installation, fillers, relation, f, ownFill)
+	})
 	/** A stored relation's record, from its handle. */
 	/** The columns each table of the installation is created with: its CREATE TABLE's and its law columns', by name. */
 	const created = new Map<string, number>()
@@ -520,7 +557,9 @@ const writingForm = (w: SnapshotWriting): FormOf<never> =>
 		? w
 		: "generated" in w
 			? { generated: w.generated }
-			: { accumulated: w.accumulated }
+			: "drawn" in w
+				? { drawn: w.drawn }
+				: { accumulated: w.accumulated }
 
 const fieldForm = (f: SnapshotField): SnapshotForm => ({
 	name: f.name,

@@ -625,12 +625,14 @@ const fieldsOf = (relation: string, fields: ReadonlyArray<KeyColumnName>): strin
 /**
  * What a law column is, as the law model states it: a constant a selected target fixes on its source, by the target
  * relation, the field the constant meets and its value; a side's term, a field or pred of one, under the side's
- * selection, its conjuncts by their canonical texts, none for every row; a column the host draws for the family its
- * owner relation and count field name: ‹n›, the owner's count on a member (copy), a counted family's index, a tree's
- * parent start, or a fold's hidden accumulator before or after plane `plane` of the fold whose law is `fold`, so removing
- * another fold renames none of its columns; or a counted family's
- * predecessor, pred of its drawn index, which PostgreSQL generates from the row. Its relation is the table the column
- * is added to, whose namespace holds it.
+ * selection, its conjuncts by their canonical texts, none for every row; a column the host draws for the family whose
+ * law is `family`, its owner relation and count field named for its stem and display: ‹n›, the owner's count on a
+ * member (copy), a counted family's index, a tree's parent start, or a fold's hidden accumulator before or after plane
+ * `plane` of the fold whose law is `fold`, so removing another fold renames none of its columns; or a counted family's
+ * predecessor, pred of its drawn index, which PostgreSQL generates from the row. A drawn column is named by the laws
+ * that say what it holds, so a family or fold that changes what it holds names a new column, which the migration draws
+ * again, and one a declared rename only renames keeps its name under the previous snapshot's spelling. Its relation is
+ * the table the column is added to, whose namespace holds it.
  */
 export type LawColumnStatement =
 	| {
@@ -648,11 +650,15 @@ export type LawColumnStatement =
 			readonly kind: "copy" | "index" | "parentStart" | "predecessor"
 			readonly owner: string
 			readonly count: string
+			/** The family's own law. */
+			readonly family: Identifier<"law">
 	  }
 	| {
 			readonly kind: "before" | "after"
 			readonly owner: string
 			readonly count: string
+			/** The family's own law. */
+			readonly family: Identifier<"law">
 			/** The fold's own law, whose identity is no position among its family's folds. */
 			readonly fold: Identifier<"law">
 			readonly plane: 0 | 1
@@ -793,7 +799,7 @@ export const identity = Object.freeze({
 			case "predecessor":
 				return mint(
 					"lawColumn",
-					[column.kind, column.owner, column.count],
+					[column.kind, column.family],
 					[column.kind === "parentStart" ? "parent_start" : column.kind, column.count],
 					`${drawnWords[column.kind]} of the family ${column.owner}.${column.count}`,
 					hashed
@@ -802,7 +808,7 @@ export const identity = Object.freeze({
 			case "after":
 				return mint(
 					"lawColumn",
-					[column.kind, column.owner, column.count, column.fold, `${column.plane}`],
+					[column.kind, column.family, column.fold, `${column.plane}`],
 					[column.kind, column.count, `${column.plane}`],
 					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
 					hashed

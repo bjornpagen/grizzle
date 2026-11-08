@@ -2402,7 +2402,10 @@ deploy.
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
   roster's handle (`Status#done`) or a login (`@web`); swaps and chains work. A renamed relation keeps its rows, a
   field its values, a handle its code, and a login its PostgreSQL role (`ALTER ROLE ... RENAME TO`), with its password
-  and grants. A name the schema dropped that no declaration names is refused, naming it: a stored relation, a field
+  and grants. A family's hidden columns (its copy of the count, a counted index, a tree's parent start, a fold's hidden
+  accumulators, each `pred` term) are named by the laws they hold the values of, so renaming the owner, the member or
+  the count renames them too, in place (`ALTER TABLE ... RENAME COLUMN`): a renamed family keeps every drawn value,
+  with no backfill and no table rewrite. A name the schema dropped that no declaration names is refused, naming it: a stored relation, a field
   its caller writes, a handle, or a login, whose password and outside grants no migration can give back.
 - **A schema renamed in code is a new PostgreSQL schema.** Its first migration, drafted while the migrations directory
   holds schemas the config doesn't list, carries its creating statement commented out under
@@ -2429,11 +2432,15 @@ deploy.
   owners' counts, never its slot roster's size: a changed count replaces its counts' and rows' constants and its
   owners' bases where they move, and a grown or renamed slot roster replaces none.
 - **A family added to stored rows is backfilled** by SQL over those rows, in the migration that adds it: each member's
-  index in its member key's order, each count, each fold's running values in index order, and a tree's intervals. Its
-  constraints are added after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the
-  migration. A family the stored rows alone don't determine (a fold over a tree, a copy along an axis) is refused,
-  naming it. The backfill's window functions and its one recursive step over a tree are migration SQL you review;
-  queries at run time use neither.
+  index in its member key's order, each count, each fold's running values in index order, and a tree's intervals. So
+  is every value whose filler changes: a fold that steps over another field, a copy that reads another field, a family
+  whose group or order changes. The snapshot records what fills each drawn or accumulated field, its family's, fold's
+  or copy's law, so a changed filler draws the field again, and one only renamed keeps it. The constraints are added
+  after the backfill, `NOT VALID`, and validated, so a value drawn wrongly refuses the migration. A family the stored
+  rows alone don't determine is refused, naming it: copies that read each other, a fold over a copy, or a tree whose
+  drawn columns are partly stored, a fold added to or changed on a tree that holds rows among them. The backfill's
+  window functions and its one recursive step over a tree are migration SQL you review; queries at run time use
+  neither.
 - **Data steps** go in a custom migration, `generate --custom`: a folder holding only `meta.json`, from the committed
   snapshot to itself.
   Add `01-<words>.sql`, `02-<words>.sql` and so on, each one transaction unless its first line is

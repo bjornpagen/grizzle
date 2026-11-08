@@ -1301,6 +1301,7 @@ class Transform {
 			case "begin":
 			case "commit":
 			case "rollback":
+			case "setConstraintsImmediate":
 				return s
 			case "refresh": {
 				const view = this.name(s.view, "relation")

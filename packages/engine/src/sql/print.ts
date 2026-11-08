@@ -1667,6 +1667,8 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return out.line("COMMIT")
 		case "rollback":
 			return out.line("ROLLBACK")
+		case "setConstraintsImmediate":
+			return out.line("SET CONSTRAINTS ALL IMMEDIATE")
 		case "refresh":
 			return out.line(
 				`REFRESH MATERIALIZED VIEW ${statement.concurrently ? "CONCURRENTLY " : ""}${printObjectName(statement.view)}`

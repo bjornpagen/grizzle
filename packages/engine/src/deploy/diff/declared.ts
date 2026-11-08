@@ -20,6 +20,7 @@ import {
 	setAside
 } from "#compiler/deploy/diff/aside.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
+import { fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
 	installed,
 	type ManifestObject,
@@ -34,7 +35,14 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { fillersOf } from "#compiler/laws/model/fillers.ts"
+import {
+	type PreviousNames,
+	PreviousSpelling,
+	restatedLawColumn
+} from "#compiler/laws/model/restate.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { innerIdent, namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
 import type {
 	AlterTableAction,
 	ColumnDef,
@@ -167,11 +175,16 @@ const loginIn = (
  * previous snapshot names it under its new name there too (withColumns); the diff then builds again only what the
  * target declares otherwise, and a key it replaces over the renamed columns is one it sees standing over them. A renamed handle
  * keeps its code: the codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it.
+ * A law column, named by what it holds, its relations, fields, handles and laws among them, is renamed in place when a
+ * declaration only renames what it holds (lawColumnRenames), and a drawn or accumulated field's record of what fills
+ * it reads as the target's when a declaration only renames its filler (restatedWritings): both are restated under the
+ * previous snapshot's names (previousNames), so the migration keeps their values and draws nothing again.
  * A renamed login's role is renamed in place the same way, through its aside name (loginRenamed).
  */
 export const applyDeclarations = (
 	previous: DeploySnapshot,
 	target: SnapshotContent,
+	installation: Installation,
 	declarations: Declarations,
 	temporaries: TemporaryCensus
 ): Applied => {
@@ -247,6 +260,10 @@ export const applyDeclarations = (
 	) =>
 		fields.get(relation)?.has(field.name) !== true &&
 		takenColumns.get(relation)?.has(field.column) === true
+	/** The handle renames, by the target's roster, each target handle to its previous name. */
+	const handles = new Map<string, Map<string, string>>()
+	/** The handles the renames take away from each previous roster. */
+	const handlesAway = new Map<string, Set<string>>()
 	for (const r of declarations.renames) {
 		const from = r.from
 		const to = r.to
@@ -267,6 +284,12 @@ export const applyDeclarations = (
 				`a rename of ${spelled(from)} to ${spelled(to)}, a handle the previous snapshot's roster holds renamed to one the target's holds`
 			)
 		}
+		const into = handles.get(to.roster) ?? new Map<string, string>()
+		into.set(to.handle, from.handle)
+		handles.set(to.roster, into)
+		const away = handlesAway.get(from.roster) ?? new Set<string>()
+		away.add(from.handle)
+		handlesAway.set(from.roster, away)
 	}
 	/** The login renames, by the previous login's record name, to the target's login. */
 	const logins = new Map<string, HeldLogin>()
@@ -412,10 +435,248 @@ export const applyDeclarations = (
 		}
 	}
 	const relations = renamedSnapshot(previous, target, renamed, fields, temporaries)
-	const roles = loginRenamed(relations.previous, target, logins, temporaries)
+	const names = previousNames(before, after, renamed, fields, handles, handlesAway)
+	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
+	const writings = restatedWritings(columns.previous, target, installation, names)
+	const roles = loginRenamed(writings, target, logins, temporaries)
 	return {
-		statements: [...relations.statements, ...roles.statements],
+		statements: [...relations.statements, ...columns.statements, ...roles.statements],
 		previous: roles.previous
+	}
+}
+
+/**
+ * How the previous snapshot names each relation, field and handle of the target under the checked declarations
+ * (laws/model/restate.ts PreviousNames): a relation or roster renamed by its old name; else by its own name, or
+ * the alike spelling the previous snapshot holds it under, unless a rename took that name away; and a relation the
+ * snapshots record no record of, a closed relation, which no declaration renames, by its own. A field the same way on
+ * its relation's previous record; and a handle by its declared rename's old name, or its own where the previous roster
+ * holds it live and no rename took it away. Anything else is new to the migration.
+ */
+const previousNames = (
+	before: Readonly<Record<string, SnapshotRelation>>,
+	after: Readonly<Record<string, SnapshotRelation>>,
+	renamed: ReadonlyMap<string, string>,
+	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	handles: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	handlesAway: ReadonlyMap<string, ReadonlySet<string>>
+): PreviousNames => {
+	const renamedFrom = new Map([...renamed].map(([from, to]) => [to, from] as const))
+	const held = Object.keys(before)
+	/** The first of `own` and the names alike it among `among` that `holds`. */
+	const spelling = (
+		own: string,
+		among: ReadonlyArray<string>,
+		holds: (name: string) => boolean
+	): string | undefined => [own, ...among.filter((n) => n !== own && alike(n, own))].find(holds)
+	const relation = (t: string): string | undefined =>
+		renamedFrom.get(t) ??
+		(after[t] === undefined
+			? t
+			: spelling(t, held, (p) => before[p] !== undefined && !renamed.has(p)))
+	const field = (t: string, f: string): string | undefined => {
+		const p = relation(t)
+		const was = p === undefined ? undefined : before[p]
+		if (p === undefined || was === undefined) {
+			return after[t] === undefined ? f : undefined
+		}
+		if (was.kind !== "relation") {
+			return f
+		}
+		const renames = fields.get(p)
+		const from = [...(renames ?? [])].find(([, to]) => to === f)
+		if (from !== undefined) {
+			return from[0]
+		}
+		const names = was.fields.map((x) => x.name)
+		return spelling(f, names, (x) => names.includes(x) && renames?.has(x) !== true)
+	}
+	const handle = (roster: string, h: string): string | undefined => {
+		const from = handles.get(roster)?.get(h)
+		if (from !== undefined) {
+			return from
+		}
+		const p = relation(roster)
+		const was = p === undefined ? undefined : before[p]
+		return p !== undefined &&
+			was?.kind === "closed" &&
+			was.codes.some((c) => c.kind === "live" && c.handle === h) &&
+			handlesAway.get(p)?.has(h) !== true
+			? h
+			: undefined
+	}
+	return { relation, field, handle, handleRenames: new Set(handles.keys()) }
+}
+
+/** Whether a field is grizzle's to write, drawn or accumulated, by its filler (snapshot/types.ts SnapshotWriting). */
+const drawnBy = (w: SnapshotWriting): boolean =>
+	typeof w === "object" && ("drawn" in w || "accumulated" in w)
+
+/**
+ * The previous snapshot with each drawn or accumulated field whose filler a declaration only renames recorded as the
+ * target records it. A field's record digests what fills it (snapshot/types.ts SnapshotWriting), its laws among them,
+ * and a renamed relation, field or handle renames them, so the target's record of a field whose filler is the
+ * previous one's is another digest. Its filler restated under the previous snapshot's names (snapshot/build.ts
+ * fieldWriting under laws/model/restate.ts PreviousSpelling) is exactly the previous record then, and the field
+ * keeps its column and its values; any other record stands, and the diff draws the field again (diff.ts redrawn). A
+ * field is matched by its table and its column, as the diff reads the records.
+ */
+const restatedWritings = (
+	previous: DeploySnapshot,
+	target: SnapshotContent,
+	installation: Installation,
+	names: PreviousNames
+): DeploySnapshot => {
+	const fillers = fillersOf(installation.laws.theory)
+	const targets = new Map(
+		Object.entries(target.theory.relations).flatMap(([name, r]) =>
+			r.kind === "relation" ? [[r.ident, { name, r }] as const] : []
+		)
+	)
+	const relations = Object.fromEntries(
+		Object.entries(previous.theory.relations).map(
+			([name, r]): readonly [string, SnapshotRelation] => {
+				const now = r.kind === "relation" ? targets.get(r.ident) : undefined
+				const theory = now === undefined ? undefined : installation.laws.theory.relations[now.name]
+				if (r.kind !== "relation" || now === undefined || theory === undefined) {
+					return [name, r]
+				}
+				const fields = r.fields.map((f) => {
+					const into = now.r.fields.find((x) => x.column === f.column)
+					const field =
+						into === undefined ? undefined : theory.fields.find((x) => x.name === into.name)
+					if (into === undefined || field === undefined || !drawnBy(into.writing)) {
+						return f
+					}
+					const spell = new PreviousSpelling(names)
+					const restated = fieldWriting(installation, fillers, now.name, field, spell)
+					return spell.complete && same(restated, f.writing) ? { ...f, writing: into.writing } : f
+				})
+				return [name, { ...r, fields }]
+			}
+		)
+	)
+	return { ...previous, theory: { ...previous.theory, relations } }
+}
+
+/** A law column of a target table, and its previous name (restatedLawColumn), none where it is new. */
+interface TargetLawColumn {
+	readonly column: string
+	readonly was: string | undefined
+}
+
+/**
+ * The law columns the previous snapshot holds carried to the target's under the declarations, and the previous snapshot
+ * as it stands after.
+ *
+ * A law column is named by what it holds (core/identity.ts LawColumnStatement), its relations, fields, handles and
+ * laws among them, so a declaration that renames any of them renames the column. The target's column whose statement,
+ * restated under the previous snapshot's names (laws/model/restate.ts restatedLawColumn), names a column the previous
+ * snapshot holds on its table holds exactly that column's values: the migration renames that column to the target's
+ * name, with ALTER TABLE ... RENAME COLUMN, so it neither drops nor draws it again and rewrites no row. A previous
+ * column that holds a target column's name but is not that column under the declarations (its name is reused for
+ * something else) is first renamed aside, and the diff drops it there. Every column goes through its aside name
+ * (identity.aside), so a swap or a chain of renames meets no name another holds. The previous snapshot then names each
+ * column as the database holds it once the renames ran, in its object's identity and statements, wherever a definition
+ * names it (withColumns), and in every edge.
+ */
+const lawColumnRenames = (
+	previous: DeploySnapshot,
+	installation: Installation,
+	names: PreviousNames,
+	temporaries: TemporaryCensus
+): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+	const schema = previous.schema
+	const laws = new Map(installation.laws.theory.laws.map((l) => [l.id, l] as const))
+	const held = new Map<string, Set<string>>()
+	for (const o of previous.manifest.objects) {
+		const v = installed(o)
+		if (v.kind === "lawColumn") {
+			const key = nameKey(v.table)
+			held.set(key, (held.get(key) ?? new Set<string>()).add(v.column))
+		}
+	}
+	const targets = new Map<
+		string,
+		{ readonly table: ObjectName; readonly columns: Array<TargetLawColumn> }
+	>()
+	for (const n of installation.laws.natives) {
+		if (n.namespace !== "column") {
+			continue
+		}
+		const table: ObjectName = { schema, name: n.owner }
+		const key = nameKey(table)
+		const of = targets.get(key) ?? { table, columns: [] }
+		of.columns.push({
+			column: n.object.column,
+			was: restatedLawColumn(n.plan, laws, names)
+		})
+		targets.set(key, of)
+	}
+	const statements: Array<SqlStatement> = []
+	const tableColumns = new Map<string, ReadonlyMap<string, string>>()
+	for (const [key, { table, columns }] of targets) {
+		const holds = held.get(key) ?? new Set<string>()
+		const moves = columns.flatMap((c) =>
+			c.was !== undefined && c.was !== c.column && holds.has(c.was)
+				? [{ from: c.was, to: c.column, aside: asideName(temporaries, c.was) }]
+				: []
+		)
+		const standing = new Set([
+			...columns.flatMap((c) => (c.was === c.column ? [c.column] : [])),
+			...moves.map((m) => m.from)
+		])
+		const taken = new Set(columns.map((c) => c.column))
+		const holders = [...holds].flatMap((h) =>
+			taken.has(h) && !standing.has(h) ? [{ column: h, aside: asideName(temporaries, h) }] : []
+		)
+		if (moves.length === 0 && holders.length === 0) {
+			continue
+		}
+		for (const h of holders) {
+			statements.push({ kind: "renameColumn", table, from: h.column, to: h.aside })
+		}
+		for (const m of moves) {
+			statements.push({ kind: "renameColumn", table, from: m.from, to: m.aside })
+		}
+		for (const m of moves) {
+			statements.push({ kind: "renameColumn", table, from: m.aside, to: m.to })
+		}
+		tableColumns.set(
+			key,
+			new Map([
+				...moves.map((m) => [m.from, m.to] as const),
+				...holders.map((h) => [h.column, h.aside] as const)
+			])
+		)
+	}
+	if (tableColumns.size === 0) {
+		return { statements, previous }
+	}
+	const renamedOn = (table: ObjectName): ReadonlyMap<string, string> | undefined =>
+		tableColumns.get(nameKey(table))
+	const ident = (id: string): string => {
+		const parsed = parseIdent(id)
+		if (parsed.kind !== "column" || parsed.schema !== schema) {
+			return id
+		}
+		const to = tableColumns.get(nameKey({ schema, name: parsed.relation }))?.get(parsed.name)
+		return to === undefined ? id : innerIdent("column", schema, parsed.relation, to)
+	}
+	return {
+		statements,
+		previous: {
+			...previous,
+			manifest: {
+				...previous.manifest,
+				objects: previous.manifest.objects.map((o): ManifestObject => ({
+					...o,
+					ident: ident(o.ident),
+					ddl: o.ddl.map((statement) => withColumns(statement, renamedOn))
+				})),
+				edges: previous.manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) }))
+			}
+		}
 	}
 }
 
@@ -894,6 +1155,7 @@ const withColumns = (
 		case "begin":
 		case "commit":
 		case "rollback":
+		case "setConstraintsImmediate":
 		case "refresh":
 		case "analyze":
 			return s
@@ -969,6 +1231,7 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "begin":
 		case "commit":
 		case "rollback":
+		case "setConstraintsImmediate":
 		case "refresh":
 		case "analyze":
 			return s

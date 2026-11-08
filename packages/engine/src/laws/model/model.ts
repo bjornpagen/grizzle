@@ -106,6 +106,12 @@ export type ConstraintNativeKind =
 	| "ForeignKey"
 	| "PeriodForeignKey"
 
+/** A law column as the law model plans it, and the identity it is minted with. */
+interface PlannedLawColumn {
+	readonly named: Identity<"lawColumn">
+	readonly plan: LawColumnPlan
+}
+
 /** A native object with the identity its installed name was minted from, its namespace, and its owner: the table
  * identifier. Each namespace holds exactly its kinds of object: a table constraint, a law column, a contract's domain,
  * which the installation names by its definition, or an object the law model names nothing for. A table constraint
@@ -122,6 +128,9 @@ export type NamedNative =
 			readonly object: NativeOf<"LawColumn">
 			readonly namespace: "column"
 			readonly named: Identity<"lawColumn">
+			/** What the column is, as the law model planned it, which its identity is minted from (lawColumnIdentity) and a
+			 * draft restates under the previous snapshot's names (restate.ts). */
+			readonly plan: LawColumnPlan
 			readonly owner: RelationIdent
 	  }
 	| { readonly object: DomainNative; readonly namespace: "domain" }
@@ -795,7 +804,7 @@ class Specializer {
 	readonly #typing: ReturnType<typeof typingEnv>
 	readonly #minted: Array<Identity<IdentityKind>> = []
 	/** Each law column's identity, which names its native once it is merged, by its relation and identifier. */
-	readonly #lawColumns = new Map<string, Map<ColumnIdent, Identity<"lawColumn">>>()
+	readonly #lawColumns = new Map<string, Map<ColumnIdent, PlannedLawColumn>>()
 	/** Every law by its id, a primary key's included: what a constraint's every law is described by. */
 	readonly #laws: ReadonlyMap<LawId, TheoryLaw>
 
@@ -814,24 +823,28 @@ class Specializer {
 	/** The identifier of a law column, its identity kept to name its native. */
 	#lawColumn(plan: LawColumnPlan): ColumnIdent {
 		const named = lawColumnIdentity(plan)
-		const own =
-			this.#lawColumns.get(plan.relation.name) ?? new Map<ColumnIdent, Identity<"lawColumn">>()
+		const own = this.#lawColumns.get(plan.relation.name) ?? new Map<ColumnIdent, PlannedLawColumn>()
 		const column = identifierOf(named)
 		if (!own.has(column)) {
 			this.#named(named)
-			own.set(column, named)
+			own.set(column, { named, plan })
 			this.#lawColumns.set(plan.relation.name, own)
 		}
 		return column
 	}
 
-	/** The identity of the law column `column` of `relation`, which every law column the model names was minted with. */
-	#lawColumnNamed(relation: LawRelation, column: ColumnIdent): Identity<"lawColumn"> {
-		const named = this.#lawColumns.get(relation.name)?.get(column)
-		if (named === undefined) {
+	/** The law column `column` of `relation`, with the identity every law column the model names was minted with. */
+	#planned(relation: LawRelation, column: ColumnIdent): PlannedLawColumn {
+		const planned = this.#lawColumns.get(relation.name)?.get(column)
+		if (planned === undefined) {
 			throw defect(`the law column ${column} of ${relation.name}, minted as it is planned`)
 		}
-		return named
+		return planned
+	}
+
+	/** The identity of the law column `column` of `relation`. */
+	#lawColumnNamed(relation: LawRelation, column: ColumnIdent): Identity<"lawColumn"> {
+		return this.#planned(relation, column).named
 	}
 
 	/** A planned column as its native reads it: a field, or a law column by its identifier. */
@@ -1460,13 +1473,10 @@ class Specializer {
 					),
 					true
 				)
-			case "LawColumn":
-				return {
-					object,
-					named: this.#lawColumnNamed(object.relation, object.column),
-					namespace: "column",
-					owner: object.relation.ident
-				}
+			case "LawColumn": {
+				const { named, plan } = this.#planned(object.relation, object.column)
+				return { object, named, plan, namespace: "column", owner: object.relation.ident }
+			}
 			case "Domain":
 				return { object, namespace: "domain" }
 			case "RosterDomain":
@@ -1515,11 +1525,7 @@ const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
 		case "drawn":
 			return identity.lawColumn(plan.named)
 		case "indexPred":
-			return identity.lawColumn({
-				kind: "predecessor",
-				owner: plan.family.owner,
-				count: plan.family.count
-			})
+			return identity.lawColumn(plan.named)
 	}
 }
 
