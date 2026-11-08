@@ -1,10 +1,11 @@
 /**
  * A query-sourced write into a relation with generated fields, against PostgreSQL 19.
  *
- * Items holds two relations of one heading, Item and Spot, the second mutable: each a key `id`, three written fields
- * (`v`, a tier and a numeral `k`, also a candidate key) and three generated fields of three kinds: `copy`, the written
- * `v` itself; `rate`, a closed read of the tier's rate, which Rate holds for low and mid and not for high, so a high
- * row's `rate` has no value; and `parsed`, the numeral cast into a bigint. Each case stores up to three lawful rows,
+ * Items holds two relations of one heading, Item and Spot, the second mutable: each a key `id`, four written fields
+ * (`v`, a tier, a numeral `k`, also a candidate key, and a day's text, one per numeral) and four generated fields of three kinds: `copy`,
+ * the written `v` itself; `rate`, a closed read of the tier's rate, which Rate holds for low and mid and not for high, so
+ * a high row's `rate` has no value; `parsed`, the numeral cast into a bigint; and `when`, the day's text parsed into a
+ * date, which a generated column holds only as an IMMUTABLE expression. Each case stores up to three lawful rows,
  * then inserts or puts one to three rows, each fresh or a repeat of a stored one, from a query over a relation
  * parameter, a source the write cannot prove unique on the key, into one of the two relations. The write's statements
  * request the rows' written fields alone, and a requested fact's generated values are its generation expressions over
@@ -27,7 +28,7 @@ import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -56,18 +57,22 @@ const Rate = closed.relation(
 	]
 )
 const NumeralText = str.regex("^[0-9]{1,6}$", "u")
+/** Days of 2024 whose text is a date's in every month: the 10th to the 19th of January to September. */
+const DayText = str.regex("^2024-0[1-9]-1[0-9]$", "u")
 
-const written = { id: pg.integer, v: pg.bigint, tier: closedId(Tier), k: NumeralText }
+const written = { id: pg.integer, v: pg.bigint, tier: closedId(Tier), k: NumeralText, day: DayText }
 
 const Item = relation.generated("Item", written, ["id"], (r) => ({
 	copy: generated(pg.bigint, r.v),
 	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint))
+	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
+	when: generated(date, Compute.cast(r.day, date))
 }))
 const Spot = relation.generated("Spot", written, ["id"], (r) => ({
 	copy: generated(pg.bigint, r.v),
 	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint))
+	parsed: generated(pg.bigint, Compute.cast(r.k, pg.bigint)),
+	when: generated(date, Compute.cast(r.day, date))
 }))
 const itemNumeral = key(on(Item, "k"))
 const spotNumeral = key(on(Spot, "k"))
@@ -84,6 +89,16 @@ interface Row {
 /** The numerals a row draws, so rows often share one. */
 const numerals = ["0", "1", "2"] as const
 type Numeral = (typeof numerals)[number]
+
+/** Each numeral's day: a row's day text is its numeral's, so the day adds no dimension to the space. */
+const dayOf = {
+	"0": "2024-01-10",
+	"1": "2024-02-11",
+	"2": "2024-09-19"
+} as const satisfies Readonly<Record<Numeral, string>>
+
+/** A row as its relation stores its written fields, its day its numeral's. */
+const writtenOf = (row: Row) => ({ ...row, day: dayOf[row.k] })
 
 type Target = "Item" | "Spot"
 
@@ -132,9 +147,11 @@ const factOf = (row: Row): Readonly<Record<string, unknown>> =>
 		v: row.v,
 		tier: row.tier,
 		k: row.k,
+		day: dayOf[row.k],
 		copy: row.v,
 		rate: rates[row.tier],
-		parsed: BigInt(row.k)
+		parsed: BigInt(row.k),
+		when: dayOf[row.k]
 	})
 
 const sameRow = (a: Row, b: Row): boolean =>
@@ -206,16 +223,16 @@ layer(Substrate.layer)(
 							 * the rows its relation parameter binds, delivered as they are. */
 							const rowsOf = {
 								Item: query(o.schema).rule((r) => {
-									const { id, v: value, tier, k, copy, rate, parsed } = v(Item, "item")
+									const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Item, "item")
 									return r
-										.match(Item, { id, v: value, tier, k, copy, rate, parsed })
-										.find({ id, v: value, tier, k, copy, rate, parsed })
+										.match(Item, { id, v: value, tier, k, day, copy, rate, parsed, when })
+										.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
 								}),
 								Spot: query(o.schema).rule((r) => {
-									const { id, v: value, tier, k, copy, rate, parsed } = v(Spot, "spot")
+									const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Spot, "spot")
 									return r
-										.match(Spot, { id, v: value, tier, k, copy, rate, parsed })
-										.find({ id, v: value, tier, k, copy, rate, parsed })
+										.match(Spot, { id, v: value, tier, k, day, copy, rate, parsed, when })
+										.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
 								})
 							}
 							const sourceQuery = query(o.schema).rule((r) => {
@@ -231,8 +248,8 @@ layer(Substrate.layer)(
 							/** The ChangeSet inserting `rows` into `target`, or the write of the case from its query. */
 							const seed = (target: Target, rows: ReadonlyArray<Row>) =>
 								target === "Item"
-									? ChangeSet.empty(o.schema).insert(Item, rows)
-									: ChangeSet.empty(o.schema).insert(Spot, rows)
+									? ChangeSet.empty(o.schema).insert(Item, Arr.map(rows, writtenOf))
+									: ChangeSet.empty(o.schema).insert(Spot, Arr.map(rows, writtenOf))
 							const write = (target: Target, op: Case["op"]) =>
 								target === "Item"
 									? op === "insert"
@@ -293,7 +310,7 @@ layer(Substrate.layer)(
 											k.target
 										)
 										const applied = yield* Effect.result(
-											db.apply(write(k.target, k.op), { rows: k.source })
+											db.apply(write(k.target, k.op), { rows: Arr.map(k.source, writtenOf) })
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
