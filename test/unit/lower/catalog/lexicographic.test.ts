@@ -1,16 +1,17 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { builtExpr, type ScalarExpr } from "#compiler/ir/expr.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lexicographicOrder } from "#compiler/lower/shapes/catalog/lexicographic.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -20,18 +21,43 @@ import { caseHang } from "#test/support/limits.ts"
  * over at most six pairs, any Boolean arrangement of native comparisons between paired fields, the lexicographic
  * spellings and their perturbations among them, the recognizer finds exactly the order, directions and inclusiveness
  * the enumeration finds, or, with it, none. Past six pairs, where the enumeration refused, the nested spelling of any
- * order is still recognized as itself. And a predicate nested a hundred thousand connectives deep, which a recursion
- * would overflow the call stack on, is recognized or refused exactly as the shallow predicate it is equivalent to.
+ * order is still recognized as itself. A predicate any of whose parts is a native test of a pair that compares no order,
+ * a prefix test of its text fields, is no lexicographic order, whatever the rest of it is. And a predicate nested a
+ * hundred thousand connectives deep, which a recursion would overflow the call stack on, is recognized or refused
+ * exactly as the shallow predicate it is equivalent to.
  */
 
 type Cmp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
 const cmps: readonly [Cmp, ...ReadonlyArray<Cmp>] = ["eq", "ne", "lt", "le", "gt", "ge"]
 
-/** A predicate over pairs: b_pair <cmp> a_pair (or its operands swapped), and the connectives over such atoms. */
-type Tree =
-	| { readonly kind: "atom"; readonly pair: number; readonly cmp: Cmp; readonly swapped: boolean }
-	| { readonly kind: "and" | "or"; readonly args: Arr.NonEmptyReadonlyArray<Tree> }
-	| { readonly kind: "not"; readonly arg: Tree }
+/** A comparison of one pair: b_pair <cmp> a_pair, or its operands swapped. */
+interface Atom {
+	readonly kind: "atom"
+	readonly pair: number
+	readonly cmp: Cmp
+	readonly swapped: boolean
+}
+
+/** A native test of one pair that compares no order: starts_with(b_pair, a_pair), or its operands swapped. */
+interface Prefix {
+	readonly kind: "prefix"
+	readonly pair: number
+	readonly swapped: boolean
+}
+
+/** A predicate over pairs: its leaves, comparisons unless stated, and the connectives over them. */
+type Tree<L extends Atom | Prefix = Atom> =
+	| L
+	| { readonly kind: "and" | "or"; readonly args: Arr.NonEmptyReadonlyArray<Tree<L>> }
+	| { readonly kind: "not"; readonly arg: Tree<L> }
+
+/**
+ * A case: a predicate of comparisons, which the enumeration decides, or one with a prefix test among its parts, which
+ * is no lexicographic order; the fields of the first are int4, of the second text.
+ */
+type Case =
+	| { readonly kind: "comparisons"; readonly tree: Tree }
+	| { readonly kind: "prefixed"; readonly tree: Tree<Atom | Prefix> }
 
 const flip: Readonly<Record<Cmp, Cmp>> = {
 	eq: "eq",
@@ -148,15 +174,48 @@ const enumerated = (t: Tree): Order | undefined => {
 	}
 }
 
-const int4 = plainType("int4")
+type FieldType = "int4" | "text"
+const fieldTypes: Readonly<Record<FieldType, ScalarType>> = {
+	int4: plainType("int4"),
+	text: wildcardText
+}
 const bool = plainType("bool")
 const region = NodeId("region")
 
-const column = (name: string, at: string): ScalarExpr =>
+const column = (name: string, at: string, type: FieldType): ScalarExpr =>
 	builtExpr(
-		{ kind: "column", column: { node: region, name }, args: [], type: int4, nonNull: "storage" },
+		{
+			kind: "column",
+			column: { node: region, name },
+			args: [],
+			type: fieldTypes[type],
+			nonNull: "storage"
+		},
 		ExprId(`${at}.${name}`)
 	)
+
+/** The native operator `fn` over the pair's two fields of `type`, in the leaf's order. */
+const pairExpr = (
+	fn: Cmp | "startsWith",
+	leaf: Atom | Prefix,
+	at: string,
+	type: FieldType
+): ScalarExpr => {
+	const native = defined(overloadOf(fn, [type, type]), `the ${type} ${fn}`)
+	const b = column(`b${leaf.pair}`, at, type)
+	const a = column(`a${leaf.pair}`, at, type)
+	return builtExpr(
+		{
+			kind: "op",
+			op: defined(definedIdOf(native), `${fn} defined on ${type}`),
+			args: leaf.swapped ? [a, b] : [b, a],
+			type: bool,
+			nonNull: "strict",
+			volatility: "immutable"
+		},
+		ExprId(at)
+	)
+}
 
 /** The connective `kind` over `args`, labelled `at`. */
 const connectiveExpr = (
@@ -177,38 +236,37 @@ const connectiveExpr = (
 	)
 
 /**
- * The IR of a tree at `at`, its expressions labelled by their place in it: each atom a native int4 comparison of the
- * pair's columns, each connective its boolean operator.
+ * The IR of a tree at `at` over fields of `type`, its expressions labelled by their place in it: each atom a native
+ * comparison of the pair's columns, each prefix test their native starts_with, each connective its boolean operator.
  */
-const exprOf = (t: Tree, at: string): ScalarExpr => {
+const treeExpr = (t: Tree<Atom | Prefix>, at: string, type: FieldType): ScalarExpr => {
 	switch (t.kind) {
-		case "atom": {
-			const native = defined(overloadOf(t.cmp, ["int4", "int4"]), `the int4 ${t.cmp}`)
-			const b = column(`b${t.pair}`, at)
-			const a = column(`a${t.pair}`, at)
-			return builtExpr(
-				{
-					kind: "op",
-					op: defined(definedIdOf(native), `${t.cmp} defined on int4`),
-					args: t.swapped ? [a, b] : [b, a],
-					type: bool,
-					nonNull: "strict",
-					volatility: "immutable"
-				},
-				ExprId(at)
-			)
-		}
+		case "atom":
+			return pairExpr(t.cmp, t, at, type)
+		case "prefix":
+			return pairExpr("startsWith", t, at, type)
 		case "and":
 		case "or":
 			return connectiveExpr(
 				t.kind,
-				Arr.map(t.args, (a, i) => exprOf(a, `${at}.${i}`)),
+				Arr.map(t.args, (a, i) => treeExpr(a, `${at}.${i}`, type)),
 				at
 			)
 		case "not":
-			return connectiveExpr("not", [exprOf(t.arg, `${at}.0`)], at)
+			return connectiveExpr("not", [treeExpr(t.arg, `${at}.0`, type)], at)
 	}
 }
+
+/** The IR of a comparisons tree, over int4 fields. */
+const exprOf = (t: Tree, at: string): ScalarExpr => treeExpr(t, at, "int4")
+
+/** The IR of a case at `at`. */
+const caseExpr = (c: Case, at: string): ScalarExpr =>
+	c.kind === "comparisons" ? exprOf(c.tree, at) : treeExpr(c.tree, at, "text")
+
+/** What the recognizer must find of a case: the enumeration's order of a comparisons tree, and none of a prefixed one. */
+const expectedOf = (c: Case): Order | undefined =>
+	c.kind === "comparisons" ? enumerated(c.tree) : undefined
 
 /**
  * How one level of a deepened predicate wraps the level below, each the level below's own function: its conjunction
@@ -349,17 +407,65 @@ const perturbedGen =
 		return perturb(t, { done: false })
 	}
 
-const caseGen: Gen<Tree> = (source) => {
+const comparisonsGen: Gen<Tree> = (source) => {
 	const pairs = source.draw(int(1, 6))
 	return source.draw(oneOf([treeGen(pairs, 3), spellingGen(pairs), perturbedGen(pairs)]))
 }
+
+/** How many atoms a tree holds. */
+const atomCount = (t: Tree): number => {
+	switch (t.kind) {
+		case "atom":
+			return 1
+		case "and":
+		case "or":
+			return Arr.reduce(t.args, 0, (n, a) => n + atomCount(a))
+		case "not":
+			return atomCount(t.arg)
+	}
+}
+
+/** The tree with its atom at `place` in reading order a prefix test of the same pair, its operands in the same order. */
+const withPrefixAt = (t: Tree, place: number): Tree<Atom | Prefix> => {
+	const read = { atoms: 0 }
+	const visit = (x: Tree): Tree<Atom | Prefix> => {
+		switch (x.kind) {
+			case "atom": {
+				const here = read.atoms
+				read.atoms = here + 1
+				return here === place ? { kind: "prefix", pair: x.pair, swapped: x.swapped } : x
+			}
+			case "and":
+			case "or":
+				return { kind: x.kind, args: Arr.map(x.args, visit) }
+			case "not":
+				return { kind: "not", arg: visit(x.arg) }
+		}
+	}
+	return visit(t)
+}
+
+/** A comparisons tree, or, in one case in five, one with a drawn atom a prefix test. */
+const caseGen: Gen<Case> = weighted<Case>([
+	[4, map(comparisonsGen, (tree): Case => ({ kind: "comparisons", tree }))],
+	[
+		1,
+		(source) => {
+			const tree = source.draw(comparisonsGen)
+			return {
+				kind: "prefixed",
+				tree: withPrefixAt(tree, source.draw(int(0, atomCount(tree) - 1)))
+			}
+		}
+	]
+])
 
 /** A shallow predicate, and the pattern of wrappers that deepens it, one to three. */
 const deepGen: Gen<{
 	readonly tree: Tree
 	readonly pattern: Arr.NonEmptyReadonlyArray<Wrapper>
 }> = (source) => ({
-	tree: source.draw(caseGen),
+	tree: source.draw(comparisonsGen),
 	pattern: [
 		source.draw(element(wrappers)),
 		...source.draw(array(element(wrappers), { min: 0, max: 2 }))
@@ -372,6 +478,7 @@ type LexFeature =
 	| "inclusive"
 	| "strict"
 	| "several pairs ordered"
+	| "a prefix test among the parts"
 
 describe("the lexicographic recognizer", () => {
 	it.effect(
@@ -386,7 +493,14 @@ describe("the lexicographic recognizer", () => {
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<LexFeature>(
-							["recognized", "not lexicographic", "inclusive", "strict", "several pairs ordered"],
+							[
+								"recognized",
+								"not lexicographic",
+								"inclusive",
+								"strict",
+								"several pairs ordered",
+								"a prefix test among the parts"
+							],
 							{ cases: 600, sense: notesOnly }
 						),
 						kept: [],
@@ -396,11 +510,14 @@ describe("the lexicographic recognizer", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(t, c) =>
+					(k, c) =>
 						Effect.sync(() => {
-							const expected = enumerated(t)
-							const got = lexicographicOrder(exprOf(t, "p"), classify)
+							const expected = expectedOf(k)
+							const got = lexicographicOrder(caseExpr(k, "p"), classify)
 							assert.deepEqual(got, expected)
+							if (k.kind === "prefixed") {
+								c.note("a prefix test among the parts")
+							}
 							if (expected === undefined) {
 								c.note("not lexicographic")
 								return
