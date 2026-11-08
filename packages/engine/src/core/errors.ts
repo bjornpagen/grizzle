@@ -49,46 +49,55 @@ export type Artifact =
 	| "fingerprint"
 
 /**
- * The measure of a pattern's automaton (text/refinement.ts analyzeText) that puts it past PostgreSQL's regex compile
- * space, with the facts it states, each bound a core/limits.ts constant:
- * - `positions`: `needed` NFA positions once counted repetitions are written out, past `limit` (regexMaxPositions);
- * - `anchors`: `needed` anchor positions written out, past `limit` (regexMaxAnchors);
- * - `anchorWeight`: `anchors` anchors over `positions` positions, a product past `limit` (regexMaxAnchorWeight);
- * - `closurePairs`: more than `limit` pairs of NFA states joined by empty paths (regexMaxClosurePairs), counted only
- *   until they pass it;
+ * The limit of PostgreSQL's regex compiler a pattern's ARE passes (scalar/regex/space.ts pastCompileSpace), with the
+ * facts it states, each bound a core/limits.ts constant:
  * - `anchorLoop`: an unbounded repetition of a body that can match zero-width through an anchor, which PostgreSQL
- *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches.
+ *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches;
+ * - `colors`: `needed` colors, the classes of characters its sets hold alike, past `limit` (regexMaxColors);
+ * - `depth`: a raw NFA whose longest path is `needed` arcs, past `limit` (regexMaxDepth), which PostgreSQL's
+ *   recursive walks of it would descend past max_stack_depth;
+ * - `states`: `needed` states held at once while it compiles, past `limit` (regexMaxHeldStates);
+ * - `arcs`: more than `limit` arcs held at once while it compiles (regexMaxHeldArcs), counted only until they pass it;
+ * - `matchStates`: `needed` states its optimized NFA keeps, past `limit` (regexMaxMatchStates), whose state sets
+ *   PostgreSQL allocates at every match;
+ * - `matchCells`: `needed` of those states times its colors, past `limit` (regexMaxMatchCells), each a cell of the
+ *   arrays PostgreSQL allocates at every match;
+ * - `anchors`: `needed` anchors PostgreSQL must move, past `limit` (regexMaxAnchors).
  */
 export type RegexSpaceMeasure =
-	| { readonly kind: "positions"; readonly limit: number; readonly needed: number }
-	| { readonly kind: "anchors"; readonly limit: number; readonly needed: number }
-	| {
-			readonly kind: "anchorWeight"
-			readonly limit: number
-			readonly anchors: number
-			readonly positions: number
-	  }
-	| { readonly kind: "closurePairs"; readonly limit: number }
 	| { readonly kind: "anchorLoop" }
+	| { readonly kind: "colors"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "depth"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "states"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "arcs"; readonly limit: number }
+	| { readonly kind: "matchStates"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "matchCells"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "anchors"; readonly limit: number; readonly needed: number }
 
 const regexSpaceText = (measure: RegexSpaceMeasure): string => {
 	switch (measure.kind) {
-		case "positions":
-			return `writes out to ${measure.needed} NFA positions, more than ${measure.limit}`
-		case "anchors":
-			return `writes out ${measure.needed} anchors, more than ${measure.limit}`
-		case "anchorWeight":
-			return `writes out ${measure.anchors} anchors over ${measure.positions} NFA positions, a product of more than ${measure.limit}`
-		case "closurePairs":
-			return `joins more than ${measure.limit} pairs of NFA states by empty paths`
 		case "anchorLoop":
 			return "repeats without bound a body that can match zero-width through an anchor, too large to write as a loop of consuming matches"
+		case "colors":
+			return `cuts its characters into ${measure.needed} colors, more than ${measure.limit}`
+		case "depth":
+			return `compiles to an NFA whose longest path is ${measure.needed} arcs, more than ${measure.limit}`
+		case "states":
+			return `holds ${measure.needed} NFA states at once while it compiles, more than ${measure.limit}`
+		case "arcs":
+			return `holds more than ${measure.limit} NFA arcs at once while it compiles`
+		case "matchStates":
+			return `keeps ${measure.needed} NFA states to match with, more than ${measure.limit}`
+		case "matchCells":
+			return `keeps NFA states times colors of ${measure.needed} to match with, more than ${measure.limit}`
+		case "anchors":
+			return `has ${measure.needed} anchors to move, more than ${measure.limit}`
 	}
 }
 
 /**
  * The bound a ResourceBound crossed, with the facts it states:
- * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past PostgreSQL's regex compile space;
+ * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past a limit of PostgreSQL's regex compiler;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
  *   `limit` (core/limits.ts maxStringLength);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
@@ -149,7 +158,7 @@ export type CompileBound =
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
 		case "regexCompileSpace":
-			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength or Compute.octetLength in a contract predicate`
+			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Compute.charLength or Compute.octetLength in a contract predicate`
 		case "stringLength":
 			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
 		case "tableColumns":

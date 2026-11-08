@@ -25,11 +25,13 @@ with the next release.
     - R, S and T events probe by their own keys.
     - A violation raises 23503 naming the law's constraint, with no DETAIL.
 - **Exports qti-pie asked for after the freeze:**
-- **The regex position cap** (qti-pie's upstream reviewer, aidenzepp/qti-pie#46, comment 6701102861): one pattern for
-  a `data-ssml` value (every JSON spelling of Data-SSML's names and values) needs about 4,400 regex positions against
-  the cap of 4,096 (core/limits.ts), and chaining two withPattern steps reaches about 35,800 product positions. The
-  reviewer checks the value in its importer instead. Wanted: a cap set from a measured cost, or a pattern composition
-  that doesn't multiply positions.
+- **A conjunction of patterns** (the owner's decision, from the regex position cap, which PostgreSQL's own compile
+  limits replaced): qti-pie's importer intersects XSD pattern sets into one regex, whose positions multiply (two
+  withPattern steps made about 35,800). The shape: `str.and(str.regex(p), str.regex(q))`, host type P & Q, one domain
+  whose CHECK is `VALUE ~ p AND VALUE ~ q`, each pattern held to PostgreSQL's limits alone, keyed by the product of
+  their DFAs within the DFA bounds and otherwise by the members' keys in order. The alternatives: `str.regex([p, q])`,
+  or nothing, since one product pattern within PostgreSQL's limits is admitted now. It reaches every place a text
+  carries one source: TextInfo, pattern rules, casts' inclusion proofs, Compute.matches.
 - **bytes past 268,435,443 bytes:**
   - Why: pg 8.23's parser decodes every result cell as a UTF-8 string, so a binary read isn't possible. Every bytes
     value is read as hex text in one string.

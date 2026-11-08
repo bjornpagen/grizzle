@@ -5,28 +5,18 @@ import {
 	resourceBound,
 	unsupported
 } from "#compiler/core/errors.ts"
-import {
-	regexMaxAnchors,
-	regexMaxAnchorWeight,
-	regexMaxClosurePairs,
-	regexMaxPositions
-} from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { PatternEntry } from "#compiler/ir/expr.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
-import {
-	expandedAssertions,
-	expandedSize,
-	loopsThroughAnchor,
-	type RegexNode
-} from "#compiler/scalar/regex/ir.ts"
-import { buildNfa, closurePairs, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import {
 	parsePattern,
 	type RegexDiagnostic,
 	type RegexFlags
 } from "#compiler/scalar/regex/parse.ts"
+import { pastCompileSpace } from "#compiler/scalar/regex/space.ts"
 
 /** A pattern its admission passed: its normalized IR, the flags folded in, and the NFA the measures read. */
 export interface AdmittedPattern {
@@ -52,10 +42,10 @@ const diagnosticError = (
  * The one admission of a pattern grizzle hands PostgreSQL: a str.regex refinement's (text/refinement.ts analyzeText)
  * and every pattern value a Compute.matches term can take (compute/lower.ts). It parses the admitted grammar
  * (parse.ts), with source-located diagnostics at any length and nesting depth, and refuses, as ResourceBound naming the
- * pattern, one past a measure of PostgreSQL's regex compile space (core/limits.ts regexMaxPositions, regexMaxAnchors,
- * regexMaxAnchorWeight, regexMaxClosurePairs), the one limit on a pattern's size, which is PostgreSQL's own. The
- * measures run in a fixed order, a loop through an anchor first, so one pattern has one refusal. `loc` places a refusal
- * alone; diagnostics point one level deeper, at the construct's offset in the pattern (`... .pattern[3]`).
+ * pattern, one past a limit of PostgreSQL's regex compiler (space.ts pastCompileSpace), the one limit on a pattern's
+ * size, which is PostgreSQL's own. The limits are checked in a fixed order, a loop through an anchor first, so one
+ * pattern has one refusal. `loc` places a refusal alone; diagnostics point one level deeper, at the construct's offset
+ * in the pattern (`... .pattern[3]`).
  */
 export const admitPattern = (
 	source: string,
@@ -78,26 +68,11 @@ export const admitPattern = (
 	if (loopsThroughAnchor(ir)) {
 		return tooComplex({ kind: "anchorLoop" })
 	}
-	const positions = expandedSize(ir)
-	if (positions > regexMaxPositions.value) {
-		return tooComplex({ kind: "positions", limit: regexMaxPositions.value, needed: positions })
-	}
-	const anchors = expandedAssertions(ir)
-	if (anchors > regexMaxAnchors.value) {
-		return tooComplex({ kind: "anchors", limit: regexMaxAnchors.value, needed: anchors })
-	}
-	if (anchors * positions > regexMaxAnchorWeight.value) {
-		return tooComplex({
-			kind: "anchorWeight",
-			limit: regexMaxAnchorWeight.value,
-			anchors,
-			positions
-		})
+	const past = ir.kind === "never" ? undefined : pastCompileSpace(ir)
+	if (past !== undefined) {
+		return tooComplex(past)
 	}
 	const nfa = buildNfa(ir)
-	if (closurePairs(nfa, regexMaxClosurePairs.value) > regexMaxClosurePairs.value) {
-		return tooComplex({ kind: "closurePairs", limit: regexMaxClosurePairs.value })
-	}
 	return Result.ok({ ir, nfa })
 }
 

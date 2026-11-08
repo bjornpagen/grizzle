@@ -5,6 +5,7 @@ import { C, type RoleExpectation, vectorExtension } from "#compiler/plan/catalog
 import {
 	derived,
 	emitCatalog,
+	maxStackDepth,
 	measured,
 	type OutputRows,
 	published,
@@ -31,6 +32,9 @@ const asciiLower = (text: string): string =>
  * - the server is PostgreSQL 19 (server_version_num in [190000, 200000));
  * - the database is UTF8 with the builtin locale provider at C.UTF-8, and pg_catalog.pg_c_utf8, the collation every
  *   collatable column and domain names, is the builtin one;
+ * - the server's max_stack_depth is at least its default, 2MB (core/limits.ts maxStackDepth), which the limits grizzle
+ *   holds every pattern to were measured at: PostgreSQL's regex compiler recurses along a pattern's NFA, and a smaller
+ *   setting can refuse an admitted pattern as too complex at the first value a domain checks;
  * - each extension the schema needs is installed at its pinned version in the schema the compiled names expect:
  *   pgvector 0.8.7 in the vector schema when a relation or the schema's laws carry a vector column (`vector` 0.8.7 in
  *   `vector_ext` on the local cluster), compared with pg_extension.extversion and the namespace of
@@ -155,8 +159,8 @@ export const admissionExpectation = (artifacts: SchemaArtifacts): AdmissionExpec
 })
 
 /**
- * The database's settings: the server version number, the database encoding, locale provider and builtin locale, and
- * the number of builtin pg_catalog.pg_c_utf8 collations.
+ * The database's settings: the server version number, the database encoding, locale provider and builtin locale, the
+ * number of builtin pg_catalog.pg_c_utf8 collations, and the server's max_stack_depth in kilobytes.
  */
 interface DatabaseRow {
 	readonly version: string
@@ -164,10 +168,38 @@ interface DatabaseRow {
 	readonly localeProvider: string
 	readonly locale: string
 	readonly cUtf8Collations: string
+	readonly stackDepth: string
 }
 
 const database = C.from("pg_database", "d")
 const collation = C.from("pg_collation", "c")
+const settings = C.from("pg_settings", "s")
+
+/**
+ * The server's max_stack_depth as pg_settings reports it, in kilobytes, its unit: a column of Db.open's read of the
+ * database and of grizzle migrate's first read.
+ */
+export const stackDepthColumn: C.CatalogExpr = C.asText(
+	C.scalar(
+		C.query(
+			[settings.col("setting")],
+			[settings.item],
+			C.eq(settings.col("name"), C.text("max_stack_depth"))
+		)
+	)
+)
+
+/**
+ * Whether a server's max_stack_depth, as stackDepthColumn reads it, is below the default the pattern limits were
+ * measured at (core/limits.ts maxStackDepth). A setting the server cannot report as kilobytes is below it.
+ */
+export const stackTooShallow = (reported: string): boolean => {
+	const kilobytes = Number(reported)
+	return !Number.isSafeInteger(kilobytes) || kilobytes < maxStackDepth.value
+}
+
+/** What a server's max_stack_depth must be at least, as a refusal states it. */
+export const stackDepthRequired = `${maxStackDepth.value} kB, the default PostgreSQL's regex compiler was measured at`
 
 /** One row. */
 export const databaseQuery: CatalogQuery<DatabaseRow> = {
@@ -190,21 +222,23 @@ export const databaseQuery: CatalogQuery<DatabaseRow> = {
 							])
 						)
 					)
-				)
+				),
+				stackDepthColumn
 			],
 			[database.item],
 			C.eq(database.col("datname"), C.call("current_database", []))
 		)
 	),
 	what: "the database's settings",
-	row: ([version, encoding, localeProvider, locale, cUtf8Collations]) =>
+	row: ([version, encoding, localeProvider, locale, cUtf8Collations, stackDepth]) =>
 		version === undefined ||
 		encoding === undefined ||
 		localeProvider === undefined ||
 		locale === undefined ||
-		cUtf8Collations === undefined
+		cUtf8Collations === undefined ||
+		stackDepth === undefined
 			? undefined
-			: { version, encoding, localeProvider, locale, cUtf8Collations }
+			: { version, encoding, localeProvider, locale, cUtf8Collations, stackDepth }
 }
 
 /** An installed extension, the schema it lives in and its installed version. */
@@ -320,6 +354,15 @@ export const serverMismatches = (
 			check: "collation pg_catalog.pg_c_utf8 (builtin)",
 			expected: "1",
 			observed: db.cUtf8Collations
+		})
+	}
+
+	if (stackTooShallow(db.stackDepth)) {
+		out.push({
+			stage: "capability",
+			check: "max_stack_depth",
+			expected: `at least ${stackDepthRequired}`,
+			observed: `${db.stackDepth} kB`
 		})
 	}
 

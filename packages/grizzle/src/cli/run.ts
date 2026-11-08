@@ -190,6 +190,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 			return Arr.map(reason.mismatches, (m) => `  ${m.kind} ${m.fact}`)
 		case "ConnectRefused":
 		case "SurveyFailed":
+		case "StackTooShallow":
 		case "RoleUnread":
 		case "OwnerUnread":
 		case "OwnedByAnother":

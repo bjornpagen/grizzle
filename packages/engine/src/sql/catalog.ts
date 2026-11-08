@@ -44,6 +44,7 @@ export const catalogRelations = [
 	"pg_rewrite",
 	"pg_roles",
 	"pg_sequence",
+	"pg_settings",
 	"pg_statistic_ext",
 	"pg_trigger",
 	"pg_type"

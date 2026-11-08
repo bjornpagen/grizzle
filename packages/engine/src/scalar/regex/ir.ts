@@ -1,5 +1,5 @@
 import { defect } from "#compiler/core/invariant.ts"
-import { regexMaxPositions } from "#compiler/core/limits.ts"
+import { regexMaxHeldArcs } from "#compiler/core/limits.ts"
 import { postorder } from "#compiler/ir/dag.ts"
 import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
@@ -422,7 +422,6 @@ export class RegexBuilder {
 	readonly #zeroParts = new Map<RegexNode, RegexNode>()
 	readonly #consumings = new Map<RegexNode, RegexNode>()
 	readonly #sizes = new Map<RegexNode, number>()
-	readonly #assertions = new Map<RegexNode, number>()
 
 	/**
 	 * The alternation of the arms, flattened, deduplicated and sorted by canonical text (compareCanonical): never arms
@@ -501,9 +500,10 @@ export class RegexBuilder {
 	 *   `(?:(?:.|$|){0,6})+b` is already too complex for it). A zero-width iteration leaves the position where it was
 	 *   and only adds tests, so it can be dropped from any sequence of iterations that keeps at least the minimum count:
 	 *   B{m,} is B{m} followed by any number of consuming iterations, which has no such cycle. The rewrite writes the
-	 *   body out again, and nested loops through assertions compound it, so it applies only to a body within the
-	 *   compile-space measure's regexMaxPositions written-out positions; a larger one stays a constraint loop, which
-	 *   analyzeText refuses as ResourceBound (loopsThroughAnchor), as the measure would refuse the rewritten pattern.
+	 *   body out again, and nested loops through assertions compound it, so it applies only to a body of at most
+	 *   regexMaxHeldArcs written-out positions, each at least one arc of the NFA PostgreSQL holds twice; a larger one
+	 *   stays a constraint loop, which analyzeText refuses as ResourceBound (loopsThroughAnchor), as the arcs measure
+	 *   would refuse the rewritten pattern.
 	 * - A repetition none of whose counts has a path is the empty language: `(?:^a){2}` is never.
 	 */
 	repeat(body: RegexNode, min: number, max: number | "unbounded"): RegexNode {
@@ -528,7 +528,7 @@ export class RegexBuilder {
 		if (
 			max === "unbounded" &&
 			this.#zeroPathsOf(body).asserted &&
-			this.expandedSize(body) <= regexMaxPositions.value
+			this.expandedSize(body) <= regexMaxHeldArcs.value
 		) {
 			return seq([this.repeat(body, min, min), star(this.#consuming(body))])
 		}
@@ -540,8 +540,8 @@ export class RegexBuilder {
 
 	/**
 	 * Whether a repetition still loops through an assertion: one whose body the rewrite left alone, its written-out
-	 * positions past the compile-space measure's regexMaxPositions (core/limits.ts), so the measure refuses its pattern
-	 * as it would the rewritten one.
+	 * positions past regexMaxHeldArcs (core/limits.ts), so the arcs measure refuses its pattern as it would the
+	 * rewritten one.
 	 */
 	loopsThroughAnchor(node: RegexNode): boolean {
 		return folded(this.#loops, node, (n, of) => {
@@ -657,31 +657,6 @@ export class RegexBuilder {
 		})
 	}
 
-	/**
-	 * The number of assertion positions once counted repetitions are written out. PostgreSQL eliminates each `\A` and
-	 * `\Z` constraint by pulling it back towards the start or pushing it forward towards the end, cloning the states it
-	 * crosses, so its compile space grows with this count times the automaton's size.
-	 */
-	expandedAssertions(node: RegexNode): number {
-		return folded(this.#assertions, node, (n, of) => {
-			switch (n.kind) {
-				case "start":
-				case "end":
-					return 1
-				case "seq":
-					return n.items.reduce((total, item) => total + of(item), 0)
-				case "alt":
-					return n.arms.reduce((total, arm) => total + of(arm), 0)
-				case "repeat":
-					return copiesOf(n) * of(n.body)
-				case "empty":
-				case "never":
-				case "set":
-					return 0
-			}
-		})
-	}
-
 	#zeroPathsOf(node: RegexNode): ZeroPaths {
 		return folded(this.#zeroPaths, node, (n, of) => {
 			switch (n.kind) {
@@ -720,7 +695,3 @@ export const loopsThroughAnchor = (node: RegexNode): boolean =>
 
 /** The NFA positions of a node once its counted repetitions are written out (RegexBuilder.expandedSize). */
 export const expandedSize = (node: RegexNode): number => new RegexBuilder().expandedSize(node)
-
-/** The assertion positions of a node once its counted repetitions are written out (RegexBuilder.expandedAssertions). */
-export const expandedAssertions = (node: RegexNode): number =>
-	new RegexBuilder().expandedAssertions(node)

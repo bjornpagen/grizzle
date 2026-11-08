@@ -132,6 +132,25 @@ const areKey = (are: string): string | undefined => {
 const familyPattern: Gen<string> = (source) =>
 	source.draw(patternOver(source.draw(element(families)).alphabet))
 
+/** Whether a node holds an assertion, `^` or `$`, anywhere. */
+const asserts = (node: RegexIr.RegexNode): boolean => {
+	switch (node.kind) {
+		case "start":
+		case "end":
+			return true
+		case "seq":
+			return Arr.some(node.items, asserts)
+		case "alt":
+			return Arr.some(node.arms, asserts)
+		case "repeat":
+			return asserts(node.body)
+		case "empty":
+		case "never":
+		case "set":
+			return false
+	}
+}
+
 /** Whether a repetition loops through an assertion: an unbounded repeat whose body can match zero-width through one. */
 const loops = (node: RegexIr.RegexNode): boolean => {
 	switch (node.kind) {
@@ -141,8 +160,7 @@ const loops = (node: RegexIr.RegexNode): boolean => {
 			return Arr.some(node.arms, loops)
 		case "repeat":
 			return (
-				(node.max === "unbounded" &&
-					RegexIr.expandedAssertions(new RegexIr.RegexBuilder().zeroPart(node.body)) > 0) ||
+				(node.max === "unbounded" && asserts(new RegexIr.RegexBuilder().zeroPart(node.body))) ||
 				loops(node.body)
 			)
 		case "empty":
@@ -172,7 +190,7 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 											"(?:(?:.|$|){0,2})+b",
 											"(?:(?:a|^)*b|$)*c",
 											"(?:(?:a|$|)b?)+c",
-											"(?:(?:[a-z]{255}){65}|$)*b"
+											"(?:(?:(?:[a-z]{255}){255}){31}|$)*b"
 										]),
 										nestedPattern,
 										familyPattern

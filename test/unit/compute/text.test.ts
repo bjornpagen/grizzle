@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { regexMaxPositions } from "#compiler/core/limits.ts"
+import { regexMaxDepth } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
@@ -17,7 +17,9 @@ import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -480,7 +482,7 @@ describe("Compute's text terms", () => {
 	/**
 	 * A valid term and the fault planted in it: a pattern str.regex admits under the flags u over a family's alphabet, a
 	 * finite language of that alphabet a guard reads, the site and mode the term is lowered in, and the parts a fault
-	 * is built from, two of the family's code points and a count of copies past regexMaxPositions.
+	 * is built from, two of the family's code points and a count of copies whose pattern passes regexMaxDepth.
 	 */
 	interface Planted {
 		readonly fault: Fault
@@ -592,14 +594,16 @@ describe("Compute's text terms", () => {
 							const compiles = (desc: ExprDesc, mode: "check" | "query"): void => {
 								succeeded(lowered(desc, mode), `${label} without its fault`)
 							}
-							const pastSpace = `(?:[${escaped(p.point)}${escaped(p.other)}]{1,255}){${p.copies}}`
+							const pastSpace = `(?:(?:[${escaped(p.point)}${escaped(p.other)}]{1,255}){255}){${p.copies}}`
+							const pastIr = succeeded(parsePattern(pastSpace, "u"), pastSpace)
+							assert.ok(pastIr.kind !== "never", pastSpace)
 							const pastBound = {
 								kind: "regexCompileSpace",
 								pattern: `/${pastSpace}/u`,
 								measure: {
-									kind: "positions",
-									limit: regexMaxPositions.value,
-									needed: 255 * p.copies
+									kind: "depth",
+									limit: regexMaxDepth.value,
+									needed: rawSize(pastIr, colorsOf(pastIr)).depth
 								}
 							} as const
 							const emptied = (pattern: string): string => {

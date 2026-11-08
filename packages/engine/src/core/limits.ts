@@ -192,103 +192,261 @@ export const regexMaxRepeat = published({
 	verified: "2026-11-05"
 })
 
+const regguts = `${postgresSource}/src/include/regex/regguts.h`
+
 /**
- * What the four compile-space measures share of their evidence: the suite that compiles patterns planted at each and
- * drawn near them on the pinned PostgreSQL, test/pg/text/differential.test.ts, run by pnpm test:network.
+ * MAX_COLOR, the greatest color number of a regex's color map: a color is a short, and newcolor refuses a color past
+ * it as REG_ECOLORS, "too many colors" (regc_color.c).
  */
-const compileSpaceRun = {
-	observed:
-		"the suite's last run in Vitest's record, from 2026-11-04 20:09:29 to 20:09:53 UTC, at a revision before this checkout's; the first measurement's interval is not recorded",
+const regexMaxColor = published({
+	value: 32_767,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "colors",
+	scope: "the greatest color number of one regex's color map",
+	constraint: "compile-time constant",
+	source: `${regguts}#L165`,
+	quote: "#define MAX_COLOR\t32767\t\t/* max color (must fit in 'color' datatype) */",
+	verified: "2026-11-07"
+})
+
+/**
+ * The most colors a pattern's sets may cut the characters into, the classes of characters every set holds alike
+ * (scalar/regex/space.ts colorsOf). A pattern of more is refused as ResourceBound (regexCompileSpace, colors) when its
+ * domain or match is compiled, since PostgreSQL refuses it as "too many colors" at the first value it checks.
+ */
+export const regexMaxColors = derived({
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "colors",
+	scope: "one str.regex or Compute.matches pattern's colors",
+	from: [regexMaxColor],
+	derivation: `colors are numbered from 0 to MAX_COLOR, and newcolor refuses another: "if (cm->max == MAX_COLOR)" (${postgresSource}/src/backend/regex/regc_color.c#L212, verified 2026-11-07). While one set is parsed, newsub opens a subcolor for each color the set splits, "sco = newcolor(cm);\t\t/* must create subcolor */" (regc_color.c#L401), and okcolors frees the parents the set emptied only once the set is done, so the colors live at once are at most twice the pattern's; the four pseudocolors specialcolors allocates after the last set, "nfa->bos[0] = pseudocolor(nfa->cm);" (regc_nfa.c#L1560), come when no subcolor is open, so twice the colors binds first`,
+	compute: ([max]) => (max.value + 1) / 2
+})
+
+/**
+ * REG_MAX_COMPILE_SPACE's share of states: the compile space is the bytes of 500,000 states and four arcs for each,
+ * which PostgreSQL charges as it allocates its NFAs' states and arcs in batches, refusing a pattern as "regular
+ * expression is too complex" when a new batch is needed and the space is spent (regc_nfa.c newstate, allocarc).
+ */
+const regexSpaceStates = published({
+	value: 500_000,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA states",
+	scope: "the states REG_MAX_COMPILE_SPACE is the space of, for one regex's compilation",
+	constraint: "compile-time constant",
+	source: `${regguts}#L463-L466`,
+	quote: "(500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))",
+	verified: "2026-11-07"
+})
+
+/** REG_MAX_COMPILE_SPACE's arcs for each of its states. */
+const regexSpaceArcsPerState = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA arcs per state",
+	scope: "the arcs REG_MAX_COMPILE_SPACE is the space of, for each of its states",
+	constraint: "compile-time constant",
+	source: `${regguts}#L463-L466`,
+	quote: "(500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))",
+	verified: "2026-11-07"
+})
+
+/** The states of an NFA's first state batch, FIRSTSBSIZE, the fewest any of its batches holds. */
+const regexFirstStateBatch = published({
+	value: 32,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA states",
+	scope: "the first state batch of one NFA, each later batch doubling it",
+	constraint: "compile-time constant",
+	source: `${regguts}#L353`,
+	quote: "#define  FIRSTSBSIZE\t32",
+	verified: "2026-11-07"
+})
+
+/** The states of an NFA's largest state batch, MAXSBSIZE. */
+const regexMaxStateBatch = published({
+	value: 1_024,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA states",
+	scope: "one state batch of one NFA",
+	constraint: "compile-time constant",
+	source: `${regguts}#L354`,
+	quote: "#define  MAXSBSIZE\t\t1024",
+	verified: "2026-11-07"
+})
+
+/** The arcs of an NFA's first arc batch, FIRSTABSIZE, the fewest any of its batches holds. */
+const regexFirstArcBatch = published({
+	value: 64,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA arcs",
+	scope: "the first arc batch of one NFA, each later batch doubling it",
+	constraint: "compile-time constant",
+	source: `${regguts}#L327`,
+	quote: "#define  FIRSTABSIZE\t64",
+	verified: "2026-11-07"
+})
+
+/** The arcs of an NFA's largest arc batch, MAXABSIZE. */
+const regexMaxArcBatch = published({
+	value: 1_024,
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA arcs",
+	scope: "one arc batch of one NFA",
+	constraint: "compile-time constant",
+	source: `${regguts}#L328`,
+	quote: "#define  MAXABSIZE\t\t1024",
+	verified: "2026-11-07"
+})
+
+/** Why a share of the compile space stays inside it, whichever of the two kinds of batch it counts. */
+const batchShare = `a batch is allocated only when every slot of the NFA's batches is live, so the two NFAs PostgreSQL holds at once (regcomp.c nfanode copies the whole raw NFA, "nfa = newnfa(v, v->cm, v->nfa);" at #L2371, while the raw one lives) hold at most their live entries and one batch each beyond them; a batch's header, its chain link and its count, is no larger than one entry, and a batch holds at least its first batch's entries, so the headers cost at most one entry for each of those; newstate and allocarc refuse a new batch only once "nfa->v->spaceused >= REG_MAX_COMPILE_SPACE" (${postgresSource}/src/backend/regex/regc_nfa.c#L165, #L389), so the states within their share and the arcs within theirs keep the space below it, verified 2026-11-07`
+
+/**
+ * The most states a pattern's NFAs may hold at once (scalar/regex/space.ts pastCompileSpace): twice the raw NFA
+ * PostgreSQL's parser builds from its ARE. A pattern of more is refused as ResourceBound (regexCompileSpace, states).
+ */
+export const regexMaxHeldStates = derived({
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA states",
+	scope: "the states of one pattern's NFAs that PostgreSQL holds at once while compiling it",
+	from: [regexSpaceStates, regexFirstStateBatch, regexMaxStateBatch],
+	derivation: `the states' share of REG_MAX_COMPILE_SPACE, less what batches cost beyond the states they hold: ${batchShare}`,
+	compute: ([space, first, batch]) =>
+		Math.floor((space.value * first.value) / (first.value + 1)) - batch.value - batch.value
+})
+
+/**
+ * The most arcs a pattern's NFAs may hold at once (scalar/regex/space.ts pastCompileSpace), each set's counted once
+ * for each color it spans: twice the arcs of the optimized NFA, which empty-arc removal adds to. A pattern of more is
+ * refused as ResourceBound (regexCompileSpace, arcs).
+ */
+export const regexMaxHeldArcs = derived({
+	owner: "PostgreSQL 19rc1's regex compiler",
+	unit: "NFA arcs",
+	scope: "the arcs of one pattern's NFAs that PostgreSQL holds at once while compiling it",
+	from: [regexSpaceStates, regexSpaceArcsPerState, regexFirstArcBatch, regexMaxArcBatch],
+	derivation: `the arcs' share of REG_MAX_COMPILE_SPACE, four for each of its states, less what batches cost beyond the arcs they hold: ${batchShare}`,
+	compute: ([space, perState, first, batch]) =>
+		Math.floor((space.value * perState.value * first.value) / (first.value + 1)) -
+		batch.value -
+		batch.value
+})
+
+/**
+ * max_stack_depth's default, in kilobytes: how deep a backend's stack may grow before PostgreSQL refuses to recurse
+ * further, which its regex compiler checks as it walks its NFAs (regexMaxDepth). It is the superuser's setting, which
+ * no role grizzle admits can change, so Db.open and grizzle migrate refuse a server whose setting is below it.
+ */
+export const maxStackDepth = published({
+	value: 2_048,
+	owner: "PostgreSQL 19rc1",
+	unit: "kilobytes",
+	scope:
+		"max_stack_depth, as pg_settings reports it, of the server grizzle's patterns are compiled on",
+	constraint: "configurable default",
+	source: `${postgresSource}/doc/src/sgml/config.sgml#L2328`,
+	quote: "The default setting is two megabytes (<literal>2MB</literal>)",
+	verified: "2026-11-07"
+})
+/**
+ * What the depth and anchor measures share of their evidence: one bisection per shape against the pinned PostgreSQL,
+ * re-verified by the suite that compiles the largest pattern the limits admit along drawn shapes,
+ * test/pg/text/differential.test.ts, run by pnpm test:network.
+ */
+const compileLimitsRun = {
+	evidence:
+		"a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, whose output is not preserved; test/pg/text/differential.test.ts \"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge\" re-verifies that what the limits admit compiles",
+	observed: "2026-11-07 22:37 to 23:40 CST (UTC-6), one bisection per shape",
 	environment:
-		"PostgreSQL 19rc1 as scripts/pg/pin.env builds it, on the local cluster CONTRIBUTING.md sets up",
-	workload:
-		"one compile of each planted and drawn pattern's ARE, `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text` with the ARE as its parameter, on one owner session under a 60 s statement_timeout",
-	result:
-		"the suite passed in 24 s, as Vitest's record of each file's last run holds (node_modules/.vite/vitest/da39a3ee5e6b4b0d3255bfef95601890afd80709/results.json, SHA-256 4e9f397495c81884f158742f129f85e8c05f17b6ab00c1a3c384ddb37f7d0a6b when read on 2026-11-05, overwritten by the next run), so every planted and drawn pattern compiled, which it asserts; no compile time is recorded"
+		"PostgreSQL 19rc1 as scripts/pg/pin.env builds it, on the local cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; macOS (Darwin 27.0.0) on an arm64 virtual machine, Node 26.13.0; grizzle 00209792 with this change uncommitted; other sessions loading the machine",
+	revalidate:
+		"a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to the ARE printer (scalar/regex/are.ts) or to the model of PostgreSQL's raw NFA (scalar/regex/space.ts); a pattern the suite finds refused as too complex"
 } as const
 
 /**
- * The first of the four compile-space measures, which stand for PostgreSQL's REG_MAX_COMPILE_SPACE
- * (https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/regex/regguts.h#L463-L466, "#define
- * REG_MAX_COMPILE_SPACE (500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))"): the space of the NFA states and
- * arcs PostgreSQL's regex compiler builds, charged as it allocates them (regc_nfa.c newstate, allocarc), past which it
- * refuses the pattern as "regular expression is too complex". That space follows not the pattern's length but what
- * the compiler's NFA optimizer makes of it: empty-arc removal is quadratic in chains of nullable copies, and
- * constraint elimination clones the states an anchor crosses. text/refinement.ts analyzeText reads the four measures
- * off the normalized IR, the IR the ARE is printed from, and refuses a pattern past any of them as ResourceBound
- * (core/errors.ts regexCompileSpace) before its domain is built. They are measured, not derived from
- * REG_MAX_COMPILE_SPACE: no arithmetic on its 500,000 states gives them, since its cost per position depends on the
- * optimizer. Each is a bound inside it, not its edge: what they admit compiles, and quickly on a cold backend, and a
- * pattern past one may still compile.
- *
- * This one: NFA positions once counted repetitions are written out (scalar/regex/ir.ts expandedSize).
+ * The longest path of the raw NFA PostgreSQL's parser builds from a pattern's ARE, in arcs (scalar/regex/space.ts
+ * rawSize). PostgreSQL's parser recurses into nested groups, and its walks of the NFA (regc_nfa.c duptraverse,
+ * markreachable, markcanreach) recurse along its paths, each refusing a pattern past max_stack_depth as "regular
+ * expression is too complex" (STACK_TOO_DEEP), so a pattern of a longer path is refused as ResourceBound
+ * (regexCompileSpace, depth). It holds at max_stack_depth's default (maxStackDepth), which Db.open and grizzle migrate
+ * require of the server.
  */
-export const regexMaxPositions = measured({
-	value: 4_096,
-	owner: "grizzle's text refinement (text/refinement.ts analyzeText)",
-	unit: "NFA positions",
-	scope: "one str.regex pattern's normalized IR, written out",
-	evidence:
-		'test/pg/text/differential.test.ts: its test "compiles admitted patterns at each budget inside PostgreSQL\'s regex compile space" compiles a pattern planted at this bound, `^(?:[a-z]{1,255}){16}$` (4,082 positions), and "compiles generated admitted nested-quantifier patterns near the budgets" each of 4,800 drawn nested-quantifier patterns the measures admit at 64 positions or more; the run output of the measurement that first set the value is not preserved',
-	...compileSpaceRun,
+export const regexMaxDepth = measured({
+	value: 16_000,
+	owner: "grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)",
+	unit: "NFA arcs",
+	scope:
+		"the longest path of one pattern's raw NFA, which PostgreSQL's regex compiler recurses along",
+	...compileLimitsRun,
+	workload:
+		"each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, and again inside an INSERT in a PL/pgSQL function two PL/pgSQL calls deep, over three shapes: a chain of plain code points in counted runs, nested optional groups `(?:a(?:a…)?)?`, and nested + groups `(?:(?:a)+b)+b…`; the chain again at max_stack_depth 1MB",
+	result:
+		'the longest path compiled and the shortest refused, in arcs: the chain 43,364 and 43,563, and 21,597 and 21,694 at 1MB, so the edge follows the setting; nested optional groups 32,570 and 32,685, two PL/pgSQL calls deep 32,450 and 32,570; nested + groups 43,478 and 43,646, two calls deep 43,317 and 43,478; every refusal "regular expression is too complex" at under 100,000 states held, far inside the compile space; nested + groups near their edge compiled in 18 to 24 s',
 	decision:
-		"kept where the first measurement set it, at which the slowest planted chain of optional copies, `(?:a?){255}(?:b?){100}c`, compiled in tens of milliseconds on a cold backend",
-	revalidate:
-		"a PostgreSQL repin; a change to the ARE printer (scalar/regex/are.ts) or to the IR's normalization (scalar/regex/ir.ts); a planted or drawn pattern refused as too complex"
+		"16,000: about half the shallowest edge measured, 32,450 arcs two PL/pgSQL calls deep, leaving about 1MB of the 2MB stack for a call path deeper than the measured one when a pattern is first compiled; the two calls cost the shallowest shape 120 arcs"
 })
 
 /**
- * A compile-space measure (see regexMaxPositions): pairs of NFA states joined by a path of empty and anchor edges
- * (scalar/regex/nfa.ts closurePairs), whose arcs PostgreSQL's empty-arc removal (regc_nfa.c fixempties) copies.
+ * The states the compacted NFA a match reads holds (scalar/regex/space.ts matchStates). At every match regexec's DFA
+ * (rege_dfa.c newdfa) allocates a bit vector of these states for each of twice as many state sets, "d->statesarea =
+ * MALLOC_ARRAY(unsigned, (nss + WORK) * wordsper);", which palloc refuses past MaxAllocSize, failing the match, and so
+ * every write its domain checks, with "invalid memory alloc request size"; a pattern of more is refused as
+ * ResourceBound (regexCompileSpace, matchStates).
  */
-export const regexMaxClosurePairs = measured({
-	value: 65_536,
-	owner: "grizzle's text refinement (text/refinement.ts analyzeText)",
-	unit: "pairs of NFA states",
-	scope: "one str.regex pattern's NFA",
-	evidence:
-		'test/pg/text/differential.test.ts: its test "compiles admitted patterns at each budget inside PostgreSQL\'s regex compile space" compiles a pattern planted at this bound, `(?:a?){255}(?:b?){100}c` (64,981 pairs), and "compiles generated admitted nested-quantifier patterns near the budgets" each of 4,800 drawn nested-quantifier patterns the measures admit at 64 positions or more; the run output of the measurement that first set the value is not preserved',
-	...compileSpaceRun,
+export const regexMaxMatchStates = measured({
+	value: 64_000,
+	owner: "grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)",
+	unit: "NFA states",
+	scope: "the states of the compacted NFA one pattern's match reads, as its model counts them",
+	...compileLimitsRun,
+	workload:
+		"each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k words of four letters, digits and underscores, and the same union repeated by +",
+	result:
+		'the union matched at 21,649 words, 64,953 states as the model counts them, and failed at 22,039 words, 66,123 states, with "invalid memory alloc request size 1093385124", the state sets\' bit vectors, (2S + 1) words of ⌈S/32⌉ four-byte words for S states, which first pass MaxAllocSize at 65,536 states; the repeated union matched at 21,799 words and failed at 21,857 alike',
 	decision:
-		"kept where the first measurement set it; far past it, `(?:(?:a?){255}){8}b` (2,041 positions, 2,120,771 pairs) is too complex for PostgreSQL",
-	revalidate:
-		"a PostgreSQL repin; a change to the NFA builder (scalar/regex/nfa.ts) or to the IR's normalization; a planted or drawn pattern refused as too complex"
+		"64,000: below the 65,536 states at which the bit vectors pass MaxAllocSize, the measured edge, with 1,535 states, about 2%, of headroom; the model counts each state makesearch may split twice"
 })
 
 /**
- * A compile-space measure (see regexMaxPositions): anchor positions, `^` and `$`, once counted repetitions are written
- * out (scalar/regex/ir.ts expandedAssertions), each of which PostgreSQL's constraint elimination (regc_nfa.c pullback,
- * pushfwd) moves by cloning the states it crosses.
+ * The states of the compacted NFA a match reads times the pattern's colors (scalar/regex/space.ts matchStates,
+ * colorsOf). At every match regexec's DFA allocates an entry for each of twice as many state sets as states and each
+ * color, "d->incarea = MALLOC_ARRAY(struct arcp, nss * cnfa->ncolors);", which palloc refuses past MaxAllocSize; a
+ * pattern of more is refused as ResourceBound (regexCompileSpace, matchCells).
+ */
+export const regexMaxMatchCells = measured({
+	value: 16_000_000,
+	owner: "grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)",
+	unit: "NFA states times colors",
+	scope:
+		"the states of the compacted NFA one pattern's match reads times its colors, as its model counts them",
+	...compileLimitsRun,
+	workload:
+		"each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k words of a code point of their own and a common one, and the same union repeated by * before a last code point",
+	result:
+		'the union matched at 5,778 words, 33,344,850 states times colors as the model counts them, and failed at 5,793, 33,611,006, with "invalid memory alloc request size 1075737696", the entries of 16 bytes, which first pass MaxAllocSize at 33,554,432 states times colors; the repeated union matched at 5,771 words and failed at 5,794 alike',
+	decision:
+		"16,000,000: about half the measured edge, since freeing the colors a set empties can leave a color map up to twice a pattern's colors (regexMaxColors), and the arrays count the map's colors"
+})
+
+/**
+ * The anchors PostgreSQL must move (scalar/regex/space.ts movingAnchors): constraint elimination (regc_nfa.c pullback,
+ * pushfwd, fixconstraintloops) clones the states around each anchor some consuming path reaches or leaves, and around
+ * anchors joined by empty paths it compounds, so a pattern of more is refused as ResourceBound (regexCompileSpace,
+ * anchors). An anchor at either end of every path is never moved and never counted.
  */
 export const regexMaxAnchors = measured({
 	value: 8,
-	owner: "grizzle's text refinement (text/refinement.ts analyzeText)",
-	unit: "anchor positions",
-	scope: "one str.regex pattern's normalized IR, written out",
-	evidence:
-		'test/pg/text/differential.test.ts: its test "compiles admitted patterns at each budget inside PostgreSQL\'s regex compile space" compiles patterns planted at this bound, `(?:$|a|){4}(?:^|a|){4}b` and `(?:^|.{1,127}|$){2,4}b` (8 anchors each), and "compiles generated admitted nested-quantifier patterns near the budgets" each of 4,800 drawn nested-quantifier patterns the measures admit at 64 positions or more; the run output of the measurement that first set the value is not preserved',
-	...compileSpaceRun,
+	owner: "grizzle's text refinement (scalar/regex/space.ts pastCompileSpace)",
+	unit: "anchors",
+	scope: "the anchors of one pattern's raw NFA that constraint elimination moves",
+	...compileLimitsRun,
+	workload:
+		"each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, over two shapes: k optional `$` before 256 code points of their own and four runs of 255 copies of a class of them, and `(?:^|.{1,255}|$){k}b`, an anchor on either side of a wide run, each count k from 1 to 64",
+	result:
+		'the first shape compiled at every k, 64 anchors to move over an NFA of 316,829 optimized arcs in 0.7 s; the second, two anchors to move for each k past the first, compiled 15 in 5 s and 19 in 143 s, ran 21 past the probe\'s 300 s statement_timeout, and refused 23 after 33 s, 31 after 20 s and 63 after 143 s as "regular expression is too complex"',
 	decision:
-		"kept where the first measurement set it; past it, `(?:(?:a|$){1,3}){12}(?:^)?b` (37 anchors) is too complex for PostgreSQL, and `(?:\\Z|a|){8}(?:\\A|a|){8}b` (16) takes seconds to compile",
-	revalidate:
-		"a PostgreSQL repin; a change to the ARE printer or to the IR's normalization; a planted or drawn pattern refused as too complex"
-})
-
-/**
- * A compile-space measure (see regexMaxPositions): anchor positions times NFA positions, both written out, the states
- * constraint elimination may clone.
- */
-export const regexMaxAnchorWeight = measured({
-	value: 8_192,
-	owner: "grizzle's text refinement (text/refinement.ts analyzeText)",
-	unit: "anchor positions times NFA positions",
-	scope: "one str.regex pattern's normalized IR, written out",
-	evidence:
-		'test/pg/text/differential.test.ts: its test "compiles admitted patterns at each budget inside PostgreSQL\'s regex compile space" compiles a pattern planted at this bound, `^(?:[a-z]{1,255}){16}$` (2 anchors over 4,082 positions, 8,164), and "compiles generated admitted nested-quantifier patterns near the budgets" each of 4,800 drawn nested-quantifier patterns the measures admit at 64 positions or more; the run output of the measurement that first set the value is not preserved',
-	...compileSpaceRun,
-	decision: "kept where the first measurement set it",
-	revalidate:
-		"a PostgreSQL repin; a change to the ARE printer or to the IR's normalization; a planted or drawn pattern refused as too complex"
+		"8: about half the most anchors the binding shape compiled, 19, whose compile already took minutes; the arcs an anchor crosses bind nothing measured, so no measure weighs them"
 })
 
 /**
@@ -302,7 +460,7 @@ const subsetConstructionRun = {
 	environment:
 		"macOS 27.0.1 (Darwin 27.0.0) on a VirtualMac2,1, Apple M2 Max (Virtual) with 10 cores (sysctl hw.ncpu) and 64 GiB; Node 26.13.0 (V8 14.6.202.34-node.40), one single-threaded process; load average 9.9 to 11.3 over the 10 cores from other sessions throughout, so the times are a loaded machine's",
 	workload:
-		"one pattern's construction at a time, the process's only work, over NFAs of 15 to 4,117 states, parsing and the NFA build untimed; `^(?:.{0,255}){16}$`, the slowest pattern of the unverifiable run this one replaces, is refused by regexMaxClosurePairs and never reaches the construction",
+		"one pattern's construction at a time, the process's only work, over NFAs of 15 to 4,117 states, parsing and the NFA build untimed; `^(?:.{0,255}){16}$`, the slowest pattern of the unverifiable run this one replaces, was refused by the compile-space measures of the time and never reached the construction",
 	revalidate:
 		"a change to the subset construction, its alphabet, the minimization or the canonical form (scalar/regex/dfa.ts), or to the NFA builder (scalar/regex/nfa.ts); a Node or V8 upgrade; a pattern whose construction under the limits takes longer than the slowest here"
 } as const

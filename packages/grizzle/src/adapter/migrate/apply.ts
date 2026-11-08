@@ -5,6 +5,11 @@ import {
 	type FlightSpan,
 	ledgerMismatches
 } from "#adapter/admission/drift.ts"
+import {
+	stackDepthColumn,
+	stackDepthRequired,
+	stackTooShallow
+} from "#adapter/admission/expectation.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import {
 	ApplyBusy,
@@ -23,6 +28,7 @@ import {
 	RecordFailed,
 	ReplayRefused,
 	RoleUnread,
+	StackTooShallow,
 	StatementFailed,
 	type StatementFailure,
 	stopped,
@@ -164,10 +170,18 @@ const applyLock = (schema: string): ApplyLock => {
 	}
 }
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
-const currentUser: CatalogQuery<string> = {
-	sql: emitCatalog(C.query([C.asText(C.currentUser)], [], undefined)),
-	what: "a role name",
-	row: roleName
+
+/** The session's role and the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn). */
+interface SessionRow {
+	readonly user: string
+	readonly stackDepth: string
+}
+
+const sessionRead: CatalogQuery<SessionRow> = {
+	sql: emitCatalog(C.query([C.asText(C.currentUser), stackDepthColumn], [], undefined)),
+	what: "a role name and a setting",
+	row: ([user, stackDepth]) =>
+		user === undefined || stackDepth === undefined ? undefined : { user, stackDepth }
 }
 
 const namespace = C.from("pg_namespace", "n")
@@ -311,7 +325,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 			Effect.tap(
 				restore(
 					session.apart([
-						{ sql: currentUser.sql, params: [] },
+						{ sql: sessionRead.sql, params: [] },
 						...Arr.flatMap(checked, (c) => schemaReads(c))
 					])
 				),
@@ -325,12 +339,17 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		),
 		(failure) => stopped(new SurveyFailed({ failure }))
 	)
-	/** The session's role concerns no schema. */
-	const user = yield* Effect.fromResult(
-		Result.mapError(apartRow(currentUser, sentAnswer(answers, 0)), (failure) =>
+	/** The session's role and the server's setting concern no schema. */
+	const { user, stackDepth } = yield* Effect.fromResult(
+		Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
 			stopped(new RoleUnread({ failure }))
 		)
 	)
+	if (stackTooShallow(stackDepth)) {
+		return yield* stopped(
+			new StackTooShallow({ observed: stackDepth, required: stackDepthRequired })
+		)
+	}
 	const planned: Array<Planned> = []
 	for (const [i, c] of checked.entries()) {
 		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, answersFrom(i), user))

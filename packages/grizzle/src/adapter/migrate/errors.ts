@@ -40,6 +40,7 @@ import type { findMarkers } from "#compiler/plan/migration.ts"
  */
 export type MigrateStage =
 	| "connect"
+	| "server"
 	| "owner"
 	| "input"
 	| "busy"
@@ -63,6 +64,7 @@ export type MigrateOutcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
 /** The outcome of each stage. */
 export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	connect: "nothingRan",
+	server: "nothingRan",
 	owner: "nothingRan",
 	input: "nothingRan",
 	busy: "nothingRan",
@@ -221,6 +223,19 @@ export class SurveyFailed extends Data.TaggedError("SurveyFailed")<{
 }> {
 	override get message(): string {
 		return `the session's role and its schemas' owners, apply locks and ledgers could not be read: ${failureText(this.failure)}`
+	}
+}
+
+/**
+ * The server's max_stack_depth, `observed` kilobytes as pg_settings reports it, is below `required`, the default the
+ * limits grizzle holds every pattern to were measured at, so a domain's pattern could be refused as too complex.
+ */
+export class StackTooShallow extends Data.TaggedError("StackTooShallow")<{
+	readonly observed: string
+	readonly required: string
+}> {
+	override get message(): string {
+		return `the server's max_stack_depth is ${this.observed} kB, below ${this.required}; a superuser raises it`
 	}
 }
 
@@ -633,6 +648,7 @@ export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
 export type MigrateReason =
 	| ConnectRefused
 	| SurveyFailed
+	| StackTooShallow
 	| RoleUnread
 	| OwnerUnread
 	| OwnedByAnother
@@ -660,6 +676,7 @@ export type MigrateReason =
 const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	ConnectRefused: "connect",
 	SurveyFailed: "owner",
+	StackTooShallow: "server",
 	RoleUnread: "owner",
 	OwnerUnread: "owner",
 	OwnedByAnother: "owner",
@@ -702,6 +719,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 		switch (reason._tag) {
 			case "ConnectRefused":
 			case "SurveyFailed":
+			case "StackTooShallow":
 			case "RoleUnread":
 				return undefined
 			case "OwnerUnread":
@@ -761,6 +779,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 				return reason.at
 			case "ConnectRefused":
 			case "SurveyFailed":
+			case "StackTooShallow":
 			case "RoleUnread":
 			case "OwnerUnread":
 			case "OwnedByAnother":
@@ -792,6 +811,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			}
 			case "ConnectRefused":
 			case "SurveyFailed":
+			case "StackTooShallow":
 			case "RoleUnread":
 			case "OwnerUnread":
 			case "OwnedByAnother":

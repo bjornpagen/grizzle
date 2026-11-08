@@ -40,7 +40,7 @@ const areChar = (c: number): string => {
  * The set's intervals with the surrogate gap closed: no PostgreSQL text holds a surrogate, so [.., U+D7FF] and
  * [U+E000, ..] print as one range.
  */
-const printableIntervals = (set: CharSet): ReadonlyArray<Interval> => {
+export const printableIntervals = (set: CharSet): ReadonlyArray<Interval> => {
 	const out: Array<[number, number]> = []
 	for (const [lo, hi] of set) {
 		const last = out[out.length - 1]
@@ -70,65 +70,103 @@ const areSet = (set: CharSet): string => {
 	return `[${items.join("")}]`
 }
 
+/** An anchor of an ARE: `\A`, the value's start, or `\Z`, its end. */
+export type AreAnchor = "start" | "end"
+
+/**
+ * An atom of an ARE as PostgreSQL's parser reads it (regcomp.c parseqatom): a set, which prints as a character or a
+ * bracket expression, an anchor, or a non-capturing group of branches, each branch a node read as one (piecesOf).
+ */
+export type AreAtom =
+	| { readonly kind: "set"; readonly set: CharSet }
+	| { readonly kind: "anchor"; readonly anchor: AreAnchor }
+	| { readonly kind: "group"; readonly branches: ReadonlyArray<LiveNode> }
+
+/** A quantified atom of a branch: the atom and its counts, 1 and 1 where it has no quantifier. */
+export interface ArePiece {
+	readonly atom: AreAtom
+	readonly min: number
+	readonly max: number | "unbounded"
+}
+
+type Alt = Extract<LiveNode, { readonly kind: "alt" }>
+
+/** Whether a node prints as an alternation of branches: an alternation none of whose arms is the empty string. */
+const isAlternation = (node: LiveNode): node is Alt =>
+	node.kind === "alt" && node.arms.every((arm) => arm.kind !== "empty")
+
+/**
+ * The branches a node is read as where it is a whole pattern or a group's inside: an alternation's arms, or the node
+ * as one branch.
+ */
+export const branchesOf = (node: LiveNode): ReadonlyArray<LiveNode> =>
+	isAlternation(node) ? node.arms : [node]
+
+/** The atom a node is read as where a quantifier applies to it: a set as itself, anything else as a group. */
+const atomOf = (node: LiveNode): AreAtom =>
+	node.kind === "set"
+		? { kind: "set", set: node.set }
+		: { kind: "group", branches: branchesOf(node) }
+
+const once = (atom: AreAtom): ArePiece => ({ atom, min: 1, max: 1 })
+
+/**
+ * The pieces a node adds to the branch it stands in: none for the empty string, its items' for a sequence, a group for
+ * an alternation, and an optional atom for an alternation with the empty string, which an ARE writes as `?`.
+ */
+export const piecesOf = (node: LiveNode): ReadonlyArray<ArePiece> => {
+	switch (node.kind) {
+		case "empty":
+			return []
+		case "set":
+			return [once({ kind: "set", set: node.set })]
+		case "start":
+		case "end":
+			return [once({ kind: "anchor", anchor: node.kind })]
+		case "seq":
+			return node.items.flatMap(piecesOf)
+		case "alt": {
+			const arms = node.arms.filter((arm) => arm.kind !== "empty")
+			if (arms.length === node.arms.length) {
+				return [once({ kind: "group", branches: arms })]
+			}
+			const [only] = arms
+			const atom: AreAtom =
+				arms.length === 1 && only !== undefined ? atomOf(only) : { kind: "group", branches: arms }
+			return [{ atom, min: 0, max: 1 }]
+		}
+		case "repeat":
+			return [{ atom: atomOf(node.body), min: node.min, max: node.max }]
+	}
+}
+
 const quantifier = (min: number, max: number | "unbounded"): string => {
 	if (max === "unbounded") {
 		return min === 0 ? "*" : min === 1 ? "+" : `{${min},}`
 	}
-	return min === max ? `{${min}}` : `{${min},${max}}`
-}
-
-/**
- * The ARE's precedence levels, loosest binding first: an alternation, a sequence, a quantified atom, an atom. A
- * quantifier applies only to an atom, so a quantified body is grouped again.
- */
-const levels = ["alt", "seq", "quantified", "atom"] as const
-
-type Level = (typeof levels)[number]
-
-interface Printed {
-	readonly text: string
-	readonly level: Level
-}
-
-/** A node's text, grouped unless it binds at least as tightly as `level`. */
-const group = (p: Printed, level: Level): string =>
-	levels.indexOf(p.level) < levels.indexOf(level) ? `(?:${p.text})` : p.text
-
-/**
- * A node's ARE text and its precedence, from its children's (`of`). An assertion prints at sequence precedence, so it
- * is grouped before a quantifier applies to it.
- */
-const printed = (node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
-	switch (node.kind) {
-		case "empty":
-			return { text: "", level: "seq" }
-		case "set":
-			return { text: areSet(node.set), level: "atom" }
-		case "start":
-			return { text: "\\A", level: "seq" }
-		case "end":
-			return { text: "\\Z", level: "seq" }
-		case "seq":
-			return { text: node.items.map((item) => group(of(item), "seq")).join(""), level: "seq" }
-		case "alt": {
-			const arms = node.arms.filter((arm) => arm.kind !== "empty")
-			const alternation = (): Printed => ({
-				text: arms.map((arm) => group(of(arm), "alt")).join("|"),
-				level: "alt"
-			})
-			if (arms.length === node.arms.length) {
-				return alternation()
-			}
-			const [only] = arms
-			const rest = arms.length === 1 && only !== undefined ? of(only) : alternation()
-			return { text: `${group(rest, "atom")}?`, level: "quantified" }
-		}
-		case "repeat":
-			return {
-				text: `${group(of(node.body), "atom")}${quantifier(node.min, node.max)}`,
-				level: "quantified"
-			}
+	if (min === max) {
+		return min === 1 ? "" : `{${min}}`
 	}
+	return min === 0 && max === 1 ? "?" : `{${min},${max}}`
+}
+
+/** A node's ARE text, from the texts of the nodes below it (`of`): its branches, `|` between them. */
+const printed = (node: LiveNode, of: (child: LiveNode) => string): string => {
+	const atomText = (atom: AreAtom): string => {
+		switch (atom.kind) {
+			case "set":
+				return areSet(atom.set)
+			case "anchor":
+				return atom.anchor === "start" ? "\\A" : "\\Z"
+			case "group":
+				return `(?:${atom.branches.map(of).join("|")})`
+		}
+	}
+	const branchText = (branch: LiveNode): string =>
+		piecesOf(branch)
+			.map((piece) => `${atomText(piece.atom)}${quantifier(piece.min, piece.max)}`)
+			.join("")
+	return isAlternation(node) ? node.arms.map(of).join("|") : branchText(node)
 }
 
 /**
@@ -155,5 +193,4 @@ const printed = (node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
  * IR of a language with a member (text/refinement.ts languageOf), and a Compute.matches pattern whose IR is never is
  * refused before it is printed (admit.ts).
  */
-export const toAre = (node: LiveNode): string =>
-	folded(new Map<RegexNode, Printed>(), node, printed).text
+export const toAre = (node: LiveNode): string => folded(new Map<RegexNode, string>(), node, printed)

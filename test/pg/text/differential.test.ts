@@ -1,11 +1,21 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
@@ -13,6 +23,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -51,33 +62,28 @@ import {
  * 4. the installed enforcement itself: the compiler's domain DDL (finite IN, ARE CHECK, or no domain at all for a
  *    tautology), asked through pg_input_is_valid, which evaluates the domain's CHECK constraints.
  *
- * The file also holds that every admitted pattern compiles inside PostgreSQL's regex compile space: the planted
- * worst case of each budget, and generated nested quantifiers near the budgets. The refusal of unadmitted constructs
- * is test/unit/text/parse.test.ts's, and that the budgets judge the printed ARE whatever its spelling is
+ * The file also holds that every admitted pattern compiles inside the limits of PostgreSQL's regex compiler: the largest
+ * pattern the limits admit along drawn shapes, and generated nested quantifiers. The refusal of unadmitted constructs
+ * is test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  */
-/**
- * A pattern with a hole for a repetition count: a body repeated `{n}` or `{0,n}`, anchored at both ends or followed by
- * a literal.
- */
-interface EdgeSketch {
-	readonly body: string
-	readonly exact: boolean
-	readonly anchored: boolean
-}
-
-/** The pattern of an edge sketch at `n` repetitions. */
-const patternAt = (edge: EdgeSketch, n: number): string =>
-	`${edge.anchored ? "^" : ""}(?:${edge.body}){${edge.exact ? n : `0,${n}`}}${edge.anchored ? "$" : "b"}`
-
-/** What the text analysis refuses a pattern by: the compile-space measure past its budget, or another refusal. */
+/** What refuses a pattern past the limits: the limit of PostgreSQL's regex compiler it crosses, or another refusal. */
 type EdgeRefusal = RegexSpaceMeasure["kind"] | "another refusal"
 
-/** What an edge search reached: the refusal past its largest admitted repetition, or the repetition bound itself. */
-type EdgeFeature = EdgeRefusal | "the repeat bound"
+/** What an edge search reached: the refusal past its largest admitted count, or the shape's greatest count itself. */
+type EdgeFeature = EdgeRefusal | "the shape's top"
 
-const measureAt = (edge: EdgeSketch, n: number): "admitted" | EdgeRefusal => {
-	const r = analyzeText(patternAt(edge, n), "u", SourceLoc("str.regex", []))
+/**
+ * A shape a pattern grows along, from count 1 to `top`, each count's pattern its source: the limits of PostgreSQL's
+ * regex compiler bind along one of them, or none does by the top.
+ */
+interface Growth {
+	readonly at: (n: number) => string
+	readonly top: number
+}
+
+const measureAt = (growth: Growth, n: number): "admitted" | EdgeRefusal => {
+	const r = admitPattern(growth.at(n), "u", SourceLoc("str.regex", []))
 	if (r.ok) {
 		return "admitted"
 	}
@@ -87,27 +93,24 @@ const measureAt = (edge: EdgeSketch, n: number): "admitted" | EdgeRefusal => {
 		: "another refusal"
 }
 
-/** The largest repetition count the analysis admits, and what refuses the count past it. */
+/** The largest count the limits admit from an admitted 1, and what refuses the count past it. */
 interface Edge {
 	readonly greatest: number
 	readonly past: EdgeFeature
 }
 
-/**
- * The largest repetition count the analysis admits from an admitted 1, by bisection over 1 to regexMaxRepeat: a count
- * whose successor is refused, the budget's edge, or regexMaxRepeat itself.
- */
-const edgeAt = (edge: EdgeSketch): Edge => {
-	const top = measureAt(edge, regexMaxRepeat.value)
+/** The largest count the limits admit from an admitted 1, by bisection over 1 to the shape's top. */
+const edgeAt = (growth: Growth): Edge => {
+	const top = measureAt(growth, growth.top)
 	if (top === "admitted") {
-		return { greatest: regexMaxRepeat.value, past: "the repeat bound" }
+		return { greatest: growth.top, past: "the shape's top" }
 	}
 	let low = 1
-	let high: number = regexMaxRepeat.value
+	let high = growth.top
 	let past: EdgeRefusal = top
 	while (high - low > 1) {
 		const middle = Math.floor((low + high) / 2)
-		const measured = measureAt(edge, middle)
+		const measured = measureAt(growth, middle)
 		if (measured === "admitted") {
 			low = middle
 		} else {
@@ -118,30 +121,117 @@ const edgeAt = (edge: EdgeSketch): Edge => {
 	return { greatest: low, past }
 }
 
-const edgeOf =
-	(body: Gen<string>): Gen<EdgeSketch> =>
-	(source) => ({
-		body: source.draw(body),
-		exact: source.draw(boolean),
-		anchored: source.draw(boolean)
-	})
+/** A code point as its braced escape, which means itself inside a class and out. */
+const escaped = (c: number): string => `\\u{${c.toString(16)}}`
 
-/** An alternation of an anchor and a wide class's counted run, the shape whose anchors multiply its positions. */
-const anchoredAlternationGen: Gen<EdgeSketch> = edgeOf(
-	(source) =>
-		`(?:${source.draw(element(["^", "$"]))}|${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat.value))}}|${source.draw(element(["^", "$", ""]))})`
-)
+/** Code points of three widths, so a drawn alphabet cuts the characters into many colors. */
+const widePoint: Gen<number> = oneOf<number>([
+	int(0x21, 0x7e),
+	int(0x4e00, 0x9fff),
+	int(0x1f300, 0x1faff)
+])
 
-/** A counted run of a nullable body, the shape whose empty paths join pairs of states. */
-const nullableNestGen: Gen<EdgeSketch> = edgeOf(
+/** A drawn body repeated `{inner}` times, then `{n}` or `{0,n}` times, anchored at both ends or followed by a literal. */
+const repeatedOf =
+	(body: Gen<string>): Gen<Growth> =>
+	(source) => {
+		const drawnBody = source.draw(body)
+		const inner = source.draw(int(1, regexMaxRepeat.value))
+		const exact = source.draw(boolean)
+		const anchored = source.draw(boolean)
+		return {
+			at: (n) =>
+				`${anchored ? "^" : ""}(?:(?:${drawnBody}){${inner}}){${exact ? n : `0,${n}`}}${anchored ? "$" : "b"}`,
+			top: regexMaxRepeat.value
+		}
+	}
+
+/** m code points of their own, then n copies of a class of all of them under a drawn quantifier: arcs by colors. */
+const colorfulGen: Gen<Growth> = (source) => {
+	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 2, max: 2_048 }, 8))
+	const quantifier = source.draw(element(["", "?", "{0,255}", "{1,255}", "{255}", "*"]))
+	const spelled = Arr.join(Arr.map(points, escaped), "")
+	return { at: (n) => `${spelled}(?:[${spelled}]${quantifier}){${n}}b`, top: regexMaxRepeat.value }
+}
+
+/** An alternation of n hundred words of a drawn alphabet: the states a match reads, and colors as the alphabet is wide. */
+const wordsGen: Gen<Growth> = (source) => {
+	const points = source.draw(uniqueArray(widePoint, (c) => c, { min: 10, max: 64 }, 8))
+	const length = source.draw(int(2, 6))
+	const wordOf = (i: number): string =>
+		Arr.join(
+			Arr.makeBy(length, (d) =>
+				escaped(defined(points[Math.floor(i / points.length ** d) % points.length], "a point"))
+			),
+			""
+		)
+	return {
+		at: (n) => `^(?:${Arr.join(Arr.makeBy(n * 100, wordOf), "|")})$`,
+		top: Math.min(Math.floor(points.length ** length / 100), 1_024)
+	}
+}
+
+/** n times 64 nested optional groups, each a code point and the rest: the parser's recursion and the walks' depth. */
+const nestingGen: Gen<Growth> = (source) => {
+	const c = escaped(source.draw(widePoint))
+	return { at: (n) => `${Str.repeat(n * 64)(`(?:${c}`)}${Str.repeat(n * 64)(")?")}b`, top: 1_024 }
+}
+
+/** An alternation of an anchor on either side of a wide class's counted run, n times, two anchors to move each time. */
+const anchorsGen: Gen<Growth> = (source) => {
+	const run = `${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat.value))}}`
+	return { at: (n) => `(?:^|${run}|$){${n}}b`, top: 64 }
+}
+
+/** An alternation of n hundred two-character words, each a code point of its own and a common one: states times colors. */
+const colorsGen: Gen<Growth> = (source) => {
+	const base = source.draw(element([0x4e00, 0x20000]))
+	return {
+		at: (n) =>
+			`^(?:${Arr.join(
+				Arr.makeBy(n * 100, (i) => `${escaped(base + i)}y`),
+				"|"
+			)})$`,
+		top: 255
+	}
+}
+
+/** A counted run of a nullable body, the shape whose empty paths copy arcs. */
+const nullableNestGen: Gen<Growth> = repeatedOf(
 	(source) =>
 		`(?:${source.draw(element(["a|", "a|b?", "a?", "(?:a|)"]))}){${source.draw(int(2, regexMaxRepeat.value))}}`
 )
 
-/** A drawn nested body, or one of the shapes the budgets other than positions bind first. */
-const edgeGen: Gen<EdgeSketch> = weighted<EdgeSketch>([
-	[3, edgeOf(nestedPattern)],
-	[1, anchoredAlternationGen],
+/**
+ * The limits a shape grows to the edge of: every one a count binds first, the colors and the states held at once
+ * binding none the match's limits leave, and a loop through an anchor growing with no count.
+ */
+const edgeLimits = [
+	"depth",
+	"arcs",
+	"matchStates",
+	"matchCells",
+	"anchors"
+] as const satisfies Arr.NonEmptyReadonlyArray<RegexSpaceMeasure["kind"]>
+type EdgeLimit = (typeof edgeLimits)[number]
+
+/** Each limit's shape, the one a pending limit steers to. */
+const shapeOf: { readonly [K in EdgeLimit]: Gen<Growth> } = {
+	depth: nestingGen,
+	arcs: colorfulGen,
+	matchStates: wordsGen,
+	matchCells: colorsGen,
+	anchors: anchorsGen
+}
+
+/** A drawn shape, each limit's among them. */
+const growthGen: Gen<Growth> = weighted<Growth>([
+	[2, repeatedOf(nestedPattern)],
+	[2, colorfulGen],
+	[1, colorsGen],
+	[1, wordsGen],
+	[1, nestingGen],
+	[1, anchorsGen],
 	[1, nullableNestGen]
 ])
 
@@ -153,7 +243,7 @@ const generatedPerFamily = 12
 const walksPerPattern = 24
 
 /**
- * A pattern's refinement, a language with no admitted text value ("empty"), or a pattern past the budgets ("bound").
+ * A pattern's refinement, a language with no admitted text value ("empty"), or a pattern past the limits ("bound").
  */
 const refine = (
 	source: string,
@@ -257,7 +347,7 @@ const agreeOn = (
 			for (const [pi, { source, flags, handwritten, r, walks }] of patterns.entries()) {
 				const label = `${family.name} /${source}/${flags}`
 				if (r === "bound") {
-					assert.equal(handwritten, false, `${label} exceeds the budgets`)
+					assert.equal(handwritten, false, `${label} exceeds the limits`)
 					continue
 				}
 				if (!handwritten && r !== "empty") {
@@ -342,11 +432,11 @@ layer(Substrate.layer)(
 				const schema = yield* s.schema(freshSchema)
 				const db = yield* s.session(ownerSession())
 				for (const [fi, family] of families.entries()) {
-					/** The family's own patterns, refined once: a handwritten pattern past the budgets fails the test. */
+					/** The family's own patterns, refined once: a handwritten pattern past the limits fails the test. */
 					const written = Arr.map(family.patterns, ([source, flags], pi) => {
 						const r = refine(source, flags, loc(family.name, pi))
 						if (r === "bound") {
-							throw new Error(`${family.name} /${source}/${flags} exceeds the budgets`)
+							throw new Error(`${family.name} /${source}/${flags} exceeds the limits`)
 						}
 						return { source, flags, r }
 					})
@@ -419,17 +509,16 @@ layer(Substrate.layer)(
 		)
 
 		/**
-		 * The compile-space measures (core/limits.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
-		 * regexMaxAnchorWeight) must keep every admitted pattern inside what
-		 * PostgreSQL 19 compiles: it refuses none of them as too complex. How long a compile takes is no part of the
-		 * property, since the machine's load sets it; a compile that never ends is a hang, which the case's hang guard
-		 * reports.
+		 * The limits of PostgreSQL's regex compiler grizzle holds a pattern to (scalar/regex/space.ts) must keep every
+		 * admitted pattern inside what PostgreSQL 19 compiles: it refuses none of them as too complex or for too many
+		 * colors. How long a compile takes is no part of the property, since the machine's load sets it; a compile that
+		 * never ends is a hang, which the case's hang guard reports.
 		 */
 		const compileWithin = (db: RawSession, are: string) =>
 			db.query("SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text", [are])
 
 		it.effect(
-			"compiles the largest admitted repetition of a drawn body, at each budget's edge, inside PostgreSQL's regex compile space",
+			"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge",
 			(ctx) =>
 				searched(
 					ctx,
@@ -438,54 +527,50 @@ layer(Substrate.layer)(
 						const db = yield* s.session(ownerSession())
 						return yield* explore(
 							{
-								suite: "text/differential/at-bound",
-								draw: drawn(edgeGen),
-								literal: Formatter.format,
+								suite: "text/differential/at-limit",
+								draw: drawn(growthGen),
+								literal: (growth) => Formatter.format(Str.slice(0, 160)(growth.at(1))),
 								oracle: {
 									kind: "postgresql",
-									name: "PostgreSQL 19's regex compiler and ~, on the largest repetition the budgets admit"
+									name: "PostgreSQL 19's regex compiler and ~, on the largest pattern the limits admit"
 								},
-								coverage: required<EdgeFeature>(
-									["positions", "anchors", "anchorWeight", "closurePairs"],
-									{ cases: 60, sense: notesOnly }
-								),
+								coverage: required<EdgeFeature>(edgeLimits, { cases: 96, sense: notesOnly }),
 								kept: [],
-								runs: 8,
+								runs: 16,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 4,
 								caseHang
 							},
-							(drawnEdge, k) =>
+							(drawnGrowth, k) =>
 								Effect.gen(function* () {
-									const edge = Option.getOrElse(
+									const growth = Option.getOrElse(
 										Option.flatMap(k.steering, (pending) =>
-											pending.has("anchorWeight")
-												? Option.some(k.draw(anchoredAlternationGen))
-												: pending.has("closurePairs")
-													? Option.some(k.draw(nullableNestGen))
-													: Option.none()
+											Option.map(
+												Arr.findFirst(edgeLimits, (kind) => pending.has(kind)),
+												(kind) => k.draw(shapeOf[kind])
+											)
 										),
-										() => drawnEdge
+										() => drawnGrowth
 									)
-									yield* k.assume(measureAt(edge, 1) === "admitted")
-									const { greatest, past } = edgeAt(edge)
+									yield* k.assume(measureAt(growth, 1) === "admitted")
+									const { greatest, past } = edgeAt(growth)
 									k.note(past)
-									const source = patternAt(edge, greatest)
+									const source = growth.at(greatest)
 									const r = admitted(source, "u", SourceLoc("str.regex", []))
 									yield* compileWithin(db, r.are)
 									const rows = yield* db.values(
 										"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",
 										["abcd", r.are]
 									)
-									assert.equal(truth(rows[0]?.[0]), accepts(r, "abcd"), source)
+									assert.equal(truth(rows[0]?.[0]), accepts(r, "abcd"), Str.slice(0, 160)(source))
 								})
 						)
 					})
 				)
 		)
 
-		it.effect("compiles generated admitted nested-quantifier patterns near the budgets", (ctx) =>
+		it.effect("compiles generated admitted nested-quantifier patterns", (ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
@@ -497,7 +582,7 @@ layer(Substrate.layer)(
 							suite: "text/differential/nested",
 							draw: drawn(nestedPattern),
 							literal: Formatter.format,
-							coverage: required<"near the budget">(["near the budget"], {
+							coverage: required<"a large pattern">(["a large pattern"], {
 								cases: 4800,
 								sense: notesOnly
 							}),
@@ -515,7 +600,7 @@ layer(Substrate.layer)(
 								if (r === "empty" || r === "bound" || RegexIr.expandedSize(r.ir) < 64) {
 									return
 								}
-								k.note("near the budget")
+								k.note("a large pattern")
 								const exit = yield* Effect.exit(compileWithin(db, r.are))
 								assert.equal(
 									Exit.isSuccess(exit),

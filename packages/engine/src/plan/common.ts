@@ -59,6 +59,7 @@ export {
 	derived,
 	handleMaxBytes,
 	type Limit,
+	maxStackDepth,
 	maxStringLength,
 	measured,
 	messageMaxBytes,

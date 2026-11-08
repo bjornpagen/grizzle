@@ -17,12 +17,13 @@ import { caseHang } from "#test/support/limits.ts"
 
 /**
  * Admission's checks of the server (adapter/admission/expectation.ts serverMismatches): the server is PostgreSQL 19,
- * the database UTF8 with the builtin C.UTF-8 locale and its pg_c_utf8 collation, and the extensions the schema needs
- * are installed in the schema its compiled names place them in, at the pinned version.
+ * the database UTF8 with the builtin C.UTF-8 locale and its pg_c_utf8 collation, the server's max_stack_depth at least
+ * its default, 2MB, and the extensions the schema needs are installed in the schema its compiled names place them in,
+ * at the pinned version.
  *
  * Over drawn catalog answers, each value one PostgreSQL gives: a server_version_num around every bound of 19's, an
  * encoding, a locale provider, a builtin locale in each spelling PostgreSQL accepts and others, the collation's count,
- * and pgvector absent, installed as needed, elsewhere or at another version, for a schema without a vector field and one
+ * a max_stack_depth in kilobytes around 2MB, from its least to a large one, and pgvector absent, installed as needed, elsewhere or at another version, for a schema without a vector field and one
  * with one. The oracle is README's list of what Db.open checks, restated: every check that fails is a mismatch, in the
  * order of the stages `version`, `locale` and `capability`, so a server of another major version is refused at stage
  * `version` whatever else is wrong with it, and an admitted server shows none.
@@ -52,6 +53,28 @@ const isNineteen = (version: Version): boolean =>
 
 type Installed = "absent" | "as needed" | "in another schema" | "at another version"
 
+/** A max_stack_depth pg_settings reports, in kilobytes: its least, around its default of 2MB, and a large one. */
+type StackDepth =
+	| "its least"
+	| "1MB"
+	| "a kilobyte short of 2MB"
+	| "2MB"
+	| "a kilobyte past 2MB"
+	| "64MB"
+
+const stackDepthText: Readonly<Record<StackDepth, string>> = {
+	"its least": "100",
+	"1MB": "1024",
+	"a kilobyte short of 2MB": "2047",
+	"2MB": "2048",
+	"a kilobyte past 2MB": "2049",
+	"64MB": "65536"
+}
+
+/** Whether a max_stack_depth is at least its default, 2MB. */
+const deepEnough = (depth: StackDepth): boolean =>
+	depth === "2MB" || depth === "a kilobyte past 2MB" || depth === "64MB"
+
 interface ServerCase {
 	readonly schema: "without a vector field" | "with a vector field"
 	readonly version: Version
@@ -59,6 +82,7 @@ interface ServerCase {
 	readonly provider: string
 	readonly locale: string
 	readonly collations: "1" | "0"
+	readonly stackDepth: StackDepth
 	readonly vector: Installed
 }
 
@@ -97,6 +121,12 @@ const serverCaseGen: Gen<ServerCase> = (source) => ({
 		weighted([
 			[3, constant("1" as const)],
 			[1, constant("0" as const)]
+		])
+	),
+	stackDepth: source.draw(
+		weighted<StackDepth>([
+			[4, element<StackDepth>(["2MB", "a kilobyte past 2MB", "64MB"])],
+			[1, element<StackDepth>(["its least", "1MB", "a kilobyte short of 2MB"])]
 		])
 	),
 	vector: source.draw(
@@ -190,7 +220,8 @@ describe("admission's checks of the server", () => {
 										encoding: c.encoding,
 										localeProvider: c.provider,
 										locale: c.locale,
-										cUtf8Collations: c.collations
+										cUtf8Collations: c.collations,
+										stackDepth: stackDepthText[c.stackDepth]
 									},
 									extensions
 								},
@@ -204,6 +235,7 @@ describe("admission's checks of the server", () => {
 								...(c.collations === "1"
 									? []
 									: [mismatch("locale", "collation pg_catalog.pg_c_utf8 (builtin)")]),
+								...(deepEnough(c.stackDepth) ? [] : [mismatch("capability", "max_stack_depth")]),
 								...(needsVector && c.vector !== "as needed"
 									? [mismatch("capability", `extension ${vectorExtension.name}`)]
 									: [])

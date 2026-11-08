@@ -222,46 +222,6 @@ export const closure = (
 	return out
 }
 
-/**
- * The states reachable from `s` over ε and assertion edges, `s` included, counted up to `limit` + 1. `mark` is scratch
- * space of the NFA's size, holding `s` for each state this count has reached.
- */
-const reachCount = (nfa: Nfa, s: number, mark: Int32Array, limit: number): number => {
-	const stack = [s]
-	mark[s] = s
-	const visit = (to: number): void => {
-		if (mark[to] !== s) {
-			mark[to] = s
-			stack.push(to)
-		}
-	}
-	let count = 0
-	for (let x = stack.pop(); x !== undefined && count <= limit; x = stack.pop()) {
-		count += 1
-		for (const e of entry(nfa.edges, x)) {
-			if (e.kind !== "set") {
-				visit(e.to)
-			}
-		}
-	}
-	return count
-}
-
-/**
- * The number of (state, state) pairs joined by a path of ε and assertion edges, counting each state with itself,
- * or `cap + 1` as soon as the count passes `cap`. PostgreSQL's regex compiler removes empty arcs by copying, into every
- * state, the arcs of each state its empty arcs reach (regc_nfa.c fixempties), so its compile space grows with this
- * count: a chain of k optional copies, such as `(?:a?){k}`, costs about k²/2.
- */
-export const closurePairs = (nfa: Nfa, cap: number): number => {
-	const mark = new Int32Array(nfa.edges.length).fill(-1)
-	let total = 0
-	for (let s = 0; s < nfa.edges.length && total <= cap; s++) {
-		total += reachCount(nfa, s, mark, cap - total)
-	}
-	return total
-}
-
 /** The code points of an admitted text value, or undefined when it is not one (NUL or a lone surrogate). */
 const admittedCodePoints = (value: string): ReadonlyArray<number> | undefined => {
 	const points = codePoints(value)

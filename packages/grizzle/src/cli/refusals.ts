@@ -104,6 +104,7 @@ export const refusalText = {
 /** The fix of each stage at which `grizzle migrate` stops (packages/grizzle/src/adapter/migrate/errors.ts). */
 export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	connect: "check the configuration's connection: its host, port, database, role, password and CA",
+	server: "have a superuser raise the server's max_stack_depth to at least 2MB, its default",
 	owner: "connect as the role that owns the schema",
 	input: "run grizzle check and fix what it reports",
 	busy: "wait for the other grizzle migrate to finish, then run it again",

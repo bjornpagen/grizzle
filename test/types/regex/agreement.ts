@@ -4,7 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
-import { regexMaxPositions, typeUnionLimit } from "#compiler/core/limits.ts"
+import { regexMaxDepth, typeUnionLimit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -22,7 +22,7 @@ import { families, type Flags, jsAccepts, patternOver } from "#test/unit/text/ge
  * declared classes are calls the types and the engine judge apart, each for the one reason it states, from what typed
  * authoring does not read: a construct outside PostgreSQL's regex fragment that ArkRegex parses (outsideFragment,
  * UnsupportedOperation), a source past the typed-authoring scan (beyondScan: MalformedDescription of a malformed one,
- * ResourceBound of one past the compiler's NFA positions), and a call whose source or flags no literal types
+ * ResourceBound of one past the depth of PostgreSQL's regex compiler), and a call whose source or flags no literal types
  * (nonLiteral: the types refuse it, the engine admits the value a JavaScript caller holds there).
  *
  * Inference is asserted where it has an oracle: a finite language of literal words, each character spelled plainly or
@@ -107,7 +107,7 @@ const regexForms = [
 	"quantifiedAssertion",
 	"outside",
 	"nul",
-	"overPositions",
+	"overDepth",
 	"flags",
 	"nonLiteral",
 	"crossProduct"
@@ -429,9 +429,9 @@ const caseGen: Gen<RegexCase> = (source) => {
 			return literalCase(form, source.draw(outsidePattern), flags, undefined)
 		case "nul":
 			return literalCase(form, `^a\\0${source.draw(element(wordAlphabet))}$`, flags, undefined)
-		case "overPositions": {
+		case "overDepth": {
 			const pair = source.draw(element(["ab", "xc"] as const))
-			const repeats = regexMaxPositions.value / 2 + 1 + source.draw(int(0, 3))
+			const repeats = regexMaxDepth.value / 2 + 1 + source.draw(int(0, 3))
 			return literalCase(form, `^${Str.repeat(repeats)(pair)}$`, flags, undefined)
 		}
 		case "flags":

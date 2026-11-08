@@ -2702,7 +2702,8 @@ reads, by stage, in this order:
 
 - **`version`:** PostgreSQL 19.
 - **`locale`:** the database UTF8 with the builtin `C.UTF-8` locale.
-- **`capability`:** the extensions the schema needs installed.
+- **`capability`:** the extensions the schema needs installed, and the server's `max_stack_depth` at least its
+  default, 2MB, which the limits grizzle holds every pattern to rest on ([Limits](#limits)).
 - **`ledger`:** no migration running or stopped part-way, and the latest complete one at the snapshot's fingerprint.
 - **`settings`:** the database's default isolation SERIALIZABLE, and the login's and the role's settings exactly as the
   snapshot installs them. Every login's own defaults pin its sessions, each a setting a grizzle guarantee rests on:
@@ -2921,7 +2922,22 @@ grizzle fits applications that own their data end to end, with rules worth decla
 ### Patterns and text
 
 - **A `str.regex` pattern has no lookahead, lookbehind or `\p{…}` class**, nor any other construct [Tables and types](#tables-and-types) excludes, and some text must match it.
-- **A pattern is bounded by the automaton PostgreSQL compiles from it**, not by its length. grizzle refuses with `ResourceBound`, at compile time, a pattern past its measures of PostgreSQL's compile space (`REG_MAX_COMPILE_SPACE`, beyond which PostgreSQL says "regular expression is too complex"): 4,096 positions once counted repetitions are written out, 65,536 pairs of positions joined by empty paths, 8 anchors, or 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit. A counted repetition's bound is at most 255. Each pattern a `Compute.matches` term can take, a closed relation's dictionary values included, is bounded alike.
+- **A pattern is bounded by what PostgreSQL's regex engine builds from it**, not by its length. grizzle reads the ARE
+  it prints as PostgreSQL's parser does, and refuses with `ResourceBound`, at compile time, a pattern past one of the
+  engine's own limits, which PostgreSQL would otherwise meet at the first value a domain checks, refusing every write:
+  more than 16,384 colors, the classes of characters its sets hold alike (`MAX_COLOR`, halved, since parsing one set can
+  split every color at once); more than 482,800 NFA states or 1,967,182 NFA arcs held at once while it compiles, a
+  set's arcs counted once for each color it spans (`REG_MAX_COMPILE_SPACE`'s shares of each); an NFA whose longest path
+  is more than 16,000 arcs, which the compiler's recursive walks would descend past `max_stack_depth`; more than 64,000
+  NFA states to match with, or 16,000,000 for those states times its colors, the arrays each match allocates within
+  `MaxAllocSize`; or more than 8 anchors it must move, those some consuming path reaches or leaves. A counted
+  repetition's bound is at most 255. Each pattern a `Compute.matches` term can take, a closed relation's dictionary
+  values included, is bounded alike.
+- **A large pattern costs time.** A pattern near the limits takes seconds to compile, the first time a backend checks it
+  and again whenever it leaves the backend's cache (below), and each match allocates arrays that grow with its states
+  and colors. grizzle sets no time budget.
+- **The depth limit rests on `max_stack_depth` at its default, 2MB**, a superuser's setting: `Db.open` refuses a server
+  set lower at stage `capability`, and `grizzle migrate` at stage `server`.
 - **A parameter is checked against its contract and pattern at bind**, before any SQL (`EncodingFailure`, `refinedValue`), so a query delivers a parameter's value, or a relation parameter's field, as bound, whatever its pattern. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
 - **PostgreSQL keeps a backend's last 32 compiled regular expressions** (`MAX_CACHED_RES`), so rows that cycle through a dictionary of more patterns compile one per row. On 19rc1 (an Apple M-series laptop under load; 200,000 rows; dictionaries of 1 to 178 patterns; median of three runs) a row costs 1.4 to 4.9 µs grouped by pattern or cycling through 32 patterns or fewer, and 80 to 102 µs cycling through 33, 64 or 178; the CASE that reads each source's translation adds about 1 µs a row at 178. A family write orders each statement's rows by pattern, so each compiles once per statement. Order other bulk reads and writes by pattern where you can.
 - **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Compute.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs.
