@@ -100,8 +100,9 @@ const self = "scripts/dev/mutate"
  *    suites add up to one report; --retriage runs no stage and rebuilds the report with the current triage. A triage
  *    verdict whose mutant is in no current population refuses every run.
  *
- * With --first-kill a mutant's run stops at the first test it fails that passes on the unmutated tree, so a killed
- * mutant names its first killer only and the kill sets are partial; a mutant that survives still runs every file.
+ * With --first-kill a mutant's run stops at the first test it fails that passes on the unmutated tree, or at the first
+ * file it hangs in, so a killed mutant names its first killer only and the kill sets are partial; a mutant that
+ * survives still runs every file.
  * Workers default to the cores. An interrupted run writes no report: its verdicts are incomplete.
  *
  * These are the source modules in scope, by area: the compiler's analyses, lowerings, checker, law models, writes,
@@ -891,9 +892,31 @@ const unfinishedOf = (file: string, end: RunEnd): ReadonlyArray<Failure> => {
 const hungIn = (end: RunEnd): ReadonlyArray<string> => (end.kind === "hung" ? [end.file] : [])
 
 /**
+ * Each of `files` run alone by `runOne`, in order, until one of the runs `kills`: the attribution of a run that hung
+ * or died, which stops at its first killer under --first-kill.
+ */
+const runAlone = <A, E, R>(
+	files: ReadonlyArray<FilePass>,
+	runOne: (p: FilePass) => Effect.Effect<A, E, R>,
+	kills: (a: A) => boolean
+): Effect.Effect<ReadonlyArray<A>, E, R> =>
+	Effect.gen(function* () {
+		const out: Array<A> = []
+		for (const p of files) {
+			const a = yield* runOne(p)
+			out.push(a)
+			if (kills(a)) {
+				return out
+			}
+		}
+		return out
+	})
+
+/**
  * Runs the files against the mutant in the tree; the killing files are those with a test that passes in the baseline
  * and fails here. A run that hangs is charged to the file it hung in, with that file's failures before it; it and a
- * run that dies are attributed by running each other file alone.
+ * run that dies are attributed by running each other file alone. Under --first-kill the file a run hangs in is its
+ * killer, and a run that dies is attributed only up to the first file that kills alone.
  */
 const attempt = Effect.fn("attempt")(function* (
 	stage: Stage,
@@ -932,9 +955,12 @@ const attempt = Effect.fn("attempt")(function* (
 				return found
 			}
 			const hung = hungIn(whole.end)
-			const alone = yield* Effect.forEach(
-				Arr.filter(files, (p) => !Arr.contains(hung, p.file)),
-				(p) => Effect.map(run([p]), (r) => ({ file: p.file, r }))
+			const alone = yield* runAlone(
+				settings.firstKill && Arr.isReadonlyArrayNonEmpty(hung)
+					? []
+					: Arr.filter(files, (p) => !Arr.contains(hung, p.file)),
+				(p) => Effect.map(run([p]), (r) => ({ file: p.file, r })),
+				({ r }) => settings.firstKill && (r.end.kind !== "finished" || Arr.some(r.failures, isNew))
 			)
 			const found: Attempt = {
 				failures: [
