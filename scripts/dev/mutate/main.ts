@@ -90,8 +90,9 @@ const self = "scripts/dev/mutate"
  *    per worker in parallel, each file of it bounded as every run's are (reporter.ts fileTimeout), so a mutant that
  *    loops where no timer of its test process fires times out. A mutant no file executes is `no-coverage`. The stage-1 verdicts go to test/support/mutation/logs/stage1.json, and --resume FILE takes a
  *    mutant's verdict from such a file instead of running stages 0 and 1 again.
- * 6. Stage 2 runs each stage-1 survivor against the seeded PostgreSQL oracle subset (oracle/), gated by that subset's
- *    own coverage pass.
+ * 6. Stage 2 runs each stage-1 survivor against the PostgreSQL files that execute it, by their own coverage pass: the
+ *    seeded oracle subset (oracle/), and the migration suites that alone reach the deployment's code, the generated
+ *    migration paths (test/pg/migrate/paths.test.ts) and the runner's hand edits (test/pg/migrate/admission.test.ts).
  * 7. The report, test/support/mutation/report.json (report.ts), gives the score per area and per module, every mutant
  *    with its status and killing files and tests, the survivors with their triage from
  *    test/support/mutation/triage.json, per test file and per test the mutants it kills and those only it kills, and
@@ -254,7 +255,9 @@ const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<
 						`${self}/oracle/queries.test.ts`,
 						`${self}/oracle/writes.test.ts`,
 						`${self}/oracle/laws.test.ts`,
-						`${self}/oracle/public.test.ts`
+						`${self}/oracle/public.test.ts`,
+						"test/pg/migrate/paths.test.ts",
+						"test/pg/migrate/admission.test.ts"
 					]
 				),
 		mutants: Option.fromUndefinedOr(values.mutant),
