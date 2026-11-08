@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { lex, type Token } from "#compiler/sql/lexer.ts"
+import { type Lexeme, lex, lexemesOf, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
 export const noTransactionMarker = "-- grizzle: no-transaction"
@@ -51,10 +51,11 @@ const tokenOffsets = (text: string, from: number, limit: number): ReadonlyArray<
 	return out
 }
 
-/** A token's text, holding as many placeholder tokens as the token's source: a quoted identifier's or a string
+/** A lexeme's text, holding as many placeholder tokens as the lexeme's source: a quoted identifier's or a string
  * constant's content reads each doubled quote as one, which never joins or splits a placeholder token, since it holds
- * no quote; a dollar-quoted string is its tags and body; a positional parameter is `$` and digits. */
-const tokenText = (t: Token): string => {
+ * no quote; a dollar-quoted string is its tags and body; a positional parameter is `$` and digits; a refused run is its
+ * source. */
+const lexemeText = (t: Lexeme): string => {
 	switch (t.kind) {
 		case "word":
 		case "quotedIdent":
@@ -62,6 +63,7 @@ const tokenText = (t: Token): string => {
 		case "number":
 		case "operator":
 		case "punct":
+		case "refused":
 			return t.text
 		case "dollar":
 			return `${t.tag}${t.body}${t.tag}`
@@ -70,24 +72,24 @@ const tokenText = (t: Token): string => {
 	}
 }
 
-/** The 0-based lines holding a placeholder token in the SQL of `text`: in a token PostgreSQL's scanner reads,
- * never in a line or block comment. A token's source begins at its start, so the placeholder tokens its
- * text holds are the first that many from there. Past a scanner error nothing is known to be a comment, so every
- * placeholder token there counts. */
+/** The 0-based lines holding a placeholder token in the SQL of `text`: in a lexeme PostgreSQL's scanner reads, a run
+ * it refuses among them, never in a line or block comment. A lexeme's source begins at its start, so the placeholder
+ * tokens its text holds are the first that many from there. Past a quote or block comment the text never closes
+ * nothing is known to be a comment, so every placeholder token there counts. */
 const placeholderLines = (text: string): ReadonlySet<number> => {
 	if (!text.includes(placeholderToken)) {
 		return new Set()
 	}
-	const { tokens, error } = lex(text)
+	const { lexemes, unclosed } = lexemesOf(text)
 	const offsets: Array<number> = []
-	for (const t of tokens) {
-		const held = tokenOffsets(tokenText(t), 0, Number.POSITIVE_INFINITY).length
+	for (const t of lexemes) {
+		const held = tokenOffsets(lexemeText(t), 0, Number.POSITIVE_INFINITY).length
 		if (held > 0) {
 			appendAll(offsets, tokenOffsets(text, t.start, held))
 		}
 	}
-	if (error !== undefined) {
-		appendAll(offsets, tokenOffsets(text, error.offset, Number.POSITIVE_INFINITY))
+	if (unclosed !== undefined) {
+		appendAll(offsets, tokenOffsets(text, unclosed.offset, Number.POSITIVE_INFINITY))
 	}
 	const lines = new Set<number>()
 	let line = 0
@@ -145,18 +147,18 @@ export const isNoTransaction = (text: string): boolean => {
 }
 
 /** The statements of a file, for a no-transaction file that runs each alone: the text split at the semicolons
- * PostgreSQL's scanner reads as punctuation, so a semicolon in a comment, a quoted identifier, a string
+ * PostgreSQL's scanner reads as punctuation (lexemesOf), so a semicolon in a comment, a quoted identifier, a string
  * constant or a dollar-quoted body never splits, and pieces that hold only comments and whitespace dropped. Each
- * statement keeps its leading comments and loses its terminator. A quote or comment the text opens and never closes
- * takes the rest of the text into the piece it starts, which PostgreSQL then refuses when it runs.
- *
- * What the scanner stopped at is substantive unless it is a block comment left open. */
+ * statement keeps its leading comments and loses its terminator. A run the scanner refuses, such as `""`, is part of
+ * its statement, which PostgreSQL then refuses alone when it runs. A quote or comment the text opens and never closes
+ * takes the rest of the text into the piece it starts, which PostgreSQL then refuses when it runs; a block comment left
+ * open is no statement of its own. */
 export const splitStatements = (text: string): ReadonlyArray<string> => {
-	const { tokens, error } = lex(text)
+	const { lexemes, unclosed } = lexemesOf(text)
 	const out: Array<string> = []
 	let start = 0
 	let substantive = false
-	for (const t of tokens) {
+	for (const t of lexemes) {
 		const ends = t.kind === "punct" && t.text === ";"
 		if (ends && substantive) {
 			out.push(text.slice(start, t.start).trim())
@@ -166,7 +168,7 @@ export const splitStatements = (text: string): ReadonlyArray<string> => {
 		}
 		substantive = !ends
 	}
-	if (substantive || (error !== undefined && !text.startsWith("/*", error.offset))) {
+	if (substantive || (unclosed !== undefined && unclosed.opener !== "block comment")) {
 		out.push(text.slice(start).trim())
 	}
 	return out

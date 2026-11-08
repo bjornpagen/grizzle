@@ -20,8 +20,15 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { lex, type Lexed, type Token } from "#compiler/sql/lexer.ts"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import {
+	type Lexed,
+	type Lexeme,
+	type Lexemes,
+	lex,
+	lexemesOf,
+	type Token
+} from "#compiler/sql/lexer.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
@@ -33,7 +40,8 @@ import { scan } from "#test/unit/sql/scan.ts"
  * The PostgreSQL lexer the text audit and the migration file's statement splitter run on (sql/lexer.ts): it is the
  * audit's eyes, so a token it misreads is a construct the audit cannot see. The oracle is PostgreSQL's own scanner,
  * scan.l transcribed rule by rule apart from the lexer (test/unit/sql/scan.ts): the lexer reads every text as the
- * scanner does, each token's kind, content and offset, and the offset of the error it stops at.
+ * scanner does, each lexeme's kind, content and offset, a refused run's extent among them, and the quote or comment it
+ * never closes, and where; and PostgreSQL accepts the tokens before the first refusal (lex).
  *
  * - Every text of up to three characters over the characters the scanner's rules branch on, and every run of up to
  *   three tokens and separators written edge to edge, lex as the scanner reads them: the boundaries between tokens.
@@ -45,12 +53,35 @@ import { scan } from "#test/unit/sql/scan.ts"
  *   no error.
  */
 
-/** A lexed text's tokens and the offset of its error: what the lexer and the scanner must agree on. */
-const readOf = (lexed: Lexed) => ({ tokens: lexed.tokens, error: lexed.error?.offset })
+/** A text's lexemes, a refused run's message aside, and what it never closes: what the lexer and the scanner must
+ * agree on. */
+const readOf = (read: Lexemes) => ({
+	lexemes: Arr.map(read.lexemes, (l) =>
+		l.kind === "refused" ? { kind: l.kind, text: l.text, start: l.start } : l
+	),
+	unclosed: read.unclosed
+})
 
-/** The lexer reads `text` exactly as PostgreSQL's scanner does. */
+/** The tokens before a reading's first refusal, and the offset of that refusal: what PostgreSQL accepts. */
+const acceptedOf = (read: Lexemes) => {
+	const tokens: Array<Token> = []
+	for (const l of read.lexemes) {
+		if (l.kind === "refused") {
+			return { tokens, error: l.start }
+		}
+		tokens.push(l)
+	}
+	return { tokens, error: read.unclosed?.offset }
+}
+
+/** What lex reports: its tokens and the offset of its error. */
+const lexedOf = (lexed: Lexed) => ({ tokens: lexed.tokens, error: lexed.error?.offset })
+
+/** The lexer reads `text` exactly as PostgreSQL's scanner does, and accepts what the scanner accepts. */
 const asScanned = (text: string): void => {
-	assert.deepEqual(readOf(lex(text)), readOf(scan(text)), Formatter.format(text))
+	const scanned = scan(text)
+	assert.deepEqual(readOf(lexemesOf(text)), readOf(scanned), Formatter.format(text))
+	assert.deepEqual(lexedOf(lex(text)), acceptedOf(scanned), Formatter.format(text))
 }
 
 /** The kind of token a rendering draws: what a case reached. */
@@ -82,7 +113,7 @@ const upperAscii = (text: string): string =>
 		""
 	)
 
-const shape = (t: Token): string => {
+const shape = (t: Lexeme): string => {
 	switch (t.kind) {
 		case "word":
 			return `w:${t.upper}`
@@ -100,6 +131,8 @@ const shape = (t: Token): string => {
 			return `o:${t.text}`
 		case "punct":
 			return `p:${t.text}`
+		case "refused":
+			return `r:${t.text}`
 	}
 }
 
@@ -311,7 +344,7 @@ const operator: Gen<Rendered> = map(
 	),
 	(text): Rendered => ({
 		text,
-		expected: Arr.map(scan(text).tokens, shape),
+		expected: Arr.map(scan(text).lexemes, shape),
 		closing: undefined,
 		kind: "operator"
 	})
@@ -513,19 +546,31 @@ const boundaryAtoms: Arr.NonEmptyReadonlyArray<string> = [
 	"\n"
 ]
 
-type BoundaryFeature = "a token" | "two tokens" | "an error" | "a continued string"
+type BoundaryFeature =
+	| "a token"
+	| "two tokens"
+	| "a refused run"
+	| "a lexeme after a refused run"
+	| "an unclosed construct"
+	| "a continued string"
 
 /**
- * What a text the boxes lex reached: how many tokens the scanner reads, its error, and two quoted segments across a
- * newline read as one string constant.
+ * What a text the boxes lex reached: how many lexemes the scanner reads, a run it refuses and one it reads after that
+ * run, a construct it never closes, and two quoted segments across a newline read as one string constant.
  */
 const boundaryFeatures = (text: string): ReadonlyArray<BoundaryFeature> => {
 	const read = scan(text)
-	const [only, ...others] = read.tokens
+	const [only, ...others] = read.lexemes
+	const tokens = Arr.filter(read.lexemes, (l) => l.kind !== "refused")
+	const refusal = Arr.findFirstIndex(read.lexemes, (l) => l.kind === "refused")
 	return [
-		...(read.tokens.length === 1 ? ["a token" as const] : []),
-		...(read.tokens.length > 1 ? ["two tokens" as const] : []),
-		...(read.error === undefined ? [] : ["an error" as const]),
+		...(tokens.length === 1 ? ["a token" as const] : []),
+		...(tokens.length > 1 ? ["two tokens" as const] : []),
+		...(Option.isSome(refusal) ? ["a refused run" as const] : []),
+		...(Option.exists(refusal, (at) => at < read.lexemes.length - 1)
+			? ["a lexeme after a refused run" as const]
+			: []),
+		...(read.unclosed === undefined ? [] : ["an unclosed construct" as const]),
 		...(only?.kind === "string" && others.length === 0 && Str.includes("'\n'")(text)
 			? ["a continued string" as const]
 			: [])
@@ -553,7 +598,13 @@ describe("lex", () => {
 						limit: 30_000,
 						box: "every text of up to three characters over the 29 that scan.l's rules branch on",
 						oracle: { kind: "second-implementation", name: "scan.l's rules, transcribed apart" },
-						coverage: requiredInSpace<BoundaryFeature>(["a token", "two tokens", "an error"]),
+						coverage: requiredInSpace<BoundaryFeature>([
+							"a token",
+							"two tokens",
+							"a refused run",
+							"a lexeme after a refused run",
+							"an unclosed construct"
+						]),
 						caseHang
 					},
 					(text, c) =>
@@ -582,7 +633,9 @@ describe("lex", () => {
 						coverage: requiredInSpace<BoundaryFeature>([
 							"a token",
 							"two tokens",
-							"an error",
+							"a refused run",
+							"a lexeme after a refused run",
+							"an unclosed construct",
 							"a continued string"
 						]),
 						caseHang

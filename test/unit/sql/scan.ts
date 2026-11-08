@@ -1,6 +1,6 @@
 import { regex } from "arkregex"
 import { Array as Arr, Option, String as Str } from "effect"
-import type { Lexed, Token } from "#compiler/sql/lexer.ts"
+import type { Lexeme, Lexemes, Opener } from "#compiler/sql/lexer.ts"
 
 /**
  * PostgreSQL's scanner, src/backend/parser/scan.l of 19rc1, transcribed rule by rule as the reference the lexer
@@ -13,9 +13,11 @@ import type { Lexed, Token } from "#compiler/sql/lexer.ts"
  * doubled quote read as one where its state reads one, a continued constant's segments joined, its escapes as written,
  * its prefix in capitals; NCHAR before a string, which N'' is, the one string N''; typecast, `..`, `:=` and the
  * punctuation of self are punct; every operator, a self character among them, is an operator; each number, its text.
- * A token PostgreSQL refuses, and a character it returns as {other} for its grammar to refuse, is the error at the
- * offset PostgreSQL reports it at. An escape's value is never read, so a literal PostgreSQL refuses for what an escape
- * denotes is read as written.
+ * A token PostgreSQL refuses, and a character it returns as {other} for its grammar to refuse, is a refused run from
+ * the offset PostgreSQL reports it at to the end its rule matched, after which the scan goes on as psql's scanner
+ * (psqlscan.l, whose rules and yyless are scan.l's) goes on past it. A quote or block comment the text never closes
+ * ends the scan, its state named as the opener. An escape's value is never read, so a literal PostgreSQL refuses for
+ * what an escape denotes is read as written.
  */
 
 /** A rule of a state: its name, as scan.l names it, and its pattern, which matches at an offset or not. */
@@ -181,13 +183,29 @@ const raised = (text: string): string =>
 		""
 	)
 
-/** Where a scan stands after one step: the offset it goes on from, with a token or none, or the error that ends it. */
+/** Where a scan stands after one step: the offset it goes on from, with a lexeme or none, or the construct the text
+ * never closes, which ends it. */
 type Scanned =
-	| { readonly kind: "on"; readonly next: number; readonly token: Option.Option<Token> }
-	| { readonly kind: "error"; readonly offset: number }
+	| { readonly kind: "on"; readonly next: number; readonly lexeme: Option.Option<Lexeme> }
+	| { readonly kind: "unclosed"; readonly opener: Opener; readonly offset: number }
 
-const on = (next: number, token: Option.Option<Token>): Scanned => ({ kind: "on", next, token })
-const refusedAt = (offset: number): Scanned => ({ kind: "error", offset })
+const on = (next: number, lexeme: Option.Option<Lexeme>): Scanned => ({ kind: "on", next, lexeme })
+const unclosedAt = (opener: Opener, offset: number): Scanned => ({
+	kind: "unclosed",
+	opener,
+	offset
+})
+/** The run of `text` from `start` to `end`, refused: the scan goes on from its end. */
+const refusedRun = (text: string, start: number, end: number): Scanned =>
+	on(
+		end,
+		Option.some({
+			kind: "refused",
+			text: Str.slice(start, end)(text),
+			message: "refused by scan.l",
+			start
+		})
+	)
 
 /** A string constant's state: which rules read its content, and whether its doubled quote is one quote. */
 type StringState = "standard" | "escape" | "bit"
@@ -247,7 +265,7 @@ const identifierFrom = (
 	}
 }
 
-/** A string constant's token, or its error: unterminated at `errorAt`. */
+/** A string constant's token, or the string literal unclosed at `errorAt`. */
 const stringToken = (
 	text: string,
 	start: number,
@@ -258,19 +276,22 @@ const stringToken = (
 ): Scanned => {
 	const read = stringFrom(text, from, state)
 	return read === undefined
-		? refusedAt(errorAt)
+		? unclosedAt("string literal", errorAt)
 		: on(read.end, Option.some({ kind: "string", text: read.content, prefix, start }))
 }
 
-/** A quoted identifier's token, or its error: unterminated or empty, at its start. */
+/** A quoted identifier's token, refused when empty, or the quoted identifier unclosed at its start. */
 const identifierToken = (text: string, start: number, from: number): Scanned => {
 	const read = identifierFrom(text, from)
-	return read === undefined || read.content === ""
-		? refusedAt(start)
+	if (read === undefined) {
+		return unclosedAt("quoted identifier", start)
+	}
+	return read.content === ""
+		? refusedRun(text, start, read.end)
 		: on(read.end, Option.some({ kind: "quotedIdent", text: read.content, start }))
 }
 
-/** A block comment from `start`, nested comments included: the offset after it, or its error at `start`. */
+/** A block comment from `start`, nested comments included: the offset after it, or the comment unclosed at `start`. */
 const commentFrom = (text: string, start: number): Scanned => {
 	const rules = commentRules()
 	let depth = 1
@@ -278,7 +299,7 @@ const commentFrom = (text: string, start: number): Scanned => {
 	while (depth > 0) {
 		const step = longest<string>(rules, text, at)
 		if (Option.isNone(step)) {
-			return refusedAt(start)
+			return unclosedAt("block comment", start)
 		}
 		switch (step.value.name) {
 			case "xcstart":
@@ -296,7 +317,7 @@ const commentFrom = (text: string, start: number): Scanned => {
 	return on(at, Option.none())
 }
 
-/** A dollar-quoted string opened by `tag` at `start`: its token, or its error at `start`. */
+/** A dollar-quoted string opened by `tag` at `start`: its token, or the string unclosed at `start`. */
 const dollarFrom = (text: string, start: number, tag: string): Scanned => {
 	const rules = dollarRules()
 	const bodyStart = start + tag.length
@@ -304,7 +325,7 @@ const dollarFrom = (text: string, start: number, tag: string): Scanned => {
 	for (;;) {
 		const step = longest<string>(rules, text, at)
 		if (Option.isNone(step)) {
-			return refusedAt(start)
+			return unclosedAt("dollar-quoted string", start)
 		}
 		const read = Str.slice(at, at + step.value.length)(text)
 		if (step.value.name === "dolqdelim" && read === tag) {
@@ -353,7 +374,7 @@ const numberToken = (start: number, text: string): Scanned =>
 const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>): Scanned => {
 	const step = longest<(typeof rules)[number]["name"]>(rules, text, at)
 	if (Option.isNone(step)) {
-		return refusedAt(at)
+		return refusedRun(text, at, at + 1)
 	}
 	const read = Str.slice(at, at + step.value.length)(text)
 	switch (step.value.name) {
@@ -425,6 +446,7 @@ const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>
 				Option.some({ kind: "word", text: read, upper: raised(read), start: at })
 			)
 		case "dolqfailed":
+			return refusedRun(text, at, at + 1)
 		case "param_junk":
 		case "hexfail":
 		case "octfail":
@@ -433,27 +455,27 @@ const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>
 		case "numeric_junk":
 		case "real_junk":
 		case "other":
-			return refusedAt(at)
+			return refusedRun(text, at, at + read.length)
 	}
 }
 
 /**
- * The tokens PostgreSQL's scanner reads from `text`, up to the error it stops at, as the lexer's tokens; the error's
- * message is scan.l's rule, never compared.
+ * The lexemes PostgreSQL's scanner reads from `text`, as the lexer's, up to a quote or block comment it never closes; a
+ * refused run's message is never compared.
  */
-export const scan = (text: string): Lexed => {
+export const scan = (text: string): Lexemes => {
 	const rules = initialRules()
-	const tokens: Array<Token> = []
+	const lexemes: Array<Lexeme> = []
 	let at = 0
 	while (at < text.length) {
 		const step = stepAt(text, at, rules)
-		if (step.kind === "error") {
-			return { tokens, error: { offset: step.offset, message: "refused by scan.l" } }
+		if (step.kind === "unclosed") {
+			return { lexemes, unclosed: { opener: step.opener, offset: step.offset } }
 		}
-		if (Option.isSome(step.token)) {
-			tokens.push(step.token.value)
+		if (Option.isSome(step.lexeme)) {
+			lexemes.push(step.lexeme.value)
 		}
 		at = step.next
 	}
-	return { tokens, error: undefined }
+	return { lexemes, unclosed: undefined }
 }

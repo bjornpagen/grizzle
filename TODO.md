@@ -9,7 +9,6 @@ with the next release.
 
 ### Next
 - **Test failures that reach no qti-pie path** (each an after-beta agent):
-  - test/unit/deploy/split.test.ts floor case 13: the SQL lexer stops at a zero-length quoted identifier `""`;
   - test/unit/physical/executes.test.ts and test/pg/physical/executes.test.ts: "a constant only a written table's casts
     reach" is never reached;
   - test/pg/closed/fin.test.ts: C.at's generated field at an absent key now gives 23502, and the test still expects 23514

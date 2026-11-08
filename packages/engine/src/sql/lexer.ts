@@ -5,13 +5,20 @@
  * The audit of emitted text is structural, not a keyword scan: it reasons over tokens, so `NULL` inside a quoted
  * identifier, a string literal, a dollar-quoted body or a comment is never mistaken for the keyword, and a keyword is
  * recognized only where it stands as a word. The token rules follow PostgreSQL's scanner (scan.l): quoted identifiers
- * with doubled quotes, never empty; standard-conforming strings with doubled quotes, prefixed strings (E'' with its
+ * with doubled quotes; standard-conforming strings with doubled quotes, prefixed strings (E'' with its
  * backslash escapes, B'' and X'', whose quote is never doubled, N'' and U&''), each continued by a quote after
  * whitespace that holds a newline; dollar quotes with optional tags; positional parameters; numbers in decimal, with
  * fractions and exponents, and in hexadecimal, octal and binary, their digits grouped by single underscores, refused
  * when an identifier runs on from them; operators with the trailing +/- rule; `::`, `..` and `:=`; and nested block
  * comments. An escape's value is never read: an E or U& literal's escapes stand as written, so the lexer judges where a
  * token ends, never whether PostgreSQL accepts what its escapes denote. It needs no RegExp (src/ constructs none).
+ *
+ * A text is read as lexemes (lexemesOf), each to the end scan.l's rule for it reaches: a token, or a run the scanner
+ * reads whole and refuses, such as an empty quoted identifier, a number or parameter an identifier runs on from, a base
+ * with no digit, a `$` that opens no dollar quote, or a character no rule reads. The reading goes on past a refused
+ * run, as psql's scanner (psqlscan.l, whose rules are scan.l's) goes on to find where statements end; it ends only
+ * where the text opens a quote or a block comment it never closes, whose end is unknown. What PostgreSQL accepts is
+ * the tokens before the first refusal (lex).
  */
 export type Token =
 	| { readonly kind: "word"; readonly text: string; readonly upper: string; readonly start: number }
@@ -34,12 +41,42 @@ export type Token =
 	| { readonly kind: "operator"; readonly text: string; readonly start: number }
 	| { readonly kind: "punct"; readonly text: string; readonly start: number }
 
+/** A run PostgreSQL's scanner reads to the end its rule reaches and refuses: its source text and why it is refused. */
+export interface Refused {
+	readonly kind: "refused"
+	readonly text: string
+	readonly message: string
+	readonly start: number
+}
+
+/** A run PostgreSQL's scanner reads to its end: a token, or a run it refuses. */
+export type Lexeme = Token | Refused
+
+/** A construct whose end the text must hold, as its opener reads it. */
+export type Opener =
+	| "block comment"
+	| "quoted identifier"
+	| "string literal"
+	| "dollar-quoted string"
+
+/** A construct the text opens at `offset` and never closes, which reads the rest of the text. */
+export interface Unclosed {
+	readonly opener: Opener
+	readonly offset: number
+}
+
+/** The lexemes of a text, in order, and the construct it opens and never closes after them, or undefined. */
+export interface Lexemes {
+	readonly lexemes: ReadonlyArray<Lexeme>
+	readonly unclosed: Unclosed | undefined
+}
+
 interface LexError {
 	readonly offset: number
 	readonly message: string
 }
 
-/** The tokens up to the first error, and the error, or undefined when the whole text lexed. */
+/** The tokens up to the first refusal, and the refusal, or undefined when PostgreSQL's scanner reads the whole text. */
 export interface Lexed {
 	readonly tokens: ReadonlyArray<Token>
 	readonly error: LexError | undefined
@@ -102,18 +139,24 @@ const toUpperAscii = (text: string): string => {
 	return from === 0 ? text : out + text.slice(from)
 }
 
-/** What one scanner step read at an index: a run to skip, a token, or the error that stops the lexer. */
+/** What one scanner step read at an index: a run to skip, a lexeme and its end, or a construct never closed. */
 type Step =
 	| { readonly kind: "skip"; readonly end: number }
-	| { readonly kind: "token"; readonly token: Token; readonly end: number }
-	| { readonly kind: "error"; readonly error: LexError }
+	| { readonly kind: "lexeme"; readonly lexeme: Lexeme; readonly end: number }
+	| { readonly kind: "unclosed"; readonly unclosed: Unclosed }
 
 const at = (text: string, k: number): number => text.charCodeAt(k)
 const skip = (end: number): Step => ({ kind: "skip", end })
-const token = (read: Token, end: number): Step => ({ kind: "token", token: read, end })
-const error = (offset: number, message: string): Step => ({
-	kind: "error",
-	error: { offset, message }
+const token = (read: Token, end: number): Step => ({ kind: "lexeme", lexeme: read, end })
+/** The run of `text` from `start` to `end`, refused for `message`. */
+const refused = (text: string, start: number, end: number, message: string): Step => ({
+	kind: "lexeme",
+	lexeme: { kind: "refused", text: text.slice(start, end), message, start },
+	end
+})
+const unclosed = (opener: Opener, offset: number): Step => ({
+	kind: "unclosed",
+	unclosed: { opener, offset }
 })
 
 /** The index after the line comment at `from`: its end of line, a line feed or a carriage return, or the text's end. */
@@ -149,7 +192,7 @@ const blockComment = (text: string, i: number): Step => {
 			j += 1
 		}
 	}
-	return depth > 0 ? error(i, "unterminated block comment") : skip(j)
+	return depth > 0 ? unclosed("block comment", i) : skip(j)
 }
 
 /**
@@ -223,16 +266,16 @@ const bitQuoting: Quoting = {
 
 /**
  * A quoted run from `open` (the index of the opening quote), read as `quoting` says, backslash escapes kept as written,
- * as the step `make` builds from its content and its end, or the error `unterminated` at `errorAt`. The content is the
- * text between the quotes with each doubled quote read as one and each continuation's segments joined, taken a run at
- * a time.
+ * as the step `make` builds from its content and its end, or `opener` unclosed at `errorAt`. The content is the text
+ * between the quotes with each doubled quote read as one and each continuation's segments joined, taken a run at a
+ * time.
  */
 const quotedToken = (
 	text: string,
 	open: number,
 	quoting: Quoting,
 	errorAt: number,
-	unterminated: string,
+	opener: Opener,
 	make: (content: string, end: number) => Step
 ): Step => {
 	let content = ""
@@ -262,21 +305,15 @@ const quotedToken = (
 		}
 		j += 1
 	}
-	return error(errorAt, unterminated)
+	return unclosed(opener, errorAt)
 }
 
 /** A quoted identifier from its opening quote at `open`, read from `start`: PostgreSQL refuses an empty one. */
 const quotedIdent = (text: string, open: number, start: number): Step =>
-	quotedToken(
-		text,
-		open,
-		identifierQuoting,
-		start,
-		"unterminated quoted identifier",
-		(content, end) =>
-			content === ""
-				? error(start, "zero-length delimited identifier")
-				: token({ kind: "quotedIdent", text: content, start }, end)
+	quotedToken(text, open, identifierQuoting, start, "quoted identifier", (content, end) =>
+		content === ""
+			? refused(text, start, end, "zero-length delimited identifier")
+			: token({ kind: "quotedIdent", text: content, start }, end)
 	)
 
 /** A string constant from its opening quote at `open`, read from `start` with `prefix`. */
@@ -288,23 +325,30 @@ const stringConstant = (
 	quoting: Quoting,
 	errorAt: number
 ): Step =>
-	quotedToken(text, open, quoting, errorAt, "unterminated string literal", (content, end) =>
+	quotedToken(text, open, quoting, errorAt, "string literal", (content, end) =>
 		token({ kind: "string", text: content, prefix, start }, end)
 	)
 
-/** The index after the identifier at `from`, which an identifier character begins, or `from` when none does. */
-const identifierEnd = (text: string, from: number): number => {
-	if (!isIdentStart(at(text, from))) {
-		return from
-	}
-	let j = from + 1
-	while (j < text.length && isIdentCont(at(text, j))) {
+/** The index after the run of identifier characters from `from`, digits and `$` among them; `from` when none is there. */
+const identContEnd = (text: string, from: number): number => {
+	let j = from
+	while (isIdentCont(at(text, j))) {
 		j += 1
 	}
 	return j
 }
 
-/** A positional parameter, $n, refused when an identifier runs on from it; or a dollar quote, $tag$ ... $tag$. */
+/** The index after the identifier at `from`, which an identifier character begins, or `from` when none does. */
+const identifierEnd = (text: string, from: number): number =>
+	isIdentStart(at(text, from)) ? identContEnd(text, from + 1) : from
+
+/** The `$` at `i`, refused alone: scan.l's dolqfailed gives back all but it, and {other} reads it. */
+const strayDollar = (text: string, i: number): Step => refused(text, i, i + 1, "stray '$'")
+
+/**
+ * A positional parameter, $n, refused with the identifier that runs on from it; or a dollar quote, $tag$ ... $tag$; or
+ * a stray `$`.
+ */
 const dollar = (text: string, i: number): Step => {
 	if (isDigit(at(text, i + 1))) {
 		let j = i + 1
@@ -312,24 +356,24 @@ const dollar = (text: string, i: number): Step => {
 			j += 1
 		}
 		if (isIdentStart(at(text, j))) {
-			return error(i, "trailing junk after parameter")
+			return refused(text, i, identifierEnd(text, j), "trailing junk after parameter")
 		}
 		return token({ kind: "param", index: Number(text.slice(i + 1, j)), start: i }, j)
 	}
 	if (!isIdentStart(at(text, i + 1)) && at(text, i + 1) !== dollarSign) {
-		return error(i, "stray '$'")
+		return strayDollar(text, i)
 	}
 	let j = i + 1
 	while (j < text.length && at(text, j) !== dollarSign && isDollarTagCont(at(text, j))) {
 		j += 1
 	}
 	if (at(text, j) !== dollarSign) {
-		return error(i, "stray '$'")
+		return strayDollar(text, i)
 	}
 	const tag = text.slice(i, j + 1)
 	const close = text.indexOf(tag, j + 1)
 	if (close === -1) {
-		return error(i, "unterminated dollar-quoted string")
+		return unclosed("dollar-quoted string", i)
 	}
 	return token(
 		{ kind: "dollar", tag, body: text.slice(j + 1, close), bodyStart: j + 1, start: i },
@@ -412,7 +456,12 @@ const radixDigits: ReadonlyMap<number, (c: number) => boolean> = new Map([
  */
 const radixPrefixWidth = 2
 
-const junk = (i: number): Step => error(i, "trailing junk after numeric literal")
+/**
+ * The number from `i` refused with the identifier that runs on from it at `end`: the run reaches the end of the
+ * identifier characters there, as scan.l's integer_junk, numeric_junk and real_junk do.
+ */
+const junk = (text: string, i: number, end: number): Step =>
+	refused(text, i, identContEnd(text, end), "trailing junk after numeric literal")
 
 /**
  * Whether an identifier runs on from the number from `i` that ends at `end` (scan.l integer_junk and its kin): one that
@@ -437,7 +486,7 @@ const runsOn = (text: string, i: number, end: number): boolean => {
 /** The number token from `i` to `end`, refused when an identifier runs on from it. */
 const numberTo = (text: string, i: number, end: number): Step =>
 	runsOn(text, i, end)
-		? junk(i)
+		? junk(text, i, end)
 		: token({ kind: "number", text: text.slice(i, end), start: i }, end)
 
 /**
@@ -451,7 +500,9 @@ const numberAt = (text: string, i: number): Step => {
 	if (radix !== undefined) {
 		const digitsFrom = i + radixPrefixWidth
 		const end = radixDigitsEnd(text, digitsFrom, radix)
-		return end === digitsFrom ? error(i, "invalid non-decimal integer") : numberTo(text, i, end)
+		return end === digitsFrom
+			? refused(text, i, identContEnd(text, i), "invalid non-decimal integer")
+			: numberTo(text, i, end)
 	}
 	const integer = digitGroupsEnd(text, i, isDigit)
 	if (at(text, integer) === dot && at(text, integer + 1) === dot) {
@@ -468,7 +519,9 @@ const numberAt = (text: string, i: number): Step => {
 	if (exponentEnd > digits) {
 		return numberTo(text, i, exponentEnd)
 	}
-	return signed ? token({ kind: "number", text: text.slice(i, base), start: i }, base) : junk(i)
+	return signed
+		? token({ kind: "number", text: text.slice(i, base), start: i }, base)
+		: junk(text, i, base)
 }
 
 /**
@@ -546,22 +599,41 @@ const stepAt = (text: string, i: number): Step => {
 	if (isOperatorChar(c)) {
 		return operatorAt(text, i)
 	}
-	return error(i, `unexpected character ${JSON.stringify(text.charAt(i))}`)
+	return refused(text, i, i + 1, `unexpected character ${JSON.stringify(text.charAt(i))}`)
 }
 
-/** The tokens of `text`, scanned step by step from its start, up to the first error. */
-export const lex = (text: string): Lexed => {
-	const tokens: Array<Token> = []
+/** The lexemes of `text`, scanned step by step from its start, up to a construct it never closes. */
+export const lexemesOf = (text: string): Lexemes => {
+	const lexemes: Array<Lexeme> = []
 	let i = 0
 	while (i < text.length) {
 		const step = stepAt(text, i)
-		if (step.kind === "error") {
-			return { tokens, error: step.error }
+		if (step.kind === "unclosed") {
+			return { lexemes, unclosed: step.unclosed }
 		}
-		if (step.kind === "token") {
-			tokens.push(step.token)
+		if (step.kind === "lexeme") {
+			lexemes.push(step.lexeme)
 		}
 		i = step.end
 	}
-	return { tokens, error: undefined }
+	return { lexemes, unclosed: undefined }
+}
+
+/** The tokens of `text` PostgreSQL's scanner reads before it first refuses it (lexemesOf), and that refusal. */
+export const lex = (text: string): Lexed => {
+	const read = lexemesOf(text)
+	const tokens: Array<Token> = []
+	for (const l of read.lexemes) {
+		if (l.kind === "refused") {
+			return { tokens, error: { offset: l.start, message: l.message } }
+		}
+		tokens.push(l)
+	}
+	return {
+		tokens,
+		error:
+			read.unclosed === undefined
+				? undefined
+				: { offset: read.unclosed.offset, message: `unterminated ${read.unclosed.opener}` }
+	}
 }

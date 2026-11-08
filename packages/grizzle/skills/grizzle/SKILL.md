@@ -181,8 +181,9 @@ breaking change may briefly break older application instances that are still run
   holds no data, so a changed world needs no marker; a role the migration creates gets its views, policies and
   functions here, after the role.
 
-`-- grizzle: no-transaction` as a file's first line runs each statement alone, so each statement must be safe to
-rerun: a rerun after a failure starts the file again from its first statement.
+`-- grizzle: no-transaction` as a file's first line runs each statement alone, each ending at a semicolon outside a
+quote, a dollar quote or a comment, so each statement must be safe to rerun: a rerun after a failure starts the file
+again from its first statement.
 
 ## Renames and drops
 

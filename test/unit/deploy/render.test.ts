@@ -35,11 +35,12 @@ import { caseHang } from "#test/support/limits.ts"
  *
  * - **Markers:** a line is a placeholder when, past its leading whitespace, it starts with the placeholder marker, or
  *   when it holds the placeholder token in SQL PostgreSQL's scanner reads: a word (the token alone or inside one), a
- *   string constant, a quoted identifier or a dollar-quoted body, each of which may span lines; never in a line comment
- *   or a block comment, nested or spanning lines. From an unterminated quote or block comment to the end, nothing is
- *   known to be a comment, so every token there counts. Otherwise a line that starts with the confirm marker is a
- *   confirm. A marker line counts by its text wherever it stands, inside a comment or a string too. Lines end in `\n`
- *   or `\r\n`.
+ *   string constant, a quoted identifier, a dollar-quoted body, each of which may span lines, or a run the scanner reads
+ *   whole and refuses, such as junk after a number; never in a line comment or a block comment, nested or spanning
+ *   lines, and a comment after a refused run, such as `""`, is still a comment. From an unterminated quote or block
+ *   comment to the end, nothing is known to be a comment, so every token there counts. Otherwise a line that starts
+ *   with the confirm marker is a confirm. A marker line counts by its text wherever it stands, inside a comment or a
+ *   string too. Lines end in `\n` or `\r\n`.
  * - **generate's line:** each marker prints as its file, its line, its kind and its own kind's fix (cli/run.ts
  *   markerLine), so a confirm is never told to fill a placeholder.
  * - **No transaction:** a file runs statement by statement exactly when its first line is the no-transaction marker,
@@ -52,7 +53,10 @@ type MarkerFeature =
 	| "a token in a string spanning lines"
 	| "a token in a quoted identifier"
 	| "a token in a dollar-quoted body"
+	| "a run PostgreSQL refuses"
+	| "a token in a run PostgreSQL refuses"
 	| "a token in a line comment, uncounted"
+	| "a token in a line comment after a run PostgreSQL refuses, uncounted"
 	| "a token in a block comment spanning lines, uncounted"
 	| "a token in a nested block comment, uncounted"
 	| "a token past an unterminated quote"
@@ -112,8 +116,22 @@ const sqlPiece: Gen<Piece> = oneOf<Piece>([
 		text: `/* /* ${inner} */ ${inner} */`,
 		counted: false,
 		feature: inner.length > 0 ? "a token in a nested block comment, uncounted" : undefined
+	})),
+	map(element(['""', "1x", "$", "\\"]), (text) => ({
+		text,
+		counted: false,
+		feature: "a run PostgreSQL refuses"
+	})),
+	map(constant(`1${placeholderToken}`), (text) => ({
+		text,
+		counted: true,
+		feature: "a token in a run PostgreSQL refuses"
 	}))
 ])
+
+/** Whether a piece is a run PostgreSQL's scanner reads whole and refuses. */
+const refusedPiece = (p: Piece): boolean =>
+	p.feature === "a run PostgreSQL refuses" || p.feature === "a token in a run PostgreSQL refuses"
 
 const indent = element(["", "  ", "\t"])
 
@@ -132,6 +150,9 @@ const sqlLine: Gen<Line> = (source) => {
 			...Arr.flatMap(pieces, (p) => (p.feature === undefined ? [] : [p.feature])),
 			...(Str.includes(placeholderToken)(comment)
 				? (["a token in a line comment, uncounted"] as const)
+				: []),
+			...(Str.includes(placeholderToken)(comment) && Arr.some(pieces, refusedPiece)
+				? (["a token in a line comment after a run PostgreSQL refuses, uncounted"] as const)
 				: [])
 		]
 	}
@@ -325,7 +346,10 @@ describe("a migration file's markers, generated", () => {
 								"a token in a string spanning lines",
 								"a token in a quoted identifier",
 								"a token in a dollar-quoted body",
+								"a run PostgreSQL refuses",
+								"a token in a run PostgreSQL refuses",
 								"a token in a line comment, uncounted",
+								"a token in a line comment after a run PostgreSQL refuses, uncounted",
 								"a token in a block comment spanning lines, uncounted",
 								"a token in a nested block comment, uncounted",
 								"a token past an unterminated quote",
