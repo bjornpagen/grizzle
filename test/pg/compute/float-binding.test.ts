@@ -4,10 +4,14 @@
  *
  * Each case draws a tree of IEEE 754 arithmetic over the double precision and real columns of a ledger, nested so an
  * operand is itself an operation, with casts between the two widths, and reads it where a statement evaluates it for
- * every row: delivered per entry, summed and averaged per group, filtered on, and grouped by. Two fact sets run it:
+ * every row: delivered per entry, summed and averaged per group, filtered on, grouped by, tested in the condition of
+ * a delivered conditional, which a CASE evaluates for every row as its first WHEN, and tested in the condition of a
+ * conditional that keys a filter's closed read, whose dictionary payload the read indexes by an expression of that key.
+ * Two fact sets run it:
  *
  * - the edge classes of each float type, NaN and the infinities among them, through the conservative and the optimized
- *   lowering against the reference evaluator, which must agree exactly;
+ *   lowering against the reference evaluator, which must agree exactly, or, for the closed read, which the reference
+ *   evaluates none of, the optimized lowering against the conservative one;
  * - moderate values, small dyadic fractions none of whose operations leaves the native range of its type
  *   (scalar/compute/native.ts nativeRange), so every guarded form takes its fast path: each statement both lowerings
  *   send is planned under EXPLAIN ANALYZE, and no SubPlan or InitPlan of it runs, since the exact paths, the only
@@ -15,9 +19,9 @@
  *   a SubPlan that ran once per row.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -30,6 +34,7 @@ import {
 } from "#bench/harness/explain.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type { CodeSlot } from "#compiler/ir/cells.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -45,9 +50,15 @@ import type {
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { valueClasses } from "#test/support/oracle/gen/domain.ts"
+import { scalarOfSpec, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
-import { type GenSchema, schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import {
+	closedIdType,
+	type GenClosed,
+	type GenSchema,
+	schemaCodes,
+	schemaDesc
+} from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -60,6 +71,7 @@ import {
 	type Lowering,
 	reference,
 	runLabelledOracle,
+	type RunnerSide,
 	type RunOptions
 } from "#test/support/oracle/runner.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
@@ -84,7 +96,14 @@ type Term =
 	| { readonly tag: "cast"; readonly width: Width; readonly arg: Term }
 
 /** Where a statement evaluates the term for every row. */
-type Position = "delivered" | "summed" | "averaged" | "filtered" | "grouped"
+type Position =
+	| "delivered"
+	| "summed"
+	| "averaged"
+	| "filtered"
+	| "grouped"
+	| "conditioned"
+	| "looked up"
 
 type Feature =
 	| `position:${Position}`
@@ -98,7 +117,9 @@ const positions: Arr.NonEmptyReadonlyArray<Position> = [
 	"summed",
 	"averaged",
 	"filtered",
-	"grouped"
+	"grouped",
+	"conditioned",
+	"looked up"
 ]
 
 const columnsOf: { readonly [W in Width]: Arr.NonEmptyReadonlyArray<string> } = {
@@ -147,9 +168,14 @@ interface BindingCase {
 	readonly moderate: ReadonlyArray<Row>
 }
 
-/** One entry: its group, and a value per float column, x y z double precision and r s real. */
+/** The roster an entry's grade is a handle of. */
+const grades = ["low", "high"] as const
+type Grade = (typeof grades)[number]
+
+/** One entry: its group, its grade, and a value per float column, x y z double precision and r s real. */
 interface Row {
 	readonly grp: number
+	readonly grade: Grade
 	readonly values: { readonly [C in "x" | "y" | "z" | "r" | "s"]: TypedLiteral }
 }
 
@@ -170,6 +196,7 @@ const rowGen =
 	(value: (width: Width) => Gen<TypedLiteral>): Gen<Row> =>
 	(source) => ({
 		grp: source.draw(int(1, 3)),
+		grade: source.draw(element(grades)),
 		values: {
 			x: source.draw(value("float8")),
 			y: source.draw(value("float8")),
@@ -194,6 +221,27 @@ const caseGen: Gen<BindingCase> = (source) => {
 	}
 }
 
+/**
+ * The grade roster, whose closed relation GradePayload gives each grade a text label: a payload PostgreSQL reads as a
+ * dictionary, indexed by the key's code.
+ */
+const grade: GenClosed = {
+	name: "Grade",
+	handles: grades,
+	codes: Arr.map(grades, (handle): CodeSlot => ({ kind: "live", handle })),
+	payload: [{ name: "label", type: scalarOfSpec({ carrier: "text" }) }],
+	rows: [
+		[
+			{ kind: "handle", handle: "low" },
+			{ kind: "text", value: "lo" }
+		],
+		[
+			{ kind: "handle", handle: "high" },
+			{ kind: "text", value: "hi" }
+		]
+	]
+}
+
 const ledger: GenSchema = {
 	name: "Ledger",
 	relations: [
@@ -206,14 +254,15 @@ const ledger: GenSchema = {
 				{ name: "y", type: float8 },
 				{ name: "z", type: float8 },
 				{ name: "r", type: float4 },
-				{ name: "s", type: float4 }
+				{ name: "s", type: float4 },
+				{ name: "g", type: closedIdType(grade) }
 			],
 			primaryKey: ["id"],
 			keys: [],
 			mutable: false
 		}
 	],
-	closed: [],
+	closed: [grade],
 	containments: []
 }
 
@@ -264,6 +313,20 @@ const featuresOf = (c: BindingCase): ReadonlyArray<Feature> => {
 	return Arr.fromIterable(out)
 }
 
+/**
+ * The case a witness runs: in half its cases, while a position no witness reached yet is pending (Case.steering), the
+ * term read at one of those; the drawn case otherwise.
+ */
+const aimed = (drawnCase: BindingCase, c: Case<Feature>): BindingCase => {
+	const pending = Option.match(c.steering, {
+		onNone: (): ReadonlyArray<Position> => [],
+		onSome: (p) => Arr.filter(positions, (q) => p.names(`position:${q}`))
+	})
+	return Arr.isReadonlyArrayNonEmpty(pending) && c.draw(boolean)
+		? { ...drawnCase, position: c.draw(element(pending)) }
+		: drawnCase
+}
+
 const mean = (arg: ExprDesc): HeadTermDesc => ({ kind: "aggregate", fn: "mean", arg })
 
 /** The query reading the term at its position. */
@@ -271,7 +334,7 @@ const queryOf = (term: ExprDesc, width: Width, position: Position): QueryDesc =>
 	const head = (h: Readonly<Record<string, HeadTermDesc>>, where: ReadonlyArray<ExprDesc>) =>
 		D.queryDesc(
 			D.rule({
-				vars: D.vars("Entry", "id", "grp", "x", "y", "z", "r", "s"),
+				vars: D.vars("Entry", "id", "grp", "x", "y", "z", "r", "s", "g"),
 				matches: [
 					D.match(D.relationSource("Entry"), {
 						id: entry("id"),
@@ -280,7 +343,8 @@ const queryOf = (term: ExprDesc, width: Width, position: Position): QueryDesc =>
 						y: entry("y"),
 						z: entry("z"),
 						r: entry("r"),
-						s: entry("s")
+						s: entry("s"),
+						g: entry("g")
 					})
 				],
 				head: h,
@@ -300,6 +364,40 @@ const queryOf = (term: ExprDesc, width: Width, position: Position): QueryDesc =>
 			return head({ id: entry("id") }, [D.gt(term, D.typedLit(1, fieldOf[width]))])
 		case "grouped":
 			return head({ v: term, n: D.count() }, [])
+		case "conditioned": {
+			const [first, second] = columnsOf[width]
+			return head(
+				{
+					id: entry("id"),
+					v: {
+						kind: "cond",
+						pred: D.gt(term, D.typedLit(1, fieldOf[width])),
+						onTrue: entry(first),
+						onFalse: entry(defined(second, "a second column of the width"))
+					}
+				},
+				[]
+			)
+		}
+		case "looked up":
+			return head({ id: entry("id") }, [
+				D.eq(
+					{
+						kind: "closedAt",
+						relation: "GradePayload",
+						field: "label",
+						args: [
+							{
+								kind: "cond",
+								pred: D.gt(term, D.typedLit(1, fieldOf[width])),
+								onTrue: entry("g"),
+								onFalse: D.typedLit("high", { kind: "closedId", roster: grade.name })
+							}
+						]
+					},
+					D.lit("hi")
+				)
+			])
 	}
 }
 
@@ -310,7 +408,8 @@ const rowLiterals = (row: Row, id: number): ReadonlyArray<TypedLiteral> => [
 	row.values.y,
 	row.values.z,
 	row.values.r,
-	row.values.s
+	row.values.s,
+	{ kind: "handle", handle: row.grade }
 ]
 
 const ledgerCase = (label: string, desc: QueryDesc, rows: ReadonlyArray<Row>): LabelledCase => {
@@ -327,7 +426,17 @@ const ledgerCase = (label: string, desc: QueryDesc, rows: ReadonlyArray<Row>): L
 	}
 }
 
-const lowerings: ReadonlyArray<Lowering> = [conservative, optimizedLowering("optimized")]
+const optimized = optimizedLowering("optimized")
+const lowerings: ReadonlyArray<Lowering> = [conservative, optimized]
+
+/**
+ * Each lowering a position's rows are judged by, and its judge: the reference evaluator, or, for a closed read, which
+ * the reference evaluates none of, the conservative lowering, so the optimized lowering is held to it there.
+ */
+const judged = (position: Position): ReadonlyArray<readonly [Lowering, RunnerSide]> =>
+	position === "looked up"
+		? [[optimized, conservative]]
+		: Arr.map(lowerings, (lowering) => [lowering, reference] as const)
 
 /** The roots of every SubPlan and InitPlan of a plan that ran. */
 const subplansRun = (plan: PlanNode): ReadonlyArray<PlanNode> =>
@@ -429,19 +538,22 @@ layer(Substrate.layer)("guarded float forms on PostgreSQL 19", (it) => {
 							steerEvery: 16,
 							caseHang
 						},
-						(k, cx) =>
+						(drawnCase, cx) =>
 							Effect.gen(function* () {
+								const k = aimed(drawnCase, cx)
 								cx.noteAll(featuresOf(k))
 								const desc = queryOf(exprOf(k.term), k.term.width, k.position)
 								const edge = ledgerCase("edge classes", desc, k.edge)
 								const moderate = ledgerCase("moderate values", desc, k.moderate)
-								for (const lowering of lowerings) {
+								for (const [lowering, judge] of judged(k.position)) {
 									for (const c of [edge, moderate]) {
-										const outcome = yield* runLabelledOracle(c, lowering, reference, options)
+										const outcome = yield* runLabelledOracle(c, lowering, judge, options)
 										if (!outcome.comparison.equal) {
 											return yield* comparisonFailed(outcome)
 										}
 									}
+								}
+								for (const lowering of lowerings) {
 									const ran = yield* subplansOf(moderate, lowering, schema)
 									assert.deepEqual(
 										ran,
