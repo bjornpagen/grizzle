@@ -18,16 +18,19 @@
  *   placeholder default).
  * - **Trees:** each row's sibling index by its key, its count and its parent's count, its pre-order interval and its
  *   parent's start, by the one recursive step a migration holds: the closure of the parent relation, from which each
- *   row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier siblings.
+ *   row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier siblings. A
+ *   tree whose index the migration keeps keeps its caller's sibling order: every column drawn anew reads the stored
+ *   index, and only the columns the migration adds are written.
  *
  * - **Tree folds:** over each row's siblings in slot order, their order by start, the root alone at slot 0, its before
- *   the identity; each row's end its last child's after.
+ *   the identity; each row's end its last child's after. A fold added to a tree that holds rows, or changed on one, is
+ *   drawn over its stored slots alone.
  * - **Copies:** each copy an axis carries is its target's value, joined to the row its axis names, after every family's
  *   own columns are drawn and after any copy it reads; a row its axis names no row for keeps the copy's base.
  *
  * Window functions and the one recursive CTE are admitted here: a migration is reviewed text, and grizzle's limits on
  * them are limits on its run-time queries. What the backfill cannot draw from stored rows alone (copies that read each
- * other, a fold over a copy, a family whose drawn columns are partly stored) is refused, naming the family.
+ * other, a fold over a copy) is refused, naming the family.
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
@@ -601,8 +604,9 @@ const foldedName = "__folded"
  *   pair extended by a child of its descendant, the root, which is its own parent, never its own child; UNION, so the
  *   closure is a set and ends however the stored parents point.
  * - `__sized`: each row's subtree size, and its children, the rows whose parent it is but itself.
- * - `__ranked`: each row's sibling index, row_number() by its key among the rows of its parent, the root alone at 0,
- *   and its siblings' count, its parent's count.
+ * - `__ranked`: each row's sibling index, its stored one where the migration keeps the index, the caller's order, else
+ *   row_number() by its key among the rows of its parent, the root alone at 0; and its siblings' count, its parent's
+ *   count.
  * - `__stepped`: each row's step, one plus the sizes of its earlier siblings, 0 for the root.
  * - `__started`: each row's start, the sum of the steps of its ancestors and itself: its pre-order index.
  *
@@ -613,7 +617,8 @@ const foldedName = "__folded"
  * Its end is its start plus its size, its copy of the count its siblings' count (the root's own count, as the root pin
  * reads it), and its parent's start the start of its parent's row, the root's own 0. A row the closure reaches from no
  * root, under stored parents that make no tree, is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
- * end is a row's last child's after (treeEndUpdate).
+ * end is a row's last child's after (treeEndUpdate). It sets the columns `added` holds alone, none where it holds none
+ * of them.
  */
 const treeUpdate = (
 	input: BackfillInput,
@@ -621,7 +626,7 @@ const treeUpdate = (
 	shape: TreeShape,
 	table: ObjectName,
 	added: ReadonlySet<string>
-): Update => {
+): Update | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
 	const owner = mapNonEmpty(family.group, (g) => g.owner.column)
@@ -712,24 +717,26 @@ const treeUpdate = (
 					targetAs(col("s", "__size"), "__size"),
 					targetAs(col("s", "__children"), "__children"),
 					targetAs(
-						{
-							kind: "case",
-							operand: undefined,
-							whens: [{ when: rootOf("t"), result: none }],
-							else: binary(
-								"-",
-								over(
-									"row_number",
-									[],
-									window(
-										siblings,
-										key.map((k) => col("t", k)),
-										false
+						holds(added, family.index)
+							? {
+									kind: "case",
+									operand: undefined,
+									whens: [{ when: rootOf("t"), result: none }],
+									else: binary(
+										"-",
+										over(
+											"row_number",
+											[],
+											window(
+												siblings,
+												key.map((k) => col("t", k)),
+												false
+											)
+										),
+										one
 									)
-								),
-								one
-							)
-						},
+								}
+							: col("t", columnOf(family.index)),
 						"__at"
 					),
 					targetAs({ ...countStar(), over: window(siblings, [], false) }, "__siblings"),
@@ -900,7 +907,7 @@ const treeUpdate = (
 			undefined
 		)
 	)
-	const set: NonEmptyReadonlyArray<Assignment> = [
+	const set = [
 		{ column: columnOf(family.index), value: col("b", "__at") },
 		{ column: family.count.column, value: col("b", "__children") },
 		{ column: family.copy, value: col("b", "__n") },
@@ -908,7 +915,10 @@ const treeUpdate = (
 		{ column: shape.end.column, value: col("b", "__end") },
 		{ column: shape.parentStart, value: col("b", "__ps") },
 		...planes.map(({ column, name }) => ({ column, value: col("b", name) }))
-	]
+	].filter((a) => added.has(a.column))
+	if (!isNonEmpty(set)) {
+		return undefined
+	}
 	return {
 		kind: "update",
 		with: { recursive: true, ctes: [closure, sized, ranked, stepped, started, ...folded] },
@@ -921,14 +931,19 @@ const treeUpdate = (
 	}
 }
 
-/** A tree's fold ends: each row's end its last child's after, read off the backfilled rows; a leaf keeps its
- * placeholder, the identity, which an empty family's end is. */
-const treeEndUpdate = (family: Family, table: ObjectName): Update | undefined => {
+/** A tree's fold ends this migration adds: each row's end its last child's after, read off the backfilled rows; a
+ * leaf keeps its placeholder, the identity, which an empty family's end is. */
+const treeEndUpdate = (
+	family: Family,
+	table: ObjectName,
+	added: ReadonlySet<string>
+): Update | undefined => {
 	const set = family.folds.flatMap((fold) =>
-		fold.planes.map((plane) => ({
-			column: plane.end.column,
-			value: col("c", columnOf(plane.after))
-		}))
+		fold.planes.flatMap((plane) =>
+			added.has(plane.end.column)
+				? [{ column: plane.end.column, value: col("c", columnOf(plane.after)) }]
+				: []
+		)
 	)
 	if (!isNonEmpty(set)) {
 		return undefined
@@ -1204,15 +1219,14 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				)
 			]
-			const drawnHere = columns.filter((c) => onMember.has(c))
-			if (drawnHere.length === 0) {
+			if (!columns.some((c) => onMember.has(c))) {
 				continue
 			}
-			if (drawnHere.length < columns.length) {
-				return refuseBackfill(family, "its drawn columns are partly stored already")
+			const drawn = treeUpdate(input, family, shape, memberTable, onMember)
+			if (drawn !== undefined) {
+				updates.push(drawn)
 			}
-			updates.push(treeUpdate(input, family, shape, memberTable, onMember))
-			const ends = treeEndUpdate(family, memberTable)
+			const ends = treeEndUpdate(family, memberTable, onMember)
 			if (ends !== undefined) {
 				updates.push(ends)
 			}
