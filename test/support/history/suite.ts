@@ -10,6 +10,7 @@ import type { TransientTag } from "#compiler/core/errors.ts"
 import {
 	type DirectAbort,
 	describeHistory,
+	type GrizzleSettled,
 	type History,
 	type Outcome
 } from "#test/support/history/check.ts"
@@ -79,7 +80,7 @@ type HistoryFeature =
 	| "deadlock"
 	| "overlapping"
 	| "exact repeats"
-	| `${WriterKind} ${Outcome["kind"]}`
+	| `${WriterKind} ${(Outcome | GrizzleSettled)["kind"]}`
 	| `aborted: ${DirectAbort["kind"]}`
 	| `retried after ${TransientTag}`
 	| BelowFeature

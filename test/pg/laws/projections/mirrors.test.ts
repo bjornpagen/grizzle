@@ -17,11 +17,16 @@ import { mirrorShapes, projectedMirrors, tickets } from "#test/pg/laws/projectio
 import { variantsOf } from "#test/support/laws/boxes.ts"
 import { plantedUpdate } from "#test/support/laws/direct.ts"
 import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
-import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
+import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 import { plantedInsert } from "#test/support/laws/support.ts"
 
-familySuite(projectedMirrors, casesPerTest, "the family")
-familySuite(mirrorShapes, casesPerTest, "every schema's refusals by every law but a key")
+familySuite(projectedMirrors, casesPerTest, "the family", noKeptCases)
+familySuite(
+	mirrorShapes,
+	casesPerTest,
+	"every schema's refusals by every law but a key",
+	noKeptCases
+)
 
 const [p, variant] = Option.getOrThrowWith(
 	Arr.findFirstWithIndex(variantsOf(mirrorShapes, "mutable"), (shape) => shape.kind === "signals"),

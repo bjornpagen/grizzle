@@ -962,7 +962,7 @@ const initialState = (host: HostSchema, domains: Domains, sketch: CaseSketch): H
 	let state: HostState = new Map(Arr.map(host.relations, (r) => [r.name, []]))
 	for (const step of sketch) {
 		const e = hostExpect(host, state, resolveStep(host, domains, state, step))
-		if (e.kind !== "invariant-rejected") {
+		if (e.kind === "accepted" || e.kind === "no-change") {
 			state = e.state
 		}
 	}

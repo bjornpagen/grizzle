@@ -42,8 +42,7 @@ export type DirectAbort = { readonly kind: "serialization failure" } | { readonl
 
 /**
  * How an operation took its place: committed, with or without a change, or refused by the laws of one constraint, one
- * law or the several merged into one foreign key (fin.md §15 rule 3). A grizzle operation always ends so: its writer
- * calls again after each TransientFailure until a call answers (runGrizzle).
+ * law or the several merged into one foreign key (fin.md §15 rule 3).
  */
 export type Settled =
 	| { readonly kind: "accepted" | "no-change" }
@@ -53,8 +52,15 @@ export type Settled =
 			readonly keys: ReadonlyArray<WitnessKey>
 	  }
 
-/** How an operation ended: settled, or, a direct writer's alone, aborted. */
+/** How a direct writer's operation ended: settled, or aborted. */
 export type Outcome = Settled | { readonly kind: "aborted"; readonly cause: DirectAbort }
+
+/**
+ * How a grizzle writer's operation ended: settled, or refused as its ChangeSet compiled, before any attempt, because no
+ * order of its stratum's writes keeps every immediate key (UnorderableStratum). It always ends so: its writer calls
+ * again after each TransientFailure until a call answers (runGrizzle).
+ */
+export type GrizzleSettled = Settled | { readonly kind: "unorderable" }
 
 interface RecordedHead {
 	readonly id: number
@@ -70,7 +76,7 @@ export type Recorded = RecordedHead &
 	(
 		| {
 				readonly kind: "grizzle"
-				readonly outcome: Settled
+				readonly outcome: GrizzleSettled
 				/** The TransientFailure reason each discarded attempt of the operation met, in order. */
 				readonly transients: ReadonlyArray<TransientTag>
 		  }
@@ -106,10 +112,11 @@ const showOps = (ops: ReadonlyArray<HostOp>): string =>
 		"; "
 	)
 
-const describeOutcome = (o: Outcome): string => {
+const describeOutcome = (o: Outcome | GrizzleSettled): string => {
 	switch (o.kind) {
 		case "accepted":
 		case "no-change":
+		case "unorderable":
 			return o.kind
 		case "invariant-rejected":
 			return `invariant-rejected by ${Arr.join(o.laws, ", ")}${o.keys.length === 0 ? "" : ` at ${show(o.keys)}`}`
@@ -283,7 +290,10 @@ const placeAt = (
 	const expected = expectFor(r.kind, h.host, state, r.ops)
 	const why = departure(r, expected)
 	if (why === undefined) {
-		return { ok: true, after: expected.kind === "invariant-rejected" ? state : expected.state }
+		return {
+			ok: true,
+			after: expected.kind === "accepted" || expected.kind === "no-change" ? expected.state : state
+		}
 	}
 	return unseenOccupant(h, r, state, later) ? { ok: true, after: state } : { ok: false, why }
 }
@@ -402,7 +412,9 @@ const serialOrder = (
  * 3. the committed operations take their places in one serial order that respects real time (an operation that ended
  *    before another began comes first): each replayed through its writer's model (expectFor) from the initial
  *    state commits there, a grizzle `no-change` is no-change there, and the order ends at the committed state;
- * 4. every refusal takes its place in a serial order of the committed operations and that refusal alone, so explained
+ * 4. every operation refused as its ChangeSet compiled is one its writer's model refuses so at the initial state, as at
+ *    any: which order its stratum's writes require reads no state, so it takes no place in any order;
+ * 5. every refusal takes its place in a serial order of the committed operations and that refusal alone, so explained
  *    as in 3: there its law is among the violated ones (an immediate law when one is violated, since those are raised
  *    at their statement), and its witness names only violating facts by their keys: none for a native violation a
  *    direct writer meets, whose key PostgreSQL states only in prose, some for every other. SSI orders the committed
@@ -428,6 +440,13 @@ export const checkHistory = (h: History): Verdict => {
 		const problem = abortProblem(h, r)
 		if (problem !== undefined) {
 			return { ok: false, problem: `${problem}\n${describeHistory(h)}` }
+		}
+		const unordered =
+			r.outcome.kind === "unorderable"
+				? departure(r, expectFor(r.kind, h.host, h.initial, r.ops))
+				: undefined
+		if (unordered !== undefined) {
+			return { ok: false, problem: `#${r.id}: ${unordered}\n${describeHistory(h)}` }
 		}
 	}
 	const committed = Arr.filter(

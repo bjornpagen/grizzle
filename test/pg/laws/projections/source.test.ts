@@ -24,11 +24,82 @@ import {
 import { type Mode, variantsOf } from "#test/support/laws/boxes.ts"
 import { type DirectCase, type DirectFeature, plantedUpdate } from "#test/support/laws/direct.ts"
 import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
-import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
-import { plantedInsert } from "#test/support/laws/support.ts"
+import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
+import { type FamilyCase, type FamilyFeature, plantedInsert } from "#test/support/laws/support.ts"
 
-familySuite(projectedSource, casesPerTest, "the family")
-familySuite(sourceShapes, casesPerTest, "every schema's refusals by every law but a key")
+/**
+ * From the empty state, one stratum that deletes two desks, inserts one and puts a badge: the badge's put follows the
+ * desk's insertion and precedes its deletion by the immediate key from the badges it selects into the desks, which
+ * follows the desk's deletion, so the ChangeSet is refused as it compiles (UnorderableStratum), on the mutable schema
+ * whose unissued badges need their desk. A counterexample of the mutation tester's oracle, which died on the refusal
+ * when the host modelled no stratum's order.
+ */
+const unorderableStratum: Kept<FamilyCase, FamilyFeature> = {
+	note: "a desk deleted and inserted beside a badge's put, in one stratum",
+	sketch: {
+		variant: 0,
+		steps: [
+			[
+				{
+					arm: "write",
+					relation: 63680,
+					kind: "put",
+					first: {
+						mode: "drawn",
+						values: [54771, 12600, 42985, 65535, 3494, 51650],
+						index: 9049,
+						link: 15014
+					},
+					rest: []
+				},
+				{
+					arm: "write",
+					relation: 44337,
+					kind: "delete",
+					first: {
+						mode: "drawn",
+						values: [14198, 5482, 1484, 16792, 58884, 27309],
+						index: 65010,
+						link: 40597
+					},
+					rest: [
+						{
+							mode: "sibling",
+							values: [65481, 53447, 62720, 48144, 3489, 30084],
+							index: 56529,
+							link: 61208
+						}
+					]
+				},
+				{
+					arm: "write",
+					relation: 41331,
+					kind: "insert",
+					first: {
+						mode: "drawn",
+						values: [6188, 2790, 46267, 0, 20424, 47932],
+						index: 42806,
+						link: 3688
+					},
+					rest: []
+				}
+			]
+		]
+	},
+	draws: "",
+	reaches: ["a stratum no order keeps refused"]
+}
+
+familySuite(projectedSource, casesPerTest, "the family", {
+	immutable: [],
+	mutable: [unorderableStratum]
+})
+familySuite(
+	sourceShapes,
+	casesPerTest,
+	"every schema's refusals by every law but a key",
+	noKeptCases
+)
 
 const domains = sourceShapes.domains
 

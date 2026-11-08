@@ -12,6 +12,8 @@
  *   a cause a concurrent transaction gives: a direct writer's 40001 or 40P01, a discarded attempt's TransientFailure of
  *   a concurrent reason (never StaleStatement nor GeneratedSerialUnique). Only a direct writer aborts: a grizzle writer
  *   calls again after each TransientFailure until a call answers;
+ * - a grizzle operation refused as its ChangeSet compiled (UnorderableStratum) is one its writer's model refuses so,
+ *   whatever the state: in this box, whose every operation writes one fact, never;
  * - some order of the committed operations that respects real time replays each through its writer's model, each
  *   committing there (a grizzle no-change exactly no-change), and ends at the committed state;
  * - each refusal has such an order of the committed operations and itself, in which the model refuses it at its place
@@ -39,10 +41,10 @@ import type { TransientTag } from "#compiler/core/errors.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	checkHistory,
+	type GrizzleSettled,
 	type History,
 	type Outcome,
-	type Recorded,
-	type Settled
+	type Recorded
 } from "#test/support/history/check.ts"
 import { expectFor, type WriterKind } from "#test/support/history/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -175,9 +177,11 @@ const plannedGen =
 
 /** A grizzle writer's outcome, drawn freely. */
 const settledGen =
-	(p: Planned): Gen<Settled> =>
+	(p: Planned): Gen<GrizzleSettled> =>
 	(source) => {
-		const kind = source.draw(element(["accepted", "no-change", "invariant-rejected"] as const))
+		const kind = source.draw(
+			element(["accepted", "no-change", "invariant-rejected", "unorderable"] as const)
+		)
 		return kind === "invariant-rejected"
 			? { kind, laws: [law], keys: source.draw(witnessGen(p.ops)) }
 			: { kind }
@@ -211,9 +215,9 @@ const recordGen =
 		const head = { id: p.id, writer: `w${p.id}`, ops: p.ops, start: p.start, end: p.end }
 		const e = expectFor(p.kind, host, state, p.ops)
 		const faithful = source.draw(element([true, true, false] as const))
-		const after = faithful && e.kind !== "invariant-rejected" ? e.state : state
+		const after = faithful && (e.kind === "accepted" || e.kind === "no-change") ? e.state : state
 		if (p.kind === "grizzle") {
-			const modelled: Settled =
+			const modelled: GrizzleSettled =
 				e.kind === "invariant-rejected"
 					? { kind: e.kind, laws: [law], keys: witnessOf(p.kind, p.ops) }
 					: { kind: e.kind }
@@ -305,13 +309,14 @@ const replay = (r: Recorded, state: HostState): HostState | undefined => {
 				: undefined
 		case "accepted":
 		case "no-change":
-			if (e.kind === "invariant-rejected") {
+			if (e.kind === "invariant-rejected" || e.kind === "unorderable") {
 				return undefined
 			}
 			if (r.kind === "grizzle" && o.kind !== e.kind) {
 				return undefined
 			}
 			return e.state
+		case "unorderable":
 		case "aborted":
 			return undefined
 	}
@@ -391,6 +396,12 @@ const explained = (h: History): boolean => {
 		) {
 			return false
 		}
+		if (
+			r.outcome.kind === "unorderable" &&
+			expectFor(r.kind, host, h.initial, r.ops).kind !== "unorderable"
+		) {
+			return false
+		}
 		if (r.outcome.kind !== "aborted") {
 			continue
 		}
@@ -428,6 +439,7 @@ type CheckerFeature =
 	| "unexplained discarded attempt"
 	| "three operations explained"
 	| "intervals that touch"
+	| "an unorderable outcome its model orders"
 
 describe("the history checker", () => {
 	it.effect(
@@ -452,7 +464,8 @@ describe("the history checker", () => {
 								"explained discarded attempt",
 								"unexplained discarded attempt",
 								"three operations explained",
-								"intervals that touch"
+								"intervals that touch",
+								"an unorderable outcome its model orders"
 							],
 							{ cases: 2000, sense: notesOnly }
 						),
@@ -493,6 +506,9 @@ describe("the history checker", () => {
 								)
 							) {
 								noted.note("a wrong witness")
+							}
+							if (Arr.some(h.recorded, (r) => r.outcome.kind === "unorderable")) {
+								noted.note("an unorderable outcome its model orders")
 							}
 							if (Arr.some(h.recorded, (r) => r.kind === "grizzle" && r.transients.length > 0)) {
 								noted.note(want ? "explained discarded attempt" : "unexplained discarded attempt")

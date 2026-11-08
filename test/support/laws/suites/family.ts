@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Formatter, Option, type Scope, String as Str } fr
 import { type AmbientSession, grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { type Family, installFamily, populationsOf } from "#test/support/laws/boxes.ts"
+import { type Family, installFamily, type Mode, populationsOf } from "#test/support/laws/boxes.ts"
 import { fromSelected, type HostLaw, type HostSchema } from "#test/support/laws/model.ts"
 import {
 	exemptReachable,
@@ -327,6 +327,12 @@ const aimedCase = (
 			)
 	})
 
+/** A suite's own kept cases, by population: counterexamples its search once found, each replayed in every run. */
+export type KeptCases = Readonly<Record<Mode, ReadonlyArray<Kept<FamilyCase, FamilyFeature>>>>
+
+/** No kept case in either population. */
+export const noKeptCases: KeptCases = { immutable: [], mutable: [] }
+
 /**
  * One family's generated suite.
  *
@@ -345,13 +351,19 @@ const aimedCase = (
  * each trait of a schema (boxes.ts traits), a refusal by every kind of law from a selected side that schema declares;
  * and for a family whose schemas differ in the shape of a law, each schema a refusal by every kind of law from a
  * selected side it declares (schemaRefusals). Every requirement is planted (plantedRefusals): a kept case reaches it in every run, since a schema of a
- * family meets only a share of the cases and some refusals only a share of a schema's.
+ * family meets only a share of the cases and some refusals only a share of a schema's. Beside them run the suite's own
+ * kept cases of the population (`kept`).
  *
  * A failing case shrinks through at most `shrinkCandidates` candidates, each a whole case against the server. A
  * complete shrink is unbounded in time: a failure only some runs of a case reproduce walks it from candidate to
  * candidate, accepting whichever happens to fail.
  */
-export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): void => {
+export const familySuite = <P>(
+	family: Family<P>,
+	cases: number,
+	reach: Reach,
+	kept: KeptCases
+): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		`law-bearing generated schemas: ${family.label}`,
 		(it) => {
@@ -384,7 +396,7 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 							draw: drawn(familyCaseGen(variants.length)),
 							literal: Formatter.format,
 							coverage: required<FamilyFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
-							kept: Arr.map(planted, (k) => k.kept),
+							kept: [...Arr.map(planted, (k) => k.kept), ...kept[mode]],
 							runs: cases,
 							shrink,
 							concurrency: 1,

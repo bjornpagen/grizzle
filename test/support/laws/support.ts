@@ -16,7 +16,7 @@ import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
 	type AnyDerived,
@@ -53,6 +53,7 @@ import {
 	type OpKind,
 	overlapsUnequally,
 	pinned,
+	type Precedes,
 	projection,
 	relationOf,
 	rowsDifference,
@@ -89,6 +90,7 @@ export type FamilyFeature =
 	| `trait ${string}`
 	| "a fact stated twice in one member"
 	| "two facts at one key in one member"
+	| "a stratum no order keeps refused"
 
 /** What one member's facts state more than once: a whole fact, or a primary key with another fact at it. */
 const memberRepeats = (host: HostSchema, op: HostOp): ReadonlyArray<FamilyFeature> => {
@@ -1558,12 +1560,87 @@ const showOps = (ops: ReadonlyArray<HostOp>): string =>
 		"; "
 	)
 
+/** A write of a stratum as an UnorderableStratum's cycle names it. */
+type CycleWrite = Extract<CompileReason, { readonly _tag: "UnorderableStratum" }>["cycle"][number]
+
+/**
+ * The cycle of a stratum's writes an apply's failure names, where the ChangeSet was refused as it compiled because no
+ * order of its stratum's writes keeps every immediate key (UnorderableStratum); none for any other failure.
+ */
+export const unorderableCycle = (
+	failure: ApplyError
+): Arr.NonEmptyReadonlyArray<CycleWrite> | undefined => {
+	if (failure._tag !== "ExecutionFailure" || failure.reason._tag !== "CompileError") {
+		return undefined
+	}
+	const reason = failure.reason.reason
+	return reason._tag === "UnorderableStratum" ? reason.cycle : undefined
+}
+
+/**
+ * What a step's ChangeSet does: the outcome its apply answers, or, refused when it compiles, the cycle of its stratum's
+ * writes UnorderableStratum names.
+ */
+type StepOutcome =
+	| ApplyOutcome<unknown>
+	| { readonly kind: "unorderable"; readonly cycle: Arr.NonEmptyReadonlyArray<CycleWrite> }
+
+/** A step's apply as its outcome: an UnorderableStratum is the step's, any other failure a defect of the run. */
+const stepOutcome = (
+	applied: Effect.Effect<ApplyOutcome<unknown>, ApplyError>
+): Effect.Effect<StepOutcome> =>
+	Effect.catch(applied, (failure): Effect.Effect<StepOutcome> => {
+		const cycle = unorderableCycle(failure)
+		return cycle === undefined
+			? Effect.die(failure)
+			: Effect.succeed({ kind: "unorderable", cycle })
+	})
+
+/**
+ * The first order of a cycle, each write before the next and the last before the first, that the stratum's writes do
+ * not require (`order`), if any.
+ */
+const unrequiredStep = (
+	order: ReadonlyArray<Precedes>,
+	cycle: Arr.NonEmptyReadonlyArray<CycleWrite>
+): readonly [CycleWrite, CycleWrite] | undefined =>
+	Arr.findFirst(
+		Arr.zip(cycle, Arr.append(Arr.tailNonEmpty(cycle), Arr.headNonEmpty(cycle))),
+		([a, b]) =>
+			!Arr.some(
+				order,
+				(p) =>
+					p.before.relation === a.relation &&
+					p.before.op === a.op &&
+					p.after.relation === b.relation &&
+					p.after.op === b.op
+			)
+	).pipe(Option.getOrUndefined)
+
+const showWrites = (writes: ReadonlyArray<CycleWrite>): string =>
+	Arr.join(
+		Arr.map(writes, (w) => `${w.op} ${w.relation}`),
+		", then "
+	)
+
 /** The first way an outcome departs from the host's expectation, if any. */
 const mismatch = (
 	session: Session,
 	expected: Expected,
-	outcome: ApplyOutcome<unknown>
+	outcome: StepOutcome
 ): string | undefined => {
+	if (expected.kind === "unorderable") {
+		if (outcome.kind !== "unorderable") {
+			return `expected UnorderableStratum, the stratum's writes ordered in a cycle by ${Formatter.format(expected.order)}, got ${Formatter.format(outcome)}`
+		}
+		const step = unrequiredStep(expected.order, outcome.cycle)
+		return step === undefined
+			? undefined
+			: `refused with UnorderableStratum, whose order ${showWrites(step)} the stratum's writes do not require; the cycle: ${showWrites(outcome.cycle)}`
+	}
+	if (outcome.kind === "unorderable") {
+		return `refused with UnorderableStratum (${showWrites(outcome.cycle)}), where some order of the stratum's writes keeps every immediate key; expected ${expected.kind}`
+	}
 	if (expected.kind !== "invariant-rejected") {
 		return outcome.kind === expected.kind
 			? undefined
@@ -1615,15 +1692,20 @@ export const familyCaseGen =
 		return { variant, steps: source.draw(caseSketchOf(8, familyMemberGen(steps))) }
 	}
 
-/** The features of an outcome: a refusal's, by the laws it names, or an accepted or unchanged outcome's kind. */
+/**
+ * The features of an outcome: a refusal's, by the laws it names, an accepted or unchanged outcome's kind, or a stratum
+ * refused when it compiles.
+ */
 const outcomeFeatures = (
 	session: Session,
 	state: HostState,
 	ops: ReadonlyArray<HostOp>,
-	outcome: ApplyOutcome<unknown>
+	outcome: StepOutcome
 ): Result.Result<ReadonlyArray<FamilyFeature>, string> => {
 	const host = session.host
 	switch (outcome.kind) {
+		case "unorderable":
+			return Result.succeed(["a stratum no order keeps refused"])
 		case "invariant-rejected": {
 			const after = transition(host, state, ops)
 			const violated = Arr.map(violations(host, after), (v) => v.law)
@@ -1710,6 +1792,8 @@ export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
  * so later steps delete, replace and move the facts earlier steps stored, and add facts referring to them. Each step's
  * outcome must be the host's:
  *
+ * - UnorderableStratum when the ChangeSet compiles, exactly when the order its stratum's writes require runs in a cycle
+ *   (model.ts stratumOrder), naming a cycle each of whose orders they require, and the state left as it was;
  * - `accepted` or `no-change` exactly when the brute-force evaluation of every law's violation query on the final
  *   state is empty, and then the committed state is the host's final state;
  * - otherwise `invariant-rejected` with one of the violated laws (a key law when one is violated, since keys are
@@ -1744,7 +1828,7 @@ export const runSteps = (
 				}
 			}
 			const expected = expect(session.host, state, ops)
-			const outcome = yield* Effect.orDie(session.apply(ops))
+			const outcome = yield* stepOutcome(session.apply(ops))
 			log.push(`${showOps(ops)}\n    expected ${expected.kind}, got ${Formatter.format(outcome)}`)
 			const features = outcomeFeatures(session, state, ops, outcome)
 			if (Result.isFailure(features)) {
@@ -1759,7 +1843,7 @@ export const runSteps = (
 			if (problem !== undefined) {
 				return yield* new CaseFailed({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
 			}
-			if (expected.kind !== "invariant-rejected") {
+			if (expected.kind === "accepted" || expected.kind === "no-change") {
 				state = expected.state
 			}
 			const stored = yield* Effect.orDie(session.read)

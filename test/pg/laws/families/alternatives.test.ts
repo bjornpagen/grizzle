@@ -23,12 +23,17 @@ import {
 	type RunsParams,
 	stageName
 } from "#test/support/laws/boxes.ts"
-import { casesPerTest, familySuite, installVariant } from "#test/support/laws/suites/family.ts"
+import {
+	casesPerTest,
+	familySuite,
+	installVariant,
+	noKeptCases
+} from "#test/support/laws/suites/family.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-familySuite(alternativesBox, casesPerTest, "the family")
-familySuite(compositeAlternatives, casesPerTest, "every schema's refusals")
+familySuite(alternativesBox, casesPerTest, "the family", noKeptCases)
+familySuite(compositeAlternatives, casesPerTest, "every schema's refusals", noKeptCases)
 
 /**
  * An armed handle of a schema of the box: the schema, the position of its payload relation and the handle's, and whether

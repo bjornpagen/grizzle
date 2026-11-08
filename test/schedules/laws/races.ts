@@ -11,7 +11,7 @@ import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defined } from "#test/support/assert.ts"
-import { type DirectAbort, type Outcome } from "#test/support/history/check.ts"
+import { type DirectAbort, type GrizzleSettled, type Outcome } from "#test/support/history/check.ts"
 import {
 	enforcementProblem,
 	type HistoryFamily,
@@ -746,7 +746,7 @@ const seededRace = (
 		)
 		for (const { n, k } of attempts) {
 			const s = seedAt(n, k)
-			if (s.expected.kind !== "invariant-rejected") {
+			if (s.expected.kind === "accepted" || s.expected.kind === "no-change") {
 				return { anchor: s.anchor, at: s.at, state: s.expected.state }
 			}
 		}
@@ -758,7 +758,7 @@ const seededRace = (
 	let initial = state
 	for (const step of sketch.initial) {
 		const e = expect(env.host, initial, resolveStep(env.host, env.domains, initial, step))
-		if (e.kind !== "invariant-rejected") {
+		if (e.kind === "accepted" || e.kind === "no-change") {
 			initial = e.state
 		}
 	}
@@ -817,8 +817,8 @@ const writeSkew = (
 	const first = expectFor(one.kind, env.host, initial, one.ops)
 	const second = expectFor(two.kind, env.host, initial, two.ops)
 	return (
-		first.kind !== "invariant-rejected" &&
-		second.kind !== "invariant-rejected" &&
+		(first.kind === "accepted" || first.kind === "no-change") &&
+		(second.kind === "accepted" || second.kind === "no-change") &&
 		expectFor(two.kind, env.host, first.state, two.ops).kind === "invariant-rejected" &&
 		expectFor(one.kind, env.host, second.state, one.ops).kind === "invariant-rejected"
 	)
@@ -1270,7 +1270,7 @@ type RaceFeature =
 	| "deadlock beside a runnable session"
 	| "every interleaving"
 	| "pct"
-	| `${WriterKind} ${Outcome["kind"]}`
+	| `${WriterKind} ${(Outcome | GrizzleSettled)["kind"]}`
 	| `aborted: ${DirectAbort["kind"]}`
 	| BelowFeature
 	| `law ${string}`

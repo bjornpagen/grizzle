@@ -212,7 +212,7 @@ describe("the host write models judge a repeated fact by its key", () => {
 								)
 							} else {
 								assert.equal(got.kind, expected.kind)
-								if (got.kind !== "invariant-rejected") {
+								if (got.kind === "accepted" || got.kind === "no-change") {
 									assert.deepEqual(stateTexts(got.state), expected.state)
 								}
 							}

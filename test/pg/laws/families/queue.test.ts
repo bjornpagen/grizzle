@@ -6,6 +6,6 @@
  */
 
 import { queueFamily } from "#test/support/laws/boxes.ts"
-import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
+import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-familySuite(queueFamily, casesPerTest, "the family")
+familySuite(queueFamily, casesPerTest, "the family", noKeptCases)

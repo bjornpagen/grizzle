@@ -8,6 +8,6 @@
  */
 
 import { lawBox } from "#test/support/laws/generated.ts"
-import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
+import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-familySuite(lawBox, casesPerTest, "every schema's refusals")
+familySuite(lawBox, casesPerTest, "every schema's refusals", noKeptCases)

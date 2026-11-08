@@ -345,9 +345,27 @@ export interface Violation {
 	readonly violators: ReadonlyArray<Violator>
 }
 
+/** A write of a stratum as its schedule orders it, and as an UnorderableStratum's cycle names it: an op on a relation. */
+export interface StratumOp {
+	readonly relation: string
+	readonly op: OpKind
+}
+
+/** One write of a stratum its order runs before another. */
+export interface Precedes {
+	readonly before: StratumOp
+	readonly after: StratumOp
+}
+
+/**
+ * What a ChangeSet of one stratum must do: commit, changing the state or not; be refused by the laws its final state
+ * violates; or be refused when it compiles, before any SQL and whatever the state, since its writes `order` requires
+ * run in a cycle (UnorderableStratum).
+ */
 export type Expected =
 	| { readonly kind: "accepted" | "no-change"; readonly state: HostState }
 	| { readonly kind: "invariant-rejected"; readonly violations: ReadonlyArray<Violation> }
+	| { readonly kind: "unorderable"; readonly order: ReadonlyArray<Precedes> }
 
 export const relationOf = (schema: HostSchema, name: string): HostRelation => {
 	const r = Arr.findFirst(schema.relations, (x) => x.name === name)
@@ -832,9 +850,91 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 	return pairs.length > 0 && Arr.every(pairs, (equal) => !equal)
 }
 
+/** The order an op takes among one relation's writes: its deletions, then its puts, then its insertions. */
+const phase: { readonly [K in OpKind]: number } = { delete: 0, put: 1, insert: 2 }
+
+/** Whether a write adds facts: an insertion or a put. */
+const adds = (w: StratumOp): boolean => w.op !== "delete"
+
 /**
- * What a ChangeSet of `ops` must do from the lawful `state`. Every relation's primary key is one of the schema's laws
- * (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the laws pass.
+ * Whether a write removes facts: a deletion, or a put of a relation with a field outside its key, which displaces the
+ * occupant of each key it writes; a pure set's put only adds, its fact at a key being the key.
+ */
+const removes = (schema: HostSchema, w: StratumOp): boolean => {
+	if (w.op !== "put") {
+		return w.op === "delete"
+	}
+	const relation = relationOf(schema, w.relation)
+	return Arr.some(relation.fields, (f) => !relation.key.includes(f.name))
+}
+
+/** Whether two writes are one: the same op on the same relation. */
+const sameWrite = (a: StratumOp, b: StratumOp): boolean =>
+	a.relation === b.relation && a.op === b.op
+
+/**
+ * The order a stratum's writes require, as the README's statement order states it: one relation's deletions before its
+ * puts and its puts before its insertions, since its keys are checked at each statement; and along a containment whose
+ * foreign key is immediate (isImmediate), checked at each statement too, the target's additions before the source's
+ * and the source's removals before the target's.
+ */
+const stratumOrder = (schema: HostSchema, ops: ReadonlyArray<HostOp>): ReadonlyArray<Precedes> => {
+	const writes = Arr.dedupeWith(
+		Arr.map(ops, (o): StratumOp => ({ relation: o.relation, op: o.kind })),
+		sameWrite
+	)
+	const references = Arr.filter(
+		schema.laws,
+		(l): l is HostContainment =>
+			l.kind === "contained" && l.source.relation !== l.target.relation && isImmediate(schema, l)
+	)
+	const required = (a: StratumOp, b: StratumOp): boolean =>
+		a.relation === b.relation
+			? phase[a.op] < phase[b.op]
+			: Arr.some(
+					references,
+					(r) =>
+						(r.target.relation === a.relation &&
+							r.source.relation === b.relation &&
+							adds(a) &&
+							adds(b)) ||
+						(r.source.relation === a.relation &&
+							r.target.relation === b.relation &&
+							removes(schema, a) &&
+							removes(schema, b))
+				)
+	return Arr.flatMap(writes, (before) =>
+		Arr.flatMap(writes, (after) => (required(before, after) ? [{ before, after }] : []))
+	)
+}
+
+/** Whether `order` runs some write after itself: removing every write no remaining write precedes leaves some. */
+const cyclic = (order: ReadonlyArray<Precedes>): boolean => {
+	let pending = Arr.dedupeWith(
+		Arr.flatMap(order, (p) => [p.before, p.after]),
+		sameWrite
+	)
+	const unblocked = (): Option.Option<StratumOp> =>
+		Arr.findFirst(
+			pending,
+			(w) =>
+				!Arr.some(
+					order,
+					(p) => sameWrite(p.after, w) && Arr.some(pending, (x) => sameWrite(x, p.before))
+				)
+		)
+	for (let free = unblocked(); Option.isSome(free); free = unblocked()) {
+		const placed = free.value
+		pending = Arr.filter(pending, (w) => !sameWrite(w, placed))
+	}
+	return pending.length > 0
+}
+
+/**
+ * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (stratumOrder) runs in a
+ * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
+ * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
+ * laws pass.
  * Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a value) are
  * that key's refusal before any SQL, whatever S' holds: a key names one fact. The refusal may name any key the
  * stratum's additions break too, since the host judges a stratum's relations in an order the model leaves open; a key
@@ -845,6 +945,10 @@ export const expect = (
 	state: HostState,
 	ops: ReadonlyArray<HostOp>
 ): Expected => {
+	const order = stratumOrder(schema, ops)
+	if (cyclic(order)) {
+		return { kind: "unorderable", order }
+	}
 	const next = transition(keyedSchema(schema), state, ops)
 	const all = violations(schema, next)
 	const deleted = deletedAtOneKey(schema, ops)

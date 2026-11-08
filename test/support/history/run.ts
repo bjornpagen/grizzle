@@ -22,7 +22,7 @@ import {
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
-import type { Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
+import type { GrizzleSettled, Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
 import type { GrizzleWriter, HistoryRig } from "#test/support/history/families.ts"
 import { directOps, expectDirect, type Immediacy } from "#test/support/history/model.ts"
 import {
@@ -44,7 +44,8 @@ import {
 	plantedInsert,
 	resolveStep,
 	type StepSketch,
-	stepSwarmGen
+	stepSwarmGen,
+	unorderableCycle
 } from "#test/support/laws/support.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -374,7 +375,7 @@ export const resolveHistory = (
 	let initial = emptyState(host)
 	for (const step of sketch.initial) {
 		const e = expect(host, initial, resolveStep(host, domains, initial, step))
-		if (e.kind !== "invariant-rejected") {
+		if (e.kind === "accepted" || e.kind === "no-change") {
 			initial = e.state
 		}
 	}
@@ -789,11 +790,15 @@ const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<S
  * its case's hang (caseHang).
  */
 export interface GrizzleRun {
-	readonly outcome: Settled
+	readonly outcome: GrizzleSettled
 	readonly transients: ReadonlyArray<TransientTag>
 }
 
-/** `writer`'s operation `ops`, run as an application runs a write; any failure but a refusal is a defect. */
+/**
+ * `writer`'s operation `ops`, run as an application runs a write: its answer, or its ChangeSet refused as it compiled,
+ * before any attempt, because no order of its stratum's writes keeps every immediate key; any other failure is a
+ * defect.
+ */
 export const runGrizzle = (
 	env: HistoryEnv,
 	writer: GrizzleWriter,
@@ -802,12 +807,16 @@ export const runGrizzle = (
 	untilAnswered(
 		env.rig.runtimes[writer].methods.apply(changeSetOf(env.rig.schema, env.rig.relations, ops), {})
 	).pipe(
-		Effect.orDie,
 		Effect.flatMap((run) =>
 			Effect.map(grizzleOutcome(env.names, run.answered), (outcome) => ({
 				outcome,
 				transients: run.refused
 			}))
+		),
+		Effect.catch((failure) =>
+			unorderableCycle(failure) === undefined
+				? Effect.die(failure)
+				: Effect.succeed<GrizzleRun>({ outcome: { kind: "unorderable" }, transients: [] })
 		)
 	)
 
