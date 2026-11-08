@@ -20,7 +20,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { Law, Refused } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
@@ -58,6 +58,14 @@ export type OutcomeWitness =
 	| { readonly kind: "key"; readonly relation: string; readonly values: Fact }
 	| { readonly kind: "unreported" }
 
+/**
+ * Which laws a refusal names (Refused, changeset.ts), each read back to its LawId: every law named broken, or the
+ * laws of the CHECK PostgreSQL tried first, or some of the several laws of one object, at least one of them broken.
+ */
+export type RefusedIds =
+	| { readonly kind: "every" | "first"; readonly laws: readonly [LawId, ...Array<LawId>] }
+	| { readonly kind: "some"; readonly laws: readonly [LawId, LawId, ...Array<LawId>] }
+
 /** The apply outcome as plain values. */
 export type WriteOutcome =
 	| {
@@ -74,10 +82,10 @@ export type WriteOutcome =
 	| {
 			readonly kind: "invariant-rejected"
 			/**
-			 * The laws the outcome names, each read back to its LawId through the installation's described laws, the
-			 * witness's first.
+			 * The laws the outcome names, read back through the installation's described laws, the witness's first, and how
+			 * grizzle decided them.
 			 */
-			readonly laws: readonly [LawId, ...Array<LawId>]
+			readonly refused: RefusedIds
 			readonly witness: OutcomeWitness
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
@@ -546,6 +554,20 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
 	)
 }
 
+/** A refusal's laws read back to their LawIds through the installation's described laws, how grizzle decided them kept. */
+const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): RefusedIds => {
+	const id = (law: Law): LawId => reportedLawId(described, law)
+	switch (refused.kind) {
+		case "every":
+		case "first":
+			return { kind: refused.kind, laws: Arr.map(refused.laws, id) }
+		case "some": {
+			const [first, second, ...rest] = refused.laws
+			return { kind: "some", laws: [id(first), id(second), ...Arr.map(rest, id)] }
+		}
+	}
+}
+
 /**
  * The apply outcome as plain values: the runtime's, its laws read back to its LawId through the installation's
  * described laws, its read-back rows checked as records.
@@ -555,7 +577,7 @@ const outcomeOf = (described: ReadonlyMap<LawId, Law>, o: ApplyOutcome<unknown>)
 		case "invariant-rejected":
 			return {
 				kind: o.kind,
-				laws: Arr.map(o.refused.laws, (law) => reportedLawId(described, law)),
+				refused: refusedIdsOf(described, o.refused),
 				witness: o.witness
 			}
 		case "outside-world":

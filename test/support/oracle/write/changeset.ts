@@ -277,12 +277,14 @@ interface ReadSketch {
  *   with the TOAST-sized text that differs from the stored one in its last code point alone, which changes it;
  * - "described put": a put on the mutable relation of its own facts at one b, their keys kept and their text a
  *   parameter, an UPDATE ... FROM;
- * - "wider member": an insert into the narrow relation of the wide one's facts, the wide text read into the narrow
- *   field, where a stored wide fact holds a text past the narrow domain, which refuses it;
+ * - "wider member": an insert into the narrow relation of the wide one's facts, the wide text read into both narrow
+ *   fields, where a stored wide fact holds a text past the narrow domain, which refuses it, naming some of the two
+ *   fields' laws;
  * - "wider deletion": a deletion from the narrow relation of the wide one's facts, which removes the stored narrow fact
  *   a stored wide fact equals, while a wide text past the narrow domain matches no fact;
- * - "refused at bind": an insert into the narrow relation of the wide one's keys, its text a parameter past the narrow
- *   domain, which the bind refuses before any SQL (EncodingFailure refinedValue at the parameter's slot);
+ * - "refused at bind": an insert into the narrow relation of the wide one's keys and texts, its first text a parameter
+ *   past the narrow domain, which the bind refuses before any SQL (EncodingFailure refinedValue at the parameter's
+ *   slot);
  * - "candidate repeated": the change adds a keyed fact at a stored fact's candidate key, refused by that key;
  * - "immediate violated": the change adds a member naming no fact of the pure set, refused at its statement by the
  *   immediate containment;
@@ -546,7 +548,7 @@ const plantedFactsOf = (
 		case "refused at bind":
 			return [wide]
 		case "wider deletion":
-			return [wide, [p.narrow, [{ a: armKey, b: planted.narrowText }]]]
+			return [wide, [p.narrow, [{ a: armKey, b: planted.narrowText, c: planted.narrowText }]]]
 		case "candidate repeated":
 		case "relation parameters":
 			return [[p.keyed, [{ a: armKey, b: armKey }]]]
@@ -743,7 +745,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 		)
 	}
 	const widened = (op: MemberOp): WMember =>
-		described(op, p.narrow, p.wide, undefined, { a: own("a"), b: own("b") })
+		described(op, p.narrow, p.wide, undefined, { a: own("a"), b: own("b"), c: own("b") })
 	/** The deletion of the keyed facts whose b is p0, described over the keyed relation itself. */
 	const anchored = described(
 		"delete",
@@ -824,7 +826,8 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 				[
 					described("insert", p.narrow, p.wide, undefined, {
 						a: own("a"),
-						b: { kind: "param", param: "p0" }
+						b: { kind: "param", param: "p0" },
+						c: own("b")
 					})
 				],
 				[],

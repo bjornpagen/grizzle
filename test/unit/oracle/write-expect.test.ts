@@ -10,8 +10,9 @@
  * the harness's own judge (harness.ts), a faithful realization's outcome and mutants of it. The faithful one passes:
  * - a refusal by the first acceptable law, its witness the key of one of its violators, or keyless where that refusal
  *   may be;
- * - a keyless refusal by the column domain's law, where a stored value lies outside its column's domain, as the adapter
- *   classifies the server's check violation by the domain it names;
+ * - a keyless refusal by the domain's laws, where a stored value lies outside its column's domain, as the adapter
+ *   classifies the server's check violation by the domain it names: the law of each column the domain types in the
+ *   refused relation, `every` where one and `some` where several;
  * - a refusal at bind, EncodingFailure refinedValue at the slot of a parameter passed outside its field.
  * Every mutant fails:
  * - a refusal by a law of the group that no acceptable refusal names;
@@ -20,6 +21,7 @@
  * - a keyless witness where the law's witness carries its key;
  * - a witness carrying a key where the law's violation is native and keyless;
  * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses;
+ * - a domain's refusal naming, decided, one of the several laws of the columns it types in the refused relation;
  * - a domain's check violation left an operational failure, unclassified.
  */
 import { describe, it } from "@effect/vitest"
@@ -95,7 +97,25 @@ const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<LawId> => 
 const unreported: OutcomeWitness = { kind: "unreported" }
 
 const refused = (law: LawId, witness: OutcomeWitness): Result.Result<WriteOutcome, unknown> =>
-	Result.succeed({ kind: "invariant-rejected", laws: [law], witness })
+	Result.succeed({ kind: "invariant-rejected", refused: { kind: "every", laws: [law] }, witness })
+
+/**
+ * A domain's refusal of a relation's columns as the adapter reports it: the pattern law of each column the domain
+ * types there, `every` where one and `some` where several, keyless.
+ */
+const domainRefused = (
+	laws: Arr.NonEmptyReadonlyArray<LawId>
+): Result.Result<WriteOutcome, unknown> => {
+	const [first, second, ...rest] = laws
+	return Result.succeed({
+		kind: "invariant-rejected",
+		refused:
+			second === undefined
+				? { kind: "every", laws: [first] }
+				: { kind: "some", laws: [first, second, ...rest] },
+		witness: unreported
+	})
+}
 
 /** The first violator's values at the law's fields. */
 const firstKey = (violations: Violations) =>
@@ -147,6 +167,7 @@ const someKey = (group: WGroup): OutcomeWitness => {
 const situations = [
 	"faithful refusal",
 	"faithful domain refusal",
+	"mutant: one of a domain's several laws",
 	"mutant: an unacceptable law",
 	"mutant: a non-violating key",
 	"mutant: a keyless witness of a keyed law",
@@ -253,13 +274,25 @@ describe("the write oracle's judgement", () => {
 								}
 								return
 							case "outsideDomain": {
-								/** The domain refusals lead the acceptable ones (expect.ts domainLaws). */
-								const [domain] = [...expected.refusals.keys()]
-								if (domain === undefined) {
-									throw new Error("a domain refusal expectation names no law")
+								const refusing = Arr.findFirst([...expected.domain.typed], ([relation, laws]) =>
+									expected.domain.refusing.has(relation) && Arr.isReadonlyArrayNonEmpty(laws)
+										? Option.some(laws)
+										: Option.none()
+								)
+								if (Option.isNone(refusing)) {
+									throw new Error(
+										"a domain refusal expectation refuses no relation the domain types"
+									)
 								}
+								const laws = refusing.value
 								n.note("faithful domain refusal")
-								assert.deepEqual(verdict(refused(domain, unreported)), [])
+								assert.deepEqual(verdict(domainRefused(laws)), [])
+								if (laws.length > 1) {
+									mutant(
+										"mutant: one of a domain's several laws",
+										refused(Arr.headNonEmpty(laws), unreported)
+									)
+								}
 								mutant(
 									"mutant: applied where domain-refused",
 									Result.succeed({ kind: "no-change", reads: {} })

@@ -465,7 +465,8 @@ const resolveGroup =
  * - the mutable `merged(a int4, b int4, c memo)`, whose payload b is a deletion's scope and c an unbounded text, so a
  *   put on it beside a scoped deletion is a MERGE, an enumerated one alone an ON CONFLICT DO UPDATE, and a described
  *   one reading its own keys an UPDATE ... FROM;
- * - `wide(a int4, b text6)` and `narrow(a int4, b text)`, a described member reading the wide text into the narrow one;
+ * - `wide(a int4, b text6)` and `narrow(a int4, b text, c text)`, a described member reading the wide text into both
+ *   narrow fields, which the narrow text's one domain types;
  * - `keyed(a int4, b int4)` with the candidate key b, which `referrer(a int4, b int4)` references by its b;
  * - the pure set `pure(a int4)`, which `member(a int4, b int4)` references by its b, an immediate containment;
  * - `serialized(a serial, b int4)`, keyed by its identity column;
@@ -563,7 +564,7 @@ const plantedGroup = (index: number): WGroup => {
 			flagged,
 			merged,
 			relationOf("wide", "int4", [b("text6")], [], false),
-			relationOf("narrow", "int4", [b("text")], [], false),
+			relationOf("narrow", "int4", [b("text"), { name: "c", kind: "text" }], [], false),
 			keyed,
 			referrer,
 			pure,

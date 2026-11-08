@@ -459,11 +459,17 @@ export const referable = (a: TypeKind, b: TypeKind): boolean =>
 	sameBase(a, b) && (a === b || baseOf(a) === "int4" || baseOf(a) === "int8")
 
 /**
- * Whether a value fits the domain of a field of `kind`: the `^.{0,3}$` refinement with the `s` and `u` flags counts every
- * code point once; every other kind's projected values fit (numerics are cast and rounded, never refused).
+ * Whether a field of `kind` is of the narrow text, the `^.{0,3}$` refinement: the one domain a projected value can fall
+ * outside, a wider text read into it. Every field of that kind is of its one domain.
+ */
+export const narrowText = (kind: TypeKind): boolean => kind === "text"
+
+/**
+ * Whether a value fits the domain of a field of `kind`: the narrow text's refinement, with the `s` and `u` flags,
+ * counts every code point once; every other kind's projected values fit (numerics are cast and rounded, never refused).
  */
 export const fitsField = (kind: TypeKind, value: unknown): boolean =>
-	kind !== "text" || (typeof value === "string" && Array.from(value).length <= 3)
+	!narrowText(kind) || (typeof value === "string" && Array.from(value).length <= 3)
 
 /**
  * A printable spelling of a host value, for failure reports.

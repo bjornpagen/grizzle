@@ -73,6 +73,7 @@ import {
 import {
 	type AcceptableRefusal,
 	type AcceptableRefusals,
+	type DomainRefusal,
 	type Expected,
 	expectChangeSet,
 	type GeneratedDraws,
@@ -319,7 +320,7 @@ const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
 	const v = o.success
 	switch (v.kind) {
 		case "invariant-rejected":
-			return `invariant-rejected ${Arr.join(v.laws, ", ")} witness ${
+			return `invariant-rejected ${v.refused.kind} of ${Arr.join(v.refused.laws, ", ")} witness ${
 				v.witness.kind === "key"
 					? `${v.witness.relation} ${printFact(v.witness.values)}`
 					: v.witness.kind
@@ -608,21 +609,66 @@ const judgedExpectation = (
 /** The laws an expectation's refusals allow, for a failure report. */
 const lawsOf = (refusals: AcceptableRefusals): string => Arr.join([...refusals.keys()], ", ")
 
+/** A refusal's laws as its outcome names them, and how grizzle decided them, for a failure report. */
+const printRefused = (o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>): string =>
+	`${o.refused.kind} of ${Arr.join(o.refused.laws, ", ")}`
+
 /**
- * The problems of a refusal with `o`'s laws against the refusals an expectation allows: every law it names is one,
- * and its witness is one its first law's refusal may carry.
+ * The problems of a refusal with `o`'s laws against the refusals by a law of the stratum an expectation allows: each a
+ * law decided (`every`, or the CHECK PostgreSQL tried `first`), every law it names one of them, and its witness one its
+ * first law's refusal may carry. No law of the stratum is one of several an object discharges, so `some` is none.
  */
 const refusalProblems = (
 	group: WGroup,
 	refusals: AcceptableRefusals,
 	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
 ): ReadonlyArray<string> => {
-	const [law] = o.laws
+	if (o.refused.kind === "some") {
+		return [`refused with ${printRefused(o)}, expected a decided one of ${lawsOf(refusals)}`]
+	}
+	const [law] = o.refused.laws
 	const first = refusals.get(law)
-	const unexpected = Arr.filter(o.laws, (l) => !refusals.has(l))
+	const unexpected = Arr.filter(o.refused.laws, (l) => !refusals.has(l))
 	return first === undefined || Arr.isReadonlyArrayNonEmpty(unexpected)
 		? [`refused with ${Arr.join(unexpected, ", ")}, expected one of ${lawsOf(refusals)}`]
 		: witnessProblems(group, law, first, o.witness)
+}
+
+/**
+ * The problems of a refusal with `o`'s laws against the domain's (DomainRefusal): the laws it names are those of the
+ * columns the domain types in some of the tables the stratum writes, each such table's every one, among them the
+ * target of a member that adds a refused value; `every` where that is one law and `some` where several; and no key.
+ */
+const domainProblems = (
+	domain: DomainRefusal,
+	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
+): ReadonlyArray<string> => {
+	const named = new Set<LawId>(o.refused.laws)
+	const written = Arr.filter([...domain.typed], ([, laws]) => Arr.some(laws, (l) => named.has(l)))
+	const whole =
+		Arr.every(written, ([, laws]) => Arr.every(laws, (l) => named.has(l))) &&
+		Arr.every([...named], (l) => Arr.some(written, ([, laws]) => laws.includes(l)))
+	const decided = named.size === 1 ? "every" : "some"
+	return [
+		...(whole
+			? []
+			: [
+					`refused with ${printRefused(o)}, not every law the domain types in some of the tables the stratum writes: ${Formatter.format([...domain.typed])}`
+				]),
+		...(Arr.some(written, ([relation]) => domain.refusing.has(relation))
+			? []
+			: [
+					`refused with ${printRefused(o)}, naming no table a member adds a value outside the domain to: ${Arr.join([...domain.refusing], ", ")}`
+				]),
+		...(o.refused.kind === decided
+			? []
+			: [`refused with ${printRefused(o)}, where the domain's ${named.size} laws are ${decided}`]),
+		...(o.witness.kind === "key"
+			? [
+					`the witness of the domain's refusal names ${o.witness.relation} ${printFact(o.witness.values)}, where it names no key`
+				]
+			: [])
+	]
 }
 
 /** A relation's counts as an accepted outcome reports them. */
@@ -714,7 +760,11 @@ export const judgeWrite = (
 		} else if (outcome.success.kind !== "invariant-rejected") {
 			problems.push(`expected a domain's law or one of ${laws}, got ${outcome.success.kind}`)
 		} else {
-			appendAll(problems, refusalProblems(group, expected.refusals, outcome.success))
+			const byDomain = domainProblems(expected.domain, outcome.success)
+			const byLaw = refusalProblems(group, expected.refusals, outcome.success)
+			if (Arr.isReadonlyArrayNonEmpty(byDomain) && Arr.isReadonlyArrayNonEmpty(byLaw)) {
+				appendAll(problems, [...byDomain, ...byLaw])
+			}
 		}
 		stateIs(expected.initial, "after a domain's refusal the initial state stays:", noRenaming)
 		return problems
@@ -1127,8 +1177,9 @@ export interface Ran {
  * state and the netted deltas, and the committed state the oracle's final state, identity sequences included; or
  * `invariant-rejected` with a law the realization may meet first and a key-only witness of that law, leaving the
  * initial state committed; or, when a stratum adds a value its field's domain refuses, `invariant-rejected` with the
- * domain's law, keyless, as the adapter classifies the violation by the domain PostgreSQL names, or a law the
- * realization meets first, with the initial state committed. A read-back that attaches, stated "one", the target of a
+ * domain's laws, keyless, as the adapter classifies the violation by the domain PostgreSQL names: every law the domain
+ * types in the tables its statement writes, `some` of them where they are several (expect.ts DomainRefusal); or a law
+ * the realization meets first, with the initial state committed. A read-back that attaches, stated "one", the target of a
  * deferred containment reads each row's parent as an Option: Option.some of the target fact the committed state holds
  * at the row's contained fields (its fields outside the referenced key), or Option.none when it holds none; a write
  * that violates that containment is refused at COMMIT with its law, never a defect of the read-back. The two database
@@ -1463,7 +1514,7 @@ export const runCase = (
 			}
 			const metKind = Option.flatMap(Arr.head(outcomes), (met) =>
 				Result.isSuccess(met) && met.success.kind === "invariant-rejected"
-					? refusalKind(t, group, Arr.headNonEmpty(met.success.laws))
+					? refusalKind(t, group, Arr.headNonEmpty(met.success.refused.laws))
 					: Option.none()
 			)
 			if (Option.isSome(metKind)) {

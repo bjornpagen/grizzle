@@ -24,7 +24,7 @@ import {
 	oracleChangeSet,
 	type WChangeSet
 } from "#test/support/oracle/write/changeset.ts"
-import { fitsField } from "#test/support/oracle/write/domain.ts"
+import { fitsField, narrowText } from "#test/support/oracle/write/domain.ts"
 import { keyOf, type WFacts } from "#test/support/oracle/write/facts.ts"
 import {
 	columnOf,
@@ -62,6 +62,20 @@ export type AcceptableRefusal =
 
 /** The refusals a realization may report, each law once with the one witness it may carry. */
 export type AcceptableRefusals = ReadonlyMap<LawId, AcceptableRefusal>
+
+/**
+ * The laws a domain's refusal of a stratum may name, with no key (Refused): a described member adds a stored value its
+ * column's domain refuses, and PostgreSQL names the domain, never the column, so the refusal names the pattern law of
+ * every column the domain types in the tables its statement writes: `every` where that is one law, `some` where they
+ * are several. The statement writes the target of a member that adds a refused value, and maybe the stratum's other
+ * targets beside it.
+ */
+export interface DomainRefusal {
+	/** Each relation the stratum writes, with the pattern laws of the columns the domain types in it. */
+	readonly typed: ReadonlyMap<string, ReadonlyArray<LawId>>
+	/** The relations a described member of the stratum adds a refused value to. */
+	readonly refusing: ReadonlySet<string>
+}
 
 /**
  * The TransientFailures a lone writer of a case may meet: a generated addition into a relation draws a serial value a
@@ -107,7 +121,9 @@ export type Expected =
 			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
 	| {
+			/** A stratum that adds a value outside its domain: refused by the domain or by a law it meets first. */
 			readonly kind: "outsideDomain"
+			readonly domain: DomainRefusal
 			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
 			readonly collisions: ReadonlyMap<string, Collisions>
@@ -335,33 +351,45 @@ const unboundParams = (ctx: ExpectContext, c: WChangeSet): ReadonlySet<string> =
 }
 
 /**
- * The domain refusals of a stratum that adds a fact holding a value its field's domain refuses: the pattern law of each
- * column that a described member other than a deletion breaks, where its facts, evaluated against the state before
- * the stratum, hold a stored value read into a column whose domain refuses it (domain.ts fitsField), a wider text read
- * into a narrower one. A parameter is never one: the bind refuses a parameter outside its field first
- * (unboundParams). A domain's violation is reported by the domain PostgreSQL names, with no key: the laws of the
- * columns it types in the table the member writes, `some` of them where they are several, since PostgreSQL names no
- * column and the host states no row of a described member. A deletion never breaks one: its member is carried as the
- * comparison reads it, so an outside value matches no fact, which the add-wins calculator already predicts.
+ * The domain refusal of a stratum (DomainRefusal), refusing where a described member other than a deletion adds facts,
+ * evaluated against the state before the stratum, holding a stored value read into a column whose domain refuses it
+ * (domain.ts fitsField), a wider text read into a narrower one. A parameter is never one: the bind refuses a parameter
+ * outside its field first (unboundParams). A deletion never adds one: its member is carried as the comparison reads
+ * it, so an outside value matches no fact, which the add-wins calculator already predicts. The one domain is the
+ * narrow text's (domain.ts narrowText).
  */
-const domainLaws = (
+const domainRefusal = (
 	ctx: ExpectContext,
 	members: WChangeSet["strata"][number],
 	params: ParamMap,
 	state: OracleState
-): ReadonlyArray<LawId> =>
-	Arr.flatMap(members, (m) => {
-		if (m.op === "delete" || m.source.kind !== "project") {
-			return []
-		}
-		const target = relationIn(ctx.group, m.relation)
-		const facts = evaluateSource(ctx.group, target, m.source, params, state)
-		return Arr.flatMap(target.columns, (col) =>
-			Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
-				? [ctx.laws.patternLaw(target.name, col.name)]
+): DomainRefusal => ({
+	typed: new Map(
+		Arr.map(members, (m) => {
+			const target = relationIn(ctx.group, m.relation)
+			return [
+				target.name,
+				Arr.flatMap(target.columns, (col) =>
+					narrowText(col.kind) ? [ctx.laws.patternLaw(target.name, col.name)] : []
+				)
+			] as const
+		})
+	),
+	refusing: new Set(
+		Arr.flatMap(members, (m) => {
+			if (m.op === "delete" || m.source.kind !== "project") {
+				return []
+			}
+			const target = relationIn(ctx.group, m.relation)
+			const facts = evaluateSource(ctx.group, target, m.source, params, state)
+			return Arr.some(target.columns, (col) =>
+				Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
+			)
+				? [target.name]
 				: []
-		)
-	})
+		})
+	)
+})
 
 /** The refusals of laws whose violation PostgreSQL reports only in prose, each witnessed by no key. */
 const unreportedBy = (
@@ -467,8 +495,9 @@ const collisionsOf = (
  * enumerated deletions of any stratum first, with that key's law and a violating key (hostRefusals), then a parameter
  * passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure refinedValue before any
  * SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
- * reading a wider text into a narrower field, is refused there by the domain's law, or meets a law of the stratum
- * first. A refused change leaves the initial state.
+ * reading a wider text into a narrower field, is refused there by the domain, naming the laws of the columns it types
+ * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
+ * initial state.
  *
  * The expected result of applying `c` to `facts`, each identity sequence where `sequences` states it, and every other
  * past the stored values, where a migration that loaded them leaves it: its generated additions drawn as the add-wins
@@ -512,13 +541,14 @@ const expectUnder = (
 		initial,
 		collisions
 	})
-	/** The domains' laws lead, then the stratum's. */
+	/** The domain's refusal, or one by a law of the stratum. */
 	const outsideDomain = (
-		domains: ReadonlyArray<LawId>,
+		domain: DomainRefusal,
 		refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>
 	): Expected => ({
 		kind: "outsideDomain",
-		refusals: new Map([...unreportedBy(domains), ...refusals]),
+		domain,
+		refusals: new Map(refusals),
 		initial,
 		collisions
 	})
@@ -573,7 +603,7 @@ const expectUnder = (
 			strata: [Arr.headNonEmpty(c.strata), ...c.strata.slice(1, index + 1)]
 		}
 		const outcome = applyAddWins(schema, initial, oracleChangeSet(ctx.group, prefix), draws)
-		const outside = domainLaws(ctx, members, c.params, state)
+		const outside = domainRefusal(ctx, members, c.params, state)
 		if (outcome.kind === "invariant-rejected") {
 			const refusals = [
 				...lawRefusals(outcome),
@@ -581,11 +611,11 @@ const expectUnder = (
 			]
 			return {
 				kind: "settled",
-				expected: outside.length > 0 ? outsideDomain(outside, refusals) : rejected(refusals)
+				expected: outside.refusing.size > 0 ? outsideDomain(outside, refusals) : rejected(refusals)
 			}
 		}
 		const broken = unreportedBy(brokenForeignKeys(ctx, immediate, outcome.state))
-		if (outside.length > 0) {
+		if (outside.refusing.size > 0) {
 			return { kind: "settled", expected: outsideDomain(outside, broken) }
 		}
 		if (broken.length > 0) {
