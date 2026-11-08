@@ -59,7 +59,7 @@ import {
 	type FenceStep,
 	fenceReason,
 	runAlongside,
-	type Transaction
+	type Uncommitting
 } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { type CatalogQuery as CatalogQueryOf, catalogRows } from "#adapter/wire/statement.ts"
@@ -239,7 +239,7 @@ const rowsOf = (answer: ApartAnswer): Effect.Effect<OutputRows, OpenError> =>
 		: Effect.fail(admissionFailure(answer.failure))
 
 /** The fence's transaction: the ledger's lock NOWAIT, then the guard's call, read-only. */
-const fenceTransaction: Transaction = { access: "readOnly", end: "COMMIT" }
+const fenceTransaction: Uncommitting = { access: "readOnly", end: "COMMIT" }
 
 /** The fence's steps, in the order its transaction sends them, each refusal read at its step's position. */
 const fenceSteps = ["lock", "guard"] as const satisfies ReadonlyArray<FenceStep>

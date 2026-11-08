@@ -24,7 +24,8 @@ import {
 	runAlongside,
 	runApart,
 	runTransaction,
-	type Transaction
+	type Transaction,
+	type Uncommitting
 } from "#adapter/wire/batch.ts"
 
 import type { ParsedConnection } from "#adapter/connection/config.ts"
@@ -59,7 +60,7 @@ export interface MigrationSession {
 	readonly alongside: (
 		apart: ReadonlyArray<BatchStatement>,
 		statements: ReadonlyArray<FlightStatement>,
-		transaction: Transaction
+		transaction: Uncommitting
 	) => Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge>
 	/**
 	 * One step of statements in one transaction that ends with COMMIT: a transactional file with its ledger rows, or a

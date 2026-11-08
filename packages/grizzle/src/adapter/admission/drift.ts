@@ -23,7 +23,7 @@ import {
 } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
-import type { BatchOutcome, BatchStatement, Flight, Transaction } from "#adapter/wire/batch.ts"
+import type { BatchOutcome, BatchStatement, Flight, Uncommitting } from "#adapter/wire/batch.ts"
 import { type CatalogQuery, catalogRow, catalogRows, outcomeRows } from "#adapter/wire/statement.ts"
 import {
 	type AstHooks,
@@ -117,7 +117,7 @@ export interface DriftMismatch {
 }
 
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
-export const driftTransaction: Transaction = { access: "readWrite", end: "ROLLBACK" }
+export const driftTransaction: Uncommitting = { access: "readWrite", end: "ROLLBACK" }
 
 /**
  * The hex digits of a scratch schema's name after `grizzle_admission_`: the leading ones of the schema name's SHA-256.

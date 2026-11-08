@@ -686,8 +686,8 @@ export const regexTextMaxBytes = derived({
  * read under it by SocketBackend (src/backend/tcop/postgres.c). A longer one is "invalid message length"
  * (src/backend/libpq/pqcomm.c pq_getmessage), after which the backend ends the connection without an ErrorResponse,
  * so a statement whose text is longer, in UTF-8 bytes, is refused as ResourceBound (statementBytes) when it is printed,
- * and a statement whose Bind message would be longer is refused on the host as InputTooLarge before its flight is sent
- * (the shell's wire/batch.ts).
+ * and a statement whose Parse message, its text with its name and fields, or whose Bind message would be longer is
+ * refused on the host as InputTooLarge before its flight is sent (the shell's wire/batch.ts).
  */
 export const messageMaxBytes = derived({
 	owner: "PostgreSQL 19rc1's frontend/backend protocol",

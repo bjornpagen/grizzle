@@ -50,6 +50,7 @@ import {
 	type ServerStatement,
 	serverStatementNameBytes,
 	type Session,
+	type StatementName,
 	type StatementsDraft,
 	unnamed
 } from "#adapter/wire/session.ts"
@@ -57,7 +58,6 @@ import type { BindFrame } from "#compiler/plan/change.ts"
 import {
 	defect,
 	type EmittedText,
-	messageMaxBytes,
 	type OutputRows,
 	type Param,
 	type SchemaFingerprint,
@@ -106,6 +106,15 @@ export interface Transaction {
 	readonly access: "readOnly" | "readWrite"
 	readonly end: "COMMIT" | "ROLLBACK"
 }
+
+/**
+ * A transaction that commits nothing: read-only, or rolled back. Statements alone run in front of no other
+ * (runAlongside), so a lost connection that fails their flight as a whole committed nothing of the transaction behind
+ * them: admission's fence reads, and the drift check rolls back.
+ */
+export type Uncommitting =
+	| { readonly access: "readOnly"; readonly end: Transaction["end"] }
+	| { readonly access: "readWrite"; readonly end: "ROLLBACK" }
 
 /**
  * What every transaction of a Db begins with, at the pipeline positions right after BEGIN, both run as the login (see
@@ -679,10 +688,11 @@ interface Sent {
 }
 
 /**
- * Writes `pipeline`, built over `draft`, behind the Closes of the names the draft took, unless its bytes as pg writes
- * them (flightBytes) pass what one write of the session's connection carries (Session.flightMaxBytes): then nothing is
- * written, the session's statements stay as they were, and the flight is refused as InputTooLarge, so no flight is ever
- * cut short by its own length. A written flight's draft is adopted in the same step: a name the flight's own failure
+ * Writes `pipeline`, built over `draft`, behind the Closes of the names the draft took, unless a Parse of it is longer
+ * than the session's server reads (Session.messageMaxBytes) or its bytes as pg writes them pass what one write of the
+ * session's connection carries (Session.flightMaxBytes), both counted by accountFlight: then nothing is written, the
+ * session's statements stay as they were, and the flight is refused as InputTooLarge, so no flight is ever cut short
+ * by its own length, nor ends its connection at a message the server cannot read. A written flight's draft is adopted in the same step: a name the flight's own failure
  * forgets may still be bound by an earlier statement of the flight, so its Close waits for the next one. `statements`
  * resolves once the query at `awaited` has answered.
  */
@@ -692,7 +702,11 @@ const send = (
 	pipeline: ReadonlyArray<WireQuery>,
 	awaited: number
 ): Result.Result<Sent, InputTooLarge> => {
-	const bytes = flightBytes(draft.closes, pipeline)
+	const accounted = accountFlight(draft.closes, pipeline, session.messageMaxBytes)
+	if (Result.isFailure(accounted)) {
+		return Result.fail(accounted.failure)
+	}
+	const bytes = accounted.success
 	if (bytes > session.flightMaxBytes) {
 		return Result.fail(
 			new InputTooLarge({ bound: { kind: "flight", bytes, limit: session.flightMaxBytes } })
@@ -1033,13 +1047,14 @@ export interface Alongside {
  * and returns both parts' answers. A lost connection or an answer the pipeline cannot account for fails the whole
  * flight, as runTransaction's would; so does an unreadable answer of a statement alone here, since the statements alone
  * sent through it read only texts: admission's minimal reads (format('%s')) and the ledger's reads (a count, and each
- * row's JSON text). An interruption abandons the flight as runTransaction's does (execute).
+ * row's JSON text). An interruption abandons the flight as runTransaction's does (execute). The transaction commits
+ * nothing (Uncommitting), so a lost connection that fails the whole flight is never a commit of unknown fate.
  */
 export const runAlongside = (
 	session: Session,
 	alone: ReadonlyArray<BatchStatement>,
 	statements: ReadonlyArray<FlightStatement>,
-	transaction: Transaction
+	transaction: Uncommitting
 ): Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
@@ -1195,9 +1210,12 @@ const portalBytes =
 	(messageHead + messageFields.end + messageFields.rowLimit) +
 	messageHead
 
-/** A Parse of `sql` under the statement `name` ("" for the unnamed one), with no parameter types. */
-const parseBytes = (name: string, sql: string): number =>
-	messageHead +
+/**
+ * The length a Parse of `sql` under the statement `name` ("" for the unnamed one), with no parameter types, declares:
+ * its length word, its name and its text each ended by a NUL, and its count of parameter types, its type byte not.
+ */
+const parseLength = (name: string, sql: string): number =>
+	messageFields.length +
 	Buffer.byteLength(name, "utf8") +
 	messageFields.end +
 	Buffer.byteLength(sql, "utf8") +
@@ -1208,44 +1226,50 @@ const parseBytes = (name: string, sql: string): number =>
 const executionBytes = (name: string, params: ReadonlyArray<Param>): number =>
 	messageFields.type + bindLengthOf(name, params) + portalBytes
 
-/**
- * The bytes pg writes for one query of a pipeline (session.ts send): a control's simple Query; a statement's Parse when
- * this execution parses it, unnamed or a server statement's first use on the session, then its Bind, Describe, Execute
- * and Sync.
- */
-const queryBytes = (query: WireQuery): number => {
-	if (query._tag === "control") {
-		return textMessageBytes(controlText(query.control))
-	}
-	const name = query.name
-	switch (name._tag) {
-		case "unnamed":
-			return parseBytes("", query.sql) + executionBytes("", query.params)
-		case "parsing":
-			return parseBytes(name.name, query.sql) + executionBytes(name.name, query.params)
-		case "parsed":
-			return executionBytes(name.name, query.params)
-	}
-}
+/** The name an execution's messages carry: the unnamed statement's empty one, or its server statement's. */
+const wireName = (name: StatementName): string => (name._tag === "unnamed" ? "" : name.name)
 
 /**
- * The bytes of a flight as pg writes it in its one corked write (session.ts send): a Close of each of `closes`, a
- * server statement's name, then every query of `pipeline`.
+ * The bytes of a flight as pg writes it in its one corked write (session.ts send), or its refusal: a Close of each of
+ * `closes`, a server statement's name, then every query of `pipeline`, a control's simple Query, or a statement's
+ * Parse when this execution parses it, unnamed or a server statement's first use, then its Bind, Describe, Execute and
+ * Sync. A Parse longer than `messageLimit`, the longest message the session's server reads, as its length word counts
+ * it, is refused as InputTooLarge (parse): PostgreSQL ends the connection at it instead of answering, so the bound is
+ * on the message, its statement's text with its name and fields, never on the text alone.
  */
-const flightBytes = (closes: ReadonlyArray<string>, pipeline: ReadonlyArray<WireQuery>): number => {
+const accountFlight = (
+	closes: ReadonlyArray<string>,
+	pipeline: ReadonlyArray<WireQuery>,
+	messageLimit: number
+): Result.Result<number, InputTooLarge> => {
 	let bytes = 0
 	for (const name of closes) {
 		bytes += messageFields.kind + textMessageBytes(name)
 	}
 	for (const query of pipeline) {
-		bytes += queryBytes(query)
+		if (query._tag === "control") {
+			bytes += textMessageBytes(controlText(query.control))
+			continue
+		}
+		const name = wireName(query.name)
+		bytes += executionBytes(name, query.params)
+		if (query.name._tag === "parsed") {
+			continue
+		}
+		const parse = parseLength(name, query.sql)
+		if (parse > messageLimit) {
+			return Result.fail(
+				new InputTooLarge({ bound: { kind: "parse", bytes: parse, limit: messageLimit } })
+			)
+		}
+		bytes += messageFields.type + parse
 	}
-	return bytes
+	return Result.succeed(bytes)
 }
 
 /**
- * The first of `statements` whose Bind message would be longer than `limit`, the longest message PostgreSQL reads from a
- * client in production (core/limits.ts messageMaxBytes), as the InputTooLarge of its position and length, or none.
+ * The first of `statements` whose Bind message would be longer than `limit`, the longest message the session's server
+ * reads (Session.messageMaxBytes), as the InputTooLarge of its position and length, or none.
  * PostgreSQL answers a longer message by ending the connection without an ErrorResponse ("invalid message length",
  * pqcomm.c pq_getmessage), which a flight carrying COMMIT would report as CommitLost though nothing ran; so it is
  * refused here, before anything is sent. The prologue's statements and the controls carry no parameter of the caller's.
@@ -1282,7 +1306,7 @@ export const runFramed = (
 	statements: ReadonlyArray<FlightStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> =>
 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
-		const overrun = bindOverrun(statements, messageMaxBytes.value)
+		const overrun = bindOverrun(statements, session.messageMaxBytes)
 		return overrun === undefined
 			? runEntered(session, asDb(frame.prologue), statements, frame, "whole")
 			: Effect.fail(overrun)
@@ -1364,7 +1388,7 @@ export const runFramedTwice = <E>(
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure | E> =>
 	Effect.uninterruptibleMask((restore) =>
 		Effect.gen(function* () {
-			const overrun = bindOverrun(first, messageMaxBytes.value)
+			const overrun = bindOverrun(first, session.messageMaxBytes)
 			if (overrun !== undefined) {
 				return yield* overrun
 			}
@@ -1387,7 +1411,7 @@ export const runFramedTwice = <E>(
 				return yield* Effect.failCause(made.cause)
 			}
 			const statements = made.value
-			const tooLarge = bindOverrun(statements, messageMaxBytes.value)
+			const tooLarge = bindOverrun(statements, session.messageMaxBytes)
 			if (tooLarge !== undefined) {
 				yield* rollbackOpening(session, frame)
 				return yield* shifted(tooLarge, first.length)

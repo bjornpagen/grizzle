@@ -516,6 +516,9 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  * - flight: the flight's messages, every byte pg writes for it in its one corked write, would be `bytes` long, past the
  *   most one write over TLS carries, `limit` (core/limits.ts flightMaxBytes), past which the write fails whole and the
  *   connection with it, its end unsent;
+ * - parse: a statement's Parse message, its text with its name and the message's fields, would be `bytes` long, as its
+ *   length word counts it, past the longest message PostgreSQL reads, `limit` (core/limits.ts messageMaxBytes), past
+ *   which the backend ends the connection instead of answering;
  * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
  *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'
  *   lengths before any of its bytes is read or copied.
@@ -546,6 +549,11 @@ export type InputBound =
 	  }
 	| {
 			readonly kind: "flight"
+			readonly bytes: number
+			readonly limit: number
+	  }
+	| {
+			readonly kind: "parse"
 			readonly bytes: number
 			readonly limit: number
 	  }
@@ -582,6 +590,8 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 			}
 			case "flight":
 				return `the flight would write ${bound.bytes} bytes, past the ${bound.limit} one write over TLS carries; split the input across calls`
+			case "parse":
+				return `a statement's Parse message would be ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}: its text is longer than one message carries`
 			case "input":
 				return `the arrays of input ${bound.input} would make a Bind message of at least ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
 		}

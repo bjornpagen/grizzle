@@ -14,6 +14,7 @@ import {
 	runAlongside,
 	runFramed,
 	type Transaction,
+	type Uncommitting,
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { textsOfParams } from "#test/support/wire.ts"
@@ -68,6 +69,15 @@ const flightSnapshot = SchemaFingerprint("flight-snapshot")
  */
 const frameNames = ["read", "write", "rollback"] as const
 export type FrameName = (typeof frameNames)[number]
+
+/** The frames statements alone run in front of: those that commit nothing (wire/batch.ts Uncommitting). */
+export type AlongsideFrame = Exclude<FrameName, "write">
+
+/** The transaction of each frame statements alone run in front of. */
+const alongsideTransactions: { readonly [F in AlongsideFrame]: Uncommitting } = {
+	read: { access: "readOnly", end: "COMMIT" },
+	rollback: { access: "readWrite", end: "ROLLBACK" }
+}
 
 const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 	switch (name) {
@@ -177,7 +187,7 @@ export type Call =
 	  }
 	| {
 			readonly kind: "alongside"
-			readonly frame: FrameName
+			readonly frame: AlongsideFrame
 			readonly alone: Arr.NonEmptyReadonlyArray<Planned>
 			readonly statements: ReadonlyArray<Planned>
 	  }
@@ -384,10 +394,12 @@ export const callOf = (
 		})
 	}
 	return Effect.mapBoth(
-		runAlongside(session, Arr.map(call.alone, statementOf), Arr.map(call.statements, statementOf), {
-			access: frame.access,
-			end: frame.end
-		}),
+		runAlongside(
+			session,
+			Arr.map(call.alone, statementOf),
+			Arr.map(call.statements, statementOf),
+			alongsideTransactions[call.frame]
+		),
 		{
 			onSuccess: alongsideValue,
 			onFailure: failureData

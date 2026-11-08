@@ -56,6 +56,7 @@ import {
 	type EmittedText,
 	emitText,
 	flightMaxBytes,
+	messageMaxBytes,
 	nominal,
 	type OutputRows,
 	type Param,
@@ -722,9 +723,16 @@ export interface Session {
 	 */
 	readonly flightMaxBytes: number
 	/**
+	 * The longest message the session's server reads, as its length word counts it (core/limits.ts messageMaxBytes):
+	 * the flight's builder refuses a flight with a longer Parse or Bind before any byte of it is written (wire/batch.ts
+	 * send, bindOverrun).
+	 */
+	readonly messageMaxBytes: number
+	/**
 	 * Writes `pipeline` in one corked write, behind a Close for each of `closes`, and reports each query's answer by its
 	 * index, then the pipeline's end: the ReadyForQuery after its last query, or the connection's end once every query
-	 * has failed. Its bytes, as pg writes them, are within flightMaxBytes. `onCut` reports, before any query fails for it,
+	 * has failed. Its bytes, as pg writes them, are within flightMaxBytes, and each of its Parse and Bind messages within
+	 * messageMaxBytes. `onCut` reports, before any query fails for it,
 	 * a write that failed while its stream stood: the end of the pipeline's last message never left the process
 	 * (flightEnd).
 	 */
@@ -850,6 +858,7 @@ const makeSession = (
 		role: spec.role,
 		statements,
 		flightMaxBytes: flightMaxBytes.value,
+		messageMaxBytes: messageMaxBytes.value,
 		cancel: cancelRequest(spec, key),
 		state: () => state,
 		retire: () => {

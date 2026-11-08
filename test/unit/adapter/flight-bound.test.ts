@@ -9,6 +9,7 @@ import {
 	boolean,
 	bytes,
 	codePoint,
+	constant,
 	element,
 	type Gen,
 	int,
@@ -44,6 +45,7 @@ import {
 	runFramedTwice,
 	runTransaction,
 	type Transaction,
+	type Uncommitting,
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import {
@@ -116,11 +118,26 @@ const noData = frame("n", nothing)
 const commandComplete = (tag: string): Buffer => frame("C", Buffer.from(`${tag}\0`, "latin1"))
 const readyForQuery = (open: boolean): Buffer => frame("Z", Buffer.from(open ? "T" : "I", "latin1"))
 
-/** One frontend message the server read past the startup: its type, its bytes on the wire, and a Query's text. */
+/**
+ * One frontend message the server read past the startup: its type, its bytes on the wire, and the text of a Query or
+ * of a Parse, the statement's.
+ */
 interface Read {
 	readonly type: string
 	readonly bytes: number
 	readonly text: string
+}
+
+/** The text a Query or a Parse carries, a Parse's after its statement's name; none for every other message. */
+const messageText = (type: string, body: Buffer): string => {
+	if (type === "Q") {
+		return body.toString("utf8", 0, body.length - 1)
+	}
+	if (type !== "P") {
+		return ""
+	}
+	const name = body.indexOf(0)
+	return body.toString("utf8", name + 1, body.indexOf(0, name + 1))
 }
 
 /** The SSLRequest message: its length, 8, and the request code 80877103. */
@@ -293,11 +310,7 @@ class WireServer {
 				}
 				const type = message.toString("latin1", 0, 1)
 				const body = message.subarray(5)
-				this.read.push({
-					type,
-					bytes: length,
-					text: type === "Q" ? body.toString("utf8", 0, body.length - 1) : ""
-				})
+				this.read.push({ type, bytes: length, text: messageText(type, body) })
 				this.#answer(raw, secure, type, body)
 			}
 		})
@@ -309,12 +322,15 @@ class WireServer {
 const bytesOf = (messages: ReadonlyArray<Read>): number =>
 	Arr.reduce(messages, 0, (sum, message) => sum + message.bytes)
 
-/** The case's server statements: the same text under its own name on every session. */
-const servers: ReadonlyArray<ServerStatement> = Arr.makeBy(4, (k) =>
-	serverStatement(testSql(`SELECT $1::text AS s${k}`))
-)
+/** The text of the case's server statement `k`, padded with a trailing comment of `pad`. */
+const textOf = (k: number, pad: string): string => `SELECT $1::text AS s${k} -- ${pad}`
 
-const serverAt = (k: number): ServerStatement => defined(servers[k], "a server statement")
+/** The case's server statements: their text under its own name on every session, unpadded. */
+const serverCount = 4
+
+/** The server statement of text `k` padded with `pad`: one name for one text on every session. */
+const serverOf = (k: number, pad: string): ServerStatement =>
+	serverStatement(testSql(textOf(k, pad)))
 
 /** A parameter of the case: a text, some of it beyond ASCII, or binary. */
 const paramGen: Gen<Param> = weighted<Param>([
@@ -337,17 +353,35 @@ const paramGen: Gen<Param> = weighted<Param>([
 	[1, (source) => paramBinary(new Uint8Array(source.draw(bytes({ min: 0, max: 300 }))))]
 ])
 
-/** A statement of the case: unnamed, or run as one of the case's server statements, with its parameters. */
+/**
+ * A statement of the case: unnamed, or run as one of the case's server statements, with its parameters; its text is
+ * the case's text `server` (the first for an unnamed one) padded with `pad`.
+ */
 type StatementSpec =
-	| { readonly kind: "unnamed"; readonly params: ReadonlyArray<Param> }
-	| { readonly kind: "named"; readonly server: number; readonly params: ReadonlyArray<Param> }
+	| { readonly kind: "unnamed"; readonly pad: string; readonly params: ReadonlyArray<Param> }
+	| {
+			readonly kind: "named"
+			readonly server: number
+			readonly pad: string
+			readonly params: ReadonlyArray<Param>
+	  }
 
-const statementGen: Gen<StatementSpec> = (source) => {
-	const params = source.draw(array(paramGen, { min: 0, max: 4 }))
-	return source.draw(boolean)
-		? { kind: "named", server: source.draw(int(0, servers.length - 1)), params }
-		: { kind: "unnamed", params }
-}
+/** A statement of padding `pads` and parameters `params`. */
+const statementOf =
+	(pads: Gen<string>, params: Gen<ReadonlyArray<Param>>): Gen<StatementSpec> =>
+	(source) => {
+		const pad = source.draw(pads)
+		const drawn = source.draw(params)
+		return source.draw(boolean)
+			? { kind: "named", server: source.draw(int(0, serverCount - 1)), pad, params: drawn }
+			: { kind: "unnamed", pad, params: drawn }
+	}
+
+/** A statement of the bound's cases: unpadded, so the history's Parse binds it, with drawn parameters. */
+const statementGen: Gen<StatementSpec> = statementOf(
+	constant(""),
+	array(paramGen, { min: 0, max: 4 })
+)
 
 /** How the case's call sends its statements (wire/batch.ts). */
 type Runner = "apart" | "transaction" | "alongside" | "framed" | "framedTwice"
@@ -382,8 +416,8 @@ interface FlightCase {
 const caseGen: Gen<FlightCase> = (source) => {
 	const parsed = source.draw(
 		subset(
-			Arr.makeBy(servers.length, (k) => k),
-			{ min: 0, max: servers.length }
+			Arr.makeBy(serverCount, (k) => k),
+			{ min: 0, max: serverCount }
 		)
 	)
 	return {
@@ -402,22 +436,22 @@ const caseGen: Gen<FlightCase> = (source) => {
 const named = (spec: StatementSpec): FlightStatement => {
 	switch (spec.kind) {
 		case "unnamed":
-			return { sql: serverAt(0).sql, params: spec.params }
+			return { sql: testSql(textOf(0, spec.pad)), params: spec.params }
 		case "named":
-			return { server: serverAt(spec.server), params: spec.params }
+			return { server: serverOf(spec.server, spec.pad), params: spec.params }
 	}
 }
 
 /** A statement alone, which runs unnamed: its server statement's text, or the first one's. */
 const alone = (spec: StatementSpec): BatchStatement => ({
-	sql: serverAt(spec.kind === "named" ? spec.server : 0).sql,
+	sql: testSql(textOf(spec.kind === "named" ? spec.server : 0, spec.pad)),
 	params: spec.params
 })
 
 const write: Transaction = { access: "readWrite", end: "COMMIT" }
 
 /** The transaction statements apart run in front of, read-only, as admission's fence is (admission/admit.ts). */
-const readOnly: Transaction = { access: "readOnly", end: "COMMIT" }
+const readOnly: Uncommitting = { access: "readOnly", end: "COMMIT" }
 
 /** The case's call on `session`. */
 const callOf = (
@@ -497,11 +531,11 @@ const historied = (
 		if (Arr.isReadonlyArrayNonEmpty(c.parsed)) {
 			yield* runTransaction(
 				session,
-				Arr.map(c.parsed, (k) => ({ server: serverAt(k), params: [] })),
+				Arr.map(c.parsed, (k) => ({ server: serverOf(k, ""), params: [] })),
 				write
 			)
 		}
-		session.statements.release(Arr.map(c.released, serverAt))
+		session.statements.release(Arr.map(c.released, (k) => serverOf(k, "")))
 		return { session, server, mark: server.read.length }
 	})
 
@@ -796,6 +830,152 @@ describe("a flight whose connection is reset", () => {
 										)
 										return
 								}
+							})
+						)
+				)
+			)
+	)
+})
+
+/**
+ * A call whose statements' texts are padded about a test-sized message bound: the bound's case, its statements
+ * parameterless, so every Bind is shorter than every Parse, and no history, so every statement parses.
+ */
+const parseCaseGen: Gen<FlightCase> = (source) => {
+	const padded = statementOf(
+		string(
+			weighted([
+				[3, codePoint(0x20, 0x7e)],
+				[1, codePoint(0xa0, 0xd7_ff)],
+				[1, codePoint(0x1_00_00, 0x10_ff_ff)]
+			]),
+			{ min: 150, max: 400 }
+		),
+		constant([])
+	)
+	return {
+		runner: source.draw(element(runners)),
+		parsed: [],
+		released: [],
+		first: [source.draw(padded), ...source.draw(array(padded, { min: 0, max: 3 }))],
+		second: source.draw(array(padded, { min: 0, max: 3 })),
+		by: "first",
+		at: source.draw(element<LimitAt>(["short of", "at", "past"])),
+		distance: source.draw(int(1, 64))
+	}
+}
+
+/** A Parse's length as its length word counts it, from the bytes the server read of it, its type byte among them. */
+const lengthOf = (message: Read): number => message.bytes - 1
+
+type ParseFeature =
+	| `${Runner}: Parse refused`
+	| `${Runner}: Parse admitted`
+	| "refused within the Parse's fields"
+	| "admitted at exactly the bound"
+	| "refused at the second flight"
+
+const parseFeatures: Arr.NonEmptyReadonlyArray<ParseFeature> = [
+	"refused within the Parse's fields",
+	"admitted at exactly the bound",
+	"refused at the second flight",
+	...Arr.flatMap(runners, (r): ReadonlyArray<ParseFeature> => [
+		`${r}: Parse refused`,
+		`${r}: Parse admitted`
+	])
+]
+
+describe("a statement's Parse message", () => {
+	it.effect(
+		"is refused before any byte of its flight is written exactly when it is longer than the server reads, its text with its name and fields",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/adapter/flight-parse",
+						draw: drawn(parseCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the wire: each Parse's length word a twin session's server reads of the same call"
+						},
+						coverage: required<ParseFeature>(parseFeatures, { cases: 160, sense: notesOnly }),
+						kept: [],
+						runs: 160,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const twin = yield* historied(c)
+								yield* callOf(c, twin.session)
+								const wire = twin.server.read.slice(twin.mark)
+								const parses = Arr.filter(wire, (m) => m.type === "P")
+								const longest = Arr.reduce(parses, 0, (most, m) => Math.max(most, lengthOf(m)))
+								const limit =
+									c.at === "short of"
+										? longest - c.distance
+										: c.at === "at"
+											? longest
+											: longest + c.distance
+								const subject = yield* historied(c)
+								const bounded: Session = { ...subject.session, messageMaxBytes: limit }
+								const exit = yield* Effect.exit(callOf(c, bounded))
+								const failure = failureOf(exit)
+								const read = subject.server.read.slice(subject.mark)
+								const refused = Arr.findFirst(parses, (m) => lengthOf(m) > limit)
+								if (Option.isNone(refused)) {
+									assert.ok(
+										Option.isNone(failure),
+										`a call whose every Parse fits ${limit} bytes is admitted`
+									)
+									assert.deepEqual(read, wire, "an admitted call is written whole, as the twin's")
+									k.note(`${c.runner}: Parse admitted`)
+									if (Arr.some(parses, (m) => lengthOf(m) === limit)) {
+										k.note("admitted at exactly the bound")
+									}
+									return
+								}
+								assert.ok(
+									Option.isSome(failure) && failure.value instanceof InputTooLarge,
+									"a Parse past the bound is refused as InputTooLarge"
+								)
+								if (Option.isSome(failure) && failure.value instanceof InputTooLarge) {
+									assert.deepEqual(failure.value.bound, {
+										kind: "parse",
+										bytes: lengthOf(refused.value),
+										limit
+									})
+								}
+								k.note(`${c.runner}: Parse refused`)
+								if (Buffer.byteLength(refused.value.text, "utf8") <= limit) {
+									k.note("refused within the Parse's fields")
+								}
+								const opened = c.runner === "framedTwice" ? firstFlightOf(c, wire) : []
+								if (wire.indexOf(refused.value) < opened.length || opened.length === 0) {
+									assert.deepEqual(
+										read,
+										[],
+										"a refused flight writes nothing, and no ROLLBACK follows it"
+									)
+									return
+								}
+								k.note("refused at the second flight")
+								assert.deepEqual(
+									read.slice(0, opened.length),
+									[...opened],
+									"the first flight is written whole"
+								)
+								assert.deepEqual(
+									Arr.map(read.slice(opened.length), (m) => [m.type, m.text]),
+									[["Q", controlText({ kind: "end", end: "ROLLBACK" })]],
+									"the refused second flight writes nothing, and its transaction is rolled back"
+								)
+								assert.ok(!subject.server.open, "no transaction is left open")
 							})
 						)
 				)

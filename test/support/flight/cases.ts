@@ -12,6 +12,7 @@ import {
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr } from "effect"
 import {
+	type AlongsideFrame,
 	type Call,
 	type FlightCase,
 	type FrameName,
@@ -22,7 +23,9 @@ import {
 	type StatementKind
 } from "#test/support/flight/model.ts"
 
-type CallForm = { readonly kind: "framed" | "alongside"; readonly frame: FrameName }
+type CallForm =
+	| { readonly kind: "framed"; readonly frame: FrameName }
+	| { readonly kind: "alongside"; readonly frame: AlongsideFrame }
 
 const framedForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 	{ kind: "framed", frame: "write" },
@@ -32,7 +35,7 @@ const framedForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 
 const alongsideForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 	{ kind: "alongside", frame: "read" },
-	{ kind: "alongside", frame: "write" }
+	{ kind: "alongside", frame: "rollback" }
 ]
 
 const callForms: Arr.NonEmptyReadonlyArray<CallForm> = [...framedForms, ...alongsideForms]
