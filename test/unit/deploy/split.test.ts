@@ -31,7 +31,10 @@ const splitFeatures = [
 	"a semicolon inside a BEGIN block",
 	"a BEGIN block inside another",
 	"a CASE inside a BEGIN block",
-	"a routine opened by CREATE OR REPLACE"
+	"a routine opened by CREATE OR REPLACE",
+	"a string continued across a newline",
+	"an escape string continued across a newline",
+	"an escaped quote ending an escape string's later segment"
 ] as const
 type SplitFeature = (typeof splitFeatures)[number]
 
@@ -51,18 +54,35 @@ type SplitFeature = (typeof splitFeatures)[number]
  * REPLACE] FUNCTION or PROCEDURE between BEGIN ATOMIC and its END, through the BEGIN blocks and CASE expressions nested
  * inside; a `)` no parenthesis opened closes none. Each statement keeps its leading comments and loses its terminator;
  * a file whose last statement opens a quote or a parenthesis it never closes keeps the rest of the file as that
- * statement, and a block comment left open, nested or not, adds no statement of its own. */
+ * statement, and a block comment left open, nested or not, adds no statement of its own. A string constant continues
+ * across whitespace holding a newline, line comments among it, into the quote that follows (scan.l quotecontinue),
+ * and every segment is read as the first is, so an escape string's later segments keep their backslash escapes: the
+ * search draws such continuations on purpose (continuedGen), and keeps two drawn strings from joining by accident
+ * (spaced). */
 interface Item {
 	readonly text: string
 	readonly substantive: boolean
 	readonly reaches: ReadonlyArray<SplitFeature>
 }
 
-const token = (generator: Gen<string>): Gen<Item> =>
-	map(generator, (text) => ({ text, substantive: true, reaches: [] }))
+/**
+ * What an item is to quote continuation (scan.l quotecontinue: a string constant, then whitespace holding a newline and
+ * maybe line comments, then a quote, continues the constant): a string constant that opens with its quote, one that
+ * opens with a prefix, a line comment, which the continuation crosses and which ends in a newline, or anything else,
+ * which ends it.
+ */
+type Continuation = "quote string" | "prefixed string" | "line comment" | "other"
 
-const comment = (generator: Gen<string>): Gen<Item> =>
-	map(generator, (text) => ({ text, substantive: false, reaches: [] }))
+/** An item as a join meets it (spaced). */
+interface Part extends Item {
+	readonly continuation: Continuation
+}
+
+const token = (generator: Gen<string>): Gen<Part> =>
+	map(generator, (text) => ({ text, substantive: true, reaches: [], continuation: "other" }))
+
+const comment = (generator: Gen<string>): Gen<Part> =>
+	map(generator, (text) => ({ text, substantive: false, reaches: [], continuation: "other" }))
 
 /** Up to `max` parts joined: four reach every pair of tricky parts beside each other. */
 const joined = (parts: Gen<string>, max: number): Gen<string> => string(parts, { min: 0, max })
@@ -107,12 +127,55 @@ const wordGen = element([
 const numberGen = element(["1", "2.5", "1e3", ".5"])
 const paramGen = element(["$1", "$12"])
 const operatorGen = element(["+", "<>", "=", "-", "/", "*", "::", ",", "."])
-const stringGen = map(joined(trickyBut(["'"], ["''", "\\"]), 4), (s) => `'${s}'`)
+/** A standard string's content: its quote doubled, and a backslash that escapes nothing. */
+const standardContent = joined(trickyBut(["'"], ["''", "\\"]), 4)
+/** An escape string's content: its quote doubled or escaped, and a backslash escaped. */
+const escapedContent = joined(trickyBut(["'"], ["''", "\\'", "\\\\"]), 4)
 
-const escapedGen: Gen<string> = (source) => {
-	const prefix = source.draw(element(["E", "e"]))
-	const s = source.draw(joined(trickyBut(["'"], ["''", "\\'", "\\\\"]), 4))
-	return `${prefix}'${s}'`
+const stringGen = map(standardContent, (s) => `'${s}'`)
+
+const escapedGen: Gen<string> = (source) =>
+	`${source.draw(element(["E", "e"]))}'${source.draw(escapedContent)}'`
+
+/** A string constant drawn as one item, and how a join meets it. */
+const stringPart = (generator: Gen<string>, continuation: Continuation): Gen<Part> =>
+	map(generator, (text) => ({ text, substantive: true, reaches: [], continuation }))
+
+/** Whitespace that continues a string constant into the quote after it: a newline, maybe spaces and line comments. */
+const continuationGen = element(["\n", " \n", "\n  ", " --c ;\n", "\n--c\n\t"])
+
+/**
+ * A string constant continued across a newline into one or two more segments, each read as its first segment is: a
+ * standard string's with backslashes that escape nothing, an escape string's (E'') with backslash escapes, so a later
+ * segment's `\'` before its closing quote is an escaped quote and the closing quote is the next.
+ */
+const continuedGen: Gen<Part> = (source) => {
+	const escape = source.draw(boolean)
+	const content = escape ? escapedContent : standardContent
+	const first = source.draw(content)
+	const later = source.draw(
+		array((inner) => [inner.draw(continuationGen), inner.draw(content)] as const, {
+			min: 1,
+			max: 2
+		})
+	)
+	const escapedQuoteEnds = escape && Arr.some(later, ([, segment]) => Str.endsWith("\\'")(segment))
+	return {
+		text: `${escape ? "E" : ""}'${first}'${Arr.join(
+			Arr.map(later, ([between, segment]) => `${between}'${segment}'`),
+			""
+		)}`,
+		substantive: true,
+		reaches: escape
+			? [
+					"an escape string continued across a newline",
+					...(escapedQuoteEnds
+						? (["an escaped quote ending an escape string's later segment"] as const)
+						: [])
+				]
+			: ["a string continued across a newline"],
+		continuation: escape ? "prefixed string" : "quote string"
+	}
 }
 
 const quotedGen = map(joined(trickyBut(['"'], ['""']), 4), (s) => `"${s}"`)
@@ -134,7 +197,7 @@ const tagGen: Gen<Tag> = weighted([
 	]
 ])
 
-const dollarGen: Gen<Item> = map(
+const dollarGen: Gen<Part> = map(
 	filter(
 		(source) => {
 			const tag = source.draw(tagGen)
@@ -148,66 +211,114 @@ const dollarGen: Gen<Item> = map(
 			Option.exists(Str.indexOf(close)(`${body}${close}`), (at) => at === body.length),
 		10
 	),
-	({ close, body, reaches }): Item => ({
+	({ close, body, reaches }): Part => ({
 		text: `${close}${body}${close}`,
 		substantive: true,
-		reaches
+		reaches,
+		continuation: "other"
 	})
 )
 
 /** A run PostgreSQL's scanner reads whole and refuses, whitespace after it: an empty quoted identifier, plain or
  * Unicode; a number or a parameter an identifier runs on from; a base with no digit of its own; a `$` that opens no
  * dollar quote, alone or before a word; and a character no rule reads. */
-const refusedGen: Gen<Item> = map(
+const refusedGen: Gen<Part> = map(
 	element(['""', 'U&""', "1x", "1e", "0x", "0b2", "$1a", "$", "$x", "\\", "{"]),
-	(text): Item => ({ text, substantive: true, reaches: ["a run PostgreSQL refuses"] })
+	(text): Part => ({
+		text,
+		substantive: true,
+		reaches: ["a run PostgreSQL refuses"],
+		continuation: "other"
+	})
 )
 
-const lineCommentGen = map(joined(trickyBut(["\n"], []), 4), (s) => `--${s}\n`)
+const lineCommentGen: Gen<Part> = map(joined(trickyBut(["\n"], []), 4), (s) => ({
+	text: `--${s}\n`,
+	substantive: false,
+	reaches: [],
+	continuation: "line comment"
+}))
 
 const blockCommentGen = map(
 	joined(trickyBut(["/*", "*/"], ["/* inner ; */"]), 3),
 	(s) => `/*${s}*/`
 )
 
-const itemGen: Gen<Item> = weighted([
+const itemGen: Gen<Part> = weighted([
 	[4, token(wordGen)],
 	[1, token(numberGen)],
 	[1, token(paramGen)],
 	[2, token(operatorGen)],
-	[2, token(stringGen)],
-	[2, token(escapedGen)],
+	[2, stringPart(stringGen, "quote string")],
+	[2, stringPart(escapedGen, "prefixed string")],
+	[2, continuedGen],
 	[2, token(quotedGen)],
 	[2, dollarGen],
 	[2, refusedGen],
-	[2, comment(lineCommentGen)],
+	[2, lineCommentGen],
 	[2, comment(blockCommentGen)]
 ])
 
 const spaceGen = element([" ", "\n", "\t", "  "])
 
-/** Up to `max` items, each followed by whitespace, as one item: substantive when one of them is. */
-const spaced = (items: Gen<Item>, max: number): Gen<Item> =>
+/**
+ * How far a join has come toward continuing a string constant: past none, past one on its own line, or past one and a
+ * newline, where a quote would continue it.
+ */
+type Reach = "none" | "string" | "string and newline"
+
+/** The reach past a part: a string constant starts one, a line comment carries one past its newline. */
+const reachPast = (reach: Reach, continuation: Continuation): Reach => {
+	switch (continuation) {
+		case "quote string":
+		case "prefixed string":
+			return "string"
+		case "line comment":
+			return reach === "none" ? "none" : "string and newline"
+		case "other":
+			return "none"
+	}
+}
+
+/** The reach after a part, then the whitespace after it. */
+const reachAfter = (reach: Reach, part: Part, space: string): Reach => {
+	const after = reachPast(reach, part.continuation)
+	return after === "string" && Str.includes("\n")(space) ? "string and newline" : after
+}
+
+/**
+ * Up to `max` parts, each followed by whitespace, as one item: substantive when one of them is. A quote that would
+ * continue a string constant drawn before it is set apart by an empty block comment, so each string drawn is the
+ * constant PostgreSQL reads.
+ */
+const spaced = (parts: Gen<Part>, max: number): Gen<Item> =>
 	map(
-		array((source) => [source.draw(items), source.draw(spaceGen)] as const, { min: 0, max }),
-		(drawn) => ({
-			text: Arr.join(
-				Arr.map(drawn, ([item, space]) => `${item.text}${space}`),
-				""
-			),
-			substantive: Arr.some(drawn, ([item]) => item.substantive),
-			reaches: Arr.flatMap(drawn, ([item]) => item.reaches)
-		})
+		array((source) => [source.draw(parts), source.draw(spaceGen)] as const, { min: 0, max }),
+		(drawn) => {
+			let text = ""
+			let reach: Reach = "none"
+			for (const [part, space] of drawn) {
+				const apart =
+					part.continuation === "quote string" && reach === "string and newline" ? "/**/" : ""
+				text += `${apart}${part.text}${space}`
+				reach = reachAfter(reach, part, space)
+			}
+			return {
+				text,
+				substantive: Arr.some(drawn, ([part]) => part.substantive),
+				reaches: Arr.flatMap(drawn, ([part]) => part.reaches)
+			}
+		}
 	)
 
 /** A semicolon that ends no statement, and what it reaches. */
-const innerSemicolon = (reached: SplitFeature): Gen<Item> =>
-	constant<Item>({ text: ";", substantive: true, reaches: [reached] })
+const innerSemicolon = (reached: SplitFeature): Gen<Part> =>
+	constant<Part>({ text: ";", substantive: true, reaches: [reached], continuation: "other" })
 
 /** Parentheses holding items, semicolons and, `depth` deep, parentheses again. */
-const parenGen = (depth: number): Gen<Item> => {
+const parenGen = (depth: number): Gen<Part> => {
 	const semicolon = innerSemicolon("a semicolon inside parentheses")
-	const inner: Gen<Item> =
+	const inner: Gen<Part> =
 		depth > 0
 			? weighted([
 					[4, itemGen],
@@ -218,15 +329,16 @@ const parenGen = (depth: number): Gen<Item> => {
 					[4, itemGen],
 					[2, semicolon]
 				])
-	return map(spaced(inner, 4), (held): Item => ({
+	return map(spaced(inner, 4), (held): Part => ({
 		text: `( ${held.text})`,
 		substantive: true,
-		reaches: held.reaches
+		reaches: held.reaches,
+		continuation: "other"
 	}))
 }
 
 /** What a statement holds outside every parenthesis: items, parentheses, and a `)` that closes none. */
-const outerItemGen: Gen<Item> = weighted([
+const outerItemGen: Gen<Part> = weighted([
 	[10, itemGen],
 	[2, parenGen(2)],
 	[1, token(constant(")"))]
@@ -241,16 +353,17 @@ const plainGen: Gen<Item> = spaced(outerItemGen, 5)
  */
 const blockBodyGen = (depth: number): Gen<Item> => {
 	const semicolon = innerSemicolon("a semicolon inside a BEGIN block")
-	const nested = (opener: "BEGIN" | "CASE", reached: SplitFeature): Gen<Item> =>
+	const nested = (opener: "BEGIN" | "CASE", reached: SplitFeature): Gen<Part> =>
 		map(
 			(source) => source.draw(blockBodyGen(depth - 1)),
-			(body): Item => ({
+			(body): Part => ({
 				text: `${opener} ${body.text}END`,
 				substantive: true,
-				reaches: [reached, ...body.reaches]
+				reaches: [reached, ...body.reaches],
+				continuation: "other"
 			})
 		)
-	const part: Gen<Item> =
+	const part: Gen<Part> =
 		depth > 0
 			? weighted([
 					[4, outerItemGen],
@@ -309,8 +422,9 @@ const pieceGen: Gen<Item> = weighted([
 	[1, routineGen]
 ])
 
-/** A quote or a parenthesis the last statement opens and never closes, which it takes the rest of the file into; or a
- * block comment, nested or not, left open, which is no statement. */
+/** A quote or a parenthesis the last statement opens and never closes, which it takes the rest of the file into, an
+ * escape string continued into a segment whose only quote its backslash escapes among them; or a block comment, nested
+ * or not, left open, which is no statement. */
 const unterminatedGen: Gen<Item> = weighted([
 	[4, token(element(["'it ; is", '"a ; b', "E'\\' ; x", "$q$ ; body"]))],
 	[
@@ -319,6 +433,14 @@ const unterminatedGen: Gen<Item> = weighted([
 			text,
 			substantive: true,
 			reaches: ["a parenthesis left open"]
+		}))
+	],
+	[
+		1,
+		map(constant("( E''\n'\\' ) ; x"), (text): Item => ({
+			text,
+			substantive: true,
+			reaches: ["an escape string continued across a newline"]
 		}))
 	],
 	[
@@ -378,6 +500,45 @@ const keptSplits: ReadonlyArray<Kept<SplitFile, SplitFeature>> = [
 		},
 		draws: "",
 		reaches: ["a run PostgreSQL refuses"]
+	},
+	{
+		note: "an escape string continued across a newline reads its later segment's \\' as an escaped quote",
+		sketch: {
+			pieces: [
+				[
+					{
+						text: "( E''\n'\\'' ) ",
+						substantive: true,
+						reaches: [
+							"an escape string continued across a newline",
+							"an escaped quote ending an escape string's later segment"
+						]
+					},
+					" "
+				]
+			],
+			terminated: true,
+			unterminated: null
+		},
+		draws: "",
+		reaches: [
+			"an escape string continued across a newline",
+			"an escaped quote ending an escape string's later segment"
+		]
+	},
+	{
+		note: "an escape string continued across a newline never closes at a quote its backslash escapes",
+		sketch: {
+			pieces: [[{ text: "x ", substantive: true, reaches: [] }, " "]],
+			terminated: true,
+			unterminated: {
+				text: "( E''\n'\\' ) ; x",
+				substantive: true,
+				reaches: ["an escape string continued across a newline"]
+			}
+		},
+		draws: "",
+		reaches: ["an escape string continued across a newline"]
 	}
 ]
 

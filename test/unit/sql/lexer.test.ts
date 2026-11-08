@@ -3,6 +3,7 @@ import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
+	boolean,
 	characterOf,
 	codePoint,
 	constant,
@@ -48,7 +49,8 @@ import { scan } from "#test/unit/sql/scan.ts"
  * - Every text of up to three characters over the characters the scanner's rules branch on, and every run of up to
  *   three tokens and separators written edge to edge, lex as the scanner reads them: the boundaries between tokens.
  * - Generated token sequences of every kind, written apart by whitespace and comments (nested block comments
- *   included), lex as the scanner reads them and back to the tokens drawn, each at the offset it was written at; an
+ *   included), a string constant continued across newlines among them, its later segments read as its first, lex as
+ *   the scanner reads them and back to the tokens drawn, each at the offset it was written at; an
  *   operator's run lexes as the scanner cuts it by its trailing + and - rule. A sequence whose last quoted token loses
  *   its closing quote is reported unterminated at that token's offset.
  * - Every statement the kernel's generator draws (sqlgen.ts statementGen), printed, lexes as the scanner reads it, with
@@ -96,6 +98,9 @@ type RenderedKind =
 	| "string"
 	| "prefixed string"
 	| "escape string"
+	| "continued string"
+	| "continued escape string"
+	| "continued escape string ending in an escaped quote"
 	| "dollar"
 	| "param"
 	| "number"
@@ -257,6 +262,69 @@ const escapeString: Gen<Rendered> = map(content, (s): Rendered => {
 	}
 })
 
+/**
+ * Whitespace that continues a string constant into the quote after it (scan.l quotecontinue): a line feed or a carriage
+ * return, spaces and line comments before it, and spaces, newlines and line comments each ended by a newline after it.
+ */
+const continuation = element([
+	" \n",
+	"\n",
+	"\r",
+	"\r\n",
+	" --c\n",
+	"\n\t--c\n  ",
+	"\t\n\n "
+] as const)
+
+/** A segment's content: quoted content, or a quote or a backslash, alone or last. */
+const segmentContent = oneOf([content, element(["'", "\\", "it'", "a\\"] as const)])
+
+/**
+ * A string constant continued across a newline into one or two more segments, each read as its first segment is: a
+ * standard string's quotes doubled, an escape string's backslashes and quotes escaped by a backslash, so a later
+ * segment's escaped quote before its closing quote never closes it. The last segment may end in a quote, which an
+ * escape string writes as that escaped quote. Its token's content is its segments' content, joined.
+ */
+const continuedString: Gen<Rendered> = (source) => {
+	const escape = source.draw(boolean)
+	const first = source.draw(segmentContent)
+	const later = source.draw(
+		array((inner) => [inner.draw(continuation), inner.draw(segmentContent)] as const, {
+			min: 1,
+			max: 2
+		})
+	)
+	const quoteLast = source.draw(boolean)
+	const written = (s: string): string =>
+		escape
+			? Str.replaceAll("'", "\\'")(Str.replaceAll("\\", "\\\\")(s))
+			: Str.replaceAll("'", "''")(s)
+	const segments = Arr.map(later, ([between, segment], i) => {
+		const raw = quoteLast && i === later.length - 1 ? `${segment}'` : segment
+		return { between, raw }
+	})
+	return {
+		text: `${escape ? "E" : ""}'${written(first)}'${Arr.join(
+			Arr.map(segments, ({ between, raw }) => `${between}'${written(raw)}'`),
+			""
+		)}`,
+		expected: [
+			`s${escape ? "E" : ""}:${Arr.join(
+				Arr.map([first, ...Arr.map(segments, ({ raw }) => raw)], (raw) =>
+					escape ? written(raw) : raw
+				),
+				""
+			)}`
+		],
+		closing: "'",
+		kind: escape
+			? quoteLast
+				? "continued escape string ending in an escaped quote"
+				: "continued escape string"
+			: "continued string"
+	}
+}
+
 /** A dollar-quoted string whose body neither holds its delimiter nor ends in a dollar, drawn again until it does not. */
 const dollar: Gen<Rendered> = map(
 	filter(
@@ -369,6 +437,7 @@ const tokenGen: Gen<Rendered> = oneOf([
 	plainString,
 	prefixedString,
 	escapeString,
+	continuedString,
 	dollar,
 	parameter,
 	decimal,
@@ -447,7 +516,12 @@ const tokensOf = (s: Sequence): Arr.NonEmptyReadonlyArray<Rendered> => [
 ]
 
 const isString = (t: Rendered): boolean =>
-	t.kind === "string" || t.kind === "prefixed string" || t.kind === "escape string"
+	t.kind === "string" ||
+	t.kind === "prefixed string" ||
+	t.kind === "escape string" ||
+	t.kind === "continued string" ||
+	t.kind === "continued escape string" ||
+	t.kind === "continued escape string ending in an escaped quote"
 
 /**
  * The text of a sequence, the offset each token starts at, and the kinds of the separators written. Two strings are
@@ -662,6 +736,7 @@ const strayGen: Gen<Drawn> = map(
 		"/* ; ) */",
 		"-- ;\n",
 		"E'\\';'",
+		"E''\n'\\';'",
 		"[",
 		"]"
 	]),
@@ -898,6 +973,9 @@ describe("lex", () => {
 								"string",
 								"prefixed string",
 								"escape string",
+								"continued string",
+								"continued escape string",
+								"continued escape string ending in an escaped quote",
 								"dollar",
 								"param",
 								"number",
@@ -958,10 +1036,15 @@ describe("lex", () => {
 							kind: "second-implementation",
 							name: "scan.l's and psqlscan.l's rules, transcribed apart, and the offset the truncated token was rendered at"
 						},
-						coverage: required<RenderedKind>(["quotedIdent", "string", "dollar"], {
-							cases: 300,
-							sense: notesOnly
-						}),
+						coverage: required<RenderedKind>(
+							[
+								"quotedIdent",
+								"string",
+								"continued escape string ending in an escaped quote",
+								"dollar"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
