@@ -72,8 +72,6 @@ with the next release.
   rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
 - **`bench:full` on a quiet machine.**
 - **Housekeeping:** delete the lane scratch under ~/.cache/grizzle-release (about 14 GB).
-- **fallow:** unused-class-member doesn't follow union narrowing, so check/params.ts ParamCell.use and useRelation need
-  a usedClassMembers entry. Report it upstream, then drop the entry.
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **Sweeps under conflicting key orders,** the residues no plan avoids, which the serving judge excuses
   (test/pg/physical/serving.ts residueOf). GiST's cost model is blind to column position
@@ -90,3 +88,6 @@ with the next release.
 - upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
 - upstream/tsgo-zero-cpu-stall: tsgo at 0% CPU on a type error, unreproduced so far. Reproduce it without the
   effect-tsgo patch first, then file at microsoft/TypeScript.
+- upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
+  union-typed value, so .fallowrc.json keeps use and useRelation. File at fallow-rs/fallow, then drop the entries once
+  repro.sh reports Cell.never alone.

@@ -1,0 +1,33 @@
+CHECKLIST: fallow's reporting policy, applied to members called through a property of a union-typed value
+
+Outcome: a bug report (a false positive) for github.com/fallow-rs/fallow. Nothing has been sent.
+
+Sources:
+  C  https://github.com/fallow-rs/fallow/blob/main/CONTRIBUTING.md ("Reporting issues", "Contributions made with
+     coding agents")
+  T  https://github.com/fallow-rs/fallow/blob/main/.github/ISSUE_TEMPLATE/bug_report.yml
+
+A. GATES BEFORE REPORTING
+  [x] Search for duplicates, closed issues and pull requests included. Done on 2026-11-07, with no match
+      (EVIDENCE.txt 5).
+  [x] Reproduce on the latest release: 3.41.0, published 2026-11-07, behaves as 3.38.1 does (EVIDENCE.txt 1).
+  [x] Reduce it to a minimal reproduction: two files and a package.json, no config (repro.sh). It keeps the
+      controls fallow credits and one member nothing calls.
+  [x] Check that it is a fallow gap, not a misuse: TypeScript accepts every call, fallow's own type-aware mode
+      confirms the four uses, and fallow's source abstains on a union by design (EVIDENCE.txt 3).
+
+B. REPORT CONTENT (T, and C: "False positives: Include the fallow output and a minimal reproduction")
+  [x] What happened: issue.txt.
+  [x] Reproduction: the files, the exact command and its exact output (issue.txt).
+  [x] Expected behavior: only Cell.never, with where the harvest stops and a suggested fix (issue.txt).
+  [x] Fallow version: 3.41.0, also 3.38.1.
+  [x] Operating system: macOS.
+  [x] Configuration: none (the template asks for fallow.toml; the reproduction has no config).
+  [ ] How did you run fallow?: the owner picks the option for the run they file from. grizzle runs fallow in
+      `pnpm check`. The template's "Agent behavior" field stays empty: no agent misread fallow's output, flags or docs.
+
+C. ETIQUETTE
+  [ ] C: an issue an agent helped write is welcome, provided it is read before posting and keeps the exact command
+      and output. The owner reads issue.txt and runs repro.sh against the current release before posting.
+  [ ] The author is the owner's GitHub account. The reproduction is self-contained and quotes nothing of grizzle.
+  [x] Short, with no generated filler (C).

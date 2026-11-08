@@ -1,0 +1,65 @@
+EVIDENCE: fallow-unused-class-member-union-property
+
+Environment, for every section: macOS 27.0.1 on arm64 (10 cores); Node 26.13.0; fallow 3.38.1 (grizzle's pin) and
+3.41.0 (the latest npm release, published 2026-11-07), each a signed, verified binary. Measured 2026-11-07.
+
+1. The reproduction (repro.sh), on both versions.
+   `sh repro.sh <fallow>` runs `fallow dead-code --unused-class-members`. 3.38.1 and 3.41.0 give the same report:
+
+     ● Unused class members (5)
+       src/cell.ts (5)
+         :11 Cell.viaUnionPropertyEveryArm
+         :14 Cell.viaUnionPropertyNarrowedByIf
+         :17 Cell.viaUnionPropertyNarrowedBySwitch
+         :20 Cell.viaMethodReturningUnion
+         :23 Cell.never
+
+   Cell.viaInstance, Cell.viaAnnotatedParameter and Cell.viaInterfaceProperty are credited. An earlier probe also
+   credited a call through an object-literal type alias (`type One = { readonly cell: Cell }`), and calls on the value
+   a function or a private method returns, when its return type annotation names an interface.
+
+   `sh repro.sh <fallow> --type-aware`, the same on both versions:
+
+     ● Unused class members (1)
+       src/cell.ts
+         :23 Cell.never
+     [OK] Type-aware refinement: 5 candidates, 4 confirmed uses, 0 preserved contracts, 1 candidate without static
+     references (1 guarded fix), 0 unresolved findings, 0 abstained findings
+
+2. grizzle itself, at fallow 3.38.1, in a scratch copy of HEAD.
+   - With "use" and "useRelation" deleted from usedClassMembers, `pnpm -s dead-code` reports exactly:
+       ● Unused class members (2)
+         packages/engine/src/check/params.ts (2)
+           :77 ParamCell.use
+           :113 ParamCell.useRelation
+       ✗ 2 class members (4.32s)
+   - Every call is `resolved.cell.use(...)` or `resolved.cell.useRelation(...)`. Here resolved is the BindValue that
+     the Checker's resolveParam, or its private #resolveParam, returns, narrowed to its "param" arm
+     (check/checker.ts).
+   - `fallow dead-code --type-aware` on the same copy credits both ("2 candidates, 2 confirmed uses"). It takes about
+     54 s against about 4 s, and it raises 1,476 private-type-leak findings that the syntactic run does not report.
+     It is not adopted: a mode switch to get past one abstention would make the gate 12 times slower.
+
+3. The cause, in fallow's source at v3.41.0 (commit 3426924).
+   - crates/extract/src/visitor/visit_impl.rs, record_top_level_type_alias_declaration: property types are harvested
+     into interface_property_types only `if let TSType::TSTypeLiteral(type_lit) = &alias.type_annotation`.
+     record_top_level_interface_declaration harvests an interface's. A union alias harvests nothing.
+   - crates/extract/src/visitor/mod.rs, expand_typed_property_compound: a hop through a recorded type whose property
+     has no entry returns TypedPropertyExpansion::Opaque. The code comment there reads: "The property is not a
+     named-reference-typed member of this type (union / generic / unharvested shape): abstain."
+   - TypePropertyTarget (crates/extract/src/visitor/mod.rs) holds one class name per property. A union whose arms type
+     one property differently needs one target per arm.
+
+4. The gate with the entry, in the scratch copy (3.38.1).
+   - Planted, a public ParamCell member that nothing calls (`widen(type: ScalarType): ScalarType`): `pnpm -s dead-code`
+     reports "ParamCell.widen" and fails. The entry does not blind the check to ParamCell.
+   - Planted, a public `use(): number` on ParamTable, in the same file, that nothing calls: the check passes ("No
+     issues found"). The entry is global by name (NOTES.txt 2).
+
+5. Duplicate search, 2026-11-07, issues and pull requests of fallow-rs/fallow, closed ones included.
+   - Queries: "union class member", "narrowing", "unused class member false positive", "discriminated union",
+     "property type union", "class member union", "unused-class-members union", "unused-class-member union type",
+     "class member typed property", "member access typed receiver", "type-aware unused class member", "receiver type".
+   - Nothing reports a union-typed receiver. The nearest are other shapes, all closed: #1441 (a factory's inferred
+     return type), #2070 (an indexed-access getter type), #1785 (binding-target resolution across modules), #3798 and
+     #3799 (a shadowing local, array patterns and held getters).

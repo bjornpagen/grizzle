@@ -1,0 +1,132 @@
+DRAFT: github.com/fallow-rs/fallow issue, using the Bug Report template's fields. Not filed.
+
+Title: unused-class-members: a member called through a property of a union-typed value is never credited
+
+### What happened?
+
+fallow reports a class member as unused when its only call goes through a property of a value whose type is a union
+of object types, such as a discriminated union narrowed by `if` or `switch`. The same call through an interface or an
+object-literal type alias is credited. TypeScript accepts every call, and `--type-aware` confirms all four as used.
+
+Narrowing plays no part: a union whose every arm declares `cell: Cell` is not credited either.
+
+### Reproduction
+
+`src/cell.ts`:
+
+```ts
+export class Cell {
+	viaInstance(): number {
+		return 1
+	}
+	viaAnnotatedParameter(): number {
+		return 2
+	}
+	viaInterfaceProperty(): number {
+		return 3
+	}
+	viaUnionPropertyEveryArm(): number {
+		return 4
+	}
+	viaUnionPropertyNarrowedByIf(): number {
+		return 5
+	}
+	viaUnionPropertyNarrowedBySwitch(): number {
+		return 6
+	}
+	viaMethodReturningUnion(): number {
+		return 7
+	}
+	never(): number {
+		return 8
+	}
+}
+```
+
+`src/main.ts`:
+
+```ts
+import { Cell } from "./cell.ts"
+
+interface Holder {
+	readonly cell: Cell
+}
+
+type Both = { readonly kind: "x"; readonly cell: Cell } | { readonly kind: "y"; readonly cell: Cell }
+
+type Bound = { readonly kind: "cell"; readonly cell: Cell } | { readonly kind: "none" }
+
+export const a = new Cell().viaInstance()
+
+export const b = (c: Cell): number => c.viaAnnotatedParameter()
+
+export const c = (h: Holder): number => h.cell.viaInterfaceProperty()
+
+export const d = (v: Both): number => v.cell.viaUnionPropertyEveryArm()
+
+export const e = (v: Bound): number => (v.kind === "cell" ? v.cell.viaUnionPropertyNarrowedByIf() : 0)
+
+export const f = (v: Bound): number => {
+	switch (v.kind) {
+		case "cell":
+			return v.cell.viaUnionPropertyNarrowedBySwitch()
+		case "none":
+			return 0
+	}
+}
+
+export class Checker {
+	#bound(cell: Cell): Bound {
+		return { kind: "cell", cell }
+	}
+
+	g(cell: Cell): number {
+		const r = this.#bound(cell)
+		return r.kind === "cell" ? r.cell.viaMethodReturningUnion() : 0
+	}
+}
+```
+
+`package.json` is `{ "name": "repro", "private": true, "type": "module", "main": "src/main.ts" }`. There is no fallow
+config.
+
+`fallow dead-code --unused-class-members`:
+
+```
+● Unused class members (5)
+  src/cell.ts (5)
+    :11 Cell.viaUnionPropertyEveryArm
+    :14 Cell.viaUnionPropertyNarrowedByIf
+    :17 Cell.viaUnionPropertyNarrowedBySwitch
+    :20 Cell.viaMethodReturningUnion
+    :23 Cell.never
+```
+
+With a strict `tsconfig.json` over `src`, `fallow dead-code --unused-class-members --type-aware` reports only
+`Cell.never` ("5 candidates, 4 confirmed uses").
+
+### Expected behavior
+
+Only `Cell.never` is reported, as it is for a call through `Holder`.
+
+Where it stops: `record_top_level_type_alias_declaration` (crates/extract/src/visitor/visit_impl.rs) harvests
+`interface_property_types` only for a `TSTypeLiteral` alias. So a union alias records no property types, and
+`expand_typed_property_compound` (crates/extract/src/visitor/mod.rs) abstains, as its comment says ("union / generic
+/ unharvested shape").
+
+Suggested fix: harvest a union alias whose arms are object type literals, or names of harvested interfaces and
+aliases. Give each property the class of every arm that declares it, and credit the member on each of those classes.
+Crediting every arm keeps the rule erring toward a false negative, and it covers arms that type one property
+differently, such as `{ kind: "a"; target: First } | { kind: "b"; target: Second }`.
+
+### Fallow version
+
+3.41.0 (also 3.38.1)
+
+### Operating system
+
+macOS
+
+### Configuration
+
+None.

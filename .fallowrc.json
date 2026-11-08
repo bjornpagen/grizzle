@@ -584,13 +584,15 @@
 		{ "file": "packages/engine/src/write/family/order.ts", "exports": ["Plan"] },
 		{ "file": "packages/engine/src/write/program/outcome.ts", "exports": ["keyWitness"] }
 	],
-	// use and useRelation: fallow does not follow union narrowing, and ParamCell's methods are called on the narrowed
-	// BindValue in check/checker.ts. release: fallow does not type a for-of binding, and SessionPool.release calls
-	// SessionStatements.release on each open session it iterates in adapter/wire/session.ts makePool. retype, scalar,
-	// relation and member: union narrowing again, the lowering's StatementParams and WriteParams methods called on the
-	// placeholders a statement's narrowed kind holds (lower/conservative/context.ts). _tag: KeyConflict's tag, read
-	// through the error unions that discriminate on it. matches: fallow does not follow an interface to its classes, and
-	// the evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
+	// use and useRelation: fallow credits no member called through a property of a union-typed value, and the checker
+	// calls ParamCell's on the cell of a BindValue (check/checker.ts). The report and when these entries go are in
+	// upstream/fallow-unused-class-member-union-property. release: fallow does not type a for-of binding, and
+	// SessionPool.release calls SessionStatements.release on each open session it iterates in adapter/wire/session.ts
+	// makePool. member: the union again, WriteParams.member called on the params of a StatementPlaceholders
+	// (lower/conservative/context.ts). retype, scalar and relation: fallow does not follow an interface to its classes,
+	// and the lowering calls StatementParams' through the Placeholders that LowerContext.params returns. _tag:
+	// KeyConflict's tag, read through the error unions that discriminate on it. matches: the interface again, and the
+	// evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
 	// (scalar/compute/evaluate.ts, a Compute.matches).
 	"usedClassMembers": [
 		"discriminantSpine",
