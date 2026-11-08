@@ -115,16 +115,6 @@
 		"reason": "Without the shortcut (logical/props.ts regionProps givenBy), a determinant's column the source fixes is given by its hidden attribute or a bound member of its class; determinantsOf lists the empty determinant first, whose dependency from the region's lateral reads alone reaches every column the source fixes, so the longer from is reached exactly when the shorter is and every closure is unchanged."
 	},
 	{
-		"id": "08f1980848",
-		"verdict": "equivalent",
-		"reason": "chooseAttachment (lower/shapes/attach) is read only for its form: without the pipelinedOnly guard a child under exact parents still pipelines, and a pipelinedOnly child under rows that read a search is refused by the checker first (check/approximate/attach.ts pipelinedOverSearch), so no admitted query fuses differently."
-	},
-	{
-		"id": "f4f92bd2b7",
-		"verdict": "equivalent",
-		"reason": "An ignored node's reasons (lower/optimize/dedup/explain.ts nodeReasons) feed only the plan's decisions and its Multiplicity diagnostics, which no code of the engine or the shell reads: a QueryTemplate carries its diagnostics and nothing renders them."
-	},
-	{
 		"id": "565bf34df6",
 		"verdict": "equivalent",
 		"reason": "Without the reserved test (check/checker.ts services), a search source reading a label the checker reserved is refused UnsupportedOperation at the same stage all the same: a read of the enclosing rule's region is an outer read, which outerRefusal (check/approximate) refuses, and no description puts a recursion's self source inside a search, which the decoder refuses outside a recursive step; only the wording differs."
