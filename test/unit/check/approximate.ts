@@ -99,15 +99,25 @@ export interface SearchCase {
 }
 
 /**
- * The source's heading: the scored id and its distance, or each owner and its least distance; inside an attachment
- * whose child binds the parent's id at E's owner, also that correlation column, named by the column it is bound to.
+ * The source's heading: the scored id and its distance, or each owner and its least distance; inside an attachment,
+ * also the correlation column that delivers the parent's id (check/checker.ts #attach): the head key owner where an
+ * aggregate's head is the parent's id, else, where the child binds it at E's owner, a column named by owner, and where
+ * a filter compares it, a column named by the parent's id, id_2 where the heading already has an id (check/scan.ts
+ * freshColumnName).
  */
-const headingOf = (c: SearchCase): ReadonlyArray<string> => [
-	...(c.score === "an aggregate" ? ["owner", "distance"] : ["id", "distance"]),
-	...(c.reading === "an attachment binding its parent" && c.score !== "an aggregate"
-		? ["owner"]
-		: [])
-]
+const headingOf = (c: SearchCase): ReadonlyArray<string> => {
+	const own = c.score === "an aggregate" ? ["owner", "distance"] : ["id", "distance"]
+	switch (c.reading) {
+		case "an attachment binding its parent":
+			return c.score === "an aggregate" ? own : [...own, "owner"]
+		case "an attachment filtering by its parent":
+			return [...own, Arr.contains(own, "id") ? "id_2" : "id"]
+		case "the query":
+		case "an import bound to an outer variable":
+		case "an import bound to a parameter":
+			return own
+	}
+}
 
 /** Whether the source reads the owner parameter `o`: an import binds it. */
 const readsOwner = (c: SearchCase): boolean =>
@@ -133,7 +143,10 @@ export type SearchVerdict =
 			readonly rules: Arr.NonEmptyReadonlyArray<SearchRule>
 	  }
 
-/** The model: the description's own faults first, then every eligibility fault the source has. */
+/**
+ * The model: the description's own faults first, then every eligibility fault the source has, the order the checker
+ * states (check/approximate/index.ts), restated here as the oracle it is held to.
+ */
 export const searchVerdict = (c: SearchCase): SearchVerdict => {
 	const malformed: ReadonlyArray<SearchRule> = [
 		...(Arr.contains(headingOf(c), c.by) ? [] : ["by naming no column" as const]),

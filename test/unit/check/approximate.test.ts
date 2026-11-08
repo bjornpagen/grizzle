@@ -19,6 +19,7 @@ import {
 	type Reading,
 	provenanceDesc,
 	provenanceGen,
+	type SearchCase,
 	type SearchRule,
 	searchCaseDesc,
 	searchCaseGen,
@@ -56,6 +57,16 @@ const rules: Arr.NonEmptyReadonlyArray<SearchRule> = [
 	"by naming another column"
 ]
 
+/** An aggregate source filtered by its attachment's parent, nearest by the parent's id its correlation column delivers. */
+const aggregateFilteringById: SearchCase = {
+	dimensions: 3,
+	score: "an aggregate",
+	union: true,
+	by: "id",
+	take: 1,
+	reading: "an attachment filtering by its parent"
+}
+
 describe("approximateNearest", () => {
 	it.effect(
 		"admits exactly a search whose one rule, read once per execution, ranks by a query vector's cosine distance to an indexable stored vector, refusing every other with its reason",
@@ -82,7 +93,20 @@ describe("approximateNearest", () => {
 							],
 							{ cases: 600, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "an aggregate filtering by its parent, nearest by id: the correlation column the filter's parent id adds is named id, so by names a column and the parent's read is what refuses it",
+								sketch: aggregateFilteringById,
+								draws: "",
+								reaches: [
+									"a source read per parent row",
+									"a union",
+									"an aggregate",
+									"by naming another column",
+									"refused, an attachment filtering by its parent"
+								]
+							}
+						],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,

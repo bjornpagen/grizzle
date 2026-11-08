@@ -34,7 +34,14 @@ import type { Heading, RelNode } from "#compiler/ir/rel.ts"
  *   on, the bindings fixed for its one evaluation, and `sealed: true`: no later filter, projection or bound enters it
  *   (pushdown, demand and fusion treat it as a boundary), and its heading is the source's whole heading, the candidate
  *   identity;
- * - the bound: `take` is a positive integer, the requested result bound and never a scan budget.
+ * - the bound: `take` is a positive integer, the requested result bound and never a scan budget, which the
+ *   description's decoder admits before any check runs (ir/desc.ts, ir/shape.ts positiveInteger).
+ *
+ * Its refusals take one order: a description fault before any eligibility fault, since a malformed description is no
+ * query whose eligibility could be judged. A `take` that is no positive integer the decoder refuses first, then `by`
+ * naming no column is MalformedDescription here, and only then is the source judged (UnsupportedOperation), in the
+ * order above. The eligibility suite's model restates the order as its oracle (test/unit/check/approximate.ts
+ * searchVerdict), so a check moved ahead of `by` fails it.
  *
  * Recursive feedback over a candidate set is refused by the recursion scan before this runs. The other banned uses, a
  * page, a law and a derived definition, and a search read inside an attachment's child and outside it, are properties
@@ -51,9 +58,6 @@ export const approximate: ApproximatePlugin = {
 				loc,
 				`approximateNearest: by naming a column of the source's heading; ${JSON.stringify(stage.by)} is none`
 			)
-		}
-		if (!Number.isSafeInteger(stage.take) || stage.take < 1) {
-			fail("MalformedDescription", loc, "approximateNearest: take, a positive integer bound")
 		}
 		/**
 		 * A source that reads an attachment's parent variable is a search per parent row, whether a filter compares it
