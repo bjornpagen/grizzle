@@ -1,3 +1,4 @@
+import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	arrayTexts,
@@ -50,7 +51,13 @@ import {
 	type StoredFamily,
 	type Values
 } from "#compiler/write/family/edit.ts"
-import { type ColumnKey, familyKey, fieldKey, literalHost } from "#compiler/write/family/fold.ts"
+import {
+	type ColumnKey,
+	familyKey,
+	fieldKey,
+	type GeneratedNull,
+	literalHost
+} from "#compiler/write/family/fold.ts"
 import { type NestedRow, rowOfValues } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
@@ -100,7 +107,12 @@ import {
 } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
-import type { FilledColumn, JudgedRow, StatedRows } from "#compiler/write/program/witness.ts"
+import {
+	type FilledColumn,
+	hostJudgement,
+	type JudgedRow,
+	type StatedRows
+} from "#compiler/write/program/witness.ts"
 
 interface BindInputs {
 	/** The facts each member slot of the ChangeSet value supplies (`collectInputs`). */
@@ -184,8 +196,23 @@ export type Flights =
 			readonly reads: NonEmptyReadonlyArray<ReadStatement>
 			readonly writes: (
 				rows: ReadonlyArray<Raw>
-			) => Result.Result<PlanWrites, EncodingFailure | FamilyRowBound | CompileError>
+			) => Result.Result<
+				PlanWrites,
+				EncodingFailure | FamilyRowBound | CompileError | GeneratedRejection
+			>
 	  }
+
+/**
+ * A write the host refuses before any write statement, filling a row whose generated field has no value
+ * (write/family/fold.ts GeneratedNull): `invariant-rejected` on the field's law, witnessed as PostgreSQL's NOT NULL
+ * refusal of the statement that writes the row is (witness.ts hostJudgement), so the outcome is one whoever finds the
+ * NULL.
+ */
+export interface GeneratedRejection {
+	readonly _tag: "GeneratedRejection"
+	readonly law: GeneratedLaw
+	readonly witness: Witness
+}
 
 /**
  * An application's write statements under one plan: each statement's executions (`Chunks`), and the rows the ChangeSet
@@ -219,6 +246,9 @@ const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
 
 const unplannedFill: Fill = Object.freeze({ kind: "unplanned" })
 
+/** The witness of a refusal no row the ChangeSet states is found breaking. */
+const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
+
 type BindResult =
 	| BoundWrite
 	| {
@@ -227,6 +257,7 @@ type BindResult =
 			readonly described: Law
 			readonly witness: Witness
 	  }
+	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }
 
 /** Normalizes and encodes one application's inputs.
  *
@@ -251,6 +282,19 @@ export const bindWrite = (
 		return Result.err(normalization.error)
 	}
 	const normalized = normalization.value
+	if (normalized.kind === "generatedNull") {
+		return Result.ok({
+			kind: "generated-rejected",
+			rejection: {
+				_tag: "GeneratedRejection",
+				law: normalized.law,
+				witness:
+					normalized.values === undefined
+						? unreportedWitness
+						: keyWitness(normalized.law.relation, normalized.values)
+			}
+		})
+	}
 	if (normalized.kind === "keyConflict") {
 		return Result.ok({
 			kind: "invariant-rejected",
@@ -833,6 +877,35 @@ export const bindWrite = (
 				)
 			)
 	/**
+	 * A generated field with no value a stratum's plan filled a row by (write/family/fold.ts GeneratedNull) as its
+	 * write's refusal: the field's law, witnessed by the first row the ChangeSet states of its relation at `stratum`
+	 * whose term has no value, as PostgreSQL's NOT NULL refusal of the statement writing them is (witness.ts
+	 * hostJudgement); unreported where the ChangeSet writes no row of the relation.
+	 */
+	const generatedRejection = (stratum: number, stop: GeneratedNull): GeneratedRejection => {
+		const relation = frontend.written.find((r) => r.name === stop.law.relation)
+		const field = relation?.fields.find((f) => f.name === stop.law.field)
+		return {
+			_tag: "GeneratedRejection",
+			law: stop.law,
+			witness:
+				relation === undefined || field === undefined
+					? unreportedWitness
+					: hostJudgement(
+							frontend,
+							statedRowsOf(unplannedFill),
+							{ kind: "write", stratum, relations: [relation.name] },
+							{ kind: "generated", table: relation.ident, column: field.column }
+						).witness
+		}
+	}
+	/** A plan's refusal as its write's: a generated field with no value as `generatedRejection`, any other as itself. */
+	const planRefusal = (
+		stratum: number,
+		error: EncodingFailure | CompileError | GeneratedNull
+	): EncodingFailure | CompileError | GeneratedRejection =>
+		error._tag === "GeneratedNull" ? generatedRejection(stratum, error) : error
+	/**
 	 * Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows, and the rows of
 	 * every relation its edits write or its refills rewrite, composed by depth with their counts.
 	 *
@@ -849,7 +922,10 @@ export const bindWrite = (
 	 */
 	const planned = (
 		rows: ReadonlyArray<Raw>
-	): Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError> => {
+	): Result.Result<
+		Planned,
+		EncodingFailure | FamilyRowBound | CompileError | GeneratedRejection
+	> => {
 		const strata = [
 			...new Set([
 				...frontend.nested.map((n) => n.stratum),
@@ -1034,7 +1110,7 @@ export const bindWrite = (
 						}
 					)
 					if (!edited.ok) {
-						return edited
+						return Result.err(planRefusal(stratum, edited.error))
 					}
 					done.push({ target, edited: edited.value })
 					const written = edited.value.rows
@@ -1081,7 +1157,7 @@ export const bindWrite = (
 					}
 					const drawn = refillTree(ctx, tree, nodesOf(stored), nodesOf(current))
 					if (!drawn.ok) {
-						return drawn
+						return Result.err(planRefusal(stratum, drawn.error))
 					}
 					for (const [key, node] of drawn.value) {
 						holdRow(current, tree.member.name, key, node)
@@ -1279,19 +1355,35 @@ export const bindWrite = (
 		chunks: chunksOf(plans),
 		stated: statedRowsOf(plans.ok ? { kind: "planned", strata: plans.value.fills } : unplannedFill)
 	})
-	const flights: Flights =
+	/** The flights of a write that reads nothing, planned now: refused where its plan fills a generated field with no
+	 * value, before any statement. */
+	const unreadFlights = (): Result.Result<Flights, GeneratedRejection> => {
+		const plans = planned([])
+		if (plans.ok) {
+			return Result.ok({ kind: "write", ...writtenOf(plans) })
+		}
+		if (plans.error._tag === "GeneratedRejection") {
+			return Result.err(plans.error)
+		}
+		return Result.ok({ kind: "write", ...writtenOf(Result.err(plans.error)) })
+	}
+	const flown: Result.Result<Flights, GeneratedRejection> =
 		unreadable !== undefined
-			? { kind: "write", ...writtenOf(Result.err(unreadable)) }
+			? Result.ok({ kind: "write", ...writtenOf(Result.err(unreadable)) })
 			: isNonEmpty(reads)
-				? {
+				? Result.ok({
 						kind: "read",
 						reads,
 						writes: (rows) => {
 							const plans = planned(rows)
 							return plans.ok ? Result.ok(writtenOf(plans)) : plans
 						}
-					}
-				: { kind: "write", ...writtenOf(planned([])) }
+					})
+				: unreadFlights()
+	if (!flown.ok) {
+		return Result.ok({ kind: "generated-rejected", rejection: flown.error })
+	}
+	const flights = flown.value
 	return Result.ok({
 		kind: "bound",
 		unplanned: statedRowsOf(unplannedFill),

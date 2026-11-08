@@ -22,7 +22,14 @@ import type {
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
-import { assert, bareRecord, defined, refused, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	assertVariant,
+	bareRecord,
+	defined,
+	refused,
+	succeeded
+} from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -418,6 +425,7 @@ const normalizes = (
 			)
 			return
 		}
+		assertVariant(normalization, "kind", "normalized", "Small has no generated field to refuse")
 		assert.deepEqual(
 			deleted,
 			[],

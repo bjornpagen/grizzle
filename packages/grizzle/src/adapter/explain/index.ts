@@ -236,7 +236,14 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		const filled = flights.writes(rows)
 		return filled.ok
 			? explainedOf(filled.value.chunks)
-			: Result.fail(new ReadFailure({ reason: valuesFailure(filled.error) }))
+			: Result.fail(
+					new ReadFailure({
+						reason:
+							filled.error._tag === "GeneratedRejection"
+								? new LawRejected({ law: filled.error.law })
+								: valuesFailure(filled.error)
+					})
+				)
 	})
 })
 

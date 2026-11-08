@@ -68,7 +68,7 @@ import { inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { InsertResult, WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite, type Chunks } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type FoldMonoid, folded } from "#test/support/families/fold.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -1960,6 +1960,7 @@ const runStep =
 						[name, new Map(Arr.map([...table], ([k, row]) => [k, new Map(row)] as const))] as const
 				)
 			)
+			assertVariant(bound, "kind", "bound", "a write of no generated field binds")
 			const flights = bound.flights
 			/** The read flight runs first, before the stratum's own statements: it sees the state before the step. */
 			const planned =

@@ -1,4 +1,5 @@
-import { layoutKey } from "#compiler/analysis/theory/fill.ts"
+import { type GeneratedLaw, generatedLaw } from "#compiler/analysis/theory/description.ts"
+import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
 /**
  * The host's fills of a nested write (W3.P2): every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -33,7 +34,7 @@ import { layoutKey } from "#compiler/analysis/theory/fill.ts"
  */
 import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import type { EncodingFailure, EncodingPlace, ValueFault } from "#compiler/core/errors.ts"
+import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -54,9 +55,18 @@ import {
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import { isBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { admitValue, type CarrierSpec, compareValues } from "#compiler/scalar/values/identity.ts"
+import {
+	admitted,
+	admitValue,
+	type Carrier,
+	type CarrierHost,
+	type CarrierSpec,
+	compareValues
+} from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * A column's key in a row's values: a field by its name, a law column by its identifier, each under its arm, so no field
@@ -111,50 +121,79 @@ export type HostEvaluator = (
 /**
  * Why a fill has no value for a column, the nesting's walk and a family's edit alike: an expression the host cannot
  * evaluate over its row, a fold's selection among them (its stop, as the evaluator gives it); a generated field the fill
- * reads that is NULL, a closed read at a key its relation holds no row at, which its column's NOT NULL refuses; or a
- * fold's after or a copy outside its column's carrier, which PostgreSQL would refuse.
+ * reads that is NULL, a closed read at a key its relation holds no row at, by the field's law, which its column's NOT
+ * NULL refuses; or a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse.
  */
 export type FillStop =
 	| { readonly kind: "evaluation"; readonly stop: EvalStop }
-	| { readonly kind: "null" }
+	| { readonly kind: "null"; readonly law: GeneratedLaw }
 	| { readonly kind: "range"; readonly family: FamilyId }
 
 /**
  * Why a nesting cannot be filled (`FillStop`), at its row, by the path of count fields and member positions from the
- * nesting's root, and its column.
+ * nesting's root, and its column; and the row's key as the walk filled it, its first declared key whose every field the
+ * walk holds, by field name (write/program/witness.ts statedKey), none where none is whole.
  */
-export type FillRefusal = {
+export interface FillRefusal {
 	readonly path: ReadonlyArray<string | number>
 	readonly relation: string
 	readonly column: string
-} & FillStop
-
-/** The fault each fill stop refuses its write with: a value outside its column's carrier, integerRange; any other, a
- * value no fact could give the row, factShape. */
-const fillFaults: { readonly [K in FillStop["kind"]]: ValueFault } = {
-	evaluation: "factShape",
-	null: "factShape",
-	range: "integerRange"
+	readonly stop: FillStop
+	readonly key: Readonly<Record<string, KeyHost>> | undefined
 }
 
-/** A fill's stop as the encoding failure its write is refused with at `place`, before any statement is sent. */
-export const fillFailure = (stop: FillStop, place: EncodingPlace): EncodingFailure =>
-	encodeFailure(fillFaults[stop.kind], place)
+/**
+ * A generated field with no value at a row a fill reads, by its law: the write is `invariant-rejected` on that law, as
+ * PostgreSQL's NOT NULL refuses the row (23502) where no fill reads the field.
+ */
+export interface GeneratedNull {
+	readonly _tag: "GeneratedNull"
+	readonly law: GeneratedLaw
+}
 
 /**
- * Whether a fold steps over a row of `relation`, read field by field by `read`: each conjunct of its selection in
- * order, up to the first that is not true, NULL holding of no row; stopped at the first the host cannot evaluate.
+ * What a fill's stop refuses its write with: an encoding failure at `place` before any statement is sent, factShape for
+ * a value the host cannot evaluate and integerRange for one outside its column's carrier; or, for a generated field
+ * with no value, that field's law (`GeneratedNull`).
  */
-export const selects = (
+export const fillRefusal = (
+	stop: FillStop,
+	place: EncodingPlace
+): EncodingFailure | GeneratedNull => {
+	switch (stop.kind) {
+		case "evaluation":
+			return encodeFailure("factShape", place)
+		case "range":
+			return encodeFailure("integerRange", place)
+		case "null":
+			return { _tag: "GeneratedNull", law: stop.law }
+	}
+}
+
+/**
+ * Whether a fold steps over a row of `relation`: each conjunct of its selection in order, up to the first that is not
+ * true, NULL holding of no row. `read` gives each field a conjunct reads, or why the row has none, which stops the
+ * selection there; `unevaluated` is the stop of a conjunct the host cannot evaluate.
+ */
+export const selects = <E>(
 	relation: LawRelation,
 	fold: FamilyFold,
 	evaluate: HostEvaluator,
-	read: (field: string) => unknown
-): Result.Result<boolean, FillStop> => {
+	read: (field: string) => Result.Result<unknown, E>,
+	unevaluated: (stop: EvalStop) => E
+): Result.Result<boolean, E> => {
 	for (const w of fold.where) {
-		const holds = evaluate(relation, w, read)
+		const values = new Map<string, unknown>()
+		for (const field of readsOf(w)) {
+			const value = read(field)
+			if (!value.ok) {
+				return value
+			}
+			values.set(field, value.value)
+		}
+		const holds = evaluate(relation, w, (field) => values.get(field))
 		if (!holds.ok) {
-			return Result.err({ kind: "evaluation", stop: holds.error })
+			return Result.err(unevaluated(holds.error))
 		}
 		if (holds.value !== true) {
 			return Result.ok(false)
@@ -551,8 +590,8 @@ export const stepped = (
 	if (after === undefined) {
 		return Result.err({ kind: "range", family })
 	}
-	const admitted = admitValue(spec, after)
-	return admitted.ok ? Result.ok(admitted.value) : Result.err({ kind: "range", family })
+	const stored = admitValue(spec, after)
+	return stored.ok ? Result.ok(stored.value) : Result.err({ kind: "range", family })
 }
 
 /** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
@@ -692,8 +731,44 @@ const refusalAt = (row: Row, column: Column, stop: FillStop): FillRefusal => ({
 	path: pathOf(row),
 	relation: row.layout.relation.name,
 	column: column.name,
-	...stop
+	stop,
+	key: keyOf(row)
 })
+
+/** Whether an admitted value is a set's. */
+const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
+
+/** A key field's admitted value as a key value, none for a set's or bytes', which no key holds. */
+const keyHostOf = (value: CarrierHost[Carrier]): KeyHost | undefined =>
+	isSet(value) || isBytes(value) ? undefined : value
+
+/**
+ * A row's key as the walk holds it: its relation's first declared key, the primary key first, whose every field the
+ * row holds, by field name; none where none is whole.
+ */
+const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
+	for (const key of row.layout.relation.keyNames) {
+		const values: Record<string, KeyHost> = {}
+		let whole = true
+		for (const f of key.fields) {
+			const column = row.layout.columns.get(fieldKey(f.name))
+			const raw = row.values.get(fieldKey(f.name))
+			const value =
+				column === undefined || raw === undefined
+					? undefined
+					: keyHostOf(admitted(column.spec, raw))
+			if (value === undefined) {
+				whole = false
+				break
+			}
+			values[f.name] = value
+		}
+		if (whole) {
+			return Object.freeze(values)
+		}
+	}
+	return undefined
+}
 
 /** A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees. */
 const filledBefore = (from: Row, key: ColumnKey, reader: Row): unknown => {
@@ -772,9 +847,15 @@ const ruleValue = (
 				}
 				befores.push(v.value)
 			}
-			const selected = selects(row.layout.relation, rule.fold, evaluate, readerOf(row, evaluate))
+			const selected = selects(
+				row.layout.relation,
+				rule.fold,
+				evaluate,
+				(field) => fieldOf(row, field, evaluate),
+				(stop) => refusalAt(row, column, { kind: "evaluation", stop })
+			)
 			if (!selected.ok) {
-				return Result.err(refusalAt(row, column, selected.error))
+				return selected
 			}
 			if (!selected.value) {
 				return Result.ok(befores[rule.plane])
@@ -791,21 +872,32 @@ const ruleValue = (
 			return !v.ok
 				? Result.err(refusalAt(row, column, { kind: "evaluation", stop: v.error }))
 				: v.value === sqlNull
-					? Result.err(refusalAt(row, column, { kind: "null" }))
+					? Result.err(
+							refusalAt(row, column, {
+								kind: "null",
+								law: generatedLaw(row.layout.relation.name, column.name)
+							})
+						)
 					: Result.ok(v.value)
 		}
 	}
+}
+
+/** A row's field, filled on demand: its value, none where the row has no such column, or why it has none. */
+const fieldOf = (
+	row: Row,
+	field: string,
+	evaluate: HostEvaluator
+): Result.Result<unknown, FillRefusal> => {
+	const key = fieldKey(field)
+	return row.layout.columns.has(key) ? valueOf(row, key, evaluate) : Result.ok(undefined)
 }
 
 /** A row's field reader for the evaluator: each field's value, filled on demand, undefined where it has none. */
 const readerOf =
 	(row: Row, evaluate: HostEvaluator) =>
 	(field: string): unknown => {
-		const key = fieldKey(field)
-		if (!row.layout.columns.has(key)) {
-			return undefined
-		}
-		const v = valueOf(row, key, evaluate)
+		const v = fieldOf(row, field, evaluate)
 		return v.ok ? v.value : undefined
 	}
 

@@ -84,6 +84,16 @@ export const lawDescription = (law: LawIdentity): Law => {
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
 export const contractLaw = (contract: string): Law => Object.freeze({ kind: "contract", contract })
 
+/** The law a generated field states, that its term has a value at every row: what refuses a row where it is NULL. */
+export type GeneratedLaw = Extract<Law, { readonly kind: "generated" }>
+
+/**
+ * A generated field's law, by its relation and field: the one description every refusal of a generated field with no
+ * value names, whether the host finds it filling a row or PostgreSQL's NOT NULL refuses the row (23502).
+ */
+export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
+	Object.freeze({ kind: "generated", relation, field })
+
 /** A side of a law as its statement declares it: its relation, its terms and its selection's conjuncts. */
 const sideOf = (side: ResolvedSide): SideDesc =>
 	Object.freeze({

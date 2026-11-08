@@ -4,9 +4,9 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import type { CodecFault, CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { generatedLaw } from "#compiler/analysis/theory/description.ts"
 import {
 	accumulated,
 	closedId,
@@ -28,44 +28,42 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
-import { type FillContext, ownersOf, planEdits, type Values } from "#compiler/write/family/edit.ts"
-import { nestedRows, nestedSet } from "#compiler/write/family/nesting.ts"
-import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
+import { inForce } from "#compiler/write/family/order.ts"
+import { bindWrite } from "#compiler/write/program/bind.ts"
+import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { hostJudgement, type StatedRows } from "#compiler/write/program/witness.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * A fill stops on a row as one refusal, whichever path fills it: the nesting's walk (write/family/fold.ts `filler`,
- * through write/family/nesting.ts `nestedRows`) and a family's edit (write/family/edit.ts `planEdits`) share the fill's
- * stop (fold.ts FillStop), a fold's selection (`selects`) and its step (`stepped`), and refuse a write by the one
- * mapping of a stop to its fault (`fillFailure`).
+ * A generated field with no value refuses its write as one outcome, `invariant-rejected` on the field's law
+ * (analysis/theory/description.ts generatedLaw) witnessed by the key of the first stated row whose term has no value,
+ * whatever the write's shape and whoever finds the NULL: the nesting's walk, which evaluates every generated field of
+ * each row it fills (write/family/fold.ts `filler`); a family's edit, which evaluates those its fill reads, a fold's
+ * selection or step (write/family/edit.ts `planEdits`); or PostgreSQL, whose NOT NULL refuses a row whose field no fill
+ * reads (23502), judged by the host as the shell judges it (write/program/witness.ts hostJudgement).
  *
  * The schema is an ordered family of members, each of a kind whose weight a closed relation gives, a generated field
  * that is NULL at the kind the relation lacks. One fold sums the members' quantities over a selection, another sums
- * their weights. A case is one family, written two ways: an owner inserted with its members nested, and the same
- * members put one by one into the family of an owner the stratum inserts, which the edit appends in order.
+ * their weights. A case is one family, written two ways through bindWrite: an owner inserted with its members nested,
+ * and an owner inserted with none beside its members put one by one, which the edit appends in order. A write the host
+ * binds is planned over reads that find nothing stored; where one of its rows has a missing weight, PostgreSQL's NOT
+ * NULL refuses the family statement that writes them, and the outcome is the host's judgement of that statement.
  *
- * Two oracles:
- * - The paths agree: the nested insert and the edit both accept, or both refuse with one fault.
- * - The specification: a write whose fill reads a missing weight is refused before any SQL as factShape, and every
- *   other write is accepted.
+ * The oracle, the specification: a write with a member of a missing weight is `invariant-rejected` on Member.w's law,
+ * witnessed by the first such member's id, whichever path wrote it; every other write is accepted.
  *
  * Bound: every selection (none, the weight alone, the quantity and the weight), with and without the weight fold, over
- * every family of up to three members, each of two quantities and of the three kinds wherever a fill reads its weight,
- * of the two weighed kinds elsewhere. A fill reads a member's weight where the weight fold steps over it, or where the
- * selection reaches it in whatever order its conjuncts are evaluated, each up to the first that is not true. A missing
- * weight no fill reads is outside the box: the nesting's walk evaluates every generated field of its rows, where an
- * edit evaluates only those its fill reads and leaves the rest to PostgreSQL's NOT NULL.
+ * every family of up to three members, each of three kinds and two quantities.
  *
- * The planted bug, a selection the edit cannot evaluate refused as integerRange where the nesting refuses it as
- * factShape, is a disagreement wherever the selection reaches a missing weight; so is an edit that reads a step's
- * missing weight as no value, integerRange.
+ * Planted bugs: an edit whose selection cannot evaluate a missing weight refused as integerRange, or one reading a
+ * step's missing weight as no value, refuses where the specification does not say so; an edit that witnesses the row
+ * its fill stopped at names a later member than the first of a missing weight where an earlier one no fill reads.
  */
 
 const weighedKinds = ["light", "heavy"] as const
@@ -142,57 +140,69 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 	}
 }
 
-/** A schema's two paths, compiled once: its nesting with its member slot, and its members' edit with its context. */
+/** A path's program and the stratum whose family statement writes Member's rows. */
+interface Path {
+	readonly program: CompiledWrite
+	readonly stratum: number
+}
+
+/** A schema's two paths, each compiled once: the nested insert, and the owner's insert beside its members' puts. */
 interface Paths {
-	readonly nest: (facts: ReadonlyArray<unknown>) => Result.Result<unknown, EncodingFailure>
-	readonly edit: (
-		members: ReadonlyArray<{ readonly [field: string]: unknown }>
-	) => Result.Result<unknown, EncodingFailure | CompileError>
+	readonly nested: Path
+	readonly edited: Path
+	readonly Owner: unknown
+	readonly schema: unknown
 }
 
 const pathsOf = (selection: Selection, weighed: boolean): Paths => {
 	const built = schemaOf(selection, weighed)
-	const artifacts = succeeded(testArtifacts(built.schema, testCompile))
-	const program = succeeded(
-		compileWrite(
-			checking(built.schema),
-			descOf(ChangeSet.empty(built.schema).insert(built.Owner, []).put(Member, [])),
-			realityWrite(artifacts)
-		)
-	)
-	const inputs = Arr.flatMap(
-		program.frontend.slots,
-		(g): ReadonlyArray<EnumeratedInput> => g.inputs
-	)
-	const [input] = Arr.flatMap(
-		inputs,
-		(i): ReadonlyArray<Extract<EnumeratedInput, { readonly kind: "nested" }>> =>
-			i.kind === "nested" ? [i] : []
-	)
-	const nested = defined(input, "the owner's nested insert")
-	const member = Arr.headNonEmpty(nested.members).name
-	const target = defined(
-		Option.getOrUndefined(Arr.findFirst(program.edits, (e) => e.target.relation.name === "Member")),
-		"the members' edit"
-	).target
-	const ctx: FillContext = { codes: program.frontend.codes, evaluate: program.frontend.evaluate }
-	const owner = { id: uuidOf(0) }
+	const reality = realityWrite(succeeded(testArtifacts(built.schema, testCompile)))
+	const compiled = (value: unknown): CompiledWrite =>
+		succeeded(compileWrite(checking(built.schema), descOf(value), reality))
+	const nested = compiled(shapeOf(built, "nested", []))
+	const edited = compiled(shapeOf(built, "edited", []))
 	return {
-		nest: (facts) => nestedRows(nested.nesting, member, facts, nestedSet()),
-		edit: (members) =>
-			planEdits(
-				ctx,
-				target,
-				{ inserts: [], puts: members, deletes: [], nested: [] },
-				new Map(),
-				(family) => ({
-					stated: ownersOf(ctx, family, [owner]),
-					plain: true,
-					recounted: new TupleMap<Owner, Values>()
-				}),
-				{ current: new TupleMap<MemberKey, Values>(), refilled: () => false }
-			)
+		nested: {
+			program: nested,
+			stratum: defined(
+				Arr.head(nested.frontend.nested).pipe(Option.getOrUndefined),
+				"the nested write"
+			).stratum
+		},
+		edited: {
+			program: edited,
+			stratum: defined(
+				Option.getOrUndefined(
+					Arr.findFirst(edited.edits, (e) => e.target.relation.name === "Member")
+				),
+				"the members' edit"
+			).edit.stratum
+		},
+		Owner: built.Owner,
+		schema: built.schema
 	}
+}
+
+/** A member as a case states it: its kind and its quantity. */
+interface MemberShape {
+	readonly kind: (typeof kinds)[number]
+	readonly qty: bigint
+}
+
+/** A case's ChangeSet on a path: owner 0 inserted with the members nested, or with none beside their puts. */
+const shapeOf = (
+	built: { readonly Owner: unknown; readonly schema: unknown },
+	path: "nested" | "edited",
+	members: ReadonlyArray<MemberShape>
+): unknown => {
+	const facts = Arr.map(members, (m, i) => ({ id: uuidOf(i + 1), kind: m.kind, qty: m.qty }))
+	const changes = ChangeSet.empty(built.schema)
+	return path === "nested"
+		? changes.insert(built.Owner, [{ id: uuidOf(0), n: facts }])
+		: changes.insert(built.Owner, [{ id: uuidOf(0), n: [] }]).put(
+				Member,
+				Arr.map(facts, (f) => ({ ...f, owner: uuidOf(0) }))
+			)
 }
 
 /** Each selection's paths, without the weight fold and with it. */
@@ -210,11 +220,6 @@ const pathsAt = (selection: Selection, weighed: boolean): Paths => {
 	return weighed ? paths.weighed : paths.plain
 }
 
-interface MemberShape {
-	readonly kind: (typeof kinds)[number]
-	readonly qty: bigint
-}
-
 /** A case: the schema's selection, whether it has the weight fold, and the family's members in order. */
 interface StopCase {
 	readonly selection: Selection
@@ -222,101 +227,102 @@ interface StopCase {
 	readonly members: ReadonlyArray<MemberShape>
 }
 
-/**
- * Whether a selection reaches the weight of a member of `qty` in whatever order its conjuncts are evaluated, each up to
- * the first that is not true: the weight alone always, the quantity and the weight wherever the quantity holds.
- */
-const selectionReadsWeight = (selection: Selection, qty: bigint): boolean => {
-	switch (selection) {
-		case "none":
-			return false
-		case "weight":
-			return true
-		case "quantity and weight":
-			return qty >= 1n
-	}
-}
+const memberGen: Gen<MemberShape> = (source) => ({
+	kind: source.draw(element(kinds)),
+	qty: source.draw(element([0n, 1n] as const))
+})
 
-/** Whether a fill of a member of `qty` reads its weight: the weight fold steps over it, or the selection reaches it. */
-const weightRead = (selection: Selection, weighed: boolean, qty: bigint): boolean =>
-	weighed || selectionReadsWeight(selection, qty)
+const caseGen: Gen<StopCase> = (source) => ({
+	selection: source.draw(element(selections)),
+	weighed: source.draw(element([false, true] as const)),
+	members: source.draw(array(memberGen, { min: 0, max: 3 }))
+})
 
-const quantities = [0n, 1n] as const
+/** The box: each selection, with and without the weight fold, and every family of up to three of six member shapes. */
+const boxCases = selections.length * 2 * (1 + 6 + 36 + 216)
 
-/** The kinds a member of `qty` is drawn from: every kind where a fill reads its weight, the weighed ones elsewhere. */
-const kindsOf = (
-	selection: Selection,
-	weighed: boolean,
-	qty: bigint
-): Arr.NonEmptyReadonlyArray<MemberShape["kind"]> =>
-	weightRead(selection, weighed, qty) ? kinds : weighedKinds
-
-const memberGen =
-	(selection: Selection, weighed: boolean): Gen<MemberShape> =>
-	(source) => {
-		const qty = source.draw(element(quantities))
-		return { kind: source.draw(element(kindsOf(selection, weighed, qty))), qty }
-	}
-
-const caseGen: Gen<StopCase> = (source) => {
-	const selection = source.draw(element(selections))
-	const weighed = source.draw(element([false, true] as const))
-	return {
-		selection,
-		weighed,
-		members: source.draw(array(memberGen(selection, weighed), { min: 0, max: 3 }))
-	}
-}
-
-/** The box: each selection, with and without the weight fold, and every family of up to three of its member shapes. */
-const boxCases = Arr.reduce(selections, 0, (total, selection) =>
-	Arr.reduce([false, true] as const, total, (sum, weighed) => {
-		const shapes = Arr.reduce(
-			quantities,
-			0,
-			(n, qty) => n + kindsOf(selection, weighed, qty).length
-		)
-		return sum + 1 + shapes + shapes ** 2 + shapes ** 3
-	})
-)
-
-/** What a write comes to: accepted, or refused before any SQL with its fault. */
-type Verdict =
+/** What a write comes to: accepted, refused on a law with its witness, or anything else, by what it is. */
+type Outcome =
 	| { readonly kind: "accepted" }
-	| { readonly kind: "refused"; readonly fault: CodecFault | CompileError["_tag"] }
+	| { readonly kind: "invariant-rejected"; readonly law: Law; readonly witness: Witness }
+	| { readonly kind: "other"; readonly what: string }
 
-const verdictOf = (result: Result.Result<unknown, EncodingFailure | CompileError>): Verdict =>
-	result.ok
-		? { kind: "accepted" }
-		: {
-				kind: "refused",
-				fault:
-					result.error._tag === "EncodingFailure" ? result.error.reason._tag : result.error._tag
-			}
+const accepted: Outcome = { kind: "accepted" }
 
-/** Why the specification refuses a case's write: a missing weight the selection or the weight fold reads. */
-type Stop = "a selection reads a missing weight" | "a step reads a missing weight"
+/** Member.w's law, which a member of a missing weight breaks. */
+const weightLaw = generatedLaw("Member", "w")
 
-const stopsOf = (c: StopCase): ReadonlyArray<Stop> =>
-	Arr.flatMap(c.members, (m): ReadonlyArray<Stop> =>
-		m.kind === "unweighed"
-			? [
-					...(selectionReadsWeight(c.selection, m.qty)
-						? ["a selection reads a missing weight" as const]
-						: []),
-					...(c.weighed ? ["a step reads a missing weight" as const] : [])
-				]
-			: []
+/**
+ * The outcome of a write PostgreSQL runs once the host has bound and planned it: refused on Member.w's law where a
+ * member has a missing weight, NOT NULL refusing the family statement of `stratum` that writes Member's rows, which the
+ * host judges as the shell judges it; accepted otherwise.
+ */
+const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Outcome => {
+	if (!missing) {
+		return accepted
+	}
+	const member = defined(
+		Option.getOrUndefined(Arr.findFirst(path.program.frontend.written, (r) => r.name === "Member")),
+		"Member, which the write writes"
 	)
+	const w = defined(
+		Option.getOrUndefined(Arr.findFirst(member.fields, (f) => f.name === "w")),
+		"Member's generated weight"
+	)
+	return {
+		kind: "invariant-rejected",
+		law: weightLaw,
+		witness: hostJudgement(
+			path.program.frontend,
+			stated,
+			{ kind: "write", stratum: path.stratum, relations: [member.name] },
+			{ kind: "generated", table: member.ident, column: w.column }
+		).witness
+	}
+}
+
+/** The outcome of a case's ChangeSet on a path: the host's refusal, or PostgreSQL's of what the host binds. */
+const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
+	Effect.map(collectInputs(path.program.frontend, parsedOf(value).inputs), (members): Outcome => {
+		const bound = bindWrite(path.program, { members, params: {}, transport: inForce(bindFrame) })
+		if (!bound.ok) {
+			return { kind: "other", what: bound.error._tag }
+		}
+		const b = bound.value
+		switch (b.kind) {
+			case "invariant-rejected":
+				return { kind: "other", what: "a key law" }
+			case "generated-rejected":
+				return { kind: "invariant-rejected", law: b.rejection.law, witness: b.rejection.witness }
+			case "bound": {
+				const flights = b.flights
+				if (flights.kind === "write") {
+					return statementOutcome(path, flights.stated, missing)
+				}
+				const planned = flights.writes(Arr.map(flights.reads, () => []))
+				if (planned.ok) {
+					return statementOutcome(path, planned.value.stated, missing)
+				}
+				return planned.error._tag === "GeneratedRejection"
+					? { kind: "invariant-rejected", law: planned.error.law, witness: planned.error.witness }
+					: { kind: "other", what: planned.error._tag }
+			}
+		}
+	})
+
+/** Whether a member's fill reads its weight: the weight fold steps over it, or the selection reaches the weight. */
+const weightRead = (c: StopCase, m: MemberShape): boolean =>
+	c.weighed || c.selection === "weight" || (c.selection === "quantity and weight" && m.qty >= 1n)
 
 type StopSituation =
-	| `refused: ${Stop}`
-	| "accepted: a member the selection leaves out"
-	| "accepted: every weight present"
+	| "refused: an edit's fill reads the first missing weight"
+	| "refused: a missing weight no fill reads"
+	| "refused: a missing weight no fill reads before one a fill reads"
+	| "accepted"
 
-describe("a fill's stop", () => {
+describe("a generated field with no value", () => {
 	it.effect(
-		"refuses a write as one fault whether the nesting or the edit fills it, and exactly where its fill reads a missing weight",
+		"refuses its write on the field's law, witnessed by the first such member, whether the nesting, an edit or PostgreSQL finds it",
 		(ctx) =>
 			searched(
 				ctx,
@@ -326,43 +332,56 @@ describe("a fill's stop", () => {
 						generator: caseGen,
 						literal: Formatter.format,
 						limit: boxCases,
-						box: "every selection of the quantity fold, with and without the weight fold, over every family of up to three members, each of two quantities and of every kind where a fill reads its weight, a weighed kind elsewhere",
+						box: "every selection of the quantity fold, with and without the weight fold, over every family of up to three members, each of three kinds and two quantities",
 						oracle: {
 							kind: "specification",
-							name: "the nesting's fill and the edit's agree, refusing as factShape exactly where a fill reads a missing weight"
+							name: "invariant-rejected on Member.w's law, witnessed by the first member of a missing weight, on every path"
 						},
 						coverage: requiredInSpace<StopSituation>([
-							"refused: a selection reads a missing weight",
-							"refused: a step reads a missing weight",
-							"accepted: a member the selection leaves out",
-							"accepted: every weight present"
+							"refused: an edit's fill reads the first missing weight",
+							"refused: a missing weight no fill reads",
+							"refused: a missing weight no fill reads before one a fill reads",
+							"accepted"
 						]),
 						caseHang
 					},
 					(c, k) =>
-						Effect.sync(() => {
+						Effect.gen(function* () {
 							const paths = pathsAt(c.selection, c.weighed)
-							const facts = Arr.map(c.members, (m, i) => ({
-								id: uuidOf(i + 1),
-								kind: m.kind,
-								qty: m.qty
-							}))
-							const nested = verdictOf(paths.nest([{ id: uuidOf(0), n: facts }]))
-							const edited = verdictOf(
-								paths.edit(Arr.map(facts, (f) => ({ ...f, owner: uuidOf(0) })))
+							const missing = Arr.findFirstIndex(c.members, (m) => m.kind === "unweighed")
+							const specified: Outcome = Option.match(missing, {
+								onNone: () => accepted,
+								onSome: (i) => ({
+									kind: "invariant-rejected",
+									law: weightLaw,
+									witness: { kind: "key", relation: "Member", values: { id: uuidOf(i + 1) } }
+								})
+							})
+							const nested = yield* outcomeOn(
+								paths.nested,
+								shapeOf(paths, "nested", c.members),
+								Option.isSome(missing)
 							)
-							const stops = stopsOf(c)
-							const specified: Verdict =
-								stops.length === 0 ? { kind: "accepted" } : { kind: "refused", fault: "factShape" }
-							assert.deepEqual(edited, nested, "the edit's verdict is the nesting's")
-							assert.deepEqual(nested, specified, "the verdict is the specification's")
-							k.noteAll(Arr.map(stops, (s): StopSituation => `refused: ${s}`))
-							if (stops.length > 0) {
+							const edited = yield* outcomeOn(
+								paths.edited,
+								shapeOf(paths, "edited", c.members),
+								Option.isSome(missing)
+							)
+							assert.deepEqual(nested, specified, "the nested insert's outcome")
+							assert.deepEqual(edited, specified, "the edit's outcome")
+							const unweighed = Arr.filter(c.members, (m) => m.kind === "unweighed")
+							const [first] = unweighed
+							if (first === undefined) {
+								k.note("accepted")
 								return
 							}
-							k.note("accepted: every weight present")
-							if (c.selection === "quantity and weight" && Arr.some(c.members, (m) => m.qty < 1n)) {
-								k.note("accepted: a member the selection leaves out")
+							k.note(
+								weightRead(c, first)
+									? "refused: an edit's fill reads the first missing weight"
+									: "refused: a missing weight no fill reads"
+							)
+							if (!weightRead(c, first) && Arr.some(unweighed, (m) => weightRead(c, m))) {
+								k.note("refused: a missing weight no fill reads before one a fill reads")
 							}
 						})
 				)

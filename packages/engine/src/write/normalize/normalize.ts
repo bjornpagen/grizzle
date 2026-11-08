@@ -1,3 +1,4 @@
+import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
@@ -92,7 +93,18 @@ export interface Normalized {
 	readonly nested: ReadonlyMap<number, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>
 }
 
-export type Normalization = Normalized | KeyRefusal
+/**
+ * A nested write's generated field with no value, which its walk found (nesting.ts NestedGeneratedNull):
+ * invariant-rejected on the field's law, whose witness is the key of the row the walk stopped at, none where it holds no
+ * whole key.
+ */
+interface GeneratedRefusal {
+	readonly kind: "generatedNull"
+	readonly law: GeneratedLaw
+	readonly values: Readonly<Record<string, KeyHost>> | undefined
+}
+
+export type Normalization = Normalized | KeyRefusal | GeneratedRefusal
 
 /** The facts each member slot of the ChangeSet value supplies: an array's, or a Stream's collected. */
 export type MemberFacts = ReadonlyMap<string, Iterable<unknown>>
@@ -536,7 +548,9 @@ export const normalizeChangeSet = (
 						}
 						const rows = nestedRows(input.nesting, member.name, given, set)
 						if (!rows.ok) {
-							return rows
+							return rows.error._tag === "GeneratedNull"
+								? Result.ok({ kind: "generatedNull", law: rows.error.law, values: rows.error.key })
+								: Result.err(rows.error)
 						}
 						const own = admit(member.normalize, rows.value)
 						if (!own.ok) {

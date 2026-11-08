@@ -23,7 +23,7 @@ import {
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
-import type { EncodingFailure } from "#compiler/core/errors.ts"
+import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -43,8 +43,10 @@ import {
 	familyKey,
 	fieldKey,
 	type FilledNode,
-	fillFailure,
+	type FillRefusal,
+	fillRefusal,
 	filler as fillerOf,
+	type GeneratedNull,
 	type Filler,
 	type HostEvaluator,
 	type HostNode
@@ -279,6 +281,24 @@ export interface NestedSet {
 export const nestedSet = (): NestedSet => ({ tops: new Map(), rows: new Map() })
 
 /**
+ * A nested write's generated field with no value (`GeneratedNull`), with the key of the row its walk stopped at
+ * (FillRefusal key): the first of the write's rows whose term has no value, since the walk evaluates every generated
+ * field of each row it meets before the next.
+ */
+export interface NestedGeneratedNull extends GeneratedNull {
+	readonly key: FillRefusal["key"]
+}
+
+/** A walk's refusal as the nested write's (fold.ts fillRefusal), a generated field with no value at the row it stopped. */
+const nestedRefusal = (
+	refused: FillRefusal,
+	place: EncodingPlace
+): EncodingFailure | NestedGeneratedNull => {
+	const refusal = fillRefusal(refused.stop, place)
+	return refusal._tag === "GeneratedNull" ? { ...refusal, key: refused.key } : refusal
+}
+
+/**
  * The facts of a nested member `member` added into `into`, the stratum's nested set, by the nesting's levels'
  * normalizers for that member; their own rows, each insert's own relation's when it is no tree's, for its slot's own
  * normalization. Each fact is split along its sequences, its levels admitted, filled, and cut into whole rows. A fact
@@ -289,7 +309,7 @@ export const nestedRows = (
 	member: string,
 	facts: Iterable<unknown>,
 	into: NestedSet
-): Result.Result<ReadonlyArray<NestedFact>, EncodingFailure> => {
+): Result.Result<ReadonlyArray<NestedFact>, EncodingFailure | NestedGeneratedNull> => {
 	const normalizers = new Map(
 		nesting.levels.map((l): readonly [string, RelationNormalizer] => [
 			levelKey(l.relation, l.at),
@@ -320,7 +340,7 @@ export const nestedRows = (
 		}
 		const filled = nesting.filler(host.value)
 		if (!filled.ok) {
-			return Result.err(fillFailure(filled.error, slotPlace(member)))
+			return Result.err(nestedRefusal(filled.error, slotPlace(member)))
 		}
 		const root = filled.value
 		const own = Object.freeze(

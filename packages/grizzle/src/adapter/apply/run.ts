@@ -55,6 +55,7 @@ import {
 	type Chunks,
 	type FamilyId,
 	type FamilyRowBound,
+	type GeneratedRejection,
 	hostJudgement,
 	inForce,
 	interpretRows,
@@ -270,6 +271,13 @@ export const hostInputs = (
 				witness: bound.value.witness
 			} as const
 		}
+		if (bound.value.kind === "generated-rejected") {
+			return {
+				kind: "rejected",
+				law: bound.value.rejection.law,
+				witness: bound.value.rejection.witness
+			} as const
+		}
 		const ready = executionInputs(compiled.codecs, host)
 		if (Result.isFailure(ready)) {
 			return yield* Effect.fail(ready.failure)
@@ -452,7 +460,7 @@ export const runWrite = <R>(
 			})
 		let ran: Result.Result<
 			ReadonlyArray<BatchOutcome>,
-			FlightFailure | EncodingFailure | CompileError
+			FlightFailure | EncodingFailure | CompileError | GeneratedRejection
 		>
 		if (flights.kind === "write") {
 			stated = flights.stated
@@ -484,17 +492,24 @@ export const runWrite = <R>(
 						if (filled.ok) {
 							stated = filled.value.stated
 						}
-						return Effect.fromResult(
-							filled.ok
-								? closing(filled.value.chunks, read)
+						const second: Result.Result<
+							ReadonlyArray<FlightStatement>,
+							InputFailure | GeneratedRejection
+						> = filled.ok
+							? closing(filled.value.chunks, read)
+							: filled.error._tag === "GeneratedRejection"
+								? Result.fail(filled.error)
 								: Result.fail(valuesFailure(filled.error))
-						)
+						return Effect.fromResult(second)
 					}
 				)
 			)
 		}
 		if (Result.isFailure(ran)) {
 			const failure = ran.failure
+			if (failure._tag === "GeneratedRejection") {
+				return rejectedOutcome<R>({ kind: "every", laws: [failure.law] }, failure.witness)
+			}
 			return yield* failure._tag === "EncodingFailure"
 				? Effect.fail(failure)
 				: failure._tag === "CompileError"

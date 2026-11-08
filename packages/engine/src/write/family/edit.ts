@@ -27,6 +27,7 @@
  * index is a coordinate, never a multiplicity. A member key a family's changes name twice is refused, never a second
  * member.
  */
+import { generatedLaw } from "#compiler/analysis/theory/description.ts"
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
@@ -55,8 +56,9 @@ import {
 	columnKey,
 	familyKey,
 	fieldKey,
-	fillFailure,
+	fillRefusal,
 	type FillStop,
+	type GeneratedNull,
 	type HostEvaluator,
 	literalHost,
 	selects,
@@ -353,7 +355,7 @@ const rowValue = (
 			: { kind: "none" }
 	}
 	return v.value === sqlNull
-		? { kind: "refused", stop: { kind: "null" } }
+		? { kind: "refused", stop: { kind: "null", law: generatedLaw(relation.name, field.name) } }
 		: { kind: "value", value: v.value }
 }
 
@@ -509,7 +511,7 @@ const fillGroup = (
 	family: Family,
 	edit: GroupEdit,
 	fixed: FixedGroup | undefined
-): Result.Result<GroupFilled, EncodingFailure | CompileError> => {
+): Result.Result<GroupFilled, EncodingFailure | CompileError | GeneratedNull> => {
 	const place = slotPlace(relation.name)
 	const n0 = edit.stored?.count ?? 0
 	const stored = edit.stored?.members ?? []
@@ -692,7 +694,7 @@ const fillGroup = (
 				columnKey(pair.to)
 			)
 			if (!copy.ok) {
-				return Result.err(fillFailure(copy.error, place))
+				return Result.err(fillRefusal(copy.error, place))
 			}
 			put(columnKey(pair.from), copy.value)
 		}
@@ -713,24 +715,28 @@ const fillGroup = (
 			}
 			const copy = carriedAt(ctx, relation, prev, columnKey(pair.to))
 			if (!copy.ok) {
-				return Result.err(fillFailure(copy.error, place))
+				return Result.err(fillRefusal(copy.error, place))
 			}
 			put(columnKey(pair.from), copy.value)
 		}
 		for (const fold of family.folds) {
 			const befores = fold.planes.map((p) => values.get(columnKey(p.before)))
-			const selected = selects(relation, fold, ctx.evaluate, (name) =>
-				valueAt(ctx, relation, values, fieldKey(name))
+			const selected = selects(
+				relation,
+				fold,
+				ctx.evaluate,
+				(name) => carriedAt(ctx, relation, values, fieldKey(name)),
+				(stop): FillStop => ({ kind: "evaluation", stop })
 			)
 			if (!selected.ok) {
-				return Result.err(fillFailure(selected.error, place))
+				return Result.err(fillRefusal(selected.error, place))
 			}
 			const x =
 				!selected.value || fold.step.kind === "one"
 					? Result.ok(undefined)
 					: carriedAt(ctx, relation, values, fieldKey(fold.step.field.name))
 			if (!x.ok) {
-				return Result.err(fillFailure(x.error, place))
+				return Result.err(fillRefusal(x.error, place))
 			}
 			for (const [p, plane] of fold.planes.entries()) {
 				const spec = specOf(ctx, afterType(plane))
@@ -738,7 +744,7 @@ const fillGroup = (
 					? stepped(fold, family.id, p === 0 ? 0 : 1, befores, x.value, spec)
 					: Result.ok(befores[p])
 				if (!after.ok) {
-					return Result.err(fillFailure(after.error, place))
+					return Result.err(fillRefusal(after.error, place))
 				}
 				put(columnKey(plane.after), after.value)
 			}
@@ -786,7 +792,7 @@ const fillGroup = (
 		}
 		const end = carriedAt(ctx, relation, last, columnKey(pair.to))
 		if (!end.ok) {
-			return Result.err(fillFailure(end.error, place))
+			return Result.err(fillRefusal(end.error, place))
 		}
 		ownerAfter.set(columnKey(pair.from), end.value)
 	}
@@ -938,7 +944,7 @@ export const planEdits = (
 	stored: ReadonlyMap<string, StoredFamily>,
 	owners: (family: Family) => OwnerViews,
 	refresh: RefillView
-): Result.Result<Edited, EncodingFailure | CompileError> => {
+): Result.Result<Edited, EncodingFailure | CompileError | GeneratedNull> => {
 	const relation = target.relation
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
 	const named = new TupleMap<
@@ -1304,7 +1310,10 @@ export const refillTree = (
 	family: Family,
 	stored: ReadonlyTupleMap<MemberKey, Values>,
 	current: ReadonlyTupleMap<MemberKey, Values>
-): Result.Result<ReadonlyTupleMap<MemberKey, Values>, EncodingFailure | CompileError> => {
+): Result.Result<
+	ReadonlyTupleMap<MemberKey, Values>,
+	EncodingFailure | CompileError | GeneratedNull
+> => {
 	const tree = family.members
 	if (tree.kind !== "tree") {
 		return Result.ok(current)
@@ -1346,7 +1355,7 @@ export const refillTree = (
 			for (const pair of ownerCopies) {
 				const copy = carriedAt(ctx, relation, node, columnKey(pair.to))
 				if (!copy.ok) {
-					return Result.err(fillFailure(copy.error, slotPlace(relation.name)))
+					return Result.err(fillRefusal(copy.error, slotPlace(relation.name)))
 				}
 				node.set(columnKey(pair.from), copy.value)
 			}

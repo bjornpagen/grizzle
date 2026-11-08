@@ -1640,7 +1640,9 @@ which the field's domain checks: `generated(Ids, Compute.concat(row.head, row.ta
 generated value outside the domain refuses its row, `invariant-rejected` on the pattern's rule. Nothing is cast
 implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
 (`type`); write the `Compute.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
-row, `invariant-rejected` on `{ kind: "generated", relation, field }`.
+row, `invariant-rejected` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
+has no value. It is one outcome whoever finds the NULL: grizzle, filling a nested write or a family's values that read
+the field, before any SQL, or PostgreSQL's NOT NULL.
 
 **Keys.** A fact and a query's row hold every field. A primary key holds no set, bytes, generated or accumulated field.
 Another key may hold a generated field, such as a `value` generated from a text to keep two spellings of one value
