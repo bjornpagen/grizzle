@@ -40,6 +40,8 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog } from "#compiler/sql/emit.ts"
 import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aggregateCaseGen,
@@ -50,7 +52,7 @@ import {
 	resolveRelational,
 	setCaseGen
 } from "#test/pg/sql/evaluated.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
@@ -224,7 +226,66 @@ const casesPerTest = 60
 /** A text literal. */
 const textLit = (value: string): Expr => lit.text(value, types.text)
 
+/** The texts a catalog read's arm selects: two, so the arms of a read often share one. */
+const armTexts = ["a", "b"] as const
+
+/** A catalog read's arms: two to four, each selecting one of armTexts. */
+const catalogArmsGen = array(element(armTexts), { min: 2, max: 4 })
+
 layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
+	it.effect(
+		"reads a catalog read of several arms as the set union of their rows, a row two arms share once",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					return yield* explore(
+						{
+							oracle: {
+								kind: "specification",
+								name: "a catalog read is a set (sql/catalog.ts CatalogSelect)"
+							},
+							suite: "pg/sql/catalog-union",
+							draw: drawn(catalogArmsGen),
+							literal: Formatter.format,
+							coverage: required<"a row two arms share" | "arms apart">(
+								["a row two arms share", "arms apart"],
+								{ cases: casesPerTest, sense: notesOnly }
+							),
+							kept: [],
+							runs: casesPerTest,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(texts, c) =>
+							Effect.gen(function* () {
+								const read = C.union(
+									nonEmpty(
+										Arr.map(texts, (text) => C.core([C.text(text)], [], undefined)),
+										"a read's arms"
+									)
+								)
+								const rows = yield* s.admin.queryValues(emitCatalog(read), [])
+								assert.deepEqual(
+									Arr.sort(
+										Arr.map(rows, (row) => String(row[0])),
+										Order.String
+									),
+									Arr.sort(Arr.dedupe(texts), Order.String),
+									"the read's rows, each once"
+								)
+								c.note(
+									Arr.dedupe(texts).length < texts.length ? "a row two arms share" : "arms apart"
+								)
+							})
+					)
+				})
+			)
+	)
+
 	it.effect(
 		"evaluates generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames as the host does",
 		(ctx) =>
