@@ -69,8 +69,9 @@ type ViolationFields = Pick<
  *   whole failing row with each value cut at 64 bytes, and the classifier reads neither: the witness is the host's
  *   (WrittenAt judge, write/program/witness.ts hostJudgement), the key of a fact the ChangeSet states for the failing
  *   statement that breaks what refused it, the table constraint or the domain's columns among the statement's tables,
- *   or `unreported` where it states none. A table CHECK's refusal of a stated fact names `every` law of that table's
- *   CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever PostgreSQL tried first;
+ *   or `unreported` where it names none (hostJudgement). A table CHECK's refusal of a stated fact names `every` law
+ *   of that table's CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever
+ *   PostgreSQL tried first;
  *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, the outcome names the CHECK
  *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A domain's
  *   refusal of a stated fact names `every` law of the fact's columns it types whose values it refuses, a pattern's

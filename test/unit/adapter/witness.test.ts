@@ -729,6 +729,8 @@ const refuserText = (refuser: Refuser): string => {
 /** Where a statement stands, as text: a write's stratum and relations, or a precheck's stratum and entry. */
 const atText = (at: StatementAt): string => {
 	switch (at.kind) {
+		case "actions":
+			return `${at.stratum}:actions ${Arr.join(Arr.map(at.actions, String), ",")}`
 		case "write":
 			return `${at.stratum}:${Arr.join(at.relations, ",")}`
 		case "precheck":
@@ -740,7 +742,7 @@ const atText = (at: StatementAt): string => {
 
 /**
  * The host's witness as the classifier is handed it: a key naming where it was asked, the statement's stratum and
- * relations or its entry, and what refused, so every call the classifier makes of it shows in the outcome.
+ * actions, relations or entry, and what refused, so every call the classifier makes of it shows in the outcome.
  */
 const hostWitnessOf = (at: StatementAt, refuser: string): Witness => ({
 	kind: "key",
@@ -1060,30 +1062,41 @@ describe("a server error at a write", () => {
 								})
 							})
 							/**
-							 * Where the host's witness is asked: a statement that writes stored relations, a member's carrier
-							 * fill, which casts its action's facts into its relation, or a query entry's precheck, which casts its
-							 * facts into its target; none elsewhere.
+							 * Where the host's witness is asked: a statement of a stratum's actions, a write step's or a single
+							 * statement's parts', a family statement that writes stored relations, a member's carrier fill, which
+							 * casts its action's facts into its relation, or a query entry's precheck, which casts its facts into
+							 * its target; none elsewhere.
 							 */
 							const at: StatementAt | undefined =
 								origin.kind !== "statement"
 									? undefined
-									: origin.step.kind === "write" ||
-										  origin.step.kind === "single" ||
-										  origin.step.kind === "family"
-										? { kind: "write", stratum: origin.step.stratum, relations: written }
-										: origin.step.kind === "carrier" && origin.step.casts.kind === "member"
+									: origin.step.kind === "write"
+										? {
+												kind: "actions",
+												stratum: origin.step.stratum,
+												actions: [origin.step.action]
+											}
+										: origin.step.kind === "single"
 											? {
-													kind: "write",
-													stratum: origin.step.casts.stratum,
-													relations: [origin.step.casts.relation]
+													kind: "actions",
+													stratum: origin.step.stratum,
+													actions: Arr.map(origin.step.parts, (p) => p.step.action)
 												}
-											: origin.step.kind === "check"
-												? {
-														kind: "precheck",
-														stratum: origin.step.stratum,
-														entry: origin.step.entry
-													}
-												: undefined
+											: origin.step.kind === "family"
+												? { kind: "write", stratum: origin.step.stratum, relations: written }
+												: origin.step.kind === "carrier" && origin.step.casts.kind === "member"
+													? {
+															kind: "write",
+															stratum: origin.step.casts.stratum,
+															relations: [origin.step.casts.relation]
+														}
+													: origin.step.kind === "check"
+														? {
+																kind: "precheck",
+																stratum: origin.step.stratum,
+																entry: origin.step.entry
+															}
+														: undefined
 							/** The witness the rules give a native refusal by `refuser`: the host's, at a statement alone. */
 							const hostWitness = (refuser: string): Witness =>
 								at === undefined ? { kind: "unreported" } : hostWitnessOf(at, refuser)

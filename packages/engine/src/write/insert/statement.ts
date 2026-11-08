@@ -68,6 +68,15 @@ export type InsertOf = "insert" | "put"
  */
 export type Proposal = "every" | "unstored"
 
+/** Which requested facts an insert proposes (Proposal): only those at no stored key into a family owner, whose rows
+ * carry counts and ends, but for a generated addition, whose key its sequence draws at the insert so that no row stores
+ * it; every one into any other relation, whose proposed row is its requested fact. */
+export const proposalOf = (relation: RelationInfo, serial: SerialClass): Proposal =>
+	serial.kind !== "generated" &&
+	relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")
+		? "unstored"
+		: "every"
+
 /** What an insert statement's rows mean: each is a fact the statement inserted. A refusal is never a row: the
  * statement raises it. */
 export interface InsertResult {

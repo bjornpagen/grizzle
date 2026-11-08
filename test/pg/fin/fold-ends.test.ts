@@ -78,7 +78,8 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * token holding c, or one of two letters, and a write whose model rows hold a piece outside its bound or a running
  * value or an end outside the pattern is refused on a rule they break and changes nothing: its witness is the key of a
  * row the write states whose value breaks that rule, or `unreported` where no row it states does, as when a delete
- * re-places the members after it. Coverage requires the refined cell of each kind that folds it refused by each rule.
+ * re-places the members after it, or where two ordered owners it inserts break it. Coverage requires the refined cell
+ * of each kind that folds it refused by each rule.
  *
  * Two cases are kept. The downstream report's: a counted Monoid.or over a set of three codes, the owner and its members
  * {a} and {b} inserted separately, whose end was written as the empty set. And the downstream shape that once needed
@@ -649,7 +650,9 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
  * bound or its accumulators' pattern, each field's own law: every one it names where it decides them, at least one
  * where it names `some` of a domain's; its witness the key of a row the write states whose value breaks a rule it
  * names, every one of them where it decides them, or `unreported` where the write states none (the rule broken at a
- * row only a refill writes). The rules it names are returned.
+ * row only a refill writes) or where two ordered owners it inserts break one, either of which may be the row refused:
+ * no read of the write looks an ordered owner's key up, so the host cannot tell a new one from a stored one inserted
+ * again, which its INSERT writes nothing of. The rules it names are returned.
  */
 const judgeRefused = (
 	s: FoldSchema,
@@ -689,8 +692,12 @@ const judgeRefused = (
 	)
 	const witness = outcome.witness
 	if (witness.kind === "unreported") {
+		const unread =
+			s.kind === "ordered" && Arr.every(statedBroken, (b) => b.relation === s.owner.name)
+				? Arr.dedupe(Arr.map(statedBroken, (b) => b.id))
+				: []
 		assert.ok(
-			!Arr.isReadonlyArrayNonEmpty(statedBroken),
+			!Arr.isReadonlyArrayNonEmpty(statedBroken) || unread.length >= 2,
 			`a refusal at a row the write states, ${Formatter.format(statedBroken)}, names its key`
 		)
 		return named

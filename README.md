@@ -2465,10 +2465,11 @@ A broken rule is an outcome, not an error. Errors are tagged classes in the Effe
   judges no row you stated whole (a row a query computes, or a value it cannot evaluate on the host); a domain names
   the rules of the fields it types in the tables the statement writes.
 - **`first`**: a row check refused a row grizzle cannot judge: one only PostgreSQL computes, which no ChangeSet states
-  (a query's, or one grizzle fills on a family), or a row you stated whose table has a check reading a value the host
-  does not hold, such as a count or an end a put keeps from the stored row. It names the rules of the check PostgreSQL
-  tried first, never more. PostgreSQL orders a table's checks by installed name, which no version of grizzle keeps, so
-  the row may break others too, and another version may name another.
+  (a query's, or one grizzle fills on a family), a row you stated whose table has a check reading a value the host
+  does not hold, such as a count or an end a put keeps from the stored row, or one of two rows you stated that grizzle
+  cannot tell apart (see the witness below). It names the rules of the check PostgreSQL tried first, never more.
+  PostgreSQL orders a table's checks by installed name, which no version of grizzle keeps, so the row may break others
+  too, and another version may name another.
 
 **Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column, or
 `{ kind: "unreported" }`. A key (over a table or a side of one) that grizzle's own write statement finds broken, by two
@@ -2479,7 +2480,10 @@ ChangeSet states for the refused statement (an inserted or put row, a query entr
 fills them, and the witness is the key of the first that breaks the rule. Either key is in the fields you wrote it in. The
 witness is `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes,
 a query's, a rule reading a value the host does not hold or over what the host does not evaluate, or a row whose key
-PostgreSQL draws.
+PostgreSQL draws. A family's owner that you insert and the write never reads, such as one with no members in the
+ChangeSet or an ordered one, could be new or a stored one you insert again, which the write leaves as it is: grizzle
+names it only where it is the one row of the refused statement that can break the rule, and where two such rows can,
+the witness is `unreported`.
 
 **Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. The outcome names

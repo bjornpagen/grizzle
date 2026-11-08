@@ -436,7 +436,9 @@ The command line's own refusals, by stage:
   as a query's, or a check that reads a value grizzle does not hold, such as a count or an end a put keeps from the
   stored row): the row may break other checks too, and another version of grizzle may name another of them. `some`
   names two laws or more of one PostgreSQL object, a family's merged foreign key or a domain several fields share,
-  where nothing decides which of them the row broke: at least one did.
+  where nothing decides which of them the row broke: at least one did. Its `witness` is the key of a row you stated
+  that breaks them, or `unreported` where grizzle cannot tell which row did, such as two family owners the write
+  inserts without reading them, either of which may be a stored one inserted again: never assume a key is there.
 - No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that

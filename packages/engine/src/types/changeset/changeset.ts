@@ -980,7 +980,9 @@ export type KeyHost =
  * - `key`: one violating fact's relation and its key values, never a payload column. A write statement's refusal names
  *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included.
  * - `unreported`: every law is a native constraint, and a violation PostgreSQL raised itself states its key only in
- *   its message, which the runtime neither forwards nor parses.
+ *   its message, which the runtime neither forwards nor parses: where the host finds no row the ChangeSet states that
+ *   breaks it, or cannot tell which of several did, as two family owners the write inserts without reading them, either
+ *   of which may be a stored one inserted again.
  */
 export type Witness =
 	| {
@@ -1000,10 +1002,10 @@ export type Witness =
  *   that row it types whose value it refuses, in its columns' canonical order, where the host judges every such column;
  *   for any other refusal, the one rule its PostgreSQL object discharges among those the statement can break (a
  *   domain's, of the columns it types in the tables the statement writes).
- * - `first`: a CHECK that refused a row the ChangeSet does not state, a row only PostgreSQL computes, as a query's, or
- *   a stated row one of whose table's CHECKs reads a value the host does not hold: the rules of the CHECK PostgreSQL
- *   tried first, which it orders by the CHECKs' installed names, an order no version of grizzle keeps. The row may
- *   break others too.
+ * - `first`: a CHECK that refused a row the ChangeSet does not state, a row only PostgreSQL computes, as a query's, a
+ *   stated row one of whose table's CHECKs reads a value the host does not hold, or one of several stated rows the host
+ *   cannot tell apart: the rules of the CHECK PostgreSQL tried first, which it orders by the CHECKs' installed names,
+ *   an order no version of grizzle keeps. The row may break others too.
  * - `some`: one PostgreSQL object that discharges every rule here refused the write, and nothing grizzle holds decides
  *   which of them the row broke: at least one, maybe more. A family's foreign key carries every containment merged into
  *   it, and a domain every rule of the columns it types in the tables the statement writes, where the host judges no

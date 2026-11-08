@@ -3,10 +3,17 @@ import { contractLaw } from "#compiler/analysis/theory/description.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ColumnIdent, ConstraintName, LawId, RelationIdent } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import type {
+	ColumnIdent,
+	ConstraintName,
+	LawId,
+	ParamId,
+	RelationIdent
+} from "#compiler/core/ids.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
+	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
 	sortNonEmpty
@@ -16,6 +23,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import type { Action } from "#compiler/ir/write.ts"
 import type {
 	ConstraintLawOf,
 	ConstraintNativeKind,
@@ -44,6 +52,7 @@ import {
 } from "#compiler/write/family/fold.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
 import {
+	type ActionInfo,
 	type EnumeratedInput,
 	inputSlots,
 	type MemberSlot,
@@ -60,8 +69,9 @@ type HostFact = { readonly [field: string]: unknown }
  * A column of a stated row beyond the fields the ChangeSet states, as the host holds it: `filled`, the value the write
  * fills it at, as its stratum's plan draws it (a count or an end it recounts, a stored value its read found, a member's
  * index, copy or hidden accumulator), a nesting's walk fills it, or an owner its stratum inserts holds with its family
- * empty; or `unfilled`, a value the host does not hold: a count or an end a put of an owner keeps from the stored row
- * no read found, a query entry's row, a row whose key PostgreSQL draws, or any column before the plan.
+ * empty, one the reads found no stored row of or, in an `ifFresh` row, one they did not look up; or `unfilled`, a value
+ * the host does not hold: a count or an end a stored owner keeps, which no read found, a query entry's row, a row whose
+ * key PostgreSQL draws, or any column before the plan.
  */
 export type FilledColumn =
 	| { readonly kind: "filled"; readonly value: unknown }
@@ -71,9 +81,15 @@ export type FilledColumn =
  * A row a refused statement writes that the ChangeSet states, as the host judges it (write/program/bind.ts): the
  * fields the ChangeSet states, by name, its key and its caller's and serial fields, or a query entry's head, never a
  * count, an end or a copy; and every other column of its relation, a drawn or an accumulated field by its field key, a
- * law column by its own, as the write fills it.
+ * law column by its own, as the write fills it. Its kind is what the host knows of the row the write leaves at its key:
+ * - known: the row is as `filled` gives it, a column the host does not hold unfilled;
+ * - ifFresh: an owner its action's INSERT inserts, which proposes only owners no stored row holds the key of
+ *   (insert/statement.ts Proposal `unstored`), whose key no read of the write looked up: the INSERT writes it as
+ *   `filled` gives it where no stored row holds its key, and nothing of it where one does, an exact repeat or the key
+ *   law's refusal.
  */
 export interface JudgedRow {
+	readonly kind: "known" | "ifFresh"
 	readonly stated: HostFact
 	readonly filled: (column: ColumnKey) => FilledColumn
 }
@@ -120,14 +136,17 @@ export type Refuser =
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
 
 /**
- * What a refused statement states, as the host reads it: a write of stored relations, by declared name, at its stratum,
- * which states every fact the ChangeSet adds or puts into them there, an action's statement and the fill of its
- * member's carrier, which casts those facts into the relation's types (artifact.ts CarrierCasts); a query entry's
- * precheck, which casts the entry's own stated facts into its target's types before any statement writes them; or a
- * statement that states no fact the ChangeSet states: another carrier's, an ANALYZE, a serial advance, a read-back,
- * a family's stored-suffix read or the COMMIT.
+ * What a refused statement states, as the host reads it: the statement of a stratum's actions (ir.strata[stratum]
+ * .actions), a write step's one or a single statement's parts', which writes exactly the facts their sources state, an
+ * enumerated or streamed member's, which the host holds, or a described one's, which it does not; another write of
+ * stored relations, by declared name, at its stratum, a family's statement or the fill of an action's member's carrier,
+ * which casts the facts the action writes into the relation's types (artifact.ts CarrierCasts), stating every fact the
+ * ChangeSet adds or puts into them there; a query entry's precheck, which casts the entry's own stated facts into its
+ * target's types before any statement writes them; or a statement that states no fact the ChangeSet states: another
+ * carrier's, an ANALYZE, a serial advance, a read-back, a family's stored-suffix read or the COMMIT.
  */
 export type StatementAt =
+	| { readonly kind: "actions"; readonly stratum: number; readonly actions: ReadonlyArray<number> }
 	| { readonly kind: "write"; readonly stratum: number; readonly relations: ReadonlyArray<string> }
 	| { readonly kind: "precheck"; readonly stratum: number; readonly entry: string }
 	| { readonly kind: "unstated" }
@@ -154,19 +173,31 @@ const refusedFirst: RefusedLaws = Object.freeze({ kind: "first" })
 const refusedByObject: RefusedLaws = Object.freeze({ kind: "object" })
 
 /**
- * What the host makes of a refused statement: the witness of the first fact it states that breaks what refused it, or
- * `unreported`, and which laws the refusal names (RefusedLaws).
+ * What the host makes of a refused statement: the witness of a fact it states that breaks what refused it, or
+ * `unreported`, and which laws the refusal names (RefusedLaws); see hostJudgement.
  */
 export interface HostJudgement {
 	readonly witness: Witness
 	readonly laws: RefusedLaws
 }
 
-/** One row a statement states, as the host judges it: its row as the write fills it, and its witness in its caller's
- * words. */
+/** One row a statement states, as the host judges it: its written relation, its row as the write fills it, and its
+ * witness in its caller's words. */
 interface StatedFact {
+	readonly relation: RelationInfo
 	readonly row: JudgedRow
 	readonly witness: Witness
+}
+
+/**
+ * The facts a refused statement states, in the order the host judges them, and which of the rows it writes they are:
+ * `every` one, an `ifFresh` one written only where no stored row holds its key, as the statement of a stratum's
+ * enumerated and streamed actions writes exactly their facts; or `some`, beside rows the ChangeSet does not state, a
+ * described action's, a family's re-placed members, counts and refills, which the host does not hold.
+ */
+interface StatementFacts {
+	readonly rows: "every" | "some"
+	readonly facts: ReadonlyArray<StatedFact>
 }
 
 /** How the host judges one stated fact against what refused its statement. */
@@ -248,44 +279,58 @@ const entryOf = (frontend: WriteFrontend, group: SlotGroup): CheckedEntry | unde
 }
 
 /**
- * The facts one slot group of the ChangeSet states that a statement adds or puts into `relation`, its written relation:
- * each enumerated insert's and put's normal facts, a query entry's as facts of its target, each with its witness, the
- * key it was stated at in the words it was stated in.
+ * The facts one member slot of a slot group's input states that its statement adds or puts into `relation`, its
+ * written relation: its normal facts, a query entry's as facts of its target, each with its witness, the key it was
+ * stated at in the words it was stated in.
  */
+const slotFacts = (
+	frontend: WriteFrontend,
+	stated: StatedRows,
+	group: SlotGroup,
+	input: EnumeratedInput,
+	slot: MemberSlot,
+	relation: RelationInfo
+): ReadonlyArray<StatedFact> => {
+	const codes = frontend.codes
+	const entry = entryOf(frontend, group)
+	return stated.slot(group, input, slot).map((written): StatedFact => {
+		const row: JudgedRow =
+			entry === undefined
+				? written
+				: {
+						kind: written.kind,
+						stated: targetFact(entry, written.stated, codes),
+						filled: written.filled
+					}
+		const key = statedKey(relation, row, codes)
+		return {
+			relation,
+			row,
+			witness:
+				key === undefined
+					? unreported
+					: entry === undefined
+						? keyWitness(relation.name, key)
+						: keyWitness(entry.entry, entryKey(entry, key))
+		}
+	})
+}
+
+/** The facts one slot group of the ChangeSet states for `relation` (slotFacts): each insert's and put's, none of a
+ * deletion's, which writes no row a CHECK judges. */
 const groupFacts = (
 	frontend: WriteFrontend,
 	stated: StatedRows,
 	group: SlotGroup,
 	relation: RelationInfo
-): ReadonlyArray<StatedFact> => {
-	const codes = frontend.codes
-	const entry = entryOf(frontend, group)
-	const out: Array<StatedFact> = []
-	for (const input of group.inputs) {
-		if (input.kind === "single" && input.act.op === "delete") {
-			continue
-		}
-		for (const slot of inputSlots(input)) {
-			for (const written of stated.slot(group, input, slot)) {
-				const row =
-					entry === undefined
-						? written
-						: { stated: targetFact(entry, written.stated, codes), filled: written.filled }
-				const key = statedKey(relation, row, codes)
-				out.push({
-					row,
-					witness:
-						key === undefined
-							? unreported
-							: entry === undefined
-								? keyWitness(relation.name, key)
-								: keyWitness(entry.entry, entryKey(entry, key))
-				})
-			}
-		}
-	}
-	return out
-}
+): ReadonlyArray<StatedFact> =>
+	group.inputs.flatMap((input) =>
+		input.kind === "single" && input.act.op === "delete"
+			? []
+			: inputSlots(input).flatMap((slot) =>
+					slotFacts(frontend, stated, group, input, slot, relation)
+				)
+	)
 
 /**
  * The facts the ChangeSet states for `relation` at `stratum` that a write adds or puts: every slot group's of it
@@ -305,9 +350,99 @@ const writtenFacts = (
 	}
 	for (const row of stated.nested(stratum, relation)) {
 		const key = statedKey(relation, row, frontend.codes)
-		out.push({ row, witness: key === undefined ? unreported : keyWitness(relation.name, key) })
+		out.push({
+			relation,
+			row,
+			witness: key === undefined ? unreported : keyWitness(relation.name, key)
+		})
 	}
 	return out
+}
+
+/** The facts the ChangeSet states for each of `relations` at `stratum` (writtenFacts), relation by relation. */
+const relationsFacts = (
+	frontend: WriteFrontend,
+	stated: StatedRows,
+	stratum: number,
+	relations: ReadonlyArray<string>
+): ReadonlyArray<StatedFact> =>
+	relations.flatMap((name) => {
+		const relation = frontend.written.find((r) => r.name === name)
+		return relation === undefined ? [] : writtenFacts(frontend, stated, stratum, relation)
+	})
+
+/** The actions of `stratum` a statement writes, by their indices among the stratum's (ir.strata[stratum].actions). */
+const actionsAt = (
+	frontend: WriteFrontend,
+	at: Extract<StatementAt, { readonly kind: "actions" }>
+): ReadonlyArray<Action<ActionInfo>> =>
+	at.actions.map((index) =>
+		defined(
+			frontend.ir.strata[at.stratum]?.actions[index],
+			`action ${index} of stratum ${at.stratum}, whose statement was refused`
+		)
+	)
+
+/**
+ * The facts the member slot an enumerated or streamed action of `stratum` reads states (slotFacts): none of a
+ * deletion's, which writes no row a CHECK judges.
+ */
+const actionSlotFacts = (
+	frontend: WriteFrontend,
+	stated: StatedRows,
+	stratum: number,
+	slot: ParamId
+): ReadonlyArray<StatedFact> => {
+	for (const group of frontend.slots) {
+		if (group.stratum !== stratum) {
+			continue
+		}
+		for (const input of group.inputs) {
+			for (const member of inputSlots(input)) {
+				if (member.slot === slot) {
+					return input.kind === "single" && input.act.op === "delete"
+						? []
+						: slotFacts(frontend, stated, group, input, member, group.relation)
+				}
+			}
+		}
+	}
+	throw defect(`the slot group of the member slot ${slot} an action of stratum ${stratum} reads`)
+}
+
+/**
+ * The facts the statement of a stratum's actions states (StatementFacts): `every` row it writes, each action's member
+ * slot's facts, where each reads an enumerated or a streamed member; where one reads a described member, whose rows
+ * only PostgreSQL computes, `some`, the facts the ChangeSet states for their relations at the stratum.
+ */
+const actionsFacts = (
+	frontend: WriteFrontend,
+	stated: StatedRows,
+	at: Extract<StatementAt, { readonly kind: "actions" }>
+): StatementFacts => {
+	const actions = actionsAt(frontend, at)
+	const slots: Array<ParamId> = []
+	for (const action of actions) {
+		switch (action.source.kind) {
+			case "described":
+				return {
+					rows: "some",
+					facts: relationsFacts(
+						frontend,
+						stated,
+						at.stratum,
+						actions.map((a) => a.info.relation.name)
+					)
+				}
+			case "enumerated":
+			case "stream":
+				slots.push(action.source.slot)
+		}
+	}
+	return {
+		rows: "every",
+		facts: slots.flatMap((slot) => actionSlotFacts(frontend, stated, at.stratum, slot))
+	}
 }
 
 /** The slot groups of a query entry's precheck: the entry's own at its stratum. */
@@ -318,15 +453,17 @@ const precheckGroups = (
 	frontend.slots.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
 
 /**
- * The stored relations a refused statement writes or casts its facts into, by declared name: a write's own, a query
- * entry's precheck's target, whose types the precheck casts the entry's facts into, and none of a statement that
- * states no fact.
+ * The stored relations a refused statement writes or casts its facts into, by declared name: its actions', a write's
+ * own, a query entry's precheck's target, whose types the precheck casts the entry's facts into, and none of a
+ * statement that states no fact.
  */
 export const statementRelations = (
 	frontend: WriteFrontend,
 	at: StatementAt
 ): ReadonlyArray<string> => {
 	switch (at.kind) {
+		case "actions":
+			return [...new Set(actionsAt(frontend, at).map((action) => action.info.relation.name))]
 		case "write":
 			return at.relations
 		case "precheck":
@@ -337,36 +474,29 @@ export const statementRelations = (
 }
 
 /**
- * The facts a refused statement states, each beside the written relation it is a fact of, in the order the host judges
- * them: a write's, relation by relation in its order (writtenFacts); a query entry's precheck's, the entry's own slot
- * groups' at its stratum (groupFacts).
+ * The facts a refused statement states, in the order the host judges them (StatementFacts): its actions'
+ * (actionsFacts); a write's, relation by relation in its order (writtenFacts); a query entry's precheck's, the entry's
+ * own slot groups' at its stratum (groupFacts).
  */
 const statedFacts = (
 	frontend: WriteFrontend,
 	stated: StatedRows,
 	at: StatementAt
-): ReadonlyArray<readonly [RelationInfo, StatedFact]> => {
-	const writtenNamed = (name: string): RelationInfo | undefined =>
-		frontend.written.find((r) => r.name === name)
+): StatementFacts => {
 	switch (at.kind) {
+		case "actions":
+			return actionsFacts(frontend, stated, at)
 		case "write":
-			return at.relations.flatMap((name) => {
-				const relation = writtenNamed(name)
-				return relation === undefined
-					? []
-					: writtenFacts(frontend, stated, at.stratum, relation).map(
-							(fact) => [relation, fact] as const
-						)
-			})
+			return { rows: "some", facts: relationsFacts(frontend, stated, at.stratum, at.relations) }
 		case "precheck":
-			return precheckGroups(frontend, at).flatMap((group) => {
-				const relation = writtenNamed(group.relation.name)
-				return relation === undefined
-					? []
-					: groupFacts(frontend, stated, group, relation).map((fact) => [relation, fact] as const)
-			})
+			return {
+				rows: "some",
+				facts: precheckGroups(frontend, at).flatMap((group) =>
+					groupFacts(frontend, stated, group, group.relation)
+				)
+			}
 		case "unstated":
-			return []
+			return { rows: "some", facts: [] }
 	}
 }
 
@@ -777,12 +907,18 @@ const levelStates = (level: ScalarType, law: Law): boolean => {
 }
 
 /** How the host judges one stated row against what refused its statement: it breaks it, and the refusal names the laws
- * `laws` says; or the host finds no break in it, the row holding or left unjudged. */
+ * `laws` says; it holds it, so it is not the row refused; or the host leaves it unjudged. */
 type RowJudgement =
 	| { readonly kind: "breaks"; readonly laws: RefusedLaws }
-	| { readonly kind: "clear" }
+	| { readonly kind: "holds" }
+	| { readonly kind: "unjudged" }
 
-const clear: RowJudgement = Object.freeze({ kind: "clear" })
+const holds: RowJudgement = Object.freeze({ kind: "holds" })
+const unjudged: RowJudgement = Object.freeze({ kind: "unjudged" })
+
+/** A verdict's judgement of a row it does not break: holding, or unjudged. */
+const unbroken = (verdict: Exclude<Verdict, "breaks">): RowJudgement =>
+	verdict === "holds" ? holds : unjudged
 
 /**
  * How the host judges each stated row against one refuser (`row`), and the laws the refusal names where no stated row
@@ -837,7 +973,7 @@ const domainRow = (
 		.map((j) => j.use.law)
 	const [head, ...rest] = broken
 	if (head === undefined) {
-		return clear
+		return judged.some((j) => j.verdict === "unjudged") ? unjudged : holds
 	}
 	if (judged.some((j) => j.verdict === "unjudged")) {
 		return { kind: "breaks", laws: refusedByObject }
@@ -857,11 +993,16 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
 				row: (relation, row) => {
 					const field = relation.fields.find((f) => f.column === refuser.column)
 					if (relation.ident !== refuser.table || field?.writing.kind !== "generated") {
-						return clear
+						return holds
 					}
-					return judge.evaluate(relation, field.writing.expr, row).kind === "null"
-						? { kind: "breaks", laws: refusedByObject }
-						: clear
+					switch (judge.evaluate(relation, field.writing.expr, row).kind) {
+						case "null":
+							return { kind: "breaks", laws: refusedByObject }
+						case "value":
+							return holds
+						case "unknown":
+							return unjudged
+					}
 				},
 				none: refusedByObject
 			}
@@ -875,17 +1016,21 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
 			const checks = table === undefined ? [] : lawChecks(frontend, judge, table)
 			const refusing = checks.find((c) => c.name === refuser.name)
 			if (refusing === undefined) {
-				return { row: () => clear, none: refusedByObject }
+				return { row: () => unjudged, none: refusedByObject }
 			}
 			return {
-				row: (relation, row) =>
-					relation.ident === refuser.owner &&
-					checkVerdict(judge, relation, refusing, row) === "breaks"
+				row: (relation, row) => {
+					if (relation.ident !== refuser.owner) {
+						return holds
+					}
+					const verdict = checkVerdict(judge, relation, refusing, row)
+					return verdict === "breaks"
 						? {
 								kind: "breaks",
 								laws: refusedLaws(frontend, judge, relation, refusing, checks, row)
 							}
-						: clear,
+						: unbroken(verdict)
+				},
 				none: refusedFirst
 			}
 		}
@@ -917,12 +1062,21 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
  *   relation holds no row at.
  *
  * The host never decides whether a write is refused: PostgreSQL has refused it. The host only names a row that breaks
- * what refused it, the first the statement states (statedFacts: a write's in its relations' order, a query entry's
- * precheck's in its own), its witness the key it was stated at, in the words it was stated in (a query entry's,
- * through `entryKey`), and the laws it breaks where it judges every law CHECK of its table (`refusedLaws`) or every
- * column of its the domain types (`domainRow`). Where the host finds none (a row only PostgreSQL computes, a query's,
- * a row whose law reads a value the host does not hold or cannot evaluate, or one stated with no whole key, as a
- * generated addition's identity is drawn), the witness is `unreported`.
+ * what refused it, its witness the key it was stated at, in the words it was stated in (a query entry's, through
+ * `entryKey`), and the laws it breaks where it judges every law CHECK of its table (`refusedLaws`) or every column of
+ * its the domain types (`domainRow`):
+ *
+ * - the first `known` row the statement states that breaks it (statedFacts: its actions' in their order, a write's in
+ *   its relations' order, a query entry's precheck's in its own), whose row is as the write fills it;
+ * - else an `ifFresh` row, an owner no read looked up, which its INSERT writes only where no stored row holds its key,
+ *   only where the statement writes `every` row the host judges and the host finds that row the one not holding it:
+ *   PostgreSQL refused a row the statement wrote, so the INSERT wrote it, no stored row held its key, and it is as the
+ *   host fills it. Where several such rows may be the one refused, as a stored owner inserted again beside a new one,
+ *   the host names none of them.
+ *
+ * Where the host finds none (a row only PostgreSQL computes, a query's, a row whose law reads a value the host does not
+ * hold or cannot evaluate, one stated with no whole key, as a generated addition's identity is drawn, or one of several
+ * owners no read looked up), the witness is `unreported`.
  */
 export const hostJudgement = (
 	frontend: WriteFrontend,
@@ -931,11 +1085,15 @@ export const hostJudgement = (
 	refuser: Refuser
 ): HostJudgement => {
 	const judging = refuserJudge(frontend, judgeOf(frontend), refuser)
-	for (const [relation, fact] of statedFacts(frontend, stated, at)) {
-		const judged = judging.row(relation, fact.row)
-		if (judged.kind === "breaks") {
-			return { witness: fact.witness, laws: judged.laws }
+	const { rows, facts } = statedFacts(frontend, stated, at)
+	const judged = facts.map((fact) => ({ fact, judged: judging.row(fact.relation, fact.row) }))
+	for (const { fact, judged: j } of judged) {
+		if (fact.row.kind === "known" && j.kind === "breaks") {
+			return { witness: fact.witness, laws: j.laws }
 		}
 	}
-	return { witness: unreported, laws: judging.none }
+	const [only, ...others] = judged.filter((j) => j.judged.kind !== "holds")
+	return rows === "every" && only?.judged.kind === "breaks" && !isNonEmpty(others)
+		? { witness: only.fact.witness, laws: only.judged.laws }
+		: { witness: unreported, laws: judging.none }
 }

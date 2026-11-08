@@ -137,11 +137,11 @@ const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 const unstated: StatementAt = Object.freeze({ kind: "unstated" })
 
 /**
- * What the statement at `origin` states, as the host reads it: a write statement's relation, a family statement's, a
- * single statement's parts', each at its stratum; the fill of an action's member's carrier, which casts the facts the
- * action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's facts into
- * its target's types; nothing for another carrier's statement, an ANALYZE or a serial advance, a read-back, a family's
- * stored-suffix read, or the COMMIT.
+ * What the statement at `origin` states, as the host reads it: a write statement's action, a single statement's parts'
+ * actions, at its stratum; a family statement's relation; the fill of an action's member's carrier, which casts the
+ * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
+ * facts into its target's types; nothing for another carrier's statement, an ANALYZE or a serial advance, a read-back,
+ * a family's stored-suffix read, or the COMMIT.
  */
 const statementAt = (origin: FailureOrigin): StatementAt => {
 	if (origin.kind !== "statement") {
@@ -150,14 +150,15 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 	const step = origin.step
 	switch (step.kind) {
 		case "write":
-		case "family":
-			return { kind: "write", stratum: step.stratum, relations: [step.relation] }
+			return { kind: "actions", stratum: step.stratum, actions: [step.action] }
 		case "single":
 			return {
-				kind: "write",
+				kind: "actions",
 				stratum: step.stratum,
-				relations: Arr.map(step.parts, (p) => p.step.relation)
+				actions: Arr.map(step.parts, (p) => p.step.action)
 			}
+		case "family":
+			return { kind: "write", stratum: step.stratum, relations: [step.relation] }
 		case "check":
 			return { kind: "precheck", stratum: step.stratum, entry: step.entry }
 		case "carrier":

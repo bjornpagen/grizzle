@@ -61,8 +61,8 @@ import {
 	type InsertOf,
 	type InsertResult,
 	type InsertVariant,
-	type Proposal,
 	keyFirst,
+	proposalOf,
 	requestedValue,
 	writtenFields,
 	type ModifyingStatement,
@@ -147,15 +147,6 @@ const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyAr
 		: writtenFields(relation)
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
-
-/** Which requested facts an insert proposes (statement.ts Proposal): only those at no stored key into a family owner,
- * whose rows carry counts and ends, but for a generated addition, whose key its sequence draws at the insert so that no
- * row stores it; every one into any other relation, whose proposed row is its requested fact. */
-const proposalOf = (relation: RelationInfo, serial: SerialClass): Proposal =>
-	serial.kind !== "generated" &&
-	relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")
-		? "unstored"
-		: "every"
 
 /** No stored row of `relation` holds the requested fact's primary key, read at `requested`: NOT EXISTS (SELECT 1 FROM
  * <relation> s WHERE s.<key> = <requested key>), each key field compared at its type. */
