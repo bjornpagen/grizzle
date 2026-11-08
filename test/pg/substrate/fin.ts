@@ -312,10 +312,6 @@ export const storedOfRows = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Store
 	return { owners, rows: famRows }
 }
 
-/** The removal of every row and owner a case left, in one statement, so the next case starts from no state. */
-export const clearSql = (schema: string): string =>
-	`TRUNCATE ${qualified(schema, "fam")}, ${qualified(schema, "owner")}`
-
 /**
  * The statements that write a stored state from no state, as one transaction: each owner created with its count, in
  * order of key, then one insert of every row, successor first, so a row never arrives after the row it references.

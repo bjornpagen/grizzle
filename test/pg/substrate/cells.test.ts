@@ -43,6 +43,7 @@ import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrate.ts"
+import { clearRows, schemaGroup } from "#test/support/substrate/replace.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A product layout, the one these templates are written for: each key coordinate's and payload coordinate's codes. */
@@ -575,6 +576,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						`CREATE TABLE ${name("bare")} (x int2 NOT NULL, y int2 NOT NULL, z int2 NOT NULL, ${member})`,
 						[]
 					)
+					const tables = yield* schemaGroup(s.admin, schema)
 					const db = yield* s.session({ ...ownerSession(), label: "writer" })
 					return yield* exhaust(
 						{
@@ -636,7 +638,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								if (Option.isNone(bare) && !member) {
 									k.note("bare admits an alias the roster domains refuse")
 								}
-								yield* db.query(`TRUNCATE ${name("typed")}, ${name("bare")}`, [])
+								yield* clearRows(db, tables)
 							})
 					)
 				})
@@ -689,6 +691,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						`CREATE TABLE ${name("lookup")} (x int2 NOT NULL, y int2 NOT NULL, CONSTRAINT through_s CHECK ((substring(${name("s")}() FROM ${applied("x")} * ${S_SIZES[1]} + y + 1 FOR 1) = B'1') IS TRUE))`,
 						[]
 					)
+					const tables = yield* schemaGroup(s.admin, schema)
 					const bits = fromText(fText)
 					return yield* exhaust(
 						{
@@ -752,7 +755,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 										} else {
 											k.note("a lookup admitted")
 										}
-										yield* s.admin.query(`TRUNCATE ${name("lookup")}`, [])
+										yield* clearRows(s.admin, tables)
 									}
 								}
 							})

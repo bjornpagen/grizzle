@@ -62,7 +62,6 @@ import {
 	canonical,
 	checkedCases,
 	checkedGen,
-	clearSql,
 	type NodeConstraint,
 	constraintNamed,
 	ddlOf,
@@ -109,6 +108,7 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { clearRows, type ResetGroup, schemaGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -152,11 +152,12 @@ type Verdict = "committed" | `refused ${NodeConstraint}`
 /** PostgreSQL's disagreement with the model or with the theorem, with both sides and the SQL spelt out. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-/** A lowering installed in a schema of its own, with the session its transactions run on. */
+/** A lowering installed in a schema of its own, with every table of it and the session its transactions run on. */
 interface Seat<L extends string> {
 	readonly label: L
 	readonly lowering: Lowering
 	readonly schema: string
+	readonly tables: ResetGroup
 	readonly session: RawSession
 }
 
@@ -170,8 +171,9 @@ const seatsOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowerin
 				for (const statement of ddlOf(schema, lowering)) {
 					yield* s.admin.query(statement, [])
 				}
+				const tables = yield* schemaGroup(s.admin, schema)
 				const session = yield* s.session({ ...ownerSession(), label })
-				return { label, lowering, schema, session } satisfies Seat<L>
+				return { label, lowering, schema, tables, session } satisfies Seat<L>
 			})
 		)
 	})
@@ -235,7 +237,7 @@ const judged = <L extends string>(
 			)
 		if (model.kind === "committed" && real.kind === "committed") {
 			const values = yield* seat.session.values(readSql(seat.schema), [])
-			yield* seat.session.query(clearSql(seat.schema), [])
+			yield* clearRows(seat.session, seat.tables)
 			const read = rowsOfRead(values)
 			if (!deepEquals(canonical(read), canonical(model.after))) {
 				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`)

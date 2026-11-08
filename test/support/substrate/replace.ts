@@ -1,11 +1,12 @@
 import { Array as Arr, Brand, Effect } from "effect"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
 /**
- * The tables one reset truncates together (schema-qualified, quoted): a whole group, built only by installationGroup
- * or fixtureGroup.
+ * The tables one reset truncates together (schema-qualified, quoted): a whole group, built only by installationGroup,
+ * fixtureGroup or schemaGroup, and emptied only by a TRUNCATE of all of it (replaceRows, clearRows).
  */
 export type ResetGroup = { readonly tables: ReadonlyArray<string> } & Brand.Brand<"ResetGroup">
 const ResetGroup = Brand.nominal<ResetGroup>()
@@ -21,6 +22,33 @@ export const installationGroup = (names: Names): ResetGroup =>
 /** Every table a fixture's own DDL creates, which a test builds by hand rather than installs. */
 export const fixtureGroup = (tables: Arr.NonEmptyReadonlyArray<string>): ResetGroup =>
 	ResetGroup({ tables })
+
+/**
+ * Every table of a schema a test owns whole, read off the catalog once the schema's hand-written DDL is installed: the
+ * group of a substrate proof's seat (test/pg/substrate), whose schema holds no table but the proof's, so no table its
+ * DDL creates is left out. A partitioned table is one, beside each of its partitions; a view, a sequence or any other
+ * relation is none. A schema that does not exist is refused (3F000).
+ */
+export const schemaGroup = (
+	admin: PgConnection,
+	schema: string
+): Effect.Effect<ResetGroup, SqlError> =>
+	Effect.map(
+		admin.queryValues(
+			"SELECT c.relname::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = $1::text::regnamespace AND c.relkind IN ('r', 'p') ORDER BY 1",
+			[quoteIdent(schema)]
+		),
+		(rows) =>
+			ResetGroup({
+				tables: Arr.map(rows, ([table]) => `${quoteIdent(schema)}.${quoteIdent(String(table))}`)
+			})
+	)
+
+/** The TRUNCATE of every table of `group`, in one statement; none when the group holds no table. */
+const truncation = (group: ResetGroup): ReadonlyArray<ReplacedStatement> =>
+	Arr.isReadonlyArrayNonEmpty(group.tables)
+		? [{ sql: `TRUNCATE ${Arr.join(group.tables, ", ")}`, params: [] }]
+		: []
 
 /**
  * One statement of the replacing transaction after its TRUNCATE, an insert or a sequence's setting (one set where the
@@ -71,13 +99,9 @@ export const replaceRows = (
 		Effect.gen(function* () {
 			const pinned = yield* connection.pin
 			yield* pinned.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
-			const truncate: ReadonlyArray<ReplacedStatement> =
-				group.tables.length === 0
-					? []
-					: [{ sql: `TRUNCATE ${Arr.join(group.tables, ", ")}`, params: [] }]
 			yield* Effect.onError(
 				Effect.forEach(
-					[...truncate, ...statements],
+					[...truncation(group), ...statements],
 					(statement) => pinned.query(statement.sql, statement.params),
 					{ discard: true }
 				),
@@ -88,4 +112,23 @@ export const replaceRows = (
 				return yield* new TransactionRolledBack({ label: "replace", command: committed.command })
 			}
 		})
+	)
+
+/**
+ * Empties every table of `group` between the cases of a suite that clears its state rather than replacing it, on
+ * `connection` (a PgConnection, or a substrate proof's own RawSession): one TRUNCATE of the whole group, alone in its
+ * transaction, for replaceRows' reasons. It reads no row, so it has no rw-conflict for SSI to cancel it by, where a
+ * DELETE reads every dead version an earlier case left; it takes the whole group, so no foreign key among its tables
+ * refuses it; and the tables it leaves hold no version, live or dead, for the next case to meet.
+ */
+export const clearRows = (
+	connection: Pick<PgConnection, "query">,
+	group: ResetGroup
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(
+		truncation(group),
+		(statement) => connection.query(statement.sql, statement.params),
+		{
+			discard: true
+		}
 	)

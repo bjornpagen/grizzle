@@ -54,7 +54,6 @@ import { quoteString } from "#compiler/sql/print.ts"
 import {
 	appliedTo,
 	canonical,
-	clearSql,
 	constraintNamed,
 	constraintsOf,
 	ddlOf,
@@ -104,6 +103,7 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { clearRows, type ResetGroup, schemaGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -131,11 +131,12 @@ interface Judged {
 	readonly verdict: Verdict
 }
 
-/** A lowering installed in a schema of its own, with the session its transactions run on. */
+/** A lowering installed in a schema of its own, with every table of it and the session its transactions run on. */
 interface Seat<L extends string> {
 	readonly label: L
 	readonly lowering: Lowering
 	readonly schema: string
+	readonly tables: ResetGroup
 	readonly session: RawSession
 }
 
@@ -150,8 +151,9 @@ const seatsOf = <L extends string>(lowerings: Readonly<Record<L, Lowering>>) =>
 				for (const statement of ddlOf(schema, lowering)) {
 					yield* s.admin.query(statement, [])
 				}
+				const tables = yield* schemaGroup(s.admin, schema)
 				const session = yield* s.session({ ...ownerSession(), label })
-				return { label, lowering, schema, session } satisfies Seat<L>
+				return { label, lowering, schema, tables, session } satisfies Seat<L>
 			})
 		)
 	})
@@ -221,7 +223,7 @@ const judged = <L extends string>(
 
 /** Clears a seat's tables for the next case. */
 const cleared = <L extends string>(seat: Seat<L>): Effect.Effect<void, SqlError> =>
-	Effect.asVoid(seat.session.query(clearSql(seat.schema), []))
+	clearRows(seat.session, seat.tables)
 
 /**
  * Whether a direction's lemma holds of a stored state, by the theorem's breaches: within, no orphan and nothing beyond a

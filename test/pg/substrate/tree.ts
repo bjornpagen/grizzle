@@ -320,12 +320,6 @@ export const rowsOfRead = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Readonl
 		parentStart: Number(parentStart)
 	}))
 
-/**
- * The removal of every row a case left, so the next case starts from no state: a DELETE, since a case leaves a handful
- * of rows and TRUNCATE's new relation files cost more than deleting them.
- */
-export const clearSql = (schema: string): string => `DELETE FROM ${qualified(schema, "node")}`
-
 /** Rows in one canonical order, by id, for exact comparison. */
 export const canonical = (rows: ReadonlyArray<TreeRow>): ReadonlyArray<TreeRow> =>
 	Arr.sort(

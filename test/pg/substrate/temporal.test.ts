@@ -43,6 +43,7 @@ import {
 	sameMoment,
 	tuple
 } from "#test/support/substrate.ts"
+import { clearRows, type ResetGroup, schemaGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -72,10 +73,11 @@ const coverageDdl = (schema: string, deferral: "immediate" | "deferred"): Readon
 	`CREATE TABLE ${qualified(schema, "source")} (${spanColumns}, CONSTRAINT source_covered FOREIGN KEY (k, PERIOD r) REFERENCES ${qualified(schema, "target")} (k, PERIOD r) MATCH SIMPLE ${deferral === "deferred" ? "DEFERRABLE INITIALLY DEFERRED" : "NOT DEFERRABLE"})`
 ]
 
-/** A coverage lowering installed in a schema of its own, with its session. */
+/** A coverage lowering installed in a schema of its own, with every table of it and its session. */
 interface Seat {
 	readonly deferral: "immediate" | "deferred"
 	readonly schema: string
+	readonly tables: ResetGroup
 	readonly session: RawSession
 }
 
@@ -86,15 +88,12 @@ const seatOf = (deferral: "immediate" | "deferred") =>
 		for (const statement of coverageDdl(schema, deferral)) {
 			yield* s.admin.query(statement, [])
 		}
+		const tables = yield* schemaGroup(s.admin, schema)
 		const session = yield* s.session({ ...ownerSession(), label: deferral })
-		return { deferral, schema, session } satisfies Seat
+		return { deferral, schema, tables, session } satisfies Seat
 	})
 
-const clear = (seat: Seat) =>
-	seat.session.query(
-		`TRUNCATE ${qualified(seat.schema, "source")}, ${qualified(seat.schema, "target")}`,
-		[]
-	)
+const clear = (seat: Seat) => clearRows(seat.session, seat.tables)
 
 /** What the model says of a transaction: it commits, or is refused at a moment with a SQLSTATE. */
 type Verdict =

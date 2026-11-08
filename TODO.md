@@ -14,7 +14,6 @@ with the next release.
   - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after
     removeLastHandle then renameRoster, the roster domain's CHECK calls a names constant other than the one the test
     expects. A possible rename defect, so it goes first;
-  - test/pg/substrate/tree.ts clearSql is a DELETE; make it TRUNCATE, as fin.ts does;
   - test/types/compute: building the program synchronously blocks vitest's worker-start timer under heavy load.
 - **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
   where the nested path says factShape; the re-insert witness residual (a stored owner re-inserted beside a refused new
