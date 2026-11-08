@@ -1,18 +1,22 @@
 import { layer } from "@effect/vitest"
+import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { OpenError } from "#adapter/errors/execution.ts"
+import { type AdmissionMismatch, AdmissionRefused } from "#adapter/errors/failures.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { migrated, type Version, withDb, worldRoleOf } from "#test/support/installed.ts"
@@ -32,7 +36,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * it through a narrowed entry, and then holds exactly one policy per writer of it, the narrowed writer's its entry's
  * membership and a whole writer's TRUE, since under row security a role with no policy writes nothing; a table no writer
  * narrows has neither row security nor a policy, the migration dropping both where an earlier version had them. At the
- * last version Db.open admits both roles, and the installed-catalog checker finds nothing.
+ * last version Db.open admits both roles, and the installed-catalog checker finds nothing. Then a drawn change by hand,
+ * row security disabled or forced on every table under it: Db.open refuses exactly the roles that write one of them
+ * through a narrowed entry, each with one mismatch per such table, its row security as changed (README "Connecting"),
+ * and admits the rest.
  */
 
 /** How a role holds a relation: whole, or through a query entry fixing the shelf at 1 or at 2. */
@@ -67,6 +74,20 @@ const usesGen: Gen<Uses> = (source) => ({
 
 const historyGen: Gen<Arr.NonEmptyReadonlyArray<Uses>> = (source) =>
 	nonEmpty(source.draw(array(usesGen, { min: 2, max: 3 })), "a history's versions")
+
+/** What a hand does to each table under row security once the last version is migrated. */
+type Planted = "disabled" | "forced"
+
+/** A case: the versions migrated in turn, and the change by hand after the last. */
+interface RowSecurityCase {
+	readonly history: Arr.NonEmptyReadonlyArray<Uses>
+	readonly planted: Planted
+}
+
+const caseGen: Gen<RowSecurityCase> = (source) => ({
+	history: source.draw(historyGen),
+	planted: source.draw(element<Planted>(["disabled", "forced"]))
+})
 
 /** The version under the declared name `name`, each role holding and writing each relation as `uses` says. */
 const versionOf = (name: string, uses: Uses) => {
@@ -124,6 +145,11 @@ const versionOf = (name: string, uses: Uses) => {
 
 type Built = ReturnType<typeof versionOf>
 
+/** An admission mismatch as a case compares it: its stage, its check and the value observed. */
+type Shown = readonly [stage: AdmissionMismatch["stage"], check: string, observed: string]
+
+const shown = (m: AdmissionMismatch): Shown => [m.stage, m.check, m.observed]
+
 /** A policy as the rule judges it: its table, its roles, and whether both its USING and its WITH CHECK admit every
  * row. */
 interface PolicySeen {
@@ -170,11 +196,17 @@ type RowSecurityFeature =
 	| "row security added"
 	| "row security dropped"
 	| "a narrowed writer's filter changed"
+	| `a narrowed writer refused, row security ${Planted}`
+	| "a role admitted beside a changed table"
 
 const secureds = (uses: Uses): ReadonlyArray<RelationName> =>
 	Arr.filter(relationNames, (r) =>
 		Arr.some(roleNames, (who) => uses[who][r].writes && uses[who][r].holds !== "whole")
 	)
+
+/** The relations a role writes through a narrowed entry. */
+const narrowedBy = (uses: Uses, who: RoleName): ReadonlyArray<RelationName> =>
+	Arr.filter(relationNames, (r) => uses[who][r].writes && uses[who][r].holds !== "whole")
 
 const featuresOf = (
 	history: Arr.NonEmptyReadonlyArray<Uses>
@@ -225,18 +257,18 @@ const featuresOf = (
 
 layer(Substrate.layer)("row security across migrations", (it) => {
 	it.effect(
-		"a table has row security and every writer's policy exactly while some writer narrows it, across migrations",
+		"a table has row security and every writer's policy exactly while some writer narrows it, across migrations, and Db.open refuses a narrowed writer of a table whose row security a hand changed",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
 						suite: "pg/physical/row-security",
-						draw: drawn(historyGen),
+						draw: drawn(caseGen),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration"
+							name: 'row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration; Db.open\'s admission of a role, refused exactly for a narrowed writer of a changed table (README "Connecting")'
 						},
 						coverage: required<RowSecurityFeature>(
 							[
@@ -244,7 +276,10 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 								"a narrowed reader that writes nothing",
 								"row security added",
 								"row security dropped",
-								"a narrowed writer's filter changed"
+								"a narrowed writer's filter changed",
+								"a narrowed writer refused, row security disabled",
+								"a narrowed writer refused, row security forced",
+								"a role admitted beside a changed table"
 							],
 							{ cases: 12, sense: notesOnly }
 						),
@@ -255,7 +290,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(history, k) =>
+					({ history, planted }, k) =>
 						Effect.scoped(
 							Effect.gen(function* () {
 								k.noteAll(featuresOf(history))
@@ -335,6 +370,42 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 									checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),
 									[]
 								)
+								const lastUses = Arr.lastNonEmpty(history)
+								const changed = secureds(lastUses)
+								for (const r of changed) {
+									yield* substrate.admin.query(
+										`ALTER TABLE ${quoteIdent(m.schema)}.${quoteIdent(tableOf(r))} ${planted === "disabled" ? "DISABLE" : "FORCE"} ROW LEVEL SECURITY`,
+										[]
+									)
+								}
+								for (const who of roleNames) {
+									const opened = yield* Effect.result(
+										withDb(
+											m,
+											who === "clerk" ? last.login.roles.clerk : last.login.roles.keeper,
+											() => Effect.void
+										)
+									)
+									const expected = Arr.map(narrowedBy(lastUses, who), (r): Shown => [
+										"privileges",
+										`row security of ${tableOf(r)}`,
+										planted
+									])
+									if (!Arr.isReadonlyArrayNonEmpty(expected)) {
+										assertVariant(opened, "_tag", "Success", `${who} admitted`)
+										if (Arr.isReadonlyArrayNonEmpty(changed)) {
+											k.note("a role admitted beside a changed table")
+										}
+										continue
+									}
+									assertVariant(opened, "_tag", "Failure", `${who} refused`)
+									const error = opened.failure
+									assertInstanceOf(error, OpenError)
+									const reason = error.reason
+									assertInstanceOf(reason, AdmissionRefused)
+									unorderedEqual(Arr.map(reason.mismatches, shown), expected)
+									k.note(`a narrowed writer refused, row security ${planted}`)
+								}
 							})
 						)
 				)
