@@ -26,7 +26,7 @@ import {
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { fixtureLogin } from "#test/pg/physical/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -56,7 +56,9 @@ import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
  * The property, over drawn hand edits of a drawn folder's reviewed files: an edit that reaches the same state by
  * another route (a reviewer's comment, a statement with no effect, a scratch index built and dropped again on a drawn
  * column) is admitted; one that changes the state is refused at the stage drift after its files committed, and the
- * ledger records the folder, its latest target the folder's. The state-changing edits are drawn over every statement
+ * ledger records the folder, its latest target the folder's; one that adds a statement that raises, at the head of the
+ * second folder's first file, stops the apply at that statement, StatementFailed naming the folder, the file and
+ * statement 1, and the ledger's latest target stays the first folder's. The state-changing edits are drawn over every statement
  * of their kind the draft holds: an extra index on a drawn column, a drawn table taken from a drawn grant (or the grant
  * deleted), the EXECUTE grant of a drawn function deleted, a drawn index rebuilt over one more drawn column under its
  * drafted name, a CHECK predicate's constant raised by a drawn amount, a drawn VALIDATE CONSTRAINT deleted from a
@@ -117,9 +119,20 @@ const drift = [
 	"a CHECK raised",
 	"a VALIDATE deleted"
 ] as const
-type EditKind = (typeof sameState)[number] | (typeof drift)[number]
-const editKinds = [...sameState, ...drift] as const
-const changesState = (kind: EditKind): boolean => Arr.some(drift, (k) => k === kind)
+const raising = ["a statement that raises"] as const
+
+type EditKind = (typeof sameState)[number] | (typeof drift)[number] | (typeof raising)[number]
+const editKinds = [...sameState, ...drift, ...raising] as const
+
+/** What an apply of an edit meets: admitted, refused at drift after its files committed, or stopped at its statement. */
+type EditOutcome = "admitted" | "drift" | "statement"
+
+const outcomeOf = (kind: EditKind): EditOutcome =>
+	Arr.some(drift, (k) => k === kind)
+		? "drift"
+		: Arr.some(raising, (k) => k === kind)
+			? "statement"
+			: "admitted"
 
 /** A drawn edit's sketch: whether the edited folder is the second version's (the CHECK and the VALIDATE a draft adds
  * NOT VALID are), and picks into what the folder drafts. */
@@ -140,9 +153,9 @@ const editGen: Gen<EditSketch> = (source) => ({
 
 type EditFeature = `${EditKind} ${"admitted" | "refused"}`
 
-/** What an edit of a kind reaches: admitted when it reaches the same state, refused when it changes it. */
+/** What an edit of a kind reaches: admitted when it reaches the same state, refused when it changes it or raises. */
 const featureOf = (kind: EditKind): EditFeature =>
-	`${kind} ${changesState(kind) ? "refused" : "admitted"}`
+	`${kind} ${outcomeOf(kind) === "admitted" ? "admitted" : "refused"}`
 
 /**
  * The kinds a case draws its edit from: where the case steers, the kinds whose feature the run had not reached when the
@@ -165,6 +178,7 @@ const inSecond = (edit: Edit): boolean => {
 	switch (edit.kind) {
 		case "a CHECK raised":
 		case "a VALIDATE deleted":
+		case "a statement that raises":
 			return true
 		case "a grant narrowed":
 		case "an EXECUTE grant deleted":
@@ -250,6 +264,9 @@ const appended = (
 	return editing(picked(files.slice(from), pick, "file").name, (text) => `${text}\n${statements}\n`)
 }
 
+/** The name of the folder's first file. */
+const headFile = (g: GenerateResult): string => picked(draftFiles(g), 0, "file").name
+
 /** The tables the first version creates, each with its columns. */
 const tablesOf = (
 	g: GenerateResult
@@ -288,6 +305,8 @@ const reviewerOf = (edit: Edit, g: GenerateResult, first: GenerateResult): Revie
 			return appended(g, p0, "-- reviewed", "no table")
 		case "a statement with no effect":
 			return appended(g, p0, "SELECT 1;", "no table")
+		case "a statement that raises":
+			return editing(headFile(g), (text) => `SELECT 1 / 0;\n${text}`)
 		case "a scratch index built and dropped": {
 			const { table, column } = columnOf(first, [p1, p2])
 			return appended(
@@ -404,13 +423,14 @@ const reviewerOf = (edit: Edit, g: GenerateResult, first: GenerateResult): Revie
 }
 
 /** The apply of the history's folders, the last one edited: admitted, or refused at the stage drift after its files
- * committed, the ledger's latest target the last folder's either way. */
+ * committed, the ledger's latest target the last folder's either way; or stopped at the raising statement at the head
+ * of the last folder's first file, the ledger's latest target the folder's before it. */
 const applyEdited = (
 	m: MigrationSession,
 	schema: string,
 	folders: ReadonlyArray<GenerateResult>,
 	reviewer: Reviewer,
-	refused: boolean
+	outcome: EditOutcome
 ) =>
 	Effect.gen(function* () {
 		const last = defined(folders.at(-1), "the edited folder")
@@ -419,14 +439,35 @@ const applyEdited = (
 			reviewedSource(last, reviewer)
 		]
 		const applied = apply(m, { snapshot: last.snapshot, folders: sources }, noFurther)
-		if (refused) {
-			const refusedBy = yield* refusal(applied)
-			assert.equal(refusedBy.stage, "drift")
-		} else {
-			yield* applied
+		const ledgerLatest = Effect.map(
+			readLedger(m, schema, succeeded(statementsFor(schema))),
+			(ledger) => ledger.latest
+		)
+		switch (outcome) {
+			case "admitted": {
+				yield* applied
+				const latest = yield* ledgerLatest
+				return assert.equal(latest, last.snapshot.fingerprint)
+			}
+			case "drift": {
+				const refusedBy = yield* refusal(applied)
+				assert.equal(refusedBy.stage, "drift")
+				const latest = yield* ledgerLatest
+				return assert.equal(latest, last.snapshot.fingerprint)
+			}
+			case "statement": {
+				const refusedBy = yield* refusal(applied)
+				const reason = refusedBy.reason
+				assertVariant(reason, "_tag", "StatementFailed", "a raising statement stops its file")
+				assert.deepEqual(
+					{ folder: reason.folder, file: reason.file, statement: reason.statement },
+					{ folder: last.folder.name, file: headFile(last), statement: 1 }
+				)
+				const before = defined(folders.at(-2), "the folder before the edited one")
+				const latest = yield* ledgerLatest
+				return assert.equal(latest, before.snapshot.fingerprint)
+			}
 		}
-		const ledger = yield* readLedger(m, schema, succeeded(statementsFor(schema)))
-		assert.equal(ledger.latest, last.snapshot.fingerprint)
 	})
 
 layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
@@ -469,9 +510,8 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 									defined(folders[folders.length - 1]),
 									defined(folders[0])
 								)
-								const refused = changesState(edit.kind)
 								c.note(featureOf(edit.kind))
-								yield* applyEdited(m, schema, folders, reviewer, refused)
+								yield* applyEdited(m, schema, folders, reviewer, outcomeOf(edit.kind))
 							})
 						)
 				)
