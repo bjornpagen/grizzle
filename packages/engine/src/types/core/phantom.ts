@@ -620,6 +620,32 @@ export type IsOneLiteral<N> = [N] extends [never]
 			: false
 		: false
 
+/** The positions a list's type fixes, each a numeric key: an element of a rest of unknown length has none. */
+type Positions<K> = keyof K & `${number}`
+
+/**
+ * Under each name of a list that is one literal (IsOneLiteral), the positions it stands at: one, or a union of several.
+ * A widened name, or a union of names, which may be any one of them, stands under none.
+ */
+type PositionsByName<K> = {
+	readonly [I in Positions<K> as IsOneLiteral<K[I]> extends true ? K[I] & string : never]: I
+}
+
+/** The names standing at more than one position: those whose positions are a union. */
+type NamedTwice<P> = {
+	[N in keyof P]-?: [P[N]] extends [UnionToIntersection<P[N]>] ? never : N
+}[keyof P]
+
+/**
+ * Whether a list holds a name at more than one position: the one distinctness kernel of a key's fields, a roster's and
+ * a set's handles, a side's terms and a role's write list, each refusing where it is true. A repeat its type does not
+ * show, at a widened name, a union of names or in a rest of unknown length, is none here. One mapped pass places each
+ * name under its positions and one reads them back, so a list of n names costs n at any length, with no recursion to
+ * run out of depth. A family reads it as `Repeats<K> extends true`, the form a builder's declared generic signature
+ * relates to its implementation's through (Bits.of).
+ */
+export type Repeats<K> = [NamedTwice<PositionsByName<K>>] extends [never] ? false : true
+
 /**
  * A literal name N as a declared name keeps it, refused where it breaks the rule's characters: ASCII letters, digits
  * and underscores, a letter first (core/identity.ts parseNameCharacters), forever.

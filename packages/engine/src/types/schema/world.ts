@@ -4,10 +4,9 @@ import type {
 	Carriers,
 	Headed,
 	Invariant,
-	IsOneLiteral,
 	Origin,
 	Refusal,
-	UnionToIntersection
+	Repeats
 } from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
@@ -327,33 +326,13 @@ export interface Role<
 	readonly refresh: ReadonlyArray<Refresh>
 }
 
-/** The positions a list's type fixes, each a numeric key: an element of a rest of unknown length has none. */
-type Positions<W> = keyof W & `${number}`
-
-/**
- * Under each name of a list that is one literal, the positions it stands at: one, or a union of several. A widened name
- * or a union of names, which may be any one of them, stands under none.
- */
-type PositionsByName<W> = {
-	readonly [I in Positions<W> as IsOneLiteral<W[I]> extends true ? W[I] & string : never]: I
-}
-
-/**
- * The names standing at more than one position. One mapped pass places each name and one reads each name's positions,
- * so a list of n names costs n at any length, with no recursion to run out of depth.
- */
-type NamedTwice<P> = {
-	[N in keyof P]-?: [P[N]] extends [UnionToIntersection<P[N]>] ? never : N
-}[keyof P]
-
 /**
  * A role's write list names each role relation once: a relation named twice is two entries writing one relation, which
  * role refuses at run time too (writeTwice). A repeat the list's type does not show, at a widened name, a union of
  * names, or in a list of unknown length such as writableNamesOf's, is role's to refuse at run time.
  */
-export type DistinctWrites<W> = [NamedTwice<PositionsByName<W>>] extends [never]
-	? unknown
-	: Refusal<"a write list names each role relation once">
+export type DistinctWrites<W> =
+	Repeats<W> extends true ? Refusal<"a write list names each role relation once"> : unknown
 
 /**
  * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write and

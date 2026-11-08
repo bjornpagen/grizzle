@@ -7,6 +7,7 @@ import type {
 	Headed,
 	Origin,
 	Refusal,
+	Repeats,
 	SqlOfCarrier
 } from "#compiler/types/core/phantom.ts"
 import type {
@@ -22,7 +23,6 @@ import type {
 import type {
 	AnyRelation,
 	AnyRoster,
-	DistinctTerms,
 	Fact,
 	FactOfFields,
 	NameOf
@@ -39,6 +39,16 @@ export interface Pred<F extends string> {
 
 /** Any term of a law side: a field's name, or pred of one. */
 export type AnyTerm = string | Pred<string>
+
+/**
+ * A side's terms by name: a field's own, and pred of a field `pred <field>`, which no declared name spells (a name
+ * holds no space), so a field and pred of it are two names.
+ */
+type TermNames<T> = { readonly [I in keyof T]: T[I] extends Pred<infer F> ? `pred ${F}` : T[I] }
+
+/** A side lists each of its terms once (ir/desc.ts SideDesc): a field and pred of it are two terms. */
+export type DistinctTerms<T> =
+	Repeats<TermNames<T>> extends true ? Refusal<"a side lists each term once"> : unknown
 
 /**
  * constant(v), a term of a containment's source side: v on every fact, meeting a field of the target, whose type it is
