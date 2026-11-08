@@ -159,7 +159,9 @@ const pieceBytes = 3
 
 /** Whether a stored host value lies in a refined cell's accumulators' pattern, as its domain judges it. */
 const lies = (v: unknown): boolean =>
-	typeof v === "string" && v.length <= 16 && Arr.every([...v], (ch) => ch === "a" || ch === "b")
+	typeof v === "string" &&
+	v.length <= 16 &&
+	Arr.every(Array.from(v), (ch) => ch === "a" || ch === "b")
 
 /** Whether a stored host value fits a refined cell's piece, as its domain judges it: its letters are ASCII. */
 const fits = (v: unknown): boolean => typeof v === "string" && v.length <= pieceBytes
@@ -708,7 +710,7 @@ export const membersOf = (state: State, monoid: MonoidName): ReadonlyArray<Membe
  * A cell's step values as a member's steps record holds them, its step's or the token its piece doubles, over its whole
  * plane, a refined cell's breaking the rule `breaking` names too.
  */
-export const stepValueGen = (c: Cell, breaking: Breaking): Gen<Value> =>
+const stepValueGen = (c: Cell, breaking: Breaking): Gen<Value> =>
 	c.refined ? tokenGen(breaking) : stepGen(c.plane)
 
 /**

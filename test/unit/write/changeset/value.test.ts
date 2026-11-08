@@ -80,8 +80,8 @@ import { dictionaryNameGen, type IdentifierFeature } from "#test/support/kernel/
 import { caseHang } from "#test/support/limits.ts"
 import {
 	descOf,
-	Entry,
-	Ledger,
+	BookEntry,
+	LedgerSchema,
 	parsedOf,
 	switchToManual,
 	uuidOf
@@ -116,7 +116,7 @@ const Extra = relation("Extra", { id: uuid }, ["id"])
 const Ext = schema.extend(Work, { Extra }, [])
 
 type LevelName = "Work" | "Ext" | "Ledger"
-const levelValues: Readonly<Record<LevelName, object>> = { Work, Ext, Ledger }
+const levelValues: Readonly<Record<LevelName, object>> = { Work, Ext, Ledger: LedgerSchema }
 
 /** The level of a schema value, by identity. */
 const levelOfValue = (value: unknown): LevelName =>
@@ -124,7 +124,7 @@ const levelOfValue = (value: unknown): LevelName =>
 		? "Work"
 		: value === Ext
 			? "Ext"
-			: value === Ledger
+			: value === LedgerSchema
 				? "Ledger"
 				: assert.fail("a ChangeSet over one of the pool's levels")
 
@@ -1307,7 +1307,7 @@ const faultCall = (fault: Fault, c: ChangeSetValue): unknown => {
 		case "a closed relation":
 			return c.insert(Kind, [{ id: "Automatic" }])
 		case "another schema's relation":
-			return c.insert(Entry, [])
+			return c.insert(BookEntry, [])
 		case "a closed relation of no schema":
 			return c.insert(closed("Other", ["a"]), [])
 		case "a query over an unrelated schema":

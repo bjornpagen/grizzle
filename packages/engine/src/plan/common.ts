@@ -106,7 +106,6 @@ export type {
 	TemplateRequirements
 } from "#compiler/ir/products.ts"
 export { type Carrier, contractOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
-export type { DomainUse } from "#compiler/laws/model/model.ts"
 export {
 	baseArtifacts,
 	type BuiltSchema,

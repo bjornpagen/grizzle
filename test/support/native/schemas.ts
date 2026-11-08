@@ -315,7 +315,7 @@ export type Term =
 export const fieldTerm = (name: string): Term => ({ kind: "field", field: name })
 export const predTerm = (name: string): Term => ({ kind: "pred", field: name })
 /** constant(v), a containment source's term: v on every row, which selects the target rows holding v at its pair. */
-export const constantTerm = (value: number | boolean): Term => ({ kind: "constant", value })
+const constantTerm = (value: number | boolean): Term => ({ kind: "constant", value })
 
 /** The host field a pred term reads: x − 1, which the side reads only where x > 0. */
 const predField = (name: string): string => `pred(${name})`

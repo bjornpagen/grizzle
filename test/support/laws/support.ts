@@ -1019,7 +1019,7 @@ const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>)
 }
 
 /** A fact of a relation, as a member writes it. */
-export interface Written {
+export interface WrittenFact {
 	readonly relation: string
 	readonly fact: HostFact
 }
@@ -1033,14 +1033,14 @@ export const withSupports = (
 	host: HostSchema,
 	domains: Domains,
 	before: HostState,
-	first: ReadonlyArray<Written>,
+	first: ReadonlyArray<WrittenFact>,
 	values: (k: number) => ReadonlyArray<number>
-): ReadonlyArray<Written> => {
+): ReadonlyArray<WrittenFact> => {
 	const required = Arr.flatMap(host.laws, needs)
 	const stored = Arr.flatMap([...before], ([relation, facts]) =>
 		Arr.map(facts, (fact) => ({ relation, fact }))
 	)
-	const written: Array<Written> = [...first]
+	const written: Array<WrittenFact> = [...first]
 	for (const { relation, fact } of written) {
 		if (written.length > supportBound) {
 			throw new Error(`a group of more than ${supportBound} facts: the family's needs cycle`)
@@ -1075,7 +1075,7 @@ export const withSupports = (
 }
 
 /** Written facts as one insertion per relation, in the order the relations first appear. */
-const insertsOf = (written: ReadonlyArray<Written>): ReadonlyArray<HostOp> =>
+const insertsOf = (written: ReadonlyArray<WrittenFact>): ReadonlyArray<HostOp> =>
 	Arr.map([...new Set(Arr.map(written, (w) => w.relation))], (relation) => ({
 		relation,
 		kind: "insert",
@@ -1185,7 +1185,7 @@ const resolveNear = (
 		(t) => selected(t, to.selection)
 	)
 	/** The target, and what the member writes for it: nothing for a stored one, a drawn one with its supports. */
-	const aimed = (): { readonly target: HostFact; readonly writes: ReadonlyArray<Written> } => {
+	const aimed = (): { readonly target: HostFact; readonly writes: ReadonlyArray<WrittenFact> } => {
 		if (stored !== undefined) {
 			return { target: pickFrom([stored, ...more], sketch.target), writes: [] }
 		}

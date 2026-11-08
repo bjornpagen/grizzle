@@ -105,17 +105,23 @@ const label = str.regex("^[a-z]{1,8}$")
 /** A ledger with a serial key, a serial outside the key, a candidate key, a mutable relation, a pure set and a foreign
  * key: Entry references Book. */
 const Book = relation("Book", { id: uuid, title: label }, ["id"])
-export const Entry = relation("Entry", { id: uuid, book: uuid, code: label, amount: pg.bigint }, [
-	"id"
-])
+export const BookEntry = relation(
+	"Entry",
+	{ id: uuid, book: uuid, code: label, amount: pg.bigint },
+	["id"]
+)
 const Ticket = relation("Ticket", { id: pg.bigserial, note: label }, ["id"])
 const Counter = relation("Counter", { name: label, value: pg.bigint, seq: pg.serial }, ["name"])
 const Status = relation("Status", { id: uuid, state: label }, ["id"])
 const Tag = relation("Tag", { owner: uuid, tag: label }, ["owner", "tag"])
-export const Ledger = schema("Ledger", { Book, Entry, Ticket, Counter, Status, Tag }, [
-	key(on(Entry, "code")),
-	contained(on(Entry, "book"), on(Book, "id")),
-	mutable(Status),
-	mutable(Counter),
-	mutable(Tag)
-])
+export const LedgerSchema = schema(
+	"Ledger",
+	{ Book, Entry: BookEntry, Ticket, Counter, Status, Tag },
+	[
+		key(on(BookEntry, "code")),
+		contained(on(BookEntry, "book"), on(Book, "id")),
+		mutable(Status),
+		mutable(Counter),
+		mutable(Tag)
+	]
+)

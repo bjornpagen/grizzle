@@ -50,7 +50,7 @@ import {
 	outcomeKind as oracleOutcomeKind,
 	stateDelta
 } from "#test/support/oracle/delta.ts"
-import { codesOf, compiled, cs, Ledger } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Deltas and counts netted across strata, checked against the test oracle's definitions over every sequence of
  * per-stratum changes of up to three relations, each fact's change returned by every member that requested it, in any
@@ -364,11 +364,11 @@ describe("a stratum's change is a set difference", () => {
 		"nets a fact a delete freed and a lagging sequence's generated addition drew back identical, and reports one differing as a removal and an addition",
 		(ctx) =>
 			Effect.gen(function* () {
-				const ticket = compiled(Ledger, cs(Ledger)).schema.relations.get("Ticket")
+				const ticket = compiled(LedgerSchema, cs(LedgerSchema)).schema.relations.get("Ticket")
 				if (ticket === undefined) {
 					throw new Error("Ticket")
 				}
-				const identity = relationIdentity(ticket.heading, codesOf(Ledger))
+				const identity = relationIdentity(ticket.heading, codesOf(LedgerSchema))
 				const factSet = (facts: Iterable<Fact>): FactSet =>
 					factSetOf(Arr.map([...facts], (f) => [identity(f), f] as const))
 				yield* searched(

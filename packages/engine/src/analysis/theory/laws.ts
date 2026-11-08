@@ -279,18 +279,18 @@ export interface ResolvedSide<
 export type ResolvedSourceSide = ResolvedSide<ResolvedSelection, ResolvedSourceTerm>
 
 /** The terms of a source side that read its facts: every term but a constant, each occurrence of a repeated one. */
-export const readingTerms = (side: ResolvedSourceSide): ReadonlyArray<ResolvedTerm> =>
+const readingTerms = (side: ResolvedSourceSide): ReadonlyArray<ResolvedTerm> =>
 	side.terms.flatMap((t) => (t.kind === "constant" ? [] : [t]))
 
 /** A containment's pair of two terms. */
-export type TermsPair = Extract<ResolvedPair, { readonly kind: "terms" }>
+type TermsPair = Extract<ResolvedPair, { readonly kind: "terms" }>
 type TermsPairs = NonEmptyReadonlyArray<TermsPair>
 
 /**
  * A containment's pairs when its source is plain, no constant and each term once: the one form a family axis carries
  * and evidence reads. Undefined for any other.
  */
-export const plainPairs = (pairs: NonEmptyReadonlyArray<ResolvedPair>): TermsPairs | undefined => {
+const plainPairs = (pairs: NonEmptyReadonlyArray<ResolvedPair>): TermsPairs | undefined => {
 	const terms = pairs.filter((p): p is TermsPair => p.kind === "terms")
 	const [first, ...rest] = terms
 	return first !== undefined &&

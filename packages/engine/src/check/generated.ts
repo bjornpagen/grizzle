@@ -2,7 +2,7 @@ import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import { type ScalarType, sameUnrefined, typeLabel } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameEnteredType, typeLabel } from "#compiler/ir/scalar.ts"
 
 /**
  * A generated field's rule: a STORED generated column's expression reads its own row's written fields, literals and
@@ -162,7 +162,7 @@ export const generatedRule = (
 /**
  * Why a generation expression of type `expression` cannot fill a column of type `declared`, or undefined when it can:
  * the two are one type but for a text's pattern and byte bound, which the column's domain enforces (scalar.ts
- * sameUnrefined). PostgreSQL coerces a generation expression into its column's type, so a text of any pattern or byte
+ * sameEnteredType). PostgreSQL coerces a generation expression into its column's type, so a text of any pattern or byte
  * bound fills a refined text's column, the domain's CHECK refusing a row whose value lies outside it, as it refuses a
  * caller's value: an outcome on the pattern's rule. Any other difference is a cast grizzle never makes implicitly: a
  * typmod rounds, and a contract, natural among them, is a type of its own.
@@ -171,7 +171,7 @@ export const generatedTypeRule = (
 	declared: ScalarType,
 	expression: ScalarType
 ): GeneratedRule | undefined =>
-	sameUnrefined(declared, expression)
+	sameEnteredType(declared, expression)
 		? undefined
 		: { kind: "type", declared: typeLabel(declared), expression: typeLabel(expression) }
 

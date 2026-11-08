@@ -294,11 +294,11 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 					}
 				}
 			}
-			const admitted = admitFact(s.plan, fact)
-			if (!admitted.ok) {
-				return Result.err(encodeFailure(admitted.error.fault, placeOf(s, admitted.error.field)))
+			const admission = admitFact(s.plan, fact)
+			if (!admission.ok) {
+				return Result.err(encodeFailure(admission.error.fault, placeOf(s, admission.error.field)))
 			}
-			const { identity, fact: value } = admitted.value
+			const { identity, fact: value } = admission.value
 			if (!byIdentity.has(identity)) {
 				byIdentity.set(identity, { fact: value })
 			}

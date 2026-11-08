@@ -4,44 +4,17 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 
 ## Now: the first publish, 1.0.0-beta.1
 
-Owner 2026-11-07: every known bug gets one focused agent now, and every agent commits its own files straight to main by
-pathspec, through the commit gate. No integrator, no branches, no CHANGELOG (deleted). The plan below was triaged with
-the owner: P0 lands before the publish, P1 is the publish itself, P2 follows it.
+Owner 2026-11-07: the final batch has landed and the scope is frozen. Only a real correctness bug comes back to the
+owner first. Passing tests are not required to publish. Every agent commits straight to main, with no commit gate.
 
-How the work runs:
-- One agent per bug or cleanup item, owning named files. It commits and pushes them itself
-  (`git commit -F msg -- <files>`; a concurrent commit waits for .git/index.lock; never `--no-verify`).
-- Runs use half the machine. pg runs go through ~/.cache/grizzle-release/pgslot.sh, unit runs through slot.sh.
-- Planted bugs live only in a scratch copy under ~/.cache/grizzle-release/ with its own install.
-- 5433 is shared with the qti-pie session. Tell it before a pg-tier run, and send it every hash. It repins to grizzle's
-  latest main at once.
-- This work is grizzle only. Fixes due on qti-pie's side are qti-pie's own agents' work.
-
-### P0: before the publish
-Owner 2026-11-07, later the same day: passing tests are no longer required to publish, and grizzle fixes only bugs qti-pie
-triggers or that root in grizzle and affect it. Beta.1 must also lift the limits qti-pie named, each fixed in grizzle,
-never as a hack downstream. Every hash goes to qti-pie, which repins at once.
-- **qti-pie's limits, one agent each:**
-  - #1 a candidate key over a STORED generated column, compared in the write's own statement (Q1);
-  - #2 a containment source with constant terms and a field read twice (Q2);
-  - #3 a fold step or generated term under another refinement of its carrier, refused by the target domain (Q3);
-  - #5 messageMaxBytes and maxStringLength exported (landed, 8a7c03ab);
-  - #7 `lawsOf(schema)` and `sameLaw` (EXP).
-- **The fallback audits:** FB-L and FB-A finish and push.
-
-### P1: the publish
-- **README and SKILL.md:**
-  - the `@beta` install line;
-  - a "what you need to run grizzle" box;
-  - the limits it doesn't state yet, each verified first: no lookaround or `\p` in str.regex, an empty-language
-    pattern refused, a family's member side never a selection, a side's terms distinct, a generated NOT NULL's 23502
-    naming no law, `db.explain` dropping index names;
-  - SKILL.md synced on Compute.singleton, an owner written through an entry, and `refused.every`/`first`.
-- **CONTRIBUTING.md:** the suites that hold each class, each with its oracle; the gate's test rules; how changes land.
+### The publish
+- **Main's release pass:** typecheck and `pnpm check` clean, fixed by hand; schemas.ts `sourceTermValue` (from
+  6a733b71); edit.ts's dead `familyColumnType(...) ?? plane.end.type` fallback; superlint's limit-evidence findings in
+  codec/bytea.ts.
 - **Versions** to 1.0.0-beta.1 in packages/engine and packages/grizzle. The license is 0BSD (owner, 2026-11-07).
 - **Tarballs:** `git archive` the release commit into ~/.cache/grizzle-release/, `pnpm install --frozen-lockfile
-  --ignore-scripts`, then `pnpm pack` packages/engine and packages/grizzle twice and compare byte for byte; the
-  package/consumer suite installs from them. The release commit's full hash goes to the owner.
+  --ignore-scripts`, then `pnpm pack` packages/engine and packages/grizzle twice and compare byte for byte; a scratch
+  consumer installs from them and imports. The release commit's full hash goes to the owner.
 - **The owner publishes.** Main hands over one line that tags the release commit, pushes the tag and runs
   `pnpm -r publish` under the `beta` tag (neither name is on npm yet).
 
@@ -62,7 +35,37 @@ never as a hack downstream. Every hash goes to qti-pie, which repins at once.
   re-insert witness residual (a stored owner re-inserted beside a refused new owner).
 - **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
   illegal state the types still represent (found by FULLROLE).
-- **qti-pie's other limits:** #8 float cast totality past the double form, and a containment whose source is a join.
+- **qti-pie's other limits:** #8 float cast totality past the double form.
+- **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
+  copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
+  - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two
+    lawful states, {r} and {s}, combine into an unlawful one that every single-table constraint and every null-guarded
+    foreign key still admits.
+  - The two ways, for the owner to choose between:
+    - T: one deferred constraint trigger per law, checking at COMMIT. It reverses README's "never a trigger" (lines
+      107, 918, 1611).
+    - N: a parent relation keyed by the join value, with hidden flag columns the writer fills. That means thousands of
+      lines in the write planner, and new write restrictions.
+  - The design, if T: `within(on(R, f…), on(S, g…))` read only as `contained`'s source, with
+    SourceSideDesc.within: WithinDesc[].
+    - The trigger function is SECURITY DEFINER, with EXECUTE revoked from PUBLIC.
+    - R, S and T events probe by their own keys.
+    - A violation raises 23503 naming the law's constraint, with no DETAIL.
+- **Exports qti-pie asked for after the freeze:**
+  - `insertableNamesOf(schema)` / `InsertableNameOf<S>`: the relations a ChangeSet inserts at top level (writable and
+    no family's member), plus insertAll's record type. Today pantry casts.
+  - `patternLawsOf(schema)`: the per-field pattern laws, beside lawsOf. A tautology pattern states no law, and pantry
+    can't see that today.
+- **role's write list naming a relation twice** (`{ write: ["A", "A"] }`) is admitted by the types and refused by the
+  engine as writeTwice (found by FULLROLE).
+- **Failing at HEAD on 2026-11-07, none on a qti-pie path:**
+  - test/types/schema/agreement.test.ts: about 15 cases where the types miss the "the sides' field types differ"
+    refusal, and derivedMirrors is never reached;
+  - test/unit/compute/aggregate.test.ts: no registry node for singleton;
+  - test/unit/compute/text.test.ts: "a literal's ARE", plus one text-matches case seen once ("each value the pattern
+    can take, once");
+  - test/pg/world-model/execute.test.ts leak scan: a direct 23505 on Doc's primary key (TEST_SEED=635540385);
+  - test/pg/world-model/laws.test.ts: `invalid:fact:filtered-serial-omitted` is never reached.
 - **bytes past 268,435,443 bytes:**
   - Why: pg 8.23's parser decodes every result cell as a UTF-8 string, so a binary read isn't possible. Every bytes
     value is read as hex text in one string.

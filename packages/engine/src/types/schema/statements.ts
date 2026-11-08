@@ -85,14 +85,13 @@ export interface Check<Name extends string, R> {
 
 /**
  * A law side: a relation, closed relation or selection projected onto terms, in order, a partial projection: a fact
- * whose pred term is undefined has no tuple on it. Side is covariant, so AnySide is every side whose terms read its
- * facts, and AnySourceSide every side, a containment's source with its constants among them.
+ * whose pred term is undefined has no tuple on it. Side is covariant, so `Side<unknown>` is every side whose terms read
+ * its facts, and AnySourceSide every side, a containment's source with its constants among them.
  */
 export interface Side<R, T extends ReadonlyArray<AnySourceTerm> = ReadonlyArray<AnyTerm>> {
 	readonly source: R
 	readonly terms: T
 }
-export type AnySide = Side<unknown>
 export type AnySourceSide = Side<unknown, ReadonlyArray<AnySourceTerm>>
 
 /**

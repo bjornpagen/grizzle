@@ -89,6 +89,7 @@ import {
 	type HostSchema,
 	type HostState,
 	sameState,
+	sameValues,
 	sortedStateRows,
 	transition,
 	type Violation,
@@ -594,8 +595,7 @@ const caseGen =
 		const stored = source.draw(storedGen(host))
 		const count = source.draw(int(1, 3))
 		const writes = Arr.map(Arr.range(1, count), (i) => source.draw(writeGen(stored, 10 + i)))
-		const [first, ...rest] = writes
-		return { stored, writes: [first ?? source.draw(writeGen(stored, 10)), ...rest] }
+		return { stored, writes }
 	}
 
 /** Another spelling of a text's typed key: its value and sign, the other padding. */
@@ -703,10 +703,10 @@ const refusalNotes = (
 			const writes = Arr.filter(c.writes, (w) => w.relation === "MapKey")
 			return [
 				stored ? "typed key refused against a stored row" : "typed key refused within the write",
-				...(Arr.some(writes, (w) => w.relation === "MapKey" && w.source === "query")
+				...(Arr.some(writes, (w) => w.source === "query")
 					? (["typed key refused for a query's row"] as const)
 					: []),
-				...(Arr.some(writes, (w) => w.relation === "MapKey" && w.edit === "put")
+				...(Arr.some(writes, (w) => w.edit === "put")
 					? (["typed key refused for a put"] as const)
 					: [])
 			]
@@ -1034,13 +1034,18 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 						}
 						/** The case's writes as one stratum: each write's ChangeSet, joined, and every parameter they bind. */
 						const stratumOf = (writes: Arr.NonEmptyReadonlyArray<Write>) => {
-							const [first, ...rest] = Arr.map(writes, writeOf)
+							const written = Arr.map(writes, writeOf)
+							const [first, ...rest] = written
 							let changes: unknown = first.changes
-							let params: ParamMap = first.params
 							for (const w of rest) {
 								changes = changeSetOver.union(changes, w.changes)
-								params = { ...params, ...w.params }
 							}
+							const params: ParamMap = Rec.fromEntries(
+								Arr.flatMap(written, (w) => {
+									const bound: ParamMap = w.params
+									return Rec.toEntries(bound)
+								})
+							)
 							return { changes, params }
 						}
 						const seed = (stored: Stored) =>
@@ -1176,12 +1181,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												Arr.some(
 													met.value.violators,
 													(x) =>
-														x.relation === witness.relation &&
-														Arr.every(
-															Rec.toEntries(x.values),
-															([field, value]) => String(witness.values[field]) === valueText(value)
-														) &&
-														Rec.keys(witness.values).length === Rec.keys(x.values).length
+														x.relation === witness.relation && sameValues(witness.values, x.values)
 												),
 												`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(met.value.violators)}`
 											)

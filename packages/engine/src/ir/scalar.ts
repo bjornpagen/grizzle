@@ -933,20 +933,20 @@ const everyText: TextInfo = Object.freeze({
  * own: a contract, natural among them, whose identity the field classes keep (analysis/theory/classes.ts), a numeric
  * typmod, which rounds, an integer width, a roster, a span's endpoint and width, and a vector's dimensions.
  *
- * A value enters a stored column of type `t` at `unrefined(t)`, whoever writes it, the caller, PostgreSQL's generation
+ * A value enters a stored column of type `t` at `enteredType(t)`, whoever writes it, the caller, PostgreSQL's generation
  * or grizzle's fill, and the column's domain refuses one outside `t`, an outcome on that pattern's rule.
  */
-export const unrefined = (t: ScalarType): ScalarType =>
+export const enteredType = (t: ScalarType): ScalarType =>
 	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
 		? Object.freeze({ ...t, text: everyText })
 		: t
 
 /**
- * Whether two types differ only in what a column's domain enforces (unrefined): a value of either enters a stored
+ * Whether two types differ only in what a column's domain enforces (enteredType): a value of either enters a stored
  * column of the other, its domain the judge.
  */
-export const sameUnrefined = (a: ScalarType, b: ScalarType): boolean =>
-	sameScalarType(unrefined(a), unrefined(b))
+export const sameEnteredType = (a: ScalarType, b: ScalarType): boolean =>
+	sameScalarType(enteredType(a), enteredType(b))
 
 /**
  * Whether a value of this type is refined beyond its base: a contract, or text with a specific pattern. A comparison

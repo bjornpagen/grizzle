@@ -59,17 +59,17 @@ export type { CalendarDate } from "#compiler/ir/date.ts"
 export type DateField = Field<CalendarDate, "date">
 
 /**
- * The SQL types of storage alone, the type level's reading of a capability set of storage only (scalar/registry.ts
- * storedOnly): a value of one is written and read back whole, so no key, side, computation, parameter, filter,
- * contract or written-by-PostgreSQL field takes one. bytea is the one such type.
- */
-export type StoredOnlySql = "bytea"
-
-/**
  * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole: its SQL
  * type is stored only (StoredOnlySql) (scalar/bytes.ts).
  */
-export type BytesField = Field<Uint8Array<ArrayBuffer>, StoredOnlySql>
+export type BytesField = Field<Uint8Array<ArrayBuffer>, "bytea">
+
+/**
+ * The SQL types of storage alone, the type level's reading of a capability set of storage only (scalar/registry.ts
+ * storedOnly): the SQL types of the stored-only fields, bytes the one such field. A value of one is written and read back
+ * whole, so no key, side, computation, parameter, filter, contract or written-by-PostgreSQL field takes one.
+ */
+export type StoredOnlySql = BytesField["sql"]
 
 /**
  * The refusal of a descriptor or term of SQL type Sql where it is stored only (StoredOnlySql), which no key, rule,

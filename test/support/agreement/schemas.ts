@@ -4607,7 +4607,7 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		value === undefined ? [] : [{ name: "v", type: value, writing: callerWriting }]
 	const pairType = value === undefined ? undefined : accumulatorOf(value)
 	const pairFields: ReadonlyArray<FieldSpec> =
-		pair && value !== undefined && pairType !== undefined
+		pair && pairType !== undefined
 			? [
 					{
 						name: "before",
@@ -5344,7 +5344,10 @@ const constantType = (value: LiteralDesc): string => {
 		case "number":
 		case "boolean":
 			return `${value}`
-		default:
+		case "object":
+		case "function":
+		case "symbol":
+		case "undefined":
 			return assert.fail("a constant the population draws: a text, a number, a bigint or a boolean")
 	}
 }
@@ -7240,7 +7243,7 @@ const sourceTermText = (form: SourceTermForm, src: string, tgt: string): SourceT
 }
 
 /** A source-term form's statement over the relations `src` and `tgt`, built through the engine's cores. */
-const sourceTermValue = (form: SourceTermForm, src: AnyRelation, tgt: AnyRelation): unknown => {
+const sourceTermValue = (form: SourceTermForm, src: AnyRelation, tgt: AnyRelation): Statement => {
 	switch (form.kind === "valid" ? form.form : form.fault) {
 		case "constantSource":
 			return containedBuilder(

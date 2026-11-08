@@ -31,12 +31,25 @@ const byteaOid = 17
 const int32Bytes = 4
 
 /**
- * The fields before a one-dimensional array's elements: its dimension count, its flags, its element type, and its one
- * dimension's length and lower bound. An empty array has no dimension, so neither of the last two.
+ * The Int32 fields before a one-dimensional array's elements: its dimension count, its flags, its element type, and its
+ * one dimension's length and lower bound.
+ *
+ * @formatConstant the header fields of a one-dimensional array in the array binary format
  */
-const arrayFields = { dimensioned: 5, empty: 3 } as const
+const dimensionedFields = 5
 
-/** The lower bound of every array grizzle sends, PostgreSQL's default. */
+/**
+ * The Int32 fields of an empty array: its dimension count, its flags and its element type, as it has no dimension.
+ *
+ * @formatConstant the header fields of an empty array in the array binary format
+ */
+const emptyFields = 3
+
+/**
+ * The lower bound of every array grizzle sends, PostgreSQL's default.
+ *
+ * @formatConstant the array binary format's default lower bound
+ */
 const lowerBound = 1
 
 /**
@@ -51,7 +64,7 @@ export const byteaArray = (
 	column: string,
 	values: ReadonlyArray<Bytes>
 ): Result.Result<ParamBinary, LiteralBound> => {
-	const fields = values.length === 0 ? arrayFields.empty : arrayFields.dimensioned
+	const fields = values.length === 0 ? emptyFields : dimensionedFields
 	let length = fields * int32Bytes
 	for (const value of values) {
 		length += int32Bytes + value.length

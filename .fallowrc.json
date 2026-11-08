@@ -566,7 +566,7 @@
 		{ "file": "packages/engine/src/sql/naming.ts", "exports": ["freshNames"] },
 		{
 			"file": "packages/engine/src/types/changeset/changeset.ts",
-			"exports": ["Delta", "LawSide", "Member", "Stratum", "Witness", "Written"]
+			"exports": ["Delta", "LawSide", "LawSourceSide", "Member", "Stratum", "Witness", "Written"]
 		},
 		{
 			"file": "packages/engine/src/types/core/phantom.ts",
