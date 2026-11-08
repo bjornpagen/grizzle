@@ -2936,8 +2936,9 @@ grizzle fits applications that own their data end to end, with rules worth decla
   is more than 16,000 arcs, which the compiler's recursive walks would descend past `max_stack_depth`; more than 64,000
   NFA states to match with, or 16,000,000 for those states times its colors, the arrays each match allocates within
   `MaxAllocSize`; or more than 8 anchors it must move, those some consuming path reaches or leaves. A counted
-  repetition's bound is at most 255. Each pattern a `Compute.matches` term can take, a closed relation's dictionary
-  values included, is bounded alike.
+  repetition's bound is at most 255, PostgreSQL's own, so `^.{0,n}$` holds n up to 255; a longer bound on any text is
+  `str.bytes(n, ...)` or a contract's `Compute.charLength`. Each pattern a `Compute.matches` term can take, a closed
+  relation's dictionary values included, is bounded alike.
 - **A large pattern costs time.** A pattern near the limits takes seconds to compile, the first time a backend checks it
   and again whenever it leaves the backend's cache (below), and each match allocates arrays that grow with its states
   and colors. grizzle sets no time budget.

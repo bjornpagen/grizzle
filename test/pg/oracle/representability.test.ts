@@ -143,7 +143,10 @@ const names = (fields: ReadonlyArray<FieldSketch>): ReadonlyArray<string> =>
 const layoutOf = (fields: ReadonlyArray<FieldSketch>) =>
 	keyLayout(Arr.map(fields, (f, i) => ({ field: `f${i}`, desc: descOf(f) })))
 
-/** The key with its first text field at the largest accepted length, when it has one and the rest fits. */
+/**
+ * The key with its first text field at the largest accepted length, when it has one and the rest fits: a pattern's
+ * length within PostgreSQL's repetition limit, which its pattern `^.{0,n}$` states, a contract's within an index entry.
+ */
 const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	const firstText = Arr.findFirstIndex(s.fields, (f) => f.kind === "text")
 	if (!s.fill || Option.isNone(firstText)) {
@@ -155,8 +158,12 @@ const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	if (!layoutOf(at(0)).ok) {
 		return s.fields
 	}
+	const firstField = s.fields[first]
 	let lo = 0
-	let hi = btreeMaxItemSize.value
+	let hi =
+		firstField?.kind === "text" && firstField.bound === "pattern"
+			? regexMaxRepeat.value
+			: btreeMaxItemSize.value
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2)
 		if (layoutOf(at(mid)).ok) {
