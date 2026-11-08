@@ -20,11 +20,13 @@ import type { ObjectName, RenameObject, SqlStatement, TableConstraint } from "#c
 /** The kinds of object that hold a name in the types' name space: a relation's row type, or a domain. */
 type Holding = "table" | "materializedView" | "domain"
 
-/** What a relation holder owns under a name of its schema's pg_class or statistics objects, read off its parts
- * (objectParts), and the name it is set aside to: a key, whose index takes the constraint's name and is renamed through
- * it; another index over it; an identity sequence of one of its columns; an extended statistics object over it. */
+/** What a relation holder owns under a name of its own, read off its parts (objectParts), and the name it is renamed
+ * to: a key, whose index takes the constraint's name and is renamed through it; a constraint with no index, a CHECK or
+ * a foreign key, whose name lies in its relation's namespace alone; another index over it; an identity sequence of one
+ * of its columns; an extended statistics object over it. Setting a relation aside takes the names it owns in its
+ * schema's pg_class and statistics objects (ownedBy), never a constraint's with no index, which stays its own. */
 export interface Owned {
-	readonly kind: "key" | "index" | "sequence" | "statistics"
+	readonly kind: "key" | "constraint" | "index" | "sequence" | "statistics"
 	readonly name: string
 	readonly to: string
 }
@@ -194,6 +196,7 @@ const takenAside = (
 const ownedRename = (at: (name: string) => ObjectName, to: string, o: Owned): SqlStatement => {
 	switch (o.kind) {
 		case "key":
+		case "constraint":
 			return { kind: "renameConstraint", table: at(to), from: o.name, to: o.to }
 		case "index":
 			return { kind: "rename", object: "INDEX", name: at(o.name), to: o.to }
@@ -239,10 +242,8 @@ export const asideStatements = (a: Aside): NonEmptyReadonlyArray<SqlStatement> =
 
 /** The previous snapshot as it is once its holders are set aside: each holder, and for a relation its columns,
  * constraints, triggers and what it owns (Owned), under the aside names in its identities, its definitions, its
- * dependencies and every other statement that names them, the grants, PUBLIC revokes and role defaults among them: a
- * key's name in its relation's own namespace (inConstraints), renamed first, under its holder's old name, then the
- * holders, their indexes and sequences in the relations' namespace, the types in the types' and the statistics objects
- * in theirs. Its fingerprint stays the committed one, the folder's source. */
+ * dependencies and every other statement that names them, the grants, PUBLIC revokes and role defaults among them
+ * (withNames). Its fingerprint stays the committed one, the folder's source. */
 export const setAside = (
 	previous: DeploySnapshot,
 	asides: ReadonlyArray<Aside>
@@ -250,7 +251,6 @@ export const setAside = (
 	if (asides.length === 0) {
 		return previous
 	}
-	const schema = previous.schema
 	const relationAsides = asides.flatMap((a) =>
 		a.kind === "table" || a.kind === "materializedView" ? [a] : []
 	)
@@ -258,26 +258,45 @@ export const setAside = (
 		relationAsides.flatMap((a) =>
 			a.owned.filter((o) => kinds.includes(o.kind)).map((o) => [o.name, o.to] as const)
 		)
-	/** The holders' tables and views, and in the same pg_class name space their keys' and other indexes and their
-	 * sequences. */
-	const relations = new Map([
-		...relationAsides.map((a) => [a.name.name, a.to] as const),
-		...owned(["key", "index", "sequence"])
-	])
-	const types = new Map(
-		asides.flatMap((a) => (a.kind === "domain" ? [[a.name.name, a.to] as const] : []))
-	)
-	const statistics = new Map(owned(["statistics"]))
-	/** Each relation holder's keys by its name, in its own namespace. */
-	const keys = new Map(
-		relationAsides.map(
-			(a) =>
-				[
-					a.name.name,
-					new Map(a.owned.filter((o) => o.kind === "key").map((o) => [o.name, o.to] as const))
-				] as const
+	return withNames(previous, {
+		relations: new Map([
+			...relationAsides.map((a) => [a.name.name, a.to] as const),
+			...owned(["key", "index", "sequence"])
+		]),
+		types: new Map(
+			asides.flatMap((a) => (a.kind === "domain" ? [[a.name.name, a.to] as const] : []))
+		),
+		statistics: new Map(owned(["statistics"])),
+		keys: new Map(
+			relationAsides.map(
+				(a) =>
+					[
+						a.name.name,
+						new Map(a.owned.filter((o) => o.kind === "key").map((o) => [o.name, o.to] as const))
+					] as const
+			)
 		)
-	)
+	})
+}
+
+/** Renames of the names a snapshot's schema holds, each namespace's by the name it renames: its relations' in pg_class
+ * (tables, materialized views, indexes, a key's index and identity sequences), its types', its statistics objects', and
+ * each relation's own constraints', by the relation's name before the renames. */
+export interface Renamed {
+	readonly relations: ReadonlyMap<string, string>
+	readonly types: ReadonlyMap<string, string>
+	readonly statistics: ReadonlyMap<string, string>
+	readonly keys: ReadonlyMap<string, ReadonlyMap<string, string>>
+}
+
+/** A snapshot with every name `names` renames renamed, in its identities, its definitions, its dependencies and every
+ * other statement that names them, the grants, PUBLIC revokes and role defaults among them: a key's name in its
+ * relation's own namespace (inConstraints) first, under its relation's old name, then the relations, their indexes and
+ * sequences in the relations' namespace, the types in the types' and the statistics objects in theirs. Its fingerprint
+ * stays the committed one. */
+export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnapshot => {
+	const schema = previous.schema
+	const { relations, types, statistics, keys } = names
 	const maps: ReadonlyArray<QualifiedRenames> = [
 		inConstraints(keys),
 		inRelations(relations),
@@ -306,13 +325,15 @@ export const setAside = (
 			case "constraint":
 			case "trigger":
 			case "policy": {
-				const to = parsed.schema === schema ? relations.get(parsed.relation) : undefined
-				if (to === undefined) {
+				if (parsed.schema !== schema) {
 					return id
 				}
+				const to = relations.get(parsed.relation)
 				const key =
 					parsed.kind === "constraint" ? keys.get(parsed.relation)?.get(parsed.name) : undefined
-				return innerIdent(parsed.kind, parsed.schema, to, key ?? parsed.name)
+				return to === undefined && key === undefined
+					? id
+					: innerIdent(parsed.kind, parsed.schema, to ?? parsed.relation, key ?? parsed.name)
 			}
 			case "function":
 			case "view":
@@ -342,4 +363,13 @@ export const setAside = (
 			publicRevokes: statements(previous.manifest.publicRevokes)
 		}
 	}
+}
+
+/** The RENAME of each part `owned` of the relation `table` (Owned), on the relation under its name. */
+export const partRenames = (
+	table: ObjectName,
+	owned: ReadonlyArray<Owned>
+): ReadonlyArray<SqlStatement> => {
+	const at = (name: string): ObjectName => ({ ...table, name })
+	return owned.map((o) => ownedRename(at, table.name, o))
 }

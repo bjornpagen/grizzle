@@ -16,8 +16,10 @@ import {
 	asideName,
 	asideStatements,
 	type Owned,
+	partRenames,
 	relationAside,
-	setAside
+	setAside,
+	withNames
 } from "#compiler/deploy/diff/aside.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { fieldWriting } from "#compiler/deploy/snapshot/build.ts"
@@ -25,6 +27,7 @@ import {
 	installed,
 	type ManifestObject,
 	nameKey,
+	type PartOf,
 	relationParts,
 	same
 } from "#compiler/deploy/snapshot/objects.ts"
@@ -168,18 +171,18 @@ const loginIn = (
  *
  * A renamed relation or roster is first renamed aside with every name it owns (aside.ts relationAside), as is each
  * relation dropped whose name a rename takes, so any order of renames is free of the names it moves into, a swap or a
- * chain included; then each renamed one is renamed from its aside name to the target's, each part it owns that the
- * target's relation declares by the same definition renamed to the target's name for it (pairParts), the rest left
- * under their aside names for the diff to drop. A renamed field is renamed in place, through its own aside name, on its
- * relation under the target's name, and PostgreSQL carries the rename into everything built over the column, so the
- * previous snapshot names it under its new name there too (withColumns); the diff then builds again only what the
- * target declares otherwise, and a key it replaces over the renamed columns is one it sees standing over them. A renamed handle
- * keeps its code: the codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it.
- * A law column, named by what it holds, its relations, fields, handles and laws among them, is renamed in place when a
- * declaration only renames what it holds (lawColumnRenames), and a drawn or accumulated field's record of what fills
- * it reads as the target's when a declaration only renames its filler (restatedWritings): both are restated under the
- * previous snapshot's names (previousNames), so the migration keeps their values and draws nothing again.
- * A renamed login's role is renamed in place the same way, through its aside name (loginRenamed).
+ * chain included; then each renamed one is renamed from its aside name to the target's. A renamed field is renamed in
+ * place, through its own aside name, on its relation under the target's name, and PostgreSQL carries the rename into
+ * everything built over the column, so the previous snapshot names it under its new name there too (withColumns). A
+ * law column, named by what it holds, its relations, fields, handles and laws among them, is renamed in place the same
+ * way when a declaration only renames what it holds (lawColumnRenames). Then each key, index, statistics object and
+ * identity sequence of a table a declaration touched is paired by definition with the target's, its columns read under
+ * their new names, and renamed to the target's name for it (pairedParts); the diff builds again only what the target
+ * declares otherwise. A drawn or accumulated field's record of what fills it reads as the target's when a declaration
+ * only renames its filler (restatedWritings). Law columns and fillers are restated under the previous snapshot's names
+ * (previousNames), so the migration keeps their values and draws nothing again. A renamed handle keeps its code: the
+ * codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it. A renamed login's
+ * role is renamed in place the same way, through its aside name (loginRenamed).
  */
 export const applyDeclarations = (
 	previous: DeploySnapshot,
@@ -437,10 +440,47 @@ export const applyDeclarations = (
 	const relations = renamedSnapshot(previous, target, renamed, fields, temporaries)
 	const names = previousNames(before, after, renamed, fields, handles, handlesAway)
 	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
-	const writings = restatedWritings(columns.previous, target, installation, names)
+	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law
+	 * columns move. */
+	const touched = new Map(
+		[
+			...[...renamed.values()].flatMap((to) => {
+				const now = heldIn(after, to)
+				return now?.kind === "relation" ? [now.ident] : []
+			}),
+			...[...fields.keys()].flatMap((r) => {
+				const now = heldAlike(after, targetName(r))
+				return now?.kind === "relation" ? [now.ident] : []
+			}),
+			...columns.tables
+		].map((name) => {
+			const table: ObjectName = { schema: previous.schema, name }
+			return [nameKey(table), table] as const
+		})
+	)
+	/** And each table holding a foreign key into one of those, whose definition reads its relation's new name. */
+	const referring = columns.previous.manifest.objects.flatMap((o) => {
+		const v = installed(o)
+		return v.kind === "foreignKey" && touched.has(nameKey(v.constraint.references))
+			? [[nameKey(v.table), v.table] as const]
+			: []
+	})
+	const parts = pairedParts(
+		columns.previous,
+		target,
+		[...new Map([...touched, ...referring]).values()],
+		new Set(relations.asides),
+		temporaries
+	)
+	const writings = restatedWritings(parts.previous, target, installation, names)
 	const roles = loginRenamed(writings, target, logins, temporaries)
 	return {
-		statements: [...relations.statements, ...columns.statements, ...roles.statements],
+		statements: [
+			...relations.statements,
+			...columns.statements,
+			...parts.statements,
+			...roles.statements
+		],
 		previous: roles.previous
 	}
 }
@@ -585,7 +625,11 @@ const lawColumnRenames = (
 	installation: Installation,
 	names: PreviousNames,
 	temporaries: TemporaryCensus
-): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+): {
+	readonly statements: ReadonlyArray<SqlStatement>
+	readonly previous: DeploySnapshot
+	readonly tables: ReadonlyArray<string>
+} => {
 	const schema = previous.schema
 	const laws = new Map(installation.laws.theory.laws.map((l) => [l.id, l] as const))
 	const held = new Map<string, Set<string>>()
@@ -650,8 +694,12 @@ const lawColumnRenames = (
 			])
 		)
 	}
+	const tables = [...tableColumns.keys()].flatMap((key) => {
+		const table = targets.get(key)?.table
+		return table === undefined ? [] : [table.name]
+	})
 	if (tableColumns.size === 0) {
-		return { statements, previous }
+		return { statements, previous, tables }
 	}
 	const renamedOn = (table: ObjectName): ReadonlyMap<string, string> | undefined =>
 		tableColumns.get(nameKey(table))
@@ -665,6 +713,7 @@ const lawColumnRenames = (
 	}
 	return {
 		statements,
+		tables,
 		previous: {
 			...previous,
 			manifest: {
@@ -707,7 +756,7 @@ const renamedSnapshot = (
 	renamed: ReadonlyMap<string, string>,
 	fields: ReadonlyMap<string, ReadonlyMap<string, string>>,
 	temporaries: TemporaryCensus
-): Applied => {
+): Applied & { readonly asides: ReadonlyArray<string> } => {
 	const schema = previous.schema
 	const before = previous.theory.relations
 	const after = target.theory.relations
@@ -737,7 +786,7 @@ const renamedSnapshot = (
 	})
 	const firstAsides = moving.map((m) => m.first)
 	const aside = setAside(previous, firstAsides)
-	/** Each renamed relation from its aside name to the target's, with the parts the target declares alike. */
+	/** Each renamed relation from its aside name to the target's, its parts left aside for pairedParts. */
 	const secondAsides = moving.flatMap(({ name, r, first }): ReadonlyArray<Aside> => {
 		const to = renamed.get(name)
 		if (to === undefined) {
@@ -748,19 +797,10 @@ const renamedSnapshot = (
 			throw defect(`the target holds ${to}, which applyDeclarations checked each rename to name`)
 		}
 		const from: ObjectName = { schema, name: first.to }
-		const into: ObjectName = { schema, name: now.ident }
 		if (r.kind === "closed" || first.kind === "domain") {
 			return [{ kind: "domain", name: from, cause: { kind: "declared" }, to: now.ident }]
 		}
-		return [
-			{
-				kind: "table",
-				name: from,
-				cause: { kind: "declared" },
-				to: now.ident,
-				owned: pairedParts(aside, target, from, into)
-			}
-		]
+		return [{ kind: "table", name: from, cause: { kind: "declared" }, to: now.ident, owned: [] }]
 	})
 	const moved = setAside(aside, secondAsides)
 	const columns = columnRenames(moved, after, renamed, fields, temporaries)
@@ -792,68 +832,192 @@ const renamedSnapshot = (
 			...secondAsides.flatMap((a) => asideStatements(a)),
 			...columns.statements
 		],
-		previous: { ...columns.previous, theory }
+		previous: { ...columns.previous, theory },
+		asides: firstAsides.flatMap((a) => (a.kind === "domain" ? [] : a.owned.map((o) => o.to)))
 	}
 }
 
-/** The parts of the set-aside relation `from` the target's relation `into` declares by the same definition, each to be
- * renamed from its aside name to the target's: a key by its constraint, which renames its index, another index, an
- * extended statistics object and an identity sequence by its column. */
-const pairedParts = (
-	aside: DeploySnapshot,
-	target: SnapshotContent,
-	from: ObjectName,
-	into: ObjectName
-): ReadonlyArray<Owned> => {
-	const wasIdent = new Map(aside.manifest.objects.map((o) => [o.ident, o]))
-	const nowIdent = new Map(target.manifest.objects.map((o) => [o.ident, o]))
-	const was = relationParts(from, aside.manifest.objects, wasIdent)
-	const now = relationParts(into, target.manifest.objects, nowIdent)
-	const unpaired = <P extends { readonly name: string }>(parts: ReadonlyMap<string, P>) =>
-		new Map(parts)
-	const keys = unpaired(now.constraint)
-	const indexes = unpaired(now.index)
-	const statistics = unpaired(now.statistics)
-	const sequences = unpaired(now.sequence)
-	const take = <P extends { readonly name: string }>(
-		pool: Map<string, P>,
-		is: (p: P) => boolean
-	): P | undefined => {
-		const found = [...pool.values()].find(is)
+/** A part of a relation a draft pairs by definition, by its kind as aside.ts Owned names it, and the name it takes. */
+interface Paired {
+	readonly kind: Owned["kind"]
+	readonly name: string
+	readonly to: string
+}
+
+/** The parts of `was` paired with those of `now` of the same definition (`same`), each with the name `now` gives it:
+ * one of its own name first, so a part both name alike stays as it is, then any other, each taken once. */
+const pairBy = <P extends { readonly name: string }>(
+	kind: (p: P) => Owned["kind"],
+	was: ReadonlyMap<string, P>,
+	now: ReadonlyMap<string, P>,
+	matches: (a: P, b: P) => boolean
+): ReadonlyArray<Paired> => {
+	const pool = new Map(now)
+	const pairs: Array<Paired> = []
+	const unpaired: Array<P> = []
+	for (const p of was.values()) {
+		const own = pool.get(p.name)
+		if (own !== undefined && matches(p, own)) {
+			pool.delete(p.name)
+			pairs.push({ kind: kind(p), name: p.name, to: p.name })
+		} else {
+			unpaired.push(p)
+		}
+	}
+	for (const p of unpaired) {
+		const found = [...pool.values()].find((t) => matches(p, t))
 		if (found !== undefined) {
 			pool.delete(found.name)
+			pairs.push({ kind: kind(p), name: p.name, to: found.name })
 		}
-		return found
 	}
-	return [
-		...[...was.constraint.values()].flatMap((c): ReadonlyArray<Owned> => {
-			const k = c.constraint
-			if (k.kind !== "primaryKey" && k.kind !== "unique" && k.kind !== "exclude") {
-				return []
-			}
-			const pair = take(keys, (t) => same({ ...t.constraint, name: "" }, { ...k, name: "" }))
-			return pair === undefined ? [] : [{ kind: "key", name: c.name, to: pair.name }]
-		}),
-		...[...was.index.values()].flatMap((x): ReadonlyArray<Owned> => {
-			const pair = take(indexes, (t) =>
-				same({ ...t.create, name: "" }, { ...x.create, name: "", table: into })
+	return pairs
+}
+
+/** The names a part holds, each in the namespace PostgreSQL holds it in: a key its constraint's name in its relation's
+ * own namespace and its index's in pg_class; another constraint its name in its relation's namespace alone; an index
+ * and a sequence theirs in pg_class; a statistics object its own among the statistics objects. */
+const heldNames = (kind: Owned["kind"], name: string): ReadonlyArray<string> => {
+	switch (kind) {
+		case "key":
+			return [`constraint ${name}`, `relation ${name}`]
+		case "constraint":
+			return [`constraint ${name}`]
+		case "index":
+		case "sequence":
+			return [`relation ${name}`]
+		case "statistics":
+			return [`statistics ${name}`]
+	}
+}
+
+/** A key: a constraint with an index of its own, which takes its name. */
+const isKey = (c: TableConstraint): boolean =>
+	c.kind === "primaryKey" || c.kind === "unique" || c.kind === "exclude"
+
+/**
+ * The parts of each table `tables` carried to the names the target gives them, and the previous snapshot as it stands
+ * after: each constraint, a key's renaming its index, each other index, each extended statistics object and each
+ * identity sequence, paired with the target's part of the same definition once every declared rename of the relations,
+ * the fields and the law columns has run, so each definition reads its columns and the relations it references under
+ * their new names (pairBy). A paired part the target names otherwise is renamed, so the migration neither builds nor
+ * validates it again. A previous part holding a name a paired part takes, itself paired with none, is renamed aside
+ * first, and the diff drops it there; every renamed part goes through its aside name, so a swap or a chain of names
+ * meets none another holds, but one a relation's rename already set aside (`aside`), which goes straight to its name. A
+ * part paired with none is the diff's to drop and build. The previous snapshot then names each part as the database
+ * holds it (aside.ts withNames).
+ */
+const pairedParts = (
+	previous: DeploySnapshot,
+	target: SnapshotContent,
+	tables: ReadonlyArray<ObjectName>,
+	aside: ReadonlySet<string>,
+	temporaries: TemporaryCensus
+): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+	const wasIdent = new Map(previous.manifest.objects.map((o) => [o.ident, o]))
+	const nowIdent = new Map(target.manifest.objects.map((o) => [o.ident, o]))
+	const constraintKind = (c: PartOf<"constraint">): Owned["kind"] =>
+		isKey(c.constraint) ? "key" : "constraint"
+	const outward: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<Owned> }> = []
+	const back: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<Owned> }> = []
+	const relations = new Map<string, string>()
+	const statistics = new Map<string, string>()
+	const keys = new Map<string, ReadonlyMap<string, string>>()
+	for (const table of tables) {
+		const was = relationParts(table, previous.manifest.objects, wasIdent)
+		const now = relationParts(table, target.manifest.objects, nowIdent)
+		const pairs = [
+			...pairBy(constraintKind, was.constraint, now.constraint, (a, b) =>
+				same({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
+			),
+			...pairBy(
+				() => "index",
+				was.index,
+				now.index,
+				(a, b) => same({ ...a.create, name: "" }, { ...b.create, name: "" })
+			),
+			...pairBy(
+				() => "statistics",
+				was.statistics,
+				now.statistics,
+				(a, b) =>
+					same(
+						{ ...a.create, name: { ...a.create.name, name: "" } },
+						{ ...b.create, name: { ...b.create.name, name: "" } }
+					)
+			),
+			...pairBy(
+				() => "sequence",
+				was.sequence,
+				now.sequence,
+				(a, b) => a.column === b.column
 			)
-			return pair === undefined ? [] : [{ kind: "index", name: x.name, to: pair.name }]
-		}),
-		...[...was.statistics.values()].flatMap((x): ReadonlyArray<Owned> => {
-			const pair = take(statistics, (t) =>
-				same(
-					{ ...t.create, name: { ...t.create.name, name: "" } },
-					{ ...x.create, name: { ...x.create.name, name: "" }, table: into }
+		]
+		const moves = pairs.filter((p) => p.name !== p.to)
+		const paired = new Set(pairs.flatMap((p) => heldNames(p.kind, p.name)))
+		const taken = new Set(moves.flatMap((m) => heldNames(m.kind, m.to)))
+		const standing: ReadonlyArray<Paired> = [
+			...[...was.constraint.values()].map((c) => ({
+				kind: constraintKind(c),
+				name: c.name,
+				to: c.name
+			})),
+			...[...was.index.keys()].map((name) => ({ kind: "index" as const, name, to: name })),
+			...[...was.sequence.keys()].map((name) => ({ kind: "sequence" as const, name, to: name })),
+			...[...was.statistics.keys()].map((name) => ({ kind: "statistics" as const, name, to: name }))
+		]
+		const holders = standing.filter((h) => {
+			const names = heldNames(h.kind, h.name)
+			return names.some((n) => taken.has(n)) && !names.some((n) => paired.has(n))
+		})
+		if (moves.length === 0 && holders.length === 0) {
+			continue
+		}
+		const vacate = (p: Paired): Owned => ({
+			kind: p.kind,
+			name: p.name,
+			to: asideName(temporaries, p.name)
+		})
+		const direct = moves.filter((m) => aside.has(m.name))
+		const through = moves
+			.filter((m) => !aside.has(m.name))
+			.map((m) => ({ first: vacate(m), to: m.to }))
+		const vacated = holders.map(vacate)
+		outward.push({ table, owned: [...vacated, ...through.map((m) => m.first)] })
+		back.push({
+			table,
+			owned: [
+				...direct,
+				...through.map(({ first, to }) => ({ kind: first.kind, name: first.to, to }))
+			]
+		})
+		const final: ReadonlyArray<Owned> = [...moves, ...vacated]
+		for (const p of final) {
+			if (p.kind === "statistics") {
+				statistics.set(p.name, p.to)
+			} else if (p.kind !== "constraint") {
+				relations.set(p.name, p.to)
+			}
+		}
+		keys.set(
+			table.name,
+			new Map(
+				final.flatMap((p) =>
+					p.kind === "key" || p.kind === "constraint" ? [[p.name, p.to] as const] : []
 				)
 			)
-			return pair === undefined ? [] : [{ kind: "statistics", name: x.name, to: pair.name }]
-		}),
-		...[...was.sequence.values()].flatMap((q): ReadonlyArray<Owned> => {
-			const pair = take(sequences, (t) => t.column === q.column)
-			return pair === undefined ? [] : [{ kind: "sequence", name: q.name, to: pair.name }]
-		})
-	].filter((o) => o.name !== o.to)
+		)
+	}
+	if (outward.length === 0) {
+		return { statements: [], previous }
+	}
+	return {
+		statements: [
+			...outward.flatMap((a) => partRenames(a.table, a.owned)),
+			...back.flatMap((a) => partRenames(a.table, a.owned))
+		],
+		previous: withNames(previous, { relations, types: new Map(), statistics, keys })
+	}
 }
 
 /** The declared field renames carried out on each relation under its target name, through each column's aside name so
