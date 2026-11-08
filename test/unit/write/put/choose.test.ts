@@ -21,7 +21,7 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 /**
  * Each put's statement (write/put/choose.ts choosePutTargets), held to the rules its header states, restated over the
  * box's names: a mutable R(b, c, d) keyed by (b, c), beside one more unique object or none, put by each form a ChangeSet
- * writes it in one stratum.
+ * writes it in, in one stratum or after an insert in an earlier one.
  *
  * - A unique object reading a field outside the primary key, key(d), makes every put the pair (candidateKey): an UPDATE
  *   checks it at each row, so a statement moving a value between facts would raise 23505 on a lawful final state.
@@ -33,7 +33,9 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  *   stratum's additions, so the put is the pair (unproved).
  * - A put of R's own facts, each key a stored fact's, is an UPDATE ... FROM (existingKeys) when the stratum deletes
  *   nothing of R, and the pair (unproved) beside a deletion, whose key the UPDATE would leave no row to update.
- * - An enumerated put is an ON CONFLICT DO UPDATE (enumerated).
+ * - An enumerated put is an ON CONFLICT DO UPDATE (enumerated), unless another stratum writes R too: the netting of its
+ *   strata needs every fact the put displaces, whose old version neither ON CONFLICT DO UPDATE nor MERGE returns, so the
+ *   put is the pair (netting).
  *
  * And what its statement reads its input as: an enumerated put's facts are distinct and unique at R's key by the codec's
  * normalization, and a put of R's own facts is unique at R's key by the key its member proves, so neither statement
@@ -50,6 +52,7 @@ type Form =
 	| "own facts"
 	| "own facts beside a deletion"
 	| "enumerated"
+	| "enumerated after an insert in an earlier stratum"
 
 /** The statement a put lowers to, and why. */
 interface Choice {
@@ -133,6 +136,11 @@ const changeSetOf = (s: ReturnType<typeof schemaOf>, form: Form) => {
 			return empty.put(R, ownFacts(s)).delete(R, zeroFacts(s))
 		case "enumerated":
 			return empty.put(R, [{ b: 1, c: 1, d: 1 }])
+		case "enumerated after an insert in an earlier stratum":
+			return ChangeSet.sequence(
+				empty.insert(R, [{ b: 2, c: 2, d: 2 }]),
+				empty.put(R, [{ b: 1, c: 1, d: 1 }])
+			)
 	}
 }
 
@@ -153,6 +161,8 @@ const expectedOf = (uniques: Uniques, form: Form): Choice => {
 			return { target: "updateFrom", reason: "existingKeys" }
 		case "enumerated":
 			return { target: "onConflictDoUpdate", reason: "enumerated" }
+		case "enumerated after an insert in an earlier stratum":
+			return { target: "deleteThenInsert", reason: "netting" }
 	}
 }
 
@@ -167,7 +177,8 @@ const forms: Arr.NonEmptyReadonlyArray<Form> = [
 	"replace beside an insert",
 	"own facts",
 	"own facts beside a deletion",
-	"enumerated"
+	"enumerated",
+	"enumerated after an insert in an earlier stratum"
 ]
 
 const caseGen: Gen<readonly [Uniques, Form]> = (source) =>
@@ -184,8 +195,8 @@ describe("a put's statement", () => {
 						suite: "unit/write/put/choose",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 20,
-						box: "a mutable R(b, c, d) keyed by (b, c), beside no other unique object, key(c), a key over a selected (b, c) or key(d), put from a relation parameter beside the scoped deletion of what it lacks, alone or beside an insert, from its own facts, alone or beside a deletion, or enumerated",
+						limit: 24,
+						box: "a mutable R(b, c, d) keyed by (b, c), beside no other unique object, key(c), a key over a selected (b, c) or key(d), put from a relation parameter beside the scoped deletion of what it lacks, alone or beside an insert, from its own facts, alone or beside a deletion, or enumerated, alone or after an insert in an earlier stratum",
 						oracle: {
 							kind: "specification",
 							name: "choosePutTargets' rules, restated over the box"
@@ -194,6 +205,7 @@ describe("a put's statement", () => {
 							"deleteThenInsert (candidateKey)",
 							"deleteThenInsert (mergeUnique)",
 							"deleteThenInsert (unproved)",
+							"deleteThenInsert (netting)",
 							"merge (scopedMerge)",
 							"updateFrom (existingKeys)",
 							"onConflictDoUpdate (enumerated)"
