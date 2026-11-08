@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
+import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -15,7 +16,8 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
+import { scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
 import {
 	ledgerCatalog,
 	nodesOf,
@@ -32,7 +34,9 @@ import {
  * occurrence binds, a literal or a parameter, and no payload field is read. A rewritten occurrence of a sparse relation is
  * read from its installed key set, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
  * is read from its facts. That the rewritten query delivers what the VALUES join delivers is
- * test/pg/closed/membership.test.ts's, on PostgreSQL.
+ * test/pg/closed/membership.test.ts's, on PostgreSQL. A roster's occurrence whose source another occurrence reads
+ * laterally, through a constant, stays in its region, its reader's reference in scope; one read by no other occurrence,
+ * or beside a lateral read of another source, is its membership test.
  */
 
 /** How the query reads one key field of Grid. */
@@ -364,6 +368,84 @@ describe("R07 over closed constants", () => {
 								only.closed === "Kind" || Str.startsWith("__")(only.closed),
 								`a narrowed Closed node names no declared relation: ${only.closed}`
 							)
+						})
+				)
+			)
+	)
+})
+
+/**
+ * What a third occurrence of a region over the roster Kind and a task reads through a constant on its kind: nothing,
+ * the task's kind, or the roster occurrence's own id, a lateral read of the closed source.
+ */
+type LateralRead = "nothing" | "the task's kind" | "the roster's id"
+
+describe("R07 beside a lateral read", () => {
+	it.effect(
+		"keeps a closed occurrence whose source another occurrence reads, and rewrites one no other occurrence reads",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/lower/rewrite/closed-lateral",
+						literal: Formatter.format,
+						generator: element<LateralRead>(["nothing", "the task's kind", "the roster's id"]),
+						limit: 3,
+						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
+						caseHang,
+						box: "a region of the roster Kind, a task binding its kind, and a task whose kind is fixed to nothing, the first task's kind or the roster's id",
+						oracle: {
+							kind: "specification",
+							name: "membershipsOf: no occurrence whose source a scope expression reads"
+						}
+					},
+					(read, c) =>
+						Effect.sync(() => {
+							const q = new Q()
+							const roster = q.closed(
+								"Kind",
+								[{ name: "id", type: T.kind }],
+								Arr.map(kindHandles, (h) => [kindHandle(h)])
+							)
+							const task = q.base(Task, conservativeMeta)
+							const reader = q.base(Task, conservativeMeta)
+							const constants: Record<string, ScalarExpr> =
+								read === "nothing"
+									? {}
+									: { kind: read === "the task's kind" ? q.col(task, "kind") : q.col(roster, "id") }
+							const region = q.region([
+								{ source: roster, bind: { id: "k" }, constants: {} },
+								{ source: task, bind: { id: "t", kind: "k" }, constants: {} },
+								{ source: reader, bind: { id: "u" }, constants }
+							])
+							const query = queryOf(
+								q.build(
+									q.project(
+										region,
+										[
+											["t", "t"],
+											["u", "u"]
+										],
+										conservativeMeta
+									)
+								).dag,
+								[]
+							)
+							const ran = succeeded(
+								runPasses(
+									query,
+									[closedPass],
+									passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
+								)
+							)
+							const rewritten = Arr.some(
+								ran.certificates,
+								(certificate) => certificate.rule === "R07.closedMembership"
+							)
+							assert.equal(rewritten, read !== "the roster's id", Formatter.format(read))
+							scopedStay(query.dag, ran.query.dag)
+							c.note(rewritten ? "rewritten" : "kept")
 						})
 				)
 			)
