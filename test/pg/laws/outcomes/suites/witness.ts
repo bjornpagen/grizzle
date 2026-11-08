@@ -153,7 +153,8 @@ const clubKeyGen: Gen<ClubKey> = (source) => ({
 
 /**
  * A statement-time native violation as a case draws it, each kind over values of its own: a member at a stored email
- * (the candidate key), a second captain of the stored club (the selected side's key, a UNIQUE over its law columns), a
+ * (the candidate key), a second captain of the stored club (the selected side's key, a UNIQUE over its law columns), two
+ * captains of a new club in one input, which the insert's own statement holds apart before PostgreSQL meets them, a
  * club whose seats are below one (the table CHECK) or above the contract's bound (the contract domain), or whose code is
  * past the refinement's twenty characters (the text refinement domain), and a member of the stored club whose code is
  * past them (the same domain, Member's code its own law).
@@ -165,6 +166,12 @@ type NativeCase =
 			readonly email: "ann@example.org" | "ben@example.org"
 	  }
 	| { readonly kind: "a selected side's UNIQUE"; readonly id: Uuid; readonly email: string }
+	| {
+			readonly kind: "a selected side's UNIQUE within one input"
+			readonly club: ClubKey
+			readonly ids: readonly [Uuid, Uuid]
+			readonly emails: readonly [string, string]
+	  }
 	| { readonly kind: "a table CHECK"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a contract domain"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a text refinement domain"; readonly club: ClubKey }
@@ -207,6 +214,16 @@ const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 		id: source.draw(freshIdGen),
 		email: source.draw(freshEmailGen)
 	}),
+	(source) => {
+		const id = source.draw(freshIdGen)
+		const email = source.draw(freshEmailGen)
+		return {
+			kind: "a selected side's UNIQUE within one input",
+			club: source.draw(freshClubGen),
+			ids: [id, source.draw(filter(freshIdGen, (other) => other !== id, freshAttempts))],
+			emails: [email, source.draw(filter(freshEmailGen, (other) => other !== email, freshAttempts))]
+		}
+	},
 	(source) => ({
 		kind: "a table CHECK",
 		club: source.draw(freshClubGen),
@@ -272,6 +289,7 @@ export const witnessSuite = (): void => {
 						const o = yield* installed(Clubs, clubFacts, extensions)
 						const q = quoteIdent(o.installed.schema)
 						const insertMember = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, $6::boolean)`
+						const insertCaptains = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, true), ($6::uuid, $2::smallint, $3::bigint, $4::text, $7::text, true)`
 						const insertClub = `INSERT INTO ${q}."club" ("region", "number", "code", "seats") VALUES ($1::smallint, $2::bigint, $3::text, $4::integer)`
 						/** A region's code, as the installation numbers its roster: a closed id is stored as its code. */
 						const regions = defined(
@@ -332,6 +350,44 @@ export const witnessSuite = (): void => {
 														}
 											),
 											applied: db.apply(ChangeSet.empty(o.schema).insert(Member, [fact]), {})
+										}
+									}
+									case "a selected side's UNIQUE within one input": {
+										/** Two captains of a new club the same ChangeSet inserts: a pair no stored fact meets. */
+										const captainOf = (id: Uuid, email: string) => ({
+											id,
+											...k.club,
+											email,
+											captain: true
+										})
+										const law = clubs.lawOf(captainKey)
+										return {
+											sql: insertCaptains,
+											params: [
+												k.ids[0],
+												region("North"),
+												"1",
+												"alpha",
+												k.emails[0],
+												k.ids[1],
+												k.emails[1]
+											],
+											sqlstate: sqlstates.uniqueViolation,
+											constraint: clubs.constraintOf(law, "Unique"),
+											expected: refusedBy(o.installed, law, {
+												kind: "key",
+												relation: "Member",
+												values: { region: k.club.region, number: k.club.number, code: k.club.code }
+											}),
+											applied: db.apply(
+												ChangeSet.empty(o.schema)
+													.insert(Club, [{ ...k.club, seats: Seats(10) }])
+													.insert(Member, [
+														captainOf(k.ids[0], k.emails[0]),
+														captainOf(k.ids[1], k.emails[1])
+													]),
+												{}
+											)
 										}
 									}
 									case "a text refinement domain another relation shares": {
@@ -429,6 +485,7 @@ export const witnessSuite = (): void => {
 										[
 											"refused by a candidate key",
 											"refused by a selected side's UNIQUE",
+											"refused by a selected side's UNIQUE within one input",
 											"refused by a table CHECK",
 											"refused by a contract domain",
 											"refused by a text refinement domain",
