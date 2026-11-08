@@ -248,7 +248,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 									failure.reason.failure.sqlstate === "23000"
 								if (!breaks || !refusedByCheck) {
 									return yield* new Disagreed({
-										message: `the migration failed (${failure.message}) where the stored rows ${breaks ? "break" : "keep"} its rule: ${Formatter.format(c)}`
+										message: `the migration failed (${failure.message}; ${failure._tag === "MigrateError" && failure.reason._tag === "Drifted" ? Formatter.format(failure.reason.mismatches) : ""}) where the stored rows ${breaks ? "break" : "keep"} its rule: ${Formatter.format(c)}`
 									})
 								}
 								n.note(`${kind} rule the stored rows break refused`)

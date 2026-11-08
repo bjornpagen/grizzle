@@ -1109,7 +1109,7 @@ class Specializer {
 						{
 							relation,
 							touches: touched,
-							function: this.#named(identity.lawFunction(name, law.named))
+							function: this.#named(identity.lawFunction(name, law.named, law.reads))
 						}
 					]
 				: []

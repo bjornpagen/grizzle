@@ -1087,11 +1087,19 @@ export const identity = Object.freeze({
 	 */
 	lawTrigger: (law: Identity<"law">): Identity<"lawTrigger"> =>
 		mint("lawTrigger", [law], ["rule", law.stem], `trigger of rule ${law.display}`, hashed),
-	/** The function a rule over a query's trigger on `relation`'s table runs. */
-	lawFunction: (relation: string, law: Identity<"law">): Identity<"lawFunction"> =>
+	/**
+	 * The function a rule over a query's trigger on `relation`'s table runs, which reads the relations `reads`: its body
+	 * names their tables in PL/pgSQL text, which a rename of a table never reaches, so a rename of one of them names
+	 * another function, created in its place.
+	 */
+	lawFunction: (
+		relation: string,
+		law: Identity<"law">,
+		reads: ReadonlyArray<string>
+	): Identity<"lawFunction"> =>
 		mint(
 			"lawFunction",
-			[relation, law],
+			[relation, law, ...reads],
 			["rule", relation, law.stem],
 			`function of rule ${law.display} on ${relation}`,
 			hashed
