@@ -762,8 +762,9 @@ describe("the input check before any connection", () => {
  * at any of its files; and a recorded file edited after it ran, or a file added to a folder that completed. The oracle
  * is the planner's documented order, restated over the chain's positions: an applied file edited, missing or added
  * stops it first; then each folder in name order is skipped when complete, resumed past its recorded files when
- * partial, started when it continues the ledger's latest target, and refused otherwise; the latest target must then be
- * the known snapshot's; then no file that runs may hold a marker, and no folder that runs a loss left undecided.
+ * partial, started when it continues the ledger's latest target, and refused otherwise, as is a recorded folder whose
+ * ledger rows name another target than its meta.json; the latest target must then be the known snapshot's; then no file
+ * that runs may hold a marker, and no folder that runs a loss left undecided.
  */
 type ChainName = "the shop" | "a first migration beside an abandoned schema"
 
@@ -771,6 +772,7 @@ type Edit =
 	| { readonly kind: "none" }
 	| { readonly kind: "a recorded file edited"; readonly pick: number }
 	| { readonly kind: "a file added to a complete folder"; readonly pick: number }
+	| { readonly kind: "a recorded folder of another target"; readonly pick: number }
 
 interface PlanCase {
 	readonly chain: ChainName
@@ -830,7 +832,8 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 			weighted<Edit>([
 				[4, constant({ kind: "none" })],
 				[1, map(int(0, 0xffff), (pick) => ({ kind: "a recorded file edited", pick }))],
-				[1, map(int(0, 0xffff), (pick) => ({ kind: "a file added to a complete folder", pick }))]
+				[1, map(int(0, 0xffff), (pick) => ({ kind: "a file added to a complete folder", pick }))],
+				[1, map(int(0, 0xffff), (pick) => ({ kind: "a recorded folder of another target", pick }))]
 			])
 		)
 	}
@@ -961,16 +964,32 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 									? []
 									: [{ folder: defined(ran[partial.index]), files: partial.recorded }])
 							]
+							/** The recorded folder whose ledger rows name the empty snapshot as its target, which none of the
+							 * chain's folders targets. */
+							const moved =
+								c.edit.kind === "a recorded folder of another target" && recordedFolders.length > 0
+									? c.edit.pick % recordedFolders.length
+									: undefined
+							const recordedAt = (
+								i: number,
+								folder: ParsedTarget["folders"][number],
+								files: number
+							): RecordedFolder =>
+								i === moved
+									? { ...recordedOf(folder, files), target: emptyFingerprint(shop) }
+									: recordedOf(folder, files)
 							const state: LedgerState = {
 								latest:
 									c.complete === 0
 										? emptyFingerprint(shop)
 										: defined(ran[c.complete - 1], "the latest complete folder").meta.target,
-								complete: Arr.map(Arr.take(ran, c.complete), (f) => recordedOf(f, f.files.length)),
+								complete: Arr.map(Arr.take(ran, c.complete), (f, i) =>
+									recordedAt(i, f, f.files.length)
+								),
 								partial:
 									partial === undefined
 										? undefined
-										: recordedOf(defined(ran[partial.index]), partial.recorded)
+										: recordedAt(partial.index, defined(ran[partial.index]), partial.recorded)
 							}
 							/** The edit, resolved: the recorded file it edits, or the complete folder a file is added to. */
 							const recordedFiles = Arr.flatMap(recordedFolders, ({ folder, files }) =>
@@ -1036,6 +1055,9 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 								}> = []
 								let latest = c.complete - 1
 								for (const i of indices(chain.length)) {
+									if (i === moved && c.held[i] === true) {
+										return { kind: "refused", reason: "FolderRefused" }
+									}
 									if (c.held[i] !== true || i < c.complete) {
 										continue
 									}

@@ -8,6 +8,7 @@ import {
 	element,
 	filter,
 	type Gen,
+	int,
 	map,
 	string,
 	weighted
@@ -16,8 +17,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { assert } from "#test/support/assert.ts"
+import { splitStatements, statementTokens, writtenAs } from "#compiler/deploy/render/markers.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 const splitFeatures = [
@@ -435,5 +437,157 @@ describe("splitting a no-transaction file into its statements, generated", () =>
 					})
 			)
 		)
+	)
+})
+
+/** A drafted statement's token: one of the scanner's, or a placeholder the reviewer fills. */
+type DraftToken =
+	| { readonly kind: "hole" }
+	| { readonly kind: "token"; readonly text: string; readonly is: TokenKind }
+
+type TokenKind = "word" | "string" | "other"
+
+/** The words a draft holds and a planted edit swaps in: none the placeholder, each its own in any case. */
+const draftWords: Arr.NonEmptyReadonlyArray<string> = ["SELECT", "x", "col$1", "_t9", "función"]
+
+const draftTokenGen: Gen<DraftToken> = weighted([
+	[3, map(element(draftWords), (text): DraftToken => ({ kind: "token", text, is: "word" }))],
+	[2, map(stringGen, (text): DraftToken => ({ kind: "token", text, is: "string" }))],
+	[
+		2,
+		map(
+			weighted([
+				[1, numberGen],
+				[1, paramGen],
+				[1, operatorGen]
+			]),
+			(text): DraftToken => ({ kind: "token", text, is: "other" })
+		)
+	],
+	[2, constant<DraftToken>({ kind: "hole" })]
+])
+
+/** What a reviewer fills a placeholder with: a value, its parentheses and brackets balanced. */
+const fillGen = element(["1", "'v'", "(1, 2)", "f(a)", "ARRAY[1, 2]", "x + 1"])
+
+/** A drafted statement, the fill of each of its placeholders, and the token a planted edit changes. */
+interface Draft {
+	readonly tokens: Arr.NonEmptyReadonlyArray<DraftToken>
+	readonly fills: ReadonlyArray<string>
+	readonly edited: number
+}
+
+const draftGen: Gen<Draft> = (source) => {
+	const drafted = nonEmpty(
+		source.draw(array(draftTokenGen, { min: 1, max: 6 })),
+		"a draft's tokens"
+	)
+	return {
+		tokens: drafted,
+		fills: source.draw(array(fillGen, { min: drafted.length, max: drafted.length })),
+		edited: source.draw(int(0, drafted.length - 1))
+	}
+}
+
+/** Another token in place of a drafted one: a word for another word, a string for another string, a word otherwise. */
+const editOf = (token: Extract<DraftToken, { readonly kind: "token" }>): string => {
+	switch (token.is) {
+		case "word":
+			return Str.toUpperCase(token.text) === "SELECT" ? "x" : "SELECT"
+		case "string":
+			return `${token.text}'w'`
+		case "other":
+			return "x"
+	}
+}
+
+type WrittenFeature =
+	| "a placeholder filled"
+	| "a word edited"
+	| "a string edited"
+	| "another token edited"
+	| "a string kept"
+
+describe("a reviewed statement read against its draft", () => {
+	it.effect(
+		"is written as drafted exactly when it holds the draft's tokens, each placeholder filled by a balanced run",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "a draft with each placeholder filled is written as drafted, and one with a token outside a placeholder changed is not"
+						},
+						suite: "unit/deploy/written-as",
+						draw: drawn(draftGen),
+						literal: Formatter.format,
+						coverage: required<WrittenFeature>(
+							[
+								"a placeholder filled",
+								"a word edited",
+								"a string edited",
+								"another token edited",
+								"a string kept"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(d, c) =>
+						Effect.sync(() => {
+							const written = (edit: Option.Option<number>) =>
+								statementTokens(
+									Arr.join(
+										Arr.map(d.tokens, (t, i) =>
+											t.kind === "hole"
+												? defined(d.fills[i], "a placeholder's fill")
+												: Option.contains(edit, i)
+													? editOf(t)
+													: t.text
+										),
+										" "
+									)
+								)
+							const drafted = statementTokens(
+								Arr.join(
+									Arr.map(d.tokens, (t) => (t.kind === "hole" ? placeholderToken : t.text)),
+									" "
+								)
+							)
+							assert.ok(
+								writtenAs(drafted, written(Option.none())),
+								"the draft with its placeholders filled"
+							)
+							if (Arr.some(d.tokens, (t) => t.kind === "hole")) {
+								c.note("a placeholder filled")
+							}
+							if (Arr.some(d.tokens, (t) => t.kind === "token" && t.is === "string")) {
+								c.note("a string kept")
+							}
+							const edited = d.tokens[d.edited]
+							if (edited === undefined || edited.kind === "hole") {
+								return
+							}
+							assert.ok(
+								!writtenAs(drafted, written(Option.some(d.edited))),
+								`the draft with ${edited.text} edited`
+							)
+							c.note(
+								edited.is === "word"
+									? "a word edited"
+									: edited.is === "string"
+										? "a string edited"
+										: "another token edited"
+							)
+						})
+				)
+			)
 	)
 })
