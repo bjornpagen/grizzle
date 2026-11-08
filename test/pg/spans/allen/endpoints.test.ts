@@ -1,7 +1,17 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	weighted
+} from "@grizzle/testing/gen"
 import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -77,8 +87,14 @@ const factsOf = (
 type Endpoint = "lower" | "upper"
 type Comparison = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
 type Column = "a" | "b"
-/** A span operand: one of the relation's span columns, or the span parameter w. */
-type Operand = Column | "w"
+/** A span the row computes from both columns: `ab` is a where `id >= k` and b elsewhere, `ba` the other way round. */
+type Computed = "ab" | "ba"
+/** A span of the row: one of its span columns, or a span it computes. */
+type RowSpan = Column | Computed
+/** A span operand: a span of the row, or the span parameter w. */
+type Operand = RowSpan | "w"
+/** An Allen formula's operand: one of the relation's span columns, or the span parameter w. */
+type FormulaOperand = Column | "w"
 
 const endpoints: Arr.NonEmptyReadonlyArray<Endpoint> = ["lower", "upper"]
 const comparisons: Arr.NonEmptyReadonlyArray<Comparison> = ["eq", "ne", "lt", "le", "gt", "ge"]
@@ -96,22 +112,22 @@ type Pred =
 	| {
 			readonly kind: "compare"
 			readonly x: Endpoint
-			readonly of: Column
+			readonly of: RowSpan
 			readonly cmp: Comparison
 			readonly y: Endpoint
-			readonly against: Column
+			readonly against: RowSpan
 	  }
 	| {
 			readonly kind: "pointIn"
 			readonly x: Endpoint
-			readonly of: Column
+			readonly of: RowSpan
 			readonly within: Operand
 	  }
 	| {
 			readonly kind: "allen"
 			readonly left: Column
 			readonly mask: number
-			readonly right: Operand
+			readonly right: FormulaOperand
 	  }
 	| { readonly kind: "and" | "or"; readonly parts: ReadonlyArray<Pred> }
 	| { readonly kind: "not"; readonly arg: Pred }
@@ -145,10 +161,10 @@ const pairLeaves: Arr.NonEmptyReadonlyArray<Pred> = nonEmpty(
  * builds over them and its span operands.
  */
 interface Spelling<E> {
-	readonly endpoint: (x: Endpoint, of: Column) => E
+	readonly endpoint: (x: Endpoint, of: RowSpan) => E
 	readonly compare: (cmp: Comparison, x: E, y: E) => Predicate<never>
 	readonly pointIn: (point: E, within: Operand) => Predicate<never>
-	readonly allen: (left: Column, mask: number, right: Operand) => Predicate<never>
+	readonly allen: (left: Column, mask: number, right: FormulaOperand) => Predicate<never>
 	readonly and: (parts: ReadonlyArray<Predicate<never>>) => Predicate<never>
 	readonly or: (parts: ReadonlyArray<Predicate<never>>) => Predicate<never>
 	readonly id: () => Predicate<never>
@@ -179,16 +195,37 @@ const intQuery = (pred: Pred) =>
 	query(Pairs).rule((r) => {
 		const { id, a, b } = v(IntPairs, "intPairs")
 		const column = (c: Column) => (c === "a" ? a : b)
-		const span = (o: Operand) => (o === "w" ? r.param("w", IntPairs.fields.a) : column(o))
+		const atLeastK = () => r.ge(id, r.param("k", pg.integer))
+		const rowSpan = (s: RowSpan) => {
+			switch (s) {
+				case "a":
+				case "b":
+					return column(s)
+				case "ab":
+					return Compute.cond(atLeastK(), a, b)
+				case "ba":
+					return Compute.cond(atLeastK(), b, a)
+			}
+		}
+		const window = () => r.param("w", IntPairs.fields.a)
+		const span = (o: Operand) => (o === "w" ? window() : rowSpan(o))
 		const where = spell(pred, {
-			endpoint: (x, c) =>
-				x === "lower"
-					? c === "a"
-						? Compute.lower(a, pg.integer)
-						: Compute.lower(b, pg.integer)
-					: c === "a"
-						? Compute.upper(a, pg.integer)
-						: Compute.upper(b, pg.integer),
+			endpoint: (x, s) => {
+				switch (s) {
+					case "a":
+						return x === "lower" ? Compute.lower(a, pg.integer) : Compute.upper(a, pg.integer)
+					case "b":
+						return x === "lower" ? Compute.lower(b, pg.integer) : Compute.upper(b, pg.integer)
+					case "ab": {
+						const ab = Compute.cond(atLeastK(), a, b)
+						return x === "lower" ? Compute.lower(ab, pg.integer) : Compute.upper(ab, pg.integer)
+					}
+					case "ba": {
+						const ba = Compute.cond(atLeastK(), b, a)
+						return x === "lower" ? Compute.lower(ba, pg.integer) : Compute.upper(ba, pg.integer)
+					}
+				}
+			},
 			compare: (cmp, x, y) => {
 				switch (cmp) {
 					case "eq":
@@ -206,10 +243,11 @@ const intQuery = (pred: Pred) =>
 				}
 			},
 			pointIn: (point, within) => r.pointIn(point, span(within)),
-			allen: (left, mask, right) => r.allen(column(left), mask, span(right)),
+			allen: (left, mask, right) =>
+				r.allen(column(left), mask, right === "w" ? window() : column(right)),
 			and: (parts) => r.and(...argumentsOf(parts)),
 			or: (parts) => r.or(...argumentsOf(parts)),
-			id: () => r.ge(id, r.param("k", pg.integer))
+			id: atLeastK
 		})
 		return r.match(IntPairs, { id, a, b }).where(where).find({ id })
 	})
@@ -219,16 +257,37 @@ const bigQuery = (pred: Pred) =>
 	query(Pairs).rule((r) => {
 		const { id, a, b } = v(BigPairs, "bigPairs")
 		const column = (c: Column) => (c === "a" ? a : b)
-		const span = (o: Operand) => (o === "w" ? r.param("w", BigPairs.fields.a) : column(o))
+		const atLeastK = () => r.ge(id, r.param("k", pg.integer))
+		const rowSpan = (s: RowSpan) => {
+			switch (s) {
+				case "a":
+				case "b":
+					return column(s)
+				case "ab":
+					return Compute.cond(atLeastK(), a, b)
+				case "ba":
+					return Compute.cond(atLeastK(), b, a)
+			}
+		}
+		const window = () => r.param("w", BigPairs.fields.a)
+		const span = (o: Operand) => (o === "w" ? window() : rowSpan(o))
 		const where = spell(pred, {
-			endpoint: (x, c) =>
-				x === "lower"
-					? c === "a"
-						? Compute.lower(a, pg.bigint)
-						: Compute.lower(b, pg.bigint)
-					: c === "a"
-						? Compute.upper(a, pg.bigint)
-						: Compute.upper(b, pg.bigint),
+			endpoint: (x, s) => {
+				switch (s) {
+					case "a":
+						return x === "lower" ? Compute.lower(a, pg.bigint) : Compute.upper(a, pg.bigint)
+					case "b":
+						return x === "lower" ? Compute.lower(b, pg.bigint) : Compute.upper(b, pg.bigint)
+					case "ab": {
+						const ab = Compute.cond(atLeastK(), a, b)
+						return x === "lower" ? Compute.lower(ab, pg.bigint) : Compute.upper(ab, pg.bigint)
+					}
+					case "ba": {
+						const ba = Compute.cond(atLeastK(), b, a)
+						return x === "lower" ? Compute.lower(ba, pg.bigint) : Compute.upper(ba, pg.bigint)
+					}
+				}
+			},
 			compare: (cmp, x, y) => {
 				switch (cmp) {
 					case "eq":
@@ -246,10 +305,11 @@ const bigQuery = (pred: Pred) =>
 				}
 			},
 			pointIn: (point, within) => r.pointIn(point, span(within)),
-			allen: (left, mask, right) => r.allen(column(left), mask, span(right)),
+			allen: (left, mask, right) =>
+				r.allen(column(left), mask, right === "w" ? window() : column(right)),
 			and: (parts) => r.and(...argumentsOf(parts)),
 			or: (parts) => r.or(...argumentsOf(parts)),
-			id: () => r.ge(id, r.param("k", pg.integer))
+			id: atLeastK
 		})
 		return r.match(BigPairs, { id, a, b }).where(where).find({ id })
 	})
@@ -283,9 +343,23 @@ const paramsRow = (params: ReadonlyArray<OracleParam>): string =>
 		", "
 	)})`
 
-const operand = (o: Operand): string => (o === "w" ? `"w"."v"` : `"p"."${o}"`)
+/** A span of the fact `p` as the oracle evaluates it, a computed one by the bound `w.k`. */
+const rowSpanSql = (s: RowSpan): string => {
+	switch (s) {
+		case "a":
+		case "b":
+			return `"p"."${s}"`
+		case "ab":
+			return `(CASE WHEN "p"."id" >= "w"."k" THEN "p"."a" ELSE "p"."b" END)`
+		case "ba":
+			return `(CASE WHEN "p"."id" >= "w"."k" THEN "p"."b" ELSE "p"."a" END)`
+	}
+}
 
-const ref = (o: Operand) => (o === "w" ? { table: "w", column: "v" } : { table: "p", column: o })
+const operand = (o: Operand): string => (o === "w" ? `"w"."v"` : rowSpanSql(o))
+
+const ref = (o: FormulaOperand) =>
+	o === "w" ? { table: "w", column: "v" } : { table: "p", column: o }
 
 /**
  * The predicate as the oracle evaluates it, over the fact `p` and the parameters' row `w`: the window `w.v` and the
@@ -413,9 +487,12 @@ type GeneratedFeature =
 	| "a comparison within one span"
 	| "a predicate over no span"
 	| "under a negation"
+	| "two pairs alike but for their computed span"
 
 const columnGen: Gen<Column> = element(["a", "b"] as const)
-const operandGen: Gen<Operand> = element(["a", "b", "w"] as const)
+const rowSpanGen: Gen<RowSpan> = element(["a", "b", "ab", "ba"] as const)
+const operandGen: Gen<Operand> = element(["a", "b", "ab", "ba", "w"] as const)
+const formulaOperandGen: Gen<FormulaOperand> = element(["a", "b", "w"] as const)
 
 const leafGen: Gen<Pred> = weighted<Pred>([
 	[6, element(pairLeaves)],
@@ -424,10 +501,10 @@ const leafGen: Gen<Pred> = weighted<Pred>([
 		(source) => ({
 			kind: "compare",
 			x: source.draw(element(endpoints)),
-			of: source.draw(columnGen),
+			of: source.draw(rowSpanGen),
 			cmp: source.draw(element(comparisons)),
 			y: source.draw(element(endpoints)),
-			against: source.draw(columnGen)
+			against: source.draw(rowSpanGen)
 		})
 	],
 	[
@@ -435,7 +512,7 @@ const leafGen: Gen<Pred> = weighted<Pred>([
 		(source) => ({
 			kind: "pointIn",
 			x: source.draw(element(endpoints)),
-			of: source.draw(columnGen),
+			of: source.draw(rowSpanGen),
 			within: source.draw(operandGen)
 		})
 	],
@@ -445,11 +522,44 @@ const leafGen: Gen<Pred> = weighted<Pred>([
 			kind: "allen",
 			left: source.draw(columnGen),
 			mask: source.draw(int(1, 8191)),
-			right: source.draw(operandGen)
+			right: source.draw(formulaOperandGen)
 		})
 	],
 	[1, constant({ kind: "id" })]
 ])
+
+/** An endpoint predicate over a computed span and a column: a comparison or a membership, either one first. */
+const besideGen = (computed: Computed, beside: Column): Gen<Pred> =>
+	oneOf<Pred>([
+		(source) => {
+			const [of, against]: readonly [RowSpan, RowSpan] = source.draw(boolean)
+				? [computed, beside]
+				: [beside, computed]
+			return {
+				kind: "compare",
+				x: source.draw(element(endpoints)),
+				of,
+				cmp: source.draw(element(comparisons)),
+				y: source.draw(element(endpoints)),
+				against
+			}
+		},
+		(source) => {
+			const [of, within]: readonly [RowSpan, RowSpan] = source.draw(boolean)
+				? [computed, beside]
+				: [beside, computed]
+			return { kind: "pointIn", x: source.draw(element(endpoints)), of, within }
+		}
+	])
+
+/** A connective over two endpoint predicates whose pairs share a column and differ in the computed span beside it. */
+const alikeGen: Gen<Pred> = (source) => {
+	const beside = source.draw(columnGen)
+	return {
+		kind: source.draw(element(["and", "or"] as const)),
+		parts: [source.draw(besideGen("ab", beside)), source.draw(besideGen("ba", beside))]
+	}
+}
 
 /**
  * Trees of span predicates at most `depth` connectives deep, a leaf most often at every level, so trees stay small and
@@ -469,6 +579,7 @@ const predGen = (depth: number): Gen<Pred> => {
 				parts: source.draw(array(sub, { min: 2, max: 3 }))
 			})
 		],
+		[1, alikeGen],
 		[1, (source) => ({ kind: "not", arg: source.draw(sub) })]
 	])
 }
@@ -480,18 +591,15 @@ const caseGen: Gen<EndpointCase> = (source) => ({
 	at: source.draw(int(0, 400))
 })
 
-const key = (x: Operand, y: Operand): string | undefined =>
-	x === y ? undefined : Arr.join(Arr.sort([x, y], Order.String), "")
-
-/** The unordered pair of spans a leaf is over, or none: a comparison within one span and `id >= k` are over no pair. */
-const leafPair = (p: Pred): string | undefined => {
+/** The two spans a leaf reads, or none: `id >= k` reads no span. */
+const leafSpans = (p: Pred): readonly [Operand, Operand] | undefined => {
 	switch (p.kind) {
 		case "compare":
-			return key(p.of, p.against)
+			return [p.of, p.against]
 		case "pointIn":
-			return key(p.of, p.within)
+			return [p.of, p.within]
 		case "allen":
-			return key(p.left, p.right)
+			return [p.left, p.right]
 		case "and":
 		case "or":
 		case "not":
@@ -499,6 +607,40 @@ const leafPair = (p: Pred): string | undefined => {
 			return undefined
 	}
 }
+
+/** The unordered pair of spans a leaf is over, or none: a comparison within one span and `id >= k` are over no pair. */
+const leafPair = (p: Pred): string | undefined => {
+	const spans = leafSpans(p)
+	return spans === undefined || spans[0] === spans[1]
+		? undefined
+		: Arr.join(Arr.sort(spans, Order.String), " ")
+}
+
+const isComputed = (o: Operand): boolean => o === "ab" || o === "ba"
+
+/** Each computed span a leaf pairs with another span, beside that other span. */
+const besideComputed = (
+	p: Pred
+): ReadonlyArray<{ readonly computed: Operand; readonly beside: Operand }> => {
+	const spans = leafSpans(p)
+	if (spans === undefined) {
+		return []
+	}
+	const [x, y] = spans
+	return Arr.filter(
+		[
+			{ computed: x, beside: y },
+			{ computed: y, beside: x }
+		],
+		(e) => isComputed(e.computed) && e.beside !== e.computed
+	)
+}
+
+/** Whether two parts are over pairs that share one span and differ in the computed span beside it. */
+const alikeButComputed = (p: Pred, q: Pred): boolean =>
+	Arr.some(besideComputed(p), (e) =>
+		Arr.some(besideComputed(q), (f) => f.beside === e.beside && f.computed !== e.computed)
+	)
 
 const generatedFeatures = (p: Pred, negated: boolean, out: Set<GeneratedFeature>): void => {
 	if (negated && p.kind !== "not") {
@@ -530,6 +672,11 @@ const generatedFeatures = (p: Pred, negated: boolean, out: Set<GeneratedFeature>
 				Arr.some(p.parts, (q) => q.kind !== "allen" && q.kind !== "id" && allen.has(leafPair(q)))
 			) {
 				out.add("an endpoint predicate beside an Allen formula over its pair")
+			}
+			if (
+				Arr.some(p.parts, (q, i) => Arr.some(p.parts.slice(i + 1), (o) => alikeButComputed(q, o)))
+			) {
+				out.add("two pairs alike but for their computed span")
 			}
 			for (const q of p.parts) {
 				generatedFeatures(q, negated, out)
@@ -599,7 +746,8 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 									"a pair with the parameter",
 									"a comparison within one span",
 									"a predicate over no span",
-									"under a negation"
+									"under a negation",
+									"two pairs alike but for their computed span"
 								],
 								{ cases: 300, sense: notesOnly }
 							),
