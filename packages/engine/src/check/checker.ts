@@ -2041,11 +2041,19 @@ export class Checker {
 			}
 			return t.expr
 		}
-		/** A span term, with the span its type is over and its range carrier, which its operators are typed by. */
+		/**
+		 * A span term's expression and type, with the span its type is over and its range carrier, which its operators are
+		 * typed by.
+		 */
 		const spanTerm = (
 			d: ResolvedExpr,
 			at: SourceLoc
-		): Lowered & { readonly span: SpanBase["span"]; readonly carrier: SpanCarrier } => {
+		): {
+			readonly expr: ScalarExpr
+			readonly nominal: ScalarType
+			readonly span: SpanBase["span"]
+			readonly carrier: SpanCarrier
+		} => {
 			if (isBareLiteral(d)) {
 				return fail(
 					"MalformedDescription",
@@ -2058,7 +2066,7 @@ export class Checker {
 			if (base === undefined) {
 				return fail("MalformedDescription", at, `a span term, not ${typeLabel(t.nominal)}`)
 			}
-			return { ...t, span: base.span, carrier: base.carrier }
+			return { expr: t.expr, nominal: t.nominal, span: base.span, carrier: base.carrier }
 		}
 		switch (desc.kind) {
 			case "absent":

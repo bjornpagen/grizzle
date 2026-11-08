@@ -210,13 +210,39 @@ import { Money } from "#compiler/scalar/values/money.ts"
  * computes (actual), which differ only where a parameter is bound as its base or a cast keeps its source's refinement,
  * its effects as its table derived them (ir/expr.ts exprEffects), and what is proved of its values: the bound domain's
  * interval and digits where its type is a number (bounds.ts Bounds), and its facts (FactSet).
+ *
+ * Its nominal type is private to it and written once, by settle (Lowering.settle), which narrows the type an operation
+ * states by every guard the term stands under. A copy is no Lowered, so no operation writes a term's type after
+ * settle: one that states a type of its own, a collapse's or a translation's language or a cast's target, restates the
+ * term (Lowering.restate), and the guards narrow it again.
  */
-export interface Lowered extends Effects {
+export class Lowered implements Effects {
 	readonly expr: ScalarExpr
-	readonly nominal: ScalarType
 	readonly actual: ScalarType
+	readonly volatility: Effects["volatility"]
 	readonly bounds: Bounds | undefined
 	readonly facts: FactSet
+	readonly #nominal: ScalarType
+
+	constructor(
+		expr: ScalarExpr,
+		nominal: ScalarType,
+		actual: ScalarType,
+		bounds: Bounds | undefined,
+		facts: FactSet
+	) {
+		this.expr = expr
+		this.#nominal = nominal
+		this.actual = actual
+		this.volatility = expr.volatility
+		this.bounds = bounds
+		this.facts = facts
+	}
+
+	/** The type the caller's term has, as settle stated it and the guards the term stands under narrowed it. */
+	get nominal(): ScalarType {
+		return this.#nominal
+	}
 }
 
 /**
@@ -1339,6 +1365,7 @@ class Lowering<R extends Refs> {
 	settle(
 		entry: ScalarExpr,
 		stated: ScalarType,
+		actual: ScalarType,
 		proved: { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined
 	): Lowered {
 		let nominal = stated
@@ -1379,20 +1406,23 @@ class Lowering<R extends Refs> {
 				})
 			)
 		}
-		return {
-			expr: entry,
-			nominal,
-			actual: entry.type,
-			volatility: entry.volatility,
-			bounds,
-			facts
-		}
+		return new Lowered(entry, nominal, actual, bounds, facts)
+	}
+
+	/**
+	 * `term` at the type `stated` and the SQL type `actual`, with its bounds and `facts`, settled again, so the guards
+	 * it stands under narrow the type the operation states: how an operation states the type of the term it makes or
+	 * passes on, a collapse's or a translation's language, a cast's target or a value's base, never by writing it after
+	 * settle.
+	 */
+	restate(term: Lowered, stated: ScalarType, actual: ScalarType, facts: FactSet): Lowered {
+		return this.settle(term.expr, stated, actual, { bounds: term.bounds, facts })
 	}
 
 	/** The node of `spec`, recorded: of its own type nominally and actually, its bounds and facts its type's. */
 	emit(spec: ExprSpec): Lowered {
 		const entry = this.env.emit(spec)
-		return this.settle(entry, entry.type, undefined)
+		return this.settle(entry, entry.type, entry.type, undefined)
 	}
 
 	/**
@@ -1415,7 +1445,7 @@ class Lowering<R extends Refs> {
 	 */
 	emitAt(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
 		const entry = this.env.emit(spec)
-		return this.settle(entry, entry.type, { bounds, facts })
+		return this.settle(entry, entry.type, entry.type, { bounds, facts })
 	}
 
 	/**
@@ -1835,9 +1865,9 @@ class Lowering<R extends Refs> {
 			nonNull: "literal"
 		})
 		if (n === undefined || point === undefined || boundsOfType(at) === undefined) {
-			return this.settle(entry, at, undefined)
+			return this.settle(entry, at, entry.type, undefined)
 		}
-		return this.settle(entry, at, {
+		return this.settle(entry, at, entry.type, {
 			bounds: point,
 			facts:
 				date === undefined
@@ -1880,7 +1910,8 @@ class Lowering<R extends Refs> {
 			)
 		}
 		const { spec, type } = unwrap(params.lower(param, at))
-		return this.settle(this.env.emit(spec), type, undefined)
+		const entry = this.env.emit(spec)
+		return this.settle(entry, type, entry.type, undefined)
 	}
 
 	/**
@@ -2049,7 +2080,7 @@ class Lowering<R extends Refs> {
 				return this.cast(desc, at)
 			case "base": {
 				const arg = this.term(desc.arg, childLoc(at, "base"))
-				return { ...arg, nominal: valueType(arg.nominal) }
+				return this.restate(arg, valueType(arg.nominal), arg.actual, arg.facts)
 			}
 			case "cond":
 				return this.cond(desc, at)
@@ -2389,7 +2420,12 @@ class Lowering<R extends Refs> {
 		const node = this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
 		return this.env.mode === "build" || text === undefined
 			? node
-			: { ...node, nominal: this.image(text.regex, map.value, this.env.patternLanguage, at) }
+			: this.restate(
+					node,
+					this.image(text.regex, map.value, this.env.patternLanguage, at),
+					node.actual,
+					node.facts
+				)
 	}
 
 	/**
@@ -2445,7 +2481,12 @@ class Lowering<R extends Refs> {
 		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
 		return this.env.mode === "build" || text === undefined
 			? node
-			: { ...node, nominal: this.collapseType(text, this.env.patternLanguage, at) }
+			: this.restate(
+					node,
+					this.collapseType(text, this.env.patternLanguage, at),
+					node.actual,
+					node.facts
+				)
 	}
 
 	/**
@@ -3130,7 +3171,7 @@ class Lowering<R extends Refs> {
 			plain && !sameShape(value.actual, to)
 				? this.castNode(value, to, { kind: "coercion" }, at)
 				: value
-		return { ...shaped, nominal: to, actual: plain ? to : shaped.actual }
+		return this.restate(shaped, to, plain ? to : shaped.actual, shaped.facts)
 	}
 
 	/**
@@ -3177,7 +3218,9 @@ class Lowering<R extends Refs> {
 						bounds,
 						factsOfType(target)
 					)
-		return isRefined(to) ? this.domainCast(value, to, undefined, at) : { ...value, nominal: to }
+		return isRefined(to)
+			? this.domainCast(value, to, undefined, at)
+			: this.restate(value, to, value.actual, value.facts)
 	}
 
 	/**
@@ -3679,9 +3722,15 @@ class Lowering<R extends Refs> {
 		const op = this.overload(fn, [valueType(a.nominal)], at)
 		const bounds =
 			a.bounds === undefined ? undefined : fn === "neg" ? negBounds(a.bounds) : absBounds(a.bounds)
-		const result = this.native(op, [a], this.resultType(op, bounds), bounds, at, `Compute.${fn}`)
+		const type = this.resultType(op, bounds)
+		const result = this.native(op, [a], type, bounds, at, `Compute.${fn}`)
 		return fn === "neg"
-			? { ...result, facts: Object.freeze({ ...negationFacts(a.facts), ...result.facts }) }
+			? this.restate(
+					result,
+					type,
+					result.actual,
+					Object.freeze({ ...negationFacts(a.facts), ...result.facts })
+				)
 			: result
 	}
 
@@ -3764,10 +3813,8 @@ class Lowering<R extends Refs> {
 			at,
 			"Compute.sign"
 		)
-		return {
-			...this.castNode(s, v, { kind: "computed", op: back }, at),
-			nominal: valueType(a.nominal)
-		}
+		const signed = this.castNode(s, v, { kind: "computed", op: back }, at)
+		return this.restate(signed, valueType(a.nominal), signed.actual, signed.facts)
 	}
 
 	/**
@@ -4658,14 +4705,8 @@ export const intervalCastProof = (
 }
 
 /** An expression another package built, lowered as it is: its type's bounds and facts, and nothing more. */
-export const loweredOf = (e: ScalarExpr): Lowered => ({
-	expr: e,
-	nominal: e.type,
-	actual: e.type,
-	volatility: e.volatility,
-	bounds: boundsOfType(e.type),
-	facts: factsOfType(e.type)
-})
+export const loweredOf = (e: ScalarExpr): Lowered =>
+	new Lowered(e, e.type, e.type, boundsOfType(e.type), factsOfType(e.type))
 
 /** Lowers a predicate: a non-null SQL Boolean expression. */
 export const lowerPredicate = <R extends Refs>(

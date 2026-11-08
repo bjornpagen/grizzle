@@ -542,6 +542,8 @@ The command line's own refusals, by stage:
   0, 16384), () => Compute.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
   `Compute.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
   a rule over it then passes on a text that does not parse. State what the rule holds of such a text in the rule.
+  Parse a padded value as XML Schema reads it, collapsed first:
+  `Compute.when(Compute.matches(Compute.collapse(x), doubleText), (x) => Compute.parseDouble(x), otherwise)`.
 - Each login is a PostgreSQL role, `roleNameOf(login)`, and each role a PostgreSQL role that cannot log in,
   `roleNameOf(role)`, with its schema of views, `schemaNameOf(role)`; the schema's own is `schemaNameOf(schema)`. Take
   every one from there, never spell or rebuild one: each is the name the installation creates, and each throws
