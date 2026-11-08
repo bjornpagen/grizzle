@@ -1,3 +1,4 @@
+import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -98,9 +99,9 @@ export interface OptimizedProgram<L = FusedStatement> extends OptimizedDeliveryP
  * lowering. Each pass states its measure; no rewrite loops without one.
  */
 export const optimizedInput = (
-	query: LogicalQuery,
+	query: AdmittedQuery,
 	evidence: LogicalEnv
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<AdmittedQuery, CompileError> =>
 	Result.flatMap(everyParentTakes(query), (restated) => annotateQuery(restated.query, evidence))
 
 /**
@@ -201,7 +202,7 @@ export interface LowerOptimizedOptions extends OptimizedOptions {
 
 /** The optimized lowering in a fresh optimized context: the entry the differential suites and the program package use. */
 export const lowerOptimized = (
-	query: LogicalQuery,
+	query: AdmittedQuery,
 	options: LowerOptimizedOptions
 ): Result.Result<OptimizedProgram, CompileError> => {
 	const ctx = makePassContext({ evidenceContext: options.context, catalog: options.catalog })

@@ -4,7 +4,7 @@ import {
 	spineObstacle
 } from "#compiler/analysis/derived/analyze.ts"
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
-import { checkDefinition } from "#compiler/check/index.ts"
+import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
@@ -14,7 +14,6 @@ import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { classMembers, type ViewRead, viewAlternatives } from "#compiler/ir/keys.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { WholeKey } from "#compiler/logical/props.ts"
 
@@ -29,7 +28,7 @@ export interface WorldAnalysis {
 	readonly name: string
 	readonly loc: SourceLoc
 	/** The checked definition, annotated with the base's derived keys. */
-	readonly query: LogicalQuery
+	readonly query: AdmittedQuery
 	/** The definition's heading: the view's columns, in canonical order, each a declared name of the view. */
 	readonly heading: NonEmptyReadonlyArray<DeclaredColumn>
 	/** The keys, narrowest first, each with its proof; the first is the primary one. */

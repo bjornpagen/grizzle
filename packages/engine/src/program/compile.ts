@@ -1,4 +1,4 @@
-import { checkQuery } from "#compiler/check/index.ts"
+import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { catchCompileError, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -237,7 +237,7 @@ export const compileQuery = (
 	 * The checked query with each attachment judged as the template's analysis judges it (rel.ts Attach judged): what
 	 * both lowerings take, so every Attach node of either program carries the delivered type the reader delivers.
 	 */
-	const judged: LogicalQuery = { ...checked, dag: analyzed.value.judged }
+	const judged: AdmittedQuery = { ...checked, dag: analyzed.value.judged }
 	const conservativeArtifactOf = conservativeArtifact(judged, artifacts)
 	if (!conservativeArtifactOf.ok) {
 		return conservativeArtifactOf

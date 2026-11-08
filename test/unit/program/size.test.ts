@@ -21,8 +21,8 @@ import { caseHang } from "#test/support/limits.ts"
  * same query attaching 2n, compiled as a Db compiles them, the 2n one at 200 attachments. Each artifact's statements,
  * counted as AST nodes (a structural property, never printed text), grow by at most 2 + ε from n to 2n: every
  * attachment statement computes its parent's rows again, so one that also computed its sibling attachments would grow
- * by 4 there. Every attachment over exact parents is a statement of its own in both artifacts (shapes/attach
- * chooseAttachment), so the space is the children's own fields, one to three, which widen every statement alike.
+ * by 4 there. Every attachment over exact parents is a statement of its own in both artifacts (shapes/index.ts
+ * rowsStatement), so the space is the children's own fields, one to three, which widen every statement alike.
  */
 
 /** The bound on growth from n to 2n: linear, with ε for the parts that do not grow. */

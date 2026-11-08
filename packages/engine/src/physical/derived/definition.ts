@@ -1,3 +1,4 @@
+import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -5,7 +6,6 @@ import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -268,7 +268,7 @@ export const derivedReading = (
  *   names. */
 export const lowerDefinition = (
 	relation: string,
-	query: LogicalQuery,
+	query: AdmittedQuery,
 	options: DefinitionOptions
 ): Result.Result<LoweredDefinition, CompileError> => {
 	const at = SourceLoc(`derived ${relation}`, [])

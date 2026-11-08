@@ -388,8 +388,8 @@ export const judgedAsDelivered = <R extends Roots>(dag: ValidDag<R>): JudgedDag<
  * committed-snapshot facts, a `transaction` read (one inside a write transaction, such as a read-back) only on immediate
  * ones, so a deferred containment never narrows an attachment there.
  */
-export const annotateQuery = (
-	query: LogicalQuery,
+export const annotateQuery = <Q extends LogicalQuery>(
+	query: Q,
 	env: LogicalEnv
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<Q, CompileError> =>
 	Result.map(analyzeLogical(query.dag, env), (a) => ({ ...query, dag: a.dag }))

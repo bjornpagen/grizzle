@@ -1,4 +1,3 @@
-import { pipelinedOnly } from "#compiler/check/approximate/attach.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import {
@@ -54,8 +53,6 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 
-type AttachmentForm = "fused" | "pipelined"
-
 /**
  * What a fused array carries per child (decode.ts FusedLayout): each child column, from the element, or from the
  * parent row where the Attach correlates it to a parent column of the same type, which the parent row already
@@ -81,52 +78,6 @@ export const fusedLayout = (
 		}
 	})
 })
-
-/**
- * The R36 rule. `parents` says whether the parent's rows read an approximate search, the one case correctness fuses.
- *
- * Attachments: pipelined per attached query, or fused into the parent statement.
- *
- * An attachment is the nest operator: for each delivered parent fact, the set of its correlated child facts; the parent
- * set is unchanged, never filtered, multiplied or reordered. Two lowerings deliver identical nested
- * results, chosen by the rule and never by the caller:
- *
- * - pipelined: one statement per attached query, in the parent statement's flight and snapshot, which computes the
- *   parent's rows again as a derived table of its own (conservative/deliver.ts parentRowsSource); the library stitches
- *   children onto parents by key;
- * - fused: the child inside the parent statement as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly for
- *   a single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec (decode.ts).
- *
- * A LEFT JOIN with padded columns is never emitted. Parent predicates stay on the parent and are never
- * pushed into a child, which correlates to delivered parents only: the fused column is computed over the parent's
- * delivered rows, read as a derived table, so the parent's plan is the plan it would have alone and an attachment on a
- * page is evaluated over the delivered page only.
- *
- * An attachment is pipelined, its own statement in the same round trip, unless correctness requires it fused: a
- * parent whose rows read an approximate search fuses every child, since a pipelined statement computes its parent's
- * rows again, which would run the search a second time, and two HNSW searches in one snapshot need not retrieve the
- * same set. Some children always pipeline (check/approximate/attach.ts pipelinedOnly): one that reads a recursive
- * relation is seeded once from the parent keys instead (R37, attach-recursive), one over an approximate source
- * evaluates that source once per execution, not once per parent, and one with attachments of its own, a heterogeneous
- * union, or a bytes column, whose values travel in chunks (codec/delivery.ts), delivers more than one array can
- * carry. Such a child under a parent whose rows read a search the checker refuses (check/approximate/attach.ts
- * pipelinedOverSearch). No width or count decides the form: a
- * pipelined statement's cost is one more statement in the flight, never a different answer.
- */
-export const chooseAttachment = (
-	attach: NodeOf<"Attach">,
-	parents: "exact" | "approximate"
-): AttachmentForm => {
-	if (pipelinedOnly(attach.child) !== undefined) {
-		return "pipelined"
-	}
-	switch (parents) {
-		case "approximate":
-			return "fused"
-		case "exact":
-			return "pipelined"
-	}
-}
 
 /**
  * The child's rows for the parent bound in `parentMap`: SELECT [DISTINCT] <child heading> FROM (<child>) WHERE

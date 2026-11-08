@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -10,35 +10,23 @@ import {
 	map,
 	oneOf,
 	string,
-	subarray,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { conservativeMeta, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	arrayElements,
 	type FusedLayout,
 	fusedElement,
 	fusedTexts
 } from "#compiler/lower/shapes/attach/decode.ts"
-import { chooseAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { Q, Reading, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { T } from "#test/unit/lower/conservative/fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 import { regex } from "arkregex"
@@ -46,87 +34,14 @@ import { outputTextOf } from "#compiler/core/decoder.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
 /**
- * The attachment shape: the fusion rule and the converter that reads a fused column back. The fused and pipelined
- * statements' rows are the optimized differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding
- * through the public boundary the public differential's (test/pg/oracle/public).
- *
- * - The fusion rule (attach/index.ts chooseAttachment): a child fuses exactly when its parent's rows read an
- *   approximate search, whatever its width, and pipelines otherwise, whatever its width: no field count decides the
- *   form. Exhausted over every correlated Reading column, every set of further child fields and both parent readings.
- * - The converter (attach/decode.ts fusedTexts, arrayElements): over drawn layouts and children, a fused column as
- *   PostgreSQL writes it (array_out over the element texts, or over jsonb_out objects keyed f1..fn, or one `true` per
- *   child of correlated columns only) reads back as each child's texts in the child heading's order, the correlated
- *   ones copied from the parent row; and arrayElements reads every array_out text as the kernel's strict reading does.
+ * The attachment shape's converter, which reads a fused column back (attach/decode.ts fusedTexts, arrayElements): over
+ * drawn layouts and children, a fused column as PostgreSQL writes it (array_out over the element texts, or over
+ * jsonb_out objects keyed f1..fn, or one `true` per child of correlated columns only) reads back as each child's texts
+ * in the child heading's order, the correlated ones copied from the parent row; and arrayElements reads every
+ * array_out text as the kernel's strict reading does. The fused and pipelined statements' rows are the optimized
+ * differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding through the public boundary the public
+ * differential's (test/pg/oracle/public).
  */
-
-const attachOf = (node: RelNode): NodeOf<"Attach"> => {
-	if (node.kind !== "Attach") {
-		throw new Error("an attachment")
-	}
-	return node
-}
-
-type ReadingColumn = "id" | "value" | "price" | "paid" | "ok"
-const readingColumns: Arr.NonEmptyReadonlyArray<ReadingColumn> = [
-	"id",
-	"value",
-	"price",
-	"paid",
-	"ok"
-]
-
-/** Readings attached to the readings of one value of `correlated`, the child binding it and `fields`. */
-const readingsBy = (correlated: ReadingColumn, fields: ReadonlyArray<ReadingColumn>) => {
-	const q = new Q()
-	const parent = q.region([
-		{ source: q.base(Reading, conservativeMeta), bind: { [correlated]: "p" }, constants: {} }
-	])
-	const child = q.region([
-		{
-			source: q.base(Reading, conservativeMeta),
-			bind: Rec.fromEntries(Arr.map([correlated, ...fields], (c) => [c, c])),
-			constants: {}
-		}
-	])
-	return q.build(q.attach(parent, child, "readings", [["p", correlated]], "array", undefined))
-}
-
-describe("the attachment fusion rule", () => {
-	it.effect(
-		"fuses a child exactly when its parent's rows read an approximate search, at any width",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/lower/shapes/attach/fusion",
-						literal: Formatter.format,
-						/** Every correlated column, every set of the other columns as further child fields, both parents. */
-						generator: (source) => {
-							const correlated = source.draw(element(readingColumns))
-							return {
-								correlated,
-								fields: source.draw(subarray(Arr.filter(readingColumns, (f) => f !== correlated))),
-								parents: source.draw(element<"exact" | "approximate">(["exact", "approximate"]))
-							}
-						},
-						limit: 160,
-						coverage: requiredInSpace<"fused" | "pipelined">(["fused", "pipelined"]),
-						caseHang
-					},
-					({ correlated, fields, parents }, c) =>
-						Effect.sync(() => {
-							const built = readingsBy(correlated, fields)
-							const expected = parents === "approximate" ? "fused" : "pipelined"
-							assert.equal(chooseAttachment(attachOf(built.dag.roots[0]), parents), expected)
-							c.note(expected)
-						})
-				)
-			)
-	)
-})
 
 /**
  * PostgreSQL's array_out of text elements: an element is double-quoted when it is empty, holds a delimiter, brace,

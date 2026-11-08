@@ -24,8 +24,8 @@ import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts
  * A query restated by everyParentTakes, and the node standing in the restated DAG in place of each node of the query's
  * DAG, which a reader of the input DAG's nodes (a write's actions and read-backs) names the restated DAG's by.
  */
-export interface RestatedQuery {
-	readonly query: LogicalQuery
+export interface RestatedQuery<Q extends LogicalQuery> {
+	readonly query: Q
 	readonly node: (node: RelNode) => RelNode
 }
 
@@ -236,7 +236,9 @@ const rewrite = (ed: DagEditor, c: Candidate): void => {
  * the next; R is read only by the chain; each constant rewritten reads only O; and nothing else in T's input reads a
  * node outside it. Any other take is left as it is.
  */
-export const everyParentTakes = (query: LogicalQuery): Result.Result<RestatedQuery, CompileError> =>
+export const everyParentTakes = <Q extends LogicalQuery>(
+	query: Q
+): Result.Result<RestatedQuery<Q>, CompileError> =>
 	Result.flatMap(
 		catchRefusal(() => {
 			const ed = new DagEditor(query.dag)

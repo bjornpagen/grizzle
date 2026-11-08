@@ -13,6 +13,7 @@ import { conservativeInput, flight, statementOutput } from "#compiler/lower/cons
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { assert } from "#test/support/assert.ts"
+import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
@@ -107,12 +108,15 @@ describe("the scalar types of lowered statements", () => {
 								return yield* n.assume(false)
 							}
 							const catalog = genCatalog(c.schema)
-							const optimized = lowerOptimized(query, {
-								names,
-								context: "snapshot",
-								catalog,
-								subject: { kind: "query" }
-							})
+							const admission = admitGenerated(query)
+							const optimized = admission.ok
+								? lowerOptimized(admission.value, {
+										names,
+										context: "snapshot",
+										catalog,
+										subject: { kind: "query" }
+									})
+								: admission
 							if (!optimized.ok) {
 								return yield* n.assume(false)
 							}

@@ -10,6 +10,7 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
+import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchCompileError, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -41,7 +42,7 @@ import type {
 	TheoryRelation
 } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
-import type { DeployPhase, LogicalQuery } from "#compiler/ir/products.ts"
+import type { DeployPhase } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -424,7 +425,7 @@ interface WorldsContext {
 	/** The schema's installed keys and containments, as every compilation sees them, with the derived relations'
 	 * inherited keys; the transaction evidence context both lowerings run in admits only what holds at every statement. */
 	readonly catalog: EvidenceCatalog
-	readonly lower: (relation: string, query: LogicalQuery) => LoweredDefinition
+	readonly lower: (relation: string, query: AdmittedQuery) => LoweredDefinition
 }
 
 const worldsContext = (b: InstallBuilder): WorldsContext => {

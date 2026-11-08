@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { type AdmittedQuery, admitQuery } from "#compiler/check/index.ts"
 import {
 	type NormalizedRelation,
 	parameterNormalizer,
@@ -7,6 +8,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -209,8 +211,15 @@ export const compileTestWorkload = (
 	)
 
 /**
- * The optimized program of a checked query, lowered as a query template (program/compile.ts) or a derived relation's
- * definition (physical/derived/definition.ts) lowers it, and checked against the kernel's verification of a lowering
+ * A generated query, which no checker handed over, admitted as the optimized lowering takes it (check/index.ts
+ * admitQuery): a case the admission rule refuses is refused here, as the checker refuses its description.
+ */
+export const admitGenerated = (query: LogicalQuery): Result.Result<AdmittedQuery, CompileError> =>
+	admitQuery(query, SourceLoc("generated query", []))
+
+/**
+ * The optimized program of a query, admitted (`admitGenerated`) and lowered as a query template (program/compile.ts) or a
+ * derived relation's definition (physical/derived/definition.ts) lowers it, and checked against the kernel's verification of a lowering
  * (oracle/verify checkedLowering): aligned with the conservative program the same names lower.
  */
 export const lowerAligned = (
@@ -225,15 +234,20 @@ export const lowerAligned = (
 			subject: { kind: "query" }
 		}),
 		(conservative) =>
-			Result.map(lowerOptimized(query, { ...options, subject: { kind } }), (optimized) => {
-				checkedLowering({
-					optimized,
-					alignment: { kind: "aligned", conservative },
-					context: options.context,
-					catalog: options.catalog
-				})
-				return optimized
-			})
+			Result.map(
+				Result.flatMap(admitGenerated(query), (q) =>
+					lowerOptimized(q, { ...options, subject: { kind } })
+				),
+				(optimized) => {
+					checkedLowering({
+						optimized,
+						alignment: { kind: "aligned", conservative },
+						context: options.context,
+						catalog: options.catalog
+					})
+					return optimized
+				}
+			)
 	)
 
 /**

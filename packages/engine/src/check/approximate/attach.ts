@@ -143,9 +143,9 @@ const correlatedRefusal = (
 
 /**
  * What in a child's subtree makes its attachment a statement of its own even under parent rows that read an
- * approximate search, the one case an attachment otherwise fuses (lower/shapes/attach chooseAttachment), or undefined.
+ * approximate search, the one case an attachment otherwise fuses (lower/shapes/index.ts rowsStatement), or undefined.
  */
-export const pipelinedOnly = (child: RelNode): string | undefined => {
+const pipelinedOnly = (child: RelNode): string | undefined => {
 	if (child.heading.some((column) => column.type.carrier === "bytes")) {
 		return "a child delivering bytes delivers each value in chunks, which no array carries"
 	}
@@ -286,7 +286,7 @@ const deliveredAttachments = (
  * a search. That statement computes its parent's rows again in the same
  * snapshot, so it would run the parent's search a second time, and a delivered parent the second search misses would
  * lose its children. Every other attachment fuses exactly when its parent's rows read an approximate search
- * (lower/shapes/attach chooseAttachment), so the search runs once; over exact rows it is a statement of its own.
+ * (lower/shapes/index.ts rowsStatement), so the search runs once; over exact rows it is a statement of its own.
  *
  * The refusal of an attachment that must be a statement of its own under rows that read a search (see the header),
  * or undefined. Each such attachment's own parent rows are checked: an attachment's child that has attachments of its

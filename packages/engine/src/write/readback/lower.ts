@@ -1,5 +1,7 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
+import { admitQuery } from "#compiler/check/index.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -69,6 +71,9 @@ export const deltaSourceIn = (
  * its lowering is a program of statements, delivered to the host as a query's are (heading groups merged, attachments
  * stitched on their parent keys).
  *
+ * Its root, a node of the write's DAG, is restated as a query of its own and admitted (check/index.ts admitQuery), the one
+ * value the optimized lowering takes.
+ *
  * The query is lowered by the optimized pipeline, because in every other respect a read-back is an ordinary query: it
  * fuses, deduplicates and orders as any query does. Its rewrites, duplicate-elimination placement and shapes rest on
  * the evidence of the transaction context a read-back runs in, immediate-constraint evidence only, against the
@@ -89,21 +94,25 @@ export const lowerReadBack = (
 	plan: DeltaPlan,
 	options: ReadBackOptions
 ): OptimizedProgram => {
-	const program = lowerOptimized(
+	const admitted = admitQuery(
 		{ dag: rooted([read.node]), params: options.params },
-		{
-			names: options.reads,
-			/** Its conservative artifact is realized with its write, which the write oracle compares. */
-			subject: {
-				kind: "readBack",
-				deltas: deltaSourceOf(plan, options.entries),
-				breach: breachGuard(options.names.schema)
-			},
-			/** A read-back runs in its write's transaction and records no constraint premise. */
-			catalog: evidenceCatalog(options.schema),
-			context: "transaction"
-		}
+		SourceLoc(`read ${read.name}`, [])
 	)
+	if (!admitted.ok) {
+		throw new Refusal(admitted.error)
+	}
+	const program = lowerOptimized(admitted.value, {
+		names: options.reads,
+		/** Its conservative artifact is realized with its write, which the write oracle compares. */
+		subject: {
+			kind: "readBack",
+			deltas: deltaSourceOf(plan, options.entries),
+			breach: breachGuard(options.names.schema)
+		},
+		/** A read-back runs in its write's transaction and records no constraint premise. */
+		catalog: evidenceCatalog(options.schema),
+		context: "transaction"
+	})
 	if (!program.ok) {
 		throw new Refusal(program.error)
 	}

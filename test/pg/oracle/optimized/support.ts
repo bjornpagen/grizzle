@@ -44,6 +44,7 @@ import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { admitGenerated } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
@@ -767,17 +768,19 @@ const runDifferential = (
 		)
 		const catalog = installedCatalog(plan.installation)
 		/**
-		 * The optimized lowering takes the query as a compilation hands it over (optimizedInput): its logical metadata
-		 * derived by the annotation, so every rewrite transfers real keys, cardinalities and contexts.
+		 * The optimized lowering takes the query as a compilation hands it over: admitted, and with its logical metadata
+		 * derived by the annotation (optimizedInput), so every rewrite transfers real keys, cardinalities and contexts.
 		 */
 		const optimizedProgram = yield* lowerSide("optimized", () =>
-			Engine.flatMap(optimizedInput(query, checkerEvidence), (caseInput) =>
-				lowerOptimized(caseInput, {
-					names,
-					catalog,
-					subject: { kind: "query" },
-					context: "snapshot"
-				})
+			Engine.flatMap(
+				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
+				(caseInput) =>
+					lowerOptimized(caseInput, {
+						names,
+						catalog,
+						subject: { kind: "query" },
+						context: "snapshot"
+					})
 			)
 		)
 		const violations = loweringViolations({

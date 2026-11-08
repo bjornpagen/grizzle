@@ -5,6 +5,7 @@ import { fail, rootLoc, unwrap } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
 import { resolveQuery } from "#compiler/check/params.ts"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -19,8 +20,41 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 
 export type { CheckOptions } from "#compiler/check/checker.ts"
 
+declare const admittedQueryBrand: unique symbol
+
 /**
- * One check of a decoded description: every parameter is of its declared type, so one pass types them all.
+ * A query whose whole holds the checker's admission rule (check/approximate/attach.ts pipelinedOverSearch): no
+ * attachment that must be a statement of its own sits under rows that read an approximate search. The optimized
+ * lowering takes only this (lower/optimize/pipeline.ts lowerOptimized), so its rows statements fuse an attachment
+ * exactly when their rows read a search. `admit` is its one parse, which every entry point of the checker runs and
+ * admitQuery offers a query the checker did not hand over; a restatement that spreads an admitted query with a new
+ * DAG keeps it.
+ */
+export type AdmittedQuery = LogicalQuery & { readonly [admittedQueryBrand]: true }
+
+const admitted = nominal<LogicalQuery, AdmittedQuery>()
+
+/** `query`, admitted, or refused at `loc` as UnsupportedOperation. */
+const admit = (query: LogicalQuery, loc: SourceLoc): AdmittedQuery => {
+	const overSearch = pipelinedOverSearch(query.dag.roots[0])
+	if (overSearch !== undefined) {
+		fail("UnsupportedOperation", loc, overSearch)
+	}
+	return admitted(query)
+}
+
+/**
+ * The admission of a query the checker did not hand over itself, such as a read-back's root restated as a query of
+ * its write's DAG (write/readback/lower.ts), refused at `loc` where the rule fails.
+ */
+export const admitQuery = (
+	query: LogicalQuery,
+	loc: SourceLoc
+): Result.Result<AdmittedQuery, CompileError> => catchRefusal(() => admit(query, loc))
+
+/**
+ * One check of a decoded description: every parameter is of its declared type, so one pass types them all. The
+ * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs.
  */
 const run = (
 	schema: SchemaReading,
@@ -28,16 +62,10 @@ const run = (
 	options: CheckOptions,
 	loc: SourceLoc,
 	role: RootRole
-): LogicalQuery => {
+): AdmittedQuery => {
 	const resolved = resolveQuery(desc)
 	const dag = new Checker(schema, options, resolved.params).root(resolved.query, loc, role)
-	const query: LogicalQuery = { dag, params: resolved.params.decls(loc) }
-	/** A property of the whole query, refused here so that both lowerings accept the same programs. */
-	const overSearch = pipelinedOverSearch(query.dag.roots[0])
-	if (overSearch !== undefined) {
-		fail("UnsupportedOperation", loc, overSearch)
-	}
-	return query
+	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 
 const decoded = (desc: unknown, options: StructureOptions) =>
@@ -64,7 +92,7 @@ export const checkQuery = (
 	checked: SchemaReading,
 	desc: unknown,
 	options: CheckOptions
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<AdmittedQuery, CompileError> =>
 	Result.flatMap(decoded(desc, { read: options.read }), (q) =>
 		catchRefusal(() => run(checked, q, options, rootLoc(options.label), { kind: options.read }))
 	)
@@ -79,7 +107,7 @@ export const checkDefinition = (
 	base: SchemaReading,
 	label: string,
 	query: QueryDesc
-): Result.Result<LogicalQuery, CompileError> => {
+): Result.Result<AdmittedQuery, CompileError> => {
 	const options: CheckOptions = { read: "rows", label }
 	return Result.flatMap(decoded(query, { read: "rows" }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
@@ -91,7 +119,7 @@ export const checkReadBack = (
 	checked: SchemaReading,
 	readBack: ReadBackDesc,
 	options: Omit<CheckOptions, "read">
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<AdmittedQuery, CompileError> =>
 	checkQuery(checked, readBack.query, { ...options, read: "readBack" })
 
 /**
@@ -112,7 +140,7 @@ const memberQuery = (
 	member: DescribedMember,
 	q: QueryDesc,
 	options: Omit<CheckOptions, "read">
-): LogicalQuery => {
+): AdmittedQuery => {
 	const { relation, op, loc } = member
 	const query = run(checked, q, { ...options, read: "rows" }, childLoc(loc, "query"), {
 		kind: "member",
@@ -127,7 +155,7 @@ export const checkMember = (
 	checked: SchemaReading,
 	member: DescribedMember,
 	options: Omit<CheckOptions, "read">
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<AdmittedQuery, CompileError> =>
 	catchRefusal(() =>
 		memberQuery(checked, member, unwrap(decoded(member.query, { read: "rows" })), options)
 	)
@@ -141,7 +169,7 @@ export const checkFill = (
 	checked: SchemaReading,
 	member: DescribedMember,
 	options: Omit<CheckOptions, "read">
-): Result.Result<LogicalQuery, CompileError> =>
+): Result.Result<AdmittedQuery, CompileError> =>
 	catchRefusal(() =>
 		memberQuery(
 			checked,

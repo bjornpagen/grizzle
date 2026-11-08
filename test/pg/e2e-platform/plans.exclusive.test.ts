@@ -35,7 +35,7 @@ import type { TestContext } from "vitest"
  * the runtime sent with its parameters:
  *
  * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
- *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/attach chooseAttachment);
+ *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/index.ts rowsStatement);
  * - served: planned with sequential and index scans disabled, so that a bitmap scan, which reads only by an index
  *   condition, is the one scan left, every scan of a relation a statement restricts reads by an index condition on an
  *   index the installation planned (test/support/plans.ts);
@@ -154,7 +154,7 @@ const declaredAttachments = (q: QueryDesc): number => {
 }
 
 /**
- * The statements a read is, by the R36 rule (lower/shapes/attach chooseAttachment): its rows' statement and one per
+ * The statements a read is, by the R36 rule (lower/shapes/index.ts rowsStatement): its rows' statement and one per
  * attachment it declares, at every depth, since no platform read's parents are an approximate search, the one case
  * an attachment fuses. invoicePreview is seven: the invoice, its lines, each line's usage and plan detail, its
  * refunds, its payment and its dispute.

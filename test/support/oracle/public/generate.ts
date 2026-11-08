@@ -3459,7 +3459,7 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  * The arm delivers Some to the parent row whose h is H, one of the two, and None to the other. The signed
  * attachment's parents include the two rows whose d is one value stored as 0 and as -0, each with the children of
  * both, and it is pipelined, since a child with an attachment of its own is never fused
- * (lower/shapes/attach/index.ts chooseAttachment): the stitch by key must use the type's equality, never the cell's
+ * (lower/shapes/index.ts rowsStatement): the stitch by key must use the type's equality, never the cell's
  * text. q1 imports an attached query, whose attachments deliver nothing to its rows. q2 is a heterogeneous union whose
  * third arm repeats the first's key set with another literal at its discriminant, which a decoder keying its layouts by
  * key set alone cannot tell apart. q7 is a root take of three rows, ordered apart by its descending key and tied by it,
@@ -3836,7 +3836,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	)
 	/**
 	 * The sixth read: P{k, d} find {k, d} with a child of one field and no attachment of its own, which the optimized
-	 * artifact pipelines as every attachment over exact parents (lower/shapes/attach/index.ts chooseAttachment),
+	 * artifact pipelines as every attachment over exact parents (lower/shapes/index.ts rowsStatement),
 	 * correlated on d: the two rows whose d is one value stored as 0 and as -0 each get the children of both.
 	 */
 	const fusedNames = new Names(kinds)

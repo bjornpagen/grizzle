@@ -58,6 +58,7 @@ import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
+import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -1220,12 +1221,15 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				return
 			}
 			const catalog = genCatalog(o.c.schema)
-			const optimized = lowerOptimized(query, {
-				names,
-				context: "snapshot",
-				catalog,
-				subject: { kind: "query" }
-			})
+			const admission = admitGenerated(query)
+			const optimized = admission.ok
+				? lowerOptimized(admission.value, {
+						names,
+						context: "snapshot",
+						catalog,
+						subject: { kind: "query" }
+					})
+				: admission
 			if (!optimized.ok) {
 				return yield* new PropertyFailed({
 					report: `optimized lowering: ${optimized.error.message}\n${printCase(o)}`

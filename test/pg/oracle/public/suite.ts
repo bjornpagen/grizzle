@@ -221,7 +221,7 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * wrong that only it reaches:
  *
  * - an attachment pipelined as a statement of its own, and a nested one: over exact parents no attachment fuses
- *   (lower/shapes/attach chooseAttachment), and the fused codec is the attachment shape's unit suite's
+ *   (lower/shapes/index.ts rowsStatement), and the fused codec is the attachment shape's unit suite's
  *   (test/unit/lower/shapes/attach.test.ts);
  * - each stated delivery the decoder binds: an Option, the one child, and an arm read Some and None by its parent's
  *   handle, each licensed by the analysis and kept by the reference;

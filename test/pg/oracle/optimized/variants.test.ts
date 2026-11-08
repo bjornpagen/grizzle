@@ -16,7 +16,7 @@
  *   ApproximateNearest search over one rule's projection, which keeps the account's key id or only its group a (so the
  *   search deduplicates its candidates), the entries attached by p equal to that column. This is the one case an
  *   attachment fuses: its parent's rows read an approximate search, which a pipelined statement would run a second
- *   time (lower/shapes/attach chooseAttachment), so the child is an array column of the parent statement, one field
+ *   time (lower/shapes/index.ts rowsStatement), so the child is an array column of the parent statement, one field
  *   as text[] and several as jsonb[], which the runner unfuses and compares with the conservative lowering's pipelined
  *   statement. The oracle installation builds no HNSW index, so both lowerings' searches are the exact top k, ties at
  *   the cutoff settled by the heading's other column in both;

@@ -31,6 +31,7 @@ import {
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { admitGenerated } from "#test/support/compile.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -281,12 +282,14 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 		out.push({ ast: executableQuery(s), text: "" })
 	}
 	Arr.forEach(flight(deliveredAsOptimized(conservative.value).roots), statement)
-	const optimized = lowerOptimized(query, {
-		names,
-		catalog: schemaCatalog(artifacts.value),
-		subject: { kind: "query" },
-		context
-	})
+	const optimized = Result.flatMap(admitGenerated(query), (q) =>
+		lowerOptimized(q, {
+			names,
+			catalog: schemaCatalog(artifacts.value),
+			subject: { kind: "query" },
+			context
+		})
+	)
 	if (!optimized.ok) {
 		throw failure("the optimized lowering", optimized.error)
 	}

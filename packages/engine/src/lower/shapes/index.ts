@@ -60,7 +60,6 @@ import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import {
 	attachmentRowsIdentity,
 	boundTimes,
-	chooseAttachment,
 	type DeliveredRows,
 	fusedLayout,
 	type PipelinedAttachment,
@@ -657,13 +656,6 @@ const fusedDescription = (
 	layout: fusedLayout(attach, attach.child.heading, attach.parent.heading)
 })
 
-/**
- * The R36 rule (attach/index.ts chooseAttachment): every attachment it fuses is fused, a child whose correlated
- * columns the parent row supplies included.
- */
-const fusible = (attach: NodeOf<"Attach">, searches: boolean): boolean =>
-	chooseAttachment(attach, searches ? "approximate" : "exact") === "fused"
-
 /** Whether computing the rows of `node` reads an approximate search: an attachment's rows are its parent's. */
 const rowsReadSearch = (node: RelNode): boolean => {
 	const seen = new Set<RelNode>([node])
@@ -875,9 +867,35 @@ export class OptimizedDelivery<
 	}
 
 	/**
-	 * A rows statement and its attachments: the fusible ones as columns of the statement (R36), which `build` builds at
-	 * the position it is placed at, and each other one a pipelined statement under it, which `attachments` places once
-	 * the rows statement is placed.
+	 * A rows statement and its attachments (R36): fused as columns of the statement, which `build` builds at the
+	 * position it is placed at, or each a pipelined statement under it, which `attachments` places once the rows
+	 * statement is placed.
+	 *
+	 * An attachment is the nest operator: for each delivered parent fact, the set of its correlated child facts; the
+	 * parent set is unchanged, never filtered, multiplied or reordered. Two lowerings deliver identical nested results,
+	 * chosen by the rule and never by the caller:
+	 *
+	 * - pipelined: one statement per attached query, in the parent statement's flight and snapshot, which computes the
+	 *   parent's rows again as a derived table of its own (conservative/deliver.ts parentRowsSource); the library
+	 *   stitches children onto parents by key;
+	 * - fused: the child inside the parent statement as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly
+	 *   for a single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec
+	 *   (attach/decode.ts), a child whose correlated columns the parent row supplies included.
+	 *
+	 * A LEFT JOIN with padded columns is never emitted. Parent predicates stay on the parent and are never pushed into a
+	 * child, which correlates to delivered parents only: the fused column is computed over the parent's delivered rows,
+	 * read as a derived table, so the parent's plan is the plan it would have alone and an attachment on a page is
+	 * evaluated over the delivered page only.
+	 *
+	 * Every attachment is pipelined, its own statement in the same round trip, unless the statement's rows read an
+	 * approximate search: then every one is fused, since a pipelined statement computes its parent's rows again, which
+	 * would run the search a second time, and two HNSW searches in one snapshot need not retrieve the same set. A child
+	 * that must be a statement of its own (check/approximate/attach.ts pipelinedOnly: a recursive child, seeded once
+	 * from the parent keys (R37, attach-recursive), a child over an approximate source, evaluated once per execution,
+	 * and a child with attachments of its own, a heterogeneous union or a bytes column, whose values travel in chunks
+	 * (codec/delivery.ts), each delivering more than one array can carry) never sits under rows that read a search: the
+	 * lowering takes only an admitted query (check/index.ts AdmittedQuery). No width or count decides the form: a
+	 * pipelined statement's cost is one more statement in the flight, never a different answer.
 	 */
 	rowsStatement(spec: RowsSpec<I>): {
 		readonly build: (
@@ -891,8 +909,8 @@ export class OptimizedDelivery<
 	} {
 		const cx = this.cx
 		const searches = rowsReadSearch(spec.origin)
-		const fused = spec.attachments.filter((a) => fusible(a.attach, searches))
-		const pipelined = spec.attachments.filter((a) => !fused.includes(a))
+		const fused = searches ? spec.attachments : []
+		const pipelined = searches ? [] : spec.attachments
 		/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
 		const spine = [...new Set(fused.flatMap((a) => a.spine))]
 		const lowered = (): Select => {

@@ -5,7 +5,7 @@ import {
 	oneColumnKeyRepresentable
 } from "#compiler/analysis/derived/keys.ts"
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
-import { checkDefinition } from "#compiler/check/index.ts"
+import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -28,7 +28,6 @@ import {
 	type ViewRead,
 	viewAlternatives
 } from "#compiler/ir/keys.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { type Card, type HeadingColumn, keptRowsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
@@ -44,7 +43,7 @@ export interface DerivedRelationAnalysis {
 	readonly reads: ReadonlyArray<string>
 	readonly loc: SourceLoc
 	/** The checked definition, annotated with the lower levels' inherited keys. */
-	readonly query: LogicalQuery
+	readonly query: AdmittedQuery
 	/** The definition's heading: the relation's columns, in canonical order, at least one (an empty heading is
 	 * refused), each a declared name of the view (`declaredHeading`) with its inferred field descriptor. */
 	readonly heading: NonEmptyReadonlyArray<DerivedColumn>

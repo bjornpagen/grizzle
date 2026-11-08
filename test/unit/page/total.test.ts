@@ -21,6 +21,7 @@ import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/comp
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
@@ -409,12 +410,15 @@ describe("the page compiler and the page runtime template", () => {
 								return yield* c.assume(false)
 							}
 							const catalog = genCatalog(o.c.schema)
-							const optimized = lowerOptimized(query, {
-								names,
-								context: "snapshot",
-								catalog,
-								subject: { kind: "query" }
-							})
+							const admission = admitGenerated(query)
+							const optimized = admission.ok
+								? lowerOptimized(admission.value, {
+										names,
+										context: "snapshot",
+										catalog,
+										subject: { kind: "query" }
+									})
+								: admission
 							if (!optimized.ok) {
 								return yield* c.assume(false)
 							}
