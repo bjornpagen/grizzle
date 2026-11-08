@@ -147,7 +147,14 @@ type WritesAt<X, F> =
 			? true
 			: false
 
-type UnfitArms<H, F, Seen> = H extends unknown
+/**
+ * The arms of a member's facts H that fit no arm of F (FitsAnArm). Facts of F itself fit, every arm being one of F's, so
+ * a member typed by its relation's addition (InsertAllRowsOf) is admitted without a walk, at any depth of its nesting.
+ */
+type UnfitArms<H, F, Seen> = Identical<H, F> extends true ? never : ArmsUnfit<H, F, Seen>
+
+/** The arms of H that fit no arm of F, each arm judged alone. */
+type ArmsUnfit<H, F, Seen> = H extends unknown
 	? [FitsAnArm<H, F, Seen>] extends [never]
 		? H
 		: never
@@ -831,20 +838,21 @@ export type PlannedStrata<X> = AppendsBeside<
 	X extends Phantom<{ readonly strata: infer St }> ? St : readonly []
 >
 
-/** The immutable owners of the ordered and counted families R is a member of in S. */
+/**
+ * The owners of S's ordered and counted families under the name of their member relation, a member of several families
+ * once with all their owners, and none under any other name: built once per schema, in one pass over its families, so
+ * a member's owners are one property read, as SequenceIndexOf reads an owner's sequences.
+ */
+type RowOwnerIndexOf<S> = {
+	readonly [Fa in RowFamilyOf<S> as NameOf<MemberRelationOf<Fa>>]: OwnerNameOf<Fa>
+} & { readonly [member: string]: never }
+
+/**
+ * The immutable owners of the ordered and counted families R is a member of in S: one read of the schema's index
+ * (RowOwnerIndexOf), so insertAll's keys cost one each, however many families the schema holds.
+ */
 type FixedOwnerOf<S, R> =
-	string extends NameOf<R>
-		? never
-		: Exclude<
-				RowFamilyOf<S> extends infer Fa
-					? Fa extends unknown
-						? [Extract<NameOf<MemberRelationOf<Fa>>, NameOf<R>>] extends [never]
-							? never
-							: OwnerNameOf<Fa>
-						: never
-					: never,
-				MutableName<S>
-			>
+	string extends NameOf<R> ? never : Exclude<RowOwnerIndexOf<S>[NameOf<R>], MutableName<S>>
 
 /** Whether R is a member of an ordered or a counted family of S, whose every write the engine plans as an edit. */
 type IsFamilyMember<S, R> =

@@ -20,9 +20,15 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * at n and each line's parts at m, each less its group; a tree's addition names no parent and its rows below the root
  * no root field, through two levels; a pool's and an item's additions are their written rows), inserts the last of each
  * kind, states the relations a ChangeSet inserts at its top level (InsertableNameOf: every relation but the lines and
- * parts, which are ordered members), and keeps the refusals that must fire at scale, each held by its
- * `@ts-expect-error` directive (an unused directive is a diagnostic of its own, TS2578): an ordered member is written
- * under its owner, never alone, and a counted member is never nested under its owner.
+ * parts, which are ordered members) and inserts every one of them in one insertAll from their record (InsertAllRowsOf),
+ * and keeps the refusals that must fire at scale, each held by its `@ts-expect-error` directive (an unused directive is
+ * a diagnostic of its own, TS2578): an ordered member is written under its owner, never alone, and a counted member is
+ * never nested under its owner.
+ *
+ * insertAll costs one step per key and one per family: each key's immutable owners are one read of the schema's index
+ * of family owners by member (types/changeset/changeset.ts RowOwnerIndexOf), never a pass over its families, which made
+ * the call keys times families; and rows typed by their addition fit it by identity, never by a walk of their fields,
+ * which spent about 8,000 instantiations a key and passed TypeScript's 5,000,000 a statement at 1,000 families.
  *
  * A nested addition is indexed by mapping over the owner's families (types/changeset/changeset.ts AdditionIn), never
  * by a count field's name: an index by name failed with TS2859 at 1,000 families (U1's budget proof, 2026-11-05).
@@ -132,6 +138,10 @@ export const nestedWrites = ChangeSet.empty(S)
 
 /** Every relation a ChangeSet inserts at its top level: each owner, tree, pool and item, never a line or a part. */
 export type Insertable = Expect<Equals<InsertableNameOf<typeof S>, ${Arr.join(Arr.map(Arr.flatMap(units, insertableOf), jsonText), " | ")}>>
+
+/** All of them inserted at once, their rows typed from grizzle. */
+declare const rows: InsertAllRowsOf<typeof S>
+export const insertedAll = ChangeSet.empty(S).insertAll(rows)
 
 /** The refusals that must keep firing at scale. */
 export const memberAlone = ChangeSet.empty(S).insert(
