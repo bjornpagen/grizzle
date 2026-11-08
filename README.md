@@ -2556,22 +2556,23 @@ that reads every row has none.
 
 </details>
 
-`lawsOf(schema)` lists a schema's statements in declared order, its base's first, each with the rules an outcome names
-when it is broken: one for a key, check, containment, family, tree or fold; two containments for a mirrors; an
-alternatives statement's containments; none for `mutable`. Each call compiles the rules, so call it once and keep the
-list. `sameLaw(a, b)` says whether two rules are one:
-`refused.laws.some((law) => entry.laws.some((rule) => sameLaw(law, rule)))` says whether a refusal names a statement's
-rule. `constraintNameOf(law)` is the name PostgreSQL holds a row check under, from its rule:
+`lawsOf(schema)` lists every rule the schema states, each once, exactly as an outcome names it, so every rule an outcome
+over the schema names is one of them. In order, however you declared the schema: each table's primary key, by table
+name; the rules of the schema's statements in canonical order, one for a key, check, containment, family, tree or fold,
+two containments for a mirrors and an alternatives statement's containments, none for `mutable`; each contract's, by
+name; then each stored field's pattern rule and each generated field's rule, by table name and each table's fields in
+declared order. A rule two statements state, such as a key over a table's primary key, is listed once. A pattern every
+text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, and the column is plain text. Neither
+does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the schema fixes. A
+contract only a login's context field names is the login's, never the schema's: `Db.open` checks a claim against it, and
+no write is refused by it. Each call compiles the rules, so call it once and keep the list.
+
+`sameLaw(a, b)` says whether two rules are one: `refused.laws.some((law) => sameLaw(law, rule))` says whether a
+refusal names `rule`, and a handler for each rule of `lawsOf(schema)` handles every refusal. `constraintNameOf(law)` is
+the name PostgreSQL holds a row check under, from its rule:
 `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a check
 declared as `E1_derived` is `"e_1_derived"`. A direct writer's refusal by the check names it, so take it from grizzle
 and never spell it.
-
-`patternLawsOf(schema)` lists the pattern rules, which no statement states: one
-`{ kind: "pattern", relation, field, source, flags }` per stored field whose pattern states one, spelled as that field
-spells it, by relation name and each relation's fields in declared order. They are exactly the pattern rules an outcome
-names. A pattern every text matches, such as `"^.*$"` under `"su"`, states none: grizzle drops it, and the column is
-plain text. Neither does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the
-schema fixes. It compiles the rules too, so call it once and keep the list.
 
 **Errors**, by operation:
 

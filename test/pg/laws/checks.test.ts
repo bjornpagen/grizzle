@@ -495,11 +495,12 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 				[[constraint]],
 				`${table} has one check constraint, its row check's`
 			)
-			const law = defined(
-				Arr.flatMap(defined(laws[i], `the laws of Item${i}'s row check`).laws, (l) =>
-					l.kind === "check" ? [l] : []
-				)[0],
-				`the check law of Item${i}`
+			const [law, ...more] = Arr.flatMap(laws, (l) =>
+				l.kind === "check" && l.relation === `Item${i}` ? [l] : []
+			)
+			assert.ok(
+				law !== undefined && more.length === 0,
+				`lawsOf lists one check law of Item${i}, its row check's`
 			)
 			const exported = constraintNameOf(law)
 			assert.deepEqual(

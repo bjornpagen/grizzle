@@ -29,7 +29,7 @@ export {
 	select,
 	tree
 } from "#compiler/schema/api.ts"
-export { lawsOf, patternLawsOf, type StatementLaws } from "#compiler/program/laws.ts"
+export { lawsOf } from "#compiler/program/laws.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"

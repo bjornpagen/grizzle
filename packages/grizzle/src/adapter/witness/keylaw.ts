@@ -1,6 +1,6 @@
 import { Array as Arr } from "effect"
 import type { InstallNames } from "#compiler/plan/catalog.ts"
-import { generatedLaw, type Law, type TableRelation } from "#compiler/plan/change.ts"
+import { generatedFieldLaws, type Law, type TableRelation } from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -168,9 +168,10 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 		Arr.map(input.relations, (r) => [
 			r.ident,
 			new Map(
-				Arr.flatMap(r.fields, (f): ReadonlyArray<readonly [ColumnIdent, Law]> =>
-					f.writing.kind === "generated" ? [[f.column, generatedLaw(r.name, f.name)]] : []
-				)
+				Arr.map(generatedFieldLaws([r]), (g): readonly [ColumnIdent, Law] => [
+					g.field.column,
+					g.law
+				])
 			)
 		])
 	)

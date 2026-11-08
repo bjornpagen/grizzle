@@ -446,10 +446,11 @@ The command line's own refusals, by stage:
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
   as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's
   name. A pattern's law names its field, `{ kind: "pattern", relation, field, source, flags }`, spelled as that field
-  spells its pattern, so two fields of one pattern are two laws. `patternLawsOf(schema)` lists every pattern law a
-  schema states, one per stored field, and none for a pattern every text matches, which grizzle drops, or for a
-  contract's pattern, whose law is the contract's: compare refusals against it with `sameLaw`, never keep that list
-  by hand. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
+  spells its pattern, so two fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
+  each once, as an outcome names it: each table's primary key, each statement's laws, each contract's, each stored
+  field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
+  for a contract's pattern, whose law is the contract's. Compare refusals against it with `sameLaw`, and never keep a
+  list of laws by hand. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
   PostgreSQL tried first, where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such
   as a query's, or a check that reads a value grizzle does not hold, such as a count or an end a put keeps from the
   stored row): the row may break other checks too, and another version of grizzle may name another of them. `some`

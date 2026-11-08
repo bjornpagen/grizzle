@@ -12,7 +12,7 @@ import {
 	type TermDesc
 } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import { fieldNames } from "#compiler/ir/law.ts"
+import { fieldNames, type LawField, type TableRelation } from "#compiler/ir/law.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -93,6 +93,29 @@ export type GeneratedLaw = Extract<Law, { readonly kind: "generated" }>
  */
 export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
 	Object.freeze({ kind: "generated", relation, field })
+
+/** A stored field PostgreSQL generates: its relation, the field, and the field's law (generatedLaw). */
+export interface GeneratedFieldLaw {
+	readonly relation: TableRelation
+	readonly field: LawField
+	readonly law: GeneratedLaw
+}
+
+/**
+ * The generated fields of `relations`, in their order, each relation's fields in declared order, each with its law:
+ * what a NOT NULL violation on a generated column reports (adapter/witness/keylaw.ts generatedOf) and what lawsOf
+ * lists, read from these same fields, so the two can never disagree.
+ */
+export const generatedFieldLaws = (
+	relations: ReadonlyArray<TableRelation>
+): ReadonlyArray<GeneratedFieldLaw> =>
+	relations.flatMap((relation) =>
+		relation.fields.flatMap((field): ReadonlyArray<GeneratedFieldLaw> =>
+			field.writing.kind === "generated"
+				? [Object.freeze({ relation, field, law: generatedLaw(relation.name, field.name) })]
+				: []
+		)
+	)
 
 /** A side of a law as its statement declares it: its relation, its terms and its selection's conjuncts. */
 const sideOf = (side: ResolvedSide): SideDesc =>

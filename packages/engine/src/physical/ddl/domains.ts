@@ -65,7 +65,7 @@ export interface FieldPatternLaw {
  * (structuralRegex), by relation name, each relation's fields in declared order. A tautology erases (text/refinement.ts),
  * a contract's pattern is its contract's law, and a closed relation, a derived relation or a context field stores no
  * field, so none of them states one. The installation lists its text domains' laws from these
- * (physical/install/compile.ts) and patternLawsOf returns their laws, so the two can never disagree.
+ * (physical/install/compile.ts) and lawsOf lists their laws (program/laws.ts), so the two can never disagree.
  */
 export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw> =>
 	[...model.relations.values()].flatMap(({ relation }) =>

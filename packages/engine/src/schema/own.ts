@@ -215,11 +215,6 @@ export interface Owned extends OwnedSchema {
 	 * Every statement of every level, deduplicated, in canonical order, each at its location in the decoded description.
 	 */
 	readonly statements: ReadonlyArray<OwnedStatement>
-	/**
-	 * Each statement's index in `statements` by its canonical text (canonicalStatementText): the owned statement a
-	 * declared statement of any level is, which a law's `statements` name.
-	 */
-	readonly statementAt: ReadonlyMap<string, number>
 	readonly contracts: Readonly<Record<string, OwnedContract>>
 	/** Every field of every relation and closed relation, sorted. */
 	readonly fieldIds: ReadonlyArray<FieldId>
@@ -794,7 +789,6 @@ class Owner {
 			installation,
 			relations,
 			statements: ordered.map((s) => s.statement),
-			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
 			contracts,
 			fieldIds
 		}
