@@ -42,7 +42,7 @@ import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import type { AnyLogin } from "#compiler/public/schema.ts"
+import { type AnyLogin, roleNameOf } from "#compiler/public/schema.ts"
 import { placeholderToken, quoteIdent } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
@@ -58,7 +58,6 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { loginRoleOf } from "#test/support/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
@@ -1144,7 +1143,7 @@ const runCommands = (c: Case<CommandKind>, steps: Program<WorkflowParameters>) =
 			const logins = new Map<string, Credentials>()
 			const login = (value: AnyLogin): Effect.Effect<Credentials, SqlError, Services> =>
 				Effect.suspend(() => {
-					const role = loginRoleOf(value)
+					const role = roleNameOf(value)
 					const known = logins.get(role)
 					if (known !== undefined) {
 						return Effect.succeed(known)

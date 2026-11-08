@@ -233,22 +233,6 @@ export class RoleOutsideLayers extends Data.TaggedError("RoleOutsideLayers")<{
 }
 
 /**
- * The layer's login has no PostgreSQL role name under the schema its base is installed under: `login` is its declared
- * name, which its ownership admitted, `role` its PostgreSQL role `<schema>__<login>`, and `limit` the bytes that role
- * passes, PostgreSQL's 63 (physical/ddl/names.ts fittedLogin). A name the declared-name rule refuses is the login's
- * CompileError.
- */
-export class LoginNameRefused extends Data.TaggedError("LoginNameRefused")<{
-	readonly login: string
-	readonly role: string
-	readonly limit: number
-}> {
-	override get message(): string {
-		return `login ${this.login} has no PostgreSQL role name: ${this.role} is longer than ${this.limit} bytes`
-	}
-}
-
-/**
  * A token was refused: the layer's verify failed with it, its `cause` the verifier's own, or verify threw, its `cause`
  * what it threw. The application's verify fails with it; grizzle builds one only for a verify that throws. It is the
  * reason of an OpenError at stage `token`. CredentialError stays the database password failing.

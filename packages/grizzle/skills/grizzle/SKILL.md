@@ -523,9 +523,12 @@ The command line's own refusals, by stage:
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to
   a typmod you do not mean.
-- Each login is a PostgreSQL role, `<schema>__<login>`, and each world a role that cannot log in, `<schema>__<role>`.
-  The migration that adds a login creates it; the operator gives it a password, or, for an RDS IAM login, `GRANT
-  rds_iam TO <login> WITH INHERIT TRUE, SET FALSE`. grizzle never sets either. A login holds only USAGE on the
+- Each login is a PostgreSQL role, `roleNameOf(login)`, and each role a PostgreSQL role that cannot log in,
+  `roleNameOf(role)`, with its schema of views, `schemaNameOf(role)`; the schema's own is `schemaNameOf(schema)`. Take
+  every one from there, never spell or rebuild one: each is the name the installation creates, and each throws
+  CompileError for a name the installation refuses. The migration that adds a login creates its role; the operator
+  gives it a password, or, for an RDS IAM login, `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`, and the IAM
+  signer's user name is `roleNameOf(login)`. grizzle never sets either. A login holds only USAGE on the
   schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check Db.open and every transaction
   take; everything else it does as one of its roles, one per transaction. Db.open and drift admit a membership beyond
   the login's roles only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
@@ -542,15 +545,18 @@ The command line's own refusals, by stage:
   one, or the `why` is `filterReadsFamily` or `keyHoldsFamily`, naming the field: filter the owner by the fields its
   caller writes. A family's members are written from an array or a `Stream`, never from a query or through a query
   entry.
-- A direct SQL writer logs in as a login, runs `SET ROLE <role>` for one of its roles, and, for a role whose
-  relations read a context, sets the claims in the transaction:
+- A direct SQL writer logs in as a login's role, runs `SET ROLE` to `roleNameOf(role)` for one of its roles, reads
+  the role's views in `schemaNameOf(role)`, and, for a role whose relations read a context, sets the claims in the
+  transaction:
   `SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`. A login holder can set any claims:
   the login is the boundary, so give each trust domain its own. A world role holds no privilege on a sequence: an
   identity default needs none, and a writer inserting explicit serial values (`OVERRIDING SYSTEM VALUE`) calls the
-  field's advance function, `SELECT <schema>.<advance function>(<largest value inserted>)`, in the same transaction.
+  field's advance function, `SELECT <schema>.<advance function>(<largest value inserted>)`, `<schema>` being
+  `schemaNameOf(schema)`, in the same transaction.
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
   relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
-  is `check`, and a role's schema is its role's name. `constraintNameOf(law)` gives a row check's installed name from
+  is `check`, and a login's or role's role and a role's schema join the schema's name and their own (roleNameOf,
+  schemaNameOf). `constraintNameOf(law)` gives a row check's installed name from
   its law, `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`: a direct
   writer or a test that matches a refusal's constraint takes it from there, never spelling it. Two declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two

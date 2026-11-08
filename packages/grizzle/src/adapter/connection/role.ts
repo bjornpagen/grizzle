@@ -1,36 +1,14 @@
-import { Result } from "effect"
-import { LoginNameRefused } from "#adapter/errors/failures.ts"
-import { fittedLogin } from "#compiler/plan/catalog.ts"
-import { identifierOf, type OwnedLogin, type SchemaArtifacts } from "#compiler/plan/common.ts"
+import type { SchemaArtifacts } from "#compiler/plan/common.ts"
 
 /**
- * The PostgreSQL roles a Db's sessions take.
+ * The PostgreSQL role a Db enters.
  *
  * A DbLayer is built for a login, and every session of its pool logs in as the login's role (LOGIN NOINHERIT), fixed
- * for the connection's lifetime. A Db opened for a role of the login enters the role's own (NOLOGIN), for each of its
- * transactions (wire/batch.ts runFramed). Both are named by the naming door under the identity of the schema the base
- * is installed under (physical/ddl/names.ts fittedLogin, worldNames), so a login under any installed schema has one
- * spelling, the one its installation created.
+ * for the connection's lifetime, the one the naming door names it (program/names.ts loginRoleName). A Db opened for a
+ * role of the login enters the role's own (NOLOGIN), for each of its transactions (wire/batch.ts runFramed), as the
+ * artifacts compiled for the role name it (physical/ddl/names.ts worldNames).
  *
- * The login role of `login`, whose ownership declared its name, under the schema the artifacts' base is installed
- * under, or why it has none: `<schema>__<login>` past 63 bytes.
+ * The role a Db of the role the artifacts were compiled for enters; undefined for artifacts of reality.
  */
-export const loginRole = (
-	artifacts: SchemaArtifacts,
-	login: OwnedLogin
-): Result.Result<string, LoginNameRefused> => {
-	const fitted = fittedLogin(artifacts.names.installation, login.name)
-	return fitted.ok
-		? Result.succeed(identifierOf(fitted.value))
-		: Result.fail(
-				new LoginNameRefused({
-					login: login.name,
-					role: fitted.error.role,
-					limit: fitted.error.limit
-				})
-			)
-}
-
-/** The role a Db of the role the artifacts were compiled for enters; undefined for artifacts of reality. */
 export const theoryRole = (artifacts: SchemaArtifacts): string | undefined =>
 	artifacts.world.kind === "role" ? artifacts.world.names.role : undefined

@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, codePoint, type Gen, option, string } from "@grizzle/testing/gen"
+import { array, boolean, codePoint, element, type Gen, option, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -19,43 +19,81 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
-import { conversionOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
+import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { uuid } from "#compiler/public/fields.ts"
-import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import {
+	type AnyLogin,
+	type AnyRole,
+	login,
+	relation,
+	role,
+	roleNameOf,
+	schema,
+	schemaNameOf,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, throwsRefused } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { rolePrefix } from "#test/support/substrate/names.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 /**
- * On PostgreSQL 19: a login's and its roles' PostgreSQL roles at the identifier limit, through the command line,
- * generated.
+ * On PostgreSQL 19: a login's and its roles' PostgreSQL roles and schemas as the installation names them, at the
+ * identifier limit, through the command line, generated.
  *
- * A login's or role's PostgreSQL role is `<schema>__<name>` (core/identity.ts), which must fit 63 bytes: PostgreSQL
- * would cut a longer one, and Db.open would look for a role no migration created. A case draws a login and one to
- * three roles over one relation, each name lowercase words or camel case, which the naming door converts, so the
- * longest PostgreSQL role is the login's or a role's; and a schema name (substrate/names.ts uniqueSchemaNameOfLength)
- * whose longest role fills exactly 63 bytes, or one byte more. The rule is the oracle:
+ * A login's or role's PostgreSQL role joins its schema's name and its own (core/identity.ts), and must fit 63 bytes:
+ * PostgreSQL would cut a longer one, and Db.open would look for a role no migration created. A caller never spells one:
+ * roleNameOf and schemaNameOf (program/names.ts) name each from its value. A case draws a login and one to three roles
+ * over one relation, each name lowercase words or camel case, which the naming door converts, so the longest
+ * PostgreSQL role is the login's or a role's; a schema name (substrate/names.ts uniqueSchemaNameOfLength) whose longest
+ * role fills exactly 63 bytes, or one byte more; and a spelling of the schema's declared name, each of its letter
+ * segments lowercase, capitalized or in capitals, which converts back to the allocation. The rule and the catalog are
+ * the oracles:
  *
  * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
- *   connection, applies it; the login's role and every role exist exactly as named, and Db.open of every role logs in
- *   as the login's role and is admitted, its layer given the committed snapshot;
- * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing.
+ *   connection, applies it; the installed schema is the allocation and schemaNameOf of the schema; the roles the
+ *   catalog holds under the allocation are exactly roleNameOf of the login, which alone logs in, and of every role, and
+ *   the schemas it holds there exactly schemaNameOf of every role; and Db.open of every role, its layer given the
+ *   committed snapshot and the password of roleNameOf of the login, logs in and is admitted;
+ * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
+ *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
  */
 interface Names {
 	readonly login: string
 	readonly roles: Arr.NonEmptyReadonlyArray<string>
 	readonly past: boolean
+	readonly spellings: Arr.NonEmptyReadonlyArray<Spelling>
 }
+
+/** How a letter segment of the schema's declared name is written: each converts to the segment in lowercase. */
+type Spelling = "lowercase" | "capitalized" | "capitals"
+
+const spellingGen: Gen<Spelling> = element<Spelling>(["lowercase", "capitalized", "capitals"])
+
+const spelled: { readonly [S in Spelling]: (segment: string) => string } = {
+	lowercase: (segment) => segment,
+	capitalized: Str.capitalize,
+	capitals: Str.toUpperCase
+}
+
+/** The allocation's spelling: its i-th letter segment written as the i-th spelling, cycling; digits as they are. */
+const spell = (allocated: string, spellings: Arr.NonEmptyReadonlyArray<Spelling>): string =>
+	Arr.join(
+		Arr.map(Str.split("_")(allocated), (segment, i) =>
+			spelled[Arr.getUnsafe(spellings, i % spellings.length)](segment)
+		),
+		"_"
+	)
 
 /** A declared name: lowercase letters, then maybe a capitalized word, which the naming door converts with `_`. */
 const nameGen: Gen<string> = (source) => {
@@ -82,7 +120,8 @@ const namesGen: Gen<Names> = (source) => {
 	return {
 		login: loginName,
 		roles: Arr.isReadonlyArrayNonEmpty(roles) ? roles : [`${loginName}x`],
-		past: source.draw(boolean)
+		past: source.draw(boolean),
+		spellings: [source.draw(spellingGen), ...source.draw(array(spellingGen, { min: 0, max: 2 }))]
 	}
 }
 
@@ -90,6 +129,7 @@ type LimitFeature =
 	| "the login's role the longest"
 	| "a role's role the longest"
 	| "a converted camel-case name"
+	| "a schema spelled apart from its conversion"
 	| "at the limit"
 	| "one byte past"
 
@@ -101,8 +141,24 @@ const longest = (n: Names): number =>
 const worldOf = (declared: string, n: Names) => {
 	const base = schema(declared, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
 	const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
-	return { schema: base, login: login(base, n.login, roles) }
+	return { schema: base, roles, login: login(base, n.login, roles) }
 }
+
+/** The declared name of a login or role, and the value it declares. */
+interface Declared {
+	readonly name: string
+	readonly world: AnyLogin | AnyRole
+}
+
+/** The role names of `rows` that can log in, or that cannot, sorted: each row a name and its rolcanlogin as text. */
+const loginColumn = (rows: ReadonlyArray<readonly [string, string]>, logins: boolean) =>
+	Arr.sort(
+		Arr.map(
+			Arr.filter(rows, ([, canLogin]) => (canLogin === "true") === logins),
+			([name]) => name
+		),
+		Order.String
+	)
 
 const at = DateTime.makeUnsafe({
 	year: 2026,
@@ -130,10 +186,16 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 			c.noteAll(notesOf(n))
 			const substrate = yield* Substrate
 			const length = maxIdentifierBytes.value - 2 - longest(n) + (n.past ? 1 : 0)
-			const declared = yield* substrate.schemaOfLength("gzlimit", length)
-			const installation = identity.schema(parsedSchemaName(declared))
-			const installed = installation.identifier
+			const allocated = yield* substrate.schemaOfLength("gzlimit", length)
+			const declared = spell(allocated, n.spellings)
+			if (declared !== allocated) {
+				c.note("a schema spelled apart from its conversion")
+			}
 			const world = worldOf(declared, n)
+			const worlds: ReadonlyArray<Declared> = [
+				{ name: n.login, world: world.login },
+				...Arr.zipWith(n.roles, world.roles, (name, value) => ({ name, world: value }))
+			]
 			const fs = yield* FileSystem.FileSystem
 			const dir = yield* workspace("limit")
 			const config = defineConfig({
@@ -153,34 +215,59 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 						report.refusal.reason.error.reason._tag === "RoleNameTooLong",
 					`generate refuses a role past the limit: ${ran.stderr}`
 				)
-				const drafted = yield* fs.exists(`${dir}/migrations/${installed}`)
+				const drafted = yield* fs.exists(`${dir}/migrations/${allocated}`)
 				assert.ok(!drafted, "generate drafts nothing")
+				for (const w of worlds) {
+					const bytes = utf8Length(allocated) + 2 + utf8Length(converted(w.name))
+					if (bytes > maxIdentifierBytes.value) {
+						throwsRefused(() => roleNameOf(w.world), "RoleNameTooLong", `${w.name} past the limit`)
+					} else {
+						assert.equal(utf8Length(roleNameOf(w.world)), bytes, `roleNameOf names ${w.name}`)
+					}
+				}
 				return
 			}
 			for (const command of ["generate", "check", "migrate"]) {
 				const ran = yield* run(command)
 				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
 			}
-			const text = yield* fs.readFileString(`${dir}/migrations/${installed}/snapshot.json`)
-			const catalog = yield* readCatalog(substrate.admin, installed)
-			assert.equal(catalog.kind, "present", `the schema is installed as ${installed}`)
-			const loginRole = identity.login(installation, parsedName(n.login)).identifier
-			const roles = Arr.map(
-				n.roles,
-				(name) => identity.role(installation, parsedName(name)).identifier
-			)
+			const text = yield* fs.readFileString(`${dir}/migrations/${allocated}/snapshot.json`)
+			const catalog = yield* readCatalog(substrate.admin, allocated)
+			assert.equal(catalog.kind, "present", `the schema is installed as ${allocated}`)
+			assert.equal(schemaNameOf(world.schema), allocated, "schemaNameOf names the installed schema")
+			const loginRole = roleNameOf(world.login)
+			const roles = Arr.map(world.roles, roleNameOf)
 			assert.ok(
 				Arr.some([loginRole, ...roles], (r) => utf8Length(r) === maxIdentifierBytes.value),
 				"a role fills the identifier"
 			)
-			const heldRows = yield* substrate.admin.queryValues(
-				"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
-				[[loginRole, ...roles]]
+			const roleRows = yield* substrate.admin.queryValues(
+				"SELECT r.rolname::text, r.rolcanlogin::text FROM pg_catalog.pg_roles AS r WHERE starts_with(r.rolname::text, $1::text)",
+				[rolePrefix(allocated)]
+			)
+			const heldRoles = trusted<ReadonlyArray<readonly [string, string]>>(roleRows)
+			assert.deepEqual(
+				loginColumn(heldRoles, true),
+				[loginRole],
+				"roleNameOf names the one login role"
 			)
 			assert.deepEqual(
-				Arr.map(trusted<ReadonlyArray<readonly [string]>>(heldRows), ([held]) => held),
-				Arr.sort([loginRole, ...roles], Order.String),
-				"every role exists exactly as named"
+				loginColumn(heldRoles, false),
+				Arr.sort(roles, Order.String),
+				"roleNameOf names every role the installation holds, and only those"
+			)
+			const schemaRows = yield* substrate.admin.queryValues(
+				"SELECT n.nspname::text FROM pg_catalog.pg_namespace AS n WHERE starts_with(n.nspname::text, $1::text)",
+				[rolePrefix(allocated)]
+			)
+			const heldSchemas = trusted<ReadonlyArray<readonly [string]>>(schemaRows)
+			assert.deepEqual(
+				Arr.sort(
+					Arr.map(heldSchemas, ([held]) => held),
+					Order.String
+				),
+				Arr.sort(Arr.map(world.roles, schemaNameOf), Order.String),
+				"schemaNameOf names every role's schema the installation holds, and only those"
 			)
 			const credentials = yield* substrate.login(loginRole)
 			const dbLayer = DbLayer.make({
@@ -200,7 +287,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 	"logins and roles at the identifier limit, through the command line",
 	(it) => {
 		it.effect(
-			"install roles of exactly 63 bytes, each admitted by Db.open, and refuse a schema name one byte longer, for drawn logins and roles",
+			"install roles of exactly 63 bytes, each the one roleNameOf names and admitted by Db.open, and refuse a schema name one byte longer, for drawn logins, roles and schema spellings",
 			(ctx) =>
 				searched(
 					ctx,
@@ -211,13 +298,14 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
-								name: "the 63-byte rule for <schema>__<name>, and PostgreSQL's own roles"
+								name: "the 63-byte rule for <schema>__<name>, and PostgreSQL's own roles and schemas"
 							},
 							coverage: required<LimitFeature>(
 								[
 									"the login's role the longest",
 									"a role's role the longest",
 									"a converted camel-case name",
+									"a schema spelled apart from its conversion",
 									"at the limit",
 									"one byte past"
 								],

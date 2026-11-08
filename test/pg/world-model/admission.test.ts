@@ -15,8 +15,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -222,7 +220,7 @@ layer(Substrate.layer, { excludeTestServices: true })("Db.open's admission of cl
 									"the installed relation"
 								).heading
 							)
-							const login = succeeded(ownLogin(defined(loginDescOf(o.server))))
+							const loginRole = o.installed.as(o.server).role
 							return yield* explore(
 								{
 									suite: "pg/world-model/admission",
@@ -281,7 +279,7 @@ layer(Substrate.layer, { excludeTestServices: true })("Db.open's admission of cl
 										const answer = yield* Effect.result(
 											admit(pool, admissionExpectation(opener.artifacts), {
 												artifacts: opener.artifacts,
-												login,
+												loginRole,
 												role: opener.role,
 												snapshot: o.installed.snapshot,
 												claims

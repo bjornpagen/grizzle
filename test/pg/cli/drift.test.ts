@@ -17,6 +17,7 @@ import {
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { roleNameOf } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
 import { worlds } from "#test/pg/cli/fixture.ts"
@@ -29,7 +30,6 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { loginRoleOf, worldRoleOf } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -411,9 +411,9 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									identifierOf(identity.table(parsedName("Doc"))),
 									identifierOf(identity.table(parsedName("Note")))
 								],
-								editor: worldRoleOf(w.editor),
-								viewer: worldRoleOf(w.viewer),
-								login: loginRoleOf(w.desk),
+								editor: roleNameOf(w.editor),
+								viewer: roleNameOf(w.viewer),
+								login: roleNameOf(w.desk),
 								roleSchemas: [roleSchema("editor"), roleSchema("viewer")]
 							}
 							return yield* explore(

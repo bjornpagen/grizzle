@@ -118,6 +118,7 @@ export type {
 	TemplateRequirements
 } from "#compiler/ir/products.ts"
 export { type Carrier, contractOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+export { loginRoleName } from "#compiler/program/names.ts"
 export {
 	baseArtifacts,
 	type BuiltSchema,

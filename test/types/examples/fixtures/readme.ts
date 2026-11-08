@@ -40,6 +40,7 @@ import {
 	query,
 	relation,
 	role,
+	roleNameOf,
 	schema,
 	select,
 	span,
@@ -851,31 +852,23 @@ export default defineConfig({
 })
 
 /** README: "Deploying". */
-/** The login's PostgreSQL role, `<schema>__<login>`. */
-const etlJobRole = Config.String("BLOG_ETL_ROLE")
-
-/** The RDS IAM password: an Effect signing a token for each connection attempt, failing as a CredentialError. */
+/** The RDS IAM password: an Effect signing a token for each connection attempt, for the login's PostgreSQL role
+ * (roleNameOf), failing as a CredentialError. */
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
 	login: EtlJob,
 	snapshot,
 	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
-	password: etlJobRole.pipe(
-		Effect.mapError((cause) => new CredentialError({ cause })),
-		Effect.flatMap((username) =>
-			Effect.tryPromise({
-				try: () =>
-					new Signer({
-						hostname: "db.internal",
-						port: 5432,
-						region: "us-east-1",
-						username
-					}).getAuthToken(),
-				catch: (cause) => new CredentialError({ cause })
-			})
-		),
-		Effect.map(Redacted.make)
-	)
+	password: Effect.tryPromise({
+		try: () =>
+			new Signer({
+				hostname: "db.internal",
+				port: 5432,
+				region: "us-east-1",
+				username: roleNameOf(EtlJob)
+			}).getAuthToken(),
+		catch: (cause) => new CredentialError({ cause })
+	}).pipe(Effect.map(Redacted.make))
 })
 
 /** The types the README's comments and prose state. */

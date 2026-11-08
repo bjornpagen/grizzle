@@ -17,7 +17,6 @@ import {
 	HandleReleased,
 	InputTooLarge,
 	LawRejected,
-	LoginNameRefused,
 	MissingCapability,
 	WorkloadUngenerated,
 	PageRequestRefused,
@@ -59,17 +58,17 @@ import {
 
 /**
  * Why opening a Db failed: no session (AcquireRefusal); a DbConfig no connection can use, or an environment that sets
- * a connection option grizzle cannot override; a role no provided layer serves, or a login with no role name; a token
- * verify refused or threw, or claims that do not decode through the role's contexts; a schema, snapshot or option
- * value that does not compile or parse (CompileError); an admission refused; an admission whose transaction
- * SERIALIZABLE refused, which is retryable (AdmissionTransient); or an admission that could not run to a verdict.
+ * a connection option grizzle cannot override; a role no provided layer serves; a token verify refused or threw, or
+ * claims that do not decode through the role's contexts; a schema, login, snapshot or option value that does not
+ * compile or parse (CompileError), a login whose role name the naming door refuses included; an admission refused; an
+ * admission whose transaction SERIALIZABLE refused, which is retryable (AdmissionTransient); or an admission that could
+ * not run to a verdict.
  */
 export type OpenReason =
 	| AcquireRefusal
 	| DbConfigRefused
 	| ConnectionEnvironmentRefused
 	| RoleOutsideLayers
-	| LoginNameRefused
 	| TokenError
 	| ClaimRefused
 	| CompileError
@@ -141,7 +140,6 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "ConnectionEnvironmentRefused":
 			return "config"
 		case "RoleOutsideLayers":
-		case "LoginNameRefused":
 			return "role"
 		case "TokenError":
 		case "ClaimRefused":

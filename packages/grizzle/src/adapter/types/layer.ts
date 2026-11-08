@@ -105,8 +105,8 @@ type VerifyOf<L> =
 	LoginReadsContext<L> extends true ? { readonly verify: Verify } : { readonly verify?: Verify }
 
 /**
- * DbLayer.make's config: a connection for the login L, whose PostgreSQL login role is derived from it (schema "blog",
- * login "web": role blog__web) and fixed for the connection's lifetime, and the snapshot the application knows.
+ * DbLayer.make's config: a connection for the login L, whose PostgreSQL login role is the one roleNameOf(L) names,
+ * fixed for the connection's lifetime, and the snapshot the application knows.
  */
 export type DbConfigShape<L> = DbConnection & {
 	readonly login: L

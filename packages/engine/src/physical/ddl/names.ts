@@ -12,7 +12,6 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
@@ -147,45 +146,25 @@ interface NamesInput {
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 }
 
-/** A login's or role's PostgreSQL role, `<schema>__<name>`, longer than PostgreSQL's `limit` bytes. */
-export interface RoleTooLong {
-	readonly role: string
-	readonly limit: number
-}
-
-/** A login's or role's PostgreSQL role, when it fits PostgreSQL's maxIdentifierBytes with its schema's name. */
-const fittedRole = <K extends "login" | "role">(
-	named: Identity<K>
-): Result.Result<Identity<K>, RoleTooLong> =>
-	utf8Length(named.identifier) > maxIdentifierBytes.value
-		? Result.err({ role: named.identifier, limit: maxIdentifierBytes.value })
-		: Result.ok(named)
-
-/** A login's or role's PostgreSQL role (fittedRole), or its refusal at `loc`. */
+/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
+ * PostgreSQL's maxIdentifierBytes with its schema's name. */
 const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Identity<K> => {
-	const role = fittedRole(named)
-	if (!role.ok) {
+	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "RoleNameTooLong",
 				at: loc,
 				of: named.kind,
-				role: role.error.role,
-				limit: role.error.limit
+				role: named.identifier,
+				limit: maxIdentifierBytes.value
 			})
 		)
 	}
-	return role.value
+	return named
 }
 
 /** A login's PostgreSQL role, under the installation (roles are cluster-wide), by the name its ownership declared
- * (schema/own.ts ownLogin), when it fits PostgreSQL's 63 bytes. */
-export const fittedLogin = (
-	installation: Identity<"schema">,
-	name: DeclaredName
-): Result.Result<Identity<"login">, RoleTooLong> => fittedRole(identity.login(installation, name))
-
-/** A login's PostgreSQL role (fittedLogin), or its refusal at `loc`. */
+ * (schema/own.ts ownLogin), or its refusal at `loc` (fitted). */
 export const loginIdentity = (
 	installation: Identity<"schema">,
 	name: DeclaredName,

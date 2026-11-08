@@ -171,7 +171,7 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	const pool = sessions.pool
 	const admitted = yield* admit(pool, admissionExpectation(artifacts), {
 		artifacts,
-		login: sessions.owned,
+		loginRole: sessions.loginRole,
 		role: desc,
 		snapshot,
 		claims: claims.values

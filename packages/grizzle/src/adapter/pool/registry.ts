@@ -16,7 +16,7 @@ import {
 	parseConnection
 } from "#adapter/connection/config.ts"
 import { startupVariableSet } from "#adapter/connection/environment.ts"
-import { loginRole, theoryRole } from "#adapter/connection/role.ts"
+import { theoryRole } from "#adapter/connection/role.ts"
 import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
 import { compileRoleWorkload, type WorkloadForm } from "#adapter/db/workload.ts"
@@ -52,6 +52,7 @@ import {
 	Engine,
 	type LoginDesc,
 	loginDescOf,
+	loginRoleName,
 	malformedDescription,
 	own,
 	ownBuiltLogin,
@@ -93,12 +94,12 @@ import { templateFor } from "#compiler/plan/read.ts"
  * the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload), after their access
  * paths are compared with the snapshot's (program/workload/compile.ts accessDrift): a schema that is not the
  * snapshot's, or a program the snapshot does not record as it is, fails the layer with WorkloadUngenerated naming it;
- * the login's own PostgreSQL role; and the login's one session pool. Every session
- * of the pool logs in as the login's role (connection/role.ts loginRole), which no Db outlives: each of a Db's
- * transactions enters the Db's own role by its prologue (wire/batch.ts runFramed), whose two statements are server
- * statements of the pool, named once per session. So one pool serves every role of the login. The pool lives as long
- * as the layer, in its scope, never on globalThis. A snapshot that does not parse, a role or program that does not
- * compile, or a login whose role name passes 63 bytes, fails the layer.
+ * the login's own PostgreSQL role; and the login's one session pool. Every session of the pool logs in as the login's
+ * role (program/names.ts loginRoleName, the role roleNameOf names), which no Db outlives: each of a Db's transactions
+ * enters the Db's own role by its prologue (wire/batch.ts runFramed), whose two statements are server statements of the
+ * pool, named once per session. So one pool serves every role of the login. The pool lives as long as the layer, in its
+ * scope, never on globalThis. A snapshot that does not parse, a role or program that does not compile, or a login whose
+ * role name the naming door refuses, a role past 63 bytes among them, fails the layer with its CompileError.
  *
  * One key per login. The requirement DbLayer<R> names the role only as a type; Db.open(Web.roles.member) resolves it
  * through the login the role is reached by, whose layer is stored under that login's key, so a program may provide the
@@ -150,9 +151,10 @@ const typedContexts = (
 
 /** The layer's service, provided as DbLayer<R> for each role R of its login: what every Db of the login shares. */
 export interface DbSessions {
-	/** The login the layer was built for, and owned. */
+	/** The login the layer was built for. */
 	readonly login: LoginDesc
-	readonly owned: OwnedLogin
+	/** The login's PostgreSQL role, which every session of the pool logs in as (program/names.ts loginRoleName). */
+	readonly loginRole: string
 	/** The snapshot the layer was given, parsed once: what every Db's admission compares the catalog with. */
 	readonly snapshot: DeploySnapshot
 	/** Each role of the login, in the login's order. */
@@ -461,6 +463,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const codes = codebookOf(snapshot)
 	const base = yield* openStage(own(config.login.base.desc))
 	const owned = yield* openStage(ownLoginOver(config.login, base))
+	const loginRole = yield* openStage(loginRoleName(config.login.desc))
 	const artifacts = yield* startupCheck(snapshot, codes, config.login, owned)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts),
@@ -470,17 +473,13 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 		return yield* new OpenError({ reason: malformedDescription(makeLoc, "a login with a role") })
 	}
 	const [first] = roles
-	const role = loginRole(first.artifacts, owned)
-	if (Result.isFailure(role)) {
-		return yield* new OpenError({ reason: role.failure })
-	}
 	const ledger = yield* openStage(ledgerStatements(first.artifacts.names.schema))
 	const pool = yield* makePool({
 		connection: {
 			driver: config.driver,
 			transport: config.transport,
 			database: config.database,
-			role: role.success,
+			role: loginRole,
 			password: config.password,
 			connectTimeoutMs: config.connectTimeoutMs
 		},
@@ -493,7 +492,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	}
 	return {
 		login: config.login.desc,
-		owned,
+		loginRole,
 		snapshot,
 		roles,
 		pool,

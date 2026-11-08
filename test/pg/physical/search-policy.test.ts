@@ -9,7 +9,7 @@ import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema } from "#compiler/public/schema.ts"
+import { derived, relation, roleNameOf, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
@@ -17,7 +17,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
-import { migrated, type Version, worldRoleOf } from "#test/support/installed.ts"
+import { migrated, type Version } from "#test/support/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
@@ -392,7 +392,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 											const worlds = defined(built[i], `version ${i}`)
 											const stores: Array<ReadonlyArray<string>> = []
 											for (const w of worlds) {
-												const rows = yield* owner.values(storedQuery, [worldRoleOf(w.value)])
+												const rows = yield* owner.values(storedQuery, [roleNameOf(w.value)])
 												stores.push(Arr.map(rows, (row) => String(row[0])))
 											}
 											observed.push(stores)

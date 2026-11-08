@@ -207,7 +207,7 @@ export type DeclaredName = string & { readonly [declaredNameBrand]: true }
 export type SchemaName = DeclaredName & { readonly [schemaNameBrand]: true }
 
 const declaredNameOf = nominal<string, DeclaredName>()
-const schemaNameOf = nominal<DeclaredName, SchemaName>()
+const schemaName = nominal<DeclaredName, SchemaName>()
 
 /**
  * The characters a declared name is written in: ASCII letters, digits and underscores, a letter first (`__` belongs to
@@ -263,7 +263,7 @@ export const parseSchemaName = (name: string): Result.Result<SchemaName, string>
 			? Result.err(
 					`a name whose conversion ${conversion} does not start with pg_, which PostgreSQL reserves`
 				)
-			: Result.ok(schemaNameOf(declared))
+			: Result.ok(schemaName(declared))
 	})
 
 /** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
@@ -1080,6 +1080,21 @@ export const identity = Object.freeze({
 			["snapshot", "guard"],
 			"the snapshot guard function",
 			readable("__snapshot_guard")
+		),
+	/**
+	 * The deferred constraint trigger a rule over a query is held by on every table it reads: one name for the rule,
+	 * which PostgreSQL scopes to each table's triggers and constraints.
+	 */
+	lawTrigger: (law: Identity<"law">): Identity<"lawTrigger"> =>
+		mint("lawTrigger", [law], ["rule", law.stem], `trigger of rule ${law.display}`, hashed),
+	/** The function a rule over a query's trigger on `relation`'s table runs. */
+	lawFunction: (relation: string, law: Identity<"law">): Identity<"lawFunction"> =>
+		mint(
+			"lawFunction",
+			[relation, law],
+			["rule", relation, law.stem],
+			`function of rule ${law.display} on ${relation}`,
+			hashed
 		),
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>

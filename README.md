@@ -435,10 +435,10 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 Another organization's keys don't exist for this role: deleting one does nothing, and an insert at an `id` one already holds is `invariant-rejected` on the primary key, its witness the `id` you submitted, never the other row. `Db.open(Dashboard.roles.key_admin, ...)` doesn't compile without a token, and opening runs your `verify` function on it once.
 
-grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too:
+grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard)` is the login's PostgreSQL role, here `keys__dashboard`; `roleNameOf(KeyAdmin)` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
 
 ```sql
--- psql, logged in as the login keys__dashboard
+-- psql, logged in as roleNameOf(Dashboard)
 SET ROLE keys__key_admin;
 BEGIN;
 SELECT set_config('grizzle.claims', '{"Tenant":{"org":"org_2abc"}}', true);
@@ -1321,7 +1321,7 @@ A query for a role is written over the role and sees only what the role sees: `M
 
 A `workload` names the queries and writes your app runs on its hot paths. The app compiles them once, when it starts; `grizzle generate` compiles them the same way, derives the indexes they need and records them in the snapshot, so a program the app would refuse to start with, generate refuses first. Edit `memberFeed` so that it needs another index, and `grizzle check` and the app's startup both refuse until you run `grizzle generate` again: the index ships in the same migration as the query that needs it.
 
-A `login` is one PostgreSQL user, here `blog__web` and `blog__etl_job`, with its password and its own connection pool, that can act as the roles it lists. The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
+A `login` is one PostgreSQL user, the one `roleNameOf(Web)` names (here `blog__web`), with its password and its own connection pool, that can act as the roles it lists. The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
 
 ### Connecting
 
@@ -1499,7 +1499,7 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 
 Each piece is PostgreSQL's to enforce or TypeScript's to check, so the guarantees hold under load, through a shared pool and beside other writers:
 
-- **Every writer meets the same rules.** The blog's rules and roles are constraints, grants and row-level security policies, so a script, a second service or psql logged in as `blog__web` meets them exactly as the app does ([Direct SQL access](#direct-sql-access)).
+- **Every writer meets the same rules.** The blog's rules and roles are constraints, grants and row-level security policies, so a script, a second service or psql logged in as `roleNameOf(Web)` meets them exactly as the app does ([Direct SQL access](#direct-sql-access)).
 - **No request leaks into the next.** `anon` and `member` share the web login's pool. Each transaction takes on its role and claims at its start, for that transaction only, so a pooled connection never carries one request's role or claims into the next.
 - **Races resolve in PostgreSQL.** Every call of the blog is one SERIALIZABLE transaction in one round trip, and none holds a connection between awaits. PostgreSQL commits only what some serial order of the calls would; a call it cannot order fails with a `TransientFailure` that changed nothing, which your code may run again, as the nightly job does.
 - **Failures are values.** A refused write is an outcome you switch on, and anything that went wrong is a tagged error in the Effect's error channel ([Errors and outcomes](#errors-and-outcomes)). Neither is a message to parse.
@@ -1515,7 +1515,7 @@ pnpm exec grizzle check grizzle.config.ts      # offline: generated, resolved an
 pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the owner
 ```
 
-Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates the login roles `blog__web` and `blog__etl_job` without passwords: as the owner, give each its password (`\password blog__web` in psql), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
+Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web)` and `roleNameOf(EtlJob)`, without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
 
 - **The code and the database move together.** `DbLayer.make` refuses a snapshot that is not the code's schema, and a workload whose index needs differ from it. `Db.open` refuses a database whose latest migration did not reach that snapshot, or whose roles, settings or privileges differ from it. `grizzle drift`, from CI or a schedule, compares the whole database with the snapshot, view definitions and policies included.
 - **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`) and every `Db.open` is refused; once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new `snapshot.json`.
@@ -2003,6 +2003,13 @@ Roles:
   a `write` naming no entry of the role, a roster, a derived table or an unwritable query entry, or two entries over
   one table; a `refresh` naming anything but a derived table.
 
+**Installed names come from the values.** `roleNameOf(Web)` is a login's PostgreSQL role: the one its pool logs in as,
+a password is set on and `rds_iam` is granted to. `roleNameOf(MemberBlog)` is a role's, which a direct SQL writer's
+`SET ROLE` names. `schemaNameOf(Blog)` is a schema's PostgreSQL schema, and `schemaNameOf(MemberBlog)` a role's schema
+of views. Each is the name the installation creates, minted by the same function, so take it from there and never
+spell one. Each throws `CompileError` for a value no builder made and for a name the installation refuses, as
+`grizzle generate` does.
+
 `DbLayer.make({ login, snapshot, ... })` builds the login's pool and compiles its workloads. It requires `verify`
 exactly when one of the login's roles reads a context. A layer with `verify` runs it on every token it is handed, for
 a role that reads no context too.
@@ -2461,14 +2468,15 @@ deploy.
   sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
 - **Names come from your code.** A declared name is ASCII letters, digits and underscores, starting with a letter.
   `TaskNote` becomes `task_note` for the schema, tables, derived tables, rosters' domains, contracts, columns, row
-  checks and a role's views; a contract's CHECK is `check`; a login's or role's PostgreSQL role, like a role's schema,
-  is `<schema>__<name>`. Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with
-  its schema's), and a schema name starting with `pg_`. Everything else (keys, foreign keys, indexes, functions,
-  triggers) is named `__<readable part>_<digest>`, with a COMMENT saying what it is, and listed by `grizzle names`.
-  PostgreSQL roles are cluster-wide, so one schema name is one installation per cluster. grizzle's SQL qualifies every
-  name: a table as `"shop"."task"`, a type as `"pg_catalog"."text"` or its keyword (`integer`), a function as
-  `"pg_catalog"."count"`. So a relation may be called `Text` or `Uuid`, and no search_path, the database's, a role's
-  or a session's, changes what a migration or a query means.
+  checks and a role's views; a contract's CHECK is `check`. A login's or role's PostgreSQL role joins its schema's
+  conversion and its own: take it from `roleNameOf(login or role)`, and a schema's or a role's schema from
+  `schemaNameOf(schema or role)`, never spell one. Refused: two names that convert to one, a conversion over 63 bytes
+  (a login's or role's with its schema's), and a schema name starting with `pg_`. Everything else (keys, foreign keys,
+  indexes, functions, triggers) is named `__<readable part>_<digest>`, with a COMMENT saying what it is, and listed by
+  `grizzle names`. PostgreSQL roles are cluster-wide, so one schema name is one installation per cluster. grizzle's SQL
+  qualifies every name: a table as `"shop"."task"`, a type as `"pg_catalog"."text"` or its keyword (`integer`), a
+  function as `"pg_catalog"."count"`. So a relation may be called `Text` or `Uuid`, and no search_path, the
+  database's, a role's or a session's, changes what a migration or a query means.
 - **Indexes follow the code.** Every index comes from a rule, from a workload program's queries through the roles they
   read, or from a role's write filter. A workload program edit that needs no other index takes effect as is; one that
   does, or a program added, renamed or removed, is refused by `check` and by `DbLayer.make` until you run `generate`.
@@ -2623,7 +2631,7 @@ and never spell it.
 | `connect`                   | `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`                                                   |
 | `released`                  | `LayerReleased`, a layer whose scope has closed                                                                                         |
 | `config`                    | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                     |
-| `role`                      | `RoleOutsideLayers`, `LoginNameRefused`                                                                                                 |
+| `role`                      | `RoleOutsideLayers`                                                                                                                     |
 | `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
 | `schema`                    | `CompileError`; `WorkloadUngenerated`, a workload out of step with the snapshot                                                        |
 | `capability`                | `MissingCapability`, a workload program needing an extension the database lacks                                                        |
@@ -2774,8 +2782,8 @@ statements and COMMIT, so a stale `Db` never answers `no-change`.
 connections before an instance suspends. grizzle depends on no platform's package.
 
 **RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
-`@aws-sdk/rds-signer` signs locally, without a network call. Grant the login `rds_iam` with
-`GRANT rds_iam TO <login role> WITH INHERIT TRUE, SET FALSE`, the login role being `<schema>__<login>`. `Db.open` and
+`@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlJob)` names. Grant that role
+`rds_iam` with `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`. `Db.open` and
 `grizzle drift` judge what a login can do, not how its memberships are spelled: a membership beyond the login's roles is
 admitted when it carries SET FALSE and no ADMIN and the login's privileges on the installation stay exactly its own
 (USAGE on the schema, SELECT on the ledger). `rds_iam` holds nothing in the installation, so it is admitted; a
@@ -2783,40 +2791,34 @@ membership that would hand the login any privilege or ownership there is refused
 
 ```ts
 import { Signer } from "@aws-sdk/rds-signer"
+import { roleNameOf } from "@bjornpagen/grizzle"
 import { Redacted } from "effect"
-
-/** The login's PostgreSQL role, `<schema>__<login>`. */
-const etlJobRole = Config.String("BLOG_ETL_ROLE")
 
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
 	login: EtlJob,
 	snapshot,
 	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
-	password: etlJobRole.pipe(
-		Effect.mapError((cause) => new CredentialError({ cause })),
-		Effect.flatMap((username) =>
-			Effect.tryPromise({
-				try: () =>
-					new Signer({
-						hostname: "db.internal",
-						port: 5432,
-						region: "us-east-1",
-						username
-					}).getAuthToken(),
-				catch: (cause) => new CredentialError({ cause })
-			})
-		),
-		Effect.map(Redacted.make)
-	)
+	password: Effect.tryPromise({
+		try: () =>
+			new Signer({
+				hostname: "db.internal",
+				port: 5432,
+				region: "us-east-1",
+				username: roleNameOf(EtlJob)
+			}).getAuthToken(),
+		catch: (cause) => new CredentialError({ cause })
+	}).pipe(Effect.map(Redacted.make))
 })
 ```
 
 ## Direct SQL access
 
 psql, scripts and other services may write grizzle's tables directly, under the same rules and roles as the app. Log in
-as a login, `SET ROLE` to one of its roles, set the claims in the transaction for a role that reads them
-(`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE.
+as a login's role, `roleNameOf(login)`, `SET ROLE` to one of its roles, `roleNameOf(role)`, set the claims in the
+transaction for a role that reads them
+(`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE. The
+schema's tables are in `schemaNameOf(schema)`, and a role's views in `schemaNameOf(role)`.
 A readable name spells what it is, and `constraintNameOf(law)` gives a row check's from its rule
 ([Errors and outcomes](#errors-and-outcomes)); `grizzle names` lists each hashed one with its COMMENT, which says what
 it is, read offline from the committed snapshot. PostgreSQL answers:
@@ -2860,7 +2862,8 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   field collide (23505).
 - **Serial columns** draw their identity default with no sequence privilege. A writer that inserts explicit serial
   values (`OVERRIDING SYSTEM VALUE`) calls the field's advance function in the same transaction, as grizzle does, so a
-  later generated value never repeats a stored one: `SELECT <schema>.<advance function>(<largest value inserted>)`.
+  later generated value never repeats a stored one: `SELECT <schema>.<advance function>(<largest value inserted>)`,
+  `<schema>` being `schemaNameOf(schema)`.
 - **A login without `SET ROLE`** holds only USAGE on its schema, SELECT on the ledger, and EXECUTE on the snapshot
   guard, the lock and the check that `Db.open` and every `Db` transaction take.
 - **The owner and superusers bypass** every rule and role, and the owner is reserved for migrations.

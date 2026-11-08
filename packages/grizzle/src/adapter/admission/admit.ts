@@ -66,7 +66,6 @@ import { type CatalogQuery as CatalogQueryOf, catalogRows } from "#adapter/wire/
 import {
 	C,
 	type InstallNames,
-	loginIdentity,
 	manifestStatements,
 	missing,
 	roleExpectation,
@@ -77,11 +76,9 @@ import {
 	catchCompileError,
 	contractOf,
 	emitCatalog,
-	identifierOf,
 	malformedDescription,
 	type ObjectName,
 	type OutputRows,
-	type OwnedLogin,
 	printObjectName,
 	type RoleDesc,
 	type ScalarType,
@@ -117,12 +114,13 @@ interface Admitted {
 }
 
 /**
- * What admission judges: the opened role's artifacts, its login, the snapshot the application knows, as Db.open was
- * given it, and every claim of the Db's context facts, none without a token.
+ * What admission judges: the opened role's artifacts, its login's PostgreSQL role, the one the layer's pool logs in as,
+ * the snapshot the application knows, as Db.open was given it, and every claim of the Db's context facts, none without
+ * a token.
  */
 interface AdmissionInput {
 	readonly artifacts: SchemaArtifacts
-	readonly login: OwnedLogin
+	readonly loginRole: string
 	readonly role: RoleDesc
 	readonly snapshot: DeploySnapshot
 	readonly claims: ReadonlyArray<ClaimValue>
@@ -464,7 +462,7 @@ export const admit = Effect.fn("admit")(function* (
 	expectation: AdmissionExpectation,
 	input: AdmissionInput
 ): Effect.fn.Return<Admitted, OpenError> {
-	const { artifacts, snapshot } = input
+	const { artifacts, snapshot, loginRole: login } = input
 	const schema = artifacts.names.schema
 	if (artifacts.world.kind !== "role") {
 		return yield* fromResult(
@@ -474,13 +472,6 @@ export const admit = Effect.fn("admit")(function* (
 		)
 	}
 	const role = artifacts.world.names.role
-	const login = yield* fromResult(
-		toResult(
-			catchCompileError(() =>
-				identifierOf(loginIdentity(artifacts.names.installation, input.login.name, input.login.loc))
-			)
-		)
-	)
 	const ledger = yield* fromResult(toResult(ledgerStatements(schema)))
 	const statements = yield* fromResult(toResult(manifestStatements(snapshot)))
 	const loginExpected = roleExpectation(statements, schema, login)

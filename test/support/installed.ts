@@ -11,14 +11,12 @@ import type { QueryResultValue } from "#adapter/reader/reader.ts"
 import type { DbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { loginIdentity, roleIdentity } from "#compiler/physical/ddl/names.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import {
@@ -33,10 +31,10 @@ import {
 	type StatementsReadBack,
 	type StatementsWithin,
 	type UnderOwnNames,
+	roleNameOf,
 	schema
 } from "#compiler/public/schema.ts"
-import { own, ownLogin } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
@@ -45,7 +43,7 @@ import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
 	fromEmpty,
@@ -86,28 +84,6 @@ interface Migrated extends Installed {
 }
 
 /**
- * A login's or a role's PostgreSQL role, as the naming door names it over the schema it is over, installed under that
- * schema's own name (physical/ddl/names.ts loginIdentity, roleIdentity).
- */
-export const worldRoleOf = (world: AnyLogin | AnyRole): string => {
-	const owned = succeeded(own(defined(schemaDescOf(world.base), "a world's base schema value")))
-	return worldRoleUnder(owned.installation, world)
-}
-
-/** A login's or a role's PostgreSQL role under an installation, as the naming door names it. */
-const worldRoleUnder = (installation: Identity<"schema">, world: AnyLogin | AnyRole): string => {
-	const loc = SourceLoc(`world ${world.name}`, [])
-	return identifierOf(
-		loginDescOf(world) === undefined
-			? roleIdentity(installation, parsedName(world.name), loc)
-			: loginIdentity(installation, parsedName(world.name), loc)
-	)
-}
-
-/** A login's PostgreSQL role. */
-export const loginRoleOf = (login: AnyLogin): string => worldRoleOf(login)
-
-/**
  * The DbLayer of `login`, typed by it, given the committed `snapshot`, its role given a password in the scope this runs
  * in: the cluster's connection (test/support/pg.ts clusterConnection), the test pool, and testVerify.
  */
@@ -117,7 +93,7 @@ export const loginLayerOf = <L extends AnyLogin>(
 ): Effect.Effect<Layer.Layer<DbLayerOf<L>, OpenError>, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const given = yield* substrate.login(loginRoleOf(login))
+		const given = yield* substrate.login(roleNameOf(login))
 		return DbLayer.make({
 			...clusterConnection(substrate.cluster, substrate.database, given.password),
 			pool: clusterPool,

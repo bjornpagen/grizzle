@@ -12,14 +12,14 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { relation, roleNameOf, schema } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { assert, assertVariant, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
-import { migrated, type Version, withDb, worldRoleOf } from "#test/support/installed.ts"
+import { migrated, type Version, withDb } from "#test/support/installed.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -180,7 +180,7 @@ const expectedAt = (uses: Uses, b: Built, tableOf: (r: RelationName) => string):
 					? [
 							{
 								table: tableOf(r),
-								roles: [worldRoleOf(who === "clerk" ? b.clerk : b.keeper)],
+								roles: [roleNameOf(who === "clerk" ? b.clerk : b.keeper)],
 								holds: uses[who][r].holds === "whole" ? "every row" : "narrowed"
 							}
 						]

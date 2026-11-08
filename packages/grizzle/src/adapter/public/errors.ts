@@ -45,7 +45,6 @@ export {
 	type InputTooLarge,
 	type LawRejected,
 	type LayerReleased,
-	type LoginNameRefused,
 	type Migrated,
 	type Migrating,
 	type MissingCapability,

@@ -16,6 +16,7 @@ import {
 	mutable,
 	relation,
 	role,
+	roleNameOf,
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -23,13 +24,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import {
-	migrated,
-	type Version,
-	withDb,
-	withDbClaims,
-	worldRoleOf
-} from "#test/support/installed.ts"
+import { migrated, type Version, withDb, withDbClaims } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -383,7 +378,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 										const b = defined(built[i], `version ${i}`)
 										const found: Array<string> = []
 										for (const world of [b.login, b.editor, b.viewer]) {
-											const rows = yield* owner.values(oidQuery, [worldRoleOf(world)])
+											const rows = yield* owner.values(oidQuery, [roleNameOf(world)])
 											for (const row of rows) {
 												found.push(String(row[0]))
 											}
