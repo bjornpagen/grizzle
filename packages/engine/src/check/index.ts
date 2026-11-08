@@ -24,9 +24,9 @@ declare const admittedQueryBrand: unique symbol
 
 /**
  * A query whose whole holds the checker's admission rule (check/approximate/attach.ts pipelinedOverSearch): no
- * attachment that must be a statement of its own sits under rows that read an approximate search. The optimized
- * lowering takes only this (lower/optimize/pipeline.ts lowerOptimized), so its rows statements fuse an attachment
- * exactly when their rows read a search. `admit` is its one parse, which every entry point of the checker runs and
+ * attachment that must be a statement of its own attaches to a statement whose rows read an approximate search. The
+ * optimized lowering takes only this (lower/optimize/pipeline.ts lowerOptimized), so its rows statements fuse every
+ * attachment exactly when their rows read a search, and no pipelined attachment's statement runs a search again. `admit` is its one parse, which every entry point of the checker runs and
  * admitQuery offers a query the checker did not hand over; a restatement that spreads an admitted query with a new
  * DAG keeps it.
  */

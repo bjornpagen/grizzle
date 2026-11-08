@@ -520,8 +520,7 @@ const deliveredRowsOf = (
 ): DeliveredRows<PageInput> => ({
 	...statementRows(heading, retained),
 	identity,
-	bound: { kind: "input", source: { kind: "pageSize" }, factor: 1n },
-	searches: false
+	bound: { kind: "input", source: { kind: "pageSize" }, factor: 1n }
 })
 
 /**

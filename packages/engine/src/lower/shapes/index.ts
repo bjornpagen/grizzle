@@ -1,3 +1,4 @@
+import { searchInRows } from "#compiler/check/approximate/attach.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
@@ -21,7 +22,6 @@ import {
 	type NodeLowerer,
 	nodeLabel,
 	outputNames,
-	queryInputs,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 
@@ -656,24 +656,6 @@ const fusedDescription = (
 	layout: fusedLayout(attach, attach.child.heading, attach.parent.heading)
 })
 
-/** Whether computing the rows of `node` reads an approximate search: an attachment's rows are its parent's. */
-const rowsReadSearch = (node: RelNode): boolean => {
-	const seen = new Set<RelNode>([node])
-	const queue = [node]
-	for (const queued of queue) {
-		if (queued.kind === "ApproximateNearest") {
-			return true
-		}
-		for (const input of queryInputs(queued)) {
-			if (!seen.has(input)) {
-				seen.add(input)
-				queue.push(input)
-			}
-		}
-	}
-	return false
-}
-
 /** The bound of a rows statement's rows over `node`: the facts' maximum cardinality. */
 const rowsBoundOf = (facts: ShapeFacts, node: RelNode): RowsBound<never> => {
 	const max = facts.maxCard(node)
@@ -908,7 +890,7 @@ export class OptimizedDelivery<
 		>
 	} {
 		const cx = this.cx
-		const searches = rowsReadSearch(spec.origin)
+		const searches = searchInRows(spec.origin) !== undefined
 		const fused = searches ? spec.attachments : []
 		const pipelined = searches ? [] : spec.attachments
 		/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
@@ -939,8 +921,7 @@ export class OptimizedDelivery<
 				const rows: DeliveredRows<I> = {
 					...statementRows(spec.heading, spec.rel),
 					identity: spec.identity,
-					bound: spec.bound,
-					searches
+					bound: spec.bound
 				}
 				return pipelined.map((a) => this.pipelined(place, a.attach, a.spine, rows))
 			}
@@ -969,10 +950,8 @@ export class OptimizedDelivery<
 
 	/**
 	 * One pipelined attachment, a statement of its own in its parent's flight that computes the parent's rows again;
-	 * its child's own attachments are pipelined after it, over its rows.
-	 *
-	 * The checker refuses this (check/approximate/attach.ts pipelinedOverSearch); a rewrite that made it so is a
-	 * defect, refused rather than run with a second search.
+	 * its child's own attachments are pipelined after it, over its rows. Those rows read no search: the query is
+	 * admitted (check/index.ts AdmittedQuery).
 	 */
 	pipelined(
 		place: Place,
@@ -981,15 +960,7 @@ export class OptimizedDelivery<
 		rows: DeliveredRows<I>
 	): AttachedTree<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>> {
 		const cx = this.cx
-		const at = nodeLabel(attach)
 		this.oneHeadingAttached(attach)
-		if (rows.searches) {
-			refuse(
-				"UnsupportedOperation",
-				at,
-				`approximateNearest: the attachment ${attach.name} is a statement of its own over rows that read an approximate search, which it would run a second time`
-			)
-		}
 		const child = attach.child
 		const parentKey = parentColumnsOf(cx, attach, spine, rows.heading)
 		const statement = place(() =>
@@ -1016,8 +987,7 @@ export class OptimizedDelivery<
 				() => this.pipelinedQuery(attach, spine, rows, parentKey).rows
 			),
 			identity: attachmentRowsIdentity(cx, attach, spine),
-			bound: boundTimes(rows.bound, this.facts.maxCard(attach.child)),
-			searches: rows.searches || rowsReadSearch(attach.child)
+			bound: boundTimes(rows.bound, this.facts.maxCard(attach.child))
 		}
 		const attachments = childSpine.attachments.map((nested) =>
 			this.pipelined(place, nested, childSpine.nodes, childRows)

@@ -327,12 +327,11 @@ const rowsKeyedBy = (
 
 /**
  * Delivered rows of a statement: its index, each column's output position, how a later statement computes them
- * again, what identifies them, how many there are at most, and whether computing them reads an approximate search.
+ * again, what identifies them, and how many there are at most.
  */
 export interface DeliveredRows<I extends ChoiceInput> extends ParentRows {
 	readonly identity: RowsIdentity
 	readonly bound: RowsBound<I>
-	readonly searches: boolean
 }
 
 export interface PipelinedAttachment {

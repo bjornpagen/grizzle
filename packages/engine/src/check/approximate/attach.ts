@@ -204,10 +204,11 @@ const pipelinedReason = (node: RelNode, top: boolean): string | undefined => {
 }
 
 /**
- * The search the rows of `id` read when a statement computes them, or undefined: an attachment's rows are its
- * parent's, so an Attach is followed to its parent only.
+ * The search the rows of `start` read when a statement computes them, or undefined: an attachment's rows are its
+ * parent's, so an Attach is followed to its parent only. A rows statement fuses its attachments exactly when its rows
+ * read one (lower/shapes/index.ts rowsStatement).
  */
-const searchInRows = (start: RelNode): RelNode | undefined => {
+export const searchInRows = (start: RelNode): RelNode | undefined => {
 	const seen = new Set<RelNode>([start])
 	const queue = [start]
 	for (const node of queue) {
@@ -226,31 +227,39 @@ const searchInRows = (start: RelNode): RelNode | undefined => {
 }
 
 /**
- * The attachments a query delivers, each with whether it attaches to an attachment's child: those on the rows' spine
- * from `root` (every node that keeps its input's rows, rel.ts keptRowsOf, and each heading group of one arm), the
- * spine lower/conservative/deliver.ts delivers, and the attachments on each one's child spine, nested.
+ * An attachment a query delivers, with the rows of the statement it attaches to: the root's for one on the rows'
+ * spine from the root, its enclosing attachment's child's for one nested in that child.
  */
-const deliveredAttachments = (
-	root: RelNode
-): ReadonlyArray<{ readonly attach: NodeOf<"Attach">; readonly nested: boolean }> => {
-	const out: Array<{ readonly attach: NodeOf<"Attach">; readonly nested: boolean }> = []
+interface DeliveredAttachment {
+	readonly attach: NodeOf<"Attach">
+	readonly statement: RelNode
+	readonly nested: boolean
+}
+
+/**
+ * The attachments a query delivers: those on the rows' spine from `root` (every node that keeps its input's rows,
+ * rel.ts keptRowsOf, and each heading group of one arm), the spine lower/conservative/deliver.ts delivers, and the
+ * attachments on each one's child spine, nested.
+ */
+const deliveredAttachments = (root: RelNode): ReadonlyArray<DeliveredAttachment> => {
+	const out: Array<DeliveredAttachment> = []
 	const seen = new Set<RelNode>()
-	const walk = (start: RelNode, nested: boolean): void => {
+	const walk = (start: RelNode, statement: RelNode, nested: boolean): void => {
 		for (let node: RelNode | undefined = start; node !== undefined && !seen.has(node);) {
 			seen.add(node)
 			if (node.kind === "Attach") {
-				out.push({ attach: node, nested })
-				walk(node.child, true)
+				out.push({ attach: node, statement, nested })
+				walk(node.child, node.child, true)
 			}
 			const singleArms =
 				node.kind === "Union" ? node.groups.flatMap((g) => (g.arms.length === 1 ? g.arms : [])) : []
 			for (const only of singleArms) {
-				walk(only, nested)
+				walk(only, statement, nested)
 			}
 			node = keptRowsOf(node)?.input
 		}
 	}
-	walk(root, false)
+	walk(root, root, false)
 	return out
 }
 
@@ -282,29 +291,30 @@ const deliveredAttachments = (
  * A third placement is refused for the same reason, by the checker over the whole query (pipelinedOverSearch), so that
  * both lowerings accept the same programs: an attachment that must be a statement of its own (pipelinedOnly: a
  * recursive or approximate child, a child with attachments of its own, a heterogeneous union, a child delivering bytes,
- * whose values travel in chunks (codec/delivery.ts), or any attachment of an attachment's child) under rows that read
- * a search. That statement computes its parent's rows again in the same
- * snapshot, so it would run the parent's search a second time, and a delivered parent the second search misses would
- * lose its children. Every other attachment fuses exactly when its parent's rows read an approximate search
+ * whose values travel in chunks (codec/delivery.ts), or any attachment of an attachment's child) on a statement whose
+ * rows read a search: the root's rows for an attachment on its spine, its enclosing attachment's child's for a nested
+ * one, a semi-join's or a set operation's right side among them. That statement computes those rows again in the same
+ * snapshot, so it would run the search a second time, and a delivered parent the second search misses would lose its
+ * children. Every other attachment fuses exactly when the rows of its statement read an approximate search
  * (lower/shapes/index.ts rowsStatement), so the search runs once; over exact rows it is a statement of its own.
  *
- * The refusal of an attachment that must be a statement of its own under rows that read a search (see the header),
- * or undefined. Each such attachment's own parent rows are checked: an attachment's child that has attachments of its
- * own is one too, so a search further up the chain is refused at the attachment nearest it.
+ * The refusal of an attachment that must be a statement of its own on a statement whose rows read a search (see the
+ * header), or undefined. An attachment's child that has attachments of its own is one too, so a search further up the
+ * chain is refused at the attachment nearest it.
  */
 export const pipelinedOverSearch = (root: RelNode): string | undefined => {
-	for (const { attach, nested } of deliveredAttachments(root)) {
+	for (const { attach, statement, nested } of deliveredAttachments(root)) {
 		const why = nested
 			? "an attachment of an attachment's child is a statement of its own"
 			: pipelinedOnly(attach.child)
 		if (why === undefined) {
 			continue
 		}
-		const search = searchInRows(attach.parent)
+		const search = searchInRows(statement)
 		if (search === undefined) {
 			continue
 		}
-		return `${prefix}: a search evaluated once per execution; the attachment ${attach.name} (${attach.id}) is a statement of its own (${why}), which computes its parent's rows again in the same snapshot, and those rows read the search ${search.id}, so the search would run twice and need not retrieve the same set; query the nearest rows first, then attach to their keys in a second query`
+		return `${prefix}: a search evaluated once per execution; the attachment ${attach.name} (${attach.id}) is a statement of its own (${why}), which computes the rows it attaches to again in the same snapshot, and those rows read the search ${search.id}, so the search would run twice and need not retrieve the same set; query the nearest rows first, then attach to their keys in a second query`
 	}
 	return undefined
 }
