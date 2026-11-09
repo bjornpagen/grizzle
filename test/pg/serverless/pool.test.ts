@@ -116,6 +116,29 @@ const connectCalls = (native: SessionPool["native"]): (() => number) => {
 }
 
 /**
+ * Counts the calls of pg's Pool#connect on `native` from now on that pg has not answered yet: an own property in front
+ * of the method its class defines, whose callback counts its call out when pg answers, before the pool reads the
+ * answer.
+ */
+const connectsInFlight = (native: SessionPool["native"]): (() => number) => {
+	let pending = 0
+	const connect = native.connect.bind(native)
+	Object.defineProperty(native, "connect", {
+		configurable: true,
+		value: (callback: (error: unknown, client: unknown, release: unknown) => void): unknown => {
+			pending++
+			return Reflect.apply(connect, native, [
+				(error: unknown, client: unknown, release: unknown): void => {
+					pending--
+					callback(error, client, release)
+				}
+			])
+		}
+	})
+	return () => pending
+}
+
+/**
  * A password Effect that waits at a gate while the gate is closed, counting every connection attempt that evaluates it
  * and the attempts it holds at the gate.
  */
@@ -272,11 +295,15 @@ const running = "SELECT pg_catalog.pg_sleep(0.05)::text"
  * ask whose lease was cut goes straight back to the pool with its permit; a session cut mid-statement sends its
  * CancelRequest, is destroyed and is counted out of the pool.
  *
- * Once every lease has ended: every kept lease succeeded and every cut one ended as an interruption; the pool leases
- * nothing, opens at most its maximum, and queues nothing in pg's Pool; the role's backends fall to at most the
- * maximum; and a further lease of the maximum at once succeeds, each with a session of its own, none of them a session
- * cut mid-statement, on a backend none of those ran on: no permit or client was lost, and a destroyed session is never
- * handed out again.
+ * The case settles first, waiting on nothing a lost permit or client would hold back: the drawn cuts land, and the
+ * leases end, or are cut where every lease still running asks while no session is leased and pg has answered every
+ * connection, which a pool that hands its permits on never stays in. Once pg has answered every connection the pool is
+ * back at its baseline, read from its counts: it leases nothing, pg's Pool has no client checked out and queues
+ * nothing, and no lease was left asking, so a permit or client lost to a lease that left fails the case that loses it at
+ * once. Then every kept lease succeeded and every cut one ended as an interruption; the pool opens at most its maximum;
+ * the role's backends fall to at most the maximum; and a further lease of the maximum at once succeeds, each with a
+ * session of its own, none of them a session cut mid-statement, on a backend none of those ran on: a destroyed session
+ * is never handed out again.
  */
 const cutLeases = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -323,6 +350,7 @@ const cutLeases = Effect.gen(function* () {
 					password: { kind: "given", password },
 					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max }
 				})
+				const inFlight = connectsInFlight(pool.native)
 				if (leases.length > max) {
 					c.note("more leases than the pool holds")
 				}
@@ -331,6 +359,35 @@ const cutLeases = Effect.gen(function* () {
 				 * session's backend, once read.
 				 */
 				const progress: Array<Progress> = Arr.map(leases, () => "asking")
+				/** The leases whose fibers have ended, kept to their end or cut. */
+				const ended = new Set<number>()
+				/**
+				 * Whether the pool can hand no lease still running anything: each of them asks, no session is leased and pg
+				 * answered every connection, and so still once the fibers its answers woke have run. A pool that keeps its
+				 * permits never stays so, since a lease's release or pg's answer hands a permit on at once; a permit or client
+				 * lost to a lease that left leaves the rest asking for good, so the drawn cuts and the settling end there
+				 * rather than wait for it.
+				 */
+				const starvedNow = Effect.map(pool.leased, (leasedNow) => {
+					const running = Arr.filter(
+						Arr.map(leases, (_, i) => i),
+						(i) => !ended.has(i)
+					)
+					return (
+						running.length > 0 &&
+						Arr.every(running, (i) => progress[i] === "asking") &&
+						leasedNow === 0 &&
+						inFlight() === 0
+					)
+				})
+				const starved = Effect.gen(function* () {
+					if (!(yield* starvedNow)) {
+						return false
+					}
+					yield* Effect.yieldNow
+					yield* Effect.yieldNow
+					return yield* starvedNow
+				})
 				const ran = new Set<Session>()
 				const backends = new Map<Session, number>()
 				const leaseOf = (plan: LeasePlan, index: number) =>
@@ -352,7 +409,16 @@ const cutLeases = Effect.gen(function* () {
 						})
 					)
 				const fibers = yield* Effect.forEach(leases, (plan, index) => {
-					const lease = Effect.provideService(leaseOf(plan, index), AskingLease, Option.some(index))
+					const lease = Effect.provideService(
+						Effect.ensuring(
+							leaseOf(plan, index),
+							Effect.sync(() => {
+								ended.add(index)
+							})
+						),
+						AskingLease,
+						Option.some(index)
+					)
 					return Effect.forkChild(
 						plan.cut.kind === "cut" && plan.cut.at.kind === "turns"
 							? Effect.provideService(lease, Scheduler.MaxOpsBeforeYield, plan.cut.at.ops)
@@ -370,7 +436,7 @@ const cutLeases = Effect.gen(function* () {
 								return
 							}
 							if (cut.kind === "running") {
-								yield* until(Effect.sync(() => progress[index] === "running"))
+								yield* until(Effect.map(starved, (stuck) => stuck || progress[index] === "running"))
 							} else {
 								const at = cut.at
 								switch (at.kind) {
@@ -384,7 +450,10 @@ const cutLeases = Effect.gen(function* () {
 										break
 									case "establishing":
 										yield* until(
-											Effect.sync(() => connecting.has(index) || progress[index] !== "asking")
+											Effect.map(
+												starved,
+												(stuck) => stuck || connecting.has(index) || progress[index] !== "asking"
+											)
 										)
 										break
 								}
@@ -416,6 +485,28 @@ const cutLeases = Effect.gen(function* () {
 						}),
 					{ concurrency: "unbounded", discard: true }
 				)
+				yield* until(
+					Effect.map(starved, (stuck) => stuck || Arr.every(fibers, (_, i) => ended.has(i)))
+				)
+				/** The leases still asking once the pool could hand them nothing, cut here so the case settles. */
+				const waiting = Arr.filter(
+					Arr.map(leases, (_, i) => i),
+					(i) => !ended.has(i)
+				)
+				yield* Effect.forEach(waiting, (i) => {
+					const fiber = fibers[i]
+					return fiber === undefined ? Effect.void : Fiber.interrupt(fiber)
+				})
+				yield* until(Effect.sync(() => inFlight() === 0))
+				const leasedSettled = yield* pool.leased
+				assert.equal(leasedSettled, 0, "once every lease settled, the pool leases nothing")
+				assert.equal(
+					pool.native.totalCount - pool.native.idleCount,
+					0,
+					"once every lease settled and pg answered every connection, no client is checked out of pg's Pool"
+				)
+				assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
+				assert.deepEqual(waiting, [], "no lease waits on a permit the pool no longer hands on")
 				const exits = yield* Fiber.awaitAll(fibers)
 				for (const [index, exit] of exits.entries()) {
 					const plan = leases[index]
@@ -429,12 +520,9 @@ const cutLeases = Effect.gen(function* () {
 						)
 					}
 				}
-				const leased = yield* pool.leased
-				assert.equal(leased, 0, "once every lease ended, the pool leases nothing")
 				const size = yield* pool.size
 				assert.ok(size <= max, "the pool opens at most its maximum")
 				yield* until(Effect.map(roleBackends(reader.role), (n) => n <= max))
-				assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
 				/**
 				 * The sessions a cut destroyed mid-statement, as each one's own state tells once every lease has ended: a
 				 * cut that landed once its statement had answered left the session open, for the pool to hand out again.
