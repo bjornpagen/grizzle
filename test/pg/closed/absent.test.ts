@@ -14,8 +14,8 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
+import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -60,7 +60,6 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc1.
@@ -104,7 +103,9 @@ import { loginLayer } from "#test/support/worlds.ts"
  *   selection is true, its stepped value where it is false or unknown) must be refused by the fold's CHECK, 23514,
  *   wherever its integer is not 0.
  *
- * Each drawn row is written into each relation by grizzle's writer, one insert per ChangeSet. The oracle is the
+ * Each drawn row is written into each relation by grizzle's writer through the full world's served workload, one
+ * insert per call: into a generated relation through the one insert of them all whose call holds the row in that
+ * relation alone, and into each other relation through its own. The oracle is the
  * documented contract restated over the world's rows: Kleene's three-valued logic over reads that are NULL exactly at
  * an absent key or a NULL argument. A lawful row is accepted; an unlawful one is `invariant-rejected` naming its
  * relation's one law; and every stored generated value is the read's, a set its exact bits. A domain's refusal of a
@@ -681,7 +682,11 @@ type NeverNull = (typeof neverNull)[number]
 const nullable = (name: Generated): name is Exclude<Generated, NeverNull> =>
 	!Arr.some(neverNull, (n) => n === name)
 
-/** The case's schema: its rosters, closed relations, the relations its rules hold, and the generated relations. */
+/**
+ * The case's schema: its rosters, closed relations, the relations its rules hold, and the generated relations; and its
+ * full world's workload, an insert into each relation its rules hold, one insert of every generated relation, an
+ * owner's insert, and a member's put and delete, each of the facts each call gives.
+ */
 const schemaOf = (c: AbsentCase) => {
 	const w = c.world
 	const Kind = closed("Kind", handlesOf(w.kinds, kindOf))
@@ -980,15 +985,24 @@ const schemaOf = (c: AbsentCase) => {
 		Member,
 		...generatedRelations
 	}
+	const Absent = schema("Absent", relations, statements)
 	return {
 		Flag,
 		checked: [Checked0, Checked1] as const,
-		Contained,
-		Keyed,
 		Owner,
 		Member,
 		generatedRelations,
-		Absent: schema("Absent", relations, statements)
+		Absent,
+		programs: {
+			insertChecked0: ChangeSet.empty(Absent).insert(Checked0, []),
+			insertChecked1: ChangeSet.empty(Absent).insert(Checked1, []),
+			insertContained: ChangeSet.empty(Absent).insert(Contained, []),
+			insertKeyed: ChangeSet.empty(Absent).insert(Keyed, []),
+			insertGenerated: ChangeSet.empty(Absent).insertAll(Rec.map(generatedRelations, () => [])),
+			insertOwner: ChangeSet.empty(Absent).insert(Owner, []),
+			putMember: ChangeSet.empty(Absent).put(Member, []),
+			deleteMember: ChangeSet.empty(Absent).delete(Member, [])
+		}
 	}
 }
 
@@ -1165,7 +1179,15 @@ const keyedRows = (c: AbsentCase): ReadonlyArray<Item> =>
 const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
-		const o = yield* installed(built.Absent, {}, { label: "absent", extensions: [], programs: {} })
+		const o = yield* installed(
+			built.Absent,
+			{},
+			{
+				label: "absent",
+				extensions: [],
+				programs: built.programs
+			}
+		)
 		const names = namesOf(o.installed)
 		const w = c.world
 		const where = (relation: string, id: number) =>
@@ -1182,14 +1204,15 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			p: item.p
 		})
 		const stored = yield* Effect.gen(function* () {
-			const db = yield* compiledOpen(o.server.roles.app, {})
-			const empty = ChangeSet.empty(o.schema)
+			const db = yield* Db.open(o.served.login.roles.app, {})
 			for (const [at, relation] of built.checked.entries()) {
 				const pred = c.checks[at === 0 ? 0 : 1]
 				for (const [id, item] of c.items.entries()) {
 					const t = truth(w, item, pred)
 					const applied = yield* Effect.result(
-						db.apply(empty.insert(relation, [itemFact(item, id)]), {})
+						at === 0
+							? db.workload.insertChecked0.apply({ Checked0: [itemFact(item, id)] }, {})
+							: db.workload.insertChecked1.apply({ Checked1: [itemFact(item, id)] }, {})
 					)
 					verdict(applied, relation.name, t === "true", where(relation.name, id))
 					const reads = Arr.map(readsOf(pred), (read) => readOf(w, item, read))
@@ -1270,7 +1293,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.contained)
 				const inside = w.allowed[item.kind]?.includes(item.flag) === true
 				const applied = yield* Effect.result(
-					db.apply(empty.insert(built.Contained, [itemFact(item, id)]), {})
+					db.workload.insertContained.apply({ Contained: [itemFact(item, id)] }, {})
 				)
 				verdict(applied, "Contained", t !== "true" || inside, where("Contained", id))
 				if (!inside) {
@@ -1289,7 +1312,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.keyed)
 				const taken = selected.includes(item.n)
 				const applied = yield* Effect.result(
-					db.apply(empty.insert(built.Keyed, [itemFact(item, id)]), {})
+					db.workload.insertKeyed.apply({ Keyed: [itemFact(item, id)] }, {})
 				)
 				verdict(applied, "Keyed", t !== "true" || !taken, where("Keyed", id))
 				if (taken && t === "true") {
@@ -1309,13 +1332,13 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			}
 			const kept: Array<{ readonly relation: Generated; readonly rows: ReadonlyArray<string> }> = []
 			for (const [name, read] of Arr.fromRecord(generatedReads)) {
-				const relation = built.generatedRelations[name]
 				const rows: Array<string> = []
 				for (const [id, item] of c.items.entries()) {
 					const value = readOf(w, item, read)
+					const fact = { id, kind: kindOf(item.kind), flag: flagOf(item.flag) }
 					const applied = yield* Effect.result(
-						db.apply(
-							empty.insert(relation, [{ id, kind: kindOf(item.kind), flag: flagOf(item.flag) }]),
+						db.workload.insertGenerated.apply(
+							Rec.map(built.generatedRelations, (_, relation) => (relation === name ? [fact] : [])),
 							{}
 						)
 					)
@@ -1363,27 +1386,23 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				...itemFact(item, id),
 				owner: of
 			})
+			const members = Arr.map(c.items, (item, id) => itemFact(item, id))
 			const together = yield* Effect.result(
-				db.apply(
-					empty.insert(built.Owner, [
-						{ id: 0, members: Arr.map(c.items, (item, id) => itemFact(item, id)) }
-					]),
-					{}
-				)
+				db.workload.insertOwner.apply({ Owner: [{ id: 0, members }] }, {})
 			)
 			verdict(together, "Member", true, where("Member", 0))
 			const stored = yield* Effect.result(
-				db.apply(empty.insert(built.Owner, [{ id: 1, members: [] }]), {})
+				db.workload.insertOwner.apply({ Owner: [{ id: 1, members: [] }] }, {})
 			)
 			verdict(stored, "Owner", true, where("Owner", 1))
 			for (const [i, item] of c.items.entries()) {
 				const one = yield* Effect.result(
-					db.apply(empty.put(built.Member, [memberFact(item, memberOfLater(i), 1)]), {})
+					db.workload.putMember.apply({ Member: [memberFact(item, memberOfLater(i), 1)] }, {})
 				)
 				verdict(one, "Member", true, where("Member", memberOfLater(i)))
 			}
 			const deleted = yield* Effect.result(
-				db.apply(empty.delete(built.Member, [memberFact(c.items[0], 0, 0)]), {})
+				db.workload.deleteMember.apply({ Member: [memberFact(c.items[0], 0, 0)] }, {})
 			)
 			verdict(deleted, "Member", true, where("Member", 0))
 			for (const item of c.items) {
@@ -1406,7 +1425,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				)
 			}
 			return kept
-		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
 		const s = yield* Substrate
 		const owner = yield* s.session(ownerSession())
 		for (const { relation, rows } of stored) {

@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -33,7 +33,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc1:
@@ -385,6 +384,10 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 	}
 }
 
+/**
+ * The case's schema: Kind, Pick and Allowed, and a relation per position; and its full world's workload, an insert into
+ * each written relation of the facts each call gives, and the query whose filter is the case's φ.
+ */
 const schemaOf = (c: RewriteCase) => {
 	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
@@ -459,7 +462,25 @@ const schemaOf = (c: RewriteCase) => {
 		{ Kind, Pick, Allowed, Checked, Contained, Keyed, Queried, GenCond },
 		statements
 	)
-	return { Pick, Checked, Contained, Keyed, Queried, GenCond, Rewrites, readsOf }
+	const filtered = query(Rewrites).rule((q) => {
+		const r = v(Queried, "r")
+		return q
+			.match(Queried, { id: r.id, kind: r.kind, t: r.t, x: r.x, n: r.n, m: r.m })
+			.where(predicateOf(c.queried, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind))))
+			.find({ id: r.id })
+	})
+	return {
+		GenCond,
+		Rewrites,
+		programs: {
+			insertChecked: ChangeSet.empty(Rewrites).insert(Checked, []),
+			insertGenCond: ChangeSet.empty(Rewrites).insert(GenCond, []),
+			insertContained: ChangeSet.empty(Rewrites).insert(Contained, []),
+			insertKeyed: ChangeSet.empty(Rewrites).insert(Keyed, []),
+			insertQueried: ChangeSet.empty(Rewrites).insert(Queried, []),
+			filtered
+		}
+	}
 }
 
 const betweenPair =
@@ -653,7 +674,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 		const o = yield* installed(
 			built.Rewrites,
 			{},
-			{ label: "rewrites", extensions: [], programs: {} }
+			{ label: "rewrites", extensions: [], programs: built.programs }
 		)
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
@@ -695,25 +716,24 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 			}
 		}
 		const result = yield* Effect.gen(function* () {
-			const db = yield* compiledOpen(o.server.roles.app, {})
-			const empty = ChangeSet.empty(o.schema)
+			const db = yield* Db.open(o.served.login.roles.app, {})
 			const conds: Array<string> = []
 			const selected: Array<number> = []
 			for (const [id, item] of c.items.entries()) {
 				const checked = yield* Effect.result(
-					db.apply(empty.insert(built.Checked, [fact(item, id)]), {})
+					db.workload.insertChecked.apply({ Checked: [fact(item, id)] }, {})
 				)
 				verdict(checked, "Checked", truth(c, item, c.checked) === "true", where("Checked", id))
 				met("a check", c.checked, item)
 				const gen = yield* Effect.result(
-					db.apply(empty.insert(built.GenCond, [fact(item, id)]), {})
+					db.workload.insertGenCond.apply({ GenCond: [fact(item, id)] }, {})
 				)
 				verdict(gen, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${truth(c, item, c.generated) === "true" ? item.n : item.m}`)
 				met("a generated field", c.generated, item)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.apply(empty.insert(built.Contained, [fact(item, id)]), {})
+					db.workload.insertContained.apply({ Contained: [fact(item, id)] }, {})
 				)
 				verdict(
 					containedRow,
@@ -725,7 +745,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				const k = truth(c, item, c.keyed)
 				const taken = k === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.apply(empty.insert(built.Keyed, [fact(item, id)]), {})
+					db.workload.insertKeyed.apply({ Keyed: [fact(item, id)] }, {})
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (k === "true" && !taken) {
@@ -733,26 +753,14 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				}
 				met("a key's selection", c.keyed, item)
 				const queried = yield* Effect.result(
-					db.apply(empty.insert(built.Queried, [fact(item, id)]), {})
+					db.workload.insertQueried.apply({ Queried: [fact(item, id)] }, {})
 				)
 				verdict(queried, "Queried", true, where("Queried", id))
 				met("a query's filter", c.queried, item)
 			}
-			const filtered = query(o.schema).rule((q) => {
-				const r = v(built.Queried, "r")
-				return q
-					.match(built.Queried, { id: r.id, kind: r.kind, t: r.t, x: r.x, n: r.n, m: r.m })
-					.where(
-						predicateOf(
-							c.queried,
-							built.readsOf(r.t, r.x, built.Pick.at("t", r.kind), built.Pick.at("f", r.kind))
-						)
-					)
-					.find({ id: r.id })
-			})
-			const rows = yield* (yield* db.execute(filtered, {})).collect
+			const rows = yield* (yield* db.workload.filtered.execute({})).collect
 			return { conds, ids: Arr.map(rows, (row) => row.id) }
-		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
 		assert.deepEqual(
 			Arr.sort(result.ids, Order.Number),
 			Arr.filterMap(c.items, (item, id) =>

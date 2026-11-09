@@ -16,7 +16,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -42,7 +42,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A comparison of texts that read no row field is a constant, and a schema holding one installs and judges each row by
@@ -353,7 +352,10 @@ const Wild = str.regex("^.*$", "su")
 /** A text term with the API's text type, whatever its node and whatever values its column delivers. */
 type TextTermOf = Term<string, unknown, unknown, "text", unknown>
 
-/** The case's schema: Kind, Pick and Allowed, and a relation per position. */
+/**
+ * The case's schema: Kind, Pick and Allowed, and a relation per position; and its full world's workload, an insert
+ * into each written relation of the facts each call gives.
+ */
 const schemaOf = (c: ConstantCase) => {
 	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
@@ -438,17 +440,22 @@ const schemaOf = (c: ConstantCase) => {
 			on(Allowed, "kind")
 		)
 	] as const
+	const Constants = schema(
+		"Constants",
+		{ Kind, Pick, Allowed, GenCond, GenText, Checked, Keyed, Contained },
+		statements
+	)
 	return {
 		GenCond,
 		GenText,
-		Checked,
-		Keyed,
-		Contained,
-		Constants: schema(
-			"Constants",
-			{ Kind, Pick, Allowed, GenCond, GenText, Checked, Keyed, Contained },
-			statements
-		)
+		Constants,
+		programs: {
+			insertGenCond: ChangeSet.empty(Constants).insert(GenCond, []),
+			insertGenText: ChangeSet.empty(Constants).insert(GenText, []),
+			insertChecked: ChangeSet.empty(Constants).insert(Checked, []),
+			insertContained: ChangeSet.empty(Constants).insert(Contained, []),
+			insertKeyed: ChangeSet.empty(Constants).insert(Keyed, [])
+		}
 	}
 }
 
@@ -532,28 +539,27 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 		const o = yield* installed(
 			built.Constants,
 			{},
-			{ label: "constants", extensions: [], programs: {} }
+			{ label: "constants", extensions: [], programs: built.programs }
 		)
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`
 		const fact = (item: Item, id: number) => ({ id, kind: kindOf(item.kind), n: item.n, m: item.m })
 		const expected = yield* Effect.gen(function* () {
-			const db = yield* compiledOpen(o.server.roles.app, {})
-			const empty = ChangeSet.empty(o.schema)
+			const db = yield* Db.open(o.served.login.roles.app, {})
 			const conds: Array<string> = []
 			const texts: Array<string> = []
 			const text = textOf(c, c.text)
 			for (const [id, item] of c.items.entries()) {
 				const t = phiTruth(c, c.generated, item)
 				const genCond = yield* Effect.result(
-					db.apply(empty.insert(built.GenCond, [fact(item, id)]), {})
+					db.workload.insertGenCond.apply({ GenCond: [fact(item, id)] }, {})
 				)
 				verdict(genCond, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${t === "true" ? item.n : item.m}`)
 				notes.note(`a constant ${constTruth(c, c.generated.constant)} in a generated field`)
 				const genText = yield* Effect.result(
-					db.apply(empty.insert(built.GenText, [fact(item, id)]), {})
+					db.workload.insertGenText.apply({ GenText: [fact(item, id)] }, {})
 				)
 				verdict(genText, "GenText", text !== undefined, where("GenText", id))
 				if (text === undefined) {
@@ -563,13 +569,13 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 					notes.note("a constant text generated")
 				}
 				const checked = yield* Effect.result(
-					db.apply(empty.insert(built.Checked, [fact(item, id)]), {})
+					db.workload.insertChecked.apply({ Checked: [fact(item, id)] }, {})
 				)
 				verdict(checked, "Checked", phiTruth(c, c.checked, item) === "true", where("Checked", id))
 				notes.note(`a constant ${constTruth(c, c.checked.constant)} in a row check`)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.apply(empty.insert(built.Contained, [fact(item, id)]), {})
+					db.workload.insertContained.apply({ Contained: [fact(item, id)] }, {})
 				)
 				verdict(
 					containedRow,
@@ -584,7 +590,7 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				const t = phiTruth(c, c.keyed, item)
 				const taken = t === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.apply(empty.insert(built.Keyed, [fact(item, id)]), {})
+					db.workload.insertKeyed.apply({ Keyed: [fact(item, id)] }, {})
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (t === "true" && !taken) {
@@ -593,7 +599,7 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				notes.note(`a constant ${constTruth(c, c.keyed.constant)} in a key's selection`)
 			}
 			return { conds, texts }
-		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
 		const s = yield* Substrate
 		const owner = yield* s.session(ownerSession())
 		const readBack = (target: typeof built.GenCond | typeof built.GenText) =>
