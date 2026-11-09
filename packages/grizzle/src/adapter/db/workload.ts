@@ -99,7 +99,7 @@ export const programsOn = (
 	workloads: ReadonlyArray<AnyWorkload>
 ): Result.Result<ReadonlyArray<WorkloadProgram>, CompileError> =>
 	Result.gen(function* () {
-		const programs: Array<WorkloadProgram> = []
+		const running: Array<ReadonlyArray<WorkloadProgram>> = []
 		for (const workload of workloads) {
 			const state = workloadState(workload)
 			if (state === undefined) {
@@ -109,10 +109,10 @@ export const programsOn = (
 			const runs =
 				over.kind === "role" ? over.value === role.value : levelSchema(over, role, loc).ok
 			if (runs) {
-				programs.push(...state.programs)
+				running.push(state.programs)
 			}
 		}
-		return programs
+		return Arr.flatten(running)
 	})
 
 /**
