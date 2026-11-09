@@ -9,7 +9,7 @@ import {
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { isCapturedStack, parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
@@ -522,16 +522,16 @@ const setOwn = <T extends object, K extends keyof T & string>(
 }
 
 /**
- * A source location as a decode keeps it: frozen with its path and call site, so a value holding one is frozen
- * throughout. A path or call site already frozen is shared, since it cannot change. A node built from parts already
- * decoded keeps its location by it, as a decode of the node would.
+ * A source location as a decode keeps it: frozen with its path and site, so a value holding one is frozen throughout. A
+ * path or call site already frozen is shared, since it cannot change, and so is a captured stack, which captureLoc
+ * froze. A node built from parts already decoded keeps its location by it, as a decode of the node would.
  */
 export const keptLoc = (loc: SourceLoc): SourceLoc =>
 	Object.freeze({
 		path: Object.isFrozen(loc.path) ? loc.path : Object.freeze(loc.path.slice()),
 		label: loc.label,
 		site:
-			loc.site === undefined || Object.isFrozen(loc.site)
+			loc.site === undefined || isCapturedStack(loc.site) || Object.isFrozen(loc.site)
 				? loc.site
 				: Object.freeze({ ...loc.site })
 	})

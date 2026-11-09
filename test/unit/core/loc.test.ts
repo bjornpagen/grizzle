@@ -27,6 +27,7 @@ import {
 	parseFrame,
 	parseSourceLoc,
 	parseStack,
+	readSite,
 	SourceLoc,
 	sitedLoc,
 	siteFromStack
@@ -306,7 +307,7 @@ describe("call-site capture", () => {
 								path
 							])
 							const loc = defined(parseSourceLoc(captured), "the captured location")
-							const site = defined(loc.site, "the captured site")
+							const site = defined(readSite(loc.site), "the captured site")
 							assert.deepEqual(
 								{ label: loc.label, path: loc.path, file: site.file, line: site.line },
 								{ label, path, file: expected.at.file, line: callLine(expected) }

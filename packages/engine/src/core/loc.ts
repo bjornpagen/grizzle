@@ -8,22 +8,41 @@ export interface CallSite {
 }
 
 /**
+ * The call stack the runtime captured where a value was built, frozen and unread: the runtime formats a stack only
+ * when it is read, so a build that prints no location formats none. Its call site is the first frame outside the
+ * library (readSite), read where a location is printed or written out. captureLoc is its one maker.
+ */
+class CapturedStack extends Error {}
+
+export type { CapturedStack }
+
+/** Whether a value is a stack captureLoc captured. */
+export const isCapturedStack = (value: unknown): value is CapturedStack =>
+	value instanceof CapturedStack
+
+/**
+ * Where a location's value was built: a call site, as a location spelled in JSON states it; the stack the runtime
+ * captured there; or none, for a location the compiler names.
+ */
+export type Site = CallSite | CapturedStack | undefined
+
+/**
  * Source locations for diagnostics.
  *
  * A SourceLoc names where a declaration or expression came from: a logical path through the owned graph (for example
- * ["Work", "relations", "Task", "fields", "id"]), a human label, and the JavaScript call site that built it, undefined
- * for a location the compiler names and when the runtime gives no usable stack.
+ * ["Work", "relations", "Task", "fields", "id"]), a human label, and where the JavaScript that built it ran (Site),
+ * whose call site is undefined for a location the compiler names and when the runtime gives no usable stack.
  * It is excluded from semantic identity: fingerprints omit it (fingerprint.ts), so moving a declaration to another
  * line changes no fingerprint.
  *
- * Call sites are captured from `new Error().stack` and parsed by hand. Nothing here imports a Node module, and src/
+ * Call sites are read from a captured stack's text and parsed by hand. Nothing here imports a Node module, and src/
  * constructs no RegExp, so the parser is a plain scanner over V8 ("    at fn (file:line:col)") and
  * SpiderMonkey/JavaScriptCore ("fn@file:line:col") frame lines.
  */
 export interface SourceLoc {
 	readonly path: ReadonlyArray<string | number>
 	readonly label: string
-	readonly site: CallSite | undefined
+	readonly site: Site
 }
 
 /** A location the compiler names, at no call site. */
@@ -33,11 +52,11 @@ export const SourceLoc = (label: string, path: ReadonlyArray<string | number>): 
 	site: undefined
 })
 
-/** A location at the call site the runtime gave, if it gave one. */
+/** A location at `site`. */
 export const sitedLoc = (
 	label: string,
 	path: ReadonlyArray<string | number>,
-	site: CallSite | undefined
+	site: Site
 ): SourceLoc => ({
 	path: [...path],
 	label,
@@ -82,8 +101,9 @@ const isSegment = (segment: unknown): segment is string | number =>
 	typeof segment === "string" || typeof segment === "number"
 
 /**
- * The SourceLoc a value spells where a location travels inside a JSON-shaped description, or undefined when it spells
- * none. JSON carries no undefined, so a location without a call site leaves the key out there.
+ * The SourceLoc a value spells where a location travels inside a description, or undefined when it spells none: its
+ * site a call site, as JSON spells one, or the stack a builder captured. JSON carries no undefined, so a location
+ * without a call site leaves the key out there.
  */
 export const parseSourceLoc = (value: unknown): SourceLoc | undefined => {
 	if (!isRecord(value) || Array.isArray(value)) {
@@ -96,10 +116,10 @@ export const parseSourceLoc = (value: unknown): SourceLoc | undefined => {
 	if (typeof label !== "string" || !Array.isArray(path) || !path.every(isSegment)) {
 		return undefined
 	}
-	if (site !== undefined && !isCallSite(site)) {
-		return undefined
+	if (site === undefined || site instanceof CapturedStack || isCallSite(site)) {
+		return { path, label, site }
 	}
-	return { path, label, site }
+	return undefined
 }
 
 /** Whether a value spells a SourceLoc, as parseSourceLoc reads it. */
@@ -124,7 +144,8 @@ const formatSite = (site: CallSite): string => `${site.file}:${site.line}:${site
 export const formatLoc = (loc: SourceLoc): string => {
 	const path = formatPath(loc.path)
 	const head = path === "" ? loc.label : `${loc.label} at ${path}`
-	return loc.site === undefined ? head : `${head} (${formatSite(loc.site)})`
+	const site = readSite(loc.site)
+	return site === undefined ? head : `${head} (${formatSite(site)})`
 }
 
 const isDigits = (text: string): boolean => {
@@ -244,14 +265,17 @@ export const siteFromStack = (stack: string): CallSite | undefined =>
 	parseStack(stack).find((site) => !isLibraryFrame(site.file))
 
 /**
- * The first call site outside the library: where the user wrote the declaration. Undefined when the runtime gives no
- * usable stack.
+ * The call site a site names: the one it states, or the first frame outside the library of the stack it captured,
+ * where the user wrote the declaration. Undefined at none, and when the runtime gave no usable stack.
  */
-const captureSite = (): CallSite | undefined => {
-	const stack = new Error().stack
+export const readSite = (site: Site): CallSite | undefined => {
+	if (!(site instanceof CapturedStack)) {
+		return site
+	}
+	const stack = site.stack
 	return stack === undefined ? undefined : siteFromStack(stack)
 }
 
-/** A SourceLoc whose site is the user's call site, at no call site when the runtime gives none. */
+/** A SourceLoc at the stack the runtime gives here, whose call site, the user's, is read only where it is printed. */
 export const captureLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
-	sitedLoc(label, path, captureSite())
+	sitedLoc(label, path, Object.freeze(new CapturedStack()))

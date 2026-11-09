@@ -19,6 +19,7 @@ import { queryState } from "#compiler/query/build/state.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { Task, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sitesRead } from "#test/support/sites.ts"
 
 /**
  * A query builder step reads only what it adds. A stage's Description holds its input stage, its earlier arms, an
@@ -143,15 +144,19 @@ const keyOrders = (value: unknown): ReadonlyArray<string> => {
 	return out
 }
 
-/** The old path's check: the Description equals a whole decode of a plain copy of it, keys in the same order. */
+/**
+ * The old path's check: the Description equals a whole decode of a plain copy of it, keys in the same order, its
+ * locations' sites read as JSON would carry them (sitesRead).
+ */
 const asTheOldPath = (value: QueryValue | OrderedValue): void => {
 	const desc = descOf(value)
-	const whole = decodeDesc("query", structuredClone(desc))
+	const read = sitesRead(desc)
+	const whole = decodeDesc("query", structuredClone(read))
 	if (!whole.ok) {
 		throw whole.error
 	}
-	assert.deepEqual(desc, whole.value)
-	assert.deepEqual(keyOrders(desc), keyOrders(whole.value))
+	assert.deepEqual(read, whole.value)
+	assert.deepEqual(keyOrders(read), keyOrders(whole.value))
 	assert.ok(
 		Arr.every([...containersOf(desc, new Set())], (c) => Object.isFrozen(c)),
 		"the Description is frozen throughout"

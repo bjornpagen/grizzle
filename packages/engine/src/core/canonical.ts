@@ -9,7 +9,7 @@ import {
 import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { enclosedWithin } from "#compiler/core/lines.ts"
-import { isSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -47,6 +47,12 @@ export type Path = ReadonlyArray<string | number>
  * identity. A pure function of its arguments.
  */
 export type OmitRule = (key: string, value: unknown, path: Path) => boolean
+
+/**
+ * A record's member as the canonical form reads it: a stack a builder captured (core/loc.ts CapturedStack) as the call
+ * site it names, which is how a location's site is written, and every other value as it is.
+ */
+const memberOf = (value: unknown): unknown => (isCapturedStack(value) ? readSite(value) : value)
 
 export interface EncodeOptions {
 	readonly omit: OmitRule
@@ -387,7 +393,7 @@ class Walk<R> {
 	*#record(value: Readonly<Record<string, unknown>>): Members<unknown, R> {
 		const members: Array<readonly [string, R]> = []
 		for (const key of this.#keysOf(value)) {
-			const child = value[key]
+			const child = memberOf(value[key])
 			if (child === undefined || this.#options.omit(key, child, this.#path)) {
 				continue
 			}
@@ -408,7 +414,7 @@ class Walk<R> {
 	): Members<unknown, R> {
 		const members: Array<readonly [string, R]> = []
 		for (const key of this.#keysOf(value)) {
-			const child = value[key]
+			const child = memberOf(value[key])
 			if (child === undefined || this.#options.omit(key, child, this.#path)) {
 				continue
 			}

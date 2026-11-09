@@ -69,6 +69,7 @@ import {
 	type Var
 } from "#test/support/oracle/public/program.ts"
 import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
+import { sitesRead } from "#test/support/sites.ts"
 
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
@@ -1336,8 +1337,12 @@ const roundTrip = (
 			text(desc)
 		)
 		assert.deepEqual(
-			normalized(ok(checkQuery(checking(schema), back, checkOptions("query")), "the second check")),
-			normalized(first)
+			sitesRead(
+				normalized(
+					ok(checkQuery(checking(schema), back, checkOptions("query")), "the second check")
+				)
+			),
+			sitesRead(normalized(first))
 		)
 		admitsRewrites(description, schema, c.schema.relations, note)
 		return

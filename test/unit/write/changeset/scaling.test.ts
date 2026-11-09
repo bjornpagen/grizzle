@@ -17,6 +17,7 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sitesRead } from "#test/support/sites.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -234,9 +235,12 @@ const keyOrders = (value: unknown): ReadonlyArray<string> => {
 	return out
 }
 
-/** The Description the old path gives: a whole decode of a plain copy, which no shape recognises. */
+/**
+ * The Description the old path gives: a whole decode of a plain copy, which no shape recognises, its locations' sites
+ * read as JSON would carry them (sitesRead).
+ */
 const decodedWhole = (desc: ChangeSetDesc): ChangeSetDesc => {
-	const decoded = decodeDesc("changeSet", structuredClone(desc))
+	const decoded = decodeDesc("changeSet", structuredClone(sitesRead(desc)))
 	if (!decoded.ok) {
 		throw decoded.error
 	}
@@ -258,8 +262,9 @@ const textOf = (desc: unknown): string => {
 const asTheOldPath = (value: ChangeSetValue): void => {
 	const desc = descOf(value)
 	const whole = decodedWhole(desc)
-	assert.deepEqual(desc, whole)
-	assert.deepEqual(keyOrders(desc), keyOrders(whole))
+	const read = sitesRead(desc)
+	assert.deepEqual(read, whole)
+	assert.deepEqual(keyOrders(read), keyOrders(whole))
 	assert.ok(
 		Arr.every([...containersOf(desc, new Set())], (c) => Object.isFrozen(c)),
 		"the Description is frozen throughout"
