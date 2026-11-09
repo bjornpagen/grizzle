@@ -250,9 +250,12 @@ export interface ImmediateReference {
 	readonly toColumns: ReadonlyArray<string>
 }
 
+/** Whether an action is a generated addition, which draws the values its serial fields take. */
+const isGenerated = (a: ActionCore): boolean => a.op === "insert" && a.serial.kind === "generated"
+
 /** The phase of an action on its own relation. */
 const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
-	a.op === "delete" ? 0 : a.op === "put" ? 1 : a.serial.kind === "generated" ? 3 : 2
+	a.op === "delete" ? 0 : a.op === "put" ? 1 : isGenerated(a) ? 3 : 2
 
 /**
  * Whether an action removes facts: a deletion, or a put of a relation with a payload, which displaces the occupant of
@@ -270,7 +273,7 @@ const adds = (s: Scheduled): boolean => s.action.op === "insert" || s.action.op 
  */
 const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>
 	phaseOf(a.action) < phaseOf(b.action) &&
-	!(a.meeting === "nowhere" && a.action.op === "delete" && phaseOf(b.action) < 3)
+	!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))
 
 /** The canonical order of a stratum's actions: relation, phase, then (the sort being stable) the order given. */
 const scheduledOrder: Order.Comparator<Scheduled> = Order.combine(
