@@ -4,7 +4,8 @@ import type {
 	LanguageCount,
 	Rejected,
 	RewriteSource,
-	ValidatedSource
+	ValidatedSource,
+	ZeroWidthSpace
 } from "#compiler/types/fields/source.ts"
 
 /**
@@ -107,11 +108,12 @@ type ReadToken<S extends readonly [string, PlaceholderRun], Token extends string
 							? "number"
 							: "string"
 			]
-		: [`${S[0]}${RunPlaceholder<S[1]>}${Token}`, "none"]
+		: [Restored<Token, `${S[0]}${RunPlaceholder<S[1]>}`>, "none"]
 
 /**
  * One member rebuilt: a member with no placeholder left is appended whole; otherwise eight tokens are read at a time
- * while eight remain, each a code unit or a placeholder, so a long text costs an eighth of its length in steps.
+ * while eight remain, each a code unit or a placeholder, so a long text costs an eighth of its length in steps. Each
+ * stand-in is written back as the zero-width space it stands for.
  */
 type Rebuilt<T extends string, Out extends string, R extends PlaceholderRun> = string extends T
 	? `${Out}${string}`
@@ -137,7 +139,18 @@ type Rebuilt<T extends string, Out extends string, R extends PlaceholderRun> = s
 					? Rebuilt<Rest, Read, Open>
 					: never
 				: `${Out}${RunPlaceholder<R>}`
-		: `${Out}${RunPlaceholder<R>}${T}`
+		: Restored<T, `${Out}${RunPlaceholder<R>}`>
+
+/**
+ * Out followed by a member's text with each stand-in written back as the zero-width space it stands for
+ * (types/fields/source.ts), one step per stand-in.
+ */
+type Restored<
+	T extends string,
+	Out extends string
+> = T extends `${infer Before}${ZeroWidthSpace["standIn"]}${infer After}`
+	? Restored<After, `${Out}${Before}${ZeroWidthSpace["marker"]}`>
+	: `${Out}${T}`
 
 /** Every member of an inferred host type rebuilt. */
 type OnePlaceholderPerRun<T extends string> = T extends string ? Rebuilt<T, "", "none"> : never

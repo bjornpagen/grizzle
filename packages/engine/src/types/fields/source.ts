@@ -555,6 +555,22 @@ type Widened<F extends Fact> = "widen" extends F
 		: false
 
 /**
+ * U+200B, the zero-width space: ArkRegex's own marker, which it ends an error message with and brackets an anchor in
+ * (@ark/util ErrorMessage, arkregex state.ts AnchorMarker), so it reads a source ending in one as an error, inferring
+ * never, a class member that is one as the error that ends the class, dropping the others, and text holding one around
+ * `^` or `$` as an anchor. The scan writes each literal one as a stand-in, NUL, which no admitted source holds (the
+ * compiler's grammar check refuses it, scalar/regex/parse.ts) and ArkRegex reads as any other code point, and the host
+ * type writes it back (types/fields/regex.ts Restored).
+ */
+export interface ZeroWidthSpace {
+	readonly marker: "\u200B"
+	readonly standIn: "\u0000"
+}
+
+/** A literal code point as the rewritten source writes it: the zero-width space as its stand-in. */
+type Stood<C extends string> = C extends ZeroWidthSpace["marker"] ? ZeroWidthSpace["standIn"] : C
+
+/**
  * One step of the scan outside a class. ArkRegex calls `\}` an unnecessary escape; a lone `}` is the same literal to
  * it. `[]` matches nothing and ArkRegex refuses it, so it reads any code point and the inference widens.
  */
@@ -669,7 +685,7 @@ type Outside<
 										: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
 							: C extends "."
 								? Scan<R, `${Out}.`, "none", Depth, Exclude<F, "lastEnd"> | "stringy", Spent>
-								: Scan<R, `${Out}${C}`, "none", Depth, Exclude<F, "lastEnd">, Spent>
+								: Scan<R, `${Out}${Stood<C>}`, "none", Depth, Exclude<F, "lastEnd">, Spent>
 
 type InClass<
 	C extends string,
@@ -728,7 +744,7 @@ type InClass<
 								: never
 						: never
 			: [`${Out}\\`, Has<F, "widen">]
-		: Scan<R, `${Out}${C}`, ReadMember<K, C, R>, Depth, F, Spent>
+		: Scan<R, `${Out}${Stood<C>}`, ReadMember<K, C, R>, Depth, F, Spent>
 
 /**
  * The typed source of a str.regex pattern, rewritten for ArkRegex.

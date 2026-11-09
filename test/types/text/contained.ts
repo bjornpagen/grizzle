@@ -29,7 +29,8 @@ import {
  * floor draws: regex.test.ts requires every family to have one, which no run seed moves.
  *
  * Patterns whose inferred host type once refused members the pattern accepts, each with those members: ArkRegex wrote
- * adjacent placeholders, of which TypeScript makes the first match exactly one code point.
+ * adjacent placeholders, of which TypeScript makes the first match exactly one code point, or read a literal U+200B,
+ * its own marker, as an error ending the source or a class, or as an anchor (TEST_SEED=3860715490).
  */
 const kept: ReadonlyArray<{
 	readonly source: string
@@ -41,7 +42,10 @@ const kept: ReadonlyArray<{
 	{ source: "\\D?\\.", flags: "u", members: ["."] },
 	{ source: "\\W{0,2}x", flags: "u", members: ["x"] },
 	{ source: "^(?:\\d?){2}$", flags: "u", members: [""] },
-	{ source: "^(?:a|\\d)+$", flags: "u", members: ["1a"] }
+	{ source: "^(?:a|\\d)+$", flags: "u", members: ["1a"] },
+	{ source: "\u200B", flags: "su", members: ["\u200B"] },
+	{ source: "[a\u200B]b", flags: "u", members: ["ab", "\u200Bb"] },
+	{ source: "a<\u200B\\^\u200B>b", flags: "u", members: ["a<\u200B^\u200B>b"] }
 ]
 
 /** `count` values of `generator` from the floor stream of `label`: the same values on every run. */
