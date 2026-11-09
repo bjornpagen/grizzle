@@ -24,94 +24,145 @@ export interface AdmittedPattern {
 	readonly nfa: Nfa
 }
 
-const diagnosticError = (
-	diagnostic: RegexDiagnostic,
-	loc: SourceLoc,
-	source: string,
-	flags: string
-): CompileError =>
-	CompileError.make(
-		prose(
-			diagnostic.reason,
-			childLoc(childLoc(loc, "pattern"), diagnostic.offset),
-			`${diagnostic.construct} at offset ${diagnostic.offset} of /${source}/${flags}: ${diagnostic.message}`
-		)
-	)
+/**
+ * Why an admission refuses a pattern, wherever the pattern is read: a construct outside the admitted grammar, with its
+ * diagnostic; or a size past a limit of PostgreSQL's regex compiler, with the measure it passes.
+ */
+type PatternRefusal =
+	| { readonly kind: "diagnostic"; readonly diagnostic: RegexDiagnostic }
+	| { readonly kind: "compileSpace"; readonly measure: RegexSpaceMeasure }
 
 /**
- * The one admission of a pattern grizzle hands PostgreSQL: a str.regex refinement's (text/refinement.ts analyzeText,
- * through admitPattern) and every pattern value a Compute.matches term can take (matchPattern). It parses the admitted
- * grammar (parse.ts), with source-located diagnostics at any length and nesting depth, and refuses, as ResourceBound
- * naming the pattern, one past a limit of PostgreSQL's regex compiler (space.ts pastCompileSpace), the one limit on a
- * pattern's size, which is PostgreSQL's own. The limits are checked in a fixed order, a loop through an anchor first, so
- * one pattern has one refusal. `loc` places a refusal alone; diagnostics point one level deeper, at the construct's
- * offset in the pattern (`... .pattern[3]`). Its result is the pattern's normalized IR, the flags folded in.
+ * The refusal of the pattern `/source/flags` placed at `loc`: a diagnostic one level deeper, at the construct's offset
+ * in the pattern (`... .pattern[3]`); a compile space past its limit at the pattern, as ResourceBound naming it.
  */
-const admitIr = (
+const refusalAt = (
+	refusal: PatternRefusal,
 	source: string,
 	flags: RegexFlags,
 	loc: SourceLoc
-): Result.Result<RegexNode, CompileError> => {
-	const parsed = parsePattern(source, flags)
-	if (!parsed.ok) {
-		return Result.err(diagnosticError(parsed.error, loc, source, flags))
-	}
-	const ir = parsed.value
-	const tooComplex = (measure: RegexSpaceMeasure): Result.Result<never, CompileError> =>
-		Result.err(
-			resourceBound(childLoc(loc, "pattern"), {
+): CompileError => {
+	switch (refusal.kind) {
+		case "diagnostic":
+			return CompileError.make(
+				prose(
+					refusal.diagnostic.reason,
+					childLoc(childLoc(loc, "pattern"), refusal.diagnostic.offset),
+					`${refusal.diagnostic.construct} at offset ${refusal.diagnostic.offset} of /${source}/${flags}: ${refusal.diagnostic.message}`
+				)
+			)
+		case "compileSpace":
+			return resourceBound(childLoc(loc, "pattern"), {
 				kind: "regexCompileSpace",
 				pattern: `/${source}/${flags}`,
-				measure
+				measure: refusal.measure
 			})
-		)
+	}
+}
+
+/**
+ * The one admission of a pattern grizzle hands PostgreSQL: a str.regex refinement's (text/refinement.ts analyzeText,
+ * through admitPattern) and every pattern value a Compute.matches term can take (admitMatch). It parses the admitted
+ * grammar (parse.ts) at any length and nesting depth, and refuses one past a limit of PostgreSQL's regex compiler
+ * (space.ts pastCompileSpace), the one limit on a pattern's size, which is PostgreSQL's own. The limits are checked in
+ * a fixed order, a loop through an anchor first, so one pattern has one refusal. Its result is the pattern's normalized
+ * IR, the flags folded in, or its refusal, which a reader places where it reads the pattern (refusalAt).
+ */
+const admitIr = (source: string, flags: RegexFlags): Result.Result<RegexNode, PatternRefusal> => {
+	const parsed = parsePattern(source, flags)
+	if (!parsed.ok) {
+		return Result.err({ kind: "diagnostic", diagnostic: parsed.error })
+	}
+	const ir = parsed.value
 	if (loopsThroughAnchor(ir)) {
-		return tooComplex({ kind: "anchorLoop" })
+		return Result.err({ kind: "compileSpace", measure: { kind: "anchorLoop" } })
 	}
 	const past = ir.kind === "never" ? undefined : pastCompileSpace(ir)
 	if (past !== undefined) {
-		return tooComplex(past)
+		return Result.err({ kind: "compileSpace", measure: past })
 	}
 	return Result.ok(ir)
 }
 
 /**
  * A pattern admitted (admitIr) with the NFA its language is measured by: what a str.regex refinement's analysis reads
- * of each of its patterns (text/refinement.ts analyzePattern).
+ * of each of its patterns (text/refinement.ts analyzePattern). `loc` places a refusal.
  */
 export const admitPattern = (
 	source: string,
 	flags: RegexFlags,
 	loc: SourceLoc
-): Result.Result<AdmittedPattern, CompileError> =>
-	Result.map(admitIr(source, flags, loc), (ir) => ({ ir, nfa: buildNfa(ir) }))
+): Result.Result<AdmittedPattern, CompileError> => {
+	const admitted = admitIr(source, flags)
+	return admitted.ok
+		? Result.ok({ ir: admitted.value, nfa: buildNfa(admitted.value) })
+		: Result.err(refusalAt(admitted.error, source, flags, loc))
+}
 
 /** The flags every Compute.matches pattern is read under: str.regex's default. */
 export const matchFlags: RegexFlags = "u"
 
 /**
- * A Compute.matches pattern admitted (admitIr under matchFlags) and translated into the ARE `~` reads in its
- * place (are.ts toAre): refused where its admission refuses it, and where its IR is the empty language's, which no ARE
- * spells, so the test could never hold (UnsupportedOperation, naming the pattern). The IR is the empty language exactly
- * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
- * refuses every such pattern and no other.
+ * Why an admission refuses a Compute.matches pattern, wherever it is read: as any pattern grizzle hands PostgreSQL is
+ * refused (admitIr), or as the empty language's, which no text matches.
  */
+type MatchRefusal = PatternRefusal | { readonly kind: "noText" }
+
+/**
+ * A Compute.matches pattern value, its source, admitted where its value is first held (admitMatch): its entry, or why
+ * the admission refuses it, which a lowering reading it places at the match (matchEntryAt).
+ */
+export interface MatchAdmission {
+	readonly source: string
+	readonly admitted: Result.Result<PatternEntry, MatchRefusal>
+}
+
+/**
+ * A Compute.matches pattern admitted (admitIr under matchFlags) and translated into the ARE `~` reads in its place
+ * (are.ts toAre): refused where its admission refuses it, and where its IR is the empty language's, which no ARE
+ * spells, so the test could never hold. The IR is the empty language exactly when no text matches the pattern, an
+ * empty class or an order of anchors no match can pass alike (ir.ts), so this refuses every such pattern and no other.
+ */
+export const admitMatch = (source: string): MatchAdmission => {
+	const admitted = admitIr(source, matchFlags)
+	if (!admitted.ok) {
+		return { source, admitted }
+	}
+	const ir = admitted.value
+	return {
+		source,
+		admitted:
+			ir.kind === "never"
+				? Result.err({ kind: "noText" })
+				: Result.ok(Object.freeze({ source, are: toAre(ir) }))
+	}
+}
+
+/**
+ * The entry of an admitted Compute.matches pattern, or its refusal placed at `loc`: a refusal of its admission as
+ * refusalAt places one, and the empty language's as UnsupportedOperation naming the pattern.
+ */
+export const matchEntryAt = (
+	admission: MatchAdmission,
+	loc: SourceLoc
+): Result.Result<PatternEntry, CompileError> => {
+	const { source, admitted } = admission
+	if (admitted.ok) {
+		return admitted
+	}
+	const refusal = admitted.error
+	return Result.err(
+		refusal.kind === "noText"
+			? unsupported(
+					childLoc(loc, "pattern"),
+					`a pattern some text matches: /${source}/${matchFlags} matches no text value, so the match could never hold`
+				)
+			: refusalAt(refusal, source, matchFlags, loc)
+	)
+}
+
+/** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchEntryAt). */
 export const matchPattern = (
 	source: string,
 	loc: SourceLoc
-): Result.Result<PatternEntry, CompileError> => {
-	const admitted = admitIr(source, matchFlags, loc)
-	if (!admitted.ok) {
-		return admitted
-	}
-	const ir = admitted.value
-	if (ir.kind === "never") {
-		return Result.err(
-			unsupported(
-				childLoc(loc, "pattern"),
-				`a pattern some text matches: /${source}/${matchFlags} matches no text value, so the match could never hold`
-			)
-		)
-	}
-	return Result.ok(Object.freeze({ source, are: toAre(ir) }))
-}
+): Result.Result<PatternEntry, CompileError> => matchEntryAt(admitMatch(source), loc)

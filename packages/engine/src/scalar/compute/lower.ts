@@ -193,7 +193,12 @@ import {
 	lexicalTargetOf,
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
-import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
+import {
+	admitMatch,
+	type MatchAdmission,
+	matchEntryAt,
+	matchFlags
+} from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -305,11 +310,18 @@ export interface ClosedField {
 }
 
 /**
- * A payload field of a closed relation, as C.at reads it, with the value each of the relation's rows holds there, in
- * row order: what a Compute.matches pattern that reads it can be (Lowering.patternSources).
+ * What a Compute.matches pattern reading a closed relation's payload field can be (Lowering.patternAdmissions): where
+ * every row's value there is a text, each distinct one in row order, admitted where the closed relation's reads are
+ * built (scalar/regex/admit.ts admitMatch), none where it holds no row; or a field of another value, which no pattern
+ * reads.
  */
+export type PayloadPatterns =
+	| { readonly kind: "texts"; readonly admitted: ReadonlyArray<MatchAdmission> }
+	| { readonly kind: "other" }
+
+/** A payload field of a closed relation, as C.at reads it, with what a Compute.matches pattern reading it can be. */
 export interface ClosedPayloadField extends ClosedField {
-	readonly values: ReadonlyArray<TypedLiteral>
+	readonly patterns: PayloadPatterns
 }
 
 /**
@@ -2329,31 +2341,39 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * The table of the values a matches pattern can take (ir/expr.ts patternTableOf), each admitted and translated once
-	 * (matchPattern) in the order the pattern states them, so a refusal names the first refused value it states.
+	 * (patternAdmissions), each source once in the order the pattern states them, so a refusal names the first refused
+	 * value it states.
 	 */
 	patternTable(desc: ExprDesc<Located, R>, at: SourceLoc): PatternTable {
-		const sources = [...new Set(this.patternSources(desc, at))]
-		if (!isNonEmpty(sources)) {
+		const sources = new Set<string>()
+		const admitted: Array<MatchAdmission> = []
+		for (const a of this.patternAdmissions(desc, at)) {
+			if (!sources.has(a.source)) {
+				sources.add(a.source)
+				admitted.push(a)
+			}
+		}
+		if (!isNonEmpty(admitted)) {
 			return stop(
 				"UnsupportedOperation",
 				at,
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return patternTableOf(mapNonEmpty(sources, (source) => unwrap(matchPattern(source, at))))
+		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchEntryAt(a, at))))
 	}
 
 	/**
-	 * The values a matches pattern can take, each a source text: a text literal's own; each row's value of a closed
-	 * relation's text payload field that C.at reads, whatever its key; or either branch's of a conditional. Any other
-	 * pattern, a field, a parameter or a computed text, can be any text, so no measure bounds it, and it is refused,
-	 * naming what it is.
+	 * The values a matches pattern can take, each a source text admitted (scalar/regex/admit.ts admitMatch): a text
+	 * literal's own; each value of a closed relation's text payload field that C.at reads, whatever its key, as its
+	 * closed reads admitted it (PayloadPatterns); or either branch's of a conditional. Any other pattern, a field, a
+	 * parameter or a computed text, can be any text, so no measure bounds it, and it is refused, naming what it is.
 	 */
-	patternSources(desc: ExprDesc<Located, R>, at: SourceLoc): ReadonlyArray<string> {
+	patternAdmissions(desc: ExprDesc<Located, R>, at: SourceLoc): ReadonlyArray<MatchAdmission> {
 		switch (desc.kind) {
 			case "literal":
 				return typeof desc.value === "string"
-					? [desc.value]
+					? [admitMatch(desc.value)]
 					: stop("MalformedDescription", at, "a text literal as matches's pattern")
 			case "closedAt": {
 				const heading = this.closedHeading("C.at", desc.relation, at)
@@ -2365,20 +2385,18 @@ class Lowering<R extends Refs> {
 						`a payload field of ${desc.relation} named ${JSON.stringify(desc.field)}`
 					)
 				}
-				return payload.values.map((v) =>
-					v.kind === "text"
-						? v.value
-						: stop(
-								"MalformedDescription",
-								at,
-								`a text payload as matches's pattern: ${desc.relation}.${desc.field} is ${typeLabel(payload.type)}`
-							)
-				)
+				return payload.patterns.kind === "texts"
+					? payload.patterns.admitted
+					: stop(
+							"MalformedDescription",
+							at,
+							`a text payload as matches's pattern: ${desc.relation}.${desc.field} is ${typeLabel(payload.type)}`
+						)
 			}
 			case "cond":
 				return [
-					...this.patternSources(desc.onTrue, childLoc(at, "onTrue")),
-					...this.patternSources(desc.onFalse, childLoc(at, "onFalse"))
+					...this.patternAdmissions(desc.onTrue, childLoc(at, "onTrue")),
+					...this.patternAdmissions(desc.onFalse, childLoc(at, "onFalse"))
 				]
 			case "var":
 			case "field":
