@@ -42,6 +42,7 @@ import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -1104,7 +1105,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const checked = ok(checkedSchema(owning(Content)), "checked")
+					const owned = owning(Content)
+					const checked = ok(checkedSchema(owned, everySlice(owned)), "checked")
 					const constants = refinedConstants(checked)
 					unorderedEqual(
 						Arr.map(constants, (c) => c.literal),

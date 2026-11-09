@@ -22,6 +22,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { admitDerived } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
@@ -250,7 +251,10 @@ const lawOf = (
  * installation, which compiles the laws. */
 const entries = (desc: SchemaDesc): ReadonlyArray<Result.Result<unknown, CompileError>> => [
 	ownedInput(desc),
-	Result.map(Result.flatMap(ownedInput(desc), checkedSchema), derivedAnalysis),
+	Result.map(
+		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned, everySlice(owned))),
+		derivedAnalysis
+	),
 	Result.flatMap(ownedInput(desc), (o) =>
 		compileInstallation(o, withDerivedRelations(installOptions(o, "owner")))
 	)

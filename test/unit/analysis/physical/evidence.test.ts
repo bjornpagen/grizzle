@@ -11,6 +11,7 @@ import { buildTheory, theoryEvidence } from "#compiler/analysis/theory/theory.ts
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
@@ -48,7 +49,7 @@ const Crm: SchemaDesc = {
 	extends: undefined
 }
 const crm = ownedFixture(Crm)
-const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned))))
+const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned, everySlice(crm.owned)))))
 const evidence = theoryEvidence(theory.laws, new Set())
 const personKeys = Arr.filter(evidence.keys, (k) => k.relation === "Person")
 

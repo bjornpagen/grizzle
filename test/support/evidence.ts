@@ -29,7 +29,7 @@ export const installedCatalog = (installation: {
 	readonly laws: LawModel
 }): EvidenceCatalog => {
 	const views = Result.map(
-		Result.map(checkedSchema(installation.owned), derivedAnalysis),
+		Result.map(checkedSchema(installation.owned, everySlice(installation.owned)), derivedAnalysis),
 		derivedKeyConstraints
 	)
 	if (!views.ok) {

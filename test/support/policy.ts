@@ -6,6 +6,7 @@ import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"
 import { type Owned, own, ownRole } from "#compiler/schema/own.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import {
 	decodedMember,
 	decodedReadBack,
@@ -46,9 +47,11 @@ export const schemaDescIn = (schema: unknown): Result.Result<SchemaDesc, Compile
 const checkedInput = (input: SchemaInput): Result.Result<CheckedSchema, CompileError> =>
 	input.kind === "role"
 		? Result.flatMap(ownRole(input.desc), (role) =>
-				Result.flatMap(checkedSchema(role.base), (base) => checkedRoleOver(role, base))
+				Result.flatMap(checkedSchema(role.base, everySlice(role.base)), (base) =>
+					checkedRoleOver(role, base)
+				)
 			)
-		: Result.flatMap(own(input.desc), checkedSchema)
+		: Result.flatMap(own(input.desc), (owned) => checkedSchema(owned, everySlice(owned)))
 
 /** The checked schema of a schema value, or the compiler's refusal of it: its derived relations' analysis among them. */
 export const checkedIn = (schema: unknown): Result.Result<CheckedSchema, CompileError> =>

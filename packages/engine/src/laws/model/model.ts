@@ -1911,6 +1911,6 @@ export const compileLaws = (
 	slice: Slice,
 	cycles: CycleSource
 ): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(checkedSchema(owned), (checked) =>
+	Result.flatMap(checkedSchema(owned, slice), (checked) =>
 		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, slice, cycles))
 	)

@@ -43,6 +43,7 @@ import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
 import { type FieldDesc, fieldTermsOf, type QueryDesc, termText } from "#compiler/ir/desc.ts"
@@ -444,8 +445,7 @@ class Builder {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The admitted patterns the theory's compile reads (typingEnv). */
 	readonly patterns: PatternAutomata
-	/** The stored relations' handles the checked schema minted, in name order. */
-	readonly stored: ReadonlyArray<TheoryRelation>
+	/** The stored relations' handles the checked schema minted, by name: its closure's. */
 	readonly relations: ReadonlyMap<string, TheoryRelation>
 	/** The closed relations a law's predicates and terms may apply (CheckedSchema.closedReads). */
 	readonly closed: ClosedRelations
@@ -466,7 +466,6 @@ class Builder {
 		this.fieldType = typing.fieldType
 		this.patterns = typing.patterns
 		this.closed = checked.closedReads
-		this.stored = checked.stored
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
 	}
 
@@ -528,18 +527,24 @@ class Builder {
 	/**
 	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
 	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
-	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet.
+	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet. The
+	 * relations and statements are the checked schema's closure's (analysis/closure.ts), each law sourced at its index in
+	 * the whole schema's, so each is the law the whole schema's theory states.
 	 */
 	#normalize(): Normalizer {
 		const normalizer = new Normalizer(this.env())
-		for (const [index, r] of this.stored.entries()) {
-			if (r.kind === "relation") {
+		const stored = Object.values(this.owned.relations)
+			.flatMap((r) => (r.kind === "derived" ? [] : [r.name]))
+			.toSorted(compareStrings)
+		for (const [index, name] of stored.entries()) {
+			const r = this.relations.get(name)
+			if (r?.kind === "relation") {
 				normalizer.primaryKey(r, index)
 			}
 		}
-		normalizer.families(this.owned.statements)
-		for (const [index, s] of this.owned.statements.entries()) {
-			normalizer.statement(s, index)
+		normalizer.families(this.checked.closure.statements.map((s) => s.statement))
+		for (const { statement, index } of this.checked.closure.statements) {
+			normalizer.statement(statement, index)
 		}
 		const contracts = Object.entries(this.owned.contracts).toSorted(([a], [b]) => compareText(a, b))
 		for (const [index, [name, contract]] of contracts.entries()) {

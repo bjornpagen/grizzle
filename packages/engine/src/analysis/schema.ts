@@ -1,3 +1,4 @@
+import { type Closure, closureOf } from "#compiler/analysis/closure.ts"
 import {
 	analyzeDerivedRelation,
 	type DerivedRelationAnalysis
@@ -78,6 +79,7 @@ import type {
 	OwnedWorldEntry,
 	OwnedWrite
 } from "#compiler/schema/own.ts"
+import type { Slice } from "#compiler/schema/reach.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
@@ -173,19 +175,24 @@ export interface RoleWorld {
 	readonly writes: ReadonlyMap<string, RoleWrite>
 }
 
-/**
- * What a checked schema reads as: reality, an owned schema's relations; or a role, whose relations are its entries over
- * its base's checked schema.
- */
-type CheckedWorld = { readonly kind: "reality" } | RoleWorld
+/** Reality's world: the relations and statements of an owned schema's closure over a slice (analysis/closure.ts). */
+interface RealityWorld {
+	readonly kind: "reality"
+	readonly closure: Closure
+}
 
-const reality: CheckedWorld = Object.freeze({ kind: "reality" })
+/**
+ * What a checked schema reads as: reality, the relations of an owned schema's closure; or a role, whose relations are
+ * its entries over its base's checked schema.
+ */
+type CheckedWorld = RealityWorld | RoleWorld
 
 /**
  * A role's write list over `base`'s handles: the one site where ownership's writable-entry analysis, which names a
  * target and its fields (schema/entry.ts writableEntry), meets the base's handles, which every write and the
  * installation read. Ownership analyzed each entry over the base's description, so a name it gives is one the base
- * declares; one it does not is a malformed role.
+ * declares; one it does not is a malformed role. It holds each write that reads only relations of the base's closure,
+ * as the role's entries are (CheckedSchema): every write for everySlice.
  */
 const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, RoleWrite> => {
 	const ordinary = (name: string, loc: SourceLoc): RelationInfo =>
@@ -223,7 +230,14 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 			loc: w.loc
 		}
 	}
-	return new Map([...role.writes].map(([name, w]) => [name, checkedWrite(w)] as const))
+	const within = base.closure.relations
+	const inside = (w: OwnedWrite): boolean =>
+		w.kind === "whole"
+			? within.has(w.relation.name)
+			: within.has(w.writable.target) && w.entry.reads.every((r) => within.has(r))
+	return new Map(
+		[...role.writes].flatMap(([name, w]) => (inside(w) ? [[name, checkedWrite(w)] as const] : []))
+	)
 }
 
 /** Where a generated field's refusal is: the field of its relation. */
@@ -332,10 +346,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly closed: ReadonlyMap<string, ClosedRelation>
 	/** The closed relations C.at and C.row apply, by name: every closed relation (no roster) the schema reads. */
 	readonly closedReads: ClosedRelations
-	/** A role's entries over its base, in name order; reality holds none. */
+	/** A role's entries over its base, each reading only relations of the base's closure, in name order; reality holds
+	 * none. */
 	readonly entries: ReadonlyArray<RoleEntry>
 	/** The ordinary and closed relations' handles, in name order: what the theory's laws read. */
 	readonly stored: ReadonlyArray<TheoryRelation>
+	/** The closure it reads (analysis/closure.ts): reality's own, whose statements its theory normalizes; a role's, its
+	 * base's. */
+	readonly closure: Closure
 	/**
 	 * Every materialized derived relation's analysis in refresh order's levels, level then name: a role's are its
 	 * base's. A live derived relation is no relation a query reads: a query matching it reads its definition, which the
@@ -350,11 +368,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly #rosters = new Map<string, Roster>()
 
 	/**
-	 * Reality holds its stored relations: its rosters and closed relations first, which a generated field's expression
-	 * reads, then its ordinary relations, each in name order; then each derived relation analyzed in level order against
-	 * the relations held so far: a definition reads only the levels below its own (schema/own.ts), so each Base it reads
-	 * finds its view's keys. A role holds its whole entries as its base's relations, each query entry analyzed against
-	 * its base, and its base's closed relations.
+	 * Reality holds its closure's stored relations: its rosters and closed relations first, which a generated field's
+	 * expression reads, then its ordinary relations, each in name order; then each of its derived relations analyzed in
+	 * level order against the relations held so far: a definition reads only the levels below its own (schema/own.ts),
+	 * and the closure holds every relation a held one reads, so each Base it reads finds its view's keys. Every roster
+	 * types a field, whatever the closure. A role holds its entries that read only relations of its base's closure: its
+	 * whole entries as its base's relations, each query entry analyzed against its base, and its base's closed relations.
 	 */
 	constructor(owned: Owned, world: World) {
 		this.owned = owned
@@ -392,7 +411,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		if (read.kind === "role") {
 			this.derived = read.base.derived
 			this.closedReads = read.base.closedReads
+			this.closure = read.base.closure
+			const within = this.closure.relations
 			this.entries = Object.values(read.role.relations)
+				.filter((e) =>
+					e.kind === "whole" ? within.has(e.relation.name) : e.reads.every((r) => within.has(r))
+				)
 				.toSorted(byName)
 				.map((e): RoleEntry =>
 					e.kind === "whole"
@@ -424,7 +448,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			return
 		}
 		this.entries = []
-		const ownedRelations = Object.values(owned.relations)
+		this.closure = read.closure
+		const ownedRelations = Object.values(owned.relations).filter((o) =>
+			read.closure.relations.has(o.name)
+		)
 		const ownedStored = ownedRelations
 			.flatMap((o): ReadonlyArray<OwnedStored> => (o.kind === "derived" ? [] : [o]))
 			.toSorted(byName)
@@ -999,10 +1026,16 @@ export const derivedAnalysis = (schema: CheckedSchema): DerivedAnalysis => ({
 	order: schema.derived
 })
 
-/** The checker's reading of an owned schema. A pass that reads it again takes the one its caller holds (program/schema.ts
+/** The checker's reading of an owned schema over the closure of `slice` (analysis/closure.ts closureOf): every relation
+ * and statement for everySlice. A pass that reads it again takes the one its caller holds (program/schema.ts
  * SchemaArtifacts.checked, the installation's builder), never this again. */
-export const checkedSchema = (owned: Owned): Result.Result<CheckedSchema, CompileError> =>
-	catchRefusal(() => new CheckedSchema(owned, reality))
+export const checkedSchema = (
+	owned: Owned,
+	slice: Slice
+): Result.Result<CheckedSchema, CompileError> =>
+	catchRefusal(
+		() => new CheckedSchema(owned, { kind: "reality", closure: closureOf(owned, slice) })
+	)
 
 /** The checker's reading of an owned role, over its base's reading `base` (checkedSchema of role.base). */
 export const checkedRoleOver = (
