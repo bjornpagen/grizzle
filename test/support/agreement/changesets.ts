@@ -474,10 +474,15 @@ export const changeSetServed: Arr.NonEmptyReadonlyArray<ServedNote> = [
 ]
 
 /**
- * The codes a served call's refused facts are reported by: an op left out is a property FactsCheck requires, at the
- * argument; a key or a fact FactsCheck refuses, at that key of the facts.
+ * The codes a served call's refused facts are reported by: an op left out is a property FactsCheck requires that the
+ * argument lacks, at the argument (TS2345), which an argument of no op at all, the empty record, states as its one
+ * missing property (TS2741); an op naming no array member's is a record where FactsCheck requires its Refusal, whose one
+ * property the record lacks, at that key (TS2741); a relation or a fact FactsCheck refuses, at that key of the facts
+ * (TS2322).
  */
 const servedShapeCode = "TS2345"
+const servedEmptyCode = "TS2741"
+const servedOpCode = "TS2741"
 const servedFactCode = "TS2322"
 
 /** What a case reached: its constructs and fault, the engine's verdict, and the Refusal its directive names. */
@@ -2782,6 +2787,62 @@ const arrayGroupsOf = (c: ChangeSpec): ReadonlyArray<OpGroup> => {
 	})
 }
 
+/** Whether `relation` is one of the relations a drawn member writes, whose fields `fieldsOf` holds. */
+const isRelName = (relation: string): relation is RelName =>
+	Arr.some(relNames, (r) => r === relation)
+
+/** Whether a value is written as one literal, which the types read at its literal type: no constructor's call. */
+const isLiteral = (lit: Lit): boolean => !Str.includes("(")(lit.text)
+
+/**
+ * Whether one op's array parts of `relation`, one array in a served call's facts, hold two facts of one key that differ
+ * at a field both write as one literal: the key law FactsCheck reads of a written-out array (MemberCheck, types/schema
+ * relation.ts ConflictsAtKey), where each member's own array, or a widened one, showed it none. A family's facts are
+ * none of it.
+ */
+const literalConflict = (relation: string, parts: ReadonlyArray<ArrayPart>): boolean => {
+	if (!isRelName(relation)) {
+		return false
+	}
+	const keys = Arr.filter(fieldsOf[relation], (f) => f.key)
+	const facts = Arr.flatMap(parts, ({ part }) => (part.kind === "family" ? [] : part.facts))
+	const valueAt = (fact: ReadonlyArray<readonly [string, Lit]>, field: string) =>
+		Arr.findFirst(fact, ([name]) => name === field)
+	const keyOf = (fact: ReadonlyArray<readonly [string, Lit]>): Option.Option<string> =>
+		Option.map(
+			Option.all(
+				Arr.map(keys, (k) =>
+					Option.filter(
+						Option.map(valueAt(fact, k.name), ([, lit]) => lit),
+						isLiteral
+					)
+				)
+			),
+			(lits) =>
+				Arr.join(
+					Arr.map(lits, (lit) => lit.text),
+					","
+				)
+		)
+	return Arr.some(facts, (a, i) =>
+		Arr.some(Arr.drop(facts, i + 1), (b) => {
+			const ka = keyOf(a)
+			const kb = keyOf(b)
+			return (
+				Option.isSome(ka) &&
+				Option.isSome(kb) &&
+				ka.value === kb.value &&
+				Arr.some(a, ([name, lit]) =>
+					Option.match(valueAt(b, name), {
+						onNone: () => false,
+						onSome: ([, other]) => isLiteral(lit) && isLiteral(other) && lit.text !== other.text
+					})
+				)
+			)
+		})
+	)
+}
+
 /** Each op's relations a ChangeSet's array parts write, as `op relation` texts. */
 const groupKeys = (groups: ReadonlyArray<OpGroup>): ReadonlyArray<string> =>
 	Arr.flatMap(groups, (g) => Arr.map(g.relations, ([relation]) => `${g.op} ${relation}`))
@@ -2852,15 +2913,36 @@ const servedOf = (
 		params,
 		verdict: { kind: "admitted", admitted }
 	}
+	const conflict = Arr.findFirst(groups, (g) =>
+		Arr.some(g.relations, ([relation, parts]) => literalConflict(relation, parts))
+	)
+	if (Option.isSome(conflict)) {
+		return [
+			{
+				...asBuilt,
+				verdict: {
+					kind: "refused",
+					at: "apply",
+					claim: {
+						kind: "refusal",
+						refusal:
+							"two facts of one relation share a key with different values; a key names one fact"
+					},
+					code: servedFactCode
+				}
+			}
+		]
+	}
+	const kept = Arr.tailNonEmpty(groups)
 	const leftOut: ServedCall = {
 		variant: "an op left out",
-		facts: factsOf(Arr.tailNonEmpty(groups), [], []),
+		facts: factsOf(kept, [], []),
 		params,
 		verdict: {
 			kind: "refused",
 			at: "apply",
 			claim: { kind: "prose", why: "the facts leave out an array member's op" },
-			code: servedShapeCode
+			code: Arr.isReadonlyArrayNonEmpty(kept) ? servedShapeCode : servedEmptyCode
 		}
 	}
 	const first = Arr.headNonEmpty(groups)
@@ -2903,7 +2985,7 @@ const servedOf = (
 							refusal:
 								"a served ChangeSet's facts name only the ops of its array members: insert, put and delete"
 						},
-						code: servedFactCode
+						code: servedOpCode
 					}
 				}
 			]
