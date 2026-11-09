@@ -492,7 +492,18 @@
 			},
 			{
 				"from": "public",
-				"allow": ["allen", "core", "ir", "program", "query", "scalar", "schema", "text", "types", "write"]
+				"allow": [
+					"allen",
+					"core",
+					"ir",
+					"program",
+					"query",
+					"scalar",
+					"schema",
+					"text",
+					"types",
+					"write"
+				]
 			},
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
@@ -525,7 +536,18 @@
 			},
 			{
 				"from": "adapter-runtime",
-				"allow": ["adapter-decode", "adapter-runtime", "codec", "core", "decode", "ir", "plan-runtime", "runtime", "scalar", "served"],
+				"allow": [
+					"adapter-decode",
+					"adapter-runtime",
+					"codec",
+					"core",
+					"decode",
+					"ir",
+					"plan-runtime",
+					"runtime",
+					"scalar",
+					"served"
+				],
 				"allowTypeOnly": [
 					"adapter",
 					"analysis",
@@ -556,7 +578,19 @@
 			},
 			{
 				"from": "adapter-decode",
-				"allow": ["adapter-decode", "adapter-runtime", "codec", "core", "decode", "ir", "plan-runtime", "reader", "runtime", "scalar", "served"],
+				"allow": [
+					"adapter-decode",
+					"adapter-runtime",
+					"codec",
+					"core",
+					"decode",
+					"ir",
+					"plan-runtime",
+					"reader",
+					"runtime",
+					"scalar",
+					"served"
+				],
 				"allowTypeOnly": [
 					"adapter",
 					"analysis",

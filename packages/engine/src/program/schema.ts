@@ -411,6 +411,27 @@ export interface Raisable {
 /** The constraint `name` of `owner`, by both: one installed object. */
 const constraintKey = (owner: string, name: string): string => `${owner}\u0000${name}`
 
+/**
+ * Of the constraint law `c`, what a write of `tables` can raise: a table's constraint or trigger whose owner is one of
+ * them or that is a foreign key `into` names, and a domain's CHECK with its uses narrowed to them, kept while one stays
+ * or while it had none.
+ */
+const raisableConstraint = (
+	c: ConstraintLaw,
+	tables: ReadonlySet<string>,
+	into: ReadonlySet<string>
+): ReadonlyArray<ConstraintLaw> => {
+	switch (c.kind) {
+		case "constraint":
+		case "trigger":
+			return tables.has(c.owner) || into.has(constraintKey(c.owner, c.name)) ? [c] : []
+		case "domainConstraint": {
+			const uses = c.uses.filter((u) => tables.has(u.table))
+			return uses.length > 0 || c.uses.length === 0 ? [{ ...c, uses }] : []
+		}
+	}
+}
+
 /** What writes changing `written` can raise of `artifacts` (`Raisable`). */
 export const raisableOf = (
 	artifacts: Pick<SchemaArtifacts, "constraintLaws" | "theoryLaws" | "laws" | "derived">,
@@ -433,17 +454,7 @@ export const raisableOf = (
 		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
 	)
 	return {
-		constraintLaws: artifacts.constraintLaws.flatMap((c): ReadonlyArray<ConstraintLaw> => {
-			switch (c.kind) {
-				case "constraint":
-				case "trigger":
-					return tables.has(c.owner) || into.has(constraintKey(c.owner, c.name)) ? [c] : []
-				case "domainConstraint": {
-					const uses = c.uses.filter((u) => tables.has(u.table))
-					return uses.length > 0 || c.uses.length === 0 ? [{ ...c, uses }] : []
-				}
-			}
-		}),
+		constraintLaws: artifacts.constraintLaws.flatMap((c) => raisableConstraint(c, tables, into)),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
 		relations
 	}
