@@ -5,6 +5,7 @@ import type { BoundPosition, Category, SuperlintOptions } from "#lint/options.ts
 import { isAtAny, isDefaultLibraryPath, isPackageModule, isRepositoryModule } from "#lint/paths.ts"
 import type { RuleContext, Visit } from "#lint/types.ts"
 import type { Report } from "#shared/finding.ts"
+import { everyNode, preorder } from "#shared/nodes.ts"
 
 /**
  * The expression a property assignment gives its property: a full assignment's initializer, or a shorthand's own
@@ -278,14 +279,19 @@ const isReadonly = (declaration: ts.PropertyDeclaration): boolean =>
 	)
 
 /** An expression without the parentheses, assertions and `satisfies` around it, which change no value. */
-const stripped = (expression: ts.Expression): ts.Expression =>
-	ts.isParenthesizedExpression(expression) ||
-	ts.isAsExpression(expression) ||
-	ts.isSatisfiesExpression(expression) ||
-	ts.isNonNullExpression(expression) ||
-	ts.isTypeAssertion(expression)
-		? stripped(expression.expression)
-		: expression
+const stripped = (expression: ts.Expression): ts.Expression => {
+	let inner = expression
+	while (
+		ts.isParenthesizedExpression(inner) ||
+		ts.isAsExpression(inner) ||
+		ts.isSatisfiesExpression(inner) ||
+		ts.isNonNullExpression(inner) ||
+		ts.isTypeAssertion(inner)
+	) {
+		inner = inner.expression
+	}
+	return inner
+}
 
 /** The key an element access or a computed name writes as a string. */
 const literalKeyOf = (expression: ts.Expression): Option.Option<string> => {
@@ -339,9 +345,14 @@ const calledNameOf = (callee: ts.Expression): Option.Option<string> => {
 }
 
 /** Whether an expression spells one of the names. */
-const mentionsName = (node: ts.Node, names: ReadonlySet<string>): boolean =>
-	(ts.isIdentifier(node) && names.has(node.text)) ||
-	node.forEachChild((child) => (mentionsName(child, names) ? true : undefined)) === true
+const mentionsName = (node: ts.Node, names: ReadonlySet<string>): boolean => {
+	for (const at of preorder(node, everyNode)) {
+		if (ts.isIdentifier(at) && names.has(at.text)) {
+			return true
+		}
+	}
+	return false
+}
 
 /** The key a destructuring element reads, when it is written. */
 const bindingKeyOf = (element: ts.BindingElement): Option.Option<string> => {
@@ -1057,20 +1068,30 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 					: Option.none()
 		)
 	}
+	/** A read of a data length itself: `.length` or `.size`. */
+	const isLengthRead = (node: ts.Node): boolean =>
+		ts.isPropertyAccessExpression(node) && Arr.contains(LENGTH_READS, node.name.text)
+	/**
+	 * Whether a length is read at or under `node`, outside the functions it declares, or, when `follow` holds, in the
+	 * initializer of a constant a name under it reads.
+	 */
 	const readsLength = (node: ts.Node, follow: boolean): boolean => {
-		if (ts.isPropertyAccessExpression(node) && Arr.contains(LENGTH_READS, node.name.text)) {
-			return true
-		}
-		if (ts.isIdentifier(node)) {
-			return (
+		for (const at of preorder(
+			node,
+			(n) => !isLengthRead(n) && !ts.isIdentifier(n) && !ts.isFunctionLikeDeclaration(n)
+		)) {
+			if (isLengthRead(at)) {
+				return true
+			}
+			if (
+				ts.isIdentifier(at) &&
 				follow &&
-				Option.exists(constantInitializerOf(node), (initializer) => readsLength(initializer, false))
-			)
+				Option.exists(constantInitializerOf(at), (initializer) => readsLength(initializer, false))
+			) {
+				return true
+			}
 		}
-		if (ts.isFunctionLikeDeclaration(node)) {
-			return false
-		}
-		return node.forEachChild((child) => (readsLength(child, follow) ? true : undefined)) === true
+		return false
 	}
 	/** Whether an expression's value is a data length: one read, or arithmetic on one. */
 	const isLength = (expression: ts.Expression, follow: boolean): boolean => {
@@ -1508,20 +1529,18 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 		}
 		const { body } = callee
 		const returned: Array<ts.Expression> = []
-		const visit = (node: ts.Node): void => {
-			if (ts.isReturnStatement(node)) {
-				if (node.expression !== undefined) {
+		if (ts.isBlock(body)) {
+			for (const node of preorder(
+				body,
+				(n) =>
+					!ts.isReturnStatement(n) &&
+					!ts.isFunctionLikeDeclaration(n) &&
+					!ts.isClassLikeDeclaration(n)
+			)) {
+				if (ts.isReturnStatement(node) && node.expression !== undefined) {
 					returned.push(node.expression)
 				}
-				return
 			}
-			if (ts.isFunctionLikeDeclaration(node) || ts.isClassLikeDeclaration(node)) {
-				return
-			}
-			node.forEachChild(visit)
-		}
-		if (ts.isBlock(body)) {
-			body.forEachChild(visit)
 		} else if (ts.isExpression(body)) {
 			returned.push(body)
 		}
@@ -1729,26 +1748,27 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 	 */
 	const sitesOf = (callee: Callee): ReadonlyArray<ts.Node> => {
 		const names = new Set<string>()
-		const bind = (name: ts.BindingName): void => {
+		const bound: Array<ts.BindingName> = Arr.map(
+			callee.declaration.parameters,
+			(parameter) => parameter.name
+		)
+		for (let name = bound.pop(); name !== undefined; name = bound.pop()) {
 			if (ts.isIdentifier(name)) {
 				names.add(name.text)
-				return
+				continue
 			}
 			name.forEachChild((child) => {
 				if (ts.isBindingElement(child) && child.name !== undefined) {
-					bind(child.name)
+					bound.push(child.name)
 				}
 			})
-		}
-		for (const parameter of callee.declaration.parameters) {
-			bind(parameter.name)
 		}
 		const occurrences: Array<ts.Identifier> = []
 		let grown = true
 		while (grown) {
 			grown = false
 			occurrences.length = 0
-			const visit = (node: ts.Node): void => {
+			for (const node of preorder(callee.body, everyNode)) {
 				if (ts.isIdentifier(node) && names.has(node.text)) {
 					occurrences.push(node)
 				}
@@ -1762,9 +1782,7 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 					names.add(node.name.text)
 					grown = true
 				}
-				node.forEachChild(visit)
 			}
-			visit(callee.body)
 		}
 		const sites = new Set<ts.Node>()
 		for (const occurrence of occurrences) {
@@ -1931,22 +1949,24 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 	}
 	/** Whether a function reads one of its parameters: a compute that reads none derives nothing from its limits. */
 	const readsParameter = (fn: ts.ArrowFunction | ts.FunctionExpression): boolean => {
-		const visit = (node: ts.Node): boolean => {
-			if (ts.isIdentifier(node)) {
-				const symbol = targetOf(node)
-				return (
-					symbol !== undefined &&
-					Arr.some(semantics.declarationsOf(symbol), (declaration) =>
-						Arr.some(
-							fn.parameters,
-							(parameter) => declaration.pos >= parameter.pos && declaration.end <= parameter.end
-						)
+		const isParameterRead = (node: ts.Identifier): boolean => {
+			const symbol = targetOf(node)
+			return (
+				symbol !== undefined &&
+				Arr.some(semantics.declarationsOf(symbol), (declaration) =>
+					Arr.some(
+						fn.parameters,
+						(parameter) => declaration.pos >= parameter.pos && declaration.end <= parameter.end
 					)
 				)
-			}
-			return node.forEachChild((child) => (visit(child) ? true : undefined)) === true
+			)
 		}
-		return visit(fn.body)
+		for (const node of preorder(fn.body, (n) => !ts.isIdentifier(n))) {
+			if (ts.isIdentifier(node) && isParameterRead(node)) {
+				return true
+			}
+		}
+		return false
 	}
 	const computeReports = (call: Invocation): ReadonlyArray<Report> => {
 		const argument = Option.map(Arr.head(call.arguments ?? []), stripped)
@@ -1980,13 +2000,11 @@ export const limitEvidence: Visit = (context: RuleContext) => {
 			return false
 		}
 		const reads: Array<ts.Identifier> = []
-		const visit = (node: ts.Node): void => {
+		for (const node of preorder(sourceFile, everyNode)) {
 			if (ts.isIdentifier(node) && node !== name && valueSymbolOf(node)?.id === symbol.id) {
 				reads.push(node)
 			}
-			node.forEachChild(visit)
 		}
-		visit(sourceFile)
 		return (
 			Arr.isReadonlyArrayNonEmpty(reads) &&
 			Arr.every(reads, (read) => Option.exists(enclosingCall(read), isInputBuilder))

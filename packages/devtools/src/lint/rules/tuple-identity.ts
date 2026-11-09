@@ -40,23 +40,38 @@ const elementsOf = (checker: Checker, type: Type): ReadonlyArray<Type> | undefin
  * numbers, bigints, booleans, enum members, a brand of one) or lists of values, or a branded such list, or a union of
  * them beside null and undefined. Two lists of values are equal exactly when their elements are, so their references
  * mean nothing; a list of objects is compared by reference on purpose, to see whether a rewrite shared it.
+ *
+ * `reading` holds the ids of the types this reading is inside. A recursive type (a JSON value's list of JSON values)
+ * meets itself again: it is then read as the list of values it is being judged to be, so it is one exactly when every
+ * other part of it is, and the reading ends instead of recurring without end.
  */
-const isValueList = (checker: Checker, type: Type): boolean => {
+const isValueList = (checker: Checker, type: Type, reading: Set<number>): boolean => {
+	if (reading.has(type.id)) {
+		return true
+	}
+	reading.add(type.id)
+	const judged = isValueListAt(checker, type, reading)
+	reading.delete(type.id)
+	return judged
+}
+
+/** isValueList of a type its reading is not yet inside. */
+const isValueListAt = (checker: Checker, type: Type, reading: Set<number>): boolean => {
 	if (type.isUnionType()) {
 		const members = Arr.filter(type.getTypes(), (member) => (member.flags & NULLISH) === 0)
 		return (
 			Arr.isReadonlyArrayNonEmpty(members) &&
-			Arr.every(members, (member) => isValueList(checker, member))
+			Arr.every(members, (member) => isValueList(checker, member, reading))
 		)
 	}
 	if (type.isIntersectionType()) {
-		return Arr.some(type.getTypes(), (member) => isValueList(checker, member))
+		return Arr.some(type.getTypes(), (member) => isValueList(checker, member, reading))
 	}
 	const elements = elementsOf(checker, type)
 	return (
 		elements !== undefined &&
 		Arr.isReadonlyArrayNonEmpty(elements) &&
-		Arr.every(elements, (element) => isValue(checker, element))
+		Arr.every(elements, (element) => isValue(checker, element, reading))
 	)
 }
 
@@ -76,14 +91,14 @@ const isList = (checker: Checker, type: Type): boolean => {
 }
 
 /** Whether a type is a value, a brand of one, or a list of values: every member of a union is. */
-const isValue = (checker: Checker, type: Type): boolean =>
+const isValue = (checker: Checker, type: Type, reading: Set<number>): boolean =>
 	Arr.every(
 		membersOf(type),
 		(member) =>
 			(member.flags & VALUE) !== 0 ||
 			(member.isIntersectionType() &&
 				Arr.some(member.getTypes(), (part) => (part.flags & VALUE) !== 0)) ||
-			isValueList(checker, member)
+			isValueList(checker, member, reading)
 	)
 
 /**
@@ -143,7 +158,7 @@ const SUGGESTION =
 export const tupleIdentity: Visit = ({ checker, semantics }) => {
 	const listAt = (node: ts.Node): boolean => {
 		const type = semantics.typeAt(node)
-		return type !== undefined && isValueList(checker, type)
+		return type !== undefined && isValueList(checker, type, new Set())
 	}
 	return (node): ReadonlyArray<Report> => {
 		if (

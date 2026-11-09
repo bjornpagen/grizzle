@@ -16,6 +16,7 @@ import type { SuperlintOptions } from "#lint/options.ts"
 import { isAtAny, isOwnSourcePath, isPackagePath } from "#lint/paths.ts"
 import type { Start } from "#lint/types.ts"
 import type { Report } from "#shared/finding.ts"
+import { preorder } from "#shared/nodes.ts"
 
 type Registrar = SuperlintOptions["testCaseIsSearch"]["registrars"][number]
 
@@ -96,18 +97,12 @@ const codeOf = (declaration: ts.Node): ReadonlyArray<ts.Node> => {
 /** Every identifier in the code, outside the types it writes, where a name is no use of a value. */
 const identifiersIn = (code: ReadonlyArray<ts.Node>): ReadonlyArray<ts.Identifier> => {
 	const found: Array<ts.Identifier> = []
-	const visit = (node: ts.Node): void => {
-		if (ts.isIdentifier(node)) {
-			found.push(node)
-			return
+	for (const root of code) {
+		for (const node of preorder(root, (n) => !ts.isIdentifier(n) && !ts.isTypeNode(n))) {
+			if (ts.isIdentifier(node)) {
+				found.push(node)
+			}
 		}
-		if (ts.isTypeNode(node)) {
-			return
-		}
-		node.forEachChild(visit)
-	}
-	for (const node of code) {
-		visit(node)
 	}
 	return found
 }

@@ -1,9 +1,15 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Cause, Console, Effect, Inspectable, Layer, Option, Schema } from "effect"
+import { Cause, Console, Effect, Inspectable, Layer, Option, Predicate, Schema } from "effect"
 import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Repository, RepositoryLive } from "#shared/repository.ts"
 
 const isDevtoolFailure = Schema.is(DevtoolFailure)
+
+/** What a failure's cause prints: a thrown error's stack, which says where it was thrown, or any other value in full. */
+const causeText = (cause: unknown): string =>
+	Predicate.isError(cause) && cause.stack !== undefined
+		? cause.stack
+		: Inspectable.toStringUnknown(cause)
 
 /** A dev tool failure prints its detail and cause; any other cause prints in full. */
 const failureText = <E>(cause: Cause.Cause<E>): string =>
@@ -12,7 +18,7 @@ const failureText = <E>(cause: Cause.Cause<E>): string =>
 		onSome: (failure) =>
 			failure.cause === undefined
 				? failure.detail
-				: `${failure.detail}\n${Inspectable.toStringUnknown(failure.cause)}`
+				: `${failure.detail}\n${causeText(failure.cause)}`
 	})
 
 /** Every service a dev tool runs on: Effect's Node platform, and the repository derived from it. */

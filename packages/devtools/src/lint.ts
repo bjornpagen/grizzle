@@ -26,6 +26,7 @@ import { type Finding, findingAt, renderFindings, statusOf } from "#shared/findi
 import { fixtureMismatchesOf, renderFixtureMismatches } from "#shared/fixtures.ts"
 import { gitFilesUnder } from "#shared/git.ts"
 import { withProgram } from "#shared/native-api.ts"
+import { everyNode, preorder } from "#shared/nodes.ts"
 import {
 	covers,
 	isGeneratedPath,
@@ -490,15 +491,13 @@ const findingsOf = (
 		({ rule, visit }) => ({ rule: rule.id, visit: visit(context) })
 	)
 	const findings: Array<Finding> = []
-	const walk = (node: ts.Node): void => {
+	for (const node of preorder(source.sourceFile, everyNode)) {
 		for (const { rule, visit } of visitors) {
 			for (const report of visit(node)) {
 				findings.push(findingAt({ sourceFile: source.sourceFile, rule, report }))
 			}
 		}
-		node.forEachChild(walk)
 	}
-	walk(source.sourceFile)
 	return findings
 }
 
@@ -605,11 +604,17 @@ const main = Effect.gen(function* () {
 					rules: Arr.filter(RULES, (rule) => pending || rule.gate === "on"),
 					manifests: [`${packageRoot}/package.json`]
 				})
-				return yield* Effect.try({
-					try: () => Arr.flatMap(sources, (source) => findingsOf(source, { rules, options, root })),
-					catch: (cause) =>
-						DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
-				})
+				const perSource = yield* Effect.forEach(sources, (source) =>
+					Effect.try({
+						try: () => findingsOf(source, { rules, options, root }),
+						catch: (cause) =>
+							DevtoolFailure.make({
+								detail: `superlint failed while collecting findings in ${relativeTo(root)(source.sourceFile.fileName)}`,
+								cause
+							})
+					})
+				)
+				return Arr.flatten(perSource)
 			})
 	)
 	const repository =

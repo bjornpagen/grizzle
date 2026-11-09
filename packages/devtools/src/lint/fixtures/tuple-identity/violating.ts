@@ -12,6 +12,12 @@ declare const nested: ReadonlyArray<Identity>
 declare const deeper: ReadonlyArray<Identity>
 declare const name: string
 
+/** A list of texts and of lists of itself: a recursive list of values. */
+type Nested = ReadonlyArray<string | Nested>
+
+declare const tree: Nested
+declare const otherTree: Nested
+
 export const same = left === right // violation
 
 export const differ = pair !== other // violation
@@ -39,3 +45,5 @@ export const notShortcut = left === right || name === "a" // violation
 export const byNodes = new Map<ReadonlyArray<{ readonly kind: string }>, number>() // violation
 
 export const memo = new WeakMap<ReadonlyArray<{ readonly kind: string }>, string>() // violation
+
+export const recursiveSame = tree === otherTree // violation

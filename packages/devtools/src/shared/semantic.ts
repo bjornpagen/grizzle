@@ -7,6 +7,7 @@ import {
 	SymbolFlags,
 	type Type
 } from "typescript/sync"
+import { everyNode, preorder } from "#shared/nodes.ts"
 
 /**
  * One source file's checker lookups. Every checker call is a synchronous IPC round trip, so the symbols the rules
@@ -45,13 +46,11 @@ export const prepareSemantics = (
 	const { checker } = input
 	const batched = (): Map<ts.Node, NativeSymbol | undefined> => {
 		const symbolNodes: Array<ts.Node> = []
-		const collect = (node: ts.Node): void => {
+		for (const node of preorder(input.sourceFile, everyNode)) {
 			for (const at of symbolNodesAt(node)) {
 				symbolNodes.push(at)
 			}
-			node.forEachChild(collect)
 		}
-		collect(input.sourceFile)
 		return new Map(Arr.zip(symbolNodes, checker.getSymbolAtLocation(symbolNodes)))
 	}
 	let fetched: Map<ts.Node, NativeSymbol | undefined> | undefined

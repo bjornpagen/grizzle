@@ -5,6 +5,7 @@ import type { SuperlintOptions } from "#lint/options.ts"
 import { isAtAny, isPackageModule } from "#lint/paths.ts"
 import type { RuleContext, Visit } from "#lint/types.ts"
 import type { Report } from "#shared/finding.ts"
+import { everyNode, preorder } from "#shared/nodes.ts"
 
 type Source = SuperlintOptions["noEnvironment"]["sources"][number]
 
@@ -235,17 +236,16 @@ export const noEnvironment: Visit = (context: RuleContext) => {
 		)
 		const ids = new Set(Arr.map(candidates, (candidate) => candidate.id))
 		const references: Array<Readonly<{ node: ts.Identifier; id: number }>> = []
-		const visit = (node: ts.Node): void => {
-			if (ts.isIdentifier(node) && !Arr.some(candidates, (candidate) => candidate.name === node)) {
-				const symbol = semantics.symbolAt(node)
-				const id = symbol === undefined ? undefined : semantics.aliasTarget(symbol).id
-				if (id !== undefined && ids.has(id)) {
-					references.push({ node, id })
-				}
+		for (const node of preorder(sourceFile, everyNode)) {
+			if (!ts.isIdentifier(node) || Arr.some(candidates, (candidate) => candidate.name === node)) {
+				continue
 			}
-			node.forEachChild(visit)
+			const symbol = semantics.symbolAt(node)
+			const id = symbol === undefined ? undefined : semantics.aliasTarget(symbol).id
+			if (id !== undefined && ids.has(id)) {
+				references.push({ node, id })
+			}
 		}
-		visit(sourceFile)
 		const joined = new Set<number>()
 		let grown = true
 		while (grown) {
