@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { jsonStrings } from "#compiler/core/json-strings.ts"
+import { JsonStrings } from "#compiler/core/json-strings.ts"
 import type { Cell, OutputText } from "#compiler/core/wire.ts"
 import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 
@@ -136,10 +136,10 @@ const elementText = nominal<string, OutputText>()
  * is their numeric order, so the strings alternate key and value, and the i-th value read is field i's.
  */
 const objectFields = (text: string): (() => string) => {
-	const next = jsonStrings(text)
+	const reader = new JsonStrings(text)
 	return () => {
-		next()
-		return next()
+		reader.string()
+		return reader.string()
 	}
 }
 

@@ -2,7 +2,7 @@ import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { jsonStrings } from "#compiler/core/json-strings.ts"
+import { JsonStrings } from "#compiler/core/json-strings.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -462,62 +462,11 @@ const detailStrings = (
 	readonly fields: ReadonlyArray<string>
 	readonly texts: ReadonlyArray<string>
 } => {
-	/** The tag and the opening bracket. */
-	let i = 2
-	const string = (): string => {
-		let value = ""
-		let start = i + 1
-		for (;;) {
-			const quote = text.indexOf('"', start)
-			const backslash = text.indexOf("\\", start)
-			if (backslash < 0 || backslash > quote) {
-				i = quote + 1
-				return value + text.slice(start, quote)
-			}
-			const code = text.charCodeAt(backslash + 1)
-			value += text.slice(start, backslash)
-			if (code === 0x75) {
-				value += String.fromCharCode(Number.parseInt(text.slice(backslash + 2, backslash + 6), 16))
-				start = backslash + 6
-			} else {
-				value += escaped(code)
-				start = backslash + 2
-			}
-		}
-	}
-	/** The next array of strings: only structure lies between the cursor and its bracket. */
-	const array = (): ReadonlyArray<string> => {
-		const out: Array<string> = []
-		i = text.indexOf("[", i) + 1
-		while (text.charCodeAt(i) === 0x22) {
-			out.push(string())
-			i += 1
-		}
-		return out
-	}
-	const relation = string()
-	i += 1
-	const fields = array()
-	const texts = array()
+	const reader = new JsonStrings(text)
+	const relation = reader.string()
+	const fields = reader.strings()
+	const texts = reader.strings()
 	return { relation, fields, texts }
-}
-
-/** The character a two-character JSON escape stands for, by the character after the backslash. */
-const escaped = (code: number): string => {
-	switch (code) {
-		case 0x62:
-			return "\b"
-		case 0x66:
-			return "\f"
-		case 0x6e:
-			return "\n"
-		case 0x72:
-			return "\r"
-		case 0x74:
-			return "\t"
-		default:
-			return String.fromCharCode(code)
-	}
 }
 
 /** The refusal a 23000 DETAIL text says, converted without a check (see `refusalGuard`): a write statement's refusal of a
@@ -546,10 +495,10 @@ export const readLawDetail = (text: string): LawDetail => {
 /** The concurrent change a 40Z01 DETAIL text says (see `refusalGuard`), or undefined when the text names no reason a
  * write statement raises: the server's answer, which the caller reports as it does any statement it cannot classify. */
 export const readChangeDetail = (text: string): ChangeDetail | undefined => {
-	const next = jsonStrings(text)
-	const read = next()
+	const reader = new JsonStrings(text)
+	const read = reader.string()
 	const reason = concurrentChanges.find((c) => c === read)
-	return reason === undefined ? undefined : { reason, relation: next() }
+	return reason === undefined ? undefined : { reason, relation: reader.string() }
 }
 
 /** The DETAIL text an arm raises for constant values, as its SQL expression computes it: the encoding the unit tests
