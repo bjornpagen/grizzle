@@ -838,14 +838,15 @@ const resolve = (
 				insertRow("S", keys.fresh(), r.k, 1)
 				insertRow("U", keys.fresh(), r.a, 1)
 				for (const [other, o] of R) {
-					if (o.k === r.k) {
-						insertT(o.a, 1)
-						if (!Wr.has(other)) {
-							insertRow("W", other, r.k, 0)
-						}
-						if (Vr.has(other)) {
-							deleteRow("V", other)
-						}
+					if (o.k !== r.k) {
+						continue
+					}
+					insertT(o.a, 1)
+					if (!Wr.has(other)) {
+						insertRow("W", other, r.k, 0)
+					}
+					if (Vr.has(other)) {
+						deleteRow("V", other)
 					}
 				}
 				marking(Arr.filter(forms, (f) => f !== "unlisted"))
