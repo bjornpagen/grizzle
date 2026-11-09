@@ -18,6 +18,8 @@ export type PatternReads = ReadonlyMap<string, ReadonlySet<string>>
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
 	readonly relations: ReadonlySet<string>
+	/** The relations whose changes its delta sources read, by name: a read-back's, inside a ChangeSet. */
+	readonly deltas: ReadonlySet<string>
 	/** The parameters it needs, by name, its delta sources and its row: what a parameterless definition cannot have. */
 	readonly inputs: ReadonlySet<string>
 	/** The contexts it matches, by name, each as its first match carries it. */
@@ -26,6 +28,7 @@ interface QueryUses {
 
 class Collector {
 	readonly relations = new Set<string>()
+	readonly deltas = new Set<string>()
 	readonly inputs = new Set<string>()
 	readonly contexts = new Map<string, ContextDesc>()
 	readonly patterns = new Map<string, Set<string>>()
@@ -131,6 +134,9 @@ class Collector {
 				for (const r of inner.relations) {
 					this.relations.add(r)
 				}
+				for (const r of inner.deltas) {
+					this.deltas.add(r)
+				}
 				for (const [relation, fields] of inner.patterns) {
 					for (const field of fields) {
 						this.#read(relation, field)
@@ -170,6 +176,7 @@ class Collector {
 				return
 			case "delta":
 				this.inputs.add(`delta.${s.side}(${s.relation})`)
+				this.deltas.add(s.relation)
 				return
 			case "row":
 				this.inputs.add("row")
@@ -314,7 +321,7 @@ class Collector {
 export const queryUses = (q: QueryDesc): QueryUses => {
 	const c = new Collector()
 	c.query(q)
-	return { relations: c.relations, inputs: c.inputs, contexts: c.contexts }
+	return { relations: c.relations, deltas: c.deltas, inputs: c.inputs, contexts: c.contexts }
 }
 
 /**

@@ -79,8 +79,9 @@ const entryReads = (base: Owned, role: OwnedRole, name: string): ReadonlyArray<s
 /**
  * The slice of a set of programs over a base: each relation their ChangeSets' members write, each by its role's write
  * list, closed under family coupling (`Slice`); and each relation they read, write or apply, through their queries,
- * members and read-backs, as the base relations a role's entries stand for, a query entry a member writes through
- * standing for its reads too, closed under what a derived one's definition reads. A name is what the programs name and no more: the relations a compile over them needs besides, the
+ * members and read-backs, a read-back's delta sources' relations among them, as the base relations a role's entries
+ * stand for, a query entry a member writes through standing for its reads too, closed under what a derived one's
+ * definition reads. A name is what the programs name and no more: the relations a compile over them needs besides, the
  * reads of the laws over a name and the rosters and closed relations its fields and laws apply, are the law model's
  * to compile without naming them.
  */
@@ -109,13 +110,15 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 			}
 			name(role, member.relation)
 			if (member.member.kind === "query") {
-				for (const r of queryUses(member.member.query).relations) {
+				const uses = queryUses(member.member.query)
+				for (const r of [...uses.relations, ...uses.deltas]) {
 					name(role, r)
 				}
 			}
 		}
 		for (const read of program.changeSet.reads) {
-			for (const r of queryUses(read.query).relations) {
+			const uses = queryUses(read.query)
+			for (const r of [...uses.relations, ...uses.deltas]) {
 				name(role, r)
 			}
 		}
