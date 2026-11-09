@@ -15,7 +15,6 @@ import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
-	CountRule,
 	ParamDecl,
 	StatementSpec,
 	WriteProgram,
@@ -134,8 +133,6 @@ import {
 } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
-	byStratum,
-	changeTags,
 	DependencyTracker,
 	type PlacedLarge,
 	type PlacedStatement,
@@ -148,14 +145,9 @@ import {
 	type UniqueAbort,
 	type WriteArtifact,
 	type WriteStep,
-	writeRows,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import {
-	type OutcomeContext,
-	witnessDecoder,
-	writtenOutcome
-} from "#compiler/write/program/outcome.ts"
+import { type OutcomeContext, writtenOutcome } from "#compiler/write/program/outcome.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
 import {
@@ -1265,29 +1257,6 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 	}
 }
 
-/** The count rules of an artifact: which statement's rows count under which category for which relation, within one
- * stratum. Across strata the counts are netted by fact identity (`interpretRows`). */
-export const countRulesOf = (artifact: WriteArtifact): ReadonlyArray<CountRule> =>
-	artifact.steps.flatMap((step, statement): ReadonlyArray<CountRule> =>
-		writeRows(step, []).flatMap(({ step: s }) => {
-			const { added, removed } = changeTags(s.result)
-			return [
-				...(added === undefined
-					? []
-					: [
-							{
-								relation: s.relation,
-								statement,
-								counts: added === "put" ? ("put" as const) : ("added" as const)
-							}
-						]),
-				...(removed === "delete"
-					? [{ relation: s.relation, statement, counts: "deleted" as const }]
-					: [])
-			]
-		})
-	)
-
 /** The duplicate-elimination placement the optimized artifact lowers its described members under, and the shape facts
  * it gives. No root of the write DAG observes repeats, because each consumer of a
  * member decides its own set boundary: a write statement reads it through SELECT DISTINCT unless distinctByEvidence
@@ -1412,10 +1381,6 @@ const compile = (
 		relations: frontend.schema.definitions().relations,
 		codes: options.names.codes
 	})
-	const reads: Record<string, number> = {}
-	for (const r of optimized.readBacks) {
-		reads[r.name] = r.statements[0].index
-	}
 	const program: CompiledWrite = {
 		edits: family.edits,
 		refills: family.refills,
@@ -1429,15 +1394,6 @@ const compile = (
 		},
 		certificates: placed.certificates,
 		nameMap: optimized.nameMap,
-		ir,
-		strata: byStratum(optimized.statements).map((statements) => statements.map((s) => s.spec)),
-		carriers: optimized.carriers,
-		deltas: optimized.deltas,
-		reads,
-		outcome: {
-			counts: countRulesOf(optimized),
-			witness: witnessDecoder(outcomeContext)
-		},
 		frontend,
 		choices: chosen.choices,
 		plan,

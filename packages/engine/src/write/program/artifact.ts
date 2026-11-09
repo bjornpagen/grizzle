@@ -65,7 +65,7 @@ export const removedTag = (result: DeleteResult): RemovedTag =>
 /** The tags of the facts a write statement's rows make present and absent, by its result: an insert's
  * rows are facts its action made present; a deletion's are facts made absent; an upsert's are a put's facts, an
  * update's a put's fact and the occupant it displaced, a MERGE's a put's fact or a fact its absorbed deletion removed. */
-export const changeTags = (
+const changeTags = (
 	result: WriteStepResult
 ): { readonly added: AddedTag | undefined; readonly removed: RemovedTag | undefined } => {
 	switch (result.kind) {

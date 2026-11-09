@@ -10,14 +10,13 @@ import type {
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type { OutputText, Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
+import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { IndexOpclass, LawIndexRequest, NormalizedLaw } from "#compiler/ir/law.ts"
 import type { Heading, RootedDag, ValidDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { WriteIR } from "#compiler/ir/write.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
@@ -298,43 +297,8 @@ export interface CarrierDecl {
 	readonly fill: "insertSelect"
 }
 
-export interface CountRule {
-	readonly relation: string
-	readonly statement: number
-	readonly counts: "added" | "deleted" | "put"
-}
-
-/**
- * Converts the witness of an invariant-rejected outcome from grizzle-controlled fields only: texts grizzle's own SQL
- * wrote, so nothing is checked.
- */
-export interface WitnessDecoder {
-	/**
-	 * A write statement's refusal names the relation and the refused key's fields with their texts (write/refusal.ts).
-	 */
-	readonly fromRefusal: (
-		relation: string,
-		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>
-	) => unknown
-}
-
 export interface WriteProgram extends ProgramArtifacts {
 	readonly requirements: TemplateRequirements
-	readonly ir: WriteIR<unknown>
-	readonly strata: ReadonlyArray<ReadonlyArray<StatementSpec>>
-	readonly carriers: ReadonlyArray<CarrierDecl>
-	/** Per written relation, the statements whose RETURNING forms delta.added and delta.removed. */
-	readonly deltas: Readonly<
-		Record<
-			string,
-			{ readonly added: ReadonlyArray<number>; readonly removed: ReadonlyArray<number> }
-		>
-	>
-	readonly reads: Readonly<Record<string, number>>
-	readonly outcome: {
-		readonly counts: ReadonlyArray<CountRule>
-		readonly witness: WitnessDecoder
-	}
 }
 
 /**

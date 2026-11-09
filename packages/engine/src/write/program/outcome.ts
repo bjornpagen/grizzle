@@ -186,8 +186,8 @@ export const interpretRows = (
 	return { counts, strata: changes, deltas }
 }
 
-/** The witness decoder of a WriteProgram (`WitnessDecoder`), converting grizzle's own texts without a check into a
- * witness: fromRefusal converts a write statement's refusal key, each text by its field's result codec, into the
+/** The witness decoder of a write, converting grizzle's own texts without a check into a witness:
+ * fromRefusal converts a write statement's refusal key, each text by its field's result codec, into the
  * refused relation's key values. It never reads PostgreSQL's prose.
  *
  * A refusal is never a row. The statement that detects it raises it inside the transaction, so PostgreSQL aborts the

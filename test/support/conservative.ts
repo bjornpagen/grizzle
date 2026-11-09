@@ -51,11 +51,10 @@ import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
-import { byStratum, type WriteArtifact } from "#compiler/write/program/artifact.ts"
+import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
 	type CompiledWrite,
 	type CompileWriteOptions,
-	countRulesOf,
 	type FamilyPlacement,
 	finish,
 	insertAborts,
@@ -372,22 +371,11 @@ export const conservativeWrite = (
 		(write) =>
 			catchRefusal((): CompiledWrite => {
 				const artifact = conservativeArtifact(write, options.names.codes, program.placements)
-				const reads: Record<string, number> = {}
-				for (const r of artifact.readBacks) {
-					reads[r.name] = r.statements[0].index
-				}
 				return {
 					...program,
 					optimized: artifact.specs,
 					certificates: [],
 					nameMap: artifact.nameMap,
-					strata: Arr.map(byStratum(artifact.statements), (statements) =>
-						Arr.map(statements, (s) => s.spec)
-					),
-					carriers: artifact.carriers,
-					deltas: artifact.deltas,
-					reads,
-					outcome: { counts: countRulesOf(artifact), witness: program.outcome.witness },
 					artifact
 				}
 			})
