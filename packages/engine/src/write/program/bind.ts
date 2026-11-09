@@ -1529,6 +1529,8 @@ const freshOwners = (
 		)
 		for (const owner of new Set(counted.map((f) => f.owner.name))) {
 			const families = counted.filter((f) => f.owner.name === owner)
+			/** The counts and ends the fill draws, which the slot's facts carry at their starts. */
+			const drawnNames = new Set(families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)]))
 			for (const slot of ownerSlots(s, owner)) {
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
@@ -1536,7 +1538,9 @@ const freshOwners = (
 					const values = factValues(fact)
 					const node: HostNode = {
 						relation: owner,
-						values,
+						values: new Map(
+							[...values].filter(([key]) => ![...drawnNames].some((name) => fieldKey(name) === key))
+						),
 						families: families.map((f) => ({
 							family: f.id,
 							members: (byGroup.get(familyKey(f.id))?.get(groupOfOwner(ctx, f, values)) ?? []).map(
@@ -1551,7 +1555,6 @@ const freshOwners = (
 							? Result.err({ ...refusal, stratum: s })
 							: Result.err(refusal)
 					}
-					const drawnNames = new Set(families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)]))
 					filledFacts.set(
 						fact,
 						Object.freeze(
