@@ -340,7 +340,7 @@ const printed = (text: string, level: Level): Printed => ({ text, level })
  * boolean or numeric constant PostgreSQL types itself, or a bit string's hex constant, `X'<digits>'`. A negative bare
  * number is parenthesized, the unary minus of its magnitude.
  */
-export type Spelling =
+export type LiteralSpelling =
 	| { readonly kind: "quoted"; readonly text: string }
 	| { readonly kind: "bare"; readonly text: string }
 
@@ -351,7 +351,7 @@ export type Spelling =
  *
  * Quoted, so NaN, the infinities and -0 reach the float input function exactly.
  */
-export const spellingOf = (value: LiteralValue): Spelling => {
+export const spellingOf = (value: LiteralValue): LiteralSpelling => {
 	switch (value.kind) {
 		case "bool":
 			return { kind: "bare", text: value.value ? "true" : "false" }
