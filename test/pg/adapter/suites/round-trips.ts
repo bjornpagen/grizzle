@@ -10,6 +10,8 @@ import { makeDb } from "#adapter/db/db.ts"
 import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer } from "#adapter/public/layer.ts"
 import type { CompileError, CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -25,8 +27,10 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -37,7 +41,7 @@ import {
 	type WireWindow
 } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
+import { loginLayer, testVerify } from "#test/support/worlds.ts"
 
 const readFraming = ["BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY", "COMMIT"] as const
 const writeFraming = ["BEGIN ISOLATION LEVEL SERIALIZABLE", "COMMIT"] as const
@@ -109,6 +113,28 @@ const readCallsGen = array(
 	{ min: 1, max: 6 }
 )
 
+const firstCallKinds = ["get", "execute", "apply"] as const
+type FirstCallFeature = (typeof firstCallKinds)[number] | "several Dbs opened"
+
+/** Dbs opened in one request and the first call one of them makes. */
+interface FirstCall {
+	readonly opens: number
+	readonly caller: number
+	readonly call: (typeof firstCallKinds)[number]
+	readonly present: boolean
+}
+
+/**
+ * One to three Dbs opened in one request, and the first call one of them makes: a get of a present or absent key, an
+ * execute, or an apply with nothing to write, which sends its transaction all the same.
+ */
+const firstCallsGen: Gen<FirstCall> = (source) => ({
+	opens: source.draw(int(1, 3)),
+	caller: source.draw(pickGen),
+	call: source.draw(element(firstCallKinds)),
+	present: source.draw(boolean)
+})
+
 /** Up to three notes, each at a task none of the others is at, of a drawn text. */
 const notesGen: Gen<ReadonlyArray<{ readonly task: number; readonly text: number }>> = (source) =>
 	Arr.map(source.draw(shuffled([0, 1, 2], { min: 0, max: 3 })), (task) => ({
@@ -155,8 +181,8 @@ const refreshesGen = array(boolean, { min: 1, max: 4 })
  * page's rows and its opposite-flag probe), in one SERIALIZABLE READ ONLY transaction that commits; every write and
  * refresh in one SERIALIZABLE transaction that commits; an EXPLAIN in one that rolls back; and each of them behind the
  * Db's prologue (adapter/wire/batch.ts Prologue), the fence's ledger lock and the guard that enters the Db's role, so a
- * flight executes its statements and two more. Admission runs as the login, with no prologue: its statements apart,
- * then the fence's lock and guard in one read-only SERIALIZABLE transaction that commits, all in one round trip.
+ * flight executes its statements and two more. Db.open sends nothing at all, so a request's first call is its first
+ * round trip.
  * The framing is read from the flight's simple Query texts, the statement count from its Executes. As properties:
  *
  * - drawn reads over the worked example: db.execute, a compiled handle's execute, db.get of a present or absent key,
@@ -167,8 +193,10 @@ const refreshesGen = array(boolean, { min: 1, max: 4 })
  *   frame alone, so even it meets the fence;
  * - drawn programs of db.refresh, each on its view as the last refresh left it or emptied first as a migration that
  *   recreates it leaves it, so the server chooses the plain and the concurrent form, read from pg_class before each
- *   call, and every refresh leaves its view populated. Db.open's admission, with every refined claim it judges, is
- *   test/pg/world-model/admission.test.ts's.
+ *   call, and every refresh leaves its view populated;
+ * - drawn requests through the login's own layer, its pool's one session tapped: one to three Dbs opened, during which
+ *   the wire carries nothing, and a first call of one of them (a get, an execute, an apply with nothing to write), one
+ *   round trip in its transaction.
  */
 export const roundTripSuite = (): void => {
 	layer(Substrate.layer, { excludeTestServices: true })("one round trip per public call", (it) => {
@@ -493,6 +521,94 @@ export const roundTripSuite = (): void => {
 									})
 							)
 						}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped)
+				)
+		)
+
+		it.effect(
+			"Db.open sends nothing, so a fresh Db's first call is the request's one round trip",
+			(testContext) =>
+				searched(
+					testContext,
+					Effect.gen(function* () {
+						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const reads = W.workReads(o.schema)
+						const substrate = yield* Substrate
+						const tap = makeTap(substrate.cluster)
+						/** The login's own layer, every byte of its pool's one session through the tap. */
+						const tappedLayer = DbLayer.make({
+							...clusterConnection(
+								o.installed.cluster,
+								o.installed.database,
+								o.installed.as(o.server).password
+							),
+							transport: tap.transport,
+							pool: { ...clusterPool, min: 1, max: 1 },
+							login: o.server,
+							snapshot: snapshotValue(o.installed.snapshot),
+							verify: testVerify
+						})
+						return yield* Effect.gen(function* () {
+							/** The session's startup, outside every window: a call of a Db opened before the cases. */
+							const warm = yield* Db.open(o.server.roles.app, {})
+							yield* warm.get(W.Task, { id: t1 })
+							return yield* explore(
+								{
+									oracle: {
+										kind: "specification",
+										name: "README Deploying: Db.open contacts nothing, and each call is one round trip"
+									},
+									suite: "adapter/round-trips open",
+									draw: drawn(firstCallsGen),
+									literal: Formatter.format,
+									kept: [],
+									runs: 30,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 16,
+									coverage: required<FirstCallFeature>([...firstCallKinds, "several Dbs opened"], {
+										cases: 30,
+										sense: notesOnly
+									}),
+									caseHang
+								},
+								(c, notes) =>
+									Effect.gen(function* () {
+										const mark = tap.mark()
+										const dbs = yield* Effect.forEach(Arr.range(1, c.opens), () =>
+											Db.open(o.server.roles.app, {})
+										)
+										const opened = tap.since(mark)
+										assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")
+										if (c.opens > 1) {
+											notes.note("several Dbs opened")
+										}
+										const db = defined(dbs[pickIndex(c.caller, dbs.length)], "an opened Db")
+										switch (c.call) {
+											case "get":
+												yield* db.get(W.Task, { id: c.present ? t1 : tMissing })
+												break
+											case "execute":
+												yield* Effect.flatMap(
+													db.execute(reads.automaticTasksFor, { account: a1 }),
+													(r) => r.collect
+												)
+												break
+											case "apply":
+												yield* db.apply(ChangeSet.empty(o.schema), {})
+												break
+										}
+										assertFlights(
+											`Db.open and a first ${c.call}`,
+											tap.since(mark),
+											1,
+											c.call === "apply" ? writeFraming : readFraming
+										)
+										notes.note(c.call)
+										assert.equal(tap.cancels(), 0)
+									})
+							)
+						}).pipe(withLayer(tappedLayer))
 					}).pipe(Effect.scoped)
 				)
 		)

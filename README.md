@@ -1460,7 +1460,7 @@ export const POST = (request: Request): Promise<Response> => {
 }
 ```
 
-`Db.open(role, { token })` opens a database handle as one role, for one request: one round trip checks the database, and each call is one more. The types follow the roles: `Db.open(Web.roles.member, ...)` does not compile without a token, `Db.open(Web.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled when the layer was built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's three states:
+`Db.open(role, { token })` opens a database handle as one role, for one request, contacting nothing: each call is one round trip. The types follow the roles: `Db.open(Web.roles.member, ...)` does not compile without a token, `Db.open(Web.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled when the layer was built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's three states:
 
 - **Signed out.** No token: the handler opens `anon` and returns published posts.
 - **Signed in, no organization.** The token has `sub` and no `o`, so `Session` has a row and `Org` has none. The feed is the published posts, and a draft comes back `outside-world`: there is no organization to fill `org` from, so the post is not one `MyPost` can hold.
@@ -1521,10 +1521,10 @@ pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the o
 
 Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web)` and `roleNameOf(EtlJob)`, without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
 
-- **The code and the database move together.** `DbLayer.make` refuses a snapshot that is not the code's schema, and a workload whose index needs differ from it. `Db.open` refuses a database whose latest migration did not reach that snapshot, or whose roles, settings or privileges differ from it. `grizzle drift`, from CI or a schedule, compares the whole database with the snapshot, view definitions and policies included.
-- **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`) and every `Db.open` is refused; once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new `snapshot.json`.
+- **The code and the database move together.** `DbLayer.make` refuses a snapshot that is not the code's schema, and a workload whose index needs differ from it. Every `Db` transaction refuses a database whose latest migration did not reach that snapshot. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
+- **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`); once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new `snapshot.json`.
 
-[Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers everything `DbLayer.make` and `Db.open` check, Vercel, and RDS IAM authentication.
+[Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers what `DbLayer.make` and every transaction check, Vercel, and RDS IAM authentication.
 
 ## Tables and types
 
@@ -2759,8 +2759,8 @@ name; then each stored field's pattern rule and each generated field's rule, by 
 declared order. A rule two statements state, such as a key over a table's primary key, is listed once. A pattern every
 text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, and the column is plain text. Neither
 does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the schema fixes. A
-contract only a login's context field names is the login's, never the schema's: `Db.open` checks a claim against it, and
-no write is refused by it. Each call compiles the rules, so call it once and keep the list.
+contract only a login's context field names is the login's, never the schema's: PostgreSQL checks a claim against it where a
+statement reads it, and no write is refused by it. Each call compiles the rules, so call it once and keep the list.
 
 `lawsByStatement(schema)` compiles the rules once and gives a lookup: bind it once,
 `const lawsOfStatement = lawsByStatement(schema)`, then `lawsOfStatement(statement)` lists the rules that statement
@@ -2797,7 +2797,7 @@ throws `CompileError` for a rule that is no check of the schema.
 - **`TransientFailure`**: the attempt changed nothing and may succeed if run again. Its reason is `SerializationFailure`
   (40001), `Deadlock` (40P01), a concurrent transaction's work the statement met (`PutTargetConflict`,
   `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`); `error` is the server's report. grizzle never retries: use `Effect.retry` with
-  your own `Schedule`. `Db.open`'s retryable case is an `OpenError` with reason `AdmissionTransient`: open again.
+  your own `Schedule`.
 - **`CommitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
   running it again. A write the socket failed before COMMIT's last byte left the process is `TransportFailure`
   instead: COMMIT never reached the server.
@@ -2824,27 +2824,22 @@ throws `CompileError` for a rule that is no check of the schema.
 
 **`OpenError`**, by stage:
 
-| Stage                       | Reason                                                                                                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `credential`                | `CredentialError`                                                                                                                       |
-| `tls`                       | `TlsRefused`                                                                                                                            |
-| `authentication`, `connect` | `StartupRefused`, with the server's report (`authentication` for SQLSTATE class 28)                                                    |
-| `connect`                   | `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`                                                   |
-| `released`                  | `LayerReleased`, a layer whose scope has closed                                                                                         |
-| `config`                    | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                     |
-| `role`                      | `RoleOutsideLayers`                                                                                                                     |
-| `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
-| `schema`                    | `CompileError`                                                                                                                         |
-| `capability`                | `MissingCapability`, a workload program needing an extension the database lacks                                                        |
-| a check's stage             | `AdmissionRefused`, with every mismatch, at the first stage one is at                                                                  |
-| `admission`                 | `AdmissionTransient` (`SerializationFailure` or `Deadlock`, the server's report its `error`), retryable; `AdmissionFailed`, no verdict |
+| Stage        | Reason                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`     | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                                     |
+| `role`       | `RoleOutsideLayers`                                                                                                                                     |
+| `token`      | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts        |
+| `schema`     | `CompileError`                                                                                                                                          |
+| `capability` | `MissingCapability`, a workload program needing an extension the snapshot does not install                                                             |
+
+`Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.
 
 **`ReadFailure`**, by stage:
 
 | Stage                 | Reason                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001)                                                            |
-| `acquire`             | a connection's or the pool's refusal, as for `OpenError`; `HandleReleased`, a `db.compile` handle used after its `Scope` ended |
+| `acquire`             | `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed; `HandleReleased`, a `db.compile` handle used after its `Scope` ended |
 | `transport`           | `ConnectionLost`, `CommitLost`                                                                                         |
 | `driver`              | `DriverFailure`                                                                                                        |
 | `decode`              | `UnreadableAnswer`: rows grizzle cannot read, or rows its compiled proof says the query cannot deliver                 |
@@ -2936,41 +2931,41 @@ snapshot.json edited by hand. It fails with an `OpenError` at stage `schema` for
 that is not the snapshot's, a role or program that does not compile, or a workload program added,
 renamed, removed or changed since `grizzle generate`; the error names the program and says to run `grizzle generate`.
 
-Open a `Db` per request or handler. Before it yields, `Db.open` checks the database in one round trip of a few catalog
-reads, by stage, in this order:
+Open a `Db` per request or handler. `Db.open` contacts nothing: it finds the role's login layer, turns the token into
+claims and builds the handle on the host, so a request's first call is its first round trip. grizzle assumes the
+database is the one the snapshot was migrated to, and checks nothing of it at runtime beyond what every transaction
+checks (below). `grizzle migrate`, which runs the drift check after every apply, and `grizzle drift` judge the rest:
 
-- **`version`:** PostgreSQL 19.
-- **`locale`:** the database UTF8 with the builtin `C.UTF-8` locale.
-- **`capability`:** the extensions the schema needs installed, and the server's `max_stack_depth` at least its
-  default, 2MB, which the limits grizzle holds every pattern to rest on ([Limits](#limits)).
-- **`ledger`:** no migration running or stopped part-way, and the latest complete one at the snapshot's fingerprint.
-- **`settings`:** the database's default isolation SERIALIZABLE, and the login's and the role's settings exactly as the
+- **The server:** PostgreSQL 19, the database UTF8 with the builtin `C.UTF-8` locale, and the server's
+  `max_stack_depth` at least its default, 2MB, which the limits grizzle holds every pattern to rest on
+  ([Limits](#limits)); `grizzle migrate` refuses a server below it. The extensions the schema needs are the
+  migration's to install.
+- **Settings:** the database's default isolation SERIALIZABLE, and the login's and the role's settings exactly as the
   snapshot installs them. Every login's own defaults pin its sessions, each a setting a grizzle guarantee rests on:
   `search_path = pg_catalog, pg_temp`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, `bytea_output = hex`, and
   `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`; a login whose roles search vectors also
-  `hnsw.iterative_scan = strict_order`. A role's own default outranks the database's and the server's, so neither
-  reaches a `Db`'s sessions, and a login with one missing, changed, or set for it in this database alone is refused.
-  Every session of the login's pool also sends them as startup options, so the environment's `PGOPTIONS` never reaches
-  it, and `DbLayer.make` refuses a process environment that sets `PGREPLICATION` (stage `config`). Every other setting
-  is the database owner's, on the database or the server, JIT among them: on a server built with LLVM,
-  `jit_above_cost` can make a large statement compile its plan to machine code first.
-- **`privileges`:** the login's and the role's privileges exactly as the snapshot installs them, and the policies
-  naming the role the snapshot's, by table and name. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  `hnsw.iterative_scan = strict_order`. Every session of the login's pool sends them as startup options, so neither a
+  role's, the database's or the server's default nor the environment's `PGOPTIONS` reaches it, and `DbLayer.make`
+  refuses a process environment that sets `PGREPLICATION` (stage `config`). A login with one missing, changed, or set
+  for it in this database alone is drift. Every other setting is the database owner's, on the database or the server,
+  JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan to machine
+  code first.
+- **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
+  the role the snapshot's, by table and name. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
-  other membership of the login confers nothing, and a membership fault refuses every role of the login. Row-level
-  security is enabled, not forced, on every table the role writes through a query entry that leaves rows out.
+  other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
+  table the role writes through a query entry that leaves rows out.
 
-`Db.open` does not compare view definitions, policy expressions or the owner's default privileges: `grizzle migrate`
-and `grizzle drift` do. A value that is not a role reached through its login is refused at stage `schema`. Otherwise a
-refusal is an `OpenError` at the first stage that fails: `role` (no provided layer holds its login), `schema` (the
-token is not a string), `token` (`verify` refused or threw, or the payload does not decode through the role's
-contexts), the connection's `credential`, `tls`, `authentication`, `connect` and `released`, then the checks above, or
-`admission` when they reach no verdict, and `token` again for a claim PostgreSQL refuses.
+A value that is not a role reached through its login is refused at stage `schema`. Otherwise `Db.open`'s refusal is an
+`OpenError` at the first stage that fails: `role` (no provided layer holds its login), `schema` (the token is not a
+string), `token` (`verify` refused or threw, or the payload does not decode through the role's contexts) and
+`capability` (a workload program needs an extension the snapshot does not install). A claim of a refined field is
+judged by the field's domain where a statement reads it: one PostgreSQL refuses fails that call with the server's
+`ServerError`.
 
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call
-fails at once with `StaleSnapshot` (reason `Migrating`) before any statement runs, and every `Db.open` is refused at
-stage `ledger`. After the migration, a `Db` opened at the old snapshot fails with `StaleSnapshot` (reason `Migrated`),
+fails at once with `StaleSnapshot` (reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `StaleSnapshot` (reason `Migrated`),
 and keeps failing: deploy the code that carries the new `snapshot.json` and open new `Db`s with it.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round
@@ -2984,11 +2979,11 @@ connections before an instance suspends. grizzle depends on no platform's packag
 
 **RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
 `@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlJob)` names. Grant that role
-`rds_iam` with `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`. `Db.open` and
-`grizzle drift` judge what a login can do, not how its memberships are spelled: a membership beyond the login's roles is
-admitted when it carries SET FALSE and no ADMIN and the login's privileges on the installation stay exactly its own
-(USAGE on the schema, SELECT on the ledger). `rds_iam` holds nothing in the installation, so it is admitted; a
-membership that would hand the login any privilege or ownership there is refused. This has not been run against RDS.
+`rds_iam` with `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`. `grizzle drift` judges what a login can do, not
+how its memberships are spelled: a membership beyond the login's roles is no drift when it carries SET FALSE and no
+ADMIN and the login's privileges on the installation stay exactly its own (USAGE on the schema, SELECT on the ledger).
+`rds_iam` holds nothing in the installation, so it is no drift; a membership that would hand the login any privilege or
+ownership there is. This has not been run against RDS.
 
 ```ts
 import { Signer } from "@aws-sdk/rds-signer"
@@ -3067,7 +3062,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   later generated value never repeats a stored one: `SELECT <schema>.<advance function>(<largest value inserted>)`,
   `<schema>` being `schemaNameOf(schema)`.
 - **A login without `SET ROLE`** holds only USAGE on its schema, SELECT on the ledger, and EXECUTE on the snapshot
-  guard, the lock and the check that `Db.open` and every `Db` transaction take.
+  guard, the lock and the check that every `Db` transaction takes.
 - **The owner and superusers bypass** every rule and role, and the owner is reserved for migrations.
 
 ## Security model
@@ -3078,9 +3073,9 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 - **Claims are verified once, then decoded.** `verify` decides the token. grizzle decodes the value it returns, never
   the token's JSON text (so a key the token repeats is `verify`'s to refuse), through the contexts' fields. A present
   claim object missing a field or holding a value its field's encoder refuses (a text holding NUL or a lone surrogate
-  among them) is refused at stage `token`, before the database is checked. A claim's pattern or contract is
-  PostgreSQL's to judge: `Db.open`'s round trip asks, and a claim it refuses is refused at stage `token` once the checks
-  pass. The transaction's setting holds the decoded claims, one member per context that has a row,
+  among them) is refused at stage `token`, on the host. A claim's pattern or contract is PostgreSQL's to judge, by the
+  field's domain, where a statement reads the claim: a claim it refuses fails that call with the server's
+  `ServerError`. The transaction's setting holds the decoded claims, one member per context that has a row,
   `{"<Context>":{"<field>":"<text>"}}`, each holding exactly its context's fields as JSON strings. It never holds the
   token, and it ends with the transaction.
 - **PostgreSQL enforces every role.** A role holds no privilege on a table it does not write, and reads through views in
@@ -3173,8 +3168,8 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A large pattern costs time.** A pattern near the limits takes seconds to compile, the first time a backend checks it
   and again whenever it leaves the backend's cache (below), and each match allocates arrays that grow with its states
   and colors. grizzle sets no time budget.
-- **The depth limit rests on `max_stack_depth` at its default, 2MB**, a superuser's setting: `Db.open` refuses a server
-  set lower at stage `capability`, and `grizzle migrate` at stage `server`.
+- **The depth limit rests on `max_stack_depth` at its default, 2MB**, a superuser's setting: `grizzle migrate` refuses
+  a server set lower at stage `server`.
 - **A parameter is checked against its contract and pattern at bind**, before any SQL (`EncodingFailure`, `refinedValue`), so a query delivers a parameter's value, or a relation parameter's field, as bound, whatever its pattern. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
 - **PostgreSQL keeps a backend's last 32 compiled regular expressions** (`MAX_CACHED_RES`), so rows that cycle through a dictionary of more patterns compile one per row. On 19rc1 (an Apple M-series laptop under load; 200,000 rows; dictionaries of 1 to 178 patterns; median of three runs) a row costs 1.4 to 4.9 µs grouped by pattern or cycling through 32 patterns or fewer, and 80 to 102 µs cycling through 33, 64 or 178; the CASE that reads each source's translation adds about 1 µs a row at 178. A family write orders each statement's rows by pattern, so each compiles once per statement. Order other bulk reads and writes by pattern where you can.
 - **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Compute.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs.

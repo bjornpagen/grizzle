@@ -60,7 +60,8 @@ export default defineConfig({
 - Every role is in exactly one login. A login may be over any level of a listed installation (`login(Qti, ...)` beside
   `login(Ledger, ...)`). The config refuses a login over a schema no listed installation holds (or over another
   version of it), and two logins or roles of one installation whose names convert alike. A login missing from `logins`
-  is not installed, nor are its roles, so `Db.open` refuses them: their PostgreSQL roles don't exist.
+  is not installed, nor are its roles: their PostgreSQL roles don't exist, so a Db's first call through them is refused
+  at stage `acquire`.
 - A level reaches the levels below it only by a containment of plain fields into a key, or through a rule over a
   query; any other law over a lower relation is `LevelRefused` when the schema is built. A process over a lower level
   opens the installation's snapshot, and a refusal by a law above it is `{ kind: "above", level, law }`.
@@ -277,7 +278,8 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
 
 ## Never edit
 
-- `snapshot.json`: it is the diff base, and its fingerprint is what `Db.open` and the drift check compare with.
+- `snapshot.json`: it is the diff base, and its fingerprint is what every `Db` transaction and the drift check compare
+  with.
   `check` says: snapshot.json does not decode as a snapshot, or is the snapshot of another schema; restore it from
   git. It lists each installed statement compact on a line of its own, so a review of its diff reads each changed
   statement as one changed line.
@@ -404,7 +406,7 @@ The command line's own refusals, by stage:
   brings more 40001s.
 - Connect straight to PostgreSQL: PgBouncer is not supported.
 - Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
-  role holds exactly its pinned defaults, and `Db.open` refuses one that holds any other. A login's role pins only
+  role holds exactly its pinned defaults, and the drift check refuses one that holds any other. A login's role pins only
   what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`,
   `bytea_output = hex`, `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`, and for a login whose roles search
   vectors
@@ -431,21 +433,19 @@ The command line's own refusals, by stage:
   `DbLayer.make` compiles every program of the login's workloads once, under the snapshot it is given, which it
   compares with nothing: `grizzle check` finds a program added, renamed or dropped, or whose access paths moved,
   since the snapshot was generated; run `grizzle generate`. A program edit that moves no access path just takes
-  effect. `Db.open` admits the database only when no migration is running or stopped part-way and its latest complete
-  migration reached that snapshot, and refuses a snapshot of another schema at the stage ledger. While a migration is
-  being applied, no snapshot opens; once it completes, only the new one does. It also requires the login's and the role's settings and
-  privileges to be exactly the snapshot's, the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB,
-  CREATEROLE, REPLICATION or BYPASSRLS, a role's members to be its login and the migration identity PostgreSQL makes
-  a member of each role it creates (any other membership of the login confers nothing), and row security enabled and
-  not forced on every table the role writes through a query entry that leaves rows out (stages `settings` and
-  `privileges`); a membership fault refuses every role of the login. A table no role writes that way has no row
-  security and no policy: each policy would be true, and the grants alone decide its writes. `token` is required
-  exactly when the role's relations read a context; the layer's `verify` refuses one at the stage `token`. It compares
-  no view definition or policy predicate: `grizzle migrate` does, after every apply and when nothing is pending, and
-  refuses drift. `grizzle drift` runs that same check alone and applies nothing (a folder not yet applied is a mismatch
-  of its own), so it can watch a production database from CI or a schedule; it connects as the migration identity,
-  since the check replays the snapshot into a scratch schema in a transaction it rolls back.
-- Open a `Db` per request or handler: admission is one round trip of a few catalog reads, so this stays cheap.
+  effect. `Db.open` contacts nothing and checks nothing of the database: grizzle assumes it is the one the snapshot was
+  migrated to, and the request's first call is its first round trip. `token` is required exactly when the role's
+  relations read a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
+  judged by its domain where a statement reads it. `grizzle migrate` judges the database after every apply and when
+  nothing is pending, and refuses drift: the login's and the role's settings and privileges exactly the snapshot's,
+  the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS, a
+  role's members its login and the migration identity PostgreSQL makes a member of each role it creates, row security
+  enabled and not forced on every table the role writes through a query entry that leaves rows out, view definitions
+  and policies. A table no role writes that way has no row security and no policy: each policy would be true, and the
+  grants alone decide its writes. `grizzle drift` runs that same check alone and applies nothing (a folder not yet
+  applied is a mismatch of its own), so it can watch a production database from CI or a schedule; it connects as the
+  migration identity, since the check replays the snapshot into a scratch schema in a transaction it rolls back.
+- Open a `Db` per request or handler: `Db.open` sends nothing, so this costs no round trip.
 - `db.page` takes any safe integer of at least 1 as its size: there is no default and no cap.
 - Every transaction of a `Db` checks the ledger first, in the same round trip, and runs nothing unless the database
   holds its snapshot: while a migration runs, its calls fail with `StaleSnapshot` (reason `Migrating`), and once a
@@ -457,8 +457,7 @@ The command line's own refusals, by stage:
   f)` handles one case and keeps every other, and an error's `stage` and `message` follow from it. Read a refusal's
   facts from its reason (a `CompileError`'s `OutsideRole` names the `role` and the `access`), never from its message,
   and a server's error by its `sqlstate` and the fields it names, never by its words, which follow `lc_messages`.
-  Retry only `TransientFailure`, and `Db.open`'s `OpenError` whose reason is `AdmissionTransient`, with `Effect.retry`
-  and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
+  Retry only `TransientFailure`, with `Effect.retry` and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
 - In a test, build a failure or an outcome with grizzle's own constructors, never a cast or an object literal in a
   class's place: every error and reason class is exported as a value, the class grizzle builds it with
   (`new ReadFailure({ reason: new InputTooLarge({ bound }) })`); a server's report is `new ServerError({ sqlstate,
@@ -574,11 +573,11 @@ The command line's own refusals, by stage:
   CompileError for a name the installation refuses. The migration that adds a login creates its role; the operator
   gives it a password, or, for an RDS IAM login, `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`, and the IAM
   signer's user name is `roleNameOf(login)`. grizzle never sets either. A login holds only USAGE on the
-  schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check Db.open and every transaction
-  take; everything else it does as one of its roles, one per transaction. Db.open and drift admit a membership beyond
-  the login's roles only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
-  installation stay exactly those three: `rds_iam` holds nothing there, so it is admitted, and a membership handing
-  the login any privilege or ownership is refused. This has not been run against RDS.
+  schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check every transaction takes;
+  everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
+  login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
+  installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
+  login any privilege or ownership is. This has not been run against RDS.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
   `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type error; `query`,
   `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed twice is a type

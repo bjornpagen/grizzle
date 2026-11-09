@@ -1,10 +1,5 @@
 import type { Array as Arr, Effect, Option, Scope } from "effect"
-import type {
-	ApplyError,
-	DbOpenReason,
-	OpenError,
-	ReadError
-} from "#adapter/errors/execution.ts"
+import type { ApplyError, DbOpenReason, OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService } from "#adapter/types/layer.ts"
 import type {
 	AnyChangeSet,
@@ -72,7 +67,8 @@ export type OpenOptions<R> =
 
 /**
  * Db.open; packages/grizzle/src/adapter/db/open.ts implements it. It contacts nothing: every transaction of the Db it
- * yields admits the database in its own round trip, and Db.open refuses only what the host alone can judge. Usage: Db.open(Web.roles.member, { token }), provided by DbLayer.make({ login: Web, snapshot, ... }): the role is
+ * yields takes the fence and the snapshot guard in its own round trip, and Db.open refuses only what the host alone can
+ * judge. Usage: Db.open(Web.roles.member, { token }), provided by DbLayer.make({ login: Web, snapshot, ... }): the role is
  * reached through its login, whose workloads give the Db its programs (`db.workload`). The requirement DbLayer<R> is
  * provided only by the layer of the login that holds R.
  */

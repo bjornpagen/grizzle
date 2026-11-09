@@ -150,10 +150,11 @@ const holdsSchema = (c: OpenCase): boolean =>
  * Db, whatever the database or the login's stored defaults. A read through it on a database that holds the schema's
  * installation answers as the facts loaded there say, under every stored default, since every session of the login's
  * pool sends the defaults again as its startup options; on a database that holds none, the read's fence refuses it, the
- * ledger's lock finding no ledger (42P01). A query whose relation parameter carries a vector needs pgvector installed by
- * the snapshot in the vector schema: a Search Db, whose snapshot installs it, answers one where its schema is installed;
- * a Work Db, whose snapshot does not, is refused one at its compile, before any SQL: execute and get ReadFailure
- * {capability} with MissingCapability, db.compile its CompileError, and the database's sessions as they were.
+ * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector needs
+ * pgvector installed by the snapshot in the vector schema: a Search Db, whose snapshot installs it, answers one where its
+ * schema is installed; a Work Db, whose snapshot does not, is refused one at its compile, before any SQL: execute and
+ * get ReadFailure {capability} with MissingCapability, db.compile its CompileError, and the database's sessions as they
+ * were.
  *
  * The opens a role, token or claims refuse are the worlds model's (test/pg/world-model); a password Effect's failure is
  * the connection suite's.
@@ -188,11 +189,11 @@ export const openSuite = (): void => {
 						/** The probe's vector field's carrier: three dimensions. */
 						const e = Vector.make(Float32Array.of(1, 0, 0), 3)
 						const qs = [{ id: t1, e }]
-						/** A read the fence refused because the database holds no ledger of the schema. */
+						/** A read the fence refused: the database holds no schema of the installation, so no ledger. */
 						const noLedger = (error: unknown): void => {
 							assertInstanceOf(error, ReadFailure)
 							assertInstanceOf(error.reason, ServerError)
-							assert.equal(error.reason.sqlstate, sqlstates.undefinedTable)
+							assert.equal(error.reason.sqlstate, sqlstates.invalidSchemaName)
 						}
 						return yield* explore(
 							{

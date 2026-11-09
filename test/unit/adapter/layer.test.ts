@@ -452,16 +452,16 @@ type EnvironmentFeature =
 	| "built beside a variable grizzle sets"
 
 /**
- * Db.open judges the token before it connects (adapter/db/open.ts): with a token, the layer's verify runs on it once,
- * and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage: "token"} whose reason is
- * a TokenError, the throw its cause; the payload it returns is decoded through the contexts the role reads, Session's
- * one uuid claim `sub` read from the payload's top level, and a payload that is no object, lacks the claim or holds a
- * value its field refuses is ClaimRefused naming the fault. Every such refusal comes before any connection: the
- * transport opens no socket. A Db opened with a token whose claims decode passes the token stage and meets the server: here a memory endpoint that ends every connection once TLS is up, so the open fails at a
- * connection's stage, having opened a socket.
+ * Db.open judges the token on the host and contacts nothing (adapter/db/open.ts): with a token, the layer's verify runs
+ * on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage: "token"} whose
+ * reason is a TokenError, the throw its cause; the payload it returns is decoded through the contexts the role reads,
+ * Session's one uuid claim `sub` read from the payload's top level, and a payload that is no object, lacks the claim or
+ * holds a value its field refuses is ClaimRefused naming the fault. A token whose claims decode opens a Db, though the
+ * layer's endpoint, a memory one, ends every connection once TLS is up: whatever the token, the transport opens no
+ * socket.
  *
- * The oracle is the README's order of Db.open's stages (role, schema, token, then the connection's) and its table of
- * their reasons, restated over the drawn verify and payload.
+ * The oracle is the README's order of Db.open's stages (role, schema, token) and its table of their reasons, restated
+ * over the drawn verify and payload.
  */
 /** A memory endpoint that ends every connection as soon as its TLS is up, its sockets counted by the case. */
 const closingMaterial = tlsMaterial("closing.grizzle.test")
@@ -578,7 +578,7 @@ const payloadValue = (payload: Payload): unknown => {
 type TokenVerdict =
 	| { readonly kind: "TokenError" }
 	| { readonly kind: "ClaimRefused"; readonly fault: ClaimRefused["fault"] }
-	| { readonly kind: "a connection's stage" }
+	| { readonly kind: "opened" }
 
 const tokenVerdict = (c: TokenCase): TokenVerdict => {
 	const verify = c.verify
@@ -590,7 +590,7 @@ const tokenVerdict = (c: TokenCase): TokenVerdict => {
 			const payload = verify.payload
 			switch (payload.kind) {
 				case "a claim of sub":
-					return { kind: "a connection's stage" }
+					return { kind: "opened" }
 				case "no sub":
 					return { kind: "ClaimRefused", fault: { kind: "missing", field: "sub" } }
 				case "a sub its field refuses":
@@ -845,20 +845,21 @@ describe("DbLayer.make", () => {
 									Effect.scoped
 								)
 							)
-							assert.ok(Exit.isFailure(exit), "the endpoint ends every connection, so no Db opens")
+							assert.equal(verified, 1, "verify runs once on the token")
+							assert.equal(opened, 0, "Db.open opens no socket, whatever the token")
+							const verdict = tokenVerdict(c)
+							if (verdict.kind === "opened") {
+								assert.ok(
+									Exit.isSuccess(exit),
+									`decoded claims open a Db, though the endpoint ends every connection: ${Exit.isFailure(exit) ? Cause.pretty(exit.cause) : ""}`
+								)
+								k.note("claims decoded")
+								return
+							}
+							assert.ok(Exit.isFailure(exit), "a refused token opens no Db")
 							const error = Cause.squash(exit.cause)
 							assert.ok(error instanceof OpenError, String(error))
-							assert.equal(verified, 1, "verify runs once on the token")
-							const verdict = tokenVerdict(c)
 							switch (verdict.kind) {
-								case "a connection's stage":
-									assert.ok(
-										Arr.contains(["credential", "tls", "authentication", "connect"], error.stage),
-										`past the token stage, at ${error.stage}`
-									)
-									assert.ok(opened > 0, "the open met the server")
-									k.note("claims decoded")
-									return
 								case "TokenError":
 									assert.equal(error.stage, "token")
 									assert.ok(error.reason instanceof TokenError, String(error.reason))
@@ -879,7 +880,6 @@ describe("DbLayer.make", () => {
 									k.note(`refused ${verdict.fault.kind}`)
 									break
 							}
-							assert.equal(opened, 0, "a refused token opens no socket")
 						})
 				)
 			)
