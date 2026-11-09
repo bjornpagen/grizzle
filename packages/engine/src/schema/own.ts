@@ -993,9 +993,14 @@ class Owner {
 	readonly #statements: Array<StatementEntry> = []
 	/** Each ordinary relation's namespace of row checks, filled as its check statements are owned. */
 	readonly #checkNames = new Map<string, DeclaredNamespace>()
+	/** Each contract by its name: its first descriptor, that descriptor's canonical text, and where it was first used. */
 	readonly #contracts = new Map<
 		string,
-		{ readonly desc: FieldDesc & { readonly kind: "contract" }; readonly loc: SourceLoc }
+		{
+			readonly desc: FieldDesc & { readonly kind: "contract" }
+			readonly text: string
+			readonly loc: SourceLoc
+		}
 	>()
 	readonly #mutable = new Set<string>()
 
@@ -1169,8 +1174,8 @@ class Owner {
 					if (d.kind === "contract") {
 						const prior = this.#contracts.get(d.name)
 						if (prior === undefined) {
-							this.#contracts.set(d.name, { desc: d, loc })
-						} else if (textOf(prior.desc) !== textOf(d)) {
+							this.#contracts.set(d.name, { desc: d, text: textOf(d), loc })
+						} else if (prior.text !== textOf(d)) {
 							failWith({
 								_tag: "DuplicateIdentity",
 								at: loc,
