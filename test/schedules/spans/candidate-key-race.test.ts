@@ -35,13 +35,14 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Scope } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
+import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { type ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -71,7 +72,9 @@ const statements = [bookingSpan, bookingRef]
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login
- * `server`, and the full role `direct` the direct actors take on, in the login `psql`.
+ * `server`, whose workload holds the empty ChangeSet a writer's first call applies, and the insert and the put of a
+ * booking, each of the facts its call gives; and the full
+ * role `direct` the direct actors take on, in the login `psql`.
  */
 const renamed = (name: string) => {
 	const base = schema(name, relations, statements)
@@ -81,7 +84,15 @@ const renamed = (name: string) => {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app]),
+		server: login(base, "server", [app], {
+			workload: [
+				workload(app, {
+					noop: ChangeSet.empty(base),
+					insertBooking: ChangeSet.empty(base).insert(Booking, []),
+					putBooking: ChangeSet.empty(base).put(Booking, [])
+				})
+			]
+		}),
 		psql: login(base, "psql", [direct])
 	}
 }
@@ -243,8 +254,10 @@ const runRace = (
 				`ALTER TABLE ${booking} DROP CONSTRAINT ${constraint}, ADD CONSTRAINT ${constraint} ${definition}`
 			])
 		}
-		const app = yield* rig.writer("app", (context) =>
-			openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+		const app = yield* rig.servedWriter(
+			"app",
+			(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
+			(db) => db.workload.noop.apply({})
 		)
 		const direct = yield* openActors(s, {
 			direct: { kind: "raw", as: rig.direct },
@@ -255,10 +268,6 @@ const runRace = (
 		)
 		const insert = (b: Booked) =>
 			`INSERT INTO ${booking} (${Arr.join(listed, ", ")}) VALUES ${values(b)}`
-		const changes =
-			race.how === "insert"
-				? ChangeSet.empty(rig.worlds.schema).insert(Booking, [race.requested])
-				: ChangeSet.empty(rig.worlds.schema).put(Booking, [race.requested])
 		const blocker: ReadonlyArray<RaceTxn<ApplyOutcome<unknown>>> =
 			race.blocker.kind === "none"
 				? []
@@ -274,7 +283,10 @@ const runRace = (
 			kind: "grizzle",
 			session: "app",
 			label: `apply ${race.how}`,
-			call: app.db.apply(changes, {}),
+			call:
+				race.how === "insert"
+					? app.db.workload.insertBooking.apply({ Booking: [race.requested] }, {})
+					: app.db.workload.putBooking.apply({ Booking: [race.requested] }, {}),
 			footprint: everyRelation
 		}
 		yield* runSerialRace(
