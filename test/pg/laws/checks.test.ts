@@ -1,6 +1,6 @@
 /**
  * Row checks, generated: the CHECK constraint grizzle installs for a row check accepts exactly the rows its predicate
- * holds on, under the name constraintNameOf gives its law.
+ * holds on, under the name constraintNamesOf's lookup gives its law.
  *
  * Each case is a predicate over a row of two integers and a short text, drawn from the forms a row check may use:
  * a field compared with a literal or with the other field, BETWEEN (its bounds sometimes reversed, which holds on
@@ -15,8 +15,8 @@
  * Each check's name is drawn from a pool of the batch's, so relations share names as an app's do: words, lowercase
  * words, acronyms and digit runs, joined directly, so that a case change, an acronym's last capital or a digit run's
  * edge splits them, or by one or two underscores, sometimes with an underscore last. The relation's one check
- * constraint in the catalog, and the constraint each refusal names, is the name constraintNameOf gives the check's
- * law as lawsOf lists it: a caller that spells the name itself, or derives it otherwise, is never needed.
+ * constraint in the catalog, and the constraint each refusal names, is the name constraintNamesOf's lookup gives the
+ * check's law as lawsOf lists it: a caller that spells the name itself, or derives it otherwise, is never needed.
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
@@ -39,7 +39,7 @@ import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
 	check,
-	constraintNameOf,
+	constraintNamesOf,
 	lawsOf,
 	relation,
 	type Statement,
@@ -450,7 +450,7 @@ const rowChecks = explore(
 
 /**
  * Installs a batch's predicates as one schema, and inserts each predicate's rows as a direct writer: each relation's one
- * check constraint, and each refusal's, is the name constraintNameOf gives the check's law.
+ * check constraint, and each refusal's, is the name constraintNamesOf's lookup gives the check's law.
  */
 const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]) =>
 	Effect.gen(function* () {
@@ -465,6 +465,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 			statements
 		)
 		const laws = lawsOf(declared)
+		const constraintNameOf = constraintNamesOf(declared)
 		const installed = yield* install(declared, {
 			ambient: ordinarySession,
 			label: "checks",
@@ -508,11 +509,11 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 				law !== undefined && more.length === 0,
 				`lawsOf lists one check law of Item${i}, its row check's`
 			)
-			const exported = constraintNameOf(declared, law)
+			const exported = constraintNameOf(law)
 			assert.deepEqual(
 				constraints,
 				[[exported]],
-				`${table}'s row check ${Formatter.format(s.name.text)} is installed as constraintNameOf names it`
+				`${table}'s row check ${Formatter.format(s.name.text)} is installed as constraintNamesOf names it`
 			)
 			for (const [j, row] of s.rows.entries()) {
 				const where = `predicate ${i}, ${Formatter.format(s.pred)}, on ${Formatter.format(row)}`

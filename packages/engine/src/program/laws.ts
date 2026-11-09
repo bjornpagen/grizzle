@@ -19,14 +19,22 @@ interface PlacedLaw {
 	readonly law: Law
 }
 
+/** A check law of a schema and a name it is installed under: a row check's CHECK, or a derived check's triggers'. */
+interface CheckName {
+	readonly law: Extract<Law, { readonly kind: "check" }>
+	readonly name: string
+}
+
 /**
- * A schema's laws, derived once from its law model: every law in the schema's canonical order of laws, and each owned
+ * A schema's laws, derived once from its law model: every law in the schema's canonical order of laws, each owned
  * statement's laws, by the statement's canonical text (Owned.statementAt), each at its position in that order, none for
- * a statement that states no law. The one derivation lawsOf and lawsByStatement read.
+ * a statement that states no law, and each check law with the name of every constraint or trigger that discharges it.
+ * The one derivation lawsOf, lawsByStatement and constraintNamesOf read.
  */
 interface SchemaLaws {
 	readonly laws: ReadonlyArray<Law>
 	readonly byStatement: ReadonlyMap<string, ReadonlyArray<PlacedLaw>>
+	readonly checks: ReadonlyArray<CheckName>
 }
 
 /**
@@ -65,6 +73,11 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
 				text,
 				Object.freeze((stated.get(statement) ?? []).map((s) => s.placed))
 			])
+		),
+		checks: model.constraints.flatMap((c) =>
+			c.laws.flatMap((l): ReadonlyArray<CheckName> =>
+				l.described.kind === "check" ? [{ law: l.described, name: c.name }] : []
+			)
 		)
 	}
 }
@@ -146,28 +159,29 @@ export const lawsByStatement = <S extends AnySchema>(
 }
 
 /**
- * constraintNameOf(schema, law): the name PostgreSQL holds the check `law` of a schema built by schema(...) or
- * schema.extend under, which a direct SQL writer's refusal by it names (SQLSTATE 23514): a row check's CHECK constraint,
- * its declared name converted (`E1_derived` installs as `e_1_derived`), and a check over a derived relation's facts the
- * constraint triggers that hold it on every table its definition reads, named from its law, since its own name is unique
- * in no table's namespace. It is the name the schema's law model gives the one constraint or trigger that discharges
- * the law, so the schema holds the information once and the name is never spelled again.
+ * constraintNamesOf(schema): the name PostgreSQL holds each check of a schema built by schema(...) or schema.extend
+ * under, compiled once, as a lookup: `const constraintNameOf = constraintNamesOf(schema)`, then `constraintNameOf(law)`
+ * is the name a direct SQL writer's refusal by the check `law` names (SQLSTATE 23514): a row check's CHECK constraint,
+ * its declared name converted (`E1_derived` installs as `e_1_derived`), and a check over a derived relation's facts
+ * the constraint triggers that hold it on every table its definition reads, named from its law, since its own name is
+ * unique in no table's namespace. It is the name the schema's law model gives the one constraint or trigger that
+ * discharges the law, read from the derivation lawsOf and lawsByStatement read, so the schema holds the information
+ * once and the name is never spelled again.
  *
- * It throws CompileError for a value lawsOf refuses, and MalformedDescription for a law that is no check of the schema.
- * Each call compiles the schema's laws.
+ * constraintNamesOf throws CompileError for a value lawsOf refuses, and the lookup MalformedDescription for a law that
+ * is no check of the schema. Each call of constraintNamesOf compiles the schema's laws; a lookup compiles nothing.
  */
-export const constraintNameOf = (
-	schema: AnySchema,
-	law: Extract<Law, { readonly kind: "check" }>
-): string => {
-	const names = new Set(
-		lawModelOf(schema, "constraintNameOf").constraints.flatMap((c) =>
-			c.laws.some((l) => canonicalEquals(l.described, law, withoutSourceLocs)) ? [c.name] : []
+export const constraintNamesOf = (
+	schema: AnySchema
+): ((law: Extract<Law, { readonly kind: "check" }>) => string) => {
+	const { checks } = schemaLaws(lawModelOf(schema, "constraintNamesOf"))
+	return (law) => {
+		const [name, ...others] = new Set(
+			checks.flatMap((c) => (canonicalEquals(c.law, law, withoutSourceLocs) ? [c.name] : []))
 		)
-	)
-	const [name, ...others] = names
-	if (name === undefined || others.length > 0) {
-		throw malformed("constraintNameOf", "a check the schema states, discharged under one name")
+		if (name === undefined || others.length > 0) {
+			throw malformed("constraintNamesOf", "a check the schema states, discharged under one name")
+		}
+		return name
 	}
-	return name
 }

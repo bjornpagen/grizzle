@@ -2771,11 +2771,13 @@ statement no level of the schema states.
 
 `sameLaw(a, b)` says whether two rules are one: `refused.laws.some((law) => sameLaw(law, rule))` says whether a
 refusal names `rule`, and a handler for each rule of `lawsOf(schema)` handles every refusal.
-`constraintNameOf(schema, law)` is the name PostgreSQL holds a check of the schema under, from its rule:
-`constraintNameOf(Credits, { kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a row
-check declared as `E1_derived` is `"e_1_derived"`. A check over a derived relation is held by a trigger on each table
-its query reads, named from its rule (`__<readable part>_<digest>`), since its own name could be a table's check's. A
-direct writer's refusal by the check names it, so take it from grizzle and never spell it. Each call compiles the rules.
+`constraintNamesOf(schema)` compiles the rules once and gives a lookup of the name PostgreSQL holds each check under:
+bind it once, `const constraintNameOf = constraintNamesOf(Credits)`, then
+`constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a row check
+declared as `E1_derived` is `"e_1_derived"`. A check over a derived relation is held by a trigger on each table its
+query reads, named from its rule (`__<readable part>_<digest>`), since its own name could be a table's check's. A direct
+writer's refusal by the check names it, so take it from grizzle and never spell it. A lookup compiles nothing, and
+throws `CompileError` for a rule that is no check of the schema.
 
 **Errors**, by operation:
 
@@ -3017,7 +3019,7 @@ as a login's role, `roleNameOf(login)`, `SET ROLE` to one of its roles, `roleNam
 transaction for a role that reads them
 (`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE. The
 schema's tables are in `schemaNameOf(schema)`, and a role's views in `schemaNameOf(role)`.
-A readable name spells what it is, and `constraintNameOf(schema, law)` gives a check's from its rule
+A readable name spells what it is, and `constraintNamesOf(schema)` gives a check's from its rule
 ([Errors and outcomes](#errors-and-outcomes)); `grizzle names` lists each hashed one with its COMMENT, which says what
 it is, read offline from the committed snapshot. PostgreSQL answers:
 

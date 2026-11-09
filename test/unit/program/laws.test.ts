@@ -38,6 +38,9 @@
  * schema states it, and is refused as MalformedDescription when it does not, as is a copy of a statement no builder
  * made. Planted in a scratch copy, a mirrors giving only its first containment, and a key restating a primary key given
  * a key law of its own instead of the primary key's, each fail it.
+ *
+ * constraintNamesOf(schema) gives each check law lawsOf lists the name the installation reports it under on its
+ * relation's table, through the same constraint-to-law map.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -68,6 +71,7 @@ import {
 	type AnyRelation,
 	type AnySchema,
 	closed,
+	constraintNamesOf,
 	lawsByStatement,
 	lawsOf,
 	type RowScalars,
@@ -598,6 +602,32 @@ const subjectOf = (
 	})
 }
 
+/** The installation's own constraint-to-law map, as adapter/witness installationWitness builds it. */
+const keyLawsOf = (installation: Installation) =>
+	keyLaws({
+		names: installation.names,
+		constraintLaws: installation.constraintLaws,
+		theoryLaws: installation.theoryLaws,
+		relations: [...installation.checked.relations.values()],
+		above: noLevelAbove
+	})
+
+/**
+ * Whether the installation reports the check `law` under `name` on its relation's table, as PostgreSQL reports the
+ * violation of a row check's CHECK or a derived check's trigger: by the table and the constraint's name.
+ */
+const reportsCheckAs = (
+	installation: Installation,
+	law: Extract<Law, { readonly kind: "check" }>,
+	name: string
+): boolean => {
+	const found = keyLawsOf(installation).lawsOf(admittedIdentifier(name), {
+		kind: "table",
+		name: installation.names.relation(law.relation).name
+	})
+	return found !== undefined && Arr.some(found.laws, (l) => sameLaw(l.described, law))
+}
+
 /**
  * Every law an installed object of `installation` can report, through the installation's own constraint-to-law map
  * (adapter/witness/keylaw.ts keyLaws, as adapter/witness installationWitness builds it): the laws of each table
@@ -607,13 +637,7 @@ const subjectOf = (
  * reports it.
  */
 const reportable = (installation: Installation): ReadonlyArray<Law> => {
-	const map = keyLaws({
-		names: installation.names,
-		constraintLaws: installation.constraintLaws,
-		theoryLaws: installation.theoryLaws,
-		relations: [...installation.checked.relations.values()],
-		above: noLevelAbove
-	})
+	const map = keyLawsOf(installation)
 	const installed = (name: ObjectName): boolean => map.schemas.has(name.schema)
 	const native = (owner: ConstraintOwner, constraint: string): ReadonlyArray<Law> => {
 		const found = map.lawsOf(admittedIdentifier(constraint), owner)
@@ -794,6 +818,7 @@ type LawsFeature =
 	| "a statement declared twice"
 	| "a statement restated a level above"
 	| "a level above"
+	| "a check's installed name"
 	| "another order listing the same laws"
 	| "a statement stating no law"
 	| "a law two statements state"
@@ -858,6 +883,7 @@ describe("lawsOf", () => {
 								"a statement of another schema stated here",
 								"a statement of another schema refused",
 								"a value no builder made refused",
+								"a check's installed name",
 								...Rec.values(lawKinds)
 							],
 							{ cases: 120, sense: notesOnly }
@@ -876,6 +902,16 @@ describe("lawsOf", () => {
 							const installation = installationOf(subject, { kind: "declared" })
 							const names = installationNamesOf(installation)
 							const reported = reportable(installation)
+							const constraintNameOf = constraintNamesOf(subject)
+							for (const law of laws) {
+								if (law.kind === "check") {
+									assert.ok(
+										reportsCheckAs(installation, law, constraintNameOf(law)),
+										`the installation reports the check ${Formatter.format(law)} under the name constraintNamesOf gives it`
+									)
+									k.note("a check's installed name")
+								}
+							}
 
 							for (const [i, law] of laws.entries()) {
 								assert.equal(
