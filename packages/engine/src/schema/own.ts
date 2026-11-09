@@ -1245,22 +1245,6 @@ class Owner {
 			: { kind: "stored", entry: { desc, level: entry.level, heading: headingOf(desc) } }
 	}
 
-	/**
-	 * The stored relations a derived relation reads, through every derived relation it reads: the tables its rules'
-	 * triggers are installed on.
-	 */
-	#storedBases(name: string, into: Set<string>): Set<string> {
-		const desc = this.#relations.get(name)?.desc
-		if (desc?.kind !== "derived") {
-			into.add(name)
-			return into
-		}
-		for (const read of queryUses(desc.query).relations) {
-			this.#storedBases(read, into)
-		}
-		return into
-	}
-
 	#ordinary(name: string, s: StatementEntry, why: string): LawRelationEntry {
 		const entry = this.#lawRelation(name, s)
 		if (entry.desc.kind !== "relation") {
@@ -1698,8 +1682,8 @@ class Owner {
 
 	/**
 	 * A row check over a derived relation's facts: its predicate over the definition's heading alone, and its name
-	 * declared in the check namespace of the derived relation and of every table it reads, whose constraint namespace its
-	 * triggers are named in (laws/model/model.ts RuleTrigger).
+	 * declared in the derived relation's check namespace. The triggers that hold it on the tables it reads are named by its
+	 * law (laws/model/model.ts RuleTrigger), never by its name, which is unique in no table's namespace.
 	 */
 	#derivedCheck(
 		d: Extract<StatementDesc, { readonly kind: "check" }>,
@@ -1719,17 +1703,10 @@ class Owner {
 				)
 			}
 		}
-		const declare = (relation: string): DeclaredName => {
-			const checks =
-				this.#checkNames.get(relation) ?? new DeclaredNamespace(`relation ${relation}'s check`)
-			this.#checkNames.set(relation, checks)
-			return declareName(checks, d.name, "check", d.loc)
-		}
-		const name = declare(d.relation)
-		for (const base of this.#storedBases(d.relation, new Set())) {
-			declare(base)
-		}
-		const named = identity.check(d.relation, name)
+		const checks =
+			this.#checkNames.get(d.relation) ?? new DeclaredNamespace(`relation ${d.relation}'s check`)
+		this.#checkNames.set(d.relation, checks)
+		const named = identity.check(d.relation, declareName(checks, d.name, "check", d.loc))
 		return { ...d, check: { named, constraint: identifierOf(named) } }
 	}
 

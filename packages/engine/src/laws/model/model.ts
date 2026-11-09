@@ -287,14 +287,14 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 
 /**
  * A rule over a query and the deferred constraint triggers that hold it (analysis/theory/query.ts): its law, its
- * triggers' one name, which PostgreSQL scopes to each table (a check's own name, any other rule's minted from its
- * law), and each ordinary relation it reads, what that relation's writes can break of it and the function its trigger
- * there runs. A closed relation it reads changes with no write, so it carries none.
+ * triggers' one name, minted from its law, which PostgreSQL scopes to each table, and each ordinary relation it reads,
+ * what that relation's writes can break of it and the function its trigger there runs. A closed relation it reads
+ * changes with no write, so it carries none.
  */
 export interface RuleTrigger {
 	readonly law: TheoryLaw
 	readonly rule: QueryRule
-	readonly named: Identity<"check" | "lawTrigger">
+	readonly named: Identity<"lawTrigger">
 	readonly tables: NonEmptyReadonlyArray<RuleTable>
 }
 
@@ -1090,17 +1090,16 @@ class Specializer {
 	}
 
 	/**
-	 * The triggers of a rule over a query: one name for the rule, a check's own and any other's minted from its law, and
-	 * on each ordinary relation it reads, a function of its own.
+	 * The triggers of a rule over a query: one name for the rule, minted from its law, and on each ordinary relation it
+	 * reads, a function of its own. A check's own name is no trigger's: its triggers stand on every table it reads, beside
+	 * each table's own constraints, so its name is unique in no table's namespace.
 	 */
 	#ruleTrigger(law: TheoryLaw): RuleTrigger {
 		const d = law.detail
 		if (d.kind !== "rule") {
 			return missing(`the rule over a query ${law.id} plans its triggers`)
 		}
-		const named = this.#named(
-			d.rule.kind === "check" ? d.rule.named : identity.lawTrigger(law.named)
-		)
+		const named = this.#named(identity.lawTrigger(law.named))
 		const tables = law.reads.flatMap((name): ReadonlyArray<RuleTable> => {
 			const relation = this.theory.relations[name]
 			const touched = touches(d.rule, name)

@@ -3,8 +3,8 @@
  * a rule whose side reads a derived relation are descriptions grizzle writes itself, so the checker refusing one is
  * grizzle's defect, never the schema's.
  *
- * The box is every rule of three kinds (a containment into the derived relation, one out of it, and a check over it)
- * over a derived relation of Item, read directly or through Item's semijoin with it, binding its own id by a variable
+ * The box is every rule of four kinds (a containment into the derived relation, one out of it, and a check over it
+ * under a name of its own or under the name of Item's own check, a table it reads) over a derived relation of Item, read directly or through Item's semijoin with it, binding its own id by a variable
  * or by a literal. The definition binds Item's kind by a variable or a literal, may join a Mark row whose id and on it
  * binds by a variable or a literal, and may negate a Mark row of the item, binding its on by a literal or not at all:
  * each probe site a literal binding reaches, a match's pinned key, a withdrawn match's field, an anti-join's binding
@@ -16,7 +16,10 @@
  * the equality of their bytes whatever patterns refine them, so each correlation is admitted, as a stored foreign key
  * between them is.
  *
- * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts.
+ * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts. Beside it, each name a
+ * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
+ * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
+ * its law's.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -24,6 +27,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import type { ConstraintLaw, ConstraintLawOf } from "#compiler/laws/model/model.ts"
+import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -45,7 +50,7 @@ type Negated = "none" | "item" | "literal"
 /** How the rule reads the derived relation: itself, or through Item's semijoin with it on id, bound so. */
 type Read = "itself" | Bound
 
-type Kind = "into" | "out of" | "check"
+type Kind = "into" | "out of" | "check" | "check named as Item's"
 
 interface RuleCase {
 	readonly kind: Bound
@@ -65,13 +70,15 @@ const ruleCase: Gen<RuleCase> = (s) => ({
 	),
 	negated: s.draw(element(["none", "item", "literal"] as const)),
 	read: s.draw(element(["itself", ...bounds] as const)),
-	rule: s.draw(element(["into", "out of", "check"] as const))
+	rule: s.draw(element(["into", "out of", "check", "check named as Item's"] as const))
 })
 
 const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
 const Mark = relation("Mark", { id: pg.integer, item: pg.integer, on: pg.integer }, ["id"])
 const Claim = relation("Claim", { item: pg.integer }, ["item"])
-const Base = schema("RuleQuery", { Item, Mark, Claim }, [])
+const Base = schema("RuleQuery", { Item, Mark, Claim }, [
+	check("Positive", Item, (x) => x.not(x.eq(x.kind, 0)))
+])
 
 /**
  * The case's schema: its derived relation, on a level of its own, then Item's semijoin with it and the rule over the
@@ -120,6 +127,8 @@ const schemaOf = (c: RuleCase) => {
 			case "out of":
 				return contained(on(side, "id"), on(Claim, "item"))
 			case "check":
+				return check("Nonzero", side, (x) => x.not(x.eq(x.id, 0)))
+			case "check named as Item's":
 				return check("Positive", side, (x) => x.not(x.eq(x.id, 0)))
 		}
 	})()
@@ -210,6 +219,24 @@ const textSchemaOf = (c: TextCase) => {
 
 type TextReached = `a ${Exclude<Pattern, "same">} ${"ref" | "note"}` | "into" | "out of"
 
+/**
+ * The names a table holds of two laws: PostgreSQL reports a violation by its table and constraint name alone, so a name
+ * under one table names one law, a table constraint's or a rule's trigger's.
+ */
+const clashesOf = (constraints: ReadonlyArray<ConstraintLaw>): ReadonlyArray<string> =>
+	Arr.flatMap([...Map.groupBy(constraints, (x) => `${x.owner} ${x.name}`)], ([at, named]) =>
+		Arr.dedupeWith(
+			Arr.flatMap(named, (x) => describedOf(x.laws)),
+			sameLaw
+		).length > 1
+			? [at]
+			: []
+	)
+
+/** The laws a constraint or trigger discharges, as an outcome names them. */
+const describedOf = (laws: ReadonlyArray<ConstraintLawOf>): ReadonlyArray<Law> =>
+	Arr.map(laws, (l) => l.described)
+
 type Reached = `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}` | Kind
 
 describe("a rule over a query", () => {
@@ -224,7 +251,7 @@ describe("a rule over a query", () => {
 						generator: ruleCase,
 						literal: Formatter.format,
 						limit: 500,
-						box: "every containment into, containment out of and check over a derived relation of Item, read itself or through a semijoin binding its id by a variable or a literal, whose definition binds kind, a joined Mark's id and on, and a negated Mark's on each by a variable or a literal",
+						box: "every containment into, containment out of and check over a derived relation of Item, the check named apart or as a check of Item, read itself or through a semijoin binding its id by a variable or a literal, whose definition binds kind, a joined Mark's id and on, and a negated Mark's on each by a variable or a literal",
 						oracle: {
 							kind: "specification",
 							name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
@@ -237,7 +264,8 @@ describe("a rule over a query", () => {
 							"a literal read id",
 							"into",
 							"out of",
-							"check"
+							"check",
+							"check named as Item's"
 						]),
 						caseHang
 					},
@@ -264,6 +292,11 @@ describe("a rule over a query", () => {
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
 								`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+							)
+							assert.deepEqual(
+								compiled.ok ? clashesOf(compiled.value.laws.constraints) : [],
+								[],
+								`each constraint or trigger name of ${Formatter.format(c)} names one law on its table`
 							)
 						})
 				)

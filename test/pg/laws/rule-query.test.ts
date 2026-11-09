@@ -14,8 +14,8 @@
  *   that evaluates J2, J3, Semi, Self and Lonely itself and judges every rule over the state a transaction leaves. A
  *   transaction commits exactly when the state it leaves keeps every rule. A direct SQL writer's refusal is at COMMIT,
  *   SQLSTATE 23503 for a containment, 23505 for the key and 23514 for the check, naming a trigger the installation's
- *   constraint map maps to a rule the model judges broken; grizzle's db.apply answers `invariant-rejected`, naming
- *   rules the model judges broken, its witness `unreported`.
+ *   constraint map maps to a rule the model judges broken, the check's under the name constraintNameOf gives its rule;
+ *   grizzle's db.apply answers `invariant-rejected`, naming rules the model judges broken, its witness `unreported`.
  * - **Concurrent writers:** after its serial history, each case opens two direct SQL transactions at SERIALIZABLE, each
  *   taking its snapshot, commits a ChangeSet through grizzle's db.apply while both are open, then runs both SQL
  *   writers' statements, both open before either commits, and reads every table back: the state committed keeps every
@@ -49,6 +49,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
+	constraintNameOf,
 	contained,
 	derived,
 	key,
@@ -737,6 +738,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							extensions: []
 						})
 						const value = ruleQuery(done.schema)
+						/** The name a direct writer's refusal by the check over J3 reports, its triggers', taken from grizzle. */
+						const checkName = constraintNameOf(value, {
+							kind: "check",
+							relation: "J3",
+							name: "NoTwoTwo"
+						})
 						const world = fullWorld(value)
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_query")
 						const context = yield* Layer.build(loginLayer(done, world.server))
@@ -898,6 +905,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											rule === undefined ||
 											!breaks.includes(rule) ||
 											verdict.fields.code !== codeOf(rule) ||
+											(rule === "check3" && verdict.fields.constraint !== checkName) ||
 											verdict.moment.kind !== "commit"
 										) {
 											return yield* new Disagreed({

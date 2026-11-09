@@ -1,6 +1,5 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
-import type { Identity } from "#compiler/core/identity.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
@@ -82,8 +81,6 @@ export type QueryRule =
 			readonly kind: "check"
 			readonly name: string
 			readonly predicate: ExprDesc
-			/** The check's identity at the naming door, which names the triggers that hold it on each table. */
-			readonly named: Identity<"check">
 			/** The derived relation's facts: a side of every fact, its terms every heading field. */
 			readonly side: RuleSide
 	  }

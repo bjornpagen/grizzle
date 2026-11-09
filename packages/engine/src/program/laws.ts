@@ -1,4 +1,5 @@
 import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/description.ts"
+import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -142,4 +143,31 @@ export const lawsByStatement = <S extends AnySchema>(
 					.map((p) => [p.position, p.law] as const)
 			).values()
 		])
+}
+
+/**
+ * constraintNameOf(schema, law): the name PostgreSQL holds the check `law` of a schema built by schema(...) or
+ * schema.extend under, which a direct SQL writer's refusal by it names (SQLSTATE 23514): a row check's CHECK constraint,
+ * its declared name converted (`E1_derived` installs as `e_1_derived`), and a check over a derived relation's facts the
+ * constraint triggers that hold it on every table its definition reads, named from its law, since its own name is unique
+ * in no table's namespace. It is the name the schema's law model gives the one constraint or trigger that discharges
+ * the law, so the schema holds the information once and the name is never spelled again.
+ *
+ * It throws CompileError for a value lawsOf refuses, and MalformedDescription for a law that is no check of the schema.
+ * Each call compiles the schema's laws.
+ */
+export const constraintNameOf = (
+	schema: AnySchema,
+	law: Extract<Law, { readonly kind: "check" }>
+): string => {
+	const names = new Set(
+		lawModelOf(schema, "constraintNameOf").constraints.flatMap((c) =>
+			c.laws.some((l) => canonicalEquals(l.described, law, withoutSourceLocs)) ? [c.name] : []
+		)
+	)
+	const [name, ...others] = names
+	if (name === undefined || others.length > 0) {
+		throw malformed("constraintNameOf", "a check the schema states, discharged under one name")
+	}
+	return name
 }

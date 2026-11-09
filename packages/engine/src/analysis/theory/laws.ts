@@ -935,7 +935,6 @@ export class Normalizer {
 							kind: "check",
 							name: s.name,
 							predicate: s.predicate,
-							named: s.check.named,
 							side: {
 								relation: s.relation,
 								terms: heading,

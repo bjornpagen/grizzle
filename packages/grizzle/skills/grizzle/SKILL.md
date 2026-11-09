@@ -598,9 +598,10 @@ The command line's own refusals, by stage:
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
   relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
   is `check`, and a login's or role's role and a role's schema join the schema's name and their own (roleNameOf,
-  schemaNameOf). `constraintNameOf(law)` gives a row check's installed name from
-  its law, `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`: a direct
-  writer or a test that matches a refusal's constraint takes it from there, never spelling it. Two declared names that
+  schemaNameOf). `constraintNameOf(schema, law)` gives a check's installed name from
+  its law, `constraintNameOf(Credits, { kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`,
+  and a check over a derived relation's is its triggers' digest name: a direct writer or a test that matches a refusal's
+  constraint takes it from there, never spelling it. Two declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or
   contract of the schema), a name may not start with `_`, a conversion (a login's or role's with its schema's) must

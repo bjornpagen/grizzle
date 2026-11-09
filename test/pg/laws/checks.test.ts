@@ -36,9 +36,15 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { constraintNameOf } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { check, lawsOf, relation, type Statement, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	constraintNameOf,
+	lawsOf,
+	relation,
+	type Statement,
+	schema
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -502,7 +508,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 				law !== undefined && more.length === 0,
 				`lawsOf lists one check law of Item${i}, its row check's`
 			)
-			const exported = constraintNameOf(law)
+			const exported = constraintNameOf(declared, law)
 			assert.deepEqual(
 				constraints,
 				[[exported]],
