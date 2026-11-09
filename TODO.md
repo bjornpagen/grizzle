@@ -45,6 +45,17 @@ post-beta swarm's fixes for the next release.
     query, its page template compiled once at startup), and a plain ordered program offers execute and get only, its
     typed handle without .page, so no form compiles a page nobody declared. It changes the workload builder and the
     Compiled handle types (README, SKILL), and qti-pie's and edullm's workloads only if they page a program.
+  - A Compute.matches pattern as a value (REGEX's proposal, 2026-11-09; not built, under main's 0.3 s bar).
+    Compute.matches takes its pattern as a raw string, and its builder admits it on every call (scalar/compute/
+    builders.ts matches, then regex/admit.ts matchPattern) and keeps only the refusal: Qti's build makes 121 such
+    admissions of 42 distinct sources, about 0.19 s of CPU, 0.13 s of it repeats. Compute.pattern(source) would return
+    a frozen Pattern<S> made only by admission (an instance of a grizzle-private class is the proof: no registry, no
+    cache), and Compute.matches would take a Pattern or a text term, never a string. doubleText and decimalText would be
+    Pattern values, lexicalForm(T) would return one, and RegexValidate would move to Compute.pattern's parameter. The
+    matches node's Description keeps the source text, so descriptions, digests and the snapshot stay byte-identical, and
+    qti-pie wraps each of its module-constant patterns once. It leaves the lowering's re-admission of a literal source
+    (the theory and law model, about 0.25 of 36.4 profile-seconds at 1ab38472), which only a Description carrying the
+    admitted pattern would remove, and that is a digest change.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
