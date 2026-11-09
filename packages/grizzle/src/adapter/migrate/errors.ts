@@ -90,20 +90,67 @@ type RowFailure = ServerError | CatalogRowRefused
  */
 type FlightFailure = ConnectionLost | DriverFailure | UnreadableAnswer | InputTooLarge
 
+/** How a read fails: the server refused it, the session failed, or it answered what the read cannot. */
+type ReadFailure = RowFailure | FlightFailure
+
 /**
- * How one statement fails: the server refused it, the session failed, it answered rows grizzle's SQL cannot deliver,
- * or the catalog answered what the statement cannot.
+ * How one statement fails: the server refused it, or refused it for want of shared memory in a migration's transaction
+ * (LockTableExhausted), the session failed, it answered rows grizzle's SQL cannot deliver, or the catalog answered what
+ * the statement cannot.
  */
-export type StatementFailure = RowFailure | FlightFailure
+export type StatementFailure = ReadFailure | LockTableExhausted
 
 const serverSaid = (e: ServerError): string =>
 	`SQLSTATE ${e.sqlstate}${e.constraint === undefined ? "" : ` (constraint ${e.constraint})`}: ${e.message}`
+
+/**
+ * The server's lock table as its settings size it, read in the migration's session once the refused transaction rolled
+ * back: about max_locks_per_transaction × (max_connections + max_prepared_transactions) locks, which every
+ * transaction of the server shares; or the read's own failure, when that session could not answer it.
+ */
+export type LockTable =
+	| {
+			readonly kind: "read"
+			readonly maxLocksPerTransaction: string
+			readonly maxConnections: string
+			readonly maxPreparedTransactions: string
+	  }
+	| { readonly kind: "unread"; readonly failure: ReadFailure }
+
+/** The lock table's size, as a refusal states it. */
+const lockTableText = (table: LockTable): string => {
+	const formula = "max_locks_per_transaction × (max_connections + max_prepared_transactions)"
+	switch (table.kind) {
+		case "read":
+			return `${formula} = ${table.maxLocksPerTransaction} × (${table.maxConnections} + ${table.maxPreparedTransactions}) locks`
+		case "unread":
+			return `${formula} locks (its settings could not be read: ${failureText(table.failure)})`
+	}
+}
+
+/**
+ * A statement of a migration's transaction, a file's or the drift check's replay, the server refused for want of shared
+ * memory (SQLSTATE 53200, its report kept): a transaction holds one lock per object it creates or alters until it ends,
+ * and the server's lock table, `table`, is shared by every transaction at once, so a migration that creates more
+ * objects than it holds stops, and rolls back whole. The fix is the server's setting, max_locks_per_transaction, which
+ * takes a restart; the migration's one transaction stays whole.
+ */
+export class LockTableExhausted extends Data.TaggedError("LockTableExhausted")<{
+	readonly error: ServerError
+	readonly table: LockTable
+}> {
+	override get message(): string {
+		return `the server ran out of shared memory for locks (${serverSaid(this.error)}): a migration's transaction holds one lock per object it creates or alters until it ends, and the server's lock table holds ${lockTableText(this.table)} for every transaction at once; raise max_locks_per_transaction (a server restart) until it holds more than the objects the migration creates, then run grizzle migrate again`
+	}
+}
 
 /** A statement's failure, as a refusal's message states it after a colon. */
 const failureText = (failure: StatementFailure): string => {
 	switch (failure._tag) {
 		case "ServerError":
 			return serverSaid(failure)
+		case "LockTableExhausted":
+			return failure.message
 		case "ConnectionLost":
 			return `the connection was lost${failure.ended.by === "server" ? `: ${serverSaid(failure.ended.error)}` : ""}`
 		case "CatalogRowRefused":
@@ -131,6 +178,8 @@ const serverReport = (failure: StatementFailure): ServerReport => {
 	switch (failure._tag) {
 		case "ServerError":
 			return { by: "server", error: failure }
+		case "LockTableExhausted":
+			return { by: "server", error: failure.error }
 		case "ConnectionLost":
 			return failure.ended.by === "server" ? failure.ended : noServerReport
 		case "CatalogRowRefused":
@@ -596,10 +645,10 @@ export class Drifted extends Data.TaggedError("Drifted")<{
 export class ReplayRefused extends Data.TaggedError("ReplayRefused")<{
 	readonly statement: number
 	readonly of: number
-	readonly failure: ServerError
+	readonly failure: ServerError | LockTableExhausted
 }> {
 	override get message(): string {
-		return `statement ${this.statement} of ${this.of} of the replay was refused: ${serverSaid(this.failure)}`
+		return `statement ${this.statement} of ${this.of} of the replay was refused: ${failureText(this.failure)}`
 	}
 }
 
@@ -621,8 +670,9 @@ export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
 			case "LedgerDamaged":
 				return noServerReport
 			case "ReplayRefused":
-				return { by: "server", error: failure.failure }
+				return serverReport(failure.failure)
 			case "ServerError":
+			case "LockTableExhausted":
 			case "ConnectionLost":
 			case "CatalogRowRefused":
 			case "DriverFailure":
@@ -641,8 +691,9 @@ export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
 			case "LedgerDamaged":
 				return failure.message
 			case "ReplayRefused":
-				return `the snapshot of ${this.schema} could not be built beside it to compare (statement ${failure.statement} of ${failure.of} of the replay): ${serverSaid(failure.failure)}`
+				return `the snapshot of ${this.schema} could not be built beside it to compare (statement ${failure.statement} of ${failure.of} of the replay): ${failureText(failure.failure)}`
 			case "ServerError":
+			case "LockTableExhausted":
 			case "ConnectionLost":
 			case "CatalogRowRefused":
 			case "DriverFailure":

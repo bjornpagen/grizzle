@@ -2926,6 +2926,15 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 ## Deploying
 
+Size the server's lock table before a large schema's first `grizzle migrate`. A migration runs in one transaction,
+which holds one lock per object it creates or alters until it commits, and PostgreSQL's lock table holds about
+`max_locks_per_transaction × (max_connections + max_prepared_transactions)` locks, shared by every transaction at once.
+Set `max_locks_per_transaction` (it takes a restart) so that product is above the number of objects the migration
+creates. Qti's first install holds about 15,100 locks (15,900 with the Ledger over it), 2.4 times a default server's
+64 × 100. On such a server `grizzle migrate` stops with SQLSTATE 53200, rolled back whole: the refusal keeps
+PostgreSQL's message, names `max_locks_per_transaction`, and states the three settings it read from the server. The
+drift check, which rebuilds the snapshot beside the schema in one transaction, needs the same.
+
 Build each `DbLayer` once per process. Building it parses the snapshot, compiles the laws of the relations the login's
 workloads name and write, the login's roles and every workload program for every role it runs on (the compilation
 `grizzle generate` ran), and checks the workloads' index needs

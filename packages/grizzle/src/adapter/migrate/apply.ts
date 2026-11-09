@@ -10,7 +10,7 @@ import {
 	stackDepthRequired,
 	stackTooShallow
 } from "#adapter/admission/expectation.ts"
-import type { BatchFailure, InputTooLarge } from "#adapter/errors/failures.ts"
+import type { BatchFailure, InputTooLarge, ServerError } from "#adapter/errors/failures.ts"
 import {
 	ApplyBusy,
 	Drifted,
@@ -19,6 +19,8 @@ import {
 	FileCommitRefused,
 	InputRefused,
 	LedgerUnlocked,
+	type LockTable,
+	LockTableExhausted,
 	LockUnread,
 	type MigrateError,
 	OwnedByAnother,
@@ -63,7 +65,12 @@ import {
 import { type ApartAnswer, sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C } from "#compiler/plan/catalog.ts"
-import { emitCatalog, type EmittedText, type SchemaFingerprint } from "#compiler/plan/common.ts"
+import {
+	emitCatalog,
+	type EmittedText,
+	type SchemaFingerprint,
+	sqlstates
+} from "#compiler/plan/common.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 
@@ -183,6 +190,70 @@ const sessionRead: CatalogQuery<SessionRow> = {
 	row: ([user, stackDepth]) =>
 		user === undefined || stackDepth === undefined ? undefined : { user, stackDepth }
 }
+
+const serverSettings = C.from("pg_settings", "s")
+
+/** A server setting as pg_settings reports it. */
+const settingColumn = (name: string): C.CatalogExpr =>
+	C.asText(
+		C.scalar(
+			C.query(
+				[serverSettings.col("setting")],
+				[serverSettings.item],
+				C.eq(serverSettings.col("name"), C.text(name))
+			)
+		)
+	)
+
+/** The settings that size the server's lock table (LockTable). */
+const lockTableRead: CatalogQuery<Extract<LockTable, { readonly kind: "read" }>> = {
+	sql: emitCatalog(
+		C.query(
+			[
+				settingColumn("max_locks_per_transaction"),
+				settingColumn("max_connections"),
+				settingColumn("max_prepared_transactions")
+			],
+			[],
+			undefined
+		)
+	),
+	what: "three settings",
+	row: ([locks, connections, prepared]) =>
+		locks === undefined || connections === undefined || prepared === undefined
+			? undefined
+			: {
+					kind: "read",
+					maxLocksPerTransaction: locks,
+					maxConnections: connections,
+					maxPreparedTransactions: prepared
+				}
+}
+
+/**
+ * A server's refusal of a statement of a migration's transaction, a file's or the drift check's replay, as the migration
+ * states it: a 53200, which a transaction that creates more objects than the server's lock table holds meets, is the
+ * table exhausted (LockTableExhausted), its settings read in the same session once the transaction rolled back, one
+ * statement apart on the failure path alone; any other refusal is itself.
+ */
+const refusalOf = (
+	session: MigrationSession,
+	error: ServerError
+): Effect.Effect<ServerError | LockTableExhausted> =>
+	error.sqlstate !== sqlstates.outOfMemory
+		? Effect.succeed(error)
+		: Effect.map(
+				Effect.result(
+					Effect.flatMap(session.apart([{ sql: lockTableRead.sql, params: [] }]), (answers) =>
+						Effect.fromResult(apartRow(lockTableRead, sentAnswer(answers, 0)))
+					)
+				),
+				(read) =>
+					new LockTableExhausted({
+						error,
+						table: Result.isSuccess(read) ? read.success : { kind: "unread", failure: read.failure }
+					})
+			)
 
 const namespace = C.from("pg_namespace", "n")
 
@@ -405,10 +476,11 @@ const runFile = (
 	]
 	/**
 	 * The file's transaction: the ledger's lock, its statements, if it runs them inside it, then its rows. A refusal
-	 * names the lock, the statement or the row that refused it.
+	 * names the lock, the statement or the row that refused it, as the migration states the server's refusal
+	 * (refusalOf).
 	 */
 	const transaction = (count: number) =>
-		Effect.mapError(
+		Effect.catch(
 			session.transaction([
 				...fence,
 				...Arr.map(file.statements.slice(0, count), (sql) => ({ sql, params: [] })),
@@ -418,21 +490,27 @@ const runFile = (
 				switch (failure._tag) {
 					case "BatchRefused": {
 						const index = failure.index - fence.length
-						return index < 0
-							? lockFailed(schema, at, failure.failure)
-							: index < count
-								? statementFailed(index)(failure.failure)
-								: recordFailed(failure.failure)
+						return Effect.flatMap(refusalOf(session, failure.failure), (refusal) =>
+							Effect.fail(
+								index < 0
+									? lockFailed(schema, at, refusal)
+									: index < count
+										? statementFailed(index)(refusal)
+										: recordFailed(refusal)
+							)
+						)
 					}
 					case "CommitRefused":
 					case "CommitLost":
-						return commitFailed(failure)
+						return Effect.fail(commitFailed(failure))
 					case "ConnectionLost":
 					case "DriverFailure":
 					case "UnreadableAnswer":
 					case "InputTooLarge":
-						return stopped(
-							new TransactionFailed({ schema, folder: folder.name, file: file.name, failure })
+						return Effect.fail(
+							stopped(
+								new TransactionFailed({ schema, folder: folder.name, file: file.name, failure })
+							)
 						)
 				}
 			}
@@ -555,25 +633,31 @@ const runPlan = Effect.fn("runPlan")(function* (
 
 /**
  * What stopped the drift check's transaction: a refusal of a statement of the replay is the replay's (ReplayRefused,
- * numbered within the replay), and every other failure is the reads' (decidingFailure).
+ * numbered within the replay), as the migration states the server's refusal (refusalOf), and every other failure is the
+ * reads' (decidingFailure).
  */
 const driftFailure = (
+	session: MigrationSession,
 	replay: FlightSpan,
 	failure: BatchFailure
-): ReplayRefused | StatementFailure => {
+): Effect.Effect<ReplayRefused | StatementFailure> => {
 	switch (failure._tag) {
 		case "BatchRefused": {
 			const at = failure.index - replay.from
 			return at >= 0 && at < replay.count
-				? new ReplayRefused({ statement: at + 1, of: replay.count, failure: failure.failure })
-				: failure.failure
+				? Effect.map(
+						refusalOf(session, failure.failure),
+						(refusal) =>
+							new ReplayRefused({ statement: at + 1, of: replay.count, failure: refusal })
+					)
+				: Effect.succeed(failure.failure)
 		}
 		case "CommitRefused":
 		case "CommitLost":
 		case "ConnectionLost":
 		case "DriverFailure":
 		case "UnreadableAnswer":
-			return decidingFailure(failure)
+			return Effect.succeed(decidingFailure(failure))
 	}
 }
 
@@ -602,8 +686,10 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 		),
 		unchecked
 	)
-	const outcomes = yield* Effect.mapError(Effect.fromResult(answered.framed), (failure) =>
-		unchecked(driftFailure(drift.replay, failure))
+	const outcomes = yield* Effect.catch(Effect.fromResult(answered.framed), (failure) =>
+		Effect.flatMap(driftFailure(session, drift.replay, failure), (refused) =>
+			Effect.fail(unchecked(refused))
+		)
 	)
 	const found = yield* Effect.mapError(drift.flight.read(outcomes), unchecked)
 	/** Each mismatch is a fact of its own, which the report lists one per line. */
