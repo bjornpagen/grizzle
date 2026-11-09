@@ -4,17 +4,23 @@
  * grizzle's defect, never the schema's.
  *
  * The box is every rule of four kinds (a containment into the derived relation, one out of it, and a check over it
- * under a name of its own or under the name of Item's own check, a table it reads) over a derived relation of Item, read directly or through Item's semijoin with it, binding its own id by a variable
- * or by a literal. The definition binds Item's kind by a variable or a literal, may join a Mark row whose id and on it
- * binds by a variable or a literal, and may negate a Mark row of the item, binding its on by a literal or not at all:
- * each probe site a literal binding reaches, a match's pinned key, a withdrawn match's field, an anti-join's binding
- * and a match of a derived relation inlined in another's definition.
+ * under a name of its own or under the name of Item's own check, a table it reads) over a derived relation of Item,
+ * read directly or through Item's semijoin with it, binding its own id by a variable or by a literal. The definition
+ * binds Item's kind by a variable or a literal, may join a Mark row whose id and on it binds by a variable or a literal,
+ * and may negate a Mark row of the item, binding its on by a literal or not at all: each probe site a literal binding
+ * reaches, a match's pinned key, a withdrawn match's field, an anti-join's binding and a match of a derived relation
+ * inlined in another's definition.
  *
  * A second box correlates texts of different refinements: a containment into or out of a derived relation of Doc,
  * read directly or through Doc's semijoin with it, between Doc's path and a Ref's of the same, a narrower or a wider
  * pattern, the definition negating a Note of the doc's path of each of those patterns or none. Equality of two texts is
  * the equality of their bytes whatever patterns refine them, so each correlation is admitted, as a stored foreign key
  * between them is.
+ *
+ * A third box reads a head literal: a derived relation of Item whose two arms deliver a text as a JavaScript literal,
+ * one in both or one each, the union's discriminant, read directly and through Item's semijoin with it binding it by a
+ * variable or by a literal, under a check, a key and a selection that read it, and a containment into it. A bare head
+ * literal takes its column's type, so it stands wherever a term of the column does.
  *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts. Beside it, each name a
  * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
@@ -31,7 +37,16 @@ import type { ConstraintLaw, ConstraintLawOf } from "#compiler/laws/model/model.
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	contained,
+	derived,
+	key,
+	on,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { assert } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -237,6 +252,101 @@ const clashesOf = (constraints: ReadonlyArray<ConstraintLaw>): ReadonlyArray<str
 const describedOf = (laws: ReadonlyArray<ConstraintLawOf>): ReadonlyArray<Law> =>
 	Arr.map(laws, (l) => l.described)
 
+/**
+ * How a derived relation's two arms deliver its head literal: one in both, or one each, the union's discriminant. Both
+ * taggings are one query of two arms, so a case's values alone tell them apart.
+ */
+type Tagging = "same" | "distinct"
+
+/** What the rules over the tagged relation and over its semijoin do with the literal's column. */
+type TagRule = "check" | "key" | "selection" | "into"
+
+interface TagCase {
+	readonly tagging: Tagging
+	/** How Item's semijoin with the tagged relation binds its column: by a variable, or by a literal. */
+	readonly read: Bound
+	readonly rule: TagRule
+}
+
+const tagCase: Gen<TagCase> = (s) => ({
+	tagging: s.draw(element(["same", "distinct"] as const)),
+	read: s.draw(element(bounds)),
+	rule: s.draw(element(["check", "key", "selection", "into"] as const))
+})
+
+const tags = str.bytes(20, str.regex("^[a-z]+$"))
+const Tag = relation("Tag", { item: pg.integer, tag: tags }, ["item"])
+const Tags = schema("RuleQueryTags", { Item, Tag }, [])
+
+/**
+ * The case's schema, its head literals texts: Item's facts tagged "a" in both arms, or "a" and "b", on a level of
+ * their own, then Read, Item's semijoin with them binding the tag by a variable or a literal, and the case's rule over
+ * each.
+ */
+const tagSchemaOf = (c: TagCase) => {
+	const Tagged = derived(
+		"Tagged",
+		query(Tags)
+			.rule((r) => {
+				const { id } = v(Item, "item")
+				return r.match(Item, { id }).find({ id, tag: "a" })
+			})
+			.rule((r) => {
+				const { id } = v(Item, "item")
+				return r.match(Item, { id }).find({ id, tag: c.tagging === "same" ? "a" : "b" })
+			})
+	)
+	const Middle = schema.extend(Tags, "RuleQueryTagsMiddle", { Tagged }, [])
+	const Read = derived(
+		"Read",
+		query(Middle).rule((r) => {
+			const { id } = v(Item, "item")
+			const { tag } = v(Tag, "tag")
+			return r
+				.match(Item, { id })
+				.match(Tag, { item: id, tag })
+				.match(Tagged, { id, tag: c.read === "literal" ? "a" : tag })
+				.find({ id, tag })
+		})
+	)
+	const rules = (() => {
+		switch (c.rule) {
+			case "check":
+				return [
+					check("NotA", Tagged, (x) => x.not(x.eq(x.tag, "a"))),
+					check("NotA", Read, (x) => x.not(x.eq(x.tag, "a")))
+				]
+			case "key":
+				return [key(on(Tagged, "tag")), key(on(Read, "tag"))]
+			case "selection":
+				return [
+					contained(
+						on(
+							select(Tagged, (x) => x.eq(x.tag, "a")),
+							"id"
+						),
+						on(Tag, "item")
+					),
+					contained(
+						on(
+							select(Read, (x) => x.eq(x.tag, "a")),
+							"id"
+						),
+						on(Tag, "item")
+					)
+				]
+			case "into":
+				return [
+					contained(on(Tag, "item", "tag"), on(Tagged, "id", "tag")),
+					contained(on(Tag, "item", "tag"), on(Read, "id", "tag"))
+				]
+		}
+	})()
+	return schema.extend(Middle, "RuleQueryTagsTop", { Read }, rules)
+}
+
+type TagReached = `${Tagging} tagging` | `read by a ${Bound}` | TagRule
+
 type Reached = `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}` | Kind
 
 describe("a rule over a query", () => {
@@ -339,6 +449,50 @@ describe("a rule over a query", () => {
 								k.note(`a ${c.note} note`)
 							}
 							const compiled = testArtifacts(textSchemaOf(c), testCompile)
+							assert.deepEqual(
+								compiled.ok ? undefined : compiled.error.reason,
+								undefined,
+								`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"compiles whenever the builders admit it, a head literal read where a term of its column stands",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/theory/rule-query/head",
+						generator: tagCase,
+						literal: Formatter.format,
+						limit: 100,
+						box: "every check, key and selection over, and containment into, a derived relation of Item whose two arms deliver a text head literal, one in both or a discriminant, and over its semijoin binding it by a variable or a literal",
+						oracle: {
+							kind: "specification",
+							name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
+						},
+						coverage: requiredInSpace<TagReached>([
+							"same tagging",
+							"distinct tagging",
+							"read by a variable",
+							"read by a literal",
+							"check",
+							"key",
+							"selection",
+							"into"
+						]),
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							k.note(`${c.tagging} tagging`)
+							k.note(`read by a ${c.read}`)
+							k.note(c.rule)
+							const compiled = testArtifacts(tagSchemaOf(c), testCompile)
 							assert.deepEqual(
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,

@@ -33,6 +33,7 @@ import {
 } from "#compiler/analysis/theory/families.ts"
 import {
 	derivedSideArms,
+	type LiveEnv,
 	liveArms,
 	type QueryRule,
 	type RuleSide,
@@ -486,6 +487,8 @@ interface NormalizeEnv {
 	readonly relations: ReadonlyMap<string, TheoryRelation>
 	/** Each derived relation's definition, by name: undefined for a stored or closed relation. */
 	readonly definition: (relation: string) => QueryDesc | undefined
+	/** The descriptor each column of a definition is delivered at (query.ts LiveEnv.columnType). */
+	readonly columnType: LiveEnv["columnType"]
 	/** A law's identity at the naming door (theory.ts lawIdentityOf). */
 	readonly named: (law: LawIdentity) => Identity<"law">
 	/** What lowering a law's predicate or term reads of the schema's types, and the closed relations it may apply. */
@@ -917,7 +920,11 @@ export class Normalizer {
 			case "check": {
 				const definition = this.env.definition(s.relation)
 				if (definition !== undefined) {
-					const arms = liveArms(s.relation, definition, { definition: this.env.definition, loc })
+					const arms = liveArms(s.relation, definition, {
+						definition: this.env.definition,
+						columnType: this.env.columnType,
+						loc
+					})
 					const [field, ...fields] = Object.keys(arms[0].head)
 					if (field === undefined) {
 						return refuse(
@@ -1056,7 +1063,11 @@ export class Normalizer {
 			selection: scope.selection,
 			texts,
 			arms: derivedSideArms(
-				liveArms(scope.relation, definition, { definition: this.env.definition, loc }),
+				liveArms(scope.relation, definition, {
+					definition: this.env.definition,
+					columnType: this.env.columnType,
+					loc
+				}),
 				terms,
 				scope.selection,
 				loc

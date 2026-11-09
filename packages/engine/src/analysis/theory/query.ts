@@ -85,11 +85,23 @@ export type QueryRule =
 			readonly side: RuleSide
 	  }
 
-/** Where a live definition is read: each derived relation's definition by name, undefined for a stored or closed one. */
+/**
+ * Where a live definition is read: each derived relation's definition by name, undefined for a stored or closed one, and
+ * the descriptor each column of a definition, or of a query it imports, is delivered at.
+ */
 export interface LiveEnv {
 	readonly definition: (relation: string) => QueryDesc | undefined
+	/**
+	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at, as the checker types
+	 * it: what a bare head literal of the column is typed by, so the literal stands wherever a term of the column does;
+	 * none for a column of no declared type, whose literal stays bare, as it is in the definition.
+	 */
+	readonly columnType: (relation: string, query: QueryDesc, loc: SourceLoc) => ColumnTypes
 	readonly loc: SourceLoc
 }
+
+/** The type of each column of a query's heading a bare head literal takes (LiveEnv.columnType). */
+type ColumnTypes = (column: string) => FieldDesc | undefined
 
 /** The leaves an arm's expressions are rewritten by: a variable or a field, each to its replacement. */
 interface Leaves {
@@ -241,8 +253,11 @@ const eq = (left: ExprDesc, right: ExprDesc): ExprDesc => ({
 	right
 })
 
+/** A literal of no type of its own, which takes the type of the term it meets. */
+type BareLiteral = Extract<ExprDesc, { readonly kind: "literal" }> & { readonly type: undefined }
+
 /** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
-const isBare = (e: ExprDesc): boolean => e.kind === "literal" && e.type === undefined
+const isBare = (e: ExprDesc): e is BareLiteral => e.kind === "literal" && e.type === undefined
 
 /**
  * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
@@ -278,26 +293,34 @@ class Flattener {
 		)
 	}
 
-	/** The arms of `query`, a definition of `relation`, flattened. */
+	/**
+	 * The arms of `query`, a definition of `relation`, flattened, each bare head literal typed at its column's descriptor
+	 * (LiveEnv.columnType), which the checker reads `query` for on the first such literal alone.
+	 */
 	arms(relation: string, query: QueryDesc): NonEmptyReadonlyArray<LiveArm> {
-		const arms = this.#stage(relation, query.stage)
+		let read: ColumnTypes | undefined
+		const columns: ColumnTypes = (column) => {
+			read ??= this.env.columnType(relation, query, this.env.loc)
+			return read(column)
+		}
+		const arms = this.#stage(relation, query.stage, columns)
 		if (!isNonEmpty(arms)) {
 			return this.#refuse(relation, "derives no fact")
 		}
 		return arms
 	}
 
-	#stage(relation: string, stage: QueryStageDesc): ReadonlyArray<LiveArm> {
+	#stage(relation: string, stage: QueryStageDesc, columns: ColumnTypes): ReadonlyArray<LiveArm> {
 		switch (stage.kind) {
 			case "rules":
-				return stage.arms.flatMap((r) => this.#rule(relation, r))
+				return stage.arms.flatMap((r) => this.#rule(relation, r, columns))
 			case "union":
 				return [
-					...this.#stage(relation, stage.input),
-					...stage.arms.flatMap((r) => this.#rule(relation, r))
+					...this.#stage(relation, stage.input, columns),
+					...stage.arms.flatMap((r) => this.#rule(relation, r, columns))
 				]
 			case "named":
-				return this.#stage(relation, stage.input)
+				return this.#stage(relation, stage.input, columns)
 			case "recursive":
 				return this.#refuse(relation, "recurses")
 			case "attach":
@@ -310,8 +333,11 @@ class Flattener {
 		}
 	}
 
-	/** One rule's arms: its own, every derived relation and imported query it matches inlined. */
-	#rule(relation: string, rule: RuleDesc): ReadonlyArray<LiveArm> {
+	/**
+	 * One rule's arms: its own, every derived relation and imported query it matches inlined, each bare head literal typed
+	 * at its column (`columns`).
+	 */
+	#rule(relation: string, rule: RuleDesc, columns: ColumnTypes): ReadonlyArray<LiveArm> {
 		if (rule.interiors.length > 0) {
 			return this.#refuse(relation, "nests a stage")
 		}
@@ -323,7 +349,8 @@ class Flattener {
 		const leaves: Leaves = { var: (id) => varRef(rename(id)), field: () => undefined }
 		const head: Record<string, ExprDesc> = {}
 		for (const [name, term] of Object.entries(rule.head)) {
-			head[name] = mapLeaves(this.#headTerm(relation, term), leaves)
+			const t = this.#headTerm(relation, term)
+			head[name] = mapLeaves(isBare(t) ? { ...t, type: columns(name) } : t, leaves)
 		}
 		const where = rule.where.map((w) => {
 			const foreign = w.kind === "absent" ? this.#negation(w) : foreignLeaf(w)

@@ -1,5 +1,6 @@
+import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
+import { refuse, ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
 import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
@@ -25,7 +26,7 @@ import {
 	type Spelling,
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
-import { checkQuery } from "#compiler/check/index.ts"
+import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -60,6 +61,7 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
+	isNumericValue,
 	Roster,
 	type ScalarType,
 	spanOf
@@ -451,6 +453,40 @@ class Builder {
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
 	}
 
+	/**
+	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at: its heading as the
+	 * checker types it against the checked schema, a bare head literal's column by its value or by its position in a
+	 * union, each column the descriptor a declaration of its type writes. A computed numeric, a Decimal head literal's
+	 * column that no other arm types, is no declaration's type, so its literal keeps none of its own and takes the type
+	 * of the term it meets, as it does in the definition.
+	 */
+	#columnType(
+		relation: string,
+		query: QueryDesc,
+		loc: SourceLoc
+	): (column: string) => FieldDesc | undefined {
+		const admitted = checkDefinition(this.checked, `derived ${relation}`, query)
+		if (!admitted.ok) {
+			throw new Refusal(admitted.error)
+		}
+		const heading = new Map(
+			admitted.value.dag.roots[0].heading.map((c) => [c.name, c.type] as const)
+		)
+		return (column) => {
+			const type = heading.get(column)
+			if (type === undefined) {
+				return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
+			}
+			if (isNumericValue(type)) {
+				return undefined
+			}
+			const desc = declaredDescOf(type, this.owned.contracts)
+			return desc.ok
+				? desc.value
+				: refuse("MalformedDescription", loc, `a declared type of ${relation}.${column}`)
+		}
+	}
+
 	#type(desc: FieldDesc, loc: SourceLoc): ScalarType {
 		const t = this.fieldType(desc, loc)
 		if (!t.ok) {
@@ -469,6 +505,7 @@ class Builder {
 		const normalizer = new Normalizer({
 			relations: this.relations,
 			definition: (relation) => this.definitions.get(relation),
+			columnType: (relation, query, loc) => this.#columnType(relation, query, loc),
 			named: lawIdentityOf,
 			lowerEnv: {
 				fieldType: this.fieldType,
