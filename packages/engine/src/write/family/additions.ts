@@ -408,7 +408,9 @@ const appendedOf = (
 			const appended = shapedCte(supply, "appended member", keys)
 			const arms = mapNonEmpty(source.slots, ({ as, slot }) => {
 				const compared =
-					as === "inserts" ? slot.heading.map(fieldOf) : member.relation.primaryFields.map(fieldOf)
+					as === "inserts"
+						? slot.input.stated.map(fieldOf)
+						: member.relation.primaryFields.map(fieldOf)
 				const [first, ...rest] = compared
 				if (first === undefined) {
 					throw defect(`the fields of ${name}'s slot, which holds its key`)

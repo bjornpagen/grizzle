@@ -287,7 +287,15 @@ const readEdit = (
 			[...member.layout.key, ...member.layout.columns].find((c) => c.key === key),
 			`the column ${key} of ${name}`
 		).column
-	const puts = member.puts === undefined ? undefined : slots(name, member.puts)
+	/** The put's facts, and the fields it states of a row it updates in place: its caller's, never the counts and ends
+	 * its slot carries for the rows it inserts, which a stored owner's own members keep. */
+	const put =
+		member.puts === undefined
+			? undefined
+			: {
+					facts: slots(name, member.puts),
+					stated: new Set(member.puts.input.stated.map((c) => fieldKey(c.name)))
+				}
 	const deletes = member.deletes === undefined ? undefined : slots(name, member.deletes)
 	const keyFields = relation.primaryFields
 	const at = (alias: string, facts: Shaped, s: string): Expr =>
@@ -300,9 +308,10 @@ const readEdit = (
 	const p = supply.relation(internal("edited put"))
 	const d = supply.relation(internal("edited delete"))
 	const putAt = (moved: boolean): Expr | undefined => {
-		if (puts === undefined) {
+		if (put === undefined) {
 			return undefined
 		}
+		const puts = put.facts
 		const groups = sameGroups(
 			member,
 			(field) => col(p, columnAt(puts, fieldKey(field))),
@@ -339,11 +348,11 @@ const readEdit = (
 			)
 		)
 	)
-	/** The rows a put updates in place, every caller field the put's and every other column as stored. */
+	/** The rows a put updates in place, every field it states the put's and every other column as stored. */
 	const updated = shapedCte(supply, "updated member", keys)
 	const s2 = supply.relation(internal("updated stored row"))
 	const p2 = supply.relation(internal("updated put"))
-	if (puts === undefined) {
+	if (put === undefined) {
 		ctes.push(
 			cte(
 				updated.name,
@@ -361,6 +370,7 @@ const readEdit = (
 			)
 		)
 	} else {
+		const puts = put.facts
 		const groups = sameGroups(
 			member,
 			(field) => col(p2, columnAt(puts, fieldKey(field))),
@@ -374,7 +384,7 @@ const readEdit = (
 					provedCore(
 						"keyed",
 						keys.map((k) => {
-							const fromPut = puts.columns.get(k)
+							const fromPut = put.stated.has(k) ? puts.columns.get(k) : undefined
 							return targetAs(
 								fromPut === undefined ? col(s2, installed(w, name, columnOf(k))) : col(p2, fromPut),
 								columnAt(updated, k)

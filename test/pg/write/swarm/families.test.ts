@@ -1192,6 +1192,77 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted"]
+	},
+	{
+		note: "found: an immutable counted member that owns a counted family, inserted beside its own members, once inserted at its empty family's count and max end, which its members' owner axis refuses",
+		sketch: {
+			spec: {
+				fill: coreOf(
+					[true, false, true],
+					[
+						{ kind: "counted", owner: 0, member: 1, fold: "none" },
+						{ kind: "counted", owner: 1, member: 2, fold: "none" }
+					],
+					[],
+					[]
+				),
+				ends: [{ family: 1, monoid: "max" }],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 2, id: 3, v: 2n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+						{ relation: 2, id: 4, v: 0n, memberOf: [{ family: 1, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a member owning a family written", "a max end folded"]
+	},
+	{
+		note: "found: a mutable owner's counted members, immutable, owning it back in a counted family with a sum fold, all inserted in one stratum, once refused for the immutable owner's empty count",
+		sketch: {
+			spec: {
+				fill: coreOf(
+					[true, false],
+					[
+						{ kind: "counted", owner: 0, member: 1, fold: "count" },
+						{ kind: "counted", owner: 1, member: 0, fold: "sum" }
+					],
+					[],
+					[]
+				),
+				ends: [{ family: 0, monoid: "or" }],
+				plains: [{ kind: "set", mutable: false }],
+				laws: [
+					{ kind: "member key", family: 0 },
+					{ kind: "into set", relation: 0, plain: 0 }
+				]
+			},
+			steps: [
+				{
+					kind: "insert",
+					rows: [
+						{ relation: 0, id: 1, v: 0n, memberOf: [{ family: 1, owner: 3, slot: 0 }] },
+						{ relation: 1, id: 2, v: -1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+					],
+					plain: [{ op: "insert", row: { kind: "set", plain: 0, x: 0n }, at: "with" }],
+					conflict: undefined,
+					orphan: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a cycle of families written", "a member owning a family written"]
 	}
 ]
 

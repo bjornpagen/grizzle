@@ -1516,15 +1516,28 @@ const compile = (
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
 					})
 				}
+				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
+				 * slot is the owner's own rows: a query entry's slot fills its fill, a member of the owner whose head holds only
+				 * the fields its facts state (check/member.ts memberHeading), so the owner's insert writes them at their starts
+				 * and the stratum's appends to it take its count statement. */
+				const owned =
+					target.kind === "whole" && families.some((f) => f.owner.name === relation.name)
+						? written.heading
+								.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
+								.map(carriedColumn)
+						: []
 				if (
 					managed(relation.name) &&
 					!families.some((f) => isTreeOf(f, relation.name)) &&
 					!(op === "insert" && nests(relation.name))
 				) {
-					const heading = classes.complete
+					/** A member relation that owns counted families carries their counts and ends in its insert and put slots,
+					 * as an owner's own slot does: the rows its additions append are inserted with them, as the stratum's
+					 * appends to them draw them (write/program/bind.ts freshOwners). */
+					const heading = op === "delete" ? classes.complete : [...classes.complete, ...owned]
 					const act: SingleAct =
 						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
-					const slot = singleInput(act, heading, heading)
+					const slot = singleInput(act, heading, classes.complete)
 					if (slot !== undefined) {
 						edits.push(
 							Object.freeze({
@@ -1536,16 +1549,6 @@ const compile = (
 					}
 					continue
 				}
-				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
-				 * slot is the owner's own rows: a query entry's slot fills its fill, a member of the owner whose head holds only
-				 * the fields its facts state (check/member.ts memberHeading), so the owner's insert writes them at their starts
-				 * and the stratum's appends to it take its count statement. */
-				const owned =
-					target.kind === "whole" && families.some((f) => f.owner.name === relation.name)
-						? written.heading
-								.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
-								.map(carriedColumn)
-						: []
 				switch (op) {
 					case "put": {
 						const act = { op }
