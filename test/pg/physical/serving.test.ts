@@ -83,10 +83,13 @@ import { upTo } from "#test/support/up-to.ts"
  *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; a join key on a key column
  *   and a column of many values, beside span predicates whose GiST index holds both after its lead, which PostgreSQL
  *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
- *   about once in 200 cases; and a span predicate on a field of a two-field key and a span, beside a take seek whose
+ *   about once in 200 cases; a span predicate on a field of a two-field key and a span, beside a take seek whose
  *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
  *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
- *   needed still, since the B-tree does not search the span by overlap (serving.ts).
+ *   needed still, since the B-tree does not search the span by overlap (serving.ts); and a span predicate on a text
+ *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
+ *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
+ *   (serving.ts).
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
  *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
@@ -1971,6 +1974,91 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"overlap probe served",
 			"ordered probe served",
 			"served by a created index",
+			"a created index needed"
+		]
+	},
+	{
+		note: "a span predicate on Rel1x0's (Bool, span40), Bool a text field of its key the load fills with two ideographs, whose GiST index, led by that text, btree_gist prices by its leading bytes through PostgreSQL 19: the predicate's one row takes 26 buffers of the index's 207 pages",
+		sketch: {
+			population: "swarm",
+			swarm: {
+				"bind fresh": 1,
+				"bind param": 1,
+				negation: 1,
+				"key read": 1,
+				spelled: 3,
+				"handle field": 1,
+				interior: 1,
+				recursive: 1,
+				"typmod param": 1,
+				allen: 1,
+				"point in": 3
+			},
+			perturbation: { settings: [], multiplier: 1 },
+			ambient: { path: { kind: "default" }, settings: [] },
+			restorage: { shift: 0, respell: 0 },
+			roster: 0,
+			span: 0,
+			relations: [
+				{ name: 0, fields: [{ name: 0, kind: 0, key: 0 }], candidate: 0, facts: [] },
+				{
+					name: 0,
+					fields: [
+						{ name: 0, kind: 29128, key: 0 },
+						{ name: 0, kind: 0, key: 0 },
+						{ name: 0, kind: 0, key: 32768 }
+					],
+					candidate: 0,
+					facts: []
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [match(32768, 0), match(32768, 0)],
+						where: [],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 32768, picks: [0, 43691] },
+						head: { vars: [], names: zeros(6), folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }] },
+						interior: {
+							matches: [match(0, 0)],
+							where: [],
+							negation,
+							head: { vars: [], names: zeros(6), folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }] }
+						}
+					},
+					take: { rotate: 0, dirs: zeros(3), size: 0, ties: 0 },
+					literalHead: { name: 0, kind: 0, arms: 0, values: zeros(3) },
+					importable: 0,
+					bindImport: 0,
+					named: 0,
+					relationParam: { relation: 0, facts: [] },
+					closure: { relation: 0, pair: 0, name: 0 },
+					attachments: [],
+					order: { rotate: 0, dirs: zeros(3), size: 0 },
+					probe: { kind: 0, pick: 0 },
+					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
+				}
+			],
+			planted: {
+				names: zeros(47),
+				value: floorValue,
+				handle: 0,
+				padding: 0,
+				side: { kind: 0, values: zeros(3) }
+			}
+		},
+		draws: "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0",
+		reaches: [
+			"a workload installed",
+			"overlap probe served",
+			"served by a created index",
+			"swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes",
 			"a created index needed"
 		]
 	}
