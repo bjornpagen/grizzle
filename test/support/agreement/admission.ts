@@ -464,8 +464,8 @@ interface Statement {
 }
 
 /**
- * A built query's page as db.page compiles it (adapter/page/template.ts): the page compiler over the template compiled
- * for a page and the stated order of the query's Description, against the schema's names.
+ * A built query's page as a paged workload member's page compiles (adapter/page/template.ts): the page compiler over
+ * the template compiled for a page and the stated order of the query's Description, against the schema's names.
  */
 const paged = (q: unknown, template: QueryTemplate): Result.Result<unknown, CompileError> =>
 	Result.flatMap(testArtifacts(Agree, testCompile), (artifacts) =>
@@ -1254,7 +1254,7 @@ const applied = (combinator: Combinator, base: ShapeBase): Applied => {
 		case "page":
 			return {
 				line: (name, shape) =>
-					`export const ${name} = (db: DbOf<typeof Reader, unknown>) => db.page(${shape}.orderBy(["id", "asc"]), {}, { first: 10 })`,
+					`export const ${name}_p = paged(${shape}.orderBy(["id", "asc"])); export const ${name} = (h: WorkloadHandles<typeof Reader, { readonly p: typeof ${name}_p }>["p"]) => h.page({}, { first: 10 })`,
 				build: (q) => q.orderBy(["id", "asc"]),
 				read: "page"
 			}

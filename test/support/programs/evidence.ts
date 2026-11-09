@@ -5,7 +5,7 @@
  */
 export { Array as Arr, Effect } from "effect"
 export type { Brand, Option, Stream } from "effect"
-export type { DbOf, GetArg, QueryResult } from "#adapter/types/db.ts"
+export type { DbOf, GetArg, QueryResult, WorkloadHandles } from "#adapter/types/db.ts"
 export type { ReadError } from "#adapter/errors/execution.ts"
 export type { CursorError } from "#compiler/plan/common.ts"
 export { ALLEN } from "#compiler/public/allen.ts"
@@ -13,6 +13,7 @@ export { Compute } from "#compiler/public/compute.ts"
 export { date, Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
 export type { CalendarDate, Span, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
+export { paged, workload } from "#compiler/public/workload.ts"
 export type {
 	EvidenceOfQuery,
 	HeadOf,

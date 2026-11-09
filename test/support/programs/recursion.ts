@@ -13,5 +13,5 @@ export type {
 	ParamsOf,
 	ParamType
 } from "#compiler/public/query.ts"
-export type { DbOf, GetArg } from "#adapter/types/db.ts"
+export type { GetArg, WorkloadHandles } from "#adapter/types/db.ts"
 export { Edge, Graph, Node, Reader } from "#test/support/agreement/recursion-schema.ts"

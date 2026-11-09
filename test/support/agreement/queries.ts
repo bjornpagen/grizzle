@@ -97,9 +97,11 @@ import { upTo } from "#test/support/up-to.ts"
  * The type/engine agreement: queries drawn over the agreement schema (./schema.ts), each with the engine's verdict on
  * it, and the one TypeScript program that states every verdict as a type assertion, which the type tier checks
  * (test/types/evidence/agreement.test.ts). The engine is the oracle: a drawn query typechecks exactly when the engine
- * compiles it, db.get accepts exactly what the engine proves at most one row per binding, every key the types claim is
- * one the engine proves, its cardinality is the engine's, and the records the types infer, of a snapshot read and of
- * db.execute and db.get, are the engine's decoded heading (./heading.ts), as are its parameters.
+ * compiles it, a role's workload holds it exactly where the engine compiles it for the role, the get of its workload
+ * member's handle accepts exactly what the engine proves at most one row per binding, every key the types claim is one
+ * the engine proves, its cardinality is the engine's, and the records the types infer, of a snapshot read and of its
+ * handle's execute and get, are the engine's decoded heading (./heading.ts), as are its parameters. A handle is typed
+ * as a Db of the role serving the workload holds it (WorkloadHandles).
  *
  * A query is drawn as data (QuerySpec) and read twice: rendered as TypeScript source for the program, and built through
  * the query builder's JavaScript view (queryOver, varsOver, computeCore) for the engine, which compiles it as the
@@ -164,10 +166,10 @@ import { upTo } from "#test/support/up-to.ts"
  * place, admitted exactly where the names hold the engine's key fields (query/build/key.ts keyLookup), as the runtime
  * reads them, its row the keyed relation's decoded fact.
  *
- * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, as db.page
- * compiles it, its page is of that very ordered query (Page<records, typeof ordered>, whatever the types infer of its
- * parameters on the way), its error channel ReadError | CursorError, the query unordered is refused a page as the
- * engine reads no stated order of it, and a page request drawn valid, of a shape the runtime refuses, or with an anchor
+ * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, a paged member
+ * of the role's workload (paged(...)), its page is of that very ordered query (Page<records, typeof ordered>, whatever
+ * the types infer of its parameters on the way), its error channel ReadError | CursorError, the query unordered is
+ * refused by paged(...) as the engine reads no stated order of it, and a page request drawn valid, of a shape the runtime refuses, or with an anchor
  * null, undefined or a plain string is admitted exactly where the runtime admits it: its shape where its request reader
  * does (adapter/page/request.ts pageRequest), and a plain string's anchor where the page's cursor codec decodes it
  * (adapter/page/template.ts pageRuntimeOf). Each page is also read through a compiled handle of the ordered query,
@@ -3163,8 +3165,8 @@ interface PageVerdict {
 	readonly by: string
 	readonly request: PageRequestSpec
 	readonly refused: Refused | undefined
-	/** The refusal of a page of the query itself, unordered, which the engine reads no stated order of. */
-	readonly unordered: TypeRefusal | undefined
+	/** Whether the query itself states no order, which the engine reads none of, so paged(...) refuses it. */
+	readonly unordered: boolean
 }
 
 /** What the program states of a query the types must refuse: its diagnostic, and the refusal or prose it names. */
@@ -3412,8 +3414,8 @@ const requestRefusal = (
 }
 
 /**
- * A page of the query ordered by its first head field, as db.page compiles it (adapter/page/template.ts): the page
- * compiler over the template compiled for a page and its stated order, against the schema's names.
+ * A page of the query ordered by its first head field, as a paged member's page compiles (adapter/page/template.ts):
+ * the page compiler over the template compiled for a page and its stated order, against the schema's names.
  */
 const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 	const by = orderedBy(spec)
@@ -3463,7 +3465,7 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 		by,
 		request,
 		refused: requestRefusal(request, (token) => codec.value.decode(token).ok),
-		unordered: unordered.ok ? undefined : "page needs an ordered query"
+		unordered: !unordered.ok
 	}
 }
 
@@ -3586,10 +3588,11 @@ const readsThrough = (spec: QuerySpec, failed: (what: string) => never): boolean
 }
 
 /**
- * The refusal a read through a Db reading no level of a query's schema names: execute's, and get's once its card
- * admits a get.
+ * The directive over a workload of a role holding a query over no level of the role's schema: workload(...) refuses
+ * the member, as every program of a workload is over a level of its schema.
  */
-const levelRefusal: TypeRefusal = "a program over no level of the database's schema"
+const levelDirective =
+	"// @ts-expect-error -- TS2322: a program over a level of the workload's schema, or a key of a relation of one"
 
 /**
  * The engine's verdict on a keyed get: its key position's fields (query/build/key.ts keyLookup), the names its values
@@ -3901,7 +3904,7 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		const page = verdict.proved.page
 		if (page !== undefined) {
 			notes.add(page.refused === undefined ? "a page request admitted" : "a page request refused")
-			if (page.unordered !== undefined) {
+			if (page.unordered) {
 				notes.add("an unordered page refused")
 			}
 		}
@@ -4255,7 +4258,10 @@ export const reorderedVerdicts = (seed: number): ReadonlyArray<string> =>
 			: [`${c.source}\n  as written: ${verdictText(c.verdict)}\n  reordered: ${verdictText(moved)}`]
 	})
 
-/** The refusal db.get's type names for a query not proved at most one row per binding (adapter/types/db.ts). */
+/**
+ * The refusal a workload handle's get names for a query not proved at most one row per binding (adapter/types/db.ts
+ * Compiled).
+ */
 const getRefusal: TypeRefusal = "get needs a query proved at most one row per parameter binding"
 
 /** The evidence program's prelude (test/support/programs/evidence.ts), every name its modules read. */
@@ -4390,18 +4396,21 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 		case "admitted": {
 			const { get, card, readings, keys, head, facts, params, page, reads } = c.verdict.proved
 			const keyed = Arr.map(keys, keysType)
-			const db = `(db: DbOf<typeof ${c.spec.db}, unknown>) => (args: GetArg<typeof q${i}>) =>`
+			const handle = `(h: WorkloadHandles<typeof ${c.spec.db}, (typeof wl${i})["programs"]>["m"]) => (args: GetArg<typeof q${i}>) =>`
 			return [
-				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s Db ${reads ? "reads" : "refuses"} it. */`,
+				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s workload ${reads ? "holds" : "refuses"} it. */`,
 				...Arr.map(lines, (l) => l.text),
-				`export const g${i} = ${db}`,
-				...(get && reads
-					? []
-					: [`\t// @ts-expect-error -- TS2345 refusal: ${get ? levelRefusal : getRefusal}`]),
-				`\tdb.get(q${i}, args)`,
-				`export const e${i} = ${db}`,
-				...(reads ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${levelRefusal}`]),
-				`\tdb.execute(q${i}, args)`,
+				...(reads ? [] : [levelDirective]),
+				`export const wl${i} = workload(${c.spec.db}, { m: q${i} })`,
+				...(reads
+					? [
+							`export const g${i} = ${handle}`,
+							...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
+							"\th.get(args)",
+							`export const e${i} = ${handle}`,
+							"\th.execute(args)"
+						]
+					: []),
 				...Arr.map(
 					keyed,
 					(k, j) => `export type k${i}_${j} = Expect<Equals<Unproved<typeof q${i}, ${k}>, never>>`
@@ -4452,17 +4461,19 @@ const lookupLines = (c: AgreementCase, i: number): ReadonlyArray<string> =>
 	})
 
 /**
- * A case's keyed get, through Reader's Db: its values as a record, under the directive of what the types refuse where
- * they miss a field of the engine's key, and otherwise its row asserted the keyed relation's decoded fact.
+ * A case's keyed get, through the handle of a key member of Reader's workload: its values as a record, under the
+ * directive of what the types refuse where they miss a field of the engine's key, and otherwise its row asserted the
+ * keyed relation's decoded fact.
  */
 const keyedLines = (k: KeyedVerdict | undefined, i: number): ReadonlyArray<string> => {
 	if (k === undefined) {
 		return []
 	}
 	return [
-		`export const kg${i} = (db: DbOf<typeof Reader, unknown>) =>`,
+		`export const wk${i} = workload(Reader, { m: ${k.target} })`,
+		`export const kg${i} = (h: WorkloadHandles<typeof Reader, (typeof wk${i})["programs"]>["m"]) =>`,
 		...(k.admitted ? [] : ["\t// @ts-expect-error -- TS2345: a keyed get names every key field"]),
-		`\tdb.get(${k.target}, ${k.record})`,
+		`\th.get(${k.record})`,
 		...(k.admitted
 			? [
 					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<Option.Option<${k.fact}>, ReadError>>>`
@@ -4497,9 +4508,10 @@ const requestValueText = (value: RequestValue): string => {
 }
 
 /**
- * A case's pages: its query ordered by the page's field, a page of it whose type is the page of that very query with
- * the error channel ReadError | CursorError, and a page under the drawn request, under its refusal's directive where
- * the runtime refuses it; each read through db.page and through a handle db.compile compiled of the ordered query.
+ * A case's pages, through the handle of the paged member of the role's workload that pages its query ordered by the
+ * page's field (paged(...)): a page whose type is the page of that very ordered query with the error channel ReadError
+ * | CursorError, and a page under the drawn request, under its refusal's directive where the runtime refuses it; and,
+ * where the query states no order, paged(...) of the query itself refused.
  */
 const pageLines = (
 	i: number,
@@ -4516,33 +4528,24 @@ const pageLines = (
 						: `		// @ts-expect-error -- ${page.refused.code}: ${page.refused.claim.reason}`
 				]
 	const paged = `Effect.Effect<Page<${head}, typeof o${i}>, ReadError | CursorError>`
+	const handle = `(h: WorkloadHandles<typeof ${role}, (typeof wp${i})["programs"]>["p"]) => (args: GetArg<typeof q${i}>) =>`
 	return [
 		`export const o${i} = q${i}.orderBy([${jsonText(page.by)}, "asc"])`,
-		`export const w${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) => db.page(o${i}, args, { first: 2 })`,
-		`export type s${i} = Expect<Equals<ReturnType<ReturnType<typeof w${i}>>, ${paged}>>`,
-		`export const u${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-		`	db.page(`,
-		`		o${i},`,
+		`export const wp${i} = workload(${role}, { p: paged(o${i}) })`,
+		`export const pw${i} = ${handle} h.page(args, { first: 2 })`,
+		`export type s${i} = Expect<Equals<ReturnType<ReturnType<typeof pw${i}>>, ${paged}>>`,
+		`export const u${i} = ${handle}`,
+		`	h.page(`,
 		`		args,`,
 		...directive,
 		`		${requestText(page.request)}`,
 		`	)`,
-		`export const ch${i} = (db: DbOf<typeof ${role}, unknown>) => db.compile(o${i})`,
-		`export const cp${i} = (handle: Effect.Success<ReturnType<typeof ch${i}>>) => (args: GetArg<typeof q${i}>) =>`,
-		`	handle.page(`,
-		`		args,`,
-		...directive,
-		`		${requestText(page.request)}`,
-		`	)`,
-		`export const cf${i} = (handle: Effect.Success<ReturnType<typeof ch${i}>>) => (args: GetArg<typeof q${i}>) => handle.page(args, { first: 2 })`,
-		`export type ct${i} = Expect<Equals<ReturnType<ReturnType<typeof cf${i}>>, ${paged}>>`,
-		...(page.unordered === undefined
-			? []
-			: [
-					`export const v${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-					`	// @ts-expect-error -- TS2345 refusal: ${page.unordered}`,
-					`	db.page(q${i}, args, { first: 2 })`
-				])
+		...(page.unordered
+			? [
+					"// @ts-expect-error -- TS2345: paged(...) pages an ordered query, one orderBy(...) made",
+					`export const v${i} = paged(q${i})`
+				]
+			: [])
 	]
 }
 

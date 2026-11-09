@@ -35,8 +35,9 @@ import {
  * as types, which the type tier checks (test/types/api/recursion.test.ts). The engine is the oracle: a drawn recursion
  * typechecks exactly when the engine builds and compiles it; a refusal the types name by a Refusal names the engine's
  * reason; and an admitted recursion's records are the engine's decoded heading, its parameters the engine's, every
- * arm's joined, its evidence proves nothing, and db.get takes it exactly where the engine proves it at most one row per
- * binding, which a fixed point never is.
+ * arm's joined, its evidence proves nothing, and the get of its workload member's handle, as a Db of Reader serving it
+ * holds it (WorkloadHandles), takes it exactly where the engine proves it at most one row per binding, which a fixed
+ * point never is.
  *
  * A case's row is a pair of node ids, or the pair and the reached node's rank; its base arms read an edge, its recursive
  * arms extend self by one, each maybe filtered by a parameter, `start` for a base arm and `avoid` for a recursive one,
@@ -545,7 +546,7 @@ const caseGen: Gen<RecursionCase> = (source) => {
 const indentOf = (line: string): string =>
 	Str.slice(0, line.length - Str.trimStart(line).length)(line)
 
-/** The refusal db.get's type names for a query the engine does not prove at most one row per binding. */
+/** The refusal a workload handle's get names for a query the engine does not prove at most one row per binding. */
 const getRefusal: TypeRefusal = "get needs a query proved at most one row per parameter binding"
 
 /** One case's statements: the recursion, under its fault's directive at its site, or its verdict asserted. */
@@ -581,9 +582,9 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 			? `export type p${i} = Expect<Equals<keyof ParamsOf<typeof q${i}>, never>>`
 			: `export type p${i} = Expect<Equals<ParamsOf<typeof q${i}>, ${params}>>`,
 		`export type e${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>, Evidence.Unknown>>`,
-		`export const g${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
+		`export const g${i} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${i} }>["m"]) => (args: GetArg<typeof q${i}>) =>`,
 		...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
-		`\tdb.get(q${i}, args)`,
+		`\th.get(args)`,
 		""
 	]
 }

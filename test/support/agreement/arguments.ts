@@ -11,14 +11,15 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 
 /**
- * The argument agreement: every shape of a query's parameters against every form of argument a caller may pass, and
- * every method that takes one, the program admitting exactly what the runtime admits. The oracle is the runtime's own
- * reading of an argument (adapter/reader/params.ts readParams, then adapter/reader/relations.ts executionInputs over
- * the compiled query's declared parameters): a record whose keys are the query's parameters, each value admitted by its
- * parameter's codec. The types are ParamArg over the query's ParamsOf, which every read and a compiled handle take.
+ * The argument agreement: every shape of a query's parameters against every form of argument a caller may pass to the
+ * execute of the query's workload member, the program admitting exactly what the runtime admits. The oracle is the
+ * runtime's own reading of an argument (adapter/reader/params.ts readParams, then adapter/reader/relations.ts
+ * executionInputs over the compiled query's declared parameters): a record whose keys are the query's parameters, each
+ * value admitted by its parameter's codec. The types are ParamArg over the query's ParamsOf, which a workload handle's
+ * reads take, the handle as a Db of Reader serving the query holds it (WorkloadHandles).
  *
- * Shapes, forms and methods are closed unions read by exhaustive switches, so a new one is a compile error until it has
- * its cells. Each statement is one line, under the directive its form raises where the runtime refuses it
+ * Shapes and forms are closed unions read by exhaustive switches, so a new one is a compile error until it has its
+ * cells. Each statement is one line, under the directive its form raises where the runtime refuses it
  * (directiveOf): a key no parameter is named the argument's (TS2345) under its named refusal, whether or not the query
  * declares a parameter (types/core/phantom.ts OnlyParams), an array's included, whose indices are such keys; a
  * property's value of another type the property's (TS2322); and any other value that is no record, or a record missing
@@ -35,10 +36,6 @@ type Shape = (typeof shapes)[number]
  */
 const forms = ["exact", "empty", "extra", "wrongValue", "number", "boolean", "array"] as const
 type Form = (typeof forms)[number]
-
-/** The reads that take a query's argument: a read, its plan, and a compiled handle's execute. */
-const methods = ["execute", "explain", "compiled"] as const
-type Method = (typeof methods)[number]
 
 /** A JavaScript value: its source in the program, and its value. */
 interface Value {
@@ -199,18 +196,6 @@ const admits = (query: () => unknown, argument: unknown): boolean => {
 	)
 }
 
-/** A read of a method over a query and an argument, one line. */
-const readOf = (method: Method, query: string, argument: string): string => {
-	switch (method) {
-		case "execute":
-			return `db.execute(${query}, ${argument})`
-		case "explain":
-			return `db.explain(${query}, ${argument})`
-		case "compiled":
-			return `Effect.flatMap(db.compile(${query}), (c) => c.execute(${argument}))`
-	}
-}
-
 /** One cell: what it reaches, the runtime's verdict, and its lines. */
 export interface ArgumentCell {
 	readonly what: string
@@ -218,24 +203,24 @@ export interface ArgumentCell {
 	readonly lines: ReadonlyArray<string>
 }
 
-/** Every shape against every form it has an argument of, through every method, once each. */
+/** Every shape against every form it has an argument of, once each, through its query's workload handle. */
 export const argumentCells = (): ReadonlyArray<ArgumentCell> =>
 	Arr.flatMap(shapes, (shape, s) =>
-		Arr.flatMap(forms, (form, f) => {
+		Arr.flatMap(forms, (form, f): ReadonlyArray<ArgumentCell> => {
 			const argument = argumentOf(shape, form)
 			if (argument === undefined) {
 				return []
 			}
 			const query = queryOf(shape)
 			const admitted = admits(query.value, argument.value)
-			return Arr.map(methods, (method, m): ArgumentCell => {
-				const line = `export const a${s}_${f}_${m} = (db: DbOf<typeof Reader, unknown>) => ${readOf(method, `q${s}`, argument.text)}`
-				return {
-					what: `${form} for ${shape} through ${method}`,
+			const line = `export const a${s}_${f} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${s} }>["m"]) => h.execute(${argument.text})`
+			return [
+				{
+					what: `${form} for ${shape}`,
 					admitted,
 					lines: admitted ? [line] : [directiveOf(shape, form), line]
 				}
-			})
+			]
 		})
 	)
 
