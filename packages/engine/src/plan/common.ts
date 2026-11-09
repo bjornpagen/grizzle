@@ -118,8 +118,7 @@ export type {
 	MessageBound,
 	ParamDecl,
 	RelationParamDecl,
-	StatementSpec,
-	TemplateRequirements
+	StatementSpec
 } from "#compiler/ir/products.ts"
 export {
 	type Carrier,

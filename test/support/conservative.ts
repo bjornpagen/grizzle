@@ -397,7 +397,6 @@ export const conservativeWrite = (
 					...program,
 					optimized: artifact.specs,
 					certificates: [],
-					nameMap: artifact.nameMap,
 					artifact
 				}
 			})

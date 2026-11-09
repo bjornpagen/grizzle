@@ -101,7 +101,7 @@ export type SnapshotLaw =
 	| { readonly kind: "migration" | "trigger"; readonly shape: string; readonly digest: string }
 
 export interface SnapshotTheory {
-	/** The owned schema's fingerprint, which compiled templates name (TemplateRequirements.schema). */
+	/** The owned schema's fingerprint. */
 	readonly schema: SchemaFingerprint
 	readonly relations: Readonly<Record<string, SnapshotRelation>>
 	readonly laws: Readonly<Record<string, SnapshotLaw>>

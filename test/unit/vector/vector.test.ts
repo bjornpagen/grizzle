@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -10,15 +10,11 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { templateFor } from "#compiler/program/template.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -272,65 +268,6 @@ describe("the cosine domain", () => {
 								sqlOf(built),
 								sqlOf(literalQuery(Vector.make(Float32Array.from(xs), dims)))
 							)
-						})
-				)
-			)
-	)
-})
-
-describe("the vector schema in a template's premise", () => {
-	const Note = relation("Note", { id: uuid, n: pg.bigint }, ["id"])
-	const Notes = schema("Notes", { Note }, [])
-	const notes = query(Notes).rule((r) => {
-		const { id, n } = v(Note, "note")
-		return r.match(Note, { id, n }).find({ id, n })
-	})
-	const reading = {
-		identity: undefined,
-		read: "rows",
-		context: "snapshot"
-	} as const
-
-	/** What a case's template reads: the search fixture's vector search, or a relation with no vector. */
-	type Reads = "a vector search" | "no vector"
-
-	it.effect(
-		"records the installer's extension schema exactly for a template reading a vector",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/vector/template-premise",
-						generator: (source) => source.draw(element<Reads>(["a vector search", "no vector"])),
-						literal: Formatter.format,
-						limit: 2,
-						coverage: requiredInSpace<Reads>(["a vector search", "no vector"]),
-						caseHang,
-						box: "a template reading the search fixture's vector search, and one reading a relation with no vector",
-						oracle: {
-							kind: "specification",
-							name: "a template's premise names the installation's vector schema exactly when it reads a vector"
-						}
-					},
-					(reads, c) =>
-						Effect.sync(() => {
-							c.note(reads)
-							const [q, s] =
-								reads === "a vector search" ? [search.byDistance, search.Search] : [notes, Notes]
-							const input = succeeded(parseSchemaInput(s))
-							const artifacts = succeeded(testArtifacts(s, testCompile))
-							const template = succeeded(
-								templateFor(succeeded(queryInput(q)), input, artifacts, reading)
-							).template
-							if (reads === "no vector") {
-								assert.deepEqual(template.requirements.extensions, [])
-								assert.deepEqual(template.requirements.extensionSchemas, {})
-								return
-							}
-							assert.deepEqual(template.requirements.extensionSchemas, {
-								vector: artifacts.names.vectorSchema
-							})
 						})
 				)
 			)

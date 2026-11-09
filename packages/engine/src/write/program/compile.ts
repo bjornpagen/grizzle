@@ -9,12 +9,11 @@ import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ParamDecl, StatementSpec, WriteProgram } from "#compiler/ir/products.ts"
+import type { ParamDecl, ProgramArtifacts, StatementSpec } from "#compiler/ir/products.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -184,7 +183,7 @@ export interface CompileWriteOptions {
 	readonly derived: DerivedAnalysis
 }
 
-export interface CompiledWrite extends WriteProgram<WriteParamSlot> {
+export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
@@ -1476,23 +1475,13 @@ const compile = (
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	const family = familyProgram(frontend, lowering.w)
-	const ir = frontend.ir
-	const vector =
-		topoOrder(ir.dag).some((n) => n.heading.some((c) => c.type.carrier === "vector")) ||
-		frontend.written.some((r) => r.heading.some((c) => c.type.carrier === "vector"))
 	const program: CompiledWrite = {
 		edits: family.edits,
 		refills: family.refills,
 		kind: "write",
 		context: "transaction",
 		optimized: optimized.specs,
-		requirements: {
-			schema: frontend.schema.owned.fingerprint,
-			extensions: vector ? ["vector"] : [],
-			extensionSchemas: vector ? { vector: options.names.vectorSchema } : {}
-		},
 		certificates: placed.certificates,
-		nameMap: optimized.nameMap,
 		frontend,
 		choices: chosen.choices,
 		plan,

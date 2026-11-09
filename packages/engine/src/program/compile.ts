@@ -3,9 +3,8 @@ import { catchCompileError, catchRefusal, Refusal } from "#compiler/core/canonic
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Certificate } from "#compiler/ir/certificate.ts"
 import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
-import { contextAdmits, type TemplateContext } from "#compiler/ir/evidence.ts"
+import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
@@ -22,10 +21,8 @@ import {
 	type SpecifiedForm,
 	type SpecifiedStatement,
 	specifiedStatements,
-	statementSpec,
-	templateNameMap
+	statementSpec
 } from "#compiler/lower/template.ts"
-import { queryExtensionPremise } from "#compiler/physical/vector/premise.ts"
 import {
 	levelSchema,
 	parseSchemaInput,
@@ -43,8 +40,6 @@ export interface QueryTemplate extends ProgramArtifacts {
 	/** The public result heading. */
 	readonly heading: Heading
 	readonly params: ReadonlyArray<ParamDecl>
-	/** The weakest execution context whose evidence covers every certificate of the optimized artifact. */
-	readonly requiredContext: TemplateContext
 	/** How the runtime delivers the result. */
 	readonly delivery: ProgramDelivery
 	/**
@@ -120,10 +115,6 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 	)
 }
 
-/** The weakest execution context that admits every certificate's evidence context. */
-const certificatesContext = (certificates: ReadonlyArray<Certificate>): TemplateContext =>
-	certificates.every((c) => contextAdmits("transaction", c.context)) ? "transaction" : "snapshot"
-
 /**
  * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over;
  * otherwise the one the caller names, parsed where it was given, which a query value's own schema must be a level of
@@ -181,9 +172,9 @@ export const querySchema = (
  * rest on the evidence the context admits. The conservative lowering, which relies on no evidence at all, is the test
  * kernel's oracle baseline (test/support/oracle/verify), built from the template's checked query there and never here.
  *
- * The template records what it rests on: its certificates, each naming the constraint premises its proof uses, from the
- * schema's catalog (program/schema.ts schemaCatalog); and the evidence context its certificates need. No parameter
- * value enters a template.
+ * The template records what it rests on: its certificates, each naming the constraint premises its proof uses and the
+ * evidence context it needs, from the schema's catalog (program/schema.ts schemaCatalog). No parameter value enters a
+ * template.
  *
  * The template of a query's source (querySchema), whose artifacts `options` carries.
  */
@@ -258,25 +249,13 @@ export const compileQuery = (
 	if (!specified.ok) {
 		return specified
 	}
-	const extensionPremise = queryExtensionPremise(
-		checked.dag,
-		checked.params,
-		artifacts.reads.vectorSchema
-	)
 	const template: QueryTemplate = {
 		kind: isOrderedQuery(source.desc) ? "ordered" : "query",
 		context,
 		optimized: flight(specified.value).map((run) => run.spec),
-		requirements: {
-			schema: artifacts.fingerprint,
-			extensions: extensionPremise.extensions,
-			extensionSchemas: extensionPremise.extensionSchemas
-		},
 		certificates: optimized.certificates,
-		nameMap: templateNameMap(flight(optimized.roots)),
 		heading: checked.dag.roots[0].heading,
 		params: checked.params,
-		requiredContext: certificatesContext(optimized.certificates),
 		delivery: optimized.delivery,
 		programs: {
 			optimized: { ...optimized, roots: mapTree(specified.value, (run) => run.statement) },

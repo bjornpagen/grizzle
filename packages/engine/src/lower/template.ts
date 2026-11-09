@@ -5,11 +5,7 @@ import { bytesChunkLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import type {
-	ConservativeParamSlot,
-	ConservativeStatement,
-	ProgramDelivery
-} from "#compiler/lower/conservative/types.ts"
+import type { ConservativeParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import {
 	type DeliveredColumn,
 	deliveredColumn,
@@ -33,7 +29,7 @@ import {
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { freshNames, NameSupply, namesPast, renderNameMap } from "#compiler/sql/naming.ts"
+import { freshNames, NameSupply, namesPast } from "#compiler/sql/naming.ts"
 
 /** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
 interface OutputColumn {
@@ -222,16 +218,3 @@ export const specifiedStatements = <S extends FusedStatement>(
 			return { statement, spec: spec.value }
 		})
 	)
-
-/** Each statement's generated names, `<statement>:<name>`, to what they stand for. */
-export const templateNameMap = (
-	statements: ReadonlyArray<ConservativeStatement<ConservativeParamSlot>>
-): Readonly<Record<string, string>> => {
-	const out: Record<string, string> = {}
-	for (const [i, s] of statements.entries()) {
-		for (const entry of s.sql.nameMap) {
-			out[`${i}:${entry.name}`] = renderNameMap([entry]).slice(entry.name.length + 1)
-		}
-	}
-	return out
-}

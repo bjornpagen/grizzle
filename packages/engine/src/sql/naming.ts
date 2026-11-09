@@ -152,27 +152,6 @@ export class NameSupply {
 	}
 }
 
-const describeOrigin = (origin: NameOrigin): string => {
-	switch (origin.kind) {
-		case "occurrence":
-			return `occurrence ${origin.occurrence} of ${origin.relation}`
-		case "node":
-			return `node ${origin.node}`
-		case "var":
-			return `variable ${origin.var}`
-		case "field":
-			return `field ${origin.field}`
-		case "param":
-			return `parameter ${origin.param}`
-		case "internal":
-			return `internal ${origin.purpose}`
-	}
-}
-
-/** The name map as diagnostics show it, one line per name: "r1 relation occurrence o1 of Task". */
-export const renderNameMap = (map: NameMap): string =>
-	map.map((entry) => `${entry.name} ${entry.role} ${describeOrigin(entry.origin)}`).join("\n")
-
 /** The core's targets aliased by the heading, position by position: the lengths are equal, so every target has its alias. */
 const renameCore = (
 	c: SelectCore,

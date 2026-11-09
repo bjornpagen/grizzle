@@ -33,7 +33,7 @@ import {
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
+import type { NameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
@@ -177,8 +177,6 @@ export interface WriteArtifact {
 			{ readonly added: ReadonlyArray<number>; readonly removed: ReadonlyArray<number> }
 		>
 	>
-	/** Generated SQL name, `<position>:<name>`, to what it stands for. */
-	readonly nameMap: Readonly<Record<string, string>>
 }
 
 /** The large form of a read-back's placed statement: the large mode's statement and the form an execution sends, each
@@ -322,16 +320,6 @@ export const settledArtifact = (
 			byStratum(statements).map((s) => Object.freeze(s.map((statement) => statement.index)))
 		),
 		deltas: Object.freeze(Object.fromEntries(deltas)),
-		nameMap: Object.freeze(
-			Object.fromEntries(
-				placed.flatMap(({ names }, position) =>
-					names.map((entry) => [
-						`${position}:${entry.name}`,
-						renderNameMap([entry]).slice(entry.name.length + 1)
-					])
-				)
-			)
-		),
 		readBacks: Object.freeze(readBacks),
 		carriers
 	})

@@ -136,7 +136,7 @@ export type RelationParamEncoder = (
  * The compiler's products.
  *
  * The products are separate instead of all being called a statement: OwnedSchema, CheckedTheory, LogicalQuery,
- * LoweredProgram, ProgramAccess, InstallationManifest, ProgramArtifacts and WriteProgram. A semantic fingerprint is none
+ * LoweredProgram, ProgramAccess, InstallationManifest and ProgramArtifacts. A semantic fingerprint is none
  * of a PostgreSQL OID, a server statement's name, a server plan, or a snapshot; each product names the identity it
  * carries.
  *
@@ -278,35 +278,21 @@ export interface StatementSpec<S = ParamSlot> {
 	readonly dependsOn: ReadonlyArray<number>
 }
 
-export interface TemplateRequirements {
-	readonly schema: SchemaFingerprint
-	readonly extensions: ReadonlyArray<string>
-	readonly extensionSchemas: Readonly<Record<string, string>>
-}
-
 /**
- * Stable SQL, positional codecs, expected native types, runtime requirements: the optimized artifact, the one an
- * execution runs, for the context it was compiled for.
+ * Stable SQL, positional codecs, expected native types: the optimized artifact, the one an execution runs, for the
+ * context it was compiled for.
  */
 export interface ProgramArtifacts<S = ParamSlot> {
 	readonly kind: "query" | "ordered" | "write"
 	readonly context: TemplateContext
 	readonly optimized: ReadonlyArray<StatementSpec<S>>
-	readonly requirements: TemplateRequirements
 	readonly certificates: ReadonlyArray<Certificate>
-	/** Generated SQL name to the source variable or relation occurrence it stands for. */
-	readonly nameMap: Readonly<Record<string, string>>
 }
 
 export interface CarrierDecl {
 	readonly name: CarrierName
 	readonly heading: Heading
 	readonly fill: "insertSelect"
-}
-
-/** A write's artifacts, each placeholder of its statements filled as `S` says. */
-export interface WriteProgram<S> extends ProgramArtifacts<S> {
-	readonly requirements: TemplateRequirements
 }
 
 /**

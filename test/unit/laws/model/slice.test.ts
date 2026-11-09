@@ -22,8 +22,8 @@
  *   naming the whole model's laws in the witness, and every law over a written relation, which a write statement's
  *   refusal raises, described there as the whole model describes it; each program's query, compiled through its role
  *   as db.read compiles it in either context, and each program's ChangeSet, compiled through its role as db.apply
- *   compiles it, compiling over the slice exactly when it does over the whole schema, to the same statements,
- *   certificates and requirements.
+ *   compiles it, compiling over the slice exactly when it does over the whole schema, to the same statements and
+ *   certificates.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
@@ -901,12 +901,10 @@ const compiledQuery = (
 		)
 	)
 
-/** What an application runs of a template or a program and what it rests on: its statements, its certificates, its
- * requirements. */
+/** What an application runs of a template or a program and what it rests on: its statements and its certificates. */
 const ran = <S>(p: ProgramArtifacts<S>) => ({
 	optimized: p.optimized,
-	certificates: p.certificates,
-	requirements: p.requirements
+	certificates: p.certificates
 })
 
 /** The ledger's shape: a relation of the level above written alone, its rule reading a family's member below. */
@@ -1269,9 +1267,9 @@ describe("a compile's law model", () => {
 										continue
 									}
 									sameApartFromLabels(
-										{ ...ran(overSlice.value), context: overSlice.value.requiredContext },
-										{ ...ran(overWhole.value), context: overWhole.value.requiredContext },
-										`the query's ${context} template, its statements, certificates and requirements, as over the whole schema`
+										ran(overSlice.value),
+										ran(overWhole.value),
+										`the query's ${context} template, its statements and certificates, as over the whole schema`
 									)
 									k.note("a query compiled over the slice")
 									if (Arr.some(u.reads, (r) => r.kind === "derived" || r.kind === "chained")) {
@@ -1298,7 +1296,7 @@ describe("a compile's law model", () => {
 								sameApartFromLabels(
 									ran(overSlice.value),
 									ran(overWhole.value),
-									"the ChangeSet's statements, certificates and requirements, as over the whole schema"
+									"the ChangeSet's statements and certificates, as over the whole schema"
 								)
 								k.note("a ChangeSet compiled over the slice")
 							}
