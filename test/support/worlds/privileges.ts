@@ -6,6 +6,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { roleIdentity } from "#compiler/physical/ddl/names.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -200,7 +201,7 @@ export const privilegeDiff = (expected: PrivilegeSet, installed: PrivilegeSet): 
 const required = <A>(name: Option.Option<A>, what: string): A =>
 	Option.getOrThrowWith(name, () => new Error(`the installation's names lack ${what}`))
 
-const tableOf = (names: InstalledNames, relation: string): string =>
+const tableOf = (names: InstalledNames, relation: string): ObjectName =>
 	required(Record.get(names.tables, relation), `the table of ${relation}`)
 
 const columnOf = (names: InstalledNames, relation: string, field: string): string =>
@@ -322,13 +323,15 @@ const installedColumns = (
 	const base = install.base
 	const stored = Arr.flatMap(
 		[...Arr.map(base.relations, (r) => r.name), ...Arr.map(base.derived, (d) => d.name)],
-		(relation) =>
-			Arr.map(storedFields(base, relation), ([field, domain]) => ({
-				schema: names.schema,
-				relation: tableOf(names, relation),
+		(relation) => {
+			const table = tableOf(names, relation)
+			return Arr.map(storedFields(base, relation), ([field, domain]) => ({
+				schema: table.schema,
+				relation: table.name,
 				column: columnOf(names, relation, field),
 				type: Option.flatMap(domain, typeKeyOf)
 			}))
+		}
 	)
 	const views = Arr.flatMap(install.roles, (role) =>
 		Arr.flatMap(Record.toEntries(role.entries), ([name, entry]) =>
@@ -436,7 +439,7 @@ const roleFacts = (
 	const grantee: Grantee = { kind: "role", name: role.name }
 	const own = roleSchemaOf(names, role.name)
 	const schemas = [
-		privilege(grantee, { kind: "schema", schema: names.schema }, "USAGE"),
+		...Arr.map(names.levels, (schema) => privilege(grantee, { kind: "schema", schema }, "USAGE")),
 		privilege(grantee, { kind: "schema", schema: own }, "USAGE")
 	]
 	const views = Arr.flatMap(Record.toEntries(role.entries), ([name, entry]) =>
@@ -448,12 +451,12 @@ const roleFacts = (
 	const writes = Arr.flatMap(writtenOf(base, role), (w) => {
 		const relation = w.target
 		const table = tableOf(names, relation)
-		const at: PrivilegeObject = { kind: "table", schema: names.schema, name: table }
+		const at: PrivilegeObject = { kind: "table", schema: table.schema, name: table.name }
 		const fields = Arr.map(storedFields(base, relation), ([field]) => field)
 		const column = (field: string): PrivilegeObject => ({
 			kind: "column",
-			schema: names.schema,
-			relation: table,
+			schema: table.schema,
+			relation: table.name,
 			column: columnOf(names, relation, field)
 		})
 		const advances = Arr.map(serialFields(base, relation), (field) =>
@@ -461,7 +464,7 @@ const roleFacts = (
 				grantee,
 				{
 					kind: "function",
-					schema: names.schema,
+					schema: table.schema,
 					name: identifierOf(identity.advance(relation, field))
 				},
 				"EXECUTE"
@@ -509,13 +512,14 @@ const roleFacts = (
 					)
 				]
 			: []
-	const refreshes = Arr.map(role.refresh, (relation) =>
-		privilege(
+	const refreshes = Arr.map(role.refresh, (relation) => {
+		const view = tableOf(names, relation)
+		return privilege(
 			grantee,
-			{ kind: "materialized-view", schema: names.schema, name: tableOf(names, relation) },
+			{ kind: "materialized-view", schema: view.schema, name: view.name },
 			"MAINTAIN"
 		)
-	)
+	})
 	return [
 		...schemas,
 		...views,
@@ -657,7 +661,7 @@ export const expectedPrivileges = (install: InstallSpec, names: InstalledNames):
 	)
 	const rowSecurity = Arr.map(secured, (relation): PrivilegeFact => ({
 		kind: "row-security",
-		table: tableOf(names, relation),
+		table: tableOf(names, relation).name,
 		state: "enabled"
 	}))
 	return privilegeSetOf([...logins, ...roles, ...typeFacts(install, names), ...rowSecurity])
@@ -701,9 +705,12 @@ type FlagRows = ReadonlyArray<readonly [table: string, enabled: boolean, forced:
 /** The rows of the grantee query: a role's name. */
 type NameRows = ReadonlyArray<readonly [name: string]>
 
-/** Whether a namespace (aliased `alias`) is the installation's: the base schema, or a schema under its prefix. */
+/**
+ * Whether a namespace (aliased `alias`) is the installation's: a level's schema ($1, the root's first), or a schema
+ * under a level's prefix, such as a role's.
+ */
 const ours = (alias: string): string =>
-	`(${alias}.nspname = $1::text OR starts_with(${alias}.nspname::text, $1::text || '__'))`
+	`(${alias}.nspname = ANY($1::text[]) OR EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(${alias}.nspname::text, l.s || '__')))`
 
 /**
  * The privilege types of a kind crossed with the grant option, as a FROM item `p(priv, grantable)`, and the
@@ -746,13 +753,13 @@ const typesIn = `WITH t AS (SELECT ty.oid, n.nspname::text AS schema, ty.typname
 	UNION ALL SELECT t.oid, 'type', t.schema, t.name, '' FROM t WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.oid = t.oid)`
 
 /**
- * The catalog queries, each over the installation's schemas ($1) and its grantees ($2: PostgreSQL role names and
+ * The catalog queries, each over the installation's level schemas ($1, the root's first) and its grantees ($2: PostgreSQL role names and
  * `public`). Every privilege is PostgreSQL's own judgement (has_*_privilege): a role's grants, PUBLIC's and every role
  * it inherits from. A column privilege is read where the role holds it beyond the whole table. Hand-written
  * introspection: test support, not emitted grizzle SQL.
  */
 const queries = {
-	grantees: `SELECT r.rolname::text FROM pg_catalog.pg_roles r WHERE starts_with(r.rolname::text, $1::text || '__') OR r.rolname = ANY($2::text[])`,
+	grantees: `SELECT r.rolname::text FROM pg_catalog.pg_roles r WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__')) OR r.rolname = ANY($2::text[])`,
 	schemas: privilegeQuery(
 		`SELECT n.oid, 'schema' AS kind, n.nspname::text AS schema, '' AS name, '' AS col FROM pg_catalog.pg_namespace n WHERE ${ours("n")}`,
 		"schema",
@@ -778,15 +785,15 @@ const queries = {
 		`pg_catalog.has_function_privilege(g.name, x.oid, ${asked})`
 	),
 	types: privilegeQuery(typesIn, "type", `pg_catalog.has_type_privilege(g.name, x.oid, ${asked})`),
-	members: `WITH r AS MATERIALIZED (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = ANY($2::text[])), owner AS (SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname = $1::text)
+	members: `WITH r AS MATERIALIZED (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = ANY($2::text[])), owner AS (SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname = ($1::text[])[1])
 	SELECT u.rolname::text, g.rolname::text, bool_or(m.inherit_option), bool_or(m.set_option), bool_or(m.admin_option)
 	FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles u ON u.oid = m.member JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
 	WHERE (m.member IN (SELECT oid FROM r) OR m.roleid IN (SELECT oid FROM r)) AND m.member NOT IN (SELECT nspowner FROM owner)
 	GROUP BY u.rolname, g.rolname`,
 	attributes: `SELECT r.rolname::text, r.rolcanlogin, r.rolinherit, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls
-	FROM pg_catalog.pg_roles r WHERE r.rolname = ANY($2::text[]) AND $1::text IS NOT NULL`,
+	FROM pg_catalog.pg_roles r WHERE r.rolname = ANY($2::text[]) AND $1::text[] IS NOT NULL`,
 	rowSecurity: `SELECT c.relname::text, c.relrowsecurity, c.relforcerowsecurity FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-	WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p') AND $2::text[] IS NOT NULL`
+	WHERE n.nspname = ANY($1::text[]) AND c.relkind IN ('r', 'p') AND $2::text[] IS NOT NULL`
 } as const
 
 const objectKinds: Arr.NonEmptyReadonlyArray<PrivilegedObjectKind> = [
@@ -851,7 +858,7 @@ export const installedPrivileges = (
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const read = (sql: string, grantees: ReadonlyArray<string>) =>
-			admin.queryValues(sql, [names.schema, grantees])
+			admin.queryValues(sql, [names.levels, grantees])
 		const known = [...Record.values(names.logins), ...Record.values(names.roles)]
 		const granteeRead = yield* read(queries.grantees, known)
 		const granteeRows = trusted<NameRows>(granteeRead)
@@ -992,7 +999,7 @@ export const installedObjects = (
 ): Effect.Effect<ReadonlyArray<InstalledObject>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const rows = yield* admin.queryValues(objectsQuery, [names.schema, []])
+		const rows = yield* admin.queryValues(objectsQuery, [names.levels, []])
 		return Arr.map(
 			trusted<ObjectRows>(rows),
 			([kind, schema, name, column, target, columns, arity, trigger]): InstalledObject => ({

@@ -736,6 +736,7 @@ const stateOf = (
 	names: {
 		installation: identity.schema(parsedSchemaName("docs")),
 		schema: "docs",
+		levels: ["docs"],
 		tables: {},
 		columns: {},
 		primaryKeys: {},

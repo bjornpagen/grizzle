@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter } from "effect"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -172,7 +172,7 @@ const holding = (
 				login: "ops",
 				takes: [
 					`SET LOCAL ROLE ${quoteIdent(defined(names.roles["admin"], "the admin role's name"))}`,
-					`LOCK TABLE ${quoteIdent(names.schema)}.${quoteIdent(defined(names.tables[relation], `${relation}'s table`))} IN ROW EXCLUSIVE MODE`
+					`LOCK TABLE ${printObjectName(defined(names.tables[relation], `${relation}'s table`))} IN ROW EXCLUSIVE MODE`
 				]
 			}
 	}

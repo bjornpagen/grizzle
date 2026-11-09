@@ -19,7 +19,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import type { CreatePolicy, CreateView, RoleSetting } from "#compiler/sql/ast.ts"
+import type { CreatePolicy, CreateView, ObjectName, RoleSetting } from "#compiler/sql/ast.ts"
 import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/build.ts"
 import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
@@ -280,11 +280,15 @@ const nameOf = (
 const worldRole = (names: InstalledNames, name: string): Effect.Effect<string> =>
 	nameOf({ ...names.roles, ...names.logins }, name, "role or login")
 
+/** A relation's table or view, in the schema of the level declaring it. */
+const tableNamed = (names: InstalledNames, relation: string): Effect.Effect<ObjectName> =>
+	Option.match(Rec.get(names.tables, relation), {
+		onNone: () => Effect.die(new Error(`the installation names no table ${relation}`)),
+		onSome: Effect.succeed
+	})
+
 const tableOf = (names: InstalledNames, relation: string): Effect.Effect<string> =>
-	Effect.map(
-		nameOf(names.tables, relation, "table"),
-		(table) => `${quoteIdent(names.schema)}.${table}`
-	)
+	Effect.map(tableNamed(names, relation), (t) => `${quoteIdent(t.schema)}.${quoteIdent(t.name)}`)
 
 const columnOf = (names: InstalledNames, relation: string, field: string): Effect.Effect<string> =>
 	nameOf(names.columns[relation] ?? {}, field, `column of ${relation}`)
@@ -539,8 +543,8 @@ const triggerFunctions = (
 ): Effect.Effect<
 	Arr.NonEmptyReadonlyArray<{ readonly name: string; readonly table: Option.Option<string> }>
 > =>
-	Effect.map(rawName(catalog.names.tables, trigger.relation, "table"), (table) => [
-		{ name: isolationGuardName, table: Option.some(table) }
+	Effect.map(tableNamed(catalog.names, trigger.relation), (table) => [
+		{ name: isolationGuardName, table: Option.some(table.name) }
 	])
 
 /** Every trigger of the installation's schema that runs a function of it, by its name: each one's table and name. */

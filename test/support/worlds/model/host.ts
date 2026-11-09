@@ -1220,7 +1220,7 @@ const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelati
 	const columns = required(own(names.columns, relation.name), `the columns of ${relation.name}`)
 	return {
 		name: relation.name,
-		table: required(own(names.tables, relation.name), `the table of ${relation.name}`),
+		table: required(own(names.tables, relation.name), `the table of ${relation.name}`).name,
 		fields: Arr.map(relation.fields, (f) => ({
 			name: f.name,
 			column: required(own(columns, f.name), `the column of ${relation.name}.${f.name}`)

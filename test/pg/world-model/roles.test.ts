@@ -497,7 +497,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 								Effect.gen(function* () {
 									const name = entryName(s)
 									const role = defined(roleOf.get(name), `the role of ${name}`)
-									const table = defined(names.tables[s.target], `the table of ${s.target}`)
+									const table = defined(names.tables[s.target], `the table of ${s.target}`).name
 									const classified = classifyEntry(pairBase, entryOfShape(s))
 									assert.deepEqual(
 										Arr.filter(differing, (f) => concerns(f, role, table)),

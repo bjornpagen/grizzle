@@ -3,6 +3,7 @@ import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { HostFact, HostSchema, HostState, HostValue } from "#test/support/laws/model.ts"
@@ -234,8 +235,12 @@ export interface InstalledNames {
 	/** The identity of the installed schema, which the naming door mints every installation-scoped name under: each
 	 * role's schema, filter functions and key probes (core/identity.ts). */
 	readonly installation: Identity<"schema">
+	/** The root level's PostgreSQL schema, which holds what is the installation's own: its ledger and guard. */
 	readonly schema: string
-	readonly tables: Readonly<Record<string, string>>
+	/** Each level's PostgreSQL schema, the root's first. */
+	readonly levels: Arr.NonEmptyReadonlyArray<string>
+	/** Each relation's table or materialized view, in the schema of the level declaring it. */
+	readonly tables: Readonly<Record<string, ObjectName>>
 	readonly columns: Readonly<Record<string, Readonly<Record<string, string>>>>
 	/** Each relation's primary-key law. A span primary key is a span-key law. */
 	readonly primaryKeys: Readonly<Record<string, LawId>>

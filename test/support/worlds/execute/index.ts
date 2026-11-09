@@ -1256,8 +1256,8 @@ const realizeWith = (
 					fields: ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }>
 				) =>
 					Effect.gen(function* () {
-						const tableName = yield* get(v.names.tables, name, "table")
-						const table = `${quoteIdent(v.names.schema)}.${quoteIdent(tableName)}`
+						const named = yield* get(v.names.tables, name, "table")
+						const table = `${quoteIdent(named.schema)}.${quoteIdent(named.name)}`
 						const columns = yield* get(v.names.columns, name, "columns")
 						const select = yield* Effect.forEach(fields, (f) =>
 							Effect.map(get(columns, f.field, "column"), (c) => `${quoteIdent(c)}::text`)
@@ -1365,7 +1365,7 @@ const realizeWith = (
 				for (const d of v.spec.base.derived) {
 					const view = yield* get(v.names.tables, d.name, "derived view")
 					yield* substrate.admin.query(
-						`REFRESH MATERIALIZED VIEW ${quoteIdent(v.names.schema)}.${quoteIdent(view)}`,
+						`REFRESH MATERIALIZED VIEW ${quoteIdent(view.schema)}.${quoteIdent(view.name)}`,
 						[]
 					)
 				}

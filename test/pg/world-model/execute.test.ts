@@ -5,6 +5,7 @@ import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import type { ObjectName } from "#compiler/sql/ast.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { sameValue, valueText } from "#test/support/laws/model.ts"
@@ -242,7 +243,7 @@ const caseGen =
  */
 const plantedTokens = (
 	planted: Planted,
-	tables: Readonly<Record<string, string>>
+	tables: Readonly<Record<string, ObjectName>>
 ): {
 	readonly tokens: ReadonlySet<string>
 	readonly field: LeakField
@@ -252,7 +253,7 @@ const plantedTokens = (
 		case "message":
 			return {
 				tokens: new Set([
-					defined(tables[planted.relation.name], `${planted.relation.name}'s table`)
+					defined(tables[planted.relation.name], `${planted.relation.name}'s table`).name
 				]),
 				field: "message",
 				reported: `message:${planted.statement}`

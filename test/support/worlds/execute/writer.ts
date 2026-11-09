@@ -80,7 +80,7 @@ const fieldOfColumn = (
 	column: string
 ): Option.Option<readonly [string, string]> =>
 	Option.flatMap(
-		Arr.findFirst(Rec.toEntries(reading.names.tables), ([, t]) => t === table),
+		Arr.findFirst(Rec.toEntries(reading.names.tables), ([, t]) => t.name === table),
 		([relation]) =>
 			Option.flatMap(Rec.get(reading.names.columns, relation), (columns) =>
 				Option.map(
