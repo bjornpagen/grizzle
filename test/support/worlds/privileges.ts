@@ -34,7 +34,7 @@ import type {
  */
 
 /** Who holds a privilege: a login or role of the installation by its declared name, PUBLIC, or a stranger. */
-export type Grantee =
+export type PrivilegeHolder =
 	| { readonly kind: "login"; readonly name: string }
 	| { readonly kind: "role"; readonly name: string }
 	| { readonly kind: "public" }
@@ -116,24 +116,28 @@ export type MembershipOption = "member" | "inherit" | "set" | "admin"
 export type PrivilegeFact =
 	| {
 			readonly kind: "privilege"
-			readonly grantee: Grantee
+			readonly grantee: PrivilegeHolder
 			readonly object: PrivilegeObject
 			readonly privilege: PrivilegeType
 			readonly grantable: boolean
 	  }
 	| {
 			readonly kind: "membership"
-			readonly member: Grantee
-			readonly role: Grantee
+			readonly member: PrivilegeHolder
+			readonly role: PrivilegeHolder
 			readonly option: MembershipOption
 	  }
-	| { readonly kind: "attribute"; readonly grantee: Grantee; readonly attribute: RoleAttribute }
+	| {
+			readonly kind: "attribute"
+			readonly grantee: PrivilegeHolder
+			readonly attribute: RoleAttribute
+	  }
 	| { readonly kind: "row-security"; readonly table: string; readonly state: "enabled" | "forced" }
 
 /** Every fact an installation holds, by its canonical text (factText): two sets compare by their keys. */
 export type PrivilegeSet = ReadonlyMap<string, PrivilegeFact>
 
-const granteeText = (g: Grantee): string => {
+const granteeText = (g: PrivilegeHolder): string => {
 	switch (g.kind) {
 		case "login":
 			return `login ${g.name}`
@@ -399,7 +403,7 @@ const isMutable = (base: BaseSpec, relation: string): boolean =>
 	Arr.some(base.relations, (r) => r.name === relation && r.mutability === "mutable")
 
 const privilege = (
-	grantee: Grantee,
+	grantee: PrivilegeHolder,
 	object: PrivilegeObject,
 	privilegeType: PrivilegeType
 ): PrivilegeFact => ({
@@ -436,7 +440,7 @@ const roleFacts = (
 	role: RoleSpec
 ): ReadonlyArray<PrivilegeFact> => {
 	const base = install.base
-	const grantee: Grantee = { kind: "role", name: role.name }
+	const grantee: PrivilegeHolder = { kind: "role", name: role.name }
 	const own = roleSchemaOf(names, role.name)
 	const schemas = [
 		...Arr.map(names.levels, (schema) => privilege(grantee, { kind: "schema", schema }, "USAGE")),
@@ -570,7 +574,7 @@ const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<P
 	const columns = installedColumns(install, names)
 	const typed = new Set(Arr.getSomes(Arr.map(columns, (c) => c.type)))
 	return Arr.flatMap(install.roles, (role) => {
-		const grantee: Grantee = { kind: "role", name: role.name }
+		const grantee: PrivilegeHolder = { kind: "role", name: role.name }
 		const used = typesUsedBy(install, names, role)
 		const throughColumns = Arr.flatMap(columns, (c) =>
 			Option.exists(c.type, (t) => used.has(t))
@@ -632,7 +636,7 @@ export const expectedPrivileges = (install: InstallSpec, names: InstalledNames):
 	const base = install.base
 	const ledger = ledgerTable(names.schema).table.name
 	const logins = Arr.flatMap(install.logins, (login): ReadonlyArray<PrivilegeFact> => {
-		const grantee: Grantee = { kind: "login", name: login.name }
+		const grantee: PrivilegeHolder = { kind: "login", name: login.name }
 		return [
 			{ kind: "attribute", grantee, attribute: "LOGIN" },
 			privilege(grantee, { kind: "schema", schema: names.schema }, "USAGE"),
@@ -864,17 +868,17 @@ export const installedPrivileges = (
 		const granteeRows = trusted<NameRows>(granteeRead)
 		const roles = Arr.map(granteeRows, ([name]) => name)
 		const grantees = [...roles, "public"]
-		const byRole = new Map<string, Grantee>([
-			...Arr.map(Record.toEntries(names.logins), ([name, role]): readonly [string, Grantee] => [
-				role,
-				{ kind: "login", name }
-			]),
-			...Arr.map(Record.toEntries(names.roles), ([name, role]): readonly [string, Grantee] => [
-				role,
-				{ kind: "role", name }
-			])
+		const byRole = new Map<string, PrivilegeHolder>([
+			...Arr.map(
+				Record.toEntries(names.logins),
+				([name, role]): readonly [string, PrivilegeHolder] => [role, { kind: "login", name }]
+			),
+			...Arr.map(
+				Record.toEntries(names.roles),
+				([name, role]): readonly [string, PrivilegeHolder] => [role, { kind: "role", name }]
+			)
 		])
-		const granteeOf = (role: string): Grantee =>
+		const granteeOf = (role: string): PrivilegeHolder =>
 			role === "public" ? { kind: "public" } : (byRole.get(role) ?? { kind: "stranger", role })
 		const privilegesFrom = (sql: string) =>
 			Effect.map(read(sql, grantees), (rows) =>

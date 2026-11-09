@@ -31,7 +31,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 import {
 	expectedPrivileges,
-	type Grantee,
+	type PrivilegeHolder,
 	installedPrivileges,
 	type PrivilegeFact,
 	privilegeDiff
@@ -417,7 +417,7 @@ const situations: Arr.NonEmptyReadonlyArray<RoleFeature> = [
 ]
 
 /** Whether a grantee is the role named. */
-const isRole = (g: Grantee, role: string): boolean => g.kind === "role" && g.name === role
+const isRole = (g: PrivilegeHolder, role: string): boolean => g.kind === "role" && g.name === role
 
 /** Whether a privilege fact concerns a role, its login, or row security on a table. */
 const concerns = (f: PrivilegeFact, role: string, table: string): boolean => {

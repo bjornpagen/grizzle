@@ -40,7 +40,7 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
 import {
 	expectedPrivileges,
 	factText,
-	type Grantee,
+	type PrivilegeHolder,
 	type InstalledObject,
 	installedObjects,
 	installedPrivileges,
@@ -250,7 +250,7 @@ const plannedByOwner = (session: RawSession, sql: string) =>
 
 const held = (
 	set: PrivilegeSet,
-	grantee: Grantee,
+	grantee: PrivilegeHolder,
 	object: PrivilegeObject,
 	privilege: PrivilegeType
 ): boolean => set.has(factText({ kind: "privilege", grantee, object, privilege, grantable: false }))
@@ -262,7 +262,7 @@ const held = (
  */
 const withheld = (
 	set: PrivilegeSet,
-	grantee: Grantee,
+	grantee: PrivilegeHolder,
 	o: InstalledObject,
 	objects: ReadonlyArray<InstalledObject>,
 	p: PrivilegeType
@@ -305,7 +305,7 @@ const withheld = (
 
 /** One attempt: a statement as a login or role that must be refused with 42501. */
 interface Attempt {
-	readonly grantee: Grantee
+	readonly grantee: PrivilegeHolder
 	readonly role: string
 	readonly kind: PrivilegedObjectKind
 	readonly privilege: PrivilegeType
@@ -365,15 +365,15 @@ const privilegeCase = (install: InstallSpec, c: Case<Feature>) =>
 				}
 			}
 			const objects = yield* installedObjects(names)
-			const grantees: ReadonlyArray<readonly [Grantee, string]> = [
-				...Arr.map(Record.toEntries(names.logins), ([name, role]): readonly [Grantee, string] => [
-					{ kind: "login", name },
-					role
-				]),
-				...Arr.map(Record.toEntries(names.roles), ([name, role]): readonly [Grantee, string] => [
-					{ kind: "role", name },
-					role
-				])
+			const grantees: ReadonlyArray<readonly [PrivilegeHolder, string]> = [
+				...Arr.map(
+					Record.toEntries(names.logins),
+					([name, role]): readonly [PrivilegeHolder, string] => [{ kind: "login", name }, role]
+				),
+				...Arr.map(
+					Record.toEntries(names.roles),
+					([name, role]): readonly [PrivilegeHolder, string] => [{ kind: "role", name }, role]
+				)
 			]
 			const statements = Arr.flatMap(objects, (o) =>
 				Arr.flatMap(attemptKinds, (p) => Arr.map(attemptsOf(o, p), (sql) => ({ o, p, sql })))
