@@ -12,5 +12,5 @@ export type { Paged, Workload } from "#compiler/types/db/workload.ts"
  */
 export const workload: WorkloadConstructor = runtime.workload
 
-/** paged(ordered): the workload member that pages an ordered query (program/workload/value.ts paged). */
-export const paged: PagedConstructor = runtime.paged
+/** paged(ordered): the workload member that pages an ordered query (program/workload/value.ts pagedMember). */
+export const paged: PagedConstructor = runtime.pagedMember

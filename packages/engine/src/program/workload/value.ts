@@ -92,7 +92,7 @@ const queryFound = (
 	}
 }
 
-/** The ordered query each value paged(...) made pages (paged). */
+/** The ordered query each value paged(...) made pages (pagedMember). */
 const pagedValues = new WeakMap<object, OrderedValue>()
 
 /**
@@ -101,7 +101,7 @@ const pagedValues = new WeakMap<object, OrderedValue>()
  * only, and no page template is compiled for it. A value that is no ordered query throws CompileError
  * MalformedDescription synchronously, as every builder refuses a value its signature forbids.
  */
-export const paged = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Paged<O> => {
+export const pagedMember = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Paged<O> => {
 	if (extra.length > 0) {
 		throw malformed("paged", "paged(ordered): one argument")
 	}
