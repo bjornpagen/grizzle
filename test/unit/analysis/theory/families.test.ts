@@ -17,7 +17,6 @@ import {
 	familyShape,
 	type RidingPair,
 	type RidingSide,
-	riddenFamily,
 	ridesOf,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
@@ -359,7 +358,7 @@ describe("riding a family axis (§2.1)", () => {
 							}))
 							const [first, ...rest] = pairs
 							const ride = ridesOf(
-								[riddenFamily(shape)],
+								[shape],
 								ridingSide(c.left, c.leftSelected),
 								ridingSide(c.right, c.rightSelected),
 								[defined(first), ...rest]
@@ -752,7 +751,7 @@ describe("riding a family axis (§2.1)", () => {
 									)
 								)
 							const ride = ridesOf(
-								[riddenFamily(tree)],
+								[tree],
 								{
 									relation: "T",
 									selection: {

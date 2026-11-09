@@ -24,7 +24,6 @@ import {
 	membersSelection,
 	Namings,
 	type Ride,
-	riddenFamily,
 	ridesOf,
 	slotsText,
 	type TreeFamily,
@@ -1425,6 +1424,13 @@ export class Normalizer {
 		)
 	}
 
+	/** Each family's shape, in statement order: what `ridesOf` tries. */
+	*#shapes(): Generator<FamilyShape> {
+		for (const entry of this.#families.values()) {
+			yield entry.shape
+		}
+	}
+
 	/** The family `id` resolved: its axes and folds complete, which only `resolve` makes. */
 	#resolvedFamily(id: FamilyId): Family {
 		const family = this.#resolved?.get(familyKey(id))
@@ -1640,7 +1646,7 @@ export class Normalizer {
 				? { pair: first, from: first.from.column, to: first.to.column }
 				: undefined
 		const ride: Ride | undefined =
-			span === undefined ? ridesOf(this.#families.values(), fromSide, toSide, resolved) : undefined
+			span === undefined ? ridesOf(this.#shapes(), fromSide, toSide, resolved) : undefined
 		const entry = ride === undefined ? undefined : this.#entry(ride.family, loc)
 		return this.#pushing(
 			{
@@ -1875,7 +1881,7 @@ const scalarContainmentViolation = (
 		return own
 	}
 	const ride = defined(
-		ridesOf(families.map(riddenFamily), d.from, d.to, d.pairs),
+		ridesOf(families, d.from, d.to, d.pairs),
 		"a containment that rides a family axis rides it whenever its sides are read"
 	)
 	const pins = ridingPins(familyOf(families, ride.family), ride)
