@@ -643,6 +643,27 @@ class Differ {
 				return v.kind === "table" ? [[o.ident, { old: v.create, order }] as const] : []
 			})
 		)
+		const previousWritings = writingsByTable(this.input.previous.theory)
+		const targetWritings = writingsByTable(this.input.target.theory)
+		const lawColumnsByTable = new Map<
+			string,
+			Array<{
+				readonly object: ManifestObject
+				readonly column: Installed & { readonly kind: "lawColumn" }
+			}>
+		>()
+		for (const p of previousObjects) {
+			const w = installed(p)
+			if (w.kind === "lawColumn") {
+				const key = nameKey(w.table)
+				const held = lawColumnsByTable.get(key)
+				if (held === undefined) {
+					lawColumnsByTable.set(key, [{ object: p, column: w }])
+				} else {
+					held.push({ object: p, column: w })
+				}
+			}
+		}
 		return new Map(
 			this.input.target.manifest.objects.flatMap(
 				(o): ReadonlyArray<readonly [string, KeptTable]> => {
@@ -656,8 +677,8 @@ class Differ {
 					const key = nameKey(create.table)
 					const changes = redrawn(
 						fieldChangesOf(old.columns, create.columns, (b, c) => this.retyped(b, c)),
-						writingsOf(this.input.previous.theory, create.table.name),
-						writingsOf(this.input.target.theory, create.table.name)
+						previousWritings.get(create.table.name) ?? noWritings,
+						targetWritings.get(create.table.name) ?? noWritings
 					)
 					const fields = old.columns.map((b): readonly [string, ColumnFate] => {
 						const change = changes.get(b.name)
@@ -673,11 +694,7 @@ class Differ {
 									: keptColumn
 						]
 					})
-					const lawColumns = previousObjects.flatMap((p) => {
-						const w = installed(p)
-						if (w.kind !== "lawColumn" || nameKey(w.table) !== key) {
-							return []
-						}
+					const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 						const now = this.next.get(p.ident)
 						const fate =
 							now === undefined
@@ -686,7 +703,7 @@ class Differ {
 									? keptColumn
 									: redefinedColumn
 						const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
-						return [{ column: w.column, reads, fate }]
+						return { column: w.column, reads, fate }
 					})
 					return [
 						[
@@ -2681,15 +2698,21 @@ const fieldChangesOf = (
 	)
 }
 
-/** How each field of the stored relation installed as the table `table` is written, by column, as `theory` records it:
- * none for a table no stored relation of it is installed as. */
-const writingsOf = (
-	theory: SnapshotTheory,
-	table: string
-): ReadonlyMap<string, SnapshotWriting> => {
-	const r = Object.values(theory.relations).find((x) => x.kind === "relation" && x.ident === table)
-	return new Map(r?.kind === "relation" ? r.fields.map((f) => [f.column, f.writing] as const) : [])
+/** How each field of every stored relation `theory` records is written, by column, under the table it is installed as. */
+const writingsByTable = (
+	theory: SnapshotTheory
+): ReadonlyMap<string, ReadonlyMap<string, SnapshotWriting>> => {
+	const out = new Map<string, ReadonlyMap<string, SnapshotWriting>>()
+	for (const r of Object.values(theory.relations)) {
+		if (r.kind === "relation" && !out.has(r.ident)) {
+			out.set(r.ident, new Map(r.fields.map((f) => [f.column, f.writing] as const)))
+		}
+	}
+	return out
 }
+
+/** The writings of a table no stored relation of it is installed as: none. */
+const noWritings: ReadonlyMap<string, SnapshotWriting> = new Map()
 
 /** Whether a field is grizzle's to write: drawn from the nested arrays, or accumulated on the host. */
 const isDrawn = (w: SnapshotWriting | undefined): boolean =>
