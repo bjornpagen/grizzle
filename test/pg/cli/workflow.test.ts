@@ -87,9 +87,10 @@ const nextNow = cliClock()
  * - review: the placeholders resolved, the marker lines deleted;
  * - `grizzle check`: passes exactly when everything is generated and resolved;
  * - `grizzle migrate`, with the configuration's connection: refuses before connecting, with nothing run, exactly when
- *   check would; else
- *   applies the pending folders, stopping at a custom data step that fails, which a rerun resumes once fixed, and
- *   refuses at its drift check after applying them while a stray table stands in the schema;
+ *   check finds a committed file to fix, here an unresolved marker; it compiles nothing, so a configuration not yet
+ *   generated refuses nothing. Otherwise it applies the pending folders, stopping at a custom data step that fails,
+ *   which a rerun resumes once fixed, and refuses at its drift check after applying them while a stray table stands in
+ *   the schema;
  * - `grizzle drift`: applies nothing, and passes exactly when the latest complete folder's target is the committed
  *   snapshot's configuration, with no partial folder, and the catalog is the snapshot's; a stray table, created behind grizzle's back and dropped after,
  *   is the drift it names;
@@ -177,6 +178,7 @@ const commandKinds = [
 	"check passes",
 	"check refuses",
 	"migrate applies",
+	"migrate over an ungenerated change",
 	"migrate refuses before connecting",
 	"migrate stops at a failing data step",
 	"migrate resumes a partial folder",
@@ -207,9 +209,15 @@ const same = (a: Configured | undefined, b: Configured): boolean =>
 const atSnapshot = (model: Readonly<Model>): boolean =>
 	model.generated !== undefined && same(model.targets[model.applied - 1], model.generated)
 
-/** Whether `grizzle check` passes: everything generated and resolved. */
+/**
+ * Whether the committed files pass every check `grizzle check` runs on them, the checks `grizzle migrate` runs before
+ * connecting: every marker resolved. They compile nothing, so a configuration not yet generated passes them.
+ */
+const filesPass = (model: Readonly<Model>): boolean => model.unresolved === 0
+
+/** Whether `grizzle check` passes: the committed files pass, and everything is generated. */
 const checks = (model: Readonly<Model>): boolean =>
-	same(model.generated, model.config) && model.unresolved === 0
+	filesPass(model) && same(model.generated, model.config)
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -379,7 +387,7 @@ type Plain =
  * - fix: a failing data step is pending;
  * - tampering with an applied file: some folder is applied and none is partial; with snapshot.json or meta.json: some
  *   folder is written;
- * - a wrong password: check passes and some folder is pending.
+ * - a wrong password: the committed files pass migrate's checks and some folder is pending.
  */
 const appliesTo = (model: Model, step: Plain): boolean => {
 	switch (step.kind) {
@@ -406,7 +414,7 @@ const appliesTo = (model: Model, step: Plain): boolean => {
 		case "open":
 			return model.generated !== undefined && model.failing === undefined && !model.partial
 		case "wrong password":
-			return checks(model) && model.folders > model.applied
+			return filesPass(model) && model.folders > model.applied
 	}
 }
 
@@ -416,8 +424,8 @@ const appliesTo = (model: Model, step: Plain): boolean => {
  * - generate: a folder exactly when the configuration changed, its target the configuration, a placeholder to review
  *   when version 2 is generated over version 1;
  * - review: every marker resolved;
- * - migrate: nothing when check refuses; up to a failing data step, its folder partial; otherwise every folder, a
- *   stray table refused only after them;
+ * - migrate: nothing while a marker is unresolved; up to a failing data step, its folder partial; otherwise every
+ *   folder, a stray table refused only after them;
  * - a stray table: planted or dropped;
  * - a custom data step: a folder whose target is the committed snapshot's, failing at its position or not;
  * - fix: the failing data step fixed;
@@ -443,7 +451,7 @@ const advance = (model: Model, step: Plain): Model => {
 		case "review":
 			return { ...model, unresolved: 0 }
 		case "migrate":
-			return !checks(model)
+			return !filesPass(model)
 				? model
 				: model.failing !== undefined
 					? { ...model, applied: model.failing, partial: true }
@@ -570,15 +578,19 @@ const runReview = (r: Workspace, before: Model, after: Model) =>
 	})
 
 /**
- * `grizzle migrate`: refuses before connecting, with nothing run, exactly when check would; else applies the pending
- * folders, stopping at a failing data step, which a rerun resumes once fixed, and refuses at its drift check after
- * applying them while a stray table stands in the schema.
+ * `grizzle migrate`: refuses before connecting, with nothing run, exactly when a committed file holds a marker; else
+ * applies the pending folders, over a configuration not yet generated too, stopping at a failing data step, which a
+ * rerun resumes once fixed, and refuses at its drift check after applying them while a stray table stands in the
+ * schema.
  */
 const runMigrate = (r: Workspace, before: Model, after: Model) =>
 	Effect.gen(function* () {
 		const applied = yield* r.applied
 		const ran = yield* command(r, ["migrate", configName])
-		if (!checks(before)) {
+		if (filesPass(before) && !same(before.generated, before.config)) {
+			r.c.note("migrate over an ungenerated change")
+		}
+		if (!filesPass(before)) {
 			r.c.note("migrate refuses before connecting")
 			assert.equal(ran.code, 1, ran.stdout)
 			const appliedAfter = yield* r.applied
@@ -844,9 +856,9 @@ const always = (): boolean => true
  *   migrate resumes the partial folder;
  * - Db.open admitting: every folder applied over a settled workspace, a failing data step fixed on the way; generate
  *   drafts nothing, check passes, Db.open admits the database, and each tampering makes the commands refuse;
- * - a new workload pending: a settled, fully applied workspace whose workload then changes; migrate refuses before
- *   connecting until it is generated, then Db.open refuses the database short of the new snapshot, and migrate with a
- *   wrong password is refused at its connection, until migrate applies it;
+ * - a new workload pending: a settled, fully applied workspace whose workload then changes; migrate, which compiles
+ *   nothing, applies nothing until it is generated, then Db.open refuses the database short of the new snapshot, and
+ *   migrate with a wrong password is refused at its connection, until migrate applies it;
  * - a stray table: a settled, fully applied workspace that drifts; drift passes, a table created by hand makes drift
  *   and migrate refuse it, and once it is dropped drift passes again.
  */
@@ -908,7 +920,7 @@ const scenarios = {
 				}
 			}
 		},
-	"scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+	"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
 		{
 			applies: always,
 			plan: (state, add) => {
@@ -980,7 +992,7 @@ type WorkflowParameters = {
 	readonly "scenario: version 2 generated over version 1, its placeholder reviewed": undefined
 	readonly "scenario: a failing data step stops migrate, is fixed, and migrate resumes": undefined
 	readonly "scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with": undefined
-	readonly "scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate": undefined
+	readonly "scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate": undefined
 	readonly "scenario: a table created by hand: drift and migrate refuse it until it is dropped": undefined
 }
 
@@ -1073,9 +1085,9 @@ const workflow: Machine<Model, WorkflowParameters, never> = {
 			scenarioCommand(
 				"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with"
 			),
-		"scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
 			scenarioCommand(
-				"scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate"
+				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate"
 			),
 		"scenario: a table created by hand: drift and migrate refuse it until it is dropped":
 			scenarioCommand(
@@ -1121,9 +1133,9 @@ const realOf = (r: Workspace): Real<Model, WorkflowParameters, never, StepError,
 			scenario(
 				"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with"
 			),
-		"scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
 			scenario(
-				"scenario: a new workload configured over an applied workspace: migrate refuses until it is generated, then Db.open refuses and a wrong password is refused until migrate"
+				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate"
 			),
 		"scenario: a table created by hand: drift and migrate refuse it until it is dropped": scenario(
 			"scenario: a table created by hand: drift and migrate refuse it until it is dropped"

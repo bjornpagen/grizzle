@@ -310,7 +310,9 @@ any direct writer.
 
 `check` and `migrate` print each finding as `<where>: <problem>; <fix>`, an unresolved data loss as `<where>: <what
 it loses>: <problem>; <fix>`. `migrate` refuses a connection or a process environment it cannot use first, then runs
-every check, and refuses before connecting.
+every check of the committed files, and refuses before connecting. It compiles nothing and applies the files as they
+are, so the findings that need the schema compiled (an ungenerated change, an undeclared drop, a roster reordered, a
+schema or workload that does not compile) are `check`'s alone.
 
 | Finding | Fix |
 | --- | --- |
