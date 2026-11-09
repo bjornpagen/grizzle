@@ -1,12 +1,14 @@
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
+	builtNode,
 	contentDigest,
-	decodeDesc,
 	type FieldDesc,
 	type RelationDesc,
 	type SchemaDesc,
-	type StatementDesc
+	type SchemaRelationDesc,
+	type StatementDesc,
+	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
 import { type LevelRelation, levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import {
@@ -15,7 +17,6 @@ import {
 	frozenTuple,
 	isPlainRecord,
 	malformed,
-	orThrow,
 	ownedDesc,
 	ownedEntry,
 	ownValue,
@@ -47,7 +48,7 @@ interface AdmittedLevel {
  * record's keys are then the level's names, each once, so a lookup by name is one property read, no name index is
  * derived from the record, and no level declares one name twice.
  */
-const underOwnName = (label: string, key: string, desc: RelationDesc): RelationDesc => {
+const underOwnName = <D extends RelationDesc>(label: string, key: string, desc: D): D => {
 	if (desc.name !== key) {
 		throw malformed(
 			`${label} relation ${key}`,
@@ -158,7 +159,7 @@ export const admitSchema = (
 	if (!isPlainRecord(relations)) {
 		throw malformed(label, "a record of relations and closed relations")
 	}
-	const descs: Array<RelationDesc> = []
+	const descs: Array<SchemaRelationDesc> = []
 	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		if (derivedDraftOf(value) !== undefined) {
@@ -173,14 +174,13 @@ export const admitSchema = (
 	}
 	heldToRosters(label, relations, new Map(descs.map((d) => [d.name, d] as const)))
 	const stmts = statementList(statementValues(statements, label), label)
-	const desc = orThrow(
-		decodeDesc("schema", {
-			name: schemaName,
-			relations: descs,
-			statements: stmts,
-			loc: builderLoc(label, [schemaName])
-		})
-	)
+	const desc = schemaLevelDesc({
+		name: schemaName,
+		relations: descs,
+		statements: stmts,
+		extends: undefined,
+		loc: builderLoc(label, [schemaName])
+	})
 	return { desc, content: levelContent(digests, desc.statements, undefined) }
 }
 
@@ -248,7 +248,7 @@ const admitExtend = (
 		throw malformed(label, "a record of relations, closed and derived relations")
 	}
 	const below = levelRelations(baseDesc)
-	const descs: Array<RelationDesc> = []
+	const descs: Array<SchemaRelationDesc> = []
 	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		const draft = derivedDraftOf(value)
@@ -272,28 +272,30 @@ const admitExtend = (
 			}
 		}
 		descs.push(
-			underOwnName(label, key, {
-				kind: "derived",
-				name: draft.name,
-				query: draft.query,
-				level,
-				storage: draft.storage,
-				loc: draft.loc
-			})
+			underOwnName(
+				label,
+				key,
+				builtNode({
+					kind: "derived",
+					name: draft.name,
+					query: draft.query,
+					level,
+					storage: draft.storage,
+					loc: draft.loc
+				})
+			)
 		)
 	}
 	heldToRosters(label, relations, new Map([...below, ...descs.map((d) => [d.name, d] as const)]))
 	const stmts = statementList(statementValues(statements, label), label)
-	const desc = orThrow(
-		decodeDesc("schema", {
-			name: levelName,
-			relations: descs,
-			statements: stmts,
-			extends: baseDesc,
-			loc: builderLoc(label, [levelName])
-		})
-	)
-	/** A derived relation's description is the level's own, digested as the decode holds it. */
+	const desc = schemaLevelDesc({
+		name: levelName,
+		relations: descs,
+		statements: stmts,
+		extends: baseDesc,
+		loc: builderLoc(label, [levelName])
+	})
+	/** A derived relation's description is the level's own, digested as the level holds it. */
 	const derived = desc.relations.flatMap((r) =>
 		r.kind === "derived" ? [{ name: r.name, digest: contentDigest("relation", r) }] : []
 	)

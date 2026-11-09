@@ -92,7 +92,6 @@ import type { SlotField } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
 export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
-export type ClosedRelationDesc = Extract<RelationDesc, { readonly kind: "closedRelation" }>
 /**
  * What derived records until schema.extend places it: the definition and the relations it reads. The Description
  * proper needs the level, which only the extended schema determines.
@@ -794,7 +793,7 @@ export const admitClosedRelation = (
  * field's type and carrier, and the set over the last key field's roster, whose descriptor carries the roster.
  */
 const closedReadTyping = (
-	desc: ClosedRelationDesc,
+	desc: AdmittedClosedRelation,
 	described: Readonly<Record<string, Described>>,
 	label: string
 ): ClosedReadTyping => {
@@ -985,7 +984,7 @@ export const materializedDerived = derivedOf("materialized")
 export const relationDescOf = (
 	value: unknown,
 	label: string
-): OrdinaryRelationDesc | RosterDesc | ClosedRelationDesc => {
+): OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation => {
 	const owned =
 		ownedDesc(value, "relation") ?? ownedDesc(value, "closed") ?? ownedDesc(value, "closedRelation")
 	if (owned !== undefined) {
@@ -1049,7 +1048,7 @@ export const relationContentOf = (
 	value: unknown,
 	label: string
 ): {
-	readonly desc: OrdinaryRelationDesc | RosterDesc | ClosedRelationDesc
+	readonly desc: OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation
 	readonly digest: ContentDigest
 } => {
 	const owned =

@@ -2273,8 +2273,28 @@ const subjects: Readonly<Record<DescKind, string>> = {
  * (ir/shape.ts keptLoc). Every part is read by its own decode once, where it enters, so a node over decoded parts
  * reads none of them again; a list the node's builder made is frozen by it.
  */
-const builtNode = <N extends Located>(node: N): N =>
+export const builtNode = <N extends Located>(node: N): N =>
 	Object.freeze({ ...node, loc: S.keptLoc(node.loc) })
+
+/**
+ * A schema level's Description over parts already decoded: its relations, each closed relation admitted, and its
+ * statements, as their builders or ownership hold them, the level below it, a declared name and its location. No
+ * relation name repeats, which a level's record of relations, keyed by name, holds.
+ */
+export const schemaLevelDesc = (level: {
+	readonly name: string
+	readonly relations: ReadonlyArray<SchemaRelationDesc>
+	readonly statements: ReadonlyArray<StatementDesc>
+	readonly extends: SchemaDesc | undefined
+	readonly loc: SourceLoc
+}): SchemaDesc =>
+	builtNode({
+		name: level.name,
+		relations: Object.freeze(level.relations),
+		statements: Object.freeze(level.statements),
+		extends: level.extends,
+		loc: level.loc
+	})
 
 /** A role's Description over its base from its own parts, each already decoded. */
 const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>

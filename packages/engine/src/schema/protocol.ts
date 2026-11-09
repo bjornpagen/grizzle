@@ -5,6 +5,7 @@ import { hasProperties, isList } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
+	type AdmittedClosedRelation,
 	type ContentDigest,
 	type ContextDesc,
 	decodeDesc,
@@ -22,7 +23,6 @@ import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/te
 import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type {
-	ClosedRelationDesc,
 	DerivedDraft,
 	OrdinaryRelationDesc,
 	RosterDesc
@@ -220,7 +220,7 @@ interface OwnedKinds {
 	}
 	readonly closedRelation: {
 		readonly value: AnyClosedRelation
-		readonly desc: ClosedRelationDesc
+		readonly desc: AdmittedClosedRelation
 		readonly content: ContentDigest
 	}
 	readonly derived: {
