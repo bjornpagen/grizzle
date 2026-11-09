@@ -35,12 +35,39 @@ const keysTo = (place: Place | undefined): Path => {
 }
 
 /**
+ * What a decode refused, at the place it refused it: a mismatch, which a union's next alternative may repair, or an
+ * abort, which none can (a cycle, a read that throws).
+ */
+interface Refused {
+	readonly kind: "mismatch" | "abort"
+	readonly place: Place | undefined
+	readonly capability: string
+}
+
+/**
+ * Internal control flow: the one value every refusal throws, unwinding the decode's steps to the union trying its next
+ * alternative or to decodeWith, each of which reads what was refused from the decode's path (DecodePath.refuse). It is
+ * built once, so a refusal builds no error and captures no stack. It never escapes this module's exported functions.
+ */
+class Unwinding extends Error {
+	override readonly name = "Unwinding"
+	override readonly message = "a decode unwinding for its refusal"
+	override readonly stack = ""
+	override readonly cause = undefined
+}
+
+const unwinding = new Unwinding()
+
+/**
  * The path of the value a decode is reading, from the root: one per decode, onto which each container steps to a child
  * while it reads that child, so a refusal keeps where it happened as one cell (Place) and spells the keys only when it
  * is reported. The step is taken back when the child's read ends, whether it returns or throws.
  */
 class DecodePath {
 	#place: Place | undefined = undefined
+
+	/** The refusal the decode is unwinding for (refuse), until a union or decodeWith takes it. */
+	#refused: Refused | undefined = undefined
 
 	/** What the decode decodes: the label of the location `located` gives a node its input leaves unlocated. */
 	readonly subject: string
@@ -81,18 +108,25 @@ class DecodePath {
 			this.#place = from
 		}
 	}
+
+	/** Unwinds the decode for `refused`, which the union trying its next alternative or decodeWith takes. */
+	refuse(refused: Refused): never {
+		this.#refused = refused
+		throw unwinding
+	}
+
+	/** Whether the decode is unwinding for a mismatch, which a union's next alternative may repair. */
+	get mismatched(): boolean {
+		return this.#refused?.kind === "mismatch"
+	}
+
+	/** The refusal the decode is unwinding for, taken: the decode goes on, or ends with it. */
+	taken(): Refused {
+		const refused = defined(this.#refused, "a decode unwinds only for a refusal it recorded")
+		this.#refused = undefined
+		return refused
+	}
 }
-
-/** Where a refusal happened: a place a decode kept, or a path an audit names. */
-type Where =
-	| { readonly kind: "place"; readonly place: Place | undefined }
-	| { readonly kind: "path"; readonly path: Path }
-
-const whereOf = (at: Path | DecodePath): Where =>
-	at instanceof DecodePath ? { kind: "place", place: at.place } : { kind: "path", path: [...at] }
-
-/** The keys of the place a refusal names. */
-const keysOf = (where: Where): Path => (where.kind === "place" ? keysTo(where.place) : where.path)
 
 /**
  * A step the driver runs on its own stack rather than inside the step that waits on it (deferred): its generator,
@@ -204,7 +238,7 @@ const drive = <A>(step: Step<A>): A => {
 export interface Shape<A> {
 	/** What the shape accepts, for diagnostics. */
 	readonly expected: string
-	/** Decodes `value` found at `path`, throwing a Mismatch on the first mismatch. Only `decodeWith` catches it. */
+	/** Decodes `value` found at `path`, refusing the first mismatch on the path (refuse). Only `decodeWith` ends on it. */
 	readonly parse: (value: unknown, path: DecodePath) => Decoding<A>
 	/**
 	 * What a tagged union's case reads of `value`, the property `skip` (the union's discriminator) passed over: a
@@ -228,21 +262,6 @@ const stringKeys = <R>(shapes: ShapesOf<R>): ReadonlyArray<keyof R & string> =>
 export const malformedAt = (subject: string, path: Path, capability: string): CompileError =>
 	malformedDescription(SourceLoc(subject, path), capability)
 
-/**
- * Internal control flow: thrown at the first mismatch deep inside a decode and caught by decodeWith (or by a union
- * trying its next alternative). It never escapes this module's exported functions.
- */
-class Mismatch extends Error {
-	readonly where: Where
-	readonly capability: string
-
-	constructor(fields: { readonly where: Where; readonly capability: string }) {
-		super()
-		this.where = fields.where
-		this.capability = fields.capability
-	}
-}
-
 /** A shape but for what a tagged union's case reads of it (fields): the parts plain completes. */
 type ShapeParts<A> = Omit<Shape<A>, "fields">
 
@@ -263,33 +282,20 @@ export const plain = <A>(shape: ShapeParts<A>): Shape<A> => ({
 	}
 })
 
-export const refuse = (at: Path | DecodePath, capability: string): never => {
-	throw new Mismatch({ where: whereOf(at), capability })
-}
+/** Refuses the value at `path` as a mismatch: it is not what `capability` names. */
+export const refuse = (path: DecodePath, capability: string): never =>
+	path.refuse({ kind: "mismatch", place: path.place, capability })
 
 /** Refuses the child at `key` of the value at `path`. */
-const refuseAt = (path: DecodePath, key: string | number, capability: string): never => {
-	throw new Mismatch({ where: { kind: "place", place: { key, from: path.place } }, capability })
-}
+const refuseAt = (path: DecodePath, key: string | number, capability: string): never =>
+	path.refuse({ kind: "mismatch", place: { key, from: path.place }, capability })
 
 /**
- * Internal control flow for a refusal no alternative can repair (a cycle, a read that throws): a union does not try its
- * next alternative on it, so it reaches decodeWith unchanged, naming what the value had to be.
+ * Refuses the value at `path` as no alternative can repair (a cycle, a read that throws): a union does not try its next
+ * alternative on it, so it reaches decodeWith unchanged, naming what the value had to be.
  */
-class Abort extends Error {
-	readonly where: Where
-	readonly what: string
-
-	constructor(fields: { readonly where: Where; readonly what: string }) {
-		super()
-		this.where = fields.where
-		this.what = fields.what
-	}
-}
-
-const abort = (at: DecodePath, what: string): never => {
-	throw new Abort({ where: whereOf(at), what })
-}
+const abort = (path: DecodePath, what: string): never =>
+	path.refuse({ kind: "abort", place: path.place, capability: what })
 
 /**
  * `step` over the container `value` at `path`, inside its place on the path: refused as a cycle when `value` is already
@@ -320,13 +326,9 @@ const decodeOn = <A>(
 	try {
 		return Result.ok(drive(shape.parse(value, path)))
 	} catch (caught) {
-		if (caught instanceof Mismatch) {
-			return Result.err(malformedAt(path.subject, keysOf(caught.where), caught.capability))
-		}
-		if (caught instanceof Abort) {
-			return Result.err(
-				malformedDescription(SourceLoc(path.subject, keysOf(caught.where)), caught.what)
-			)
+		if (caught === unwinding) {
+			const refused = path.taken()
+			return Result.err(malformedAt(path.subject, keysTo(refused.place), refused.capability))
 		}
 		if (caught instanceof Refusal) {
 			return Result.err(caught.error)
@@ -663,15 +665,25 @@ export const refine = <A>(
 	})
 
 /**
- * A decoded value whose parts agree with each other, which `audit` checks over the decoded value: it refuses (refuse) at
- * the path of the first part that breaks the agreement, naming that part, and returns otherwise.
+ * A decoded value whose parts agree with each other, which `audit` checks over the decoded value: it refuses (its
+ * `refuseAt`) at the keys, under the value, of the first part that breaks the agreement, naming that part, and returns
+ * otherwise.
  */
-export const audited = <A>(shape: Shape<A>, audit: (value: A, path: Path) => void): Shape<A> =>
+export const audited = <A>(
+	shape: Shape<A>,
+	audit: (value: A, refuseAt: (keys: Path, capability: string) => never) => void
+): Shape<A> =>
 	plain({
 		expected: shape.expected,
 		parse: function* (value, path) {
 			const out = yield* shape.parse(value, path)
-			audit(out, path.keys)
+			audit(out, (keys, capability) =>
+				path.refuse({
+					kind: "mismatch",
+					place: keys.reduce<Place | undefined>((from, key) => ({ key, from }), path.place),
+					capability
+				})
+			)
 			return out
 		}
 	})
@@ -1193,13 +1205,16 @@ export const tagged = <const T extends string, M extends Readonly<Record<string,
 	})
 }
 
-/** `step`'s answer, or the Mismatch it throws, so a union can try its next alternative; any other throw propagates. */
-function* attempt<A>(step: Step<A>): Step<Result.Result<A, Mismatch>> {
+/**
+ * `step`'s answer, or the mismatch it refuses, taken off `path`, so a union can try its next alternative; an abort and
+ * any other throw propagate.
+ */
+function* attempt<A>(step: Step<A>, path: DecodePath): Step<Result.Result<A, Refused>> {
 	try {
 		return Result.ok(yield* step)
 	} catch (caught) {
-		if (caught instanceof Mismatch) {
-			return Result.err(caught)
+		if (caught === unwinding && path.mismatched) {
+			return Result.err(path.taken())
 		}
 		throw caught
 	}
@@ -1215,7 +1230,7 @@ export const unionShape = <const M extends ReadonlyArray<unknown>>(
 		expected,
 		parse: function* (value, path) {
 			for (const shape of members) {
-				const out = yield* attempt(shape.parse(value, path))
+				const out = yield* attempt(shape.parse(value, path), path)
 				if (out.ok) {
 					return out.value
 				}

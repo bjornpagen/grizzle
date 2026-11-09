@@ -2179,7 +2179,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		),
 		bindings: S.uniqueStrings("bound parameters", S.nonEmptyString)
 	}),
-	(changeSet, path) => {
+	(changeSet, refuseAt) => {
 		const used = new Set([
 			...changeSet.strata.flatMap((s) =>
 				s.members.flatMap((m) =>
@@ -2190,8 +2190,8 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		])
 		for (const [at, bound] of changeSet.bindings.entries()) {
 			if (!used.has(bound)) {
-				S.refuse(
-					[...path, "bindings", at],
+				refuseAt(
+					["bindings", at],
 					`a binding of a parameter the ChangeSet declares; ${bound} is none of its members' or read-backs' parameters`
 				)
 			}
@@ -2205,8 +2205,8 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		)
 		const taken = reserved.find(({ slot }) => used.has(slot))
 		if (taken !== undefined) {
-			S.refuse(
-				[...path, "strata", taken.s, "members", taken.i],
+			refuseAt(
+				["strata", taken.s, "members", taken.i],
 				`a parameter name other than the member slot ${taken.slot} the ChangeSet reserves`
 			)
 		}
