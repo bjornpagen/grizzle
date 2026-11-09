@@ -10,10 +10,6 @@ post-beta swarm's fixes for the next release.
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
-- **The shakedown failures at 3cc8fbda**, each lane stopped mid-work for the repin; resume them:
-  - test/pg/write/generated-key "a write meets a key over generated fields…" (GENKEY had a fix and its plant);
-  - test/pg/cli/workflow "3 workflows of the rotating stream…";
-  - test/pg/plans "a retained-PK ordered take deduplicates and sorts nothing…".
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Waste hunt (remove work, never add machinery):**
