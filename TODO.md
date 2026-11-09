@@ -45,6 +45,15 @@ post-beta swarm's fixes for the next release.
     read the migration's part. On Qti the import's JSON.parse falls from 107 to 8 ms of CPU (edullm measured the
     import at 0.4 s, 118 ms of it GC, with a 266 MB heap after it). It changes the import line qti-pie, edullm, the
     README and the SKILL use.
+  - A workload member states whether it pages (main, 2026-11-09: proposed, not tonight). The layer compiles every
+    ordered program of a login's workloads twice, once for rows and once as a page (adapter/reader/reader.ts
+    compileReadForm builds the page template up front, so a handle's .page is ready), though an app may never page it:
+    qti-app only executes its one ordered program, `tests`, about 0.1 s of DbLayer.make's CPU on edullm's profile
+    (REPORT-2 G9). Compiling the page per .page call instead is refused (a compile on every hot-path page request).
+    The representation: a page program is declared as one in the workload (a page entry built from the ordered
+    query, its page template compiled once at startup), and a plain ordered program offers execute and get only, its
+    typed handle without .page, so no form compiles a page nobody declared. It changes the workload builder and the
+    Compiled handle types (README, SKILL), and qti-pie's and edullm's workloads only if they page a program.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
