@@ -32,7 +32,7 @@ import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { FillOrder } from "#compiler/ir/fill.ts"
+import type { FillOrder, FillPosition } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -52,7 +52,8 @@ import {
 	type GeneratedNull,
 	type Filler,
 	type HostEvaluator,
-	type HostNode
+	type HostNode,
+	walkStart
 } from "#compiler/write/family/fold.ts"
 import type { Transport } from "#compiler/write/family/order.ts"
 import { type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
@@ -90,12 +91,15 @@ export type NestingRoot =
 	| { readonly kind: "counted" }
 
 /**
- * A relation whose rows a nesting's family statements write: its row layout (statements.ts rowLayout), and the columns
- * of it the counted families it is a member of fill after the walk, none for a relation of no counted family.
+ * A relation whose rows a nesting's family statements write: its row layout (statements.ts rowLayout), the columns of it
+ * the counted families it is a member of fill after the walk, none for a relation of no counted family, and where its
+ * rows stand in the walk, at which the counts and ends of the counted families they own are filled (write/program/
+ * bind.ts freshOwners).
  */
 export interface NestedLayout {
 	readonly layout: RowLayout
 	readonly pending: ReadonlySet<ColumnKey>
+	readonly position: FillPosition
 }
 
 /** A nested write as compiled: see the module's header. */
@@ -107,6 +111,8 @@ export interface Nesting {
 	readonly reached: ReadonlyArray<Reached>
 	readonly codes: Codebook
 	readonly filler: Filler
+	/** Where the walk starts its rows: a tree's root, or the insert's own row. */
+	readonly start: FillPosition
 	readonly levels: ReadonlyArray<Level>
 	/** Each relation whose rows its family statements write: every reached member relation, and the insert's own unless
 	 * its root is plain. */
@@ -200,18 +206,24 @@ export const nestingOf = (
 	}
 	const built = fillerOf(fill, codes, evaluate)
 	const layouts = new Map<string, NestedLayout>()
+	const start = walkStart(families, relation.name)
 	/** The insert's own relation as a family's member, a tree's or a counted family's, when its family statements write
-	 * its rows. */
+	 * its rows, at the walk's start. */
 	const own = families.find((f) => f.member.name === relation.name)?.member
-	const written: ReadonlyArray<RelationInfo> = [
-		...(root.kind === "plain" || own === undefined ? [] : [own]),
-		...reached.map((r) => r.family.member)
-	]
-	for (const member of written) {
+	const written: ReadonlyArray<{ readonly member: RelationInfo; readonly position: FillPosition }> =
+		[
+			...(root.kind === "plain" || own === undefined ? [] : [{ member: own, position: start }]),
+			...reached.map((r) => ({
+				member: r.family.member,
+				position: { kind: "member" as const, family: r.family }
+			}))
+		]
+	for (const { member, position } of written) {
 		if (!layouts.has(member.name)) {
 			layouts.set(member.name, {
 				layout: rowLayout(member, families),
-				pending: pendingOf(fill, member.name)
+				pending: pendingOf(fill, member.name),
+				position
 			})
 		}
 	}
@@ -230,6 +242,7 @@ export const nestingOf = (
 		reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
 		codes,
 		filler: built,
+		start,
 		levels: Object.freeze(levels),
 		layouts,
 		top: relation.fields
@@ -358,7 +371,7 @@ export const nestedRows = (
 	}
 	let stopped: NestedGeneratedNull | undefined
 	for (const host of hosts) {
-		const filled = nesting.filler(host)
+		const filled = nesting.filler(host, nesting.start)
 		if (!filled.ok) {
 			const refusal = nestedRefusal(filled.error, slotPlace(member))
 			if (refusal._tag !== "GeneratedNull") {

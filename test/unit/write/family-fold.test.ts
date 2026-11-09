@@ -393,7 +393,7 @@ describe("the host fold, exhaustively", () => {
 							}
 							note.note(`monoid ${c.shape.monoid}`)
 							const filled = succeeded(
-								fills.fill(nestingOf(c)),
+								fills.fill(nestingOf(c), { kind: "top" }),
 								"a family of admitted values fills"
 							)
 							const m = foldMonoid(c.shape)

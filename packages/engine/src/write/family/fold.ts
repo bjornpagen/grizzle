@@ -202,8 +202,20 @@ export const selects = <E>(
 	return Result.ok(true)
 }
 
-/** A nesting's fills, built once for the families of a schema and the installation's codes. */
-export type Filler = (root: HostNode) => Result.Result<FilledNode, FillRefusal>
+/** A nesting's fills, built once for the families of a schema and the installation's codes: a row and what it owns,
+ * filled where it stands (`position`), the walk's start, a tree's root or the insert's own row, or a family's member
+ * whose own columns there its values already hold, whose counted families' counts and ends a fresh fill draws. */
+export type Filler = (
+	root: HostNode,
+	position: FillPosition
+) => Result.Result<FilledNode, FillRefusal>
+
+/** Where a walk of a nesting of `relation` starts its root: a tree's root where `relation` is a tree's, else the
+ * ChangeSet's own row. */
+export const walkStart = (families: ReadonlyArray<Family>, relation: string): FillPosition => {
+	const tree = families.find((f) => isTreeOf(f, relation))
+	return tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
+}
 
 /** A family's key: one count counts one family. */
 export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}`
@@ -1050,8 +1062,8 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 		}),
 		tree
 	})
-	return (root: HostNode): Result.Result<FilledNode, FillRefusal> => {
-		const tree = fill.families.find((f) => isTreeOf(f, root.relation))
+	return (root: HostNode, position: FillPosition): Result.Result<FilledNode, FillRefusal> => {
+		const tree = position.kind === "root" ? position.family : undefined
 		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
 		const intervalOf = (node: HostNode, start: number, parentStart: number): Row["tree"] => {
 			const size = sizes.get(node)
@@ -1060,8 +1072,6 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 			}
 			return { start, end: start + size, parentStart }
 		}
-		const position: FillPosition =
-			tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
 		const first = rowOf(root, position, {
 			step: undefined,
 			owner: undefined,

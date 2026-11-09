@@ -1965,10 +1965,10 @@ const compile = (
 
 	/**
 	 * A stratum's family work as one removals statement and one additions statement of each member relation
-	 * (write/family/removals.ts, write/family/additions.ts), where no nested write fills a family and nothing refills: a
-	 * member's removals where an edit puts or deletes it, its additions where one inserts or puts it, each with each owner
-	 * of its families, its count and ends changed, and, for a member it removes from and appends nothing to, the recount
-	 * of the owners the stratum puts; none for any other stratum, whose family statements the family planner plans.
+	 * (write/family/removals.ts, write/family/additions.ts), where nothing refills: a member's removals where an edit puts
+	 * or deletes it, its additions where one inserts or puts it or a nested write fills its rows, each with each owner of
+	 * its families, its count and ends changed, and, for a member it removes from and appends nothing to, the recount of
+	 * the owners the stratum puts; none for any other stratum, whose family statements the family planner plans.
 	 */
 	const familyWritesOf = (
 		stratum: StratumAt,
@@ -1981,7 +1981,7 @@ const compile = (
 		const nested = nestedWrites.flatMap((n) =>
 			n.stratum === stratum ? [...n.nesting.layouts.keys()] : []
 		)
-		if (edited.length === 0 || refill !== undefined || nested.length > 0) {
+		if ((edited.length === 0 && nested.length === 0) || refill !== undefined) {
 			return undefined
 		}
 		const by = (ops: ReadonlyArray<"insert" | "put" | "delete">) => [

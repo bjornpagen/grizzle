@@ -160,7 +160,7 @@ describe("the host fill of a concat fold", () => {
 								}
 							]
 						}
-						const filled = succeeded(fill(nesting), "a family of texts fills")
+						const filled = succeeded(fill(nesting, { kind: "top" }), "a family of texts fills")
 						const plane = defined(defined(family.folds[0]).planes[0])
 						const rows = defined(filled.families[0], "the owner's family").members
 						let running = ""

@@ -996,7 +996,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			}
 		]
 	}
-	const filled = built(node)
+	const filled = built(node, { kind: "top" })
 	if (!filled.ok) {
 		return Result.fail(`the filler refuses the family: ${Formatter.format(filled.error)}`)
 	}

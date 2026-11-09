@@ -242,7 +242,7 @@ export const familyRows = (
 			continue
 		}
 		for (const fact of factsOf(name)) {
-			const filled = fill(nodeOf(relation, undefined, fact))
+			const filled = fill(nodeOf(relation, undefined, fact), { kind: "top" })
 			if (!filled.ok) {
 				return refuse(
 					fact.location,

@@ -64,7 +64,10 @@ import {
 } from "#compiler/schema/own.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
+import type { Chunks } from "#compiler/write/program/bind.ts"
+import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
+import { readArrayLiteral } from "#test/support/arrays.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
 
@@ -521,3 +524,36 @@ const catalogLowerer = <K extends RelKind>(
  */
 export const catalogDispatch = (node: RelNode, cx: LowerContext, env: Env): OperandSelect =>
 	catalogLowerer(node, cx, env)
+
+/**
+ * The items of the array a stratum's family additions statement carries column `part` of a relation's nested rows in
+ * (write/family/nesting.ts sentLayout), as its one execution sends it: the rows, in the order the walk filled them.
+ */
+export const nestedRowsColumn = (
+	program: CompiledWrite,
+	chunks: Chunks,
+	relation: string,
+	part: number
+): ReadonlyArray<string> => {
+	for (const statement of program.artifact.statements) {
+		const at = Arr.findFirstIndex(
+			statement.spec.paramSlots,
+			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part
+		)
+		if (Option.isSome(at)) {
+			const [execution] = succeeded(chunks(statement))
+			return Arr.map(
+				readArrayLiteral(
+					textOfParam(defined(execution?.[at.value], `column ${part} of ${relation}'s nested rows`))
+				),
+				(item) => {
+					if (item === null) {
+						throw new Error(`a NULL among ${relation}'s nested rows`)
+					}
+					return item
+				}
+			)
+		}
+	}
+	throw new Error(`no statement carries ${relation}'s nested rows`)
+}
