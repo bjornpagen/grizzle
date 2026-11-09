@@ -32,7 +32,6 @@ import {
 	type FusedStatement,
 	type OptimizedDeliveryProgram,
 	type OptimizedStatement,
-	oneForm,
 	optimizedDispatch,
 	type RelationChoice,
 	ShapeState
@@ -45,6 +44,7 @@ import {
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { statementSpec } from "#compiler/lower/template.ts"
+import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
@@ -73,6 +73,8 @@ import {
 
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
+import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type AppendedMember,
@@ -130,11 +132,7 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
-import {
-	castsNothing,
-	type FamilyStep,
-	type FamilyWriteStep
-} from "#compiler/write/program/artifact.ts"
+import { castsNothing } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
 	DependencyTracker,
@@ -146,9 +144,7 @@ import {
 	singleStatementSpec,
 	type SentForm,
 	specifiedRun,
-	type UniqueAbort,
 	type WriteArtifact,
-	type WriteStep,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
 import {

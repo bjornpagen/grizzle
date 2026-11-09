@@ -11,7 +11,7 @@ import {
 import type { Observed } from "#bench/harness/phases.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
+import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 

@@ -18,7 +18,6 @@ import {
 } from "#compiler/lower/optimize/pipeline.ts"
 
 import {
-	declaredSlotOf,
 	type SpecifiedArtifact,
 	type SpecifiedForm,
 	type SpecifiedStatement,
@@ -36,6 +35,7 @@ import {
 } from "#compiler/program/schema.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { publicDesc, queryState } from "#compiler/query/build/state.ts"
+import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {

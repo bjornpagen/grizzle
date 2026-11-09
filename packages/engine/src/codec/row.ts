@@ -32,7 +32,7 @@ const returnedValue = (type: ScalarType, codes: Codebook): ((text: OutputText) =
  * A statement's result arrives as positional rows of column texts (the adapter's wire parses nothing, every column is
  * cast to text by the outermost SELECT, and the session admits a text cell only). A delivered row's public columns are
  * converted by the value's own decoder (core/decoder.ts); the rows grizzle reads for itself, a write's returned facts
- * (write/insert/rows.ts, write/put/rows.ts), are converted here, a bytes column's cell its digest (`returnedValue`).
+ * (runtime/write/rows.ts, runtime/write/put-rows.ts), are converted here, a bytes column's cell its digest (`returnedValue`).
  * A converter is built once per heading: it resolves one conversion per column up front, and the returned closure is a
  * straight loop over the row that calls those closures in order. There is no eval, no Result and no per-row or
  * per-field fiber: every text is PostgreSQL's own output of a value of its column's type, so a conversion checks nothing

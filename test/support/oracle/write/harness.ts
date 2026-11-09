@@ -1450,7 +1450,7 @@ export const runCase = (
 		/**
 		 * A generated addition drawing the key of a stored fact its stratum deletes, its sequence lagging behind the stored
 		 * values, with the relation's delta read back both ways: the fact identical, which the change neither adds nor
-		 * removes, or differing in a field, one removal and one addition (write/delta/net.ts stratumChange). Such a draw
+		 * removes, or differing in a field, one removal and one addition (runtime/write/net.ts stratumChange). Such a draw
 		 * is the realization's (addwins.ts), so it is read from the expectation under the realization's draws.
 		 */
 		const [first] = realized

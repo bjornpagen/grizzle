@@ -16,6 +16,7 @@ import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { ConservativeProgram, DeltaSource } from "#compiler/lower/conservative/types.ts"
 
+import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -52,7 +53,7 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
-import { type CarrierCasts, castsNothing } from "#compiler/write/program/artifact.ts"
+import { castsNothing } from "#compiler/write/program/artifact.ts"
 import { inPlaceOf } from "#compiler/write/put/choose.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { deltaSourceIn } from "#compiler/write/readback/lower.ts"

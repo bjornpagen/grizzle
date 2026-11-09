@@ -18,7 +18,7 @@ import {
 	type ConcurrentChangeTag,
 	readChangeDetail,
 	readLawDetail
-} from "#compiler/write/refusal.ts"
+} from "#compiler/runtime/write/refusal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"

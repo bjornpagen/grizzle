@@ -1,108 +1,40 @@
 /**
- * A write as its one flight runs it, as data, and as an application runs it.
- *
- * A compiled write (compile.ts CompiledWrite) holds its whole front end, every statement's AST and the plan it was
- * built from; an application reads only part of it. `ServedWrite` is that part as data: records, arrays, strings,
- * numbers, booleans, bigints, Maps, Sets and ScalarTypes, no function, AST or Codebook, so a served file holds it
- * (served/forms.ts ServedChange) and a running layer reads nothing else. `FlightWrite` is a ServedWrite loaded under the
- * installation's codes (`loadWrite`): every encoder and identity it runs, rebuilt from the data by the constructors the
- * compile path runs it through too. Every application loads its write so, a write compiled in process as much as a
- * served one, so what the file holds is exactly what an application reads.
+ * A compiled write as a served file holds it (runtime/write/flight.ts ServedWrite): `projectWrite` takes from the
+ * compiled program exactly what an application reads, and `flightOf` loads it as an application of a write compiled in
+ * process runs it, so every application runs the served form.
  *
  * A write whose family work the host plans from a read flight (bind.ts Flights `read`) is no served write: its plan reads
- * the compiled front end itself. `servedWrite` refuses it, naming each such shape (`UnservedShape`).
+ * the compiled front end itself. `servedWrite` refuses it, naming each such shape (`UnservedReason`).
  */
 import { maxOf } from "#compiler/core/array.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
-import type { ParamDecl, WriteSlot } from "#compiler/ir/products.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { oneForm, type StatementForms } from "#compiler/lower/shapes/index.ts"
-import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { writeSlotOf } from "#compiler/lower/template.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { ArtifactForms, OwnStep } from "#compiler/write/program/artifact.ts"
-import type { Binding } from "#compiler/write/program/binding.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import {
-	type OutcomeContext,
-	type WrittenHeading,
-	writtenOutcome
-} from "#compiler/write/program/outcome.ts"
-import type { Staged } from "#compiler/write/program/staged.ts"
-
-/** A form of a write statement as an execution sends it: its text, and what fills each placeholder, $n by
- * `params[n - 1]`. */
-export interface ServedWriteForm {
-	readonly sql: EmittedText
-	readonly params: ReadonlyArray<WriteParamSlot>
-}
+	type FlightWrite,
+	loadWrite,
+	type ServedStatement,
+	type ServedWrite,
+	type ServedWriteChoice,
+	type ServedWriteForm
+} from "#compiler/runtime/write/flight.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
+import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 
 /**
- * A per-execution choice of a statement's form: the relation parameter whose distinct fact count decides it, and the
- * threshold above which the statement's whole-relation form is sent (lower/shapes/take runsLargeForm).
+ * Why a served file holds no ChangeSet: a family write of it the host plans from a read flight, which no served write
+ * holds, a stratum's edit of a member relation, a stratum's refill, with the families it draws again, whether a path of
+ * it reads a tree, and the most owner axes one path of it rides, or a stratum's nested writes whose families the host
+ * plans; or a member no served call can supply (served-members.ts servedMembers), a Stream member, whose facts are code,
+ * a value ChangeSet.bind closed with no canonical text, whose private name follows the order the ChangeSet was built in,
+ * not its declaration, or two array members of one relation, whose facts one call keys alike.
  */
-export interface ServedWriteChoice {
-	readonly source: RelationInput
-	readonly threshold: number
-}
-
-/**
- * One statement of a write's flight: its step, which says what its rows are and when an application skips it, its own
- * form, and its whole-relation form beside it when per-execution choices pick between the two.
- */
-export interface ServedStatement {
-	readonly step: OwnStep
-	readonly form: ServedWriteForm
-	readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
-	/** How its nested rows travel past one Bind message (staged.ts Staged). */
-	readonly staged: Staged
-}
-
-/**
- * A write as its flight runs it, as data: its declared parameters, which an application admits and its read-backs
- * read; what binding an application reads besides its values (binding.ts Binding); its statements, in the order the
- * flight sends them; and the relations it writes, in code point order, whose facts its rows net by identity.
- */
-export interface ServedWrite {
-	readonly params: ReadonlyArray<ParamDecl>
-	readonly binding: Binding
-	readonly statements: ReadonlyArray<ServedStatement>
-	readonly written: ReadonlyArray<WrittenHeading>
-}
-
-/** A form of a statement as an application sends it: its text and the encoder of each placeholder. */
-export interface FlightForm {
-	readonly sql: EmittedText
-	readonly paramSlots: ReadonlyArray<WriteSlot>
-}
-
-/** A statement of a loaded write: its position in the flight, its step, and its forms with their encoders. */
-export interface FlightStatement {
-	readonly index: number
-	readonly step: OwnStep
-	readonly form: FlightForm
-	readonly forms: StatementForms<ServedWriteChoice, FlightForm>
-	readonly staged: Staged
-}
-
-/** A ServedWrite loaded under the installation's codes: its statements with their encoders, and what reads its rows. */
-export interface FlightWrite {
-	readonly params: ReadonlyArray<ParamDecl>
-	readonly binding: Binding
-	readonly statements: ReadonlyArray<FlightStatement>
-	readonly outcome: OutcomeContext
-}
-
-/**
- * A family write the host plans from a read flight, which no served write holds: a stratum's edit of a member relation;
- * a stratum's refill, with the families it draws again, whether a path of it reads a tree, and the most owner axes one
- * path of it rides; or a stratum's nested writes whose families the host plans.
- */
-export type UnservedShape =
+export type UnservedReason =
 	| { readonly kind: "edit"; readonly stratum: StratumAt; readonly relation: string }
 	| {
 			readonly kind: "refill"
@@ -112,11 +44,18 @@ export type UnservedShape =
 			readonly hops: number
 	  }
 	| { readonly kind: "nested"; readonly stratum: StratumAt }
+	| { readonly kind: "stream"; readonly slot: string; readonly relation: string }
+	| { readonly kind: "opaqueBinding"; readonly name: string }
+	| {
+			readonly kind: "repeated"
+			readonly relation: string
+			readonly slots: readonly [string, string]
+	  }
 
-/** A write no served file holds: each shape of it the host plans from a read flight. */
+/** A ChangeSet no served file holds, with every reason it holds none (`UnservedReason`). */
 export interface UnservedMember {
 	readonly _tag: "UnservedMember"
-	readonly shapes: NonEmptyReadonlyArray<UnservedShape>
+	readonly reasons: NonEmptyReadonlyArray<UnservedReason>
 }
 
 /** A form's data: its text and placeholders. */
@@ -176,7 +115,7 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
  * The shapes of `compiled` the host plans from a read flight: each edit and refill program, and each stratum with
  * family steps the host plans that neither names, its nested writes'.
  */
-const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedShape> => {
+const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedReason> => {
 	const programmed = new Set<StratumAt>([
 		...compiled.edits.map((e) => e.edit.stratum),
 		...compiled.refills.map((r) => r.stratum)
@@ -187,12 +126,12 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedShape> =
 		)
 	)
 	return [
-		...compiled.edits.map((e): UnservedShape => ({
+		...compiled.edits.map((e): UnservedReason => ({
 			kind: "edit",
 			stratum: e.edit.stratum,
 			relation: e.target.relation.name
 		})),
-		...compiled.refills.map((r): UnservedShape => ({
+		...compiled.refills.map((r): UnservedReason => ({
 			kind: "refill",
 			stratum: r.stratum,
 			families: r.refill.closure.refills.map((f) => f.id),
@@ -202,7 +141,7 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedShape> =
 				0
 			)
 		})),
-		...[...planned].map((stratum): UnservedShape => ({ kind: "nested", stratum }))
+		...[...planned].map((stratum): UnservedReason => ({ kind: "nested", stratum }))
 	]
 }
 
@@ -211,56 +150,12 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedShape> =
 export const servedWrite = (
 	compiled: CompiledWrite
 ): Result.Result<ServedWrite, UnservedMember> => {
-	const shapes = unservedShapes(compiled)
-	return isNonEmpty(shapes)
-		? Result.err({ _tag: "UnservedMember", shapes })
+	const reasons = unservedShapes(compiled)
+	return isNonEmpty(reasons)
+		? Result.err({ _tag: "UnservedMember", reasons })
 		: Result.ok(projectWrite(compiled))
-}
-
-/** A served write as an application runs it under the installation's codes: each placeholder with its encoder
- * (lower/template.ts writeSlotOf), each written relation with its facts' identity. */
-export const loadWrite = (served: ServedWrite, codes: Codebook): FlightWrite => {
-	const slotOf = writeSlotOf(codes)
-	const loaded = (form: ServedWriteForm): FlightForm =>
-		Object.freeze({ sql: form.sql, paramSlots: Object.freeze(form.params.map(slotOf)) })
-	return Object.freeze({
-		params: served.params,
-		binding: served.binding,
-		statements: Object.freeze(
-			served.statements.map((s, index): FlightStatement =>
-				Object.freeze({
-					index,
-					step: s.step,
-					form: loaded(s.form),
-					forms:
-						s.forms.kind === "one"
-							? oneForm
-							: Object.freeze({
-									kind: "chosen",
-									choices: s.forms.choices,
-									large: loaded(s.forms.large)
-								}),
-					staged: s.staged
-				})
-			)
-		),
-		outcome: Object.freeze({
-			written: Object.freeze(served.written.map(writtenOutcome(codes))),
-			codes
-		})
-	})
 }
 
 /** A write compiled in process as an application runs it: projected and loaded, as a served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
 	loadWrite(projectWrite(compiled), codes)
-
-/** The form of a statement an application sends: its whole-relation form when it runs some per-execution choice large
- * (`runsLarge`, by the distinct fact count of the relation parameter the choice reads), its own otherwise. */
-export const sentForm = (
-	statement: FlightStatement,
-	runsLarge: (choice: ServedWriteChoice) => boolean
-): FlightForm =>
-	statement.forms.kind === "chosen" && statement.forms.choices.some((c) => runsLarge(c))
-		? statement.forms.large
-		: statement.form

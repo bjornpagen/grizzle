@@ -19,8 +19,8 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"

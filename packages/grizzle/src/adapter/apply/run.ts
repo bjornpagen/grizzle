@@ -175,7 +175,7 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  *    abort PostgreSQL raised is a TransientFailure, an integrity violation of a law invariant-rejected, a roster
  *    domain's refusal of a value grizzle wrote grizzle's defect, which the application dies with, anything else an
  *    operational failure. So is a refusal at COMMIT (a deferred law, 40001). COMMIT with no answer is CommitUnknown.
- * 4. The rows are read into the changes by the WriteProgram's own converters (write/program/outcome.ts interpretRows):
+ * 4. The rows are read into the changes by the WriteProgram's own converters (runtime/write/outcome.ts interpretRows):
  *    each stratum's facts made present and absent, netted across strata into counts and the outcome kind. Rows carry
  *    no refusal. The read-backs' Rows are read by the ChangeSet's reads decoder, bound once to the artifact's reads
  *    layout (readback.ts). Only a committed outcome is ever reported.

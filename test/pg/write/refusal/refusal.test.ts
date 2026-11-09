@@ -9,14 +9,13 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { param, types } from "#compiler/sql/build.ts"
 import { printExpr, printStatement } from "#compiler/sql/print.ts"
 import {
 	type ArmRefusal,
-	readChangeDetail,
-	readLawDetail,
 	raised as raisedBy,
 	refusalFunctionDdl,
 	refusalFunctionName

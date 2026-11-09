@@ -21,6 +21,15 @@ import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
+import {
+	type FlightForm,
+	type FlightStatement,
+	type FlightWrite,
+	type ServedWriteChoice,
+	sentForm
+} from "#compiler/runtime/write/flight.ts"
+import { keyWitness } from "#compiler/runtime/write/outcome.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
@@ -85,7 +94,6 @@ import {
 	planRead,
 	planRelation,
 	textsOf,
-	type Transport,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
 import { patternPositions } from "#compiler/write/family/pattern-order.ts"
@@ -122,14 +130,6 @@ import {
 import type { FreshStratum, JudgedRelation, OwnedColumn } from "#compiler/write/program/binding.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { ownerSlots } from "#compiler/write/program/decide.ts"
-import { keyWitness } from "#compiler/write/program/outcome.ts"
-import {
-	type FlightForm,
-	type FlightStatement,
-	type FlightWrite,
-	type ServedWriteChoice,
-	sentForm
-} from "#compiler/write/program/served.ts"
 import {
 	type Execution,
 	executionsOf,
@@ -175,7 +175,7 @@ export interface BoundWrite {
 	readonly unplanned: StatedRows
 	/** The positions of the write's statements the runtime may skip: their enumerated member holds no fact. */
 	readonly skip: ReadonlySet<number>
-	/** The form of a statement of the write this application sends (served.ts sentForm). */
+	/** The form of a statement of the write this application sends (runtime/write/flight.ts sentForm). */
 	readonly form: (statement: FlightStatement) => FlightForm
 	/**
 	 * The placeholder values of that form, each a text or a bytes or text column's binary array: none reads another

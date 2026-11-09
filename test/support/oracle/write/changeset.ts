@@ -292,7 +292,7 @@ interface ReadSketch {
  * - "lagging identical": the same lagging sequence, setval(seq, k, false) at the stored key k, and one stratum that
  *   deletes the stored fact at k beside a generated addition of its other fields, which draws k after the deletion:
  *   the fact the stratum removes and adds back is identical, so delta.added and delta.removed, both read back, hold
- *   neither (write/delta/net.ts stratumChange, a set difference);
+ *   neither (runtime/write/net.ts stratumChange, a set difference);
  * - "lagging differing": the same, the generated addition's other field differing, so the read-backs hold one
  *   removal and one addition;
  * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a

@@ -1,13 +1,7 @@
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
-import {
-	extendNonEmpty,
-	isNonEmpty,
-	lastNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { extendNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
@@ -86,6 +80,7 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
+import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import {
 	type AttachedTree,
 	mapTree,
@@ -198,18 +193,6 @@ export interface DeliveredProgram<
 > extends ConservativeProgram<Slot> {
 	readonly roots: StatementRoots<DeliveredStatement<C, Slot>>
 }
-
-/**
- * The forms of a statement: one; or, when per-execution choices of its shapes pick between two, the small form, the
- * statement itself, and the large form L an execution sends when some choice's input exceeds its threshold
- * (runsLargeForm): the same statement lowered in the large mode, of the same placement. Both forms deliver the same
- * rows in the same heading, so the choice is cost only.
- */
-export type StatementForms<C, L> =
-	| { readonly kind: "one" }
-	| { readonly kind: "chosen"; readonly choices: NonEmptyReadonlyArray<C>; readonly large: L }
-
-export const oneForm: { readonly kind: "one" } = Object.freeze({ kind: "one" })
 
 /**
  * A statement of the optimized artifact: a delivered statement with its forms, by choices of kind C (a relation

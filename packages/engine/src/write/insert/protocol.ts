@@ -86,9 +86,9 @@ import {
 	type Requested
 } from "#compiler/write/insert/unique.ts"
 
+import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import {
 	type ArmRefusal,
-	type ConcurrentChangeTag,
 	type RefusalArm,
 	type RefusedValue,
 	refusalGuard,

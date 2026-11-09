@@ -266,7 +266,7 @@ export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>
 /**
  * A statement's rows are its output texts, one per column of its heading (and, after a rows statement's heading, one
  * per fused attachment column): a read's are decoded by the value's decoder (core/decoder.ts), a write's by the write
- * program's outcome (write/program/outcome.ts).
+ * program's outcome (runtime/write/outcome.ts).
  */
 export interface StatementSpec<S = ParamSlot> {
 	/** The emitted text; placeholder $n is paramSlots[n - 1]. */

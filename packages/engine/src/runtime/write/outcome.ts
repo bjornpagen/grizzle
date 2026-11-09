@@ -2,10 +2,6 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
-import { isVector } from "#compiler/scalar/values/vector.ts"
-import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 import {
 	type AddedTag,
 	type ChangeRow,
@@ -18,16 +14,20 @@ import {
 	relationIdentity,
 	type StratumChange,
 	stratumChange
-} from "#compiler/write/delta/net.ts"
-import { type Fact, writeRowConverter } from "#compiler/write/insert/rows.ts"
+} from "#compiler/runtime/write/net.ts"
+import { putRowConverter } from "#compiler/runtime/write/put-rows.ts"
+import { type Fact, writeRowConverter } from "#compiler/runtime/write/rows.ts"
 import {
 	byStratum,
 	removedTag,
 	type WriteStep,
 	type WriteStepResult,
 	writeRows
-} from "#compiler/write/program/artifact.ts"
-import { putRowConverter } from "#compiler/write/put/rows.ts"
+} from "#compiler/runtime/write/steps.ts"
+import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
+import { isVector } from "#compiler/scalar/values/vector.ts"
+import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /** The changes an artifact's statements made. */
 interface WriteChanges {
@@ -40,7 +40,7 @@ interface WriteChanges {
 }
 
 /** A relation the ChangeSet writes, by name, with the identity its facts are netted across strata by: every field's
- * value (delta/net.ts relationIdentity). */
+ * value (net.ts relationIdentity). */
 export interface WrittenOutcome {
 	readonly relation: string
 	readonly identity: (fact: Fact) => FactIdentity
@@ -154,7 +154,7 @@ const stepIdentity = (
  * to each written relation its write steps returned rows for, keyed by fact identity (`stratumChange`); a write step
  * writes only relations of `context.written`. The changes are each stratum's facts made present and absent, tagged by
  * the member kind that requested them, netted across strata by fact identity into delta.added, delta.removed and the
- * counts, whose outcome kind the shell's outcome value decides from them (delta/net.ts outcomeKind). It reads fields
+ * counts, whose outcome kind the shell's outcome value decides from them (runtime/write/net.ts outcomeKind). It reads fields
  * grizzle controls only, never PostgreSQL's message or DETAIL prose.
  */
 export const interpretRows = (

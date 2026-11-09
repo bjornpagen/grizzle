@@ -300,7 +300,7 @@ const publicCounts = (counts: PublicCounts): PublicCounts =>
 
 /**
  * The outcome values, each frozen, built only here: a committed application's, its kind following its counts
- * (delta/net.ts outcomeKind) and its read-backs the record the reads decoder assembled; a rejected application's; and
+ * (runtime/write/net.ts outcomeKind) and its read-backs the record the reads decoder assembled; a rejected application's; and
  * one a query entry refused. The public barrel exports them as ApplyOutcome (public/db.ts).
  */
 export const applyOutcome: ApplyOutcomeConstructor = {

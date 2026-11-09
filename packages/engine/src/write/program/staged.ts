@@ -38,7 +38,8 @@ import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { partIndex } from "#compiler/lower/template.ts"
+import { partIndex } from "#compiler/runtime/lower/slots.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type {
 	ArrayColumn,
 	CreateCarrier,
@@ -52,7 +53,7 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { MemberCell } from "#compiler/write/family/draw.ts"
-import { type Transport, typedColumnArray, type Unsendable } from "#compiler/write/family/order.ts"
+import { typedColumnArray, type Unsendable } from "#compiler/write/family/order.ts"
 
 /** A placeholder of a stratum's nested rows of `relation`: the column at `part` of their sent layout. */
 export interface NestedColumnSlot {

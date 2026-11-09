@@ -2,8 +2,9 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import type { Delivered, Heading } from "#compiler/ir/rel.ts"
 import type { DeclaredParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import type { FusedLayout } from "#compiler/lower/shapes/attach/decode.ts"
-import type { Arrival, StatementForms } from "#compiler/lower/shapes/index.ts"
+import type { Arrival } from "#compiler/lower/shapes/index.ts"
 import type { ChoiceInput, RelationInput } from "#compiler/lower/shapes/take/index.ts"
+import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { StatementRole } from "#compiler/runtime/lower/tree.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 

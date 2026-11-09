@@ -1,10 +1,7 @@
 import { Array as Arr } from "effect"
 import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
-import {
-	type FusedStatement,
-	type OptimizedStatement,
-	oneForm
-} from "#compiler/lower/shapes/index.ts"
+import type { FusedStatement, OptimizedStatement } from "#compiler/lower/shapes/index.ts"
+import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 
 /** Each statement's large form, when it has one: the large mode's statement, read from the form by `fused`. */

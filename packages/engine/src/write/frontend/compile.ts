@@ -200,7 +200,7 @@ export type EnumeratedInput =
 
 /** The member slots an enumerated input fills, in the order the front end drafts them: its one slot, or the complete
  * slot and then the generated one. */
-export const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<MemberSlot> => {
+const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<MemberSlot> => {
 	switch (input.kind) {
 		case "single":
 		case "nested":

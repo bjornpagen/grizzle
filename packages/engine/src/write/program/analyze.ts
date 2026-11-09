@@ -5,7 +5,8 @@ import {
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { oneForm } from "#compiler/lower/shapes/index.ts"
+import { oneForm } from "#compiler/runtime/lower/forms.ts"
+import { stratumOf } from "#compiler/runtime/write/steps.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { type CarrierName, emptyNameMap } from "#compiler/sql/naming.ts"
@@ -14,7 +15,6 @@ import {
 	type PlacedStatement,
 	placedStep,
 	settledArtifact,
-	stratumOf,
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"

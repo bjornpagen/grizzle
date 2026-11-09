@@ -31,6 +31,7 @@ import type {
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -56,7 +57,6 @@ import {
 	nestedRowsOf,
 	nestedSet
 } from "#compiler/write/family/nesting.ts"
-import type { Transport } from "#compiler/write/family/order.ts"
 import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"

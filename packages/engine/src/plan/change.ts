@@ -24,13 +24,9 @@ export {
 	parseChangeSet,
 	type ParsedChangeSet
 } from "#compiler/write/changeset/value.ts"
-export { outcomeKind, type RelationCounts } from "#compiler/write/delta/net.ts"
-export {
-	type BindFrame,
-	inForce,
-	type Transport,
-	type Unsendable
-} from "#compiler/write/family/order.ts"
+export { outcomeKind, type RelationCounts } from "#compiler/runtime/write/net.ts"
+export { type BindFrame, inForce, type Transport } from "#compiler/runtime/write/transport.ts"
+export type { Unsendable } from "#compiler/write/family/order.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -39,12 +35,8 @@ export {
 	type MemberFacts,
 	memberSlots
 } from "#compiler/write/normalize/normalize.ts"
-export type {
-	ArtifactStatement,
-	UniqueAbort,
-	WriteArtifact,
-	WriteStep
-} from "#compiler/write/program/artifact.ts"
+export type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
+export type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 export {
 	bindWrite,
 	type BoundWrite,
@@ -58,20 +50,22 @@ export type { ExecutionPart } from "#compiler/write/program/staged.ts"
 export {
 	type FlightStatement,
 	type FlightWrite,
-	flightOf,
 	loadWrite,
+	type ServedWrite
+} from "#compiler/runtime/write/flight.ts"
+export {
+	flightOf,
 	projectWrite,
-	type ServedWrite,
 	servedWrite,
 	type UnservedMember,
-	type UnservedShape
+	type UnservedReason
 } from "#compiler/write/program/served.ts"
 export {
 	interpretRows,
 	type KeyDecoder,
 	keyWitness,
 	witnessDecoder
-} from "#compiler/write/program/outcome.ts"
+} from "#compiler/runtime/write/outcome.ts"
 export {
 	type HostJudgement,
 	hostJudgement,
@@ -85,4 +79,4 @@ export {
 	type LawDetail,
 	readChangeDetail,
 	readLawDetail
-} from "#compiler/write/refusal.ts"
+} from "#compiler/runtime/write/refusal.ts"

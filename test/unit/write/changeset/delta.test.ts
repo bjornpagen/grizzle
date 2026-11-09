@@ -21,11 +21,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import {
-	compareFactIdentities,
-	type FactIdentity,
-	factIdentity
-} from "#compiler/scalar/values/identity.ts"
-import {
 	type ChangeRow,
 	netStrata,
 	outcomeCounts,
@@ -33,7 +28,12 @@ import {
 	relationIdentity,
 	type StratumChange,
 	stratumChange
-} from "#compiler/write/delta/net.ts"
+} from "#compiler/runtime/write/net.ts"
+import {
+	compareFactIdentities,
+	type FactIdentity,
+	factIdentity
+} from "#compiler/scalar/values/identity.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"

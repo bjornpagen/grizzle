@@ -50,8 +50,7 @@ export type {
 	Arrival,
 	FusedStatement,
 	RelationChoice,
-	ShapeChoice,
-	StatementForms
+	ShapeChoice
 } from "#compiler/lower/shapes/index.ts"
 export {
 	compilePageOf,
@@ -72,13 +71,11 @@ export type {
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
-export {
-	pageStatementSlotOf,
-	type SpecifiedStatement,
-	statementSpec
-} from "#compiler/lower/template.ts"
+export { type SpecifiedStatement, statementSpec } from "#compiler/lower/template.ts"
 export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
 export { servedPage, servedRead } from "#compiler/program/served.ts"
+export type { StatementForms } from "#compiler/runtime/lower/forms.ts"
+export { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 export {
 	type CompiledTemplate,
 	type ExecutionRequest,

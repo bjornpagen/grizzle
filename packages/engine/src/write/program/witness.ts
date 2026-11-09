@@ -22,6 +22,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
+import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import {
 	compareValues,
 	type EvalLeaves,
@@ -50,7 +51,6 @@ import {
 	inputSlotsOf,
 	type SlotData
 } from "#compiler/write/normalize/normalize.ts"
-import { keyWitness } from "#compiler/write/program/outcome.ts"
 
 /** A fact as the host states it: each field it carries, by name, its codec's admitted host value. */
 type HostFact = { readonly [field: string]: unknown }

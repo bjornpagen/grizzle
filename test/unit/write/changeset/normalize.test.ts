@@ -18,9 +18,9 @@ import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { inForce } from "#compiler/write/family/order.ts"
 import type {
 	EnumeratedInput,
 	MemberSlot,

@@ -1,7 +1,7 @@
 import { tupleConverter } from "#compiler/codec/row.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { type Fact, factOf } from "#compiler/write/insert/rows.ts"
+import { type Fact, factOf } from "#compiler/runtime/write/rows.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
 type PutRow =

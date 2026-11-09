@@ -20,9 +20,10 @@ import type {
 	PageTemplate
 } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
-import { pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
+import { statementSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
+import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { traverseTree } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ServedPage,

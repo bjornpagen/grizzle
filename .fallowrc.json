@@ -46,7 +46,7 @@
 					"packages/engine/src/codec/row.ts",
 					"packages/engine/src/plan/decode.ts",
 					"packages/engine/src/write/family/decode.ts",
-					"packages/engine/src/write/program/outcome.ts"
+					"packages/engine/src/runtime/write/outcome.ts"
 				]
 			},
 			{
@@ -666,9 +666,9 @@
 		},
 		{ "file": "packages/engine/src/types/schema/statements.ts", "exports": ["TermOf"] },
 		{ "file": "packages/engine/src/write/changeset/value.ts", "exports": ["MemberOp"] },
-		{ "file": "packages/engine/src/write/delta/net.ts", "exports": ["netStrata", "outcomeKind"] },
+		{ "file": "packages/engine/src/runtime/write/net.ts", "exports": ["netStrata", "outcomeKind"] },
 		{ "file": "packages/engine/src/write/family/order.ts", "exports": ["Plan"] },
-		{ "file": "packages/engine/src/write/program/outcome.ts", "exports": ["keyWitness"] }
+		{ "file": "packages/engine/src/runtime/write/outcome.ts", "exports": ["keyWitness"] }
 	],
 	// use and useRelation: fallow credits no member called through a property of a union-typed value, and the checker
 	// calls ParamCell's on the cell of a BindValue (check/checker.ts). The report and when these entries go are in

@@ -20,9 +20,9 @@ import {
 	schema,
 	tree
 } from "#compiler/public/schema.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { fieldKey } from "#compiler/write/family/fold.ts"
-import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { inputSlotsOf } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"

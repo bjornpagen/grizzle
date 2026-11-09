@@ -37,6 +37,7 @@ import type { FillAt, FillOrder, FillPosition } from "#compiler/ir/fill.ts"
 import type { FamilyId, LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import {
@@ -58,7 +59,6 @@ import {
 	type HostNode,
 	walkStart
 } from "#compiler/write/family/fold.ts"
-import type { Transport } from "#compiler/write/family/order.ts"
 import {
 	type LaidColumn,
 	type LaidLayout,

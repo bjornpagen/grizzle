@@ -89,7 +89,7 @@ import {
 	type TextRow,
 	textRows
 } from "#bench/harness/variant.ts"
-import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
+import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import { assert, assertVariant, nonEmpty } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"

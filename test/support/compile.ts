@@ -55,6 +55,7 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import {
 	type Owned,
 	type OwnedLogin,
@@ -65,7 +66,6 @@ import {
 } from "#compiler/schema/own.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { inForce } from "#compiler/write/family/order.ts"
 import type { Chunks } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"

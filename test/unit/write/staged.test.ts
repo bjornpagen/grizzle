@@ -34,11 +34,11 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import type { MemberCell } from "#compiler/write/family/draw.ts"
-import type { Transport } from "#compiler/write/family/order.ts"
 import {
 	type Execution,
 	executionsOf,

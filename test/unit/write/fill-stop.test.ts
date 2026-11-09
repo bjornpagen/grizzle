@@ -29,9 +29,9 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"

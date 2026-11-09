@@ -1,6 +1,6 @@
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { type ConcurrentChangeTag, changeTag, keyTag } from "#compiler/write/refusal.ts"
+import { type ConcurrentChangeTag, changeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 
 /**
  * The DETAIL text an arm raises for constant values, as its SQL expression computes it (write/refusal.ts raised): the
