@@ -1,8 +1,9 @@
 import { floorPopulation, type Reached } from "@grizzle/testing/features"
 import { array, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { sample, type Source } from "@grizzle/testing/source"
+import { forcedChooser, generate, sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { valuesFromToken } from "@grizzle/testing/tape"
 import {
 	Array as Arr,
 	Effect,
@@ -313,6 +314,7 @@ export type AgreementNote =
 	| "a keyed get through a candidate key"
 	| "a keyed get of a closed relation"
 	| "a keyed get of a roster"
+	| "a union lookup pinned by one of several separators"
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -593,7 +595,10 @@ type Pred =
 /** One of ALLEN's named masks: a basic relation or a named union of them. */
 type MaskName = Exclude<keyof typeof ALLEN, "complement" | "converse">
 
-/** An Allen mask as the program writes it: a named mask or a union of two, or the complement or converse of that. */
+/**
+ * An Allen mask as the program writes it: a named mask or a union of two different ones, a set's members, or the
+ * complement or converse of that.
+ */
 interface Mask {
 	readonly names: readonly [MaskName] | readonly [MaskName, MaskName]
 	readonly op: "none" | "complement" | "converse"
@@ -1455,11 +1460,28 @@ const oppositeOf = (d: Drawing, left: Var, bound: ReadonlyArray<Var>): Term =>
 		["spanParam", () => d.param(left.field)]
 	])
 
-/** An Allen mask drawn as the program writes one: one or two named masks, as they are, complemented or conversed. */
-const maskOf = (d: Drawing): Mask => ({
-	names: d.from([0, 1]) === 0 ? [d.from(maskNames)] : [d.from(maskNames), d.from(maskNames)],
-	op: d.from(["none", "complement", "converse"] as const)
-})
+/** Each position of maskNames, from which a mask's first name is drawn. */
+const maskPositions = Arr.map(maskNames, (_name, i) => i)
+
+/** How far past the first name a second one is, wrapping around maskNames: never at the first. */
+const maskOffsets = Arr.range(1, maskNames.length - 1)
+
+/** The name at a position of maskNames, wrapping around. */
+const maskNameAt = (position: number): MaskName =>
+	Arr.getUnsafe(maskNames, position % maskNames.length)
+
+/**
+ * An Allen mask drawn as the program writes one: one named mask or two different ones, as they are, complemented or
+ * conversed.
+ */
+const maskOf = (d: Drawing): Mask => {
+	const two = d.from([0, 1]) === 1
+	const at = d.from(maskPositions)
+	return {
+		names: two ? [maskNameAt(at), maskNameAt(at + d.from(maskOffsets))] : [maskNameAt(at)],
+		op: d.from(["none", "complement", "converse"] as const)
+	}
+}
 
 /** An Allen predicate relating a variable to itself, which allenTerm plants over a drawn variable of any kind. */
 const allenOver = (v: Var): Pred => ({
@@ -2822,24 +2844,9 @@ const builtArm =
 				case "param":
 					return r.param(t.name, descriptorOf(t.at))
 				case "literal":
-					switch (t.type) {
-						case "int":
-							return t.value
-						case "big":
-							return BigInt(t.value)
-						case "date":
-							return dateOf(t.value)
-						case "uuid":
-							return uuidOf(t.value)
-						case "code":
-							return toneOf(t.value)
-					}
 				case "constant":
-					return t.of === "cents"
-						? computeCore.literal(Cents, BigInt(t.value))
-						: computeCore.literal(pg.integer, t.value)
 				case "handle":
-					return Tone.handle(toneOf(t.value))
+					return constantTermValue(t)
 				case "vector":
 					return Vector.make(Float32Array.from(componentsOf(t.dims)), t.dims)
 				case "arith": {
@@ -3637,7 +3644,123 @@ interface AgreementCase {
 	readonly source: string
 	readonly verdict: Verdict
 	readonly keyed: KeyedVerdict | undefined
+	readonly lookups: ReadonlyArray<Lookup>
 	readonly notes: ReadonlySet<AgreementNote | FaultNote>
+}
+
+/**
+ * A lookup of an admitted union of one heading by one field both its rules fix to a constant, a separator where the two
+ * constants differ: the field, the first rule's constant as the program writes it, and the engine's card of the query
+ * matching the union with that field bound to it. A union is keyed by its rules' keys beside the separator the engine
+ * keeps, the first in heading order, so a lookup by that one is pinned where the rules are and a lookup by any other
+ * is not, which the types must state alike.
+ */
+interface Lookup {
+	readonly field: string
+	readonly text: string
+	readonly card: Card
+}
+
+/** The value a literal, a typed constant or a handle term stands for, as the query builder reads it. */
+const constantTermValue = (
+	t: Extract<Term, { readonly kind: "literal" | "constant" | "handle" }>
+): unknown => {
+	switch (t.kind) {
+		case "literal":
+			switch (t.type) {
+				case "int":
+					return t.value
+				case "big":
+					return BigInt(t.value)
+				case "date":
+					return dateOf(t.value)
+				case "uuid":
+					return uuidOf(t.value)
+				case "code":
+					return toneOf(t.value)
+			}
+		case "constant":
+			return t.of === "cents"
+				? computeCore.literal(Cents, BigInt(t.value))
+				: computeCore.literal(pg.integer, t.value)
+		case "handle":
+			return Tone.handle(toneOf(t.value))
+	}
+}
+
+/** The value a constant head term holds on every fact of its rule: a literal, a typed constant or a handle; none else. */
+const constantOf = (h: HeadTerm): Option.Option<unknown> => {
+	if (h.kind === "literal") {
+		return Option.some(h.value)
+	}
+	if (h.kind !== "term") {
+		return Option.none()
+	}
+	switch (h.t.kind) {
+		case "literal":
+		case "constant":
+		case "handle":
+			return Option.some(constantTermValue(h.t))
+		case "var":
+		case "param":
+		case "vector":
+		case "arith":
+		case "neg":
+		case "cond":
+			return Option.none()
+	}
+}
+
+/**
+ * The lookups of an admitted union of two rules of one heading, no parameter, no flag, take or search: one per field
+ * both rules fix to a constant, a box over them, each compiled by the engine. Every other query has none.
+ */
+const lookupsOf = (spec: QuerySpec, params: string): ReadonlyArray<Lookup> => {
+	const [first, second] = spec.arms
+	if (
+		second === undefined ||
+		spec.arms.length !== 2 ||
+		params !== "unknown" ||
+		spec.take !== undefined ||
+		spec.nearest !== undefined ||
+		Arr.some(spec.arms, (arm) => arm.flagged !== undefined || arm.rows !== undefined)
+	) {
+		return []
+	}
+	const names = Arr.map(first.head, ([n]) => n)
+	const other = new Map(second.head)
+	if (names.length !== second.head.length || !Arr.every(names, (n) => other.has(n))) {
+		return []
+	}
+	const rendering = new Rendering(spec.fault)
+	const union = built(spec)
+	return Arr.flatMap(first.head, ([field, h]) => {
+		const there = other.get(field)
+		const value = constantOf(h)
+		if (there === undefined || Option.isNone(value) || Option.isNone(constantOf(there))) {
+			return []
+		}
+		const lookup = queryOver(schemaValue(spec)).rule((r: RuleValue) => {
+			const u = varsOver(union, "u")
+			const bound = Rec.fromEntries(
+				Arr.map(names, (n) => [n, n === field ? value.value : u[n]] as const)
+			)
+			return r.match(union, bound).find(bound)
+		})
+		const compiled = templateOf(spec, lookup, testCompile.read)
+		if (!compiled.ok) {
+			throw new Error(
+				`the engine refuses a lookup of an admitted union by ${field}: ${messageOf(compiled.error)}`
+			)
+		}
+		return [
+			{
+				field,
+				text: rendering.head(h),
+				card: compiled.value.analyzed.roots[0].meta.card
+			}
+		]
+	})
 }
 
 /** A drawn query and the constructs its drawing reached. */
@@ -3709,7 +3832,11 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	for (const note of keyed === undefined ? [] : keyedNotes(keyed)) {
 		notes.add(note)
 	}
-	return { spec, lines, source, verdict, keyed, notes }
+	const lookups = verdict.kind === "admitted" ? lookupsOf(spec, verdict.proved.params) : []
+	if (Arr.some(lookups, (l) => l.card !== "many") && Arr.some(lookups, (l) => l.card === "many")) {
+		notes.add("a union lookup pinned by one of several separators")
+	}
+	return { spec, lines, source, verdict, keyed, lookups, notes }
 }
 
 /**
@@ -3944,17 +4071,63 @@ export const agreementWitnesses = () =>
 /** The faulted population's witnesses: as many as its run's stream draws, the same in every run. */
 export const faultWitnesses = () => floorPopulation(faultLabel, faultGen, faultCount, reachedBy)
 
+/** A case a run's stream once drew, kept by its tape: its population, why it was kept, and what it must still reach. */
+interface KeptCase {
+	readonly note: string
+	readonly population: "clean" | "faulted"
+	readonly tape: string
+	readonly reaches: Arr.NonEmptyReadonlyArray<AgreementNote | FaultNote>
+}
+
+const keptCases: ReadonlyArray<KeptCase> = [
+	{
+		note: "a union of two rules whose constant heads differ at four fields, three of them roster handles: the types keyed it by each of the four, where the engine keeps the first in heading order, d (TEST_SEED=1635200356)",
+		population: "faulted",
+		tape: "6.h.0.b.2.4.0.9.2.h.f.2.b.c.6.9.d.0.8.7.1.0.3.1.2.1.f.a.c.4.6.2.h.7.f.5.d.9.6.a.4.e.d.2.0.2.9.5.e.4.d.d.e.7.b.h.c.8.e.d.0.7.b.9.b.5.1.0.0.3.0.2.3.0.3.0.3.1.2.1.1.0.3.2.0.1.2.1.1.3.1.1.0.0",
+		reaches: ["unionTypes admitted", "constantHead", "a key below the heading"]
+	},
+	{
+		note: "a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
+		population: "clean",
+		tape: "1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1",
+		reaches: ["allen", "get proved", "a span parameter opposite r.allen"]
+	}
+]
+
+/** The kept cases, each drawn from its tape in its population, beside what it was kept for. */
+export const agreementKept = (): ReadonlyArray<{
+	readonly kept: KeptCase
+	readonly drawn: AgreementCase
+}> =>
+	Arr.map(keptCases, (kept) => {
+		const values = valuesFromToken(kept.tape)
+		return {
+			kept,
+			drawn: generate(
+				kept.population === "clean" ? caseGen : faultGen,
+				forcedChooser(values, values.length)
+			).value
+		}
+	})
+
+/** The kept cases of one population. */
+const keptOf = (population: KeptCase["population"]): ReadonlyArray<AgreementCase> =>
+	Arr.flatMap(agreementKept(), ({ kept, drawn }) => (kept.population === population ? [drawn] : []))
+
 /**
- * Every case a population's program holds: the floor's witnesses, then the stream of its label under the run's seed
- * (`TEST_SEED`, or the seed the run drew), so every process of one run draws the same cases and every run new ones.
+ * Every case a population's program holds: the floor's witnesses, its kept cases, then the stream of its label under
+ * the run's seed (`TEST_SEED`, or the seed the run drew), so every process of one run draws the same cases and every
+ * run new ones.
  */
 const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
 	...agreementWitnesses().values,
+	...keptOf("clean"),
 	...sample(caseGen, rotatingSeed(seed, floorSeed(agreementLabel)), agreementCount)
 ]
 
 const faultCases = (seed: number): ReadonlyArray<AgreementCase> => [
 	...faultWitnesses().values,
+	...keptOf("faulted"),
 	...sample(faultGen, rotatingSeed(seed, floorSeed(faultLabel)), faultCount)
 ]
 
@@ -4142,11 +4315,30 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 						]
 					: []),
 				...keyedLines(c.keyed, i),
+				...lookupLines(c, i),
 				""
 			]
 		}
 	}
 }
+
+/**
+ * A case's lookups: each matching the union by its field bound to its constant, its card asserted the engine's. The
+ * union's other fields are read through its variables, which a union of that field alone has none of.
+ */
+const lookupLines = (c: AgreementCase, i: number): ReadonlyArray<string> =>
+	Arr.flatMap(c.lookups, (l, j) => {
+		const names = Arr.map(c.spec.arms[0].head, ([n]) => n)
+		const bound = Arr.join(
+			Arr.map(names, (n) => `${n}: ${n === l.field ? l.text : `u.${n}`}`),
+			", "
+		)
+		const vars = Arr.some(names, (n) => n !== l.field) ? `const u = v(q${i}, "u"); ` : ""
+		return [
+			`export const u${i}_${j} = query(${schemaOf(c.spec)}).rule((r) => { ${vars}return r.match(q${i}, { ${bound} }).find({ ${bound} }) })`,
+			`export type uc${i}_${j} = Expect<Equals<EvidenceOfQuery<typeof u${i}_${j}>["card"], ${jsonText(l.card)}>>`
+		]
+	})
 
 /**
  * A case's keyed get, through Reader's Db: its values as a record, under the directive of what the types refuse where

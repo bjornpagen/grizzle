@@ -50,7 +50,7 @@ type Card = "many" | "atMostOne" | "one"
  * - a plain head is keyed by its whole heading, which a set always is, and by every key HeadKeys proves; the empty key,
  *   a pinned head, is atMostOne, and anything else many;
  * - a union of arms of one heading is atMostOne when every arm fixes every field to one value, and keyed by each arm's
- *   keys joined with a field the arms fix to different literals (UnionEvidence);
+ *   keys joined with the field the engine keeps of those the arms fix to different literals (UnionEvidence);
  * - an aggregate head is keyed by its group terms and every key within them; with the empty key it is atMostOne;
  * - a producer in the head yields zero or more facts per binding, so the head is many.
  *
@@ -558,15 +558,33 @@ type NamedValues<St, K> = St extends Fixed<K & string, infer V> ? Named<V> : nev
 /**
  * The evidence of a union of an arm or union of evidence Ev1 and heading H1 with an arm of evidence Ev2 and heading H2,
  * as the engine reads a union (logical/props.ts unionProps): a field both fix to one value is fixed in the union, so
- * when every field is, the union is at most one row per binding; and a key of each, joined with a field the two fix to
- * different literals, which tells their rows apart, is a key of the union. Arms of different headings, whose rows are
- * of several heading groups, are evidence unknown: so is a union whose earlier arms are, read by each record of H1.
+ * when every field is, the union is at most one row per binding; and a key of each, joined with the fields the engine
+ * keeps of those the two fix to different literals (Kept), which tell their rows apart, is a key of the union. Arms of
+ * different headings, whose rows are of several heading groups, are evidence unknown: so is a union whose earlier arms
+ * are, read by each record of H1.
  */
 export type UnionEvidence<Ev1, Ev2, H1, H2> = false extends (
 	H1 extends unknown ? (H2 extends unknown ? SameValue<keyof H1, keyof H2> : never) : never
 )
 	? Evidence.Unknown
-	: UnionOf<ValuesOf<Ev1>, ValuesOf<Ev2>, keyof H2 & string, KeyMembers<Ev1>, KeyMembers<Ev2>>
+	: UnionWithTold<
+			ValuesOf<Ev1>,
+			ValuesOf<Ev2>,
+			keyof H2 & string,
+			KeyMembers<Ev1>,
+			KeyMembers<Ev2>,
+			Ev1,
+			Told<Ev1, Separators<ValuesOf<Ev1>, ValuesOf<Ev2>>>
+		>
+type UnionWithTold<V1, V2, F extends string, K1, K2, Ev1, T> = UnionOf<
+	V1,
+	V2,
+	F,
+	K1,
+	K2,
+	T,
+	Kept<Ev1, T>
+>
 type ValuesOf<Ev> = Ev extends { readonly values: infer V } ? V : object
 /** An evidence's keys, each a KeyOver, none where they are unknown. */
 type KeyMembers<Ev> = Ev extends { readonly keys: infer K }
@@ -577,20 +595,62 @@ type KeyMembers<Ev> = Ev extends { readonly keys: infer K }
 			: never
 	: never
 
-type UnionOf<V1, V2, F extends string, K1, K2> = UnionWith<
+type UnionOf<V1, V2, F extends string, K1, K2, T, Sep> = UnionWith<
 	Alike<V1, V2>,
 	F,
 	| ([Exclude<F, keyof Alike<V1, V2>>] extends [never] ? KeyOver<never> : never)
-	| TellApart<K1, K2, Separators<V1, V2>>
+	| TellApart<K1, K2, Sep>,
+	T
 >
 
-/** The union's keys: its whole heading, the empty key when every field is fixed alike, and the keys told apart. */
-type UnionWith<A, F extends string, Keys> = {
+/**
+ * The union's keys: its whole heading, the empty key when every field is fixed alike, and the keys told apart; and the
+ * fields that tell every two of its arms apart (Told), false where some two are told apart by none, which a further arm
+ * reads.
+ */
+type UnionWith<A, F extends string, Keys, T> = {
 	readonly keys: [Keys] extends [never]
 		? readonly [KeyOver<F>]
 		: readonly [KeyOver<F>, ...ReadonlyArray<Keys>]
 	readonly card: [Exclude<F, keyof A>] extends [never] ? "atMostOne" : "many"
+	readonly toldApart: [T] extends [never] ? false : T
 } & ValuesPart<A>
+
+/**
+ * The fields that tell every two arms of a union apart, Sep those that tell its last arm from the earlier ones: Sep, of
+ * two arms; with the earlier arms' own, of more; none where some two are told apart by none.
+ */
+type Told<Ev1, Sep> = [Sep] extends [never]
+	? never
+	: Ev1 extends { readonly toldApart: infer Earlier }
+		? [Earlier] extends [false]
+			? never
+			: (Earlier & string) | Sep
+		: Sep
+
+/**
+ * The fields a union's told-apart keys hold beside its arms' keys, of those that tell its arms apart (Told): of two
+ * arms, the first in code unit order, a heading's order, the one the engine keeps (logical/props.ts unionProps, which
+ * keeps the separators first in heading order); of more, all of them, among which lie the ones the engine keeps, since
+ * a type cannot run its search over every two arms.
+ */
+type Kept<Ev1, T> = Ev1 extends { readonly toldApart: unknown } ? T : FirstName<T & string>
+
+/**
+ * The first of the declared names U in code unit order (core/order.ts compareStrings): the names beginning with the
+ * first character any of them begins with, by the first of their rests, a declared name's characters in code unit order
+ * being the digits, the capitals, the underscore and the small letters. Linear in the names' length.
+ */
+type FirstName<U extends string> = [U] extends [never]
+	? never
+	: "" extends U
+		? ""
+		: FirstFrom<U, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz">
+type FirstFrom<U extends string, Order extends string> = Order extends `${infer C}${infer Rest}`
+	? [Extract<U, `${C}${string}`>] extends [never]
+		? FirstFrom<U, Rest>
+		: `${C}${FirstName<U extends `${C}${infer Tail}` ? Tail : never>}`
+	: never
 
 /** The fields both fix to one value, a name they share, with every name they share. */
 type Alike<V1, V2> = {
@@ -613,13 +673,15 @@ type Separators<V1, V2> = {
 		: never
 }[keyof V1 & keyof V2]
 
-/** Each key of one with each key of the other and a separator: a key of both whose rows the separator tells apart. */
-type TellApart<K1, K2, Sep> =
-	K1 extends ReadonlyArray<infer A>
+/**
+ * Each key of one with each key of the other and the kept separators Sep: a key of both whose rows the separators tell
+ * apart.
+ */
+type TellApart<K1, K2, Sep> = [Sep] extends [never]
+	? never
+	: K1 extends ReadonlyArray<infer A>
 		? K2 extends ReadonlyArray<infer B>
-			? Sep extends string
-				? KeyOver<(A & string) | (B & string) | Sep>
-				: never
+			? KeyOver<(A & string) | (B & string) | (Sep & string)>
 			: never
 		: never
 

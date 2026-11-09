@@ -1,4 +1,4 @@
-import type { AllenMask } from "#compiler/allen/mask.ts"
+import type { AllenMask, HoldsExactly } from "#compiler/allen/mask.ts"
 import type { Built, delta, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
@@ -297,6 +297,10 @@ type AnyMemberParams<X> = UnionToIntersection<
 /** A comparison records its operator and operands for the reflexive proof (../evidence/evidence.ts ReflexiveProof). */
 type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison<Op, A, B>>
 
+/** What r.allen states under the mask M: an equality of its spans where M holds for exactly equals, else nothing. */
+type EqualsStating<M, A, B> =
+	HoldsExactly<M, "equals"> extends true ? Stating<EqualityStates<A, B>> : unknown
+
 /**
  * What a rule records beyond its parameters and its pinned, sole and only states, for the evidence its find reads
  * (../evidence/evidence.ts): every occurrence it matched, in order, which the head's keys and origins are read from
@@ -594,13 +598,17 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	/**
 	 * The second span may be a parameter of the first span's type: a window is a span parameter.
 	 * A mask is any union of ALLEN's members: a bitwise OR of two masks is a number, and `ALLEN.after | ALLEN.metBy`
-	 * is a valid mask, so the compiler, not the brand, checks the thirteen-bit range.
+	 * is a valid mask, so the compiler, not the brand, checks the thirteen-bit range. A mask of exactly equals, as
+	 * `ALLEN.equals` and its converse are, is an equality of the two spans, which states what r.eq states
+	 * (EqualityStates), as the engine lowers it to one; a number, whose relations the types do not know, states nothing.
 	 */
-	allen<A extends TermBase | FirstValue, B extends SpanOperand<T<A>>>(
+	allen<A extends TermBase | FirstValue, B extends SpanOperand<T<A>>, M extends AllenMask | number>(
 		left: A & Requires<IsSpan<A>, "a span term is required"> & FirstTerm<A>,
-		mask: AllenMask | number,
+		mask: M,
 		right: B
-	): Predicate<P<A> & P<B>, Reads<readonly [A, B]>> & Shaped<Opaque<readonly [A, B]>>
+	): Predicate<P<A> & P<B>, Reads<readonly [A, B]>> &
+		Shaped<Opaque<readonly [A, B]>> &
+		EqualsStating<M, A, B>
 	/** `s @> t`; the span may be a parameter of the point's span type. */
 	pointIn<Pt extends TermBase | FirstValue, Sp extends SpanOperand<Span<T<Pt>>>>(
 		point: Pt & FirstTerm<Pt>,

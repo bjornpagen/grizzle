@@ -8,6 +8,7 @@ import {
 	agreementCount,
 	agreementFaults,
 	agreementFeatures,
+	agreementKept,
 	agreementPairs,
 	agreementWitnesses,
 	type FaultNote,
@@ -54,8 +55,10 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * closed relation, a roster and a derived relation matched, each span construct over a span of dates, its parameter and
  * its width in days beside an integer span's width, an extension's Db reading a base query and a base Db
  * refused an extension's, a keyed get admitted through each kind of key position and with a name beside its key, and
- * refused for a key field missing, alone or with a name in its place, and every fault refused, each whose site may hold a valid value admitted too, so the
- * program is never vacuous on any seed; the admission matrix holds every position and kind by construction.
+ * refused for a key field missing, alone or with a name in its place, a union looked up by each field its rules fix to a
+ * constant, pinned by one of them and not by another, and every fault refused, each whose site may hold a valid value
+ * admitted too, so the program is never vacuous on any seed; the admission matrix holds every position and kind by
+ * construction.
  */
 const required: Situations<AgreementNote> = [
 	...agreementFeatures,
@@ -90,6 +93,7 @@ const required: Situations<AgreementNote> = [
 	"a keyed get through a candidate key",
 	"a keyed get of a closed relation",
 	"a keyed get of a roster",
+	"a union lookup pinned by one of several separators",
 	...agreementPairs
 ]
 
@@ -130,6 +134,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreem
 
 	it(`over ${agreementCount} drawn queries, the engine's verdict is the same with each rule's filters in the other order`, () => {
 		assert.deepEqual(reorderedVerdicts(typeRun().seed), [], "verdicts the filters' order moves")
+	})
+
+	it("each kept case still draws what it was kept for", () => {
+		for (const { kept, drawn } of agreementKept()) {
+			assert.deepEqual(
+				Arr.filter(kept.reaches, (n) => !drawn.notes.has(n)),
+				[],
+				kept.note
+			)
+		}
 	})
 
 	it("the floor's witnesses reach every construct, both verdicts and a proved self-join", () => {
