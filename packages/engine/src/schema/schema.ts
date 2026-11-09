@@ -11,6 +11,7 @@ import {
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
 import { type LevelRelation, levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
+import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -23,7 +24,6 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf, relationContentOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
-import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type {
@@ -111,34 +111,45 @@ const statementValues = (statements: unknown, label: string): ReadonlyArray<unkn
 	return statements
 }
 
+/** A statement of a level: its Description and the canonical form its builder read (statements.ts ownedStatement). */
+interface LevelStatement {
+	readonly desc: StatementDesc
+	readonly canonical: CanonicalStatement
+}
+
 /**
  * A mirrors(...) or alternatives(...) value is one statement of the list, which the schema expands into the statements
  * it is sugar for: a mirrors' two containments, an alternatives law's containment and its arms' mirrors, in roster
- * order.
+ * order. Each is read with the canonical form its value carries from its build.
  */
 const statementList = (
 	statements: ReadonlyArray<unknown>,
 	label: string
-): ReadonlyArray<StatementDesc> =>
-	statements.flatMap((s, i) => {
+): ReadonlyArray<LevelStatement> =>
+	statements.flatMap((s, i): ReadonlyArray<LevelStatement> => {
 		if (isList(s)) {
 			throw malformed(
 				`${label} statement ${i}`,
 				"a statement; alternatives(...) is one statement, not a list"
 			)
 		}
-		const expansion = expansionDescOf(s)
+		const expansion = ownedEntry(s, "expansion")
 		if (expansion !== undefined) {
-			return expansion.statements
+			const [left, right] = expansion.desc.statements
+			const [leftCanonical, rightCanonical] = expansion.content
+			return [
+				{ desc: left, canonical: leftCanonical },
+				{ desc: right, canonical: rightCanonical }
+			]
 		}
-		const desc = statementDescOf(s)
-		if (desc === undefined) {
+		const statement = ownedEntry(s, "statement")
+		if (statement === undefined) {
 			throw malformed(
 				`${label} statement ${i}`,
 				"a statement built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold"
 			)
 		}
-		return [desc]
+		return [{ desc: statement.desc, canonical: statement.content }]
 	})
 
 /**
@@ -177,11 +188,18 @@ export const admitSchema = (
 	const desc = schemaLevelDesc({
 		name: schemaName,
 		relations: descs,
-		statements: stmts,
+		statements: stmts.map((s) => s.desc),
 		extends: undefined,
 		loc: builderLoc(label, [schemaName])
 	})
-	return { desc, content: levelContent(digests, desc.statements, undefined) }
+	return {
+		desc,
+		content: levelContent(
+			digests,
+			stmts.map((s) => s.canonical),
+			undefined
+		)
+	}
 }
 
 /**
@@ -291,7 +309,7 @@ const admitExtend = (
 	const desc = schemaLevelDesc({
 		name: levelName,
 		relations: descs,
-		statements: stmts,
+		statements: stmts.map((s) => s.desc),
 		extends: baseDesc,
 		loc: builderLoc(label, [levelName])
 	})
@@ -301,7 +319,11 @@ const admitExtend = (
 	)
 	return {
 		desc,
-		content: levelContent([...digests, ...derived], desc.statements, baseEntry.content)
+		content: levelContent(
+			[...digests, ...derived],
+			stmts.map((s) => s.canonical),
+			baseEntry.content
+		)
 	}
 }
 

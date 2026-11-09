@@ -3,10 +3,9 @@ import {
 	type ContentDigest,
 	contentDigest,
 	type RelationDesc,
-	type SchemaDesc,
-	type StatementDesc
+	type SchemaDesc
 } from "#compiler/ir/desc.ts"
-import { canonicalStatementText } from "#compiler/schema/own.ts"
+import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
 
 /**
  * Schema levels: a schema is itself and every schema its extends chain reaches (LevelsOf).
@@ -27,6 +26,11 @@ export interface SchemaContent {
 	readonly digest: ContentDigest
 	readonly relations: ReadonlyMap<string, ContentDigest>
 	readonly statements: ReadonlySet<string>
+	/**
+	 * Each statement the level writes, in the order its description holds them, in canonical form with its canonical
+	 * text, read once where the statement was built or entered: what ownership reads the level's statements by.
+	 */
+	readonly canonical: ReadonlyArray<CanonicalStatement>
 	readonly below: SchemaContent | undefined
 }
 
@@ -56,24 +60,31 @@ const writtenBelow = (below: SchemaContent | undefined, text: string): boolean =
 	return false
 }
 
-/** The content of a level that declares `relations` and writes `statements` over the level `below`. */
+/**
+ * The content of a level that declares `relations` and writes `statements`, each in canonical form with its text
+ * (own.ts CanonicalStatement), over the level `below`.
+ */
 export const levelContent = (
 	relations: ReadonlyArray<LevelRelation>,
-	statements: ReadonlyArray<StatementDesc>,
+	statements: ReadonlyArray<CanonicalStatement>,
 	below: SchemaContent | undefined
 ): SchemaContent => {
 	const own = new Map(
 		relations.flatMap((r) => (declaredBelow(below, r) ? [] : [[r.name, r.digest] as const]))
 	)
-	const texts = new Set(
-		statements.map(canonicalStatementText).filter((text) => !writtenBelow(below, text))
-	)
+	const texts = new Set(statements.flatMap((s) => (writtenBelow(below, s.text) ? [] : [s.text])))
 	const digest = contentDigest("schema-level", {
 		relations: [...own].toSorted(([a], [b]) => compareText(a, b)),
 		statements: [...texts].toSorted(compareText),
 		below: below === undefined ? [] : [below.digest]
 	})
-	return Object.freeze({ digest, relations: own, statements: texts, below })
+	return Object.freeze({
+		digest,
+		relations: own,
+		statements: texts,
+		canonical: Object.freeze(statements),
+		below
+	})
 }
 
 /** The content digest of a relation's description, which a relation value carries from its build. */
@@ -81,12 +92,13 @@ const relationDigest = (desc: RelationDesc): ContentDigest => contentDigest("rel
 
 /**
  * The content of a schema description no builder made, read where it enters (program/schema.ts parseSchemaInput): each
- * level's relations digested from their descriptions, which a built schema's relations carry instead.
+ * level's relations digested and its statements' canonical texts read from their descriptions, which a built schema's
+ * relations and statements carry instead.
  */
 export const contentOfDesc = (desc: SchemaDesc): SchemaContent =>
 	levelContent(
 		desc.relations.map((r) => ({ name: r.name, digest: relationDigest(r) })),
-		desc.statements,
+		desc.statements.map(canonicalStatementOf),
 		desc.extends === undefined ? undefined : contentOfDesc(desc.extends)
 	)
 

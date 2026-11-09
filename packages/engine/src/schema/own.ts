@@ -650,10 +650,22 @@ const canonicalStatement = (s: StatementDesc): StatementDesc => {
 }
 
 /**
- * The canonical text of a statement, its canonical form's: equal statements, however written, have one, and a schema
- * keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent).
+ * A statement in canonical form and that form's canonical text: equal statements, however written, have one, and a
+ * schema keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent).
  */
-export const canonicalStatementText = (s: StatementDesc): string => textOf(canonicalStatement(s))
+export interface CanonicalStatement {
+	readonly form: StatementDesc
+	readonly text: string
+}
+
+/** A statement's canonical form and text (CanonicalStatement), read once where the statement is built or enters. */
+export const canonicalStatementOf = (s: StatementDesc): CanonicalStatement => {
+	const form = canonicalStatement(s)
+	return Object.freeze({ form, text: textOf(form) })
+}
+
+/** The canonical text of a statement, its canonical form's (CanonicalStatement). */
+export const canonicalStatementText = (s: StatementDesc): string => canonicalStatementOf(s).text
 
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
 const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {

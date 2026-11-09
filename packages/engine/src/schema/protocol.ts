@@ -22,11 +22,8 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/term.ts"
 import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
-import type {
-	DerivedDraft,
-	OrdinaryRelationDesc,
-	RosterDesc
-} from "#compiler/schema/relation.ts"
+import type { CanonicalStatement } from "#compiler/schema/own.ts"
+import type { DerivedDraft, OrdinaryRelationDesc, RosterDesc } from "#compiler/schema/relation.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -203,9 +200,10 @@ export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTypin
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
- * and the content it was built with, read once at its build: a relation's content digest, a schema's content
- * (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind. A mirrors is sugar,
- * owned as an expansion, the two containments it states, never as a statement.
+ * and the content it was built with, read once at its build: a relation's content digest, a statement's canonical
+ * form and text (own.ts CanonicalStatement), a mirrors' its two containments', a schema's content (levels.ts
+ * SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind. A mirrors is sugar, owned as an
+ * expansion, the two containments it states, never as a statement.
  */
 interface OwnedKinds {
 	readonly relation: {
@@ -231,12 +229,12 @@ interface OwnedKinds {
 	readonly statement: {
 		readonly value: Exclude<Statement, MirrorsBase>
 		readonly desc: StatementDesc
-		readonly content: undefined
+		readonly content: CanonicalStatement
 	}
 	readonly expansion: {
 		readonly value: MirrorsBase
 		readonly desc: ExpansionDesc
-		readonly content: undefined
+		readonly content: readonly [CanonicalStatement, CanonicalStatement]
 	}
 	readonly side: { readonly value: AnySide; readonly desc: SideDesc; readonly content: undefined }
 	readonly selection: {
