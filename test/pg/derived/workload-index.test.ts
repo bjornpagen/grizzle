@@ -11,7 +11,6 @@ import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -20,10 +19,10 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	compileTemplate,
-	compileTestWorkload,
 	declaredOf,
 	paramTexts,
-	testCompile
+	testCompile,
+	workloadOver
 } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
@@ -98,17 +97,13 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
-					const plan = compileTestWorkload(
-						[{ login: "server", workloads: [workload(W.Reports, { busyAccounts })] }],
-						W.Reports,
-						testCompile
-					)
-					if (!plan.ok) {
-						throw new Error(plan.error.message)
-					}
 					const installed = yield* install(W.Reports, {
 						ambient: ordinarySession,
-						extensions: [workloadExtension(plan.value)],
+						extensions: [
+							workloadOver([
+								{ login: "server", workloads: [workload(W.Reports, { busyAccounts })] }
+							])
+						],
 						label: "derived_workload",
 						logins: []
 					})

@@ -23,7 +23,10 @@ import {
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
+import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 import {
@@ -46,7 +49,15 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
-import { levelChain, type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
+import {
+	levelChain,
+	type Owned,
+	type OwnedLogin,
+	type OwnedRole,
+	own,
+	ownRole,
+	rostersOf
+} from "#compiler/schema/own.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
@@ -236,6 +247,41 @@ export const compileTestWorkload = (
 	Result.flatMap(testArtifacts(schema, naming), (artifacts) =>
 		compileWorkload(logins, schema, { artifacts, roles: [] })
 	)
+
+/**
+ * The workload of `logins`, planned beside the write filters of the roles `rolesOf` picks among the installation's
+ * logins, as an installer extension compiled when the installation runs it: against the schema installed
+ * (InstallBuilder.owned), as `grizzle generate` compiles a workload against the schema it installs, so a harness that
+ * installs a subject under its allocated level names installs the workload of that schema (workloadExtension holds a
+ * workload to the fingerprint it was compiled against).
+ */
+const workloadExtensionOver = (
+	logins: ReadonlyArray<LoginWorkloads>,
+	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>
+): InstallExtension => ({
+	contribute: (b) =>
+		Result.flatMap(testArtifacts(b.owned.desc, testCompile), (artifacts) =>
+			Result.flatMap(
+				compileWorkload(logins, b.owned.desc, {
+					artifacts,
+					roles: rolesOf(b.settings.logins)
+				}),
+				(plan) => workloadExtension(plan).contribute(b)
+			)
+		),
+	textDomainUses: noTextDomainUses
+})
+
+/** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */
+export const workloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
+	workloadExtensionOver(logins, () => [])
+
+/**
+ * The workload of `logins` beside every installed login's write filters, as `grizzle generate` plans a deployment's,
+ * compiled against the schema the installation installs.
+ */
+export const deployedWorkloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
+	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles))
 
 /**
  * A generated query, which no checker handed over, admitted as the optimized lowering takes it (check/index.ts

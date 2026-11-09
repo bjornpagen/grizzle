@@ -39,11 +39,14 @@ import {
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
-import { type WorkloadPhysical, workloadExtension } from "#compiler/physical/access/extension.ts"
+import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { statisticsKinds } from "#compiler/physical/statistics/statistics.ts"
+import {
+	type StatisticsRequest,
+	statisticsKinds
+} from "#compiler/physical/statistics/statistics.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { own } from "#compiler/schema/own.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { types as sqlTypes } from "#compiler/sql/build.ts"
 import { printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -900,10 +903,9 @@ export const versionOf = (schema: GenSchema, extras: Extras): Version => ({
 export const versionLogins = (v: Version): ReadonlyArray<LoginDesc> =>
 	worldsOf(v.schema, v.extras, v.desc)
 
-/** The statistics a version requests, as a workload of synthetic requests: two distinct fields of a relation each, in
- * code point order. */
-const statisticsWorkload = (v: Version): WorkloadPhysical | undefined => {
-	const requests = Arr.flatMap(v.extras.statistics, (x) => {
+/** The statistics a version requests, synthetic requests: two distinct fields of a relation each, in code point order. */
+const statisticsRequests = (v: Version): ReadonlyArray<StatisticsRequest> =>
+	Arr.flatMap(v.extras.statistics, (x) => {
 		const r = at(v.schema.relations, x.relation)
 		const a = r === undefined ? undefined : at(r.columns, x.first)
 		const b = r === undefined ? undefined : at(r.columns, x.second)
@@ -919,20 +921,22 @@ const statisticsWorkload = (v: Version): WorkloadPhysical | undefined => {
 			}
 		]
 	})
-	if (requests.length === 0) {
-		return undefined
-	}
-	const owned = own(v.desc)
-	if (!owned.ok) {
-		throw new Error(owned.error.message)
-	}
-	return { schema: owned.value.fingerprint, paths: [], statistics: requests }
-}
 
-/** The installer extensions a version needs: its statistics workload, if it requests any. */
+/**
+ * The installer extensions a version needs: its statistics, if it requests any, as a workload of the schema the
+ * installation installs, whatever names its levels are installed under.
+ */
 export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
-	const workload = statisticsWorkload(v)
-	return workload === undefined ? [] : [workloadExtension(workload)]
+	const statistics = statisticsRequests(v)
+	return statistics.length === 0
+		? []
+		: [
+				{
+					contribute: (b) =>
+						workloadExtension({ schema: b.owned.fingerprint, paths: [], statistics }).contribute(b),
+					textDomainUses: noTextDomainUses
+				}
+			]
 }
 
 /** Whether the path's swarm leaves a kind on. */

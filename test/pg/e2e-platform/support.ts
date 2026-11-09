@@ -23,8 +23,6 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { isSpanCarrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -32,7 +30,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, testCompile, workloadOver } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { Identities } from "#test/support/kernel/identity.ts"
@@ -57,15 +55,8 @@ type PlatformWorld = ReturnType<typeof P.platformAt>
 
 export type PlatformDb = DbOf<PlatformWorld["billing"], unknown>
 
-/** The workload planned once per process, over the declared schema: its access paths name relations, not schemas. */
-const workloadPlan: WorkloadPlan = succeeded(
-	compileTestWorkload(
-		[{ login: "server", workloads: [P.platformWorkload] }],
-		P.Billing,
-		testCompile
-	),
-	"the workload"
-)
+/** The platform's workload, installed compiled against the schema the installation installs. */
+const platformWorkload = workloadOver([{ login: "server", workloads: [P.platformWorkload] }])
 
 export interface OpenedPlatform {
 	readonly installed: Installed
@@ -129,7 +120,7 @@ export const openPlatformWith = (
 			ambient: ordinarySession,
 			label,
 			logins: [declared.server, ...also(declared)],
-			extensions: [workloadExtension(workloadPlan)]
+			extensions: [platformWorkload]
 		})
 		const schema = P.platformAt(installed.declared)
 		const layer = loginLayer(installed, schema.server)

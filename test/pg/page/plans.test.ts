@@ -11,12 +11,13 @@ import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { countingExecutor, untyped } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { workloadOver } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -27,7 +28,7 @@ import {
 	Paging,
 	Task
 } from "#test/unit/page/fixtures.ts"
-import { planOf } from "#test/unit/workload/fixtures.ts"
+import { fixtureLogin } from "#test/unit/workload/fixtures.ts"
 
 /**
  * The plans of the statements the page runtime sends, as performance properties over drawn requests.
@@ -123,13 +124,18 @@ const explorePlans = Effect.gen(function* () {
 		{
 			label: "real",
 			extensions: [
-				workloadExtension(
-					planOf(Paging, {
-						ascending: ascendingTasks,
-						mixed: priorityDescendingTasks,
-						descending: descendingTasks
-					})
-				)
+				workloadOver([
+					{
+						login: fixtureLogin,
+						workloads: [
+							workload(Paging, {
+								ascending: ascendingTasks,
+								mixed: priorityDescendingTasks,
+								descending: descendingTasks
+							})
+						]
+					}
+				])
 			]
 		}
 	)

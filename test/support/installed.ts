@@ -16,7 +16,6 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import {
@@ -41,7 +40,7 @@ import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { deployedWorkloadOver, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -175,8 +174,8 @@ const noValue =
 
 /**
  * What a version's logins' workloads add, planned as `grizzle generate` plans them with their roles' write filters
- * (cli/generate.ts draftInput): the installer extension the plan requests, and the draft's workload. A version
- * without a login plans nothing.
+ * (cli/generate.ts draftInput): the installer extension of the plan, compiled against the schema the installation
+ * installs (compile.ts deployedWorkloadOver), and the draft's workload. A version without a login plans nothing.
  */
 export const workloadOf = (
 	version: Version
@@ -198,7 +197,11 @@ export const workloadOf = (
 		)
 	)
 	return {
-		extensions: [workloadExtension(plan)],
+		extensions: [
+			deployedWorkloadOver(
+				Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload }))
+			)
+		],
 		draft: { access: plan.access, accessPaths: plan.requests }
 	}
 }

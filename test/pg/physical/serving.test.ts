@@ -10,7 +10,6 @@ import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	drawnRequests,
@@ -27,7 +26,7 @@ import {
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { workloadOver } from "#test/support/compile.ts"
 import {
 	contained,
 	eq,
@@ -239,19 +238,13 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 					break
 			}
 		}
-		const plan = compileTestWorkload(
-			[{ login: "server", workloads: [workload(built.schema, programs)] }],
-			built.schema,
-			testCompile
-		)
-		if (!plan.ok) {
-			return assert.fail(`the workload does not compile: ${plan.error.message}\n${printCase(c)}`)
-		}
 		const installed = yield* Effect.result(
 			installRealSchema(built.schema, {
 				label: "serving_workload",
 				logins: [],
-				extensions: [workloadExtension(plan.value)]
+				extensions: [
+					workloadOver([{ login: "server", workloads: [workload(built.schema, programs)] }])
+				]
 			})
 		)
 		if (Result.isFailure(installed)) {
