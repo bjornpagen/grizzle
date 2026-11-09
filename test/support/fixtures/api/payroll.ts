@@ -1,5 +1,6 @@
 import { Struct } from "effect"
 import { ALLEN } from "#compiler/public/allen.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
 	accumulated,
@@ -37,6 +38,7 @@ import {
 	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
 
 export const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
@@ -411,7 +413,8 @@ export const Reporting = schema.extend(Payroll, "Reporting", { RunTotal }, [])
 /**
  * Reporting and its worlds over the Payroll they are given (the declared one, or the one an installation rebuilds under
  * its unique name): five full roles in one login. hr keeps the people and their time, the clerk runs payroll and the
- * ledger, the approver approves, the auditor reads, and the refresher refreshes RunTotal.
+ * ledger, the approver approves, the auditor reads, and the refresher refreshes RunTotal. The login's workload holds
+ * hr's writes a schedule races: the empty ChangeSet its first call applies, and a leave of the facts each call gives.
  */
 export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	const reporting = schema.extend(
@@ -462,7 +465,14 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 		approver,
 		auditor,
 		refresher,
-		server: login(reporting, "server", [hr, clerk, approver, auditor, refresher])
+		server: login(reporting, "server", [hr, clerk, approver, auditor, refresher], {
+			workload: [
+				workload(hr, {
+					noop: ChangeSet.empty(installed),
+					insertLeave: ChangeSet.empty(installed).insert(Leave, [])
+				})
+			]
+		})
 	}
 }
 
