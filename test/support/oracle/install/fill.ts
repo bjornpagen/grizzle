@@ -7,9 +7,10 @@
  * family's natives judge the fill at COMMIT as they judge grizzle's own.
  *
  * A counted family's members take their slots in the order the facts list them, which is grizzle's to choose; an
- * ordered family's, in that order too, its caller's order. A member is a member of one family, under the owner its group
- * fields name, and a tree's shape is its caller's nesting, which no fact states: each is refused, as a member no owner
- * fact holds is.
+ * ordered family's, in that order too, its caller's order. A member's row is filled under one family, the owner its
+ * group fields name, and a tree's shape is its caller's nesting, which no fact states: a fact of a member of two
+ * families, and a tree, are each refused, as a member no owner fact holds is. A member of several families of which the
+ * facts state no row has no row to fill, so its owners' counts are each family's own count of none.
  */
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
@@ -133,7 +134,7 @@ export const familyRows = (
 	const families = order.families
 	const codes = plan.codes
 	const relations = new Map<string, RelationInfo>()
-	const memberOf = new Map<string, Family>()
+	const members = new Set<string>()
 	for (const f of families) {
 		const at = formatLoc(SourceLoc(`family ${f.id.owner}.${f.id.count}`, [plan.declared]))
 		if (f.members.kind === "tree") {
@@ -142,10 +143,14 @@ export const familyRows = (
 				"a family whose members' shape the facts state: a tree's is its caller's nesting"
 			)
 		}
-		if (memberOf.has(f.member.name)) {
-			return refuse(at, `a member of one family at most: ${f.member.name} is a member of two`)
+		const stated = Rec.has(facts, f.member.name) && (facts[f.member.name] ?? []).length > 0
+		if (members.has(f.member.name) && stated) {
+			return refuse(
+				at,
+				`a fact of a member of one family at most: ${f.member.name} is a member of two`
+			)
 		}
-		memberOf.set(f.member.name, f)
+		members.add(f.member.name)
 		relations.set(f.owner.name, f.owner)
 		relations.set(f.member.name, f.member)
 	}
@@ -232,7 +237,7 @@ export const familyRows = (
 		hostFillOf(
 			order,
 			Arr.flatMap([...relations.keys()], (name) =>
-				memberOf.has(name) || factsOf(name).length === 0
+				members.has(name) || factsOf(name).length === 0
 					? []
 					: [{ relation: name, position: { kind: "top" } as const }]
 			)
@@ -250,7 +255,7 @@ export const familyRows = (
 		}
 	}
 	for (const [name, relation] of relations) {
-		if (memberOf.has(name)) {
+		if (members.has(name)) {
 			continue
 		}
 		for (const fact of factsOf(name)) {

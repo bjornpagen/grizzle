@@ -10,8 +10,10 @@
  * CHECK on an entry's size is a law that statement judges. A case inserts packages with their entries nested, each
  * entry's bytes of a drawn length, and both bins, on a session whose message bound is planted (Session.messageMaxBytes,
  * the bound both the flight's builder and the cut read), with the database's TEMPORARY privilege revoked from PUBLIC
- * or held, and the session's flight bound in force or planted below any flight. An entry's length is boxed apart from
- * the bound: within it by more than the rest of its row's arrays, or past it.
+ * or held, and the session's flight bound in force or planted below any flight. The planted bound is the longest Parse
+ * message of the write's statements (test/support/staged.ts textBound), so every statement's text fits it and only the
+ * entries' bytes pass it. An entry's length is boxed apart from the bound: within it by more than the rest of its row's
+ * arrays, a drawn share of the most such an entry holds, or past it; its size is its share, which the CHECK bounds.
  *
  * Oracle: PostgreSQL, the same write sent with the bounds in force, where every statement goes in one Bind message,
  * from the same stored shelves:
@@ -26,6 +28,10 @@
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
  *   its row's text, each entry's indexes and its copies of its owners' counts and each owner's count and end among them,
  *   and answers the same outcome, its kind, its counts, and a refusal's laws and witness.
+ *
+ * The staged statement keeps no value beside its rows, so its rows pass the bound exactly when one fill of them would:
+ * a staged write here fills its carrier more than once, and the unit search of the cut reaches a carrier of one fill
+ * (test/unit/write/staged.test.ts).
  *
  * Kept: pantry's import, a fresh immutable Package whose Entry bytes pass the bound in several fills.
  *
@@ -70,18 +76,26 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { textBound } from "#test/support/staged.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
-const EntryPath = str.regex("^.*$", "su")
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
+const EntryPath = str.bytes(keyTextBytes([uuid]), str.regex("^.*$", "su"))
+
+/** An entry's share of the most bytes an entry within the bound holds, in thousandths, of `whole` at most. */
+const whole = 1_000
+
+/** The largest size the CHECK Small admits: four fifths of a whole share. */
+const small = 800n
 const Package = relation("Package", { id: uuid, entries: drawnField(natural), name: pg.int4 }, [
 	"id"
 ])
@@ -121,11 +135,8 @@ const Staged = schema("StagedRows", { Package, Bin, Shelf, Entry, Tag }, [
 	mutable(Shelf),
 	shelved,
 	fold(shelved, Monoid.sum, on(Entry, "shelf", "size"), on(Shelf, "id", "total")),
-	check("Small", Entry, (e) => e.le(e.size, 1_500n))
+	check("Small", Entry, (e) => e.le(e.size, small))
 ])
-
-/** The message bound the staged arm's session holds. */
-const limit = 4_000
 
 /**
  * What one entry's row adds to a fill's Bind message beside its bytes, at most: its other columns' arrays (its
@@ -134,9 +145,12 @@ const limit = 4_000
  */
 const rowOverhead = 400
 
-/** An entry's bytes: within the bound by more than its row's other arrays, or past it alone. */
+/**
+ * An entry's bytes: within the bound by more than its row's other arrays, `share` thousandths of the most such an entry
+ * holds, or past it alone.
+ */
 type Member =
-	| { readonly kind: "within"; readonly length: number; readonly bin: 0 | 1; readonly shelf: 0 | 1 }
+	| { readonly kind: "within"; readonly share: number; readonly bin: 0 | 1; readonly shelf: 0 | 1 }
 	| { readonly kind: "past"; readonly bin: 0 | 1; readonly shelf: 0 | 1 }
 
 const placeGen: Gen<0 | 1> = (source) => (source.draw(int(0, 1)) === 0 ? 0 : 1)
@@ -146,11 +160,18 @@ const memberGen: Gen<Member> = (source) => {
 	const shelf = source.draw(placeGen)
 	return source.draw(int(0, 15)) === 0
 		? { kind: "past", bin, shelf }
-		: { kind: "within", length: source.draw(int(0, (limit - rowOverhead) / 2)), bin, shelf }
+		: { kind: "within", share: source.draw(int(0, whole)), bin, shelf }
 }
 
-/** The length of an entry's bytes, and its size: an entry past the bound holds as many as the bound. */
-const lengthOf = (member: Member): number => (member.kind === "past" ? limit : member.length)
+/**
+ * The length of an entry's bytes under the message bound `limit`: its share of half of what the bound holds beside the
+ * rest of its row, or, past the bound, as many as the bound.
+ */
+const lengthOf = (member: Member, limit: number): number =>
+	member.kind === "past" ? limit : Math.floor((member.share * (limit - rowOverhead)) / 2 / whole)
+
+/** An entry's size, which Small bounds: its share, and a whole share past the bound. */
+const sizeOf = (member: Member): bigint => BigInt(member.kind === "past" ? whole : member.share)
 
 /** A case: each package's entries, whether the database holds TEMPORARY for PUBLIC, and the flight bound. */
 interface Sketch {
@@ -173,7 +194,7 @@ const pantry: Sketch = {
 	packages: [
 		Arr.makeBy(6, (i): Member => ({
 			kind: "within",
-			length: 1_800,
+			share: 750,
 			bin: 0,
 			shelf: i % 2 === 0 ? 0 : 1
 		}))
@@ -185,7 +206,6 @@ const pantry: Sketch = {
 
 type Feature =
 	| "inline under the planted bound"
-	| "staged in one fill"
 	| "staged in several fills"
 	| "a stored mutable shelf recounted"
 	| "a refusal the staged statement judges"
@@ -203,8 +223,8 @@ const shelfId = (shelf: 0 | 1) => uuidOf(3_000 + shelf)
 const bytesOf = (length: number, seed: number): Uint8Array<ArrayBuffer> =>
 	Uint8Array.from({ length }, (_, i) => (seed * 31 + i) % 251)
 
-/** The case's ChangeSet: both bins, and every package with its entries nested. */
-const changesOf = (sketch: Sketch) =>
+/** The case's ChangeSet under the message bound `limit`: both bins, and every package with its entries nested. */
+const changesOf = (sketch: Sketch, limit: number) =>
 	ChangeSet.empty(Staged)
 		.insert(Bin, [{ id: binId(0) }, { id: binId(1) }])
 		.insert(
@@ -216,20 +236,34 @@ const changesOf = (sketch: Sketch) =>
 					path: `p${e}`,
 					bin: binId(member.bin),
 					shelf: shelfId(member.shelf),
-					size: BigInt(lengthOf(member)),
-					content: bytesOf(lengthOf(member), 100 * p + e)
+					size: sizeOf(member),
+					content: bytesOf(lengthOf(member, limit), 100 * p + e)
 				}))
 			}))
 		)
+
+/** `nested` with a put of a Tag of `tag` beside it, read back by its delta. */
+const tagged = (nested: ReturnType<typeof changesOf>, tag: number) =>
+	nested.put(Tag, [{ id: 1, v: tag }]).read("tags", (d) =>
+		query(Staged).rule((r) => {
+			const { id, v: value } = v(Tag, "added")
+			return r.match(d.added(Tag), { id, v: value }).find({ id, v: value })
+		})
+	)
 
 /** The shelves every case's write meets stored, each of no entry. */
 const shelves = ChangeSet.empty(Staged).insert(Shelf, [{ id: shelfId(0) }, { id: shelfId(1) }])
 
 /**
- * A pool whose sessions hold the planted message bound, and a flight bound below any flight where the case plants one,
- * each recording every query it sends.
+ * A pool whose sessions hold the planted message bound `limit`, and a flight bound below any flight where the case plants
+ * one, each recording every query it sends.
  */
-const plantedPool = (pool: SessionPool, sketch: Sketch, sent: Array<WireQuery>): SessionPool => ({
+const plantedPool = (
+	pool: SessionPool,
+	sketch: Sketch,
+	sent: Array<WireQuery>,
+	limit: number
+): SessionPool => ({
 	...pool,
 	lease: Effect.map(pool.lease, (session): Session => ({
 		...session,
@@ -315,6 +349,24 @@ const searchOn = <A, E, R>(
 				compiledWrite(opened, shelves, opened.claims),
 				"the shelves compile"
 			)
+			/**
+			 * The planted message bound: the longest Parse message of any statement a case's write sends, with or without
+			 * its Tag, whose texts its rows' values do not change.
+			 */
+			const limit = Math.max(
+				textBound(
+					succeeded(
+						compiledWrite(opened, changesOf(pantry, rowOverhead), opened.claims),
+						"pantry's import compiles"
+					).program.flight
+				),
+				textBound(
+					succeeded(
+						compiledWrite(opened, tagged(changesOf(pantry, rowOverhead), 0), opened.claims),
+						"pantry's import with a Tag compiles"
+					).program.flight
+				)
+			)
 			const fresh = Effect.gen(function* () {
 				yield* Effect.orDie(replaceRows(s.admin, installationGroup(names), []))
 				const stored = yield* runApplication(opened, shelvesEntry, {}, shelves.reads)
@@ -354,7 +406,7 @@ const searchOn = <A, E, R>(
 					}
 					const staged = yield* Effect.result(
 						runApplication(
-							{ ...opened, pool: plantedPool(opened.pool, sketch, sent) },
+							{ ...opened, pool: plantedPool(opened.pool, sketch, sent, limit) },
 							staging(entry),
 							{},
 							changes.reads
@@ -366,20 +418,11 @@ const searchOn = <A, E, R>(
 			const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
 				Effect.gen(function* () {
 					const label = Formatter.format(sketch)
-					const nested = changesOf(sketch)
+					const nested = changesOf(sketch, limit)
 					const { entry, inline, inlineRows, staged, stagedRows, sent } =
 						sketch.tag === "none"
 							? yield* arms(nested, sketch, staging)
-							: yield* arms(
-									nested.put(Tag, [{ id: 1, v: sketch.tag }]).read("tags", (d) =>
-										query(Staged).rule((r) => {
-											const { id, v: value } = v(Tag, "added")
-											return r.match(d.added(Tag), { id, v: value }).find({ id, v: value })
-										})
-									),
-									sketch,
-									staging
-								)
+							: yield* arms(tagged(nested, sketch.tag), sketch, staging)
 					const texts = Arr.flatMap(sent, (q) => (q._tag === "statement" ? [q.sql] : []))
 					const carriers = Arr.flatMap(entry.compiled.artifact.statements, (st) =>
 						st.staged.kind === "carriers" ? st.staged.carriers : []
@@ -447,9 +490,8 @@ const searchOn = <A, E, R>(
 						c.note("inline under the planted bound")
 						return
 					}
-					for (const k of created) {
-						const fills = Arr.filter(texts, (t) => t === k.fill).length
-						c.note(fills <= 1 ? "staged in one fill" : "staged in several fills")
+					if (Arr.some(created, (k) => Arr.filter(texts, (t) => t === k.fill).length > 1)) {
+						c.note("staged in several fills")
 					}
 					if (Result.isSuccess(staged) && staged.success.kind === "accepted") {
 						c.note("a stored mutable shelf recounted")
@@ -498,7 +540,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								coverage: required<Feature>(
 									[
 										"inline under the planted bound",
-										"staged in one fill",
 										"staged in several fills",
 										"a stored mutable shelf recounted",
 										"a refusal the staged statement judges",

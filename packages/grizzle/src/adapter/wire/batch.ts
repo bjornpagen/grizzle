@@ -1088,7 +1088,7 @@ const portalBytes =
  * The length a Parse of `sql` as the unnamed statement, with no parameter types, declares: its length word, its empty
  * name and its text each ended by a NUL, and its count of parameter types, its type byte not.
  */
-const parseLength = (sql: string): number =>
+export const parseLength = (sql: string): number =>
 	messageFields.length +
 	messageFields.end +
 	Buffer.byteLength(sql, "utf8") +
