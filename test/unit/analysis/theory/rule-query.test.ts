@@ -24,6 +24,15 @@
  * bare head literal takes its column's type, a Decimal's computed numeric as numeric(p, s) of the bound its analysis
  * proves, so it stands wherever a term of the column does; a variable only a head literal defines is that literal.
  *
+ * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
+ * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
+ * turn, alone among its filters, inside a conjunction or inside a conjunction nested in one, binding Mark's on by a
+ * literal or not at all, read itself or through Item's semijoin with it under a containment into it, one out of it, a
+ * check and a key. A negation of select-project-join arms is admitted, the conjunction's included, and a negation of a
+ * query a rule may not read is refused UnsupportedLawFamily, naming what the query does. Planted in a scratch copy, each
+ * of these fails the fourth box: a conjunction holding a negation read whole, which refuses it as a negation below a
+ * condition; and a negated query that negates in turn admitted, its inner negation dropped.
+ *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts. Beside it, each name a
  * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
  * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
@@ -34,7 +43,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ConstraintLaw, ConstraintLawOf } from "#compiler/laws/model/model.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { Decimal, pg } from "#compiler/public/fields.ts"
@@ -438,6 +447,135 @@ const amountSchemaOf = (c: TagCase) => {
 	return schema.extend(Middle, "RuleQueryAmountsTop", { Read }, rules)
 }
 
+/**
+ * What a definition of Item negates: one table, Mark; a join of Mark and Note on the item, a query; a union of Mark's and
+ * Note's items, a query of two rules; the join derived on a level below; or a query a rule may not read, one that
+ * aggregates or one that negates in turn.
+ */
+type NegatedSource = "table" | "join" | "union" | "derived" | "aggregate" | "negating"
+const negatedSources = ["table", "join", "union", "derived", "aggregate", "negating"] as const
+
+/** Where the negation stands among the definition's filters: alone, inside a conjunction, or inside one nested in another. */
+type Placement = "alone" | "conjunction" | "nested conjunction"
+
+interface NegationCase {
+	readonly source: NegatedSource
+	readonly placement: Placement
+	/** Whether the negation binds Mark's on, or the query's, to a literal beside the item. */
+	readonly literal: boolean
+	readonly read: "itself" | "semijoin"
+	readonly rule: Exclude<Kind, "check named as Item's"> | "key"
+}
+
+const negationCase: Gen<NegationCase> = (s) => ({
+	source: s.draw(element(negatedSources)),
+	placement: s.draw(element(["alone", "conjunction", "nested conjunction"] as const)),
+	literal: s.draw(element([false, true])),
+	read: s.draw(element(["itself", "semijoin"] as const)),
+	rule: s.draw(element(["into", "out of", "check", "key"] as const))
+})
+
+const Note = relation("Note", { item: pg.integer, on: pg.integer }, ["item", "on"])
+const Notes = schema("RuleQueryNegated", { Item, Mark, Claim, Note }, [])
+
+/** Whether a negated source is one a rule reads: a select-project-join query or a union of them, or a relation of one. */
+const admitted = (source: NegatedSource): boolean => source !== "aggregate" && source !== "negating"
+
+/**
+ * The case's schema: Mark joined with Note derived on a level of its own, then Item's facts negating the case's source,
+ * then Item's semijoin with them and the case's rule over the one it reads.
+ */
+const negationSchemaOf = (c: NegationCase) => {
+	const join = query(Notes).rule((r) => {
+		const { item, on } = v(Mark, "mark")
+		return r.match(Mark, { item, on }).match(Note, { item, on }).find({ item, on })
+	})
+	const Joined = derived("Joined", join)
+	const Middle = schema.extend(Notes, "RuleQueryNegatedMiddle", { Joined }, [])
+	const union = query(Middle)
+		.rule((r) => {
+			const { item, on } = v(Mark, "mark")
+			return r.match(Mark, { item, on }).find({ item, on })
+		})
+		.rule((r) => {
+			const { item, on } = v(Note, "note")
+			return r.match(Note, { item, on }).find({ item, on })
+		})
+	const aggregate = query(Middle).rule((r) => {
+		const { id, item, on } = v(Mark, "mark")
+		return r.match(Mark, { id, item, on }).find({ item, on: r.max(on) })
+	})
+	const negating = query(Middle).rule((r) => {
+		const { item, on } = v(Mark, "mark")
+		return r.match(Mark, { item, on }).where(r.not(Note, { item })).find({ item, on })
+	})
+	const Unmarked = derived(
+		"Unmarked",
+		query(Middle).rule((r) => {
+			const { id, kind } = v(Item, "item")
+			const negation = (() => {
+				switch (c.source) {
+					case "table":
+						return c.literal ? r.not(Mark, { item: id, on: 1 }) : r.not(Mark, { item: id })
+					case "join":
+						return c.literal ? r.not(join, { item: id, on: 1 }) : r.not(join, { item: id })
+					case "union":
+						return c.literal ? r.not(union, { item: id, on: 1 }) : r.not(union, { item: id })
+					case "derived":
+						return c.literal ? r.not(Joined, { item: id, on: 1 }) : r.not(Joined, { item: id })
+					case "aggregate":
+						return c.literal
+							? r.not(aggregate, { item: id, on: 1 })
+							: r.not(aggregate, { item: id })
+					case "negating":
+						return c.literal ? r.not(negating, { item: id, on: 1 }) : r.not(negating, { item: id })
+				}
+			})()
+			const items = r.match(Item, { id, kind })
+			const filtered = (() => {
+				switch (c.placement) {
+					case "alone":
+						return items.where(negation)
+					case "conjunction":
+						return items.where(r.and(r.ne(kind, 0), negation))
+					case "nested conjunction":
+						return items.where(r.and(r.ne(kind, 0), r.and(negation, r.ne(id, 0))))
+				}
+			})()
+			return filtered.find({ id })
+		})
+	)
+	const Upper = schema.extend(Middle, "RuleQueryNegatedUpper", { Unmarked }, [])
+	const Read = derived(
+		"Read",
+		query(Upper).rule((r) => {
+			const { id } = v(Item, "item")
+			return r.match(Item, { id }).match(Unmarked, { id }).find({ id })
+		})
+	)
+	const side = c.read === "itself" ? Unmarked : Read
+	const rule = (() => {
+		switch (c.rule) {
+			case "into":
+				return contained(on(Claim, "item"), on(side, "id"))
+			case "out of":
+				return contained(on(side, "id"), on(Claim, "item"))
+			case "check":
+				return check("Nonzero", side, (x) => x.not(x.eq(x.id, 0)))
+			case "key":
+				return key(on(side, "id"))
+		}
+	})()
+	return schema.extend(Upper, "RuleQueryNegatedTop", { Read }, [rule])
+}
+
+type NegationReached =
+	| `negates ${NegatedSource}`
+	| `negates ${Placement}`
+	| "a literal negated on"
+	| `${NegationCase["rule"]} read through a semijoin`
+	| NegationCase["rule"]
+
 type TagReached = `${Literal} literal` | `${Tagging} tagging` | `read by ${TagRead}` | TagRule
 
 type Reached = `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}` | Kind
@@ -597,6 +735,74 @@ describe("a rule over a query", () => {
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
 								`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"compiles a negation of a table, a join, a union or a derived relation, alone or in a conjunction, on either side of every rule, and refuses one of a query a rule may not read, by name",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/theory/rule-query/negated",
+						generator: negationCase,
+						literal: Formatter.format,
+						limit: 500,
+						box: "every containment into and out of, check over and key over a derived relation of Item, read itself or through a semijoin, whose definition negates Mark, a join of Mark and Note, their union, the join derived, a query that aggregates or one that negates, alone, in a conjunction or in a conjunction nested in one, binding Mark's on by a literal or not at all",
+						oracle: {
+							kind: "specification",
+							name: "a rule over a query reads a negation of select-project-join arms: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused UnsupportedLawFamily naming what the negated query does otherwise"
+						},
+						coverage: requiredInSpace<NegationReached>([
+							...Arr.map(negatedSources, (n) => `negates ${n}` as const),
+							"negates alone",
+							"negates conjunction",
+							"negates nested conjunction",
+							"a literal negated on",
+							"into",
+							"out of",
+							"check",
+							"key",
+							"into read through a semijoin",
+							"out of read through a semijoin"
+						]),
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							k.note(`negates ${c.source}`)
+							k.note(`negates ${c.placement}`)
+							k.note(c.rule)
+							if (c.literal) {
+								k.note("a literal negated on")
+							}
+							if (c.read === "semijoin") {
+								k.note(`${c.rule} read through a semijoin`)
+							}
+							const compiled = testArtifacts(negationSchemaOf(c), testCompile)
+							if (admitted(c.source)) {
+								assert.deepEqual(
+									compiled.ok ? undefined : compiled.error.reason,
+									undefined,
+									`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+								)
+								assert.deepEqual(
+									compiled.ok ? clashesOf(compiled.value.laws.constraints) : [],
+									[],
+									`each constraint or trigger name of ${Formatter.format(c)} names one law on its table`
+								)
+								return
+							}
+							const named = c.source === "aggregate" ? "aggregates" : "negates in turn"
+							assert.ok(
+								!compiled.ok &&
+									compiled.error.reason._tag === "UnsupportedLawFamily" &&
+									Str.includes(named)(compiled.error.message),
+								`${Formatter.format(c)} is refused UnsupportedLawFamily naming that it ${named}: ${compiled.ok ? "compiled" : compiled.error.message}`
 							)
 						})
 				)

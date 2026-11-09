@@ -224,6 +224,7 @@ const schemaForms = [
 	"derivedProjection",
 	"derivedSkipsLevel",
 	"derivedRuled",
+	"derivedNegated",
 	"finOfKey",
 	"finOfAccumulated",
 	"closedKeyOne",
@@ -3762,6 +3763,7 @@ type DerivedValid =
 	| "projection"
 	| "skipsLevel"
 	| "ruled"
+	| "negated"
 
 const validForm: { readonly [K in DerivedValid]: SchemaForm } = {
 	overLevels: "derivedOverLevels",
@@ -3769,7 +3771,8 @@ const validForm: { readonly [K in DerivedValid]: SchemaForm } = {
 	discriminated: "derivedDiscriminated",
 	projection: "derivedProjection",
 	skipsLevel: "derivedSkipsLevel",
-	ruled: "derivedRuled"
+	ruled: "derivedRuled",
+	negated: "derivedNegated"
 }
 
 /** The definition the derived relation's probes draw over: the base's derived spec's relation and field. */
@@ -3812,9 +3815,10 @@ const definitionSource = (
  * relation over the extension, declared above it, whose schema's levels are its own, the extension's and the root's; a
  * definition matching a query that reads a parameter, bound at each group value; a definition of two arms of one
  * heading, apart only in the handle a discriminant holds; a projection of its relation's key fields and group field,
- * which keeps the keys it inherits; and rules over such a projection, a key, a check, a containment from a selection of
- * it and a mirrors with its relation, which both sides admit. Each admitted definition's fact is the heading the engine
- * compiles it to.
+ * which keeps the keys it inherits; rules over such a projection, a key, a check, a containment from a selection of
+ * it and a mirrors with its relation, which both sides admit; and the same rules over a projection that negates, inside
+ * a conjunction, a query of two rules, its relation joined with itself on the group field and its relation alone, which
+ * both sides admit too. Each admitted definition's fact is the heading the engine compiles it to.
  */
 const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -3828,7 +3832,8 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		"discriminated",
 		"projection",
 		"skipsLevel",
-		"ruled"
+		"ruled",
+		"negated"
 	])
 	const fault =
 		d.upTo(3) === 0
@@ -3914,6 +3919,20 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return {
 					head: [
 						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
+					],
+					line: `export const ${own} = Sc.schema.extend(${ids("S")}, "Ruled", { Probe: ${rel} }, [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
+					tail: []
+				}
+			}
+			case "negated": {
+				const rel = `${own}_rel`
+				const negated = `${own}_negated`
+				const by = jsonText(spec.by)
+				const grouped = `const { ${spec.by} } = Q.v(${ids(r.name)}, "fact")`
+				return {
+					head: [
+						`export const ${negated} = Q.query(${ids("S")}).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) }).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) })`,
+						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.and(r.not(${negated}, { ${spec.by} }))).find({ ${Arr.join(bound, ", ")} }) }))`
 					],
 					line: `export const ${own} = Sc.schema.extend(${ids("S")}, "Ruled", { Probe: ${rel} }, [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
@@ -4060,6 +4079,33 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				: Arr.map(analysis.keys, (k) => `ReadonlyArray<${literalUnion(k.fields)}>`)
 		return Arr.isReadonlyArrayNonEmpty(keys) ? Arr.join(keys, " | ") : "never"
 	}
+	/**
+	 * The projection of R's key fields and its group field whose group value no fact of a query of two rules holds,
+	 * inside a conjunction: R joined with itself on the group field, and R alone.
+	 */
+	const negatedValue = (env: Env): QueryValue => {
+		const own = got(env.relations, r.name)
+		const grouped = (rule: RuleValue, vars: Readonly<Record<string, unknown>>) =>
+			rule.match(own, { [spec.by]: vars[spec.by] })
+		const negated = queryOver(env.schema)
+			.rule((rule: RuleValue) => {
+				const vars = varsOver(own, "fact")
+				return grouped(rule, vars)
+					.match(own, { [spec.by]: vars[spec.by] })
+					.find({ [spec.by]: vars[spec.by] })
+			})
+			.rule((rule: RuleValue) => {
+				const vars = varsOver(own, "fact")
+				return grouped(rule, vars).find({ [spec.by]: vars[spec.by] })
+			})
+		return queryOver(env.schema).rule((rule: RuleValue) => {
+			const vars = varsOver(own, "fact")
+			return rule
+				.match(own, Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
+				.where(rule.and(rule.not(negated, { [spec.by]: vars[spec.by] })))
+				.find(Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
+		})
+	}
 	/** Two arms of one heading, apart only in the handle their discriminant arm holds. */
 	const discriminatedValue = (env: Env): QueryValue => {
 		const handles = got(env.rosters, roster.name)
@@ -4108,8 +4154,13 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 								[]
 							)
 						)
-					case "ruled": {
-						const rel = materializedDerived("Probe", projectionValue(env), [])
+					case "ruled":
+					case "negated": {
+						const rel = materializedDerived(
+							"Probe",
+							valid === "ruled" ? projectionValue(env) : negatedValue(env),
+							[]
+						)
 						const own = got(env.relations, r.name)
 						const row = (w: typeof rowHelpers) => w.and()
 						return compiling(() =>

@@ -1,4 +1,5 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -25,14 +26,19 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
  * A side over a derived relation is its definition's facts projected onto the side's terms. The definition is read
  * live, every derived relation it matches inlined in turn (`liveArms`), into arms that each join stored and closed
  * relations by equalities, select by conditions over their variables and project onto heading terms: the
- * select-project-join queries a rule's side may be. A definition that negates, aggregates, recurses, orders or takes,
- * approximates, attaches or nests a stage is refused (UnsupportedLawFamily), naming what it does.
+ * select-project-join queries a rule's side may be. Each negation of such an arm, alone as a filter or inside a
+ * conjunction that is one, is read the same way: it negates the arms of a stored or closed relation, of a query or of
+ * a derived relation, each a select-project-join arm of its own (`NegatedArm`). A definition that aggregates, recurses,
+ * orders or takes, approximates, attaches or nests a stage, or negates a query that does or that negates in turn, is
+ * refused (UnsupportedLawFamily), naming what it does.
  *
  * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`), so one
  * construction writes the rule's violation query (`violationQuery`), which the migration that adds the rule runs
- * over the rows it finds, and its trigger probes (`newProbes`, `lostProbes`), which the rule's deferred constraint
+ * over the rows it finds, and its trigger probes (`newProbes`, `oldProbes`), which the rule's deferred constraint
  * triggers run at COMMIT for the rows a transaction touched. Each is a query description the checker reads as any
- * query is, so grizzle's own query compiler types and lowers it.
+ * query is, so grizzle's own query compiler types and lowers it. A relation a negated arm matches is read with the
+ * negation's polarity: a row it gains withdraws the facts of the side that negates it, and a row it loses brings them
+ * back.
  */
 
 /** A match of a stored or closed relation in an arm, its bindings over the arm's variables. */
@@ -43,14 +49,31 @@ export interface ArmMatch {
 }
 
 /**
- * One conjunctive arm of a definition: its variables, its matches of stored and closed relations, its conditions over
- * the variables, and the fact it derives, a term per heading field.
+ * A conjunctive arm: its variables, its matches of stored and closed relations, its conditions over the variables, and
+ * the fact it derives, a term per heading field.
  */
-export interface LiveArm {
+export interface ConjunctiveArm {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: NonEmptyReadonlyArray<ArmMatch>
 	readonly where: ReadonlyArray<ExprDesc>
 	readonly head: Readonly<Record<string, ExprDesc>>
+}
+
+/**
+ * A negation in an arm: that no fact of `arm`, an arm of what the definition negates, agrees with `bindings`, a term of
+ * the negating arm for each heading field of `arm` the negation binds. `arm` is closed, its variables its own, and
+ * nothing negates inside it. A negation of a union is one per arm of the union, since NOT EXISTS over a union is the
+ * conjunction of NOT EXISTS over each arm, and an anti-join of one stored or closed relation is the arm of its one
+ * match.
+ */
+export interface NegatedArm {
+	readonly arm: ConjunctiveArm
+	readonly bindings: BindingsDesc
+}
+
+/** One arm of a definition: a conjunctive arm, and the negated arms each of which withdraws the facts it agrees with. */
+export interface LiveArm extends ConjunctiveArm {
+	readonly negated: ReadonlyArray<NegatedArm>
 }
 
 /** One arm of a rule's side: a live arm with the side's selection among its conditions, and the side's terms. */
@@ -172,7 +195,10 @@ const varsOf = (e: ExprDesc, into: Set<string>): Set<string> => {
 	return into
 }
 
-/** What an expression reads beyond a definition's own row: a negation, a parameter, a parent's column or a VALUE. */
+/**
+ * What an expression reads beyond a definition's own row: a negation below a disjunction, a negation or a scalar
+ * expression, where it is no filter of the rule (check/scan.ts splitWhere), a parameter, a parent's column or a VALUE.
+ */
 const foreignLeaf = (e: ExprDesc): string | undefined => {
 	let found: string | undefined
 	const visit = (x: ExprDesc): void => {
@@ -181,7 +207,7 @@ const foreignLeaf = (e: ExprDesc): string | undefined => {
 		}
 		switch (x.kind) {
 			case "absent":
-				found = "negates a relation inside a condition"
+				found = "negates a relation below a disjunction, a negation or a scalar expression"
 				return
 			case "param":
 				found = "reads a parameter"
@@ -268,12 +294,81 @@ const equal = (left: ExprDesc, right: ExprDesc): ExprDesc =>
 
 const varRef = (id: string): ExprDesc => ({ kind: "var", var: id })
 
+/** Whether a filter holds a negation as a filter of its rule: it is one, or a conjunction one of whose conjuncts does. */
+const holdsNegation = (e: ExprDesc): boolean =>
+	e.kind === "absent" || (e.kind === "and" && e.args.some(holdsNegation))
+
+/**
+ * A rule's filter as the filters of its conjunction: a conjunction that holds a negation its conjuncts, each so, and any
+ * other filter itself, so a negation inside a conjunction is a filter of the rule as one standing alone is
+ * (check/scan.ts splitWhere).
+ */
+const filtersOf = (e: ExprDesc): ReadonlyArray<ExprDesc> =>
+	e.kind === "and" && holdsNegation(e) ? e.args.flatMap(filtersOf) : [e]
+
+/** A conjunctive arm's own parts, read apart from what extends it. */
+const conjunctive = (arm: ConjunctiveArm): ConjunctiveArm => ({
+	vars: arm.vars,
+	matches: arm.matches,
+	where: arm.where,
+	head: arm.head
+})
+
+/** A conjunctive arm joined to terms of another (`joined`): its variables left, its matches and its conditions. */
+interface Joined {
+	readonly vars: ReadonlyArray<VarDesc>
+	readonly matches: NonEmptyReadonlyArray<ArmMatch>
+	readonly where: ReadonlyArray<ExprDesc>
+	/** The leaves of the arm's variables the bindings replaced, which every expression over them reads through. */
+	readonly leaves: Leaves
+}
+
+/**
+ * A conjunctive arm joined to terms of another through `bindings`, a term for each heading field of the arm it binds:
+ * each heading field's variable that no earlier binding replaced is replaced by the term binding it, a bare literal
+ * aside, and every other binding is an equality beside the arm's conditions. `missing` refuses a binding of a field the
+ * arm derives none of.
+ */
+const joined = (
+	arm: ConjunctiveArm,
+	bindings: BindingsDesc,
+	missing: (field: string) => never
+): Joined => {
+	const local = new Set(arm.vars.map((v) => v.id))
+	const replaced = new Map<string, ExprDesc>()
+	const extra: Array<ExprDesc> = []
+	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
+	for (const [field, e] of Object.entries(bindings)) {
+		const head = arm.head[field] ?? missing(field)
+		const h = mapLeaves(head, leaves)
+		if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var) && !isBare(e)) {
+			replaced.set(h.var, e)
+		} else {
+			extra.push(equal(e, h))
+		}
+	}
+	return {
+		vars: arm.vars.filter((v) => !replaced.has(v.id)),
+		matches: mapNonEmpty(arm.matches, (m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) })),
+		where: [...arm.where.map((w) => mapLeaves(w, leaves)), ...extra],
+		leaves
+	}
+}
+
+/** Negated arms with their bindings read through `leaves`. */
+const negatedThrough = (
+	negated: ReadonlyArray<NegatedArm>,
+	leaves: Leaves
+): ReadonlyArray<NegatedArm> =>
+	negated.map((n) => ({ arm: n.arm, bindings: mapBindings(n.bindings, leaves) }))
+
 /** An arm still being flattened: no match yet is the arm of a rule that matched only derived relations so far. */
 interface PartialArm {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: ReadonlyArray<ArmMatch>
 	readonly where: ReadonlyArray<ExprDesc>
 	readonly head: Readonly<Record<string, ExprDesc>>
+	readonly negated: ReadonlyArray<NegatedArm>
 }
 
 /**
@@ -325,7 +420,8 @@ const definedArm = (p: PartialArm): PartialArm => {
 		vars: p.vars.filter((v) => v.id !== d.name),
 		matches: p.matches.map((m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) })),
 		where: p.where.flatMap((w, at) => (at === d.at ? [] : [mapLeaves(w, leaves)])),
-		head: mapBindings(p.head, leaves)
+		head: mapBindings(p.head, leaves),
+		negated: negatedThrough(p.negated, leaves)
 	})
 }
 
@@ -405,15 +501,27 @@ class Flattener {
 			const t = this.#headTerm(relation, term)
 			head[name] = mapLeaves(isBare(t) ? { ...t, type: columns(name) } : t, leaves)
 		}
-		const where = rule.where.map((w) => {
-			const foreign = w.kind === "absent" ? this.#negation(w) : foreignLeaf(w)
+		const where: Array<ExprDesc> = []
+		const negated: Array<NegatedArm> = []
+		for (const w of rule.where.flatMap(filtersOf)) {
+			if (w.kind === "absent") {
+				appendAll(negated, this.#negated(relation, w, leaves, rule.loc))
+				continue
+			}
+			const foreign = foreignLeaf(w)
 			if (foreign !== undefined) {
 				return this.#refuse(relation, foreign)
 			}
-			return mapLeaves(w, leaves)
-		})
+			where.push(mapLeaves(w, leaves))
+		}
 		let partials: ReadonlyArray<PartialArm> = [
-			{ vars: rule.vars.map((v) => ({ ...v, id: rename(v.id) })), matches: [], where, head }
+			{
+				vars: rule.vars.map((v) => ({ ...v, id: rename(v.id) })),
+				matches: [],
+				where,
+				head,
+				negated
+			}
 		]
 		for (const match of rule.matches) {
 			const bindings = mapBindings(match.bindings, leaves)
@@ -423,7 +531,7 @@ class Flattener {
 					return this.#refuse(relation, foreign)
 				}
 			}
-			const inlined = this.#source(relation, match.source)
+			const inlined = this.#source(relation, match.source, "matches")
 			partials =
 				inlined.kind === "stored"
 					? partials.map((p) => ({
@@ -447,59 +555,72 @@ class Flattener {
 	/**
 	 * The partial arm `p` with the inlined arm `arm` joined in, through the bindings `bindings` of the match that inlined
 	 * it: each heading field the match binds to an expression of `p` equals that expression, an inlined variable bound
-	 * there replaced by it.
+	 * there replaced by it (`joined`), and the inlined arm's negations read through the same replacement.
 	 */
 	#merged(relation: string, p: PartialArm, arm: LiveArm, bindings: BindingsDesc): PartialArm {
-		const local = new Set(arm.vars.map((v) => v.id))
-		const replaced = new Map<string, ExprDesc>()
-		const extra: Array<ExprDesc> = []
-		const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
-		for (const [field, e] of Object.entries(bindings)) {
-			const head = arm.head[field]
-			if (head === undefined) {
-				return this.#refuse(
-					relation,
-					`binds ${field}, which the definition it matches derives none of`
-				)
-			}
-			const h = mapLeaves(head, leaves)
-			if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var) && !isBare(e)) {
-				replaced.set(h.var, e)
-			} else {
-				extra.push(equal(e, h))
-			}
-		}
+		const j = joined(arm, bindings, (field) =>
+			this.#refuse(relation, `binds ${field}, which the definition it matches derives none of`)
+		)
 		return {
-			vars: [...p.vars, ...arm.vars.filter((v) => !replaced.has(v.id))],
-			matches: [
-				...p.matches,
-				...arm.matches.map((m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) }))
-			],
-			where: [...p.where, ...arm.where.map((w) => mapLeaves(w, leaves)), ...extra],
-			head: p.head
+			vars: [...p.vars, ...j.vars],
+			matches: [...p.matches, ...j.matches],
+			where: [...p.where, ...j.where],
+			head: p.head,
+			negated: [...p.negated, ...negatedThrough(arm.negated, j.leaves)]
 		}
 	}
 
 	/**
-	 * What a negation of the definition reads beyond an anti-join of one stored or closed relation, which a rule reads
-	 * with its polarity (`negations`): nothing, or the refusal's words for a negation of a query, of a derived relation,
-	 * or of a binding that reads beyond the row.
+	 * The negated arms of a negation `w` in a rule of `relation`'s definition, its bindings read through the rule's
+	 * `leaves`: the one arm of a stored or closed relation's one match, or one per arm of the derived relation or query it
+	 * negates. An arm that negates in turn is refused, since a trigger reads each relation a negated arm matches with the
+	 * polarity of one negation.
 	 */
-	#negation(w: Extract<ExprDesc, { readonly kind: "absent" }>): string | undefined {
-		const source = w.source
-		if (source.kind !== "relation") {
-			return "negates a query, where a rule reads an anti-join of one relation"
-		}
-		if (this.env.definition(source.name) !== undefined) {
-			return `negates the derived relation ${source.name}, where a rule reads an anti-join of one stored relation`
-		}
+	#negated(
+		relation: string,
+		w: Extract<ExprDesc, { readonly kind: "absent" }>,
+		leaves: Leaves,
+		loc: SourceLoc
+	): ReadonlyArray<NegatedArm> {
 		for (const e of Object.values(w.bindings)) {
 			const foreign = foreignLeaf(e)
 			if (foreign !== undefined) {
-				return foreign
+				return this.#refuse(relation, foreign)
 			}
 		}
-		return undefined
+		const bindings = mapBindings(w.bindings, leaves)
+		const source = this.#source(relation, w.source, "negates")
+		if (source.kind === "stored") {
+			return [{ arm: this.#relationArm(source.stored, Object.keys(bindings), loc), bindings }]
+		}
+		const negated =
+			w.source.kind === "relation" ? `the derived relation ${w.source.name}` : "a query"
+		return source.arms.map((arm): NegatedArm => {
+			if (arm.negated.length > 0) {
+				return this.#refuse(relation, `negates ${negated}, which negates in turn`)
+			}
+			for (const field of Object.keys(bindings)) {
+				if (arm.head[field] === undefined) {
+					return this.#refuse(
+						relation,
+						`binds ${field}, which ${negated} it negates derives none of`
+					)
+				}
+			}
+			return { arm: conjunctive(arm), bindings }
+		})
+	}
+
+	/** The arm of one match of the stored or closed relation `relation`, binding each of `fields` to a variable it derives. */
+	#relationArm(relation: string, fields: ReadonlyArray<string>, loc: SourceLoc): ConjunctiveArm {
+		const prefix = `q${this.#next++}.`
+		const bound = Object.fromEntries(fields.map((f) => [f, varRef(`${prefix}${f}`)] as const))
+		return {
+			vars: fields.map((f) => ({ id: `${prefix}${f}`, origin: { relation, field: f }, loc })),
+			matches: [{ relation, bindings: bound, loc }],
+			where: [],
+			head: bound
+		}
 	}
 
 	#headTerm(relation: string, term: HeadTermDesc): ExprDesc {
@@ -514,10 +635,11 @@ class Flattener {
 	}
 
 	/**
-	 * What a match's source is to an arm: a stored or closed relation, which the arm matches itself, or the arms it
-	 * inlines, a derived relation's definition's or an imported query's that binds no parameter.
+	 * What a source the definition matches or negates (`verb`) is to an arm: a stored or closed relation, which the arm
+	 * reads itself, or the arms it inlines, a derived relation's definition's or an imported query's that binds no
+	 * parameter.
 	 */
-	#source(relation: string, source: SourceDesc): Matched {
+	#source(relation: string, source: SourceDesc, verb: "matches" | "negates"): Matched {
 		switch (source.kind) {
 			case "relation": {
 				const definition = this.env.definition(source.name)
@@ -527,19 +649,19 @@ class Flattener {
 			}
 			case "query":
 				if (Object.keys(source.bind).length > 0) {
-					return this.#refuse(relation, "binds an imported query's parameters")
+					return this.#refuse(relation, `${verb} an imported query that binds parameters`)
 				}
 				return { kind: "inlined", arms: this.arms(relation, source.query) }
 			case "param":
 			case "paramOf":
-				return this.#refuse(relation, "matches a relation parameter")
+				return this.#refuse(relation, `${verb} a relation parameter`)
 			case "context":
-				return this.#refuse(relation, "matches a context")
+				return this.#refuse(relation, `${verb} a context`)
 			case "interior":
 			case "self":
 			case "delta":
 			case "row":
-				return this.#refuse(relation, `matches a ${source.kind} source`)
+				return this.#refuse(relation, `${verb} a ${source.kind} source`)
 		}
 	}
 }
@@ -631,36 +753,22 @@ export const storedSideArm = (
 			...guarded.flatMap((g) => g.guard.map((x) => mapLeaves(x, leaves)))
 		],
 		head: bound,
+		negated: [],
 		terms: mapNonEmpty(guarded, (g) => mapLeaves(g.term, leaves))
 	}
 }
 
-/**
- * An anti-join of an arm: a condition of its `where`, at `index`, that no fact of the stored or closed relation
- * `relation` matches `bindings`. Its relation is read negatively: a fact of it withdraws the arm's facts it matches.
- */
-interface Negation {
-	readonly index: number
-	readonly relation: string
-	readonly bindings: BindingsDesc
-}
+/** The matches of an arm's negated arms, each a match of a relation the arm reads negatively. */
+const negatedMatches = (arm: LiveArm): ReadonlyArray<ArmMatch> =>
+	arm.negated.flatMap((n) => n.arm.matches)
 
-/** The anti-joins of an arm, in condition order. */
-const negations = (arm: LiveArm): ReadonlyArray<Negation> =>
-	arm.where.flatMap((w, index): ReadonlyArray<Negation> =>
-		w.kind === "absent" && w.source.kind === "relation"
-			? [{ index, relation: w.source.name, bindings: w.bindings }]
-			: []
-	)
-
-/** The stored relations a rule's arms read, by a match or an anti-join, sorted, each once. */
+/** The stored relations a rule's arms read, by a match or inside a negated arm, sorted, each once. */
 export const ruleReads = (rule: QueryRule): ReadonlyArray<string> =>
 	[
 		...new Set(
-			[...breakingArms(rule), ...targetArms(rule)].flatMap((a) => [
-				...a.matches.map((m) => m.relation),
-				...negations(a).map((n) => n.relation)
-			])
+			[...breakingArms(rule), ...targetArms(rule)].flatMap((a) =>
+				[...a.matches, ...negatedMatches(a)].map((m) => m.relation)
+			)
 		)
 	].toSorted(compareText)
 
@@ -719,11 +827,27 @@ const ruleDesc = (
 const termHead = (terms: ReadonlyArray<ExprDesc>): Readonly<Record<string, ExprDesc>> =>
 	Object.fromEntries(terms.map((t, i) => [termName(i), t] as const))
 
+/** That no fact of a negated arm agrees with its bindings: an anti-join of the arm, read as an imported query. */
+const absentOf = (n: NegatedArm, loc: SourceLoc): ExprDesc => ({
+	kind: "absent",
+	source: imported(
+		[ruleDesc(n.arm.vars, n.arm.matches.map(matchDesc), n.arm.where, n.arm.head, loc)],
+		loc
+	),
+	bindings: n.bindings
+})
+
+/** An arm's conditions as a query states them: its own, then an anti-join of each of its negated arms. */
+const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<ExprDesc> => [
+	...arm.where,
+	...arm.negated.map((n) => absentOf(n, loc))
+]
+
 /** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
 const tuples = (side: RuleSide, loc: SourceLoc): SourceDesc =>
 	imported(
 		mapNonEmpty(side.arms, (a) =>
-			ruleDesc(a.vars, a.matches.map(matchDesc), a.where, termHead(a.terms), loc)
+			ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), termHead(a.terms), loc)
 		),
 		loc
 	)
@@ -735,7 +859,7 @@ const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): 
 			ruleDesc(
 				a.vars,
 				a.matches.map(matchDesc),
-				a.where,
+				conditionsOf(a, loc),
 				{
 					...termHead(a.terms),
 					...Object.fromEntries(heading.map((f) => [headName(f), headOf(a, f, loc)] as const))
@@ -746,7 +870,7 @@ const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): 
 		loc
 	)
 
-const headOf = (arm: LiveArm, field: string, loc: SourceLoc): ExprDesc =>
+const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): ExprDesc =>
 	arm.head[field] ??
 	refuse(
 		"MalformedDescription",
@@ -766,7 +890,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 				arm.vars,
 				arm.matches.map(matchDesc),
 				[
-					...arm.where,
+					...conditionsOf(arm, loc),
 					{ kind: "absent", source: tuples(rule.to, loc), bindings: termHead(arm.terms) }
 				],
 				termHead(arm.terms),
@@ -785,7 +909,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 					{ source: facts(rule.side, heading, loc), bindings: other, loc }
 				],
 				[
-					...arm.where,
+					...conditionsOf(arm, loc),
 					connectiveExpr(
 						"or",
 						heading.map((f): ExprDesc => ({
@@ -805,7 +929,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 			return ruleDesc(
 				arm.vars,
 				arm.matches.map(matchDesc),
-				[...arm.where, { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
+				[...conditionsOf(arm, loc), { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
 				termHead(arm.terms),
 				loc
 			)
@@ -847,18 +971,6 @@ const paramOf = (record: "NEW" | "OLD", field: TouchedField): ExprDesc => ({
 	type: field.desc
 })
 
-/** The pins holding an anti-join's bindings to the touched row's values, read at `record`. */
-const pinnedTo = (
-	n: Negation,
-	record: "NEW" | "OLD",
-	fieldOf: (name: string) => TouchedField,
-	params: Map<string, ProbeParam>
-): ReadonlyArray<ExprDesc> =>
-	Object.entries(n.bindings).map(([field, e]) => {
-		params.set(paramName(record, field), { record, field })
-		return equal(e, paramOf(record, fieldOf(field)))
-	})
-
 /** The field of the touched relation named `name`, refused where it has none. */
 const touchedField =
 	(fields: ReadonlyArray<TouchedField>, relation: string, loc: SourceLoc) =>
@@ -866,15 +978,119 @@ const touchedField =
 		fields.find((f) => f.name === name) ??
 		refuse("MalformedDescription", loc, `a field ${relation}.${name}`)
 
+/** The variables a match binds itself, never through an expression over them. */
+const boundVars = (matches: ReadonlyArray<ArmMatch>): ReadonlySet<string> =>
+	new Set(
+		matches.flatMap((m) =>
+			Object.values(m.bindings).flatMap((e) => (e.kind === "var" ? [e.var] : []))
+		)
+	)
+
+/**
+ * A probe's match held to the row its trigger touched (`held`): the variables the row's fields replaced, the variables
+ * left free, the matches it reads as they stand and its conditions, each read through the replacement.
+ */
+interface Held {
+	readonly replaced: ReadonlySet<string>
+	readonly leaves: Leaves
+	/** The variables only a dropped match binds, which nothing the probe reads holds. */
+	readonly free: ReadonlySet<string>
+	readonly unbound: (e: ExprDesc) => boolean
+	readonly kept: ReadonlyArray<ArmMatch>
+	readonly where: ReadonlyArray<ExprDesc>
+}
+
+/**
+ * The match `touched` held to the row its trigger touched, read at `record`, beside the variables `bound` the rest of
+ * the probe binds, the matches `kept` it reads as they stand and the matches `relaxed` it drops: each variable `touched`
+ * binds that neither `bound` nor a kept match binds is the row's field, every other binding of it an equality with the
+ * field (a pin), after the conditions `where`. A variable only a relaxed match binds is free, and a kept match's binding
+ * or a condition over one is dropped, so the probe reads every candidate the dropped matches would have let through.
+ */
+const held = (
+	touched: ArmMatch,
+	record: "NEW" | "OLD",
+	bound: ReadonlySet<string>,
+	kept: ReadonlyArray<ArmMatch>,
+	relaxed: ReadonlyArray<ArmMatch>,
+	where: ReadonlyArray<ExprDesc>,
+	fieldOf: (name: string) => TouchedField,
+	params: Map<string, ProbeParam>
+): Held => {
+	const byKept = new Set([...bound, ...boundVars(kept)])
+	const replaced = new Map<string, ExprDesc>()
+	const pinned: Array<ExprDesc> = []
+	for (const [field, e] of Object.entries(touched.bindings)) {
+		const value = paramOf(record, fieldOf(field))
+		params.set(paramName(record, field), { record, field })
+		if (e.kind === "var" && !byKept.has(e.var) && !replaced.has(e.var)) {
+			replaced.set(e.var, value)
+		} else {
+			pinned.push(equal(e, value))
+		}
+	}
+	const free = new Set([...boundVars(relaxed)].filter((id) => !byKept.has(id) && !replaced.has(id)))
+	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
+	const unbound = (e: ExprDesc): boolean => [...varsOf(e, new Set())].some((id) => free.has(id))
+	return {
+		replaced: new Set(replaced.keys()),
+		leaves,
+		free,
+		unbound,
+		kept: kept.map((k): ArmMatch => {
+			const bindings: Record<string, ExprDesc> = {}
+			for (const [f, e] of Object.entries(k.bindings)) {
+				const mapped = mapLeaves(e, leaves)
+				if (!unbound(mapped)) {
+					bindings[f] = mapped
+				}
+			}
+			return { ...k, bindings }
+		}),
+		where: [...where, ...pinned].map((w) => mapLeaves(w, leaves)).filter((w) => !unbound(w))
+	}
+}
+
+/**
+ * A negated arm of `arm` opened into it: its matches and conditions joined to the terms of `arm` its negation binds
+ * (`joined`), so a probe reads, positively, the facts of the negated arm that agree with a fact of `arm`.
+ */
+const opened = (n: NegatedArm, loc: SourceLoc): Joined =>
+	joined(n.arm, n.bindings, (field) =>
+		refuse("MalformedDescription", loc, `a negated arm that derives the field ${field} it binds`)
+	)
+
+/**
+ * The probes of each occurrence of `relation` in a negated arm of `arms`, each by its arm, the negated arm opened into
+ * it, and the occurrence with its index among the opened arm's matches.
+ */
+const negatedProbes = <A extends LiveArm>(
+	arms: ReadonlyArray<A>,
+	relation: string,
+	loc: SourceLoc,
+	probe: (arm: A, open: Joined, touched: ArmMatch, at: number) => Probe
+): ReadonlyArray<Probe> =>
+	arms.flatMap((arm) =>
+		arm.negated.flatMap((n) => {
+			const open = opened(n, loc)
+			return open.matches.flatMap((m, at) =>
+				m.relation === relation ? [probe(arm, open, m, at)] : []
+			)
+		})
+	)
+
 /**
  * The probes an INSERT or an UPDATE of `relation`'s row runs at COMMIT, NEW its values:
  *
  * - for the facts it adds: one per occurrence of the relation in an arm of the rule's breaking side, the arm with that
  *   occurrence held to the row now stored at NEW's primary key, `key`, and the rule's violation read over it. A row
  *   deleted or changed later in the transaction is judged as it stands at COMMIT, which its own write probes again;
- * - for the target tuples it withdraws: one per anti-join of the relation in an arm of a containment's target, the arm
- *   without that anti-join and with its bindings held to NEW's values, the tuples NEW now blocks; the source tuples
- *   that need one of them and that the target no longer holds are the violation.
+ * - for the target tuples it withdraws: one per occurrence of the relation in a negated arm of an arm of a
+ *   containment's target. The negated arm is opened into the target's arm (`opened`), its occurrence held to NEW's
+ *   values and its other matches read as they stand, the tuples NEW now blocks, which stand blocked at COMMIT by a fact
+ *   that reads NEW where they stood before. The target arm's negations are dropped: a tuple two inserts block at once,
+ *   each through a negation of its own, is blocked by the other's too, and is a candidate all the same. The source
+ *   tuples that need a candidate and that the target no longer holds are the violation.
  */
 export const newProbes = (
 	rule: QueryRule,
@@ -913,41 +1129,42 @@ export const newProbes = (
 		return added
 	}
 	const fieldOf = touchedField(fields, relation, loc)
-	const blocked = rule.to.arms.flatMap((arm) =>
-		negations(arm).flatMap((n): ReadonlyArray<Probe> => {
-			if (n.relation !== relation) {
-				return []
-			}
-			const params = new Map<string, ProbeParam>()
-			const where = [
-				...arm.where.filter((_, k) => k !== n.index),
-				...pinnedTo(n, "NEW", fieldOf, params)
-			]
-			return [
-				{
-					query: queryOf(
+	const blocked = negatedProbes(rule.to.arms, relation, loc, (arm, open, touched, at): Probe => {
+		const params = new Map<string, ProbeParam>()
+		const h = held(
+			touched,
+			"NEW",
+			boundVars(arm.matches),
+			open.matches.filter((_, j) => j !== at),
+			[],
+			open.where,
+			fieldOf,
+			params
+		)
+		return {
+			query: queryOf(
+				[
+					ruleDesc(
+						[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
 						[
-							ruleDesc(
-								arm.vars,
-								[
-									{ source: tuples(rule.from, loc), bindings: termHead(arm.terms), loc },
-									...arm.matches.map(matchDesc)
-								],
-								[
-									...where,
-									{ kind: "absent", source: tuples(rule.to, loc), bindings: termHead(arm.terms) }
-								],
-								termHead(arm.terms),
-								loc
-							)
+							{ source: tuples(rule.from, loc), bindings: termHead(arm.terms), loc },
+							...arm.matches.map(matchDesc),
+							...h.kept.map(matchDesc)
 						],
+						[
+							...arm.where,
+							...h.where,
+							{ kind: "absent", source: tuples(rule.to, loc), bindings: termHead(arm.terms) }
+						],
+						termHead(arm.terms),
 						loc
-					),
-					params
-				}
-			]
-		})
-	)
+					)
+				],
+				loc
+			),
+			params
+		}
+	})
 	return [...added, ...blocked]
 }
 
@@ -957,14 +1174,17 @@ export const newProbes = (
  * - for the target tuples it withdraws: one per occurrence of the relation in an arm of a containment's target. The
  *   occurrence is replaced by OLD's values, the matches declared before it are read as they stand, and those after it
  *   are dropped, every term only they bind a wildcard: a tuple whose rows the transaction removes from several matches
- *   is still withdrawn by the first of them, whose probe reads none of the later ones. The arm's anti-joins are dropped
- *   too: a tuple the transaction both withdraws and blocks, its row deleted and a row of the negated relation inserted,
+ *   is still withdrawn by the first of them, whose probe reads none of the later ones. The arm's negations are dropped
+ *   too: a tuple the transaction both withdraws and blocks, its row deleted and a row of a negated relation inserted,
  *   is withdrawn by the delete, whose probe reads no insert, where the insert's probe reads the row as it stands,
  *   deleted. The source tuples that agree with a candidate on its bound terms and that the target no longer holds are
- *   the violation, so a candidate the dropped matches or anti-joins would have excluded is judged against the target
+ *   the violation, so a candidate the dropped matches or negations would have excluded is judged against the target
  *   all the same;
- * - for the facts it adds by no longer blocking them: one per anti-join of the relation in an arm of the rule's
- *   breaking side, the arm with that anti-join's bindings held to OLD's values, and the rule's violation read over it.
+ * - for the facts it adds by no longer blocking them: one per occurrence of the relation in a negated arm of an arm of
+ *   the rule's breaking side. The negated arm is opened into the arm (`opened`) and read as a target's arm is, its
+ *   occurrence held to OLD's values, the matches declared before it read as they stand and those after it dropped, so
+ *   the facts some fact of the negated arm that read OLD blocked are the candidates, however many of its rows the
+ *   transaction removes; the rule's violation is read over them, the arm's negations as they stand at COMMIT.
  */
 export const oldProbes = (
 	rule: QueryRule,
@@ -977,96 +1197,73 @@ export const oldProbes = (
 		rule.kind === "contained"
 			? rule.to.arms.flatMap((arm) =>
 					arm.matches.flatMap((m, i): ReadonlyArray<Probe> =>
-						m.relation === relation
-							? [
-									lostProbe(
-										rule,
-										arm,
-										m,
-										arm.matches.slice(0, i),
-										arm.matches.slice(i + 1),
-										fieldOf,
-										loc
-									)
-								]
-							: []
+						m.relation === relation ? [lostProbe(rule, arm, m, i, fieldOf, loc)] : []
 					)
 				)
 			: []
-	const unblocked = breakingArms(rule).flatMap((arm) =>
-		negations(arm).flatMap((n): ReadonlyArray<Probe> => {
-			if (n.relation !== relation) {
-				return []
-			}
+	const unblocked = negatedProbes(
+		breakingArms(rule),
+		relation,
+		loc,
+		(arm, open, touched, at): Probe => {
 			const params = new Map<string, ProbeParam>()
-			const pinned: SideArm = {
+			const h = held(
+				touched,
+				"OLD",
+				boundVars(arm.matches),
+				open.matches.slice(0, at),
+				open.matches.slice(at + 1),
+				open.where,
+				fieldOf,
+				params
+			)
+			const restricted: SideArm = {
 				...arm,
-				where: [...arm.where, ...pinnedTo(n, "OLD", fieldOf, params)]
+				vars: [...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))],
+				matches: [...arm.matches, ...h.kept],
+				where: [...arm.where, ...h.where]
 			}
-			return [{ query: queryOf([violating(rule, pinned, loc)], loc), params }]
-		})
+			return { query: queryOf([violating(rule, restricted, loc)], loc), params }
+		}
 	)
 	return [...lost, ...unblocked]
 }
 
-/** The variables a match binds itself, never through an expression over them. */
-const boundVars = (matches: ReadonlyArray<ArmMatch>): ReadonlySet<string> =>
-	new Set(
-		matches.flatMap((m) =>
-			Object.values(m.bindings).flatMap((e) => (e.kind === "var" ? [e.var] : []))
-		)
-	)
-
+/** The probe of `touched`, the `at`-th match of an arm of a containment's target, held to OLD's values (oldProbes). */
 const lostProbe = (
 	rule: Extract<QueryRule, { readonly kind: "contained" }>,
 	arm: SideArm,
 	touched: ArmMatch,
-	kept: ReadonlyArray<ArmMatch>,
-	relaxed: ReadonlyArray<ArmMatch>,
+	at: number,
 	fieldOf: (name: string) => TouchedField,
 	loc: SourceLoc
 ): Probe => {
-	const byKept = boundVars(kept)
-	const replaced = new Map<string, ExprDesc>()
-	const pinned: Array<ExprDesc> = []
 	const params = new Map<string, ProbeParam>()
-	for (const [field, e] of Object.entries(touched.bindings)) {
-		const old = paramOf("OLD", fieldOf(field))
-		params.set(paramName("OLD", field), { record: "OLD", field })
-		if (e.kind === "var" && !byKept.has(e.var) && !replaced.has(e.var)) {
-			replaced.set(e.var, old)
-		} else {
-			pinned.push(equal(e, old))
-		}
-	}
-	const free = new Set([...boundVars(relaxed)].filter((id) => !byKept.has(id) && !replaced.has(id)))
-	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
-	const unbound = (e: ExprDesc): boolean => [...varsOf(e, new Set())].some((id) => free.has(id))
-	const keptMatches = kept.map((k): MatchDesc => {
-		const bindings: Record<string, ExprDesc> = {}
-		for (const [f, e] of Object.entries(k.bindings)) {
-			const mapped = mapLeaves(e, leaves)
-			if (!unbound(mapped)) {
-				bindings[f] = mapped
-			}
-		}
-		return matchDesc({ ...k, bindings })
-	})
-	const where = [...arm.where.filter((w) => w.kind !== "absent"), ...pinned]
-		.map((w) => mapLeaves(w, leaves))
-		.filter((w) => !unbound(w))
-	const mappedTerms = arm.terms.map((t) => mapLeaves(t, leaves))
-	const bound = mappedTerms.map((t, i): ExprDesc => (unbound(t) ? varRef(wildcardId(i)) : t))
+	const h = held(
+		touched,
+		"OLD",
+		new Set(),
+		arm.matches.slice(0, at),
+		arm.matches.slice(at + 1),
+		arm.where,
+		fieldOf,
+		params
+	)
+	const mappedTerms = arm.terms.map((t) => mapLeaves(t, h.leaves))
+	const bound = mappedTerms.map((t, i): ExprDesc => (h.unbound(t) ? varRef(wildcardId(i)) : t))
 	const wilds = mappedTerms.flatMap((t, i) =>
-		unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
+		h.unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
 	)
 	return {
 		query: queryOf(
 			[
 				ruleDesc(
-					[...arm.vars.filter((v) => !replaced.has(v.id) && !free.has(v.id)), ...wilds],
-					[{ source: tuples(rule.from, loc), bindings: termHead(bound), loc }, ...keptMatches],
-					[...where, { kind: "absent", source: tuples(rule.to, loc), bindings: termHead(bound) }],
+					[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
+					[
+						{ source: tuples(rule.from, loc), bindings: termHead(bound), loc },
+						...h.kept.map(matchDesc)
+					],
+					[...h.where, { kind: "absent", source: tuples(rule.to, loc), bindings: termHead(bound) }],
 					termHead(bound),
 					loc
 				)
@@ -1079,9 +1276,10 @@ const lostProbe = (
 
 /**
  * What a write of one relation can break of a rule that reads it: by INSERT or by an UPDATE of a column read, the
- * facts it adds as a breaking side's match and the target tuples it blocks as an anti-join of a containment's target
- * (`news`); by DELETE or by an UPDATE of a column read, the target tuples it withdraws as a target's match and the facts
- * it unblocks as an anti-join of the breaking side (`olds`); or both. Each names the columns read.
+ * facts it adds as a breaking side's match and the target tuples it blocks as a match of a negated arm of a
+ * containment's target (`news`); by DELETE or by an UPDATE of a column read, the target tuples it withdraws as a
+ * target's match and the facts it unblocks as a match of a negated arm of the breaking side (`olds`); or both. Each
+ * names the columns read.
  */
 export type Touches =
 	| { readonly kind: "news"; readonly news: ReadonlyArray<string> }
@@ -1092,16 +1290,15 @@ export type Touches =
 			readonly olds: ReadonlyArray<string>
 	  }
 
-/** The columns that arms' matches of `relation` and their anti-joins of it read, sorted, each once. */
+/** The columns that arms' matches of `relation` and other arms' negated arms' matches of it read, sorted, each once. */
 const columnsOf = (
 	matched: ReadonlyArray<LiveArm>,
-	negated: ReadonlyArray<LiveArm>,
+	negating: ReadonlyArray<LiveArm>,
 	relation: string
 ): ReadonlyArray<string> | undefined => {
-	const read = [
-		...matched.flatMap((a) => a.matches.filter((m) => m.relation === relation)),
-		...negated.flatMap((a) => negations(a).filter((n) => n.relation === relation))
-	]
+	const read = [...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)].filter(
+		(m) => m.relation === relation
+	)
 	return read.length === 0
 		? undefined
 		: [...new Set(read.flatMap((m) => Object.keys(m.bindings)))].toSorted(compareText)

@@ -4,11 +4,16 @@
  * installs holds at every COMMIT after, through a declared rename of a table its query reads.
  *
  * A case draws rows of Fact(id, k, a), S(id, k, b) and T(a, b), the first version's rule over J2 = Fact ⋈ S on k (none,
- * or J2's facts whose b is not 0 contained in T), and the second's (those facts, or every fact of J2, contained in T),
+ * or J2's facts whose b is not 0 contained in T), and the second's (those facts, every fact of J2, or the facts of
+ * Unpaired contained in T, the facts of J2 whose k no S row shares whose b is a T row's a: a negated join of S and T),
  * the second version renaming Fact to Moved or not. The rows are stored under the first version, where its rule
  * admits them. The oracle is the rule restated over the rows: the second migration fails, its violation check raising
  * 23000, exactly when the stored rows break its rule; and once it applies, a transaction writing a fact of J2 the rule
  * needs a T row for is refused at COMMIT with 23503, and commits beside that T row.
+ *
+ * The plant of the negated join, written for the pin-time run, which must fail the search: a violation query that reads
+ * each negated arm as an anti-join of its first match alone, under which Unpaired derives nothing, so a migration adding
+ * its rule applies over stored rows that break it.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -31,8 +36,11 @@ import { attempt, refusalText } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A version's rule: none, J2's facts whose b is not 0 contained in T, or every fact of J2. */
-type Rule = "none" | "selected" | "every"
+/**
+ * A version's rule: none, J2's facts whose b is not 0 contained in T, every fact of J2, or every fact of Unpaired, which
+ * negates a join of S and T.
+ */
+type Rule = "none" | "selected" | "every" | "negated"
 
 interface MigrationCase {
 	readonly first: Rule
@@ -47,7 +55,7 @@ const pairGen: Gen<readonly [number, number]> = (s) => [s.draw(int(0, 1)), s.dra
 
 const caseGen: Gen<MigrationCase> = (s) => ({
 	first: s.draw(element(["none", "selected"] as const)),
-	second: s.draw(element(["selected", "every"] as const)),
+	second: s.draw(element(["selected", "every", "negated"] as const)),
 	renamed: s.draw(boolean),
 	facts: s.draw(array(pairGen, { min: 0, max: 3 })),
 	s: s.draw(array(pairGen, { min: 0, max: 3 })),
@@ -63,7 +71,10 @@ const T = relation("T", { a: pg.integer, b: pg.integer }, ["a", "b"])
 const Fact = relation("Fact", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
 const Moved = relation("Moved", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
 
-/** The version under `name` with Fact: Fact, S and T, J2 = Fact ⋈ S on k, and `rule` over J2. */
+/**
+ * The version under `name` with Fact: Fact, S and T, J2 = Fact ⋈ S on k, Unpaired = J2's facts whose k no S row shares
+ * whose b is a T row's a, and `rule`.
+ */
 const factVersion = (name: string, rule: Rule) => {
 	const Base = schema(name, { Fact, S, T }, [])
 	const J2 = derived(
@@ -74,20 +85,45 @@ const factVersion = (name: string, rule: Rule) => {
 			return r.match(Fact, { k, a }).match(S, { k, b }).find({ k, a, b })
 		})
 	)
-	return rule === "none"
-		? schema.extend(Base, `${name}_1`, { J2 }, [])
-		: schema.extend(Base, `${name}_1`, { J2 }, [
-				rule === "every"
-					? contained(on(J2, "a", "b"), on(T, "a", "b"))
-					: contained(
-							on(
-								select(J2, (j) => j.ne(j.b, 0)),
-								"a",
-								"b"
-							),
-							on(T, "a", "b")
-						)
+	const paired = query(Base).rule((r) => {
+		const { k, b } = v(S, "s")
+		return r.match(S, { k, b }).match(T, { a: b }).find({ k })
+	})
+	const Unpaired = derived(
+		"Unpaired",
+		query(Base).rule((r) => {
+			const { k, a } = v(Fact, "fact")
+			const { b } = v(S, "s")
+			return r
+				.match(Fact, { k, a })
+				.match(S, { k, b })
+				.where(r.not(paired, { k }))
+				.find({ k, a, b })
+		})
+	)
+	switch (rule) {
+		case "none":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [])
+		case "every":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(on(J2, "a", "b"), on(T, "a", "b"))
 			])
+		case "selected":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(
+					on(
+						select(J2, (j) => j.ne(j.b, 0)),
+						"a",
+						"b"
+					),
+					on(T, "a", "b")
+				)
+			])
+		case "negated":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(on(Unpaired, "a", "b"), on(T, "a", "b"))
+			])
+	}
 }
 
 /** The version under `name` with Fact renamed to Moved. */
@@ -101,32 +137,65 @@ const movedVersion = (name: string, rule: Rule) => {
 			return r.match(Moved, { k, a }).match(S, { k, b }).find({ k, a, b })
 		})
 	)
-	return rule === "none"
-		? schema.extend(Base, `${name}_1`, { J2 }, [])
-		: schema.extend(Base, `${name}_1`, { J2 }, [
-				rule === "every"
-					? contained(on(J2, "a", "b"), on(T, "a", "b"))
-					: contained(
-							on(
-								select(J2, (j) => j.ne(j.b, 0)),
-								"a",
-								"b"
-							),
-							on(T, "a", "b")
-						)
+	const paired = query(Base).rule((r) => {
+		const { k, b } = v(S, "s")
+		return r.match(S, { k, b }).match(T, { a: b }).find({ k })
+	})
+	const Unpaired = derived(
+		"Unpaired",
+		query(Base).rule((r) => {
+			const { k, a } = v(Moved, "fact")
+			const { b } = v(S, "s")
+			return r
+				.match(Moved, { k, a })
+				.match(S, { k, b })
+				.where(r.not(paired, { k }))
+				.find({ k, a, b })
+		})
+	)
+	switch (rule) {
+		case "none":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [])
+		case "every":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(on(J2, "a", "b"), on(T, "a", "b"))
 			])
+		case "selected":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(
+					on(
+						select(J2, (j) => j.ne(j.b, 0)),
+						"a",
+						"b"
+					),
+					on(T, "a", "b")
+				)
+			])
+		case "negated":
+			return schema.extend(Base, `${name}_1`, { J2, Unpaired }, [
+				contained(on(Unpaired, "a", "b"), on(T, "a", "b"))
+			])
+	}
 }
 
 /** The case's version: the first, or the second, renaming Fact where the case does. */
 const versionOf = (name: string, c: MigrationCase, after: boolean) =>
 	after && c.renamed ? movedVersion(name, c.second) : factVersion(name, after ? c.second : c.first)
 
-/** Whether the rows keep `rule`: every fact of J2 it reads has its (a, b) in T. */
+/** Whether some S row of k has a b that is a T row's a: whether the k is paired, which Unpaired negates. */
+const paired = (c: MigrationCase, k: number): boolean =>
+	Arr.some(c.s, ([sk, b]) => sk === k && Arr.some(c.t, ([ta]) => ta === b))
+
+/** Whether the rows keep `rule`: every fact of J2 or Unpaired it reads has its (a, b) in T. */
 const keeps = (c: MigrationCase, rule: Rule): boolean =>
 	rule === "none" ||
 	Arr.every(c.facts, ([k, a]) =>
 		Arr.every(
-			Arr.filter(c.s, ([sk, b]) => sk === k && (rule === "every" || b !== 0)),
+			Arr.filter(
+				c.s,
+				([sk, b]) =>
+					sk === k && (rule === "every" || (rule === "selected" ? b !== 0 : !paired(c, k)))
+			),
 			([, b]) => Arr.some(c.t, ([ta, tb]) => ta === a && tb === b)
 		)
 	)
@@ -140,6 +209,8 @@ type Feature =
 	| "a changed rule the stored rows break refused"
 	| "a changed rule the stored rows keep applied"
 	| "a rule over a renamed table holds after the rename"
+	| "a rule over a negated join the stored rows break refused"
+	| "a rule over a negated join the stored rows keep applied"
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -164,7 +235,9 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								"an added rule the stored rows keep applied",
 								"a changed rule the stored rows break refused",
 								"a changed rule the stored rows keep applied",
-								"a rule over a renamed table holds after the rename"
+								"a rule over a renamed table holds after the rename",
+								"a rule over a negated join the stored rows break refused",
+								"a rule over a negated join the stored rows keep applied"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -251,6 +324,9 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 									})
 								}
 								n.note(`${kind} rule the stored rows break refused`)
+								if (c.second === "negated") {
+									n.note("a rule over a negated join the stored rows break refused")
+								}
 								return
 							}
 							if (breaks) {
@@ -259,6 +335,9 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								})
 							}
 							n.note(`${kind} rule the stored rows keep applied`)
+							if (c.second === "negated") {
+								n.note("a rule over a negated join the stored rows keep applied")
+							}
 							const m = outcome.success
 							const fact = tableOf(schemaIdent, factName(c, true))
 							const needing = [

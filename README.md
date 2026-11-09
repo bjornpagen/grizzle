@@ -1939,15 +1939,18 @@ and no write keeps one in step: `derived(name, query)` stores nothing, and a que
 definition too.
 
 - **What a side's query may be.** Matches, `where` conditions and the head's fields: joins, selections, projections
-  and semijoins, a union of such rules, and `r.not(T, …)` over one table, an anti-join, so a rule can read "the rows of
-  R with no S". An aggregate, `orderBy(...).take(k)`, `attach`, an approximate search, a recursion, or a negation of a
-  query or of a derived relation is refused: a type error naming what it does, and `UnsupportedLawFamily` from
-  JavaScript. A family and a fold read tables only.
+  and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and(...)`, negates a table, a
+  query of such rules or a derived relation whose query is one, so a rule can read "the rows of R with no S" and "the
+  rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate,
+  `orderBy(...).take(k)`, `attach`, an approximate search or a recursion, in the query or in a query it negates, and a
+  negation inside a negated query, are refused: `UnsupportedLawFamily` from JavaScript naming what the query does, and
+  a type error where the query does it itself. A family and a fold read tables only.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is, on
   each table the query reads, a deferred constraint trigger, `DEFERRABLE INITIALLY DEFERRED` and row by row, for the
-  writes that can break it: for a containment, a write that adds rows to its source or takes rows from its target.
+  writes that can break it: for a containment, a write that adds rows to its source or takes rows from its target,
+  and so also a delete from a table its source negates and an insert into one its target negates.
   Its function runs the rule's violation query, compiled by grizzle's own query compiler, over the rows the write
   touched, and raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. The functions
   are SECURITY DEFINER on a pinned `search_path`, and no role may run them.

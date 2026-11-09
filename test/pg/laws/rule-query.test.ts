@@ -10,8 +10,15 @@
  * exactly Lonely's ids, and both an S row's insert and its delete can break one), a key over a query and a check over a
  * three-relation query: every rule kind, with a query on either side of a containment.
  *
- * - **The specification turned into a checker:** each rule restated over the rows, a host model of R, S, U, T, W and V
- *   that evaluates J2, J3, Semi, Self and Lonely itself and judges every rule over the state a transaction leaves. A
+ * Four more negate what is no table: Unpaired, R's rows whose k no S row joined with a U row on b shares (a negated
+ * join); Unlisted, R's rows whose k neither an S row whose b is 1 nor a W row holds (a negated union of two rules);
+ * Quiet, R's rows whose a is not 2 and whose k no W row shares (a negation inside a conjunction); and Unused, on a level
+ * above, U's rows whose a no fact of J2 holds (a negated derived relation). N marks each one's rows under a code of its
+ * own, contained in it both ways, so an insert into a table it negates breaks the mark of a row it withdraws and a
+ * delete breaks the absent mark of a row it brings back, on every table of each negated join.
+ *
+ * - **The specification turned into a checker:** each rule restated over the rows, a host model of R, S, U, T, W, V and
+ *   N that evaluates every derived relation itself and judges every rule over the state a transaction leaves. A
  *   transaction commits exactly when the state it leaves keeps every rule. A direct SQL writer's refusal is at COMMIT,
  *   SQLSTATE 23503 for a containment, 23505 for the key and 23514 for the check, naming a trigger the installation's
  *   constraint map maps to a rule the model judges broken, the check's under the name constraintNamesOf gives its rule;
@@ -26,13 +33,22 @@
  * updates of drawn rows, the unwinding of a J3 fact, which deletes every row of its derivation from R, S and U in one
  * transaction while W may still need it, and the end of a lonely row, which deletes it and inserts an S row of its k in
  * one transaction while V may still hold its id: the two situations a target probe's relaxation exists for, which the
- * search requires.
+ * search requires. A transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row
+ * of one, or remove a picked mark.
  *
  * Planted in a scratch copy, each of these fails the search: no trigger on one table a rule reads; a NEW probe that
  * restricts only the first occurrence of the written relation in an arm, which misses the self-join; a key over a
  * query whose violation needs every heading field to differ; a target probe that joins the later occurrences as they
  * stand instead of relaxing them, which misses an unwinding; no probe for the rows a negated relation's write blocks or
  * unblocks; and a target probe that keeps the target's anti-joins, which misses a lonely row's end.
+ *
+ * The plants of the negations of what is no table, written for the pin-time run, each of which must fail the search: no
+ * probe for a negated arm's matches after its first, so U, the second table of Unpaired's negated join, goes unread;
+ * each negated arm's probes read with the other polarity, a target's negated tables probed on DELETE and the breaking
+ * side's on INSERT; a probe of a breaking side's negated arm that reads the matches after the held one as they stand
+ * instead of dropping them, which misses an unwinding that deletes an S row and the U row it pairs with at once; a probe
+ * of a target's negated arm that keeps the target arm's other negations, which misses a k an S row whose b is 1 and a
+ * W row inserted at once both list; and a conjunction holding a negation read whole, which refuses Quiet.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -74,13 +90,19 @@ const U = relation("U", { id: pg.integer, a: pg.integer, b: pg.integer }, ["id"]
 const T = relation("T", { a: pg.integer, b: pg.integer }, ["a", "b"])
 const W = relation("W", { id: pg.integer, k: pg.integer }, ["id"])
 const V = relation("V", { id: pg.integer }, ["id"])
+const N = relation("N", { form: pg.integer, id: pg.integer }, ["form", "id"])
+
+/** The negations whose rows N marks, each under a code of its own. */
+const forms = ["unpaired", "unlisted", "quiet", "unused"] as const
+type Form = (typeof forms)[number]
+const formCode: Readonly<Record<Form, number>> = { unpaired: 1, unlisted: 2, quiet: 3, unused: 4 }
 
 /**
- * The schema under `name`: R, S, U, T, W and V stored, and J2, J3, Semi, Lonely and Self derived over them, live, with
- * a rule over each.
+ * The schema under `name`: R, S, U, T, W, V and N stored; J2, J3, Semi, Lonely, Self, Unpaired, Unlisted and Quiet
+ * derived over them, live, and Unused over J2 on a level above, with a rule over each.
  */
 const ruleQuery = (name: string) => {
-	const Base = schema(name, { R, S, U, T, W, V }, [])
+	const Base = schema(name, { R, S, U, T, W, V, N }, [])
 	const J2 = derived(
 		"J2",
 		query(Base).rule((r) => {
@@ -120,26 +142,96 @@ const ruleQuery = (name: string) => {
 			return r.match(R, { k, a: lo }).match(R, { k, a: hi }).where(r.lt(lo, hi)).find({ k, lo, hi })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, { J2, J3, Semi, Self, Lonely }, [
-		contained(on(J2, "a", "b"), on(T, "a", "b")),
-		contained(on(W, "k"), on(J3, "k")),
-		key(on(J2, "k", "a")),
-		check("NoTwoTwo", J3, (j) => j.not(j.and(j.eq(j.a, 2), j.eq(j.b, 2)))),
-		contained(on(Semi, "id"), on(W, "id")),
-		contained(on(Self, "lo", "hi"), on(T, "a", "b")),
-		contained(
-			on(
-				select(J2, (j) => j.eq(j.b, 1)),
-				"k"
+	/** The k of an S row whose b some U row shares: a join, as a query. */
+	const paired = query(Base).rule((r) => {
+		const { k, b } = v(S, "s")
+		return r.match(S, { k, b }).match(U, { b }).find({ k })
+	})
+	/** The R rows no S row joined with a U row shares a k with: a negated join. */
+	const Unpaired = derived(
+		"Unpaired",
+		query(Base).rule((r) => {
+			const { id, k } = v(R, "r")
+			return r.match(R, { id, k }).where(r.not(paired, { k })).find({ id })
+		})
+	)
+	/** The k of an S row whose b is 1, and of a W row: a union of two rules. */
+	const listed = query(Base)
+		.rule((r) => {
+			const { k } = v(S, "s")
+			return r.match(S, { k, b: 1 }).find({ k })
+		})
+		.rule((r) => {
+			const { k } = v(W, "w")
+			return r.match(W, { k }).find({ k })
+		})
+	/** The R rows the union lists no k of: a negated union. */
+	const Unlisted = derived(
+		"Unlisted",
+		query(Base).rule((r) => {
+			const { id, k } = v(R, "r")
+			return r.match(R, { id, k }).where(r.not(listed, { k })).find({ id })
+		})
+	)
+	/** The R rows whose a is not 2 and whose k no W row shares: a negation inside a conjunction. */
+	const Quiet = derived(
+		"Quiet",
+		query(Base).rule((r) => {
+			const { id, k, a } = v(R, "r")
+			return r
+				.match(R, { id, k, a })
+				.where(r.and(r.ne(a, 2), r.not(W, { k })))
+				.find({ id })
+		})
+	)
+	const marked = (form: Form) =>
+		on(
+			select(N, (n) => n.eq(n.form, formCode[form])),
+			"id"
+		)
+	const First = schema.extend(
+		Base,
+		`${name}_1`,
+		{ J2, J3, Semi, Self, Lonely, Unpaired, Unlisted, Quiet },
+		[
+			contained(on(J2, "a", "b"), on(T, "a", "b")),
+			contained(on(W, "k"), on(J3, "k")),
+			key(on(J2, "k", "a")),
+			check("NoTwoTwo", J3, (j) => j.not(j.and(j.eq(j.a, 2), j.eq(j.b, 2)))),
+			contained(on(Semi, "id"), on(W, "id")),
+			contained(on(Self, "lo", "hi"), on(T, "a", "b")),
+			contained(
+				on(
+					select(J2, (j) => j.eq(j.b, 1)),
+					"k"
+				),
+				on(W, "k")
 			),
-			on(W, "k")
-		),
-		contained(on(Lonely, "id"), on(V, "id")),
-		contained(on(V, "id"), on(Lonely, "id"))
+			contained(on(Lonely, "id"), on(V, "id")),
+			contained(on(V, "id"), on(Lonely, "id")),
+			contained(on(Unpaired, "id"), marked("unpaired")),
+			contained(marked("unpaired"), on(Unpaired, "id")),
+			contained(on(Unlisted, "id"), marked("unlisted")),
+			contained(marked("unlisted"), on(Unlisted, "id")),
+			contained(on(Quiet, "id"), marked("quiet")),
+			contained(marked("quiet"), on(Quiet, "id"))
+		]
+	)
+	/** The U rows whose a no fact of J2 holds: a negated derived relation, itself a join of R and S. */
+	const Unused = derived(
+		"Unused",
+		query(First).rule((r) => {
+			const { id, a } = v(U, "u")
+			return r.match(U, { id, a }).where(r.not(J2, { a })).find({ id })
+		})
+	)
+	return schema.extend(First, `${name}_2`, { Unused }, [
+		contained(on(Unused, "id"), marked("unused")),
+		contained(marked("unused"), on(Unused, "id"))
 	])
 }
 
-const RELATIONS = ["R", "S", "U", "T", "W", "V"] as const
+const RELATIONS = ["R", "S", "U", "T", "W", "V", "N"] as const
 
 /** The rules, in the schema's statement order. */
 const rules = [
@@ -151,9 +243,37 @@ const rules = [
 	"self",
 	"selected",
 	"lonely",
-	"vLonely"
+	"vLonely",
+	"unpaired",
+	"nUnpaired",
+	"unlisted",
+	"nUnlisted",
+	"quiet",
+	"nQuiet",
+	"unused",
+	"nUnused"
 ] as const
 type Rule = (typeof rules)[number]
+
+/** The rule that a negation's rows are marked, and the rule that every mark is one of its rows, by negation. */
+const formRules: Readonly<Record<Form, readonly [Rule, Rule]>> = {
+	unpaired: ["unpaired", "nUnpaired"],
+	unlisted: ["unlisted", "nUnlisted"],
+	quiet: ["quiet", "nQuiet"],
+	unused: ["unused", "nUnused"]
+}
+
+/** The derived relation each negation is. */
+const formRelation: Readonly<Record<Form, string>> = {
+	unpaired: "Unpaired",
+	unlisted: "Unlisted",
+	quiet: "Quiet",
+	unused: "Unused"
+}
+
+/** The negation a derived relation is, if it is one. */
+const formNamed = (relation: string): Form | undefined =>
+	Option.getOrUndefined(Arr.findFirst(forms, (f) => formRelation[f] === relation))
 
 /** The rule an outcome's law is, by what it states. */
 const ruleOf = (law: Law): Rule | undefined => {
@@ -173,7 +293,7 @@ const ruleOf = (law: Law): Rule | undefined => {
 									? "lonely"
 									: law.from.relation === "V"
 										? "vLonely"
-										: undefined
+										: markedRule(law.from.relation, law.to.relation)
 		case "key":
 			return law.side.relation === "J2" ? "key2" : undefined
 		case "check":
@@ -191,6 +311,16 @@ const ruleOf = (law: Law): Rule | undefined => {
 	}
 }
 
+/** A containment between a negation and its marks: out of the negation, or out of N into it. */
+const markedRule = (from: string, to: string): Rule | undefined => {
+	const out = formNamed(from)
+	if (out !== undefined && to === "N") {
+		return formRules[out][0]
+	}
+	const into = formNamed(to)
+	return into !== undefined && from === "N" ? formRules[into][1] : undefined
+}
+
 /** The SQLSTATE a refusal of each rule raises: 23503 a containment, 23505 a key, 23514 a check. */
 const codeOf = (rule: Rule): string =>
 	rule === "key2" ? "23505" : rule === "check3" ? "23514" : "23503"
@@ -203,6 +333,8 @@ interface State {
 	readonly T: ReadonlyMap<string, readonly [number, number]>
 	readonly W: ReadonlyMap<number, { readonly k: number }>
 	readonly V: ReadonlyMap<number, number>
+	/** The marks, each a negation's code and a row's id, by both. */
+	readonly N: ReadonlyMap<string, readonly [number, number]>
 }
 
 const emptyState: State = {
@@ -211,7 +343,8 @@ const emptyState: State = {
 	U: new Map(),
 	T: new Map(),
 	W: new Map(),
-	V: new Map()
+	V: new Map(),
+	N: new Map()
 }
 
 const pair = (a: number, b: number): string => `${a},${b}`
@@ -244,6 +377,38 @@ const lonely = (s: State): ReadonlyArray<number> =>
 		([id]) => id
 	)
 
+/** The ids of the rows of each negation, from the rows a state holds. */
+const negated = (s: State): Readonly<Record<Form, ReadonlyArray<number>>> => {
+	const ss = [...s.S.values()]
+	const us = [...s.U.values()]
+	const ws = [...s.W.values()]
+	const two = j2(s)
+	const ids = <V>(rows: ReadonlyMap<number, V>, keep: (row: V) => boolean): ReadonlyArray<number> =>
+		Arr.map(
+			Arr.filter([...rows.entries()], ([, row]) => keep(row)),
+			([id]) => id
+		)
+	return {
+		unpaired: ids(
+			s.R,
+			(r) => !Arr.some(ss, (x) => x.k === r.k && Arr.some(us, (u) => u.b === x.b))
+		),
+		unlisted: ids(
+			s.R,
+			(r) => !Arr.some(ss, (x) => x.k === r.k && x.b === 1) && !Arr.some(ws, (w) => w.k === r.k)
+		),
+		quiet: ids(s.R, (r) => r.a !== 2 && !Arr.some(ws, (w) => w.k === r.k)),
+		unused: ids(s.U, (u) => !Arr.some(two, (f) => f.a === u.a))
+	}
+}
+
+/** A mark's key in N. */
+const markKey = (form: number, id: number): string => `${form},${id}`
+
+/** The ids N marks under a negation's code. */
+const marksOf = (s: State, form: Form): ReadonlyArray<number> =>
+	Arr.flatMap([...s.N.values()], ([code, id]) => (code === formCode[form] ? [id] : []))
+
 /** Every rule the state breaks, in rule order. */
 const broken = (s: State): ReadonlyArray<Rule> => {
 	const two = j2(s)
@@ -261,6 +426,11 @@ const broken = (s: State): ReadonlyArray<Rule> => {
 			(y) => pair(x.a, y.a)
 		)
 	)
+	const rows = negated(s)
+	const unmarked = (form: Form): boolean =>
+		Arr.some(rows[form], (id) => !s.N.has(markKey(formCode[form], id)))
+	const stray = (form: Form): boolean =>
+		Arr.some(marksOf(s, form), (id) => !rows[form].includes(id))
 	const breaks: Readonly<Record<Rule, boolean>> = {
 		source2: Arr.some(two, (f) => !s.T.has(pair(f.a, f.b))),
 		target3: Arr.some(ws, (w) => !Arr.some(three, (f) => f.k === w.k)),
@@ -270,7 +440,15 @@ const broken = (s: State): ReadonlyArray<Rule> => {
 		self: Arr.some(selfs, (lohi) => !s.T.has(lohi)),
 		selected: Arr.some(two, (f) => f.b === 1 && !Arr.some(ws, (w) => w.k === f.k)),
 		lonely: Arr.some(lonelyIds, (id) => !s.V.has(id)),
-		vLonely: Arr.some([...s.V.keys()], (id) => !lonelyIds.includes(id))
+		vLonely: Arr.some([...s.V.keys()], (id) => !lonelyIds.includes(id)),
+		unpaired: unmarked("unpaired"),
+		nUnpaired: stray("unpaired"),
+		unlisted: unmarked("unlisted"),
+		nUnlisted: stray("unlisted"),
+		quiet: unmarked("quiet"),
+		nQuiet: stray("quiet"),
+		unused: unmarked("unused"),
+		nUnused: stray("unused")
 	}
 	return Arr.filter(rules, (r) => breaks[r])
 }
@@ -291,6 +469,9 @@ type Edit =
 	| { readonly kind: "deleteT"; readonly pick: number }
 	| { readonly kind: "unwind"; readonly pick: number }
 	| { readonly kind: "unlone"; readonly pick: number; readonly keepV: boolean }
+	| { readonly kind: "sync" }
+	| { readonly kind: "mark"; readonly form: Form; readonly pick: number }
+	| { readonly kind: "unmark"; readonly pick: number }
 
 /**
  * One write of a direct SQL writer's transaction: an edit, an UPDATE of one field of a picked row, or the shift of a
@@ -329,7 +510,10 @@ const edits: Arr.NonEmptyReadonlyArray<Weighted<Edit>> = [
 	[2, (s) => ({ kind: "delete", relation: s.draw(element(deleted)), pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "deleteT", pick: s.draw(int(0, 9)) })],
 	[2, (s) => ({ kind: "unwind", pick: s.draw(int(0, 9)) })],
-	[1, (s) => ({ kind: "unlone", pick: s.draw(int(0, 9)), keepV: s.draw(element([false, true])) })]
+	[1, (s) => ({ kind: "unlone", pick: s.draw(int(0, 9)), keepV: s.draw(element([false, true])) })],
+	[2, () => ({ kind: "sync" })],
+	[1, (s) => ({ kind: "mark", form: s.draw(element(forms)), pick: s.draw(int(0, 9)) })],
+	[1, (s) => ({ kind: "unmark", pick: s.draw(int(0, 9)) })]
 ]
 
 const opGen: Gen<Op> = weighted<Op>([
@@ -382,6 +566,7 @@ type Feature =
 	| "committed"
 	| "committed a J3 fact"
 	| "committed a lonely row"
+	| `committed a row of ${Form}`
 	| `refused by ${Rule}`
 	| "a fact unwound across tables while W needs it"
 	| "a lonely row deleted and blocked at once while V needs it"
@@ -438,6 +623,7 @@ const resolve = (
 	const Tr = new Map(before.T)
 	const Wr = new Map(before.W)
 	const Vr = new Map(before.V)
+	const Nr = new Map(before.N)
 	const statements: Array<string> = []
 	const unwound: Array<number> = []
 	const withdrawn: Array<number> = []
@@ -464,6 +650,16 @@ const resolve = (
 	const insertT = (a: number, b: number): void => {
 		Tr.set(pair(a, b), [a, b])
 		statements.push(`INSERT INTO ${table("T")} (a, b) VALUES (${a}, ${b}) ON CONFLICT DO NOTHING`)
+	}
+	const mark = (form: number, id: number): void => {
+		Nr.set(markKey(form, id), [form, id])
+		statements.push(
+			`INSERT INTO ${table("N")} (form, id) VALUES (${form}, ${id}) ON CONFLICT DO NOTHING`
+		)
+	}
+	const unmark = (form: number, id: number): void => {
+		Nr.delete(markKey(form, id))
+		statements.push(`DELETE FROM ${table("N")} WHERE form = ${form} AND id = ${id}`)
 	}
 	const rowsOf = (relation: Deleted): Map<number, unknown> =>
 		relation === "R" ? R : relation === "S" ? S : relation === "U" ? U : relation === "W" ? Wr : Vr
@@ -555,7 +751,7 @@ const resolve = (
 				break
 			}
 			case "shift": {
-				const now = { R, S, U, T: Tr, W: Wr, V: Vr }
+				const now = { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }
 				const ones = Arr.filter(j2(now), (f) => f.b === 1)
 				const fact = ones.length === 0 ? undefined : ones[op.pick % ones.length]
 				const to = fact === undefined ? undefined : Arr.findFirst(j3(now), (f) => f.k !== fact.k)
@@ -590,8 +786,44 @@ const resolve = (
 				}
 				break
 			}
+			case "sync": {
+				const rows = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
+				for (const form of forms) {
+					const code = formCode[form]
+					for (const [at, id] of Nr.values()) {
+						if (at === code && !rows[form].includes(id)) {
+							unmark(code, id)
+						}
+					}
+					for (const id of rows[form]) {
+						if (!Nr.has(markKey(code, id))) {
+							mark(code, id)
+						}
+					}
+				}
+				break
+			}
+			case "mark": {
+				const found =
+					op.form === "unused"
+						? Option.map(picked(U, op.pick), ([id]) => id)
+						: Option.map(picked(R, op.pick), ([id]) => id)
+				if (Option.isSome(found)) {
+					mark(formCode[op.form], found.value)
+				}
+				break
+			}
+			case "unmark": {
+				const all = Arr.sort([...Nr.keys()], Order.String)
+				const at = all.length === 0 ? undefined : all[op.pick % all.length]
+				const row = at === undefined ? undefined : Nr.get(at)
+				if (row !== undefined) {
+					unmark(row[0], row[1])
+				}
+				break
+			}
 			case "unwind": {
-				const facts = j3({ R, S, U, T: Tr, W: Wr, V: Vr })
+				const facts = j3({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
 				const fact = facts.length === 0 ? undefined : facts[op.pick % facts.length]
 				if (fact === undefined) {
 					break
@@ -616,7 +848,7 @@ const resolve = (
 			}
 		}
 	}
-	return { statements, after: { R, S, U, T: Tr, W: Wr, V: Vr }, unwound, withdrawn }
+	return { statements, after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }, unwound, withdrawn }
 }
 
 /** The rows a table holds now, read back as integers. */
@@ -632,13 +864,17 @@ const readState = <E>(
 		const t = yield* values(`SELECT a, b FROM ${table("T")}`)
 		const w = yield* values(`SELECT id, k FROM ${table("W")}`)
 		const vs = yield* values(`SELECT id FROM ${table("V")}`)
+		const ns = yield* values(`SELECT form, id FROM ${table("N")}`)
 		return {
 			R: new Map(Arr.map(r, (x) => [n(x[0]), { k: n(x[1]), a: n(x[2]) }] as const)),
 			S: new Map(Arr.map(s, (x) => [n(x[0]), { k: n(x[1]), b: n(x[2]) }] as const)),
 			U: new Map(Arr.map(u, (x) => [n(x[0]), { a: n(x[1]), b: n(x[2]) }] as const)),
 			T: new Map(Arr.map(t, (x) => [pair(n(x[0]), n(x[1])), [n(x[0]), n(x[1])] as const] as const)),
 			W: new Map(Arr.map(w, (x) => [n(x[0]), { k: n(x[1]) }] as const)),
-			V: new Map(Arr.map(vs, (x) => [n(x[0]), n(x[0])] as const))
+			V: new Map(Arr.map(vs, (x) => [n(x[0]), n(x[0])] as const)),
+			N: new Map(
+				Arr.map(ns, (x) => [markKey(n(x[0]), n(x[1])), [n(x[0]), n(x[1])] as const] as const)
+			)
 		}
 	})
 
@@ -679,6 +915,10 @@ const changesOf = (value: ReturnType<typeof ruleQuery>, before: State, after: St
 			V,
 			Arr.map(added(before.V, after.V), ([id]) => ({ id }))
 		)
+		.insert(
+			N,
+			Arr.map(added(before.N, after.N), ([, [form, id]]) => ({ form, id }))
+		)
 		.delete(
 			R,
 			Arr.map(added(after.R, before.R), ([id, r]) => ({ id, k: r.k, a: r.a }))
@@ -703,6 +943,10 @@ const changesOf = (value: ReturnType<typeof ruleQuery>, before: State, after: St
 			V,
 			Arr.map(added(after.V, before.V), ([id]) => ({ id }))
 		)
+		.delete(
+			N,
+			Arr.map(added(after.N, before.N), ([, [form, id]]) => ({ form, id }))
+		)
 
 /** Whether two versions of a relation hold the same keys. */
 const sameKeys = <K, A>(before: ReadonlyMap<K, A>, after: ReadonlyMap<K, A>): boolean =>
@@ -715,7 +959,8 @@ const unchanged = (before: State, after: State): boolean =>
 	sameKeys(before.U, after.U) &&
 	sameKeys(before.T, after.T) &&
 	sameKeys(before.W, after.W) &&
-	sameKeys(before.V, after.V)
+	sameKeys(before.V, after.V) &&
+	sameKeys(before.N, after.N)
 
 /** A serialization failure's SQLSTATE. */
 const serializationFailure = "40001"
@@ -798,6 +1043,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"committed",
 										"committed a J3 fact",
 										"committed a lonely row",
+										...Arr.map(forms, (f) => `committed a row of ${f}` as const),
 										...Arr.map(rules, (r) => `refused by ${r}` as const),
 										"a fact unwound across tables while W needs it",
 										"a lonely row deleted and blocked at once while V needs it",
@@ -829,6 +1075,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 										if (lonely(state).length > 0) {
 											c.note("committed a lonely row")
+										}
+										const rows = negated(state)
+										for (const f of forms) {
+											if (rows[f].length > 0) {
+												c.note(`committed a row of ${f}`)
+											}
 										}
 									}
 									for (const tx of rc.history) {

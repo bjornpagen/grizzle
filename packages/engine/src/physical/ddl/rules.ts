@@ -50,7 +50,10 @@ import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
  *   UPDATE of a column it reads, whose probes (analysis/theory/query.ts newProbes) read the side's facts the row at
  *   NEW's primary key derives;
  * - on a table a containment's target reads, DELETE and an UPDATE of a column it reads, whose probes (analysis/theory/query.ts oldProbes) read
- *   the target tuples OLD's row may have withdrawn and the source tuples that needed them.
+ *   the target tuples OLD's row may have withdrawn and the source tuples that needed them;
+ * - on a table a side reads inside a negation, the other way round: INSERT where a containment's target negates it,
+ *   whose probes read the target tuples NEW's row now blocks, and DELETE where the breaking side does, whose probes read
+ *   the side's facts OLD's row no longer blocks.
  *
  * Each probe is a query description grizzle's own compiler checks and lowers, through the optimized lowering under the
  * transaction's evidence, since another deferred constraint may still be pending when it runs; each of its
