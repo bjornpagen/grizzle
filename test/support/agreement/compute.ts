@@ -1940,7 +1940,8 @@ const tunedBound = (v: TunedValue, n: bigint): Lit =>
 
 /**
  * The programs that a closed read standing without bounds refused, a product within a range cast into an integer and
- * a sum cast into a bigint: every run holds them.
+ * a sum cast into a bigint, and one the types refused while the row's Divisor declares the nonzero its quotient needs, a
+ * quotient by it within a range cast into a smallint: every run holds them.
  */
 const closedKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "closed" }>> = [
 	{
@@ -1964,6 +1965,17 @@ const closedKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "closed" }>> 
 		},
 		to: "big",
 		guard: { kind: "none" }
+	},
+	{
+		kind: "closed",
+		value: {
+			kind: "binary",
+			fn: "div",
+			a: { read: "closed", field: "divisor" },
+			b: { read: "field", field: "divisor" }
+		},
+		to: "small",
+		guard: { kind: "within", low: -1000n, high: 1000n }
 	}
 ]
 

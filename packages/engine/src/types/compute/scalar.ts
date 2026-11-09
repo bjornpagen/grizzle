@@ -7,6 +7,7 @@ import type { Vector } from "#compiler/scalar/values/vector.ts"
 import type {
 	BaseOf,
 	ComputedOrigin,
+	DeclaredOf,
 	Facts,
 	FactsOf,
 	HasOrigin,
@@ -255,7 +256,8 @@ export interface Guard<out G, in P = unknown, out O = unknown> extends Predicate
  * test/pg/compute verifies against PostgreSQL 19's catalog.
  *
  * A scalar with comparison methods: a contract predicate's value, a row check's fields. A comparison's origin is what
- * its operands read.
+ * its operands read. Its facts are the ones its type declares (DeclaredOf): a value of a contract has them wherever it is
+ * read, a stored field's as a heading column's (ColumnFacts), as compilation reads a value's facts off its type.
  */
 export interface Scalar<
 	in out T,
@@ -263,7 +265,7 @@ export interface Scalar<
 	out O = unknown,
 	out Sql extends SqlTag = SqlTag,
 	in out L = T
-> extends Term<T, P, O, Sql, L, Facts, L> {
+> extends Term<T, P, O, Sql, L, DeclaredOf<T>, L> {
 	eq<const B extends Operand<T, Sql, L>>(
 		other: B
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>

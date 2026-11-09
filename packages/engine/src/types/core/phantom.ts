@@ -399,7 +399,7 @@ type DeclaredKeys<D> = D extends { readonly [declares]: infer M } ? keyof M & ke
 /** One Declares per fact, intersected, as a contract's domain holds them. */
 export type DeclaresAll<K extends keyof Facts> = UnionToIntersection<{ [F in K]: Declares<F> }[K]>
 /** The facts a domain's contracts declare, as facts: none, Facts, where none declares any. */
-type DeclaredOf<D> = [DeclaredKeys<D>] extends [never]
+export type DeclaredOf<D> = [DeclaredKeys<D>] extends [never]
 	? Facts
 	: { readonly [F in DeclaredKeys<D>]: true }
 
