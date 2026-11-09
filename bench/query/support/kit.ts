@@ -46,24 +46,22 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
-import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
-	compileTestWorkload,
 	schemaInputOf,
 	type TestNaming,
 	testArtifacts,
 	installedCodes,
-	testCompile
+	testCompile,
+	workloadOver
 } from "#test/support/compile.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
@@ -126,7 +124,6 @@ export interface Fixture<S> {
 	 * every raw and runtime session takes on unless a gate names another it installed.
 	 */
 	readonly world: FullWorld
-	readonly workload: WorkloadPlan
 	/** The names the fixture's schema is installed under, which every artifacts of it are computed under. */
 	readonly naming: TestNaming
 	/** The qualified, quoted table of a relation, and the quoted column of one of its fields. */
@@ -147,25 +144,11 @@ export interface Fixture<S> {
 	readonly tables: ReadonlyArray<string>
 }
 
-const workloadPlan = (
-	schema: unknown,
-	programs: Readonly<Record<string, unknown>>
-): WorkloadPlan => {
-	const planned = compileTestWorkload(
-		[{ login: "server", workloads: [workload(schema, programs)] }],
-		schema,
-		testCompile
-	)
-	if (!planned.ok) {
-		throw new GateSetupError({ what: `the workload does not compile: ${planned.error.message}` })
-	}
-	return planned.value
-}
-
 /**
- * Installs `schema` complete, with the access paths its workload programs request, under a fresh schema name of the
- * gate's database (R13: every index beyond a key's own has a recorded justification), with its full world and the
- * further `logins` a gate's own roles are in.
+ * Installs `schema` complete, with the access paths its workload programs request, compiled against the schema the
+ * installation installs (test/support/compile.ts workloadOver), under a fresh schema name of the gate's database (R13:
+ * every index beyond a key's own has a recorded justification), with its full world and the further `logins` a gate's
+ * own roles are in.
  */
 export const installFixture = Effect.fn("installFixture")(function* <
 	S extends Parameters<typeof fullWorld>[0]
@@ -179,12 +162,11 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > {
-	const plan = workloadPlan(schema, programs)
 	const world: FullWorld = fullWorld<Parameters<typeof fullWorld>[0]>(schema)
 	const installed = yield* install(schema, {
 		ambient: ordinarySession,
 		label,
-		extensions: [workloadExtension(plan)],
+		extensions: [workloadOver([{ login: "server", workloads: [workload(schema, programs)] }])],
 		logins: [world.server, ...logins]
 	})
 	const names = installed.names
@@ -204,7 +186,6 @@ export const installFixture = Effect.fn("installFixture")(function* <
 		schema,
 		installed,
 		world,
-		workload: plan,
 		naming: {
 			...testCompile,
 			installation: identity.schema(parsedSchemaName(installed.declared)),
