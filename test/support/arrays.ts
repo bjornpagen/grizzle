@@ -1,4 +1,4 @@
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr, pipe, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -196,3 +196,43 @@ export const readArrayBinary = (bytes: Uint8Array): BinaryArray => {
  */
 export const paramArrayElements = (param: Param): ReadonlyArray<string | Uint8Array | null> =>
 	typeof param === "string" ? readArrayLiteral(param) : readArrayBinary(param).elements
+
+/** The element type OIDs of the binary arrays a statement binds (codec/bytea.ts): text's and bytea's, pg_type.dat's. */
+const textOid = 25
+const byteaOid = 17
+
+/** An element of a binary array as array_in reads it inside a quoted element: a text's characters, a bytea's hex form. */
+const elementText = (elementType: number, element: Uint8Array): string => {
+	if (elementType === textOid) {
+		return new TextDecoder("utf-8", { fatal: true }).decode(element)
+	}
+	if (elementType === byteaOid) {
+		return `\\x${Arr.join(
+			Arr.map(Arr.fromIterable(element), (b) => Str.padStart(2, "0")(b.toString(16))),
+			""
+		)}`
+	}
+	throw new Error(`a binary array of element type ${elementType}, which no statement binds`)
+}
+
+/**
+ * A placeholder's value as the text a prepared statement's EXECUTE names it by: a text parameter's own text, or a
+ * binary array's elements (readArrayBinary) written as the array literal array_in reads back to the same array, each
+ * element double-quoted with its backslashes and double quotes escaped, a NULL element unquoted.
+ */
+export const paramTextForm = (param: string | Uint8Array): string => {
+	if (typeof param === "string") {
+		return param
+	}
+	const array = readArrayBinary(param)
+	const quoted = Arr.map(array.elements, (element) =>
+		element === null
+			? "NULL"
+			: `"${pipe(
+					elementText(array.elementType, element),
+					Str.replaceAll("\\", "\\\\"),
+					Str.replaceAll('"', '\\"')
+				)}"`
+	)
+	return `{${Arr.join(quoted, ",")}}`
+}

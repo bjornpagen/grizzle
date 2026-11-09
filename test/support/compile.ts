@@ -11,6 +11,7 @@ import { type Identity, identifierOf, identity, parseSchemaName } from "#compile
 import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -440,16 +441,17 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
 	typeof value[Symbol.iterator] === "function"
 
 /**
- * The placeholder texts of a query statement's spec, from the caller's parameter values by declared name, each
- * encoded by the spec's own encoder; every placeholder of a query statement is a declared parameter. A relation
- * parameter's input is normalized once, under its declared heading (codec/recordset.ts parameterNormalizer), as an
- * execution normalizes it, and each of its placeholders writes its own array of that one set.
+ * The placeholders of a query statement's spec, each as its statement binds it, a text or a binary parameter
+ * (core/wire.ts Param), from the caller's parameter values by declared name, each encoded by the spec's own encoder;
+ * every placeholder of a query statement is a declared parameter. A relation parameter's input is normalized once,
+ * under its declared heading (codec/recordset.ts parameterNormalizer), as an execution normalizes it, and each of its
+ * placeholders writes its own array of that one set: a text or bytes column's as a binary array.
  */
-export const paramTexts = (
+export const paramValues = (
 	spec: Pick<StatementSpec, "paramSlots">,
 	params: Readonly<Record<string, unknown>>,
 	declared: Declared
-): ReadonlyArray<string> => {
+): ReadonlyArray<string | Param> => {
 	const normalized = new Map<ParamId, NormalizedRelation>()
 	/** The relation parameter `param`'s input, normalized the first time a placeholder asks for it. */
 	const relationInput = (param: ParamId): NormalizedRelation => {
@@ -479,7 +481,7 @@ export const paramTexts = (
 		normalized.set(param, normal.value)
 		return normal.value
 	}
-	return Arr.map(spec.paramSlots, (slot): string => {
+	return Arr.map(spec.paramSlots, (slot): string | Param => {
 		switch (slot.kind) {
 			case "scalar": {
 				const encoded = slot.encode(params[slot.param])
@@ -495,7 +497,7 @@ export const paramTexts = (
 						`encode ${slot.param}: column ${encoded.error.column} past ${encoded.error.limit}`
 					)
 				}
-				return textOfParam(encoded.value)
+				return encoded.value
 			}
 			case "member":
 			case "nestedRows":
@@ -506,6 +508,19 @@ export const paramTexts = (
 		}
 	})
 }
+
+/**
+ * The placeholder texts of a query statement's spec (paramValues), for a test that sends every placeholder as text: a
+ * binary one has no text, and reading one is the test's own error (textOfParam).
+ */
+export const paramTexts = (
+	spec: Pick<StatementSpec, "paramSlots">,
+	params: Readonly<Record<string, unknown>>,
+	declared: Declared
+): ReadonlyArray<string> =>
+	Arr.map(paramValues(spec, params, declared), (param) =>
+		typeof param === "string" ? param : textOfParam(param)
+	)
 
 /** An installation's script as the driver sends it: each statement's text, in install order. */
 export const installationSql = (installation: Installation): ReadonlyArray<string> =>

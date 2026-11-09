@@ -26,6 +26,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import type * as Result from "#compiler/core/result.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
@@ -49,6 +50,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
+import { paramTextForm } from "#test/support/arrays.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compileTemplate,
@@ -56,6 +58,7 @@ import {
 	installationSql,
 	installedCodes,
 	paramTexts,
+	paramValues,
 	realityWrite,
 	testArtifacts,
 	testCompile
@@ -302,7 +305,12 @@ let prepared = 0
  * it runs it. A statement with no bound value is never given a custom plan, so the check also refuses a case that
  * could not exercise one. The execution's own outcome is returned.
  */
-const runPlanned = (session: RawSession, sql: string, values: ReadonlyArray<string>, plan: Plan) =>
+const runPlanned = (
+	session: RawSession,
+	sql: string,
+	values: ReadonlyArray<string | Param>,
+	plan: Plan
+) =>
 	Effect.gen(function* () {
 		const name = `m14a_${++prepared}`
 		yield* session.query(`SET plan_cache_mode = force_${plan}_plan`, [])
@@ -311,7 +319,10 @@ const runPlanned = (session: RawSession, sql: string, values: ReadonlyArray<stri
 			session.values(
 				values.length === 0
 					? `EXECUTE ${name}`
-					: `EXECUTE ${name}(${Arr.join(Arr.map(values, literal), ", ")})`,
+					: `EXECUTE ${name}(${Arr.join(
+							Arr.map(values, (value) => literal(paramTextForm(value))),
+							", "
+						)})`,
 				[]
 			)
 		)
@@ -339,8 +350,11 @@ type Run = Plan | "unprepared"
 
 const runs: Arr.NonEmptyReadonlyArray<Run> = ["generic", "custom", "unprepared"]
 
-/** The rows a statement returns run as a case says: under a forced plan through `runPlanned`, or unprepared. */
-const runAs = (session: RawSession, sql: string, values: ReadonlyArray<string>, run: Run) =>
+/**
+ * The rows a statement returns run as a case says: under a forced plan through `runPlanned`, which names each
+ * placeholder by its text in EXECUTE (paramTextForm), or unprepared, each placeholder sent as its statement binds it.
+ */
+const runAs = (session: RawSession, sql: string, values: ReadonlyArray<string | Param>, run: Run) =>
 	run === "unprepared" ? session.values(sql, values) : runPlanned(session, sql, values, run)
 
 /** The two artifacts of a compiled template. */
@@ -394,7 +408,7 @@ const boundAgrees = (
 		const matched = yield* runAs(
 			session,
 			spec.sql,
-			paramTexts(spec, params, declared(template)),
+			paramValues(spec, params, declared(template)),
 			run
 		)
 		assert.equal(matched.length, bound.count, what)
