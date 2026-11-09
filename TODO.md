@@ -32,6 +32,19 @@ post-beta swarm's fixes for the next release.
     statement's refill with 23514 on R2's sum-fold CHECK (`__r_2_check_r_1_n_1_sum_fold`): the refilled row's family
     columns are index 1, ‹n› 0, before 1, after 0, where the reference has 0, 1, 0, 5. The cause is in
     write/family/removals.ts cascaded or its merge into the redraw, still to find; the fix is held by ONERTT-WRITE2.
+  - test/pg/physical/serving.test.ts, "every request a generated workload plans is served, and every index it creates
+    is needed", TEST_SEED=252072110, the rotating stream (seed 0xa1036de9), case 6: a B-tree range request is planned on
+    a GiST index that reads three times its result. The shape: a relation with a GiST index on (a closed handle, a
+    numeric of many values, a handle, a span), created for a span probe, and a workload range on (the handle by
+    equality, the numeric by a range). The engine plans the range on that GiST index (physical/indexes/engine.ts
+    rangePlacements, whose btreeMethods admits GiST for scalar keys), and PostgreSQL's probe, `jsonb_pretty = '1' AND
+    fixed_0 BETWEEN '0.00' AND '0.70'`, reads 92 buffers of the GiST index's 184 for 3,334 of its 20,000 entries,
+    over the 38 the result's share bounds: GiST places entries by its first column of many values (gistchoose,
+    gistSplitByKey), here the range's own column, so the few-valued equality prefix narrows nothing and the scan reads
+    the range across every handle. The engine's own GiST rule states this for GiST requests; its range rule does not.
+    The fix: a GiST index serves an equality-prefix range only when the prefix is empty or holds a column of many
+    values, so a B-tree is created for a prefix of few-valued columns alone. Neither qti-pie's install nor edullm's
+    holds a GiST index, and edullm's one range (Section(start)) has no prefix. The fix is held by GENERATE.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
