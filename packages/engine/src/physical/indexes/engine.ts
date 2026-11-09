@@ -830,15 +830,44 @@ export const planIndexes = (
 				]
 			})
 			.toSorted(canonical)
-		for (const [at, entry] of plan.entries()) {
-			const [host] = candidates.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
-			if (host !== undefined) {
-				host.requests.push(entry.request)
-				b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
-				continue
+		/** The candidates and the plan's requests of each relation, in their order: an index serves only its own
+		 * relation's requests (serves), so each request reads its relation's alone, and the plan, ordered by relation
+		 * first (canonical), is walked relation by relation in its own order. */
+		const candidatesOf = new Map<string, Array<Candidate>>()
+		const hold = (c: Candidate): void => {
+			const held = candidatesOf.get(c.index.relation)
+			if (held === undefined) {
+				candidatesOf.set(c.index.relation, [c])
+			} else {
+				held.push(c)
 			}
-			const index = createIndex(b, entry, draftFor(entry, ahead(entry, plan, at, candidates)))
-			candidates.push({ index, requests: [entry.request] })
+		}
+		for (const c of candidates) {
+			hold(c)
+		}
+		const planOf = new Map<string, Array<Planned>>()
+		for (const entry of plan) {
+			const held = planOf.get(entry.request.relation)
+			if (held === undefined) {
+				planOf.set(entry.request.relation, [entry])
+			} else {
+				held.push(entry)
+			}
+		}
+		for (const relationPlan of planOf.values()) {
+			for (const entry of relationPlan) {
+				const own = candidatesOf.get(entry.request.relation) ?? []
+				const [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
+				if (host !== undefined) {
+					host.requests.push(entry.request)
+					b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
+					continue
+				}
+				const index = createIndex(b, entry, draftFor(entry, ahead(entry, relationPlan, own)))
+				const created = { index, requests: [entry.request] }
+				candidates.push(created)
+				hold(created)
+			}
 		}
 		return candidates.map((c) => ({ ...c.index, requests: c.requests }))
 	})
@@ -874,19 +903,13 @@ const hostOrder = (entry: Planned): Comparator<Candidate> =>
  * serves; those of its own access method first. */
 const ahead = (
 	entry: Planned,
-	plan: ReadonlyArray<Planned>,
-	at: number,
+	relationPlan: ReadonlyArray<Planned>,
 	candidates: ReadonlyArray<Candidate>
 ): ReadonlyArray<Ahead> => {
-	const later = plan
-		.slice(at + 1)
-		.filter(
-			(q) =>
-				q.request.relation === entry.request.relation && !candidates.some((c) => serves(c.index, q))
-		)
-	const served = plan.filter(
-		(q) => q !== entry && q.request.relation === entry.request.relation && !later.includes(q)
-	)
+	const later = relationPlan
+		.slice(relationPlan.indexOf(entry) + 1)
+		.filter((q) => !candidates.some((c) => serves(c.index, q)))
+	const served = relationPlan.filter((q) => q !== entry && !later.includes(q))
 	return [
 		...later.map((planned): Ahead => ({ kind: "unserved", planned })),
 		...served.map((planned): Ahead => ({ kind: "served", planned }))
