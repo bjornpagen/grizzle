@@ -27,8 +27,9 @@
  * - what a served file's refusals keep (program/schema.ts raisableOf over the whole schema's artifacts, of every relation
  *   the compiled ChangeSets write and the relations those writes change, schema/reach.ts writesOf, which are the draw's
  *   writes): every constraint, rule trigger and law it keeps the slice's model holds, and every one the slice's model
- *   holds that it drops is on no written relation, no foreign key into one, types no written column, or reads no
- *   written relation, so a write of the login raises nothing the file lacks.
+ *   holds that it drops is on no written relation, no foreign key into one, is a domain's whose columns in the whole
+ *   schema are none of a written relation's, or reads no written relation, so a write of the login raises nothing the
+ *   file lacks.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
@@ -1334,6 +1335,9 @@ describe("a compile's law model", () => {
 								readonly name: string
 							}) => `${e.kind} ${e.owner} ${e.name}`
 							const held = new Set(Arr.map(sliced.constraintLaws, constraintOf))
+							const wholeLaws = new Map(
+								Arr.map(wholeArtifacts.constraintLaws, (c) => [constraintOf(c), c] as const)
+							)
 							for (const e of narrowed.constraintLaws) {
 								assert.ok(
 									held.has(constraintOf(e)),
@@ -1353,12 +1357,19 @@ describe("a compile's law model", () => {
 											`${constraintOf(e)}, which the served refusals drop, is on no relation a write changes and no foreign key into one`
 										)
 										break
-									case "domainConstraint":
+									case "domainConstraint": {
+										const whole = defined(
+											wholeLaws.get(constraintOf(e)),
+											`${constraintOf(e)}, which the slice's model holds, is the whole schema's`
+										)
 										assert.ok(
-											e.uses.length > 0 && !Arr.some(e.uses, (u) => written(u.table)),
-											`${constraintOf(e)}, which the served refusals drop, types no column a write writes`
+											whole.kind === "domainConstraint" &&
+												whole.uses.length > 0 &&
+												!Arr.some(whole.uses, (u) => written(u.table)),
+											`${constraintOf(e)}, which the served refusals drop, types columns of the whole schema, none a write writes`
 										)
 										break
+									}
 								}
 							}
 							const slicedLaws = new Set(Arr.map(sliced.theoryLaws, (l) => l.law))
