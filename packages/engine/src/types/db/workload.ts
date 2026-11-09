@@ -128,8 +128,14 @@ export interface Workload<S, Programs> {
 /** Any workload: the members every one has. */
 export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, unknown>>>
 
+/**
+ * What paged takes: an ordered query, one orderBy(...) made; any other value is refused with the Refusal a page's read
+ * of it gives, so the diagnostic names it. A bounded union of several headings is refused already by its take.
+ */
+type PagedArgument<O> = O extends OrderedBase ? unknown : Refusal<"page needs an ordered query">
+
 /** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
-export type PagedConstructor = <const O extends OrderedBase>(ordered: O) => Paged<O>
+export type PagedConstructor = <const O>(ordered: O & PagedArgument<O>) => Paged<O>
 
 /**
  * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list

@@ -102,10 +102,20 @@ const sameJson = (a: unknown, b: unknown): boolean => {
 	return a === b
 }
 
-/** The items of a list member of a JSON record; none when it holds no list. */
+/** A revived list's JSON form, `{"~a": [item, ...], "~": [index, ...]}` (served/json.ts): the key its items are under. */
+const listKey = "~a"
+
+/**
+ * The items of a list member of a JSON record, a list holding a revived value read through its JSON form as a load
+ * reads it (served/json.ts); none when it holds no list.
+ */
 const itemsOf = (record: unknown, member: string): ReadonlyArray<unknown> => {
 	const items = isObject(record) ? record[member] : undefined
-	return isList(items) ? items : []
+	if (isList(items)) {
+		return items
+	}
+	const revived = isObject(items) ? items[listKey] : undefined
+	return isList(revived) ? revived : []
 }
 
 /** A JSON record with its member `skip` left out. */

@@ -146,12 +146,28 @@ const nameOf = (record: unknown, what: string): string => {
  * Every program of a served file's JSON form that states SQL under a member named `sql`, in the file's order: its roles',
  * each role's programs in order.
  */
+/**
+ * A list member of a served file's JSON record, with the path to its items: a list holding a revived value is written
+ * `{"~a": [item, ...], "~": [index, ...]}` (served/json.ts), its items under `~a`.
+ */
+const listOf = (
+	record: unknown,
+	key: string
+): { readonly items: ReadonlyArray<unknown>; readonly at: ReadonlyArray<string> } => {
+	const value = isRecord(record) ? record[key] : undefined
+	if (isList(value)) {
+		return { items: value, at: [key] }
+	}
+	const revived = isRecord(value) ? value["~a"] : undefined
+	return isList(revived) ? { items: revived, at: [key, "~a"] } : { items: [], at: [key] }
+}
+
 const programsOf = (file: Json): ReadonlyArray<Program> => {
-	const roles = isRecord(file) ? file["roles"] : undefined
-	return Arr.flatMap(isList(roles) ? roles : [], (role, i) => {
-		const members = isRecord(role) ? role["members"] : undefined
-		return Arr.flatMap(isList(members) ? members : [], (member, j): ReadonlyArray<Program> => {
-			const sql = firstSql(member, ["roles", i, "members", j])
+	const roles = listOf(file, "roles")
+	return Arr.flatMap(roles.items, (role, i) => {
+		const members = listOf(role, "members")
+		return Arr.flatMap(members.items, (member, j): ReadonlyArray<Program> => {
+			const sql = firstSql(member, [...roles.at, i, ...members.at, j])
 			return sql === undefined
 				? []
 				: [

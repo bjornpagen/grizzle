@@ -19,7 +19,6 @@ import {
 } from "effect"
 import { check } from "#cli/check.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -27,6 +26,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { refresh, workload } from "#compiler/public/workload.ts"
 import { servedPath } from "#compiler/served/forms.ts"
+import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import {
 	cliOver,
@@ -76,7 +76,7 @@ const schemaDir = `migrations/${ident}`
 const loginName = "nightly_job"
 const roleName = "analyst"
 const memberName = "nightly"
-const servedFile = `${schemaDir}/${servedPath(loginName)}`
+const servedAt = `${schemaDir}/${servedPath(loginName)}`
 
 const Call = relation("Call", { id: uuid, workspace: uuid, cost: pg.bigint }, ["id"])
 const base = schema(schemaName, { Call }, [])
@@ -107,9 +107,6 @@ const Usage = derived.materialized(
 	})
 )
 const top = schema.extend(totals, `${schemaName}_2`, { Usage }, [])
-const analyst = role(top, roleName, wholeEntriesOf(top), {
-	refresh: ["Spend", "Calls", "Usage"]
-})
 
 /** A materialized relation of the schema, with its declared name. */
 interface Materialized {
@@ -127,9 +124,13 @@ const materialized: ReadonlyArray<Materialized> = [
 const relationAt = (position: number): Materialized =>
 	defined(materialized[position], `materialized relation ${position}`)
 
-/** The configuration whose login serves `nightly: refresh(relations)` of the relations at `positions`, in that order. */
-const configOf = (positions: Arr.NonEmptyReadonlyArray<number>) =>
-	defineConfig({
+/**
+ * The configuration whose login serves `nightly: refresh(relations)` of the relations at `positions`, in that order,
+ * to a role of its own: a role is in exactly one login, and each configuration builds its login anew.
+ */
+const configOf = (positions: Arr.NonEmptyReadonlyArray<number>) => {
+	const analyst = role(top, roleName, wholeEntriesOf(top), { refresh: ["Spend", "Calls", "Usage"] })
+	return defineConfig({
 		schemas: [top],
 		logins: [
 			login(top, loginName, [analyst], {
@@ -143,6 +144,7 @@ const configOf = (positions: Arr.NonEmptyReadonlyArray<number>) =>
 		migrations: "migrations",
 		connection: () => offlineOwner
 	})
+}
 
 /** The set of relations a call names, one bit per position. */
 const setOf = (positions: ReadonlyArray<number>): number =>
@@ -166,24 +168,22 @@ const at = (second: number) =>
 		millisecond: 0
 	})
 
-/** The record under `name` of a served file's list member `list` of `record`, if it holds one. */
-const named = (record: unknown, list: string, name: string): unknown => {
-	const items = isRecord(record) ? record[list] : undefined
-	return Option.getOrUndefined(
-		Arr.findFirst(isList(items) ? items : [], (item) => isRecord(item) && item["name"] === name)
+/**
+ * The relations a served file's refresh member refreshes, in the file's order, each as the file names it: the file read
+ * as a layer reads it (served/json.ts servedFile), its role's member under the member's name.
+ */
+const refreshedIn = (text: string): ReadonlyArray<string> => {
+	const file = servedFile(trustedJson<unknown>(text))
+	const own = defined(
+		Option.getOrUndefined(Arr.findFirst(file.roles, (r) => r.name === roleName)),
+		`the served file's role ${roleName}`
 	)
-}
-
-/** The relations a served file's refresh member refreshes, in the file's order, each as the file names it. */
-const refreshedIn = (text: string): ReadonlyArray<unknown> => {
-	const member = named(named(trustedJson<unknown>(text), "roles", roleName), "members", memberName)
-	assert.equal(
-		isRecord(member) ? member["kind"] : undefined,
-		"refresh",
-		`${memberName} is a refresh member`
+	const member = defined(
+		Option.getOrUndefined(Arr.findFirst(own.members, (m) => m.name === memberName)),
+		`the served member ${memberName}`
 	)
-	const targets = isRecord(member) ? member["targets"] : undefined
-	return Arr.map(isList(targets) ? targets : [], (t) => (isRecord(t) ? t["relation"] : undefined))
+	assert.equal(member.kind, "refresh", `${memberName} is a refresh member`)
+	return member.kind === "refresh" ? Arr.map(member.targets, (t) => t.relation) : []
 }
 
 const callGen: Gen<Arr.NonEmptyReadonlyArray<number>> = (source) =>
@@ -242,7 +242,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("served refresh members
 							at(0)
 						)
 						assert.equal(drafted.code, 0, drafted.stderr)
-						const text = yield* fs.readFileString(`${ws}/${servedFile}`)
+						const text = yield* fs.readFileString(`${ws}/${servedAt}`)
 						assert.deepEqual(
 							refreshedIn(text),
 							Arr.map(positions, (p) => relationAt(p).name),
@@ -292,7 +292,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("served refresh members
 										at(1)
 									)
 									assert.equal(drafted.code, 0, drafted.stderr)
-									const file = `${ws}/${servedFile}`
+									const file = `${ws}/${servedAt}`
 									const draft = yield* fs.readFileString(file)
 									assert.equal(
 										draft,
@@ -315,7 +315,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("served refresh members
 									const findings = defined(result, "the schema's check").findings
 									assert.deepEqual(
 										Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
-										same ? [] : [{ kind: "servedStale", where: servedFile }],
+										same ? [] : [{ kind: "servedStale", where: servedAt }],
 										Formatter.format(calls)
 									)
 									for (const found of findings) {

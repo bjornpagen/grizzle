@@ -331,17 +331,17 @@ type IsHeadLiteral<A> =
  * inferred with (Compute.when's branch), where no type parameter holds the value itself.
  */
 export type FirstTerm<A> = A extends FirstValue
-	? LiteralFirst
+	? Refusal<"a term first: a literal takes its place opposite a term, never first">
 	: OwnTerm<A> & NotStoredOnly<SqlOfTerm<A>>
 
 /**
  * The first operand an operation reads whole, Compute.sha256's: a term as FirstTerm reads one, of any SQL type, bytes
- * among them.
+ * among them. A JavaScript value or a head literal there is refused as FirstTerm refuses it, the Refusal written in
+ * place, never under an alias, so a diagnostic prints its text.
  */
-export type WholeTerm<A> = A extends FirstValue ? LiteralFirst : OwnTerm<A>
-
-/** The refusal of a JavaScript value or a head literal where a first operand belongs. */
-type LiteralFirst = Refusal<"a term first: a literal takes its place opposite a term, never first">
+export type WholeTerm<A> = A extends FirstValue
+	? Refusal<"a term first: a literal takes its place opposite a term, never first">
+	: OwnTerm<A>
 
 /** A term's own requirement as a first operand: it is no head literal, a JavaScript value in a head. */
 type OwnTerm<A> = Requires<

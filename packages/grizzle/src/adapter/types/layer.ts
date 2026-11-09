@@ -201,10 +201,14 @@ export type DbConfigShape<L> = DbConnection & {
  * empty CA bundle, no servername, a connect timeout or a pool bound outside its range) fails the layer with
  * OpenError{stage: "config"}, as does a served file of another login than the name served(...) was given.
  * Building the layer reads the served file once and rebuilds what runs each of its programs (codecs, readers,
- * decoders, the refusal classifier and the prologue); it compiles nothing and evaluates no schema.
+ * decoders, the refusal classifier and the prologue); it compiles nothing and evaluates no schema. L is read off the
+ * served login alone, and the rest of the config is checked against it (NoInfer), so a setting left out or mistyped is
+ * named where it is, never as a login of another type.
  */
 export interface DbLayerConstructor {
-	make<const L extends AnyLogin>(config: DbConfigShape<L>): Layer.Layer<DbLayerOf<L>, OpenError>
+	make<const L extends AnyLogin>(
+		config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
+	): Layer.Layer<DbLayerOf<L>, OpenError>
 }
 
 /** served(file, name), building a ServedLogin of L from its committed file and L's name. */

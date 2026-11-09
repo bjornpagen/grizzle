@@ -128,15 +128,20 @@ const levelValues: { readonly [L in keyof typeof levelPrograms]: object } = {
 	Reports: accountTasks
 }
 
-/** The directive of an opener that is no served login's role: the diagnostic it raises at Db.open's argument. */
+/**
+ * The directive of an opener that is no served login's role: the diagnostic it raises at Db.open's argument, which is
+ * typed ServedRole, a plain interface, so the checker names the ServedRole members the argument lacks: a role reached
+ * through its login lacks one, `base` (TS2741), and a role value or a schema lack several (TS2739).
+ */
 const openerDirective = (opener: Opener): string => {
 	switch (opener) {
 		case "served role":
 			throw new Error("Db.open's boundary refuses a served login's role")
 		case "login role":
+			return "// @ts-expect-error -- TS2741: Db.open takes a role of a served login, and a login's role lacks its base"
 		case "role value":
 		case "schema":
-			return "// @ts-expect-error -- TS2345: Db.open takes a role of a served login"
+			return "// @ts-expect-error -- TS2739: Db.open takes a role of a served login"
 	}
 }
 

@@ -4542,7 +4542,7 @@ const pageLines = (
 		`	)`,
 		...(page.unordered
 			? [
-					"// @ts-expect-error -- TS2345: paged(...) pages an ordered query, one orderBy(...) made",
+					"// @ts-expect-error -- TS2345 refusal: page needs an ordered query",
 					`export const v${i} = paged(q${i})`
 				]
 			: [])

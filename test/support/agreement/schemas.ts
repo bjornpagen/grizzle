@@ -4933,9 +4933,11 @@ type FieldCall =
 	| { readonly kind: "lookAlike" }
 	| { readonly kind: "crossSet"; readonly roster: RosterSpec }
 
-/** A plain object with a uuid descriptor's sql and column, which no builder made. */
-const lookAlikeSource =
-	'{ sql: "uuid", column: { kind: "convert", convert: (text: string) => text } } as const'
+/**
+ * A plain object holding a uuid descriptor's own sql and column, which no builder made: every member a built descriptor
+ * has but its brand, so the checker names the brand it lacks (TS2741) and the engine refuses the value it never built.
+ */
+const lookAlikeSource = "{ sql: Fi.uuid.sql, column: Fi.uuid.column }"
 
 const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 	switch (call.kind) {
@@ -5017,7 +5019,7 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 		case "lookAlike": {
 			const made: unknown = Reflect.apply(relation, undefined, [
 				"LookAlike",
-				{ id: { sql: "uuid", column: { kind: "convert", convert: (text: string) => text } } },
+				{ id: { sql: uuidDescriptor.sql, column: uuidDescriptor.column } },
 				["id"],
 				[]
 			])

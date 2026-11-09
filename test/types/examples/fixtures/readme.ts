@@ -5,7 +5,6 @@ import {
 	alternatives,
 	arm,
 	ChangeSet,
-	CredentialError,
 	check,
 	closed,
 	closedId,
@@ -14,7 +13,6 @@ import {
 	contract,
 	counted,
 	Db,
-	DbLayer,
 	type Decimal,
 	defineConfig,
 	derived,
@@ -46,7 +44,6 @@ import {
 	select,
 	span,
 	str,
-	TokenError,
 	uuid,
 	type Uuid,
 	v,
@@ -54,7 +51,13 @@ import {
 	workload,
 	writableNamesOf
 } from "@bjornpagen/grizzle"
-import { roleNameOf, served } from "@bjornpagen/grizzle/runtime"
+import {
+	CredentialError,
+	DbLayer,
+	roleNameOf,
+	served,
+	TokenError
+} from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
@@ -1065,7 +1068,7 @@ export const anonFeedOnly = web.runPromise(
 export const bareRole = Db.open(MemberBlog, { token: "a verified token" })
 
 /** "a role of the login itself (Web.roles.member) is a type error, since the app holds the login as a type alone". */
-// @ts-expect-error -- TS2739: Db.open takes a role of a served login, WebServed.roles.member
+// @ts-expect-error -- TS2741: Db.open takes a role of a served login, WebServed.roles.member
 export const loginsOwnRole = Db.open(Web.roles.member, { token: "a verified token" })
 
 /** "Two programs of one name across a login's workloads are a type error". */

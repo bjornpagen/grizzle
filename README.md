@@ -2558,7 +2558,8 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 
 ```ts
 import net from "node:net"
-import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import { defineConfig } from "@bjornpagen/grizzle"
+import { CredentialError } from "@bjornpagen/grizzle/runtime"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
