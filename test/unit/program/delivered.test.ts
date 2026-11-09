@@ -17,12 +17,7 @@ import {
 import { rowOptions } from "#adapter/engine.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { readProgram } from "#adapter/reader/run.ts"
-import {
-	type AttachmentLayout,
-	type BindContext,
-	bindGroups,
-	type Layout
-} from "#compiler/core/decoder.ts"
+import type { AttachmentLayout, BindContext, Layout } from "#compiler/core/decoder.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -35,6 +30,7 @@ import type { SpecifiedStatement } from "#compiler/lower/template.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { bindGroups } from "#compiler/schema/record.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import {
@@ -104,7 +100,7 @@ import { outputText } from "#test/support/wire.ts"
  * is one the program delivers, in the delivery it states, so a read never decodes a value the program does not hold.
  *
  * Over generated public programs (test/support/oracle/public), each compiled as the runtime compiles it and its
- * decoder bound to the layouts of either artifact's program (adapter/reader/run.ts readProgram, core/decoder.ts
+ * decoder bound to the layouts of either artifact's program (adapter/reader/run.ts readProgram, schema/record.ts
  * bindGroups), as a compiled handle (db.compile) binds it before any SQL:
  *
  * - A stated delivery the facts break is refused at bind. Every attachment is restated in turn as an array, an Option,

@@ -148,11 +148,7 @@ const meet = (x: CarrierKind, y: CarrierKind): boolean => {
 /** A head literal's carrier: the constant column a union's literal arm delivers. */
 const literalCarrier = (text: string): Carrier =>
 	Object.freeze({
-		column: constantColumn(
-			text,
-			(cell: string) => cell,
-			(literal: unknown, host: unknown) => literal === host
-		),
+		column: constantColumn(text, { carrier: "text" }),
 		sql: "text"
 	})
 

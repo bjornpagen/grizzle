@@ -1,6 +1,6 @@
-import { type Column, convertColumn, textColumn } from "#compiler/core/decoder.ts"
+import { type Column, textColumn } from "#compiler/core/decoder.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -40,19 +40,19 @@ export type PlainSql = keyof PlainHost
  * The plain column of each SQL type: its carrier's conversion, and a uuid's text column over Uuid (scalar/uuid.ts).
  */
 export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = Object.freeze({
-	smallint: convertColumn(convertByCarrier.int2({ carrier: "int2" })),
-	integer: convertColumn(convertByCarrier.int4({ carrier: "int4" })),
-	bigint: convertColumn(convertByCarrier.int8({ carrier: "int8" })),
-	numeric: convertColumn(convertByCarrier.numeric({ carrier: "numeric", typmod: undefined })),
-	real: convertColumn(convertByCarrier.float4({ carrier: "float4" })),
-	"double precision": convertColumn(convertByCarrier.float8({ carrier: "float8" })),
-	money: convertColumn(convertByCarrier.money({ carrier: "money" })),
-	boolean: convertColumn(convertByCarrier.bool({ carrier: "bool" })),
+	smallint: carrierColumn("int2"),
+	integer: carrierColumn("int4"),
+	bigint: carrierColumn("int8"),
+	numeric: carrierColumn("numeric"),
+	real: carrierColumn("float4"),
+	"double precision": carrierColumn("float8"),
+	money: carrierColumn("money"),
+	boolean: carrierColumn("bool"),
 	uuid: textColumn<Uuid>(),
-	date: convertColumn(convertByCarrier.date({ carrier: "date" })),
-	text: convertColumn(convertByCarrier.text({ carrier: "text" })),
-	"exact integer": convertColumn(convertByCarrier.exactInteger({ carrier: "exactInteger" })),
-	"exact money": convertColumn(convertByCarrier.exactMoney({ carrier: "exactMoney" }))
+	date: carrierColumn("date"),
+	text: carrierColumn("text"),
+	"exact integer": carrierColumn("exactInteger"),
+	"exact money": carrierColumn("exactMoney")
 })
 
 /**

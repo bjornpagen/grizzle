@@ -1,5 +1,5 @@
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
-import type { Delivery } from "#compiler/core/decoder.ts"
+import type { DecoderForm } from "#compiler/core/decoder.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
@@ -8,20 +8,11 @@ import type {
 	RelationIdent,
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
-import type { ConstraintLaws, ParamDecl } from "#compiler/ir/products.ts"
-import type { CompletedOrder, Delivered, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
+import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
+import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
-import type {
-	DeclaredParamSlot,
-	PageStatementSlot,
-	ProgramDelivery,
-	StatementRole
-} from "#compiler/lower/conservative/types.ts"
-import type { FusedLayout } from "#compiler/lower/shapes/attach/decode.ts"
-import type { Arrival, StatementForms } from "#compiler/lower/shapes/index.ts"
+import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type {
 	PageComparator,
@@ -29,11 +20,16 @@ import type {
 	ProbeKind,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
-import type { ChoiceInput, RelationInput } from "#compiler/lower/shapes/take/index.ts"
+import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type {
+	ServedRoots,
+	ServedSource,
+	ServedSpecified,
+	ServedSpine
+} from "#compiler/served/read.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import type { HeadValue } from "#compiler/types/query/terms.ts"
 import type { ParsedChangeSet } from "#compiler/write/changeset/value.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 
@@ -97,13 +93,11 @@ export const servedDirectory = "served"
 export const servedPath = (login: string): string => `${servedDirectory}/${login}.json`
 
 /**
- * One role of a login as its Dbs serve it: its name in the login, the theory role it is (a full role names its base),
- * its installed PostgreSQL role, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier of its refusals, and
+ * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier of its refusals, and
  * its workload members in the workloads' order, each program's own record order.
  */
 export interface ServedRoleForm {
 	readonly name: string
-	readonly theory: string
 	/** The role's installed PostgreSQL role, as the naming door gives it, which every transaction of its Dbs enters. */
 	readonly installed: string
 	readonly contexts: ReadonlyArray<ServedContext>
@@ -134,96 +128,6 @@ export type ServedMember = { readonly name: string } & (
 )
 
 /**
- * What the runtime reads of an attachment, the Attach node of the compiled program it holds no more: its name, the
- * child columns its correlation equates with the parent's, and the delivery the analysis judged.
- */
-export interface ServedAttach {
-	readonly name: string
-	readonly correlation: ReadonlyArray<{ readonly child: string }>
-	readonly judged: Delivered
-}
-
-/** An attachment fused into its parent's statement, as the runtime splits its column into children. */
-export interface ServedFused {
-	readonly name: string
-	readonly layout: FusedLayout
-	readonly attach: ServedAttach
-}
-
-/** What the runtime reads of a statement's spec: the text it sends, and the heading of its output columns. */
-export interface ServedSpec {
-	readonly sql: EmittedText
-	readonly heading: Heading
-}
-
-/** A statement's form as an execution sends it: its placeholders in number order, and the spec emitted from it. */
-export interface ServedForm<Slot> {
-	readonly statement: { readonly params: ReadonlyArray<Slot> }
-	readonly spec: ServedSpec
-}
-
-/** A per-execution choice of a statement's form: an input above its threshold sends the large form. */
-export interface ServedChoice<Source extends ChoiceInput> {
-	readonly source: Source
-	readonly threshold: number
-}
-
-/**
- * A statement as the runtime runs it, the lowered statement's AST and IR left behind: its role (an attachment's with
- * its parent key), the heading of the relation it delivers, its fused attachments, its placeholders, its forms and
- * how the runtime has its rows.
- */
-export interface ServedStatement<Slot, Source extends ChoiceInput> {
-	readonly role: StatementRole
-	readonly heading: Heading
-	readonly fused: ReadonlyArray<ServedFused>
-	readonly params: ReadonlyArray<Slot>
-	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot>>
-	readonly arrival: Arrival
-}
-
-/** A statement with the spec emitted from it. */
-export interface ServedSpecified<Slot, Source extends ChoiceInput> {
-	readonly statement: ServedStatement<Slot, Source>
-	readonly spec: ServedSpec
-}
-
-/** A statement of a program and the attachment statements stitched onto its rows, in emission order. */
-export interface ServedTree<S> {
-	readonly statement: S
-	readonly attachments: ReadonlyArray<ServedAttached<S>>
-}
-
-/** An attachment statement under its parent's rows. */
-export interface ServedAttached<S> extends ServedTree<S> {
-	readonly attach: ServedAttach
-}
-
-/** A program's delivered statements, its main statement or one per heading group, in group order. */
-export type ServedRoots<S> = NonEmptyReadonlyArray<ServedTree<S>>
-
-/** A read statement: every placeholder a declared parameter's, every choice a relation parameter's count. */
-export type ServedReadStatement = ServedSpecified<DeclaredParamSlot, RelationInput>
-
-/** A read's artifact as the runtime runs it: its statements in their tree, and how their rows are delivered. */
-export interface ServedSource {
-	readonly delivery: ProgramDelivery
-	readonly roots: ServedRoots<ServedReadStatement>
-}
-
-/**
- * The delivered spine of a read, from its root: each delivered attachment by name, its child's head keys, and the
- * delivered attachments under it, which say which correlation columns a child carries (adapter reader/analysis.ts).
- */
-export interface ServedSpine {
-	readonly under: ReadonlyMap<string, ServedSpineAttachment>
-}
-
-export interface ServedSpineAttachment extends ServedSpine {
-	readonly heads: ReadonlySet<string>
-}
-
-/**
  * A query or ordered query compiled for a role's rows: its declared parameters, its artifact, its delivered spine,
  * the decoder of its records, and whether get may read it (proved at most one row per parameter binding).
  */
@@ -236,8 +140,10 @@ export interface ServedRead {
 }
 
 /** A page statement: a page placeholder is the page's own, a choice a relation parameter's count or the page's size. */
-export type ServedPageStatement<F extends VariantFill[PageVariant] = VariantFill[PageVariant]> =
-	ServedSpecified<PageStatementSlot<F>, ChoiceInput>
+export type ServedPageStatement<F extends PageFill = PageFill> = ServedSpecified<
+	PageStatementSlot<F>,
+	ChoiceInput
+>
 
 /**
  * One request variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its statements, with how it fetches,
@@ -270,60 +176,6 @@ export interface ServedPage {
 	readonly query: string
 	readonly generation: CursorGeneration
 }
-
-/**
- * How a column's cell text converts: by its carrier's conversion (scalar/values/convert.ts convertByCarrier), a vector
- * by its dimensions. A closed id, a set and bytes are columns of their own (ColumnForm).
- */
-export type Conversion =
-	| { readonly carrier: Exclude<Carrier, "bytes" | "code" | "bits" | "vector"> }
-	| { readonly carrier: "vector"; readonly dimensions: number }
-
-/**
- * A delivered column (core/decoder.ts Column) as data: its conversion; a closed id's, its roster's handle by the
- * code; a set's, its roster's handles by the bits; a refined text's or a uuid's, its text; head literals', the one of
- * them the cell converts to; bytes', its assembled value.
- */
-export type ColumnForm =
-	| { readonly kind: "convert"; readonly conversion: Conversion }
-	| { readonly kind: "code"; readonly roster: DeclaredName }
-	| { readonly kind: "bits"; readonly roster: DeclaredName }
-	| { readonly kind: "text" }
-	| {
-			readonly kind: "constant"
-			readonly values: NonEmptyReadonlyArray<HeadValue>
-			readonly conversion: Conversion
-	  }
-	| { readonly kind: "bytes" }
-
-/**
- * A record field (core/decoder.ts RecordFieldOf) as data: a column, or an attachment delivering its child's records as
- * stated, or an alternatives arm's attachment on a row whose handle selects the arm (Some) or another (None).
- */
-export type FieldForm =
-	| { readonly kind: "column"; readonly column: ColumnForm }
-	| { readonly kind: "attachment"; readonly child: DecoderForm; readonly delivery: Delivery }
-	| { readonly kind: "some"; readonly child: DecoderForm }
-	| { readonly kind: "none"; readonly child: DecoderForm }
-
-/**
- * A row decoder (core/decoder.ts RowDecoder) as data: a record of fields in key order; two decoders' records as one;
- * a union of two decoders' records; a parent's records with the arm of `handle` under `name`, chosen by the parent's
- * `field`; or the decoder of a query whose rows no builder can decode, which refuses every layout.
- */
-export type DecoderForm =
-	| { readonly kind: "record"; readonly fields: ReadonlyArray<readonly [string, FieldForm]> }
-	| { readonly kind: "merge"; readonly first: DecoderForm; readonly second: DecoderForm }
-	| { readonly kind: "oneOf"; readonly first: DecoderForm; readonly second: DecoderForm }
-	| {
-			readonly kind: "arm"
-			readonly parent: DecoderForm
-			readonly name: string
-			readonly child: DecoderForm
-			readonly field: string
-			readonly handle: string
-	  }
-	| { readonly kind: "refused" }
 
 /** What applying a ChangeSet reads of its value besides its program: its array members' facts and its bound values. */
 export type ServedChangeValue = Pick<ParsedChangeSet, "inputs" | "values">

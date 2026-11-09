@@ -1,4 +1,10 @@
 import { nominal } from "#compiler/core/brand.ts"
+import {
+	type Column,
+	type Conversion,
+	type ConvertedCarrier,
+	convertColumn
+} from "#compiler/core/decoder.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
@@ -135,3 +141,37 @@ export const convertByCarrier: {
 	exactInteger: () => BigInt,
 	exactMoney: () => (text) => Money.fromOutput(text)
 }
+
+/** Each converted carrier's conversion (core/decoder.ts ConvertedCarrier), built once from its carrier's spec. */
+const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
+	int2: convertByCarrier.int2({ carrier: "int2" }),
+	int4: convertByCarrier.int4({ carrier: "int4" }),
+	int8: convertByCarrier.int8({ carrier: "int8" }),
+	numeric: convertByCarrier.numeric({ carrier: "numeric", typmod: undefined }),
+	float4: convertByCarrier.float4({ carrier: "float4" }),
+	float8: convertByCarrier.float8({ carrier: "float8" }),
+	money: convertByCarrier.money({ carrier: "money" }),
+	bool: convertByCarrier.bool({ carrier: "bool" }),
+	uuid: convertByCarrier.uuid({ carrier: "uuid" }),
+	date: convertByCarrier.date({ carrier: "date" }),
+	text: convertByCarrier.text({ carrier: "text" }),
+	range4: convertByCarrier.range4({ carrier: "range4", width: undefined }),
+	range8: convertByCarrier.range8({ carrier: "range8", width: undefined }),
+	rangeDate: convertByCarrier.rangeDate({ carrier: "rangeDate", width: undefined }),
+	exactInteger: convertByCarrier.exactInteger({ carrier: "exactInteger" }),
+	exactMoney: convertByCarrier.exactMoney({ carrier: "exactMoney" })
+}
+
+/** The conversion a column's data states (core/decoder.ts Conversion): its carrier's, a vector's of its dimensions. */
+export const converterOf = (conversion: Conversion): ((text: OutputText) => unknown) =>
+	conversion.carrier === "vector"
+		? convertVector(conversion.dimensions)
+		: converted[conversion.carrier]
+
+/** The column converting its cells by `carrier`'s conversion, of that carrier's host values. */
+export const carrierColumn = <C extends ConvertedCarrier>(carrier: C): Column<CarrierHost[C]> =>
+	convertColumn({ carrier })
+
+/** The column converting vector_out texts into Vectors of `dimensions` dimensions. */
+export const vectorColumn = <N extends number>(dimensions: N): Column<Vector<N>> =>
+	convertColumn({ carrier: "vector", dimensions })

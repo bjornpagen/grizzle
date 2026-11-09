@@ -1,4 +1,4 @@
-import { oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
+import { headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
@@ -212,7 +212,7 @@ const sharesHeading = (a: Decoders<unknown, unknown>, b: Decoders<unknown, unkno
 	const same = (x: ReadonlyArray<string>, y: ReadonlyArray<string>): boolean =>
 		x.length === y.length && x.every((key) => y.includes(key))
 	const shared = (x: RowDecoder<unknown>, y: RowDecoder<unknown>): boolean =>
-		x.headings.some((h) => y.headings.some((k) => same(h, k)))
+		headingsOf(x).some((h) => headingsOf(y).some((k) => same(h, k)))
 	return shared(a.rows, b.rows) || shared(a.immediate, b.immediate)
 }
 

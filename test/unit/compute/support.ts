@@ -1,12 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
-import {
-	bitsColumn,
-	bytesColumn,
-	codeColumn,
-	type Column,
-	convertColumn
-} from "#compiler/core/decoder.ts"
+import { bitsColumn, bytesColumn, codeColumn, type Column } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -45,7 +39,7 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, type SqlTag, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { vectorColumn } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -139,9 +133,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		case "bytes":
 			return bytesColumn
 		case "vector":
-			return convertColumn(
-				convertByCarrier.vector({ carrier: "vector", dimensions: desc.dimensions })
-			)
+			return vectorColumn(desc.dimensions)
 		case "span":
 			return spanColumn(columnOf(desc.endpoint))
 		case "contract":

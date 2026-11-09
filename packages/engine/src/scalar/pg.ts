@@ -1,4 +1,4 @@
-import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { derived, type Limit, postgresSource } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -6,7 +6,7 @@ import { binary32Precision, binary64Precision } from "#compiler/ir/carriers.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
 import { serialAliases } from "#compiler/scalar/serial.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import { checkNumericTypmod, type Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { vector } from "#compiler/scalar/vector.ts"
@@ -56,12 +56,12 @@ const plain = <const T extends PgScalarName, A>(
 ): ColumnDescriptor<T, A> =>
 	defineField({}, type, { kind: "pg", type }, { column }, SourceLoc(`pg.${type}`, []), bareEnv)
 
-const smallint = plain("smallint", convertColumn(convertByCarrier.int2({ carrier: "int2" })))
-const integer = plain("integer", convertColumn(convertByCarrier.int4({ carrier: "int4" })))
-const bigint = plain("bigint", convertColumn(convertByCarrier.int8({ carrier: "int8" })))
-const real = plain("real", convertColumn(convertByCarrier.float4({ carrier: "float4" })))
-const money = plain("money", convertColumn(convertByCarrier.money({ carrier: "money" })))
-const boolean = plain("boolean", convertColumn(convertByCarrier.bool({ carrier: "bool" })))
+const smallint = plain("smallint", carrierColumn("int2"))
+const integer = plain("integer", carrierColumn("int4"))
+const bigint = plain("bigint", carrierColumn("int8"))
+const real = plain("real", carrierColumn("float4"))
+const money = plain("money", carrierColumn("money"))
+const boolean = plain("boolean", carrierColumn("bool"))
 
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
@@ -111,7 +111,7 @@ const doublePrecision: FloatDescriptorConstructor = defineField(
 	<const P extends FloatPrecision>(precision: P) => float(precision),
 	"double precision",
 	{ kind: "pg", type: "double precision" },
-	{ column: convertColumn(convertByCarrier.float8({ carrier: "float8" })) },
+	{ column: carrierColumn("float8") },
 	SourceLoc('pg["double precision"]', []),
 	bareEnv
 )
@@ -177,9 +177,7 @@ export const floatDescriptors: FloatDescriptors = Object.freeze({
 })
 
 /** numeric's column, every typmod's: Decimal.fromOutput reads PostgreSQL's text into the value's one form, at any scale. */
-const numericColumn: Column<Decimal> = convertColumn(
-	convertByCarrier.numeric({ carrier: "numeric", typmod: undefined })
-)
+const numericColumn: Column<Decimal> = carrierColumn("numeric")
 
 /**
  * numeric(p, s), its precision and scale both declared, as a JavaScript caller passes them: PostgreSQL's

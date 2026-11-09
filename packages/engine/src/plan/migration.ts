@@ -49,4 +49,5 @@ export {
 	compileWorkload
 } from "#compiler/program/workload/compile.ts"
 export { servedText } from "#compiler/served/json.ts"
+export { servedSource, servedSpine } from "#compiler/served/read.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"

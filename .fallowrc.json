@@ -362,6 +362,7 @@
 					"query",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"types"
 				]
@@ -417,7 +418,7 @@
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
 				"from": "served",
-				"allow": ["core", "ir", "scalar"],
+				"allow": ["check", "core", "ir", "scalar"],
 				"allowTypeOnly": ["codec", "laws", "lower", "physical", "sql", "types", "write"]
 			},
 			{

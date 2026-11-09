@@ -1,11 +1,11 @@
-import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { bareEnv, defineField } from "#compiler/scalar/registry.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 
 /** PostgreSQL's date's column, which date's values are read by: date_out under DateStyle ISO. */
-const column: Column<CalendarDate> = convertColumn(convertByCarrier.date({ carrier: "date" }))
+const column: Column<CalendarDate> = carrierColumn("date")
 
 /**
  * date: a calendar day of the proleptic Gregorian calendar, 0001-01-01 to 9999-12-31, written and read as its ISO

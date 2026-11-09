@@ -17,6 +17,7 @@ import { pageRequest } from "#adapter/page/request.ts"
 import { requireGet } from "#compiler/analysis/logical/get.ts"
 import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -3358,7 +3359,7 @@ const headOf = (spec: QuerySpec): string =>
 					`the engine refuses an arm of a query it compiles: ${messageOf(template.error)}`
 				)
 			}
-			const keys = defined(q.rows.headings[0], "an arm's one heading group")
+			const keys = defined(headingsOf(q.rows)[0], "an arm's one heading group")
 			return recordType(groupFields(keys, q.heading, template.value.heading))
 		}),
 		" | "
@@ -3688,7 +3689,7 @@ const keyedOf = (k: KeyedGet): KeyedVerdict => {
 			Arr.findFirst(heading, (c) => c.name === name),
 			{ onNone: () => "0", onSome: (c) => (Arr.contains(key, name) ? keyValueText(c.type) : "0") }
 		)
-	const keys = defined(q.rows.headings[0], "the keyed lookup's one heading group")
+	const keys = defined(headingsOf(q.rows)[0], "the keyed lookup's one heading group")
 	return {
 		target: k.target,
 		shape: k.shape,

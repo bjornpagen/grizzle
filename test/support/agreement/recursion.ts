@@ -6,6 +6,7 @@ import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
 import { requireGet } from "#compiler/analysis/logical/get.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
+import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -481,7 +482,7 @@ const verdictOf = (spec: RecursionSpec): Verdict => {
 			get: requireGet(root, SourceLoc("agreement", [])).ok,
 			head: recordType(
 				groupFields(
-					defined(q.rows.headings[0], "a recursion's one heading group"),
+					defined(headingsOf(q.rows)[0], "a recursion's one heading group"),
 					q.heading,
 					template.value.heading
 				)

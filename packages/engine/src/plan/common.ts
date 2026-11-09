@@ -17,7 +17,8 @@ export {
 export {
 	type AttachmentLayout,
 	type BindContext,
-	bindGroups,
+	type DecoderForm,
+	decoderOf,
 	type Layout,
 	type OptionVocabulary,
 	outputTextOf,
@@ -151,6 +152,7 @@ export {
 	schemaInstallation
 } from "#compiler/schema/own.ts"
 export { ownedEntry, ownedKind } from "#compiler/schema/protocol.ts"
+export { bindGroups } from "#compiler/schema/record.ts"
 export { admitDerived, derivedDraftOf } from "#compiler/schema/relation.ts"
 export { schemaDescOf } from "#compiler/schema/schema.ts"
 export { queryUses } from "#compiler/schema/walk.ts"

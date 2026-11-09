@@ -32,17 +32,14 @@ import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
 import {
 	attachment,
 	type BindContext,
-	binding,
-	cellAt,
-	columnAt,
 	type Delivery,
 	type Layout,
 	licenses,
 	noChild,
 	type RecordField,
 	type Row,
-	type RowDecoder,
-	someChild
+	someChild,
+	textColumn
 } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -51,6 +48,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { assert, defined, succeeded, throwsDefect } from "#test/support/assert.ts"
 import {
 	codebookFor,
@@ -65,14 +63,11 @@ import { outputRows, outputText } from "#test/support/wire.ts"
 import { ascendingTasks, compiledPageResult, Paging } from "#test/unit/page/fixtures.ts"
 
 /** A child record of one column, `c`. */
-const child: RowDecoder<string> = {
-	headings: [["c"]],
-	bind: (layout) =>
-		binding(() => {
-			const at = columnAt(layout, "c")
-			return (row) => cellAt(row, at)
-		})
-}
+const child = record({ c: { column: textColumn<string>() } })
+
+/** The child record of `text`, as the child decoder reads it: a frozen null-prototype record. */
+const childOf = (text: string): { readonly c: string } =>
+	Object.freeze({ __proto__: null, c: text })
 
 const context = (codes: Parameters<typeof codeNames>[0]): BindContext => ({
 	options: rowOptions,
@@ -113,8 +108,8 @@ type Reader = Delivery | "a selected arm" | "an unselected arm"
 /** What the contract makes of `n` children under `reader`: the children, an Option, the one child, or a defect. */
 type Expected =
 	| { readonly kind: "children"; readonly n: number }
-	| { readonly kind: "option"; readonly child: Option.Option<string> }
-	| { readonly kind: "one"; readonly child: string }
+	| { readonly kind: "option"; readonly child: Option.Option<{ readonly c: string }> }
+	| { readonly kind: "one"; readonly child: { readonly c: string } }
 	| { readonly kind: "defect" }
 
 const expected = (reader: Reader, n: number): Expected => {
@@ -125,11 +120,11 @@ const expected = (reader: Reader, n: number): Expected => {
 			return n === 0
 				? { kind: "option", child: Option.none() }
 				: n === 1
-					? { kind: "option", child: Option.some("c0") }
+					? { kind: "option", child: Option.some(childOf("c0")) }
 					: { kind: "defect" }
 		case "one":
 		case "a selected arm":
-			return n === 1 ? { kind: "one", child: "c0" } : { kind: "defect" }
+			return n === 1 ? { kind: "one", child: childOf("c0") } : { kind: "defect" }
 		case "an unselected arm":
 			return n === 0 ? { kind: "option", child: Option.none() } : { kind: "defect" }
 	}
@@ -202,7 +197,14 @@ describe("an attachment's delivery", () => {
 								return
 							}
 							const codes = succeeded(codebookFor(schemaInputOf(Paging), firstCodes))
-							const read = fieldOf(reader).bind(parentLayout(proved), "kids", context(codes)).read
+							const parent = succeeded(
+								bindGroups(
+									record(named("kids", fieldOf(reader))),
+									[parentLayout(proved)],
+									context(codes)
+								)
+							)
+							const read = (row: Row): unknown => parent(row).kids
 							const want = expected(reader, n)
 							const row = parentRow(n)
 							switch (want.kind) {
@@ -219,7 +221,7 @@ describe("an attachment's delivery", () => {
 									c.note("delivered")
 									assert.deepEqual(
 										read(row),
-										Array.from({ length: want.n }, (_, i) => `c${i}`)
+										Array.from({ length: want.n }, (_, i) => childOf(`c${i}`))
 									)
 									return
 								case "option":

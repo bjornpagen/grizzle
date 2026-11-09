@@ -1,8 +1,8 @@
-import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { serialCarriers } from "#compiler/ir/scalar.ts"
 import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/scalar/registry.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 
 type SerialName = keyof typeof serialCarriers
 
@@ -29,10 +29,7 @@ const serialDescriptor = <const N extends SerialName, A>(
 	)
 }
 
-const smallserial = serialDescriptor(
-	"smallserial",
-	convertColumn(convertByCarrier.int2({ carrier: "int2" }))
-)
+const smallserial = serialDescriptor("smallserial", carrierColumn("int2"))
 
 /**
  * The serial family: pg.smallserial, pg.serial and pg.bigserial, with the serial2, serial4 and serial8 aliases.
@@ -43,12 +40,9 @@ const smallserial = serialDescriptor(
  * integer's and its descriptor says it is serial by `writing`, which the type level (types/fields) and the relation
  * builder read.
  */
-const serial = serialDescriptor("serial", convertColumn(convertByCarrier.int4({ carrier: "int4" })))
+const serial = serialDescriptor("serial", carrierColumn("int4"))
 
-const bigserial = serialDescriptor(
-	"bigserial",
-	convertColumn(convertByCarrier.int8({ carrier: "int8" }))
-)
+const bigserial = serialDescriptor("bigserial", carrierColumn("int8"))
 
 /** PostgreSQL's spellings of the family, each the one descriptor it names. */
 export const serialAliases = {

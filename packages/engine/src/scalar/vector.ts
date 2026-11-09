@@ -1,9 +1,9 @@
-import { type Column, convertColumn } from "#compiler/core/decoder.ts"
+import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/scalar/registry.ts"
-import { convertVector } from "#compiler/scalar/values/convert.ts"
+import { vectorColumn } from "#compiler/scalar/values/convert.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
 
 /** Its column converts vector_out text into a Vector of its N dimensions. */
@@ -51,7 +51,7 @@ export const vector = <const N extends number>(
 		{},
 		carrierSql.vector,
 		{ kind: "vector", dimensions },
-		{ dimensions, column: convertColumn(convertVector(dimensions)) },
+		{ dimensions, column: vectorColumn(dimensions) },
 		SourceLoc("pg.vector", []),
 		bareEnv
 	)

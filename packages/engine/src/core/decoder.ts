@@ -1,18 +1,42 @@
 import type { Option } from "effect"
-import { maxOf } from "#compiler/core/array.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { builtMark, type Phantom } from "#compiler/core/phantom.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Cell, OutputText } from "#compiler/core/wire.ts"
 
-/** A column's conversion of its cell's text, PostgreSQL's output. */
-interface ConvertColumn<out A> {
+/**
+ * The carriers whose cell text converts by its carrier alone (scalar/values/convert.ts convertByCarrier): every carrier
+ * of a text cell but a closed id's and a set's, which read their roster's names, and a vector's, which reads its
+ * dimensions. scalar/values/convert.ts maps each to its conversion, so a carrier named here that converts no text is a
+ * type error there.
+ */
+export type ConvertedCarrier =
+	| "int2"
+	| "int4"
+	| "int8"
+	| "numeric"
+	| "float4"
+	| "float8"
+	| "money"
+	| "bool"
+	| "uuid"
+	| "date"
+	| "text"
+	| "range4"
+	| "range8"
+	| "rangeDate"
+	| "exactInteger"
+	| "exactMoney"
+
+/** How a column converts its cell's text, as data: its carrier's conversion, a vector's by its dimensions. */
+export type Conversion =
+	| { readonly carrier: ConvertedCarrier }
+	| { readonly carrier: "vector"; readonly dimensions: number }
+
+/** A column's conversion of its cell's text, PostgreSQL's output, by its carrier (Conversion). */
+interface ConvertColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "convert"
-	readonly convert: (text: OutputText) => A
+	readonly conversion: Conversion
 }
 
 /**
@@ -53,16 +77,14 @@ interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
 /**
  * Head literals' column: a head literal's own, or a union's whose arms deliver head literals alone at the key. Every
  * cell is the output text of one of the literals under their one SQL type (the checker types a union's column alike in
- * every arm), and is the literal equal to its conversion: `convert` is that type's conversion
- * (scalar/values/convert.ts) and `equal` that type's equality of host values (`===` for a string, number, bigint or
- * boolean, `equals` for a Decimal or a Money), so a cell is read by its column's type and compared by its host value,
- * never by its spelling.
+ * every arm), and is the literal equal to its conversion: `conversion` is that type's, and the literals are compared
+ * by that type's equality of host values (`===` for a string, number, bigint or boolean, `equals` for a Decimal or a
+ * Money), so a cell is read by its column's type and compared by its host value, never by its spelling.
  */
 interface ConstantColumn<out A> {
 	readonly kind: "constant"
 	readonly values: NonEmptyReadonlyArray<A>
-	readonly convert: (text: OutputText) => unknown
-	readonly equal: (literal: unknown, host: unknown) => boolean
+	readonly conversion: Conversion
 }
 
 /**
@@ -74,6 +96,10 @@ interface BytesColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "bytes"
 }
 
+/**
+ * A delivered column: data, its host type A a phantom of its builder's. What reads a cell under it is the decoder's
+ * interpreter's (schema/record.ts), from its data alone.
+ */
 export type Column<A> =
 	| ConvertColumn<A>
 	| CodeColumn<A>
@@ -87,8 +113,9 @@ export interface Columned<out A> {
 	readonly column: Column<A>
 }
 
-export const convertColumn = <A>(convert: (text: OutputText) => A): Column<A> =>
-	Object.freeze({ kind: "convert", convert })
+/** The column converting its cell's text by `conversion`, whose host type A its caller states (scalar/values/convert.ts). */
+export const convertColumn = <A>(conversion: Conversion): Column<A> =>
+	Object.freeze({ ...builtMark, kind: "convert", conversion })
 
 /** A closed id's column over roster `roster`, which may deliver `handles`. */
 export const codeColumn = <A>(roster: string, handles: NonEmptyReadonlyArray<A>): Column<A> =>
@@ -108,15 +135,19 @@ export const bytesColumn: Column<Uint8Array<ArrayBuffer>> = Object.freeze({
 export const textColumn = <A extends string>(): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "text" })
 
+const constants = <A>(values: NonEmptyReadonlyArray<A>, conversion: Conversion): Column<A> =>
+	Object.freeze({ kind: "constant", values, conversion })
+
 /**
  * A contract's column over its base's: the brand, which has no runtime form (core/brand.ts nominal is the identity),
- * applied to every value the base's column yields, the handles of a closed base included; a refined text stays its
- * text. No contract is over a set, so a set's column is a defect here.
+ * applied to every value the base's column holds, the handles of a closed base and the literals of head literals
+ * included; a conversion and a refined text stay their base's. No contract is over a set or bytes, so either is a
+ * defect here.
  */
 export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Column<B> => {
 	switch (base.kind) {
 		case "convert":
-			return convertColumn((text) => brand(base.convert(text)))
+			return convertColumn(base.conversion)
 		case "code":
 			return codeColumn(
 				base.roster,
@@ -131,45 +162,17 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
 		case "constant":
 			return constants(
 				mapNonEmpty(base.values, (value) => brand(value)),
-				base.convert,
-				base.equal
+				base.conversion
 			)
 	}
 }
 
-const constants = <A>(
-	values: NonEmptyReadonlyArray<A>,
-	convert: (text: OutputText) => unknown,
-	equal: (literal: unknown, host: unknown) => boolean
-): Column<A> => Object.freeze({ kind: "constant", values, convert, equal })
-
 /**
- * A head literal's column, a JavaScript value's in a head: read by `convert`, the conversion of the literal's SQL type,
- * and matched by `equal`, that type's equality of host values.
+ * A head literal's column, a JavaScript value's in a head: read by `conversion`, the conversion of the literal's SQL
+ * type, and matched by that type's equality.
  */
-export const constantColumn = <A>(
-	value: A,
-	convert: (text: OutputText) => unknown,
-	equal: (literal: unknown, host: unknown) => boolean
-): Column<A> => constants([value], convert, equal)
-
-/**
- * The literal a cell of head literals' column is: the one its text converts to (see ConstantColumn). The one site of
- * the fact that such a cell is one of the literals: the statement writes only those literals in that column, a runtime
- * set no type of a text carries.
- */
-export const constantOf = <A>(column: ConstantColumn<A>): ((text: OutputText) => A) => {
-	const { values, convert, equal } = column
-	return (text) => {
-		const host = convert(text)
-		for (const value of values) {
-			if (equal(value, host)) {
-				return value
-			}
-		}
-		throw defect("a cell of head literals' column converts to one of them")
-	}
-}
+export const constantColumn = <A>(value: A, conversion: Conversion): Column<A> =>
+	constants([value], conversion)
 
 /** A refined text's column over A, built only where a column of the record assembly's claim kinds is widened. */
 const claimedText = <A>(): Column<A> => Object.freeze({ ...builtMark, kind: "text" })
@@ -189,9 +192,9 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 	if (a.kind === "constant") {
 		switch (b.kind) {
 			case "constant":
-				return constants<A | B>([...a.values, ...b.values], a.convert, a.equal)
+				return constants<A | B>([...a.values, ...b.values], a.conversion)
 			case "convert":
-				return b
+				return convertColumn(b.conversion)
 			case "code":
 				return codeColumn<A | B>(b.roster, [...a.values, ...b.handles])
 			case "bits":
@@ -224,10 +227,10 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 		return bitsColumn<A | B>(a.roster)
 	}
 	if (a.kind === "convert") {
-		return a
+		return convertColumn(a.conversion)
 	}
 	if (b.kind === "convert") {
-		return b
+		return convertColumn(b.conversion)
 	}
 	return claimedText()
 }
@@ -298,31 +301,95 @@ export interface AttachmentLayout {
 	readonly proved: Delivery
 }
 
-/** The keys of the record a layout delivers. */
-const layoutNames = (layout: Layout): ReadonlyArray<string> => [
-	...layout.columns.keys(),
-	...layout.attachments.keys()
-]
+/**
+ * A column as a decoder holds it: its kind and what its interpreter reads, the conversion of a converted or head
+ * literals' column, the roster of a closed id's or a set's, and head literals' values; no brand, since a decoder is
+ * data a served file carries (served/forms.ts), and no handles, which only type a closed id's values.
+ */
+export type ColumnForm =
+	| { readonly kind: "convert"; readonly conversion: Conversion }
+	| { readonly kind: "code"; readonly roster: string }
+	| { readonly kind: "bits"; readonly roster: string }
+	| { readonly kind: "text" }
+	| {
+			readonly kind: "constant"
+			readonly values: NonEmptyReadonlyArray<unknown>
+			readonly conversion: Conversion
+	  }
+	| { readonly kind: "bytes" }
 
-/** A record field bound to a layout: it reads its value from one row. */
-interface Bound<out A> {
-	readonly read: (row: Row) => A
+/** The form of a column, as a decoder holds it (ColumnForm). */
+export const columnForm = (column: Column<unknown>): ColumnForm => {
+	switch (column.kind) {
+		case "convert":
+			return Object.freeze({ kind: "convert", conversion: column.conversion })
+		case "code":
+			return Object.freeze({ kind: "code", roster: column.roster })
+		case "bits":
+			return Object.freeze({ kind: "bits", roster: column.roster })
+		case "text":
+			return Object.freeze({ kind: "text" })
+		case "constant":
+			return Object.freeze({
+				kind: "constant",
+				values: column.values,
+				conversion: column.conversion
+			})
+		case "bytes":
+			return Object.freeze({ kind: "bytes" })
+	}
 }
 
 /**
- * A record field that is no column: it binds to a layout under its key, throwing a Refusal when the layout does not
- * hold it as it needs; an Option it delivers is spelled by its context's options.
+ * A record field as a decoder holds it: a column, read from the cell under its key; an attachment, delivering its
+ * child's records from the rows under its slot as stated; or an alternatives arm's attachment on a row whose handle
+ * selects the arm (its one child, as Some) or another (None).
  */
-export interface RecordField<out A> {
-	readonly bind: (layout: Layout, key: string, context: BindContext) => Bound<A>
+export type FieldForm =
+	| { readonly kind: "column"; readonly column: ColumnForm }
+	| { readonly kind: "attachment"; readonly child: DecoderForm; readonly delivery: Delivery }
+	| { readonly kind: "some"; readonly child: DecoderForm }
+	| { readonly kind: "none"; readonly child: DecoderForm }
+
+/** A field that reads itself, no column: an attachment's, or an alternatives arm's. */
+export type AttachedForm = Exclude<FieldForm, { readonly kind: "column" }>
+
+/**
+ * A decoder of delivered records, as data: a record of fields, in key order; two decoders' records as one, each row
+ * both records' fields; a union of two decoders' records, a layout binding the arm that owns the largest heading it
+ * delivers; a parent's records with the alternatives arm of `handle` under `name`, Some of the child where the parent's
+ * `field` holds `handle` and None elsewhere; or the decoder of a query whose rows no builder can decode, which refuses
+ * every layout. Its interpreter is schema/record.ts bindGroups, which a served file's decoder runs through as one a
+ * builder made.
+ */
+export type DecoderForm =
+	| { readonly kind: "record"; readonly fields: ReadonlyArray<readonly [string, FieldForm]> }
+	| { readonly kind: "merge"; readonly first: DecoderForm; readonly second: DecoderForm }
+	| { readonly kind: "oneOf"; readonly first: DecoderForm; readonly second: DecoderForm }
+	| {
+			readonly kind: "arm"
+			readonly parent: DecoderForm
+			readonly name: string
+			readonly child: DecoderForm
+			readonly field: string
+			readonly handle: string
+	  }
+	| { readonly kind: "refused" }
+
+/**
+ * A record field that is no column, its delivered value A a phantom of its builder's: an attachment's or an
+ * alternatives arm's, as data (AttachedForm).
+ */
+export interface RecordField<out A> extends Phantom<{ readonly host: A }> {
+	readonly form: AttachedForm
 }
 
 /**
  * Typed decoders of delivered rows: what a builder value carries so that the rows it delivers have its type by
  * construction.
  *
- * - A field descriptor and a term carry a Column of their host type: the trusting conversion of a cell's text, or, for
- *   a closed id or a set over a roster, the roster whose names its cell's codes are read by.
+ * - A field descriptor and a term carry a Column of their host type: the conversion of a cell's text, or, for a closed
+ *   id or a set over a roster, the roster whose names its cell's codes are read by.
  * - A record (a relation's facts, a query's head, a ChangeSet's read-backs) is assembled from its fields by
  *   schema/record.ts, the one place TypeScript is told a record's type: a homomorphic mapped type over a runtime record
  *   is beyond what it can check, however the record is built.
@@ -334,57 +401,79 @@ export interface RecordField<out A> {
  * failure channel. A layout that does not hold a field the decoder reads, or an attachment the analysis did not prove
  * in the stated delivery, is the binding's CompileError, once per compiled program.
  *
- * A decoder is built once per program value. RowDecoder.bind resolves it against the layout of the statement that
- * delivers its rows, once per compiled program; the bound decoder is a straight closure over one row.
- *
- * A delivered record's decoder: the key sets of the records it may decode (one for a record, one per arm for a union),
- * and its binding to a layout.
+ * A decoder is data (DecoderForm), built once per program value, its record type A a phantom of its builder's: the same
+ * data a served file carries for it. Binding it (schema/record.ts bindGroups) resolves it against the layout of the
+ * statement that delivers its rows, once per compiled program; the bound decoder is a straight closure over one row.
  */
-export interface RowDecoder<out A> {
-	readonly headings: ReadonlyArray<ReadonlyArray<string>>
-	readonly bind: (
-		layout: Layout,
-		context: BindContext
-	) => Result.Result<(row: Row) => A, CompileError>
+export interface RowDecoder<out A> extends Phantom<{ readonly host: A }> {
+	readonly form: DecoderForm
 }
 
 /**
- * A decoder bound to every heading group's layout: each row is read by its own group's binding. A decoder of one
- * heading binds one layout, and its rows are read by that binding whatever their group.
+ * The key sets of the records a decoder form may decode, one per heading it delivers: a record's own keys, every
+ * pairing of a merge's, both arms' of a union, and an arm's parent's each with the arm's attachment.
  */
-export const bindGroups = <A>(
-	decoder: RowDecoder<A>,
-	layouts: NonEmptyReadonlyArray<Layout>,
-	context: BindContext
-): Result.Result<(row: Row) => A, CompileError> => {
-	const [first, ...rest] = layouts
-	if (rest.length === 0) {
-		return decoder.bind(first, context)
-	}
-	const readers: Array<(row: Row) => A> = []
-	for (const layout of layouts) {
-		const bound = decoder.bind(layout, context)
-		if (!bound.ok) {
-			return bound
+export const formHeadings = (form: DecoderForm): ReadonlyArray<ReadonlyArray<string>> => {
+	switch (form.kind) {
+		case "record":
+			return [form.fields.map(([key]) => key)]
+		case "merge": {
+			const second = formHeadings(form.second)
+			return formHeadings(form.first).flatMap((x) => second.map((y) => [...x, ...y]))
 		}
-		readers.push(bound.value)
+		case "oneOf":
+			return [...formHeadings(form.first), ...formHeadings(form.second)]
+		case "arm":
+			return formHeadings(form.parent).map((x) => [...x, form.name])
+		case "refused":
+			return []
 	}
-	return Result.ok((row) => rowSlot(readers, row.group)(row))
 }
 
-/** A refusal of a layout, thrown inside a binding and caught by RowDecoder.bind. */
-export const refuseLayout = (key: string, what: string): never => {
-	throw new Refusal(malformedDescription(SourceLoc(`delivered field ${key}`, []), what))
-}
+/** The key sets of the records a decoder may decode (formHeadings). */
+export const headingsOf = (decoder: RowDecoder<unknown>): ReadonlyArray<ReadonlyArray<string>> =>
+	formHeadings(decoder.form)
 
-/** A bound decoder, or the Refusal its binding threw. */
-export const binding = <A>(
-	bind: () => (row: Row) => A
-): Result.Result<(row: Row) => A, CompileError> => catchRefusal(bind)
+/** The decoder whose records the form `form` reads, A its builder's statement of their type. */
+export const decoderOf = <A>(form: DecoderForm): RowDecoder<A> =>
+	Object.freeze({ ...builtMark, form })
 
-/** A column's position in a layout, refused when the layout does not deliver it. */
-export const columnAt = (layout: Layout, key: string): number =>
-	layout.columns.get(key) ?? refuseLayout(key, "a column of the statement that delivers the record")
+/** An attachment delivering `child`'s records as `delivery`, licensed by the delivery the analysis proved. */
+export const attachment = <A, D extends Delivery>(
+	child: RowDecoder<A>,
+	delivery: D
+): RecordField<Delivered<A>[D]> =>
+	Object.freeze({
+		...builtMark,
+		form: Object.freeze({ kind: "attachment", child: child.form, delivery })
+	})
+
+/**
+ * Two decoders' records as one: each row is both records' fields. The keys are disjoint, which the attachment and
+ * read-back builders check where they name a new key.
+ */
+export const merge = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A & B> =>
+	decoderOf(Object.freeze({ kind: "merge", first: a.form, second: b.form }))
+
+/**
+ * A union of two decoders' records: a layout binds the arm owning the largest heading the layout delivers. A heading
+ * group's layout holds exactly one arm's heading, and no two arms share a heading (the union builder keys its groups by
+ * heading, query/build unionRecords), so only that arm's heading and its strict subsets are delivered by it.
+ */
+export const oneOf = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A | B> =>
+	decoderOf(Object.freeze({ kind: "oneOf", first: a.form, second: b.form }))
+
+/** An alternatives arm's attachment on a row whose handle selects the arm: its one child, as Some. */
+export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> =>
+	Object.freeze({ ...builtMark, form: Object.freeze({ kind: "some", child: child.form }) })
+
+/**
+ * An alternatives arm's attachment on a row whose handle selects another arm: None. The layout must deliver the arm's
+ * attachment, as for a selected arm. The alternatives family law holds the row's children under it empty, so a child
+ * there is a state the law excludes: a defect naming the attachment, never a child dropped silently.
+ */
+export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> =>
+	Object.freeze({ ...builtMark, form: Object.freeze({ kind: "none", child: child.form }) })
 
 /**
  * The member at a position of a positional row from PostgreSQL: a text of a delivered row or of a written statement's
@@ -394,7 +483,7 @@ export const columnAt = (layout: Layout, key: string): number =>
  * and the shell's assembly keeps, and a group is one of the statement's heading groups. It is a runtime length, which
  * no TypeScript type of an array carries, so a miss is a defect.
  */
-const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
+export const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
 	const member = members[position]
 	if (member === undefined) {
 		throw defect(`a positional row holds its layout's member ${position}`)
@@ -432,210 +521,6 @@ export const bytesValueOf = (cell: Cell): Uint8Array<ArrayBuffer> => {
 /** The text at a position of a delivered row (rowSlot): a text column's cell (`outputTextOf`). */
 export const rowText = (cells: ReadonlyArray<Cell>, position: number): OutputText =>
 	outputTextOf(rowSlot(cells, position))
-
-/** The text at a position of its layout, which bound the reader. */
-export const cellAt = (row: Row, position: number): OutputText => rowText(row.cells, position)
-
-/** The bytes value at a position of its layout, which bound the reader (`bytesValueOf`). */
-export const bytesAt = (row: Row, position: number): Uint8Array<ArrayBuffer> =>
-	bytesValueOf(rowSlot(row.cells, position))
-
-/**
- * The children of one row under an attachment the analysis proves delivers at most one, held to that proof: a second
- * child is a state the proof excludes, so it is a defect naming the attachment `key`, never a first of several taken
- * silently. A row count is the database's state, which no type carries, so this is the one site of the fact that a row
- * holds at most the one child its law allows.
- */
-const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A> => {
-	if (children.length > 1) {
-		throw defect(
-			`a row holds at most one child under the attachment ${key}, which the analysis proves delivers at most one`
-		)
-	}
-	return children
-}
-
-/** The Option of at most one child (atMostOne): None of none, Some of the one. */
-const optionOf = <A>(
-	key: string,
-	children: ReadonlyArray<A>,
-	options: OptionVocabulary
-): Option.Option<A> => {
-	const held = atMostOne(key, children)
-	return isNonEmpty(held) ? options.some(held[0]) : options.none
-}
-
-/** Each delivery's reading of the children of one row under the attachment `key`. */
-const deliveries = <A>(
-	key: string,
-	options: OptionVocabulary
-): { readonly [D in Delivery]: (children: ReadonlyArray<A>) => Delivered<A>[D] } => ({
-	array: (children) => children,
-	option: (children) => optionOf(key, children, options),
-	one: (children) => provenChild(key, children)
-})
-
-/**
- * The child a row holds under the attachment `key`, which a law proves it holds exactly once: one the analysis proves
- * delivers exactly one (a containment into the child's key, enforced at commit), or an alternatives arm's on a row whose
- * handle selects the arm (the alternatives family law). The one site of the fact that the database holds the laws its
- * proofs rest on, so the row has its child and no other (atMostOne): no child, or a second, is a defect naming the
- * attachment.
- */
-const provenChild = <A>(key: string, children: ReadonlyArray<A>): A => {
-	const [child] = atMostOne(key, children)
-	if (child === undefined) {
-		throw defect(`a row holds the child the attachment ${key} proves it holds`)
-	}
-	return child
-}
-
-/** The children of one row under the attachment at `slot`, each read by `read`. */
-const childrenAt = <A>(row: Row, slot: number, read: (row: Row) => A): ReadonlyArray<A> =>
-	rowSlot(row.children, slot).map(read)
-
-/** An attachment delivering `child`'s records as `delivery`, licensed by the delivery the analysis proved. */
-export const attachment = <A, D extends Delivery>(
-	child: RowDecoder<A>,
-	delivery: D
-): RecordField<Delivered<A>[D]> => ({
-	bind: (layout, key, context) => {
-		const at =
-			layout.attachments.get(key) ?? refuseLayout(key, "an attachment of the statement's layout")
-		if (!licenses(at.proved, delivery)) {
-			refuseLayout(
-				key,
-				`an attachment the analysis proves to deliver as ${delivery}; it proves ${at.proved}`
-			)
-		}
-		const bound = bindGroups(child, at.layouts, context)
-		if (!bound.ok) {
-			throw new Refusal(bound.error)
-		}
-		const read = bound.value
-		const deliver: (children: ReadonlyArray<A>) => Delivered<A>[D] = deliveries<A>(
-			key,
-			context.options
-		)[delivery]
-		const { slot } = at
-		return {
-			read: (row) => deliver(Object.freeze(childrenAt(row, slot, read)))
-		}
-	}
-})
-
-/**
- * Two decoders' records as one: each row is both records' fields. The keys are disjoint, which the attachment and
- * read-back builders check where they name a new key. Its headings are every pairing of the two decoders' headings.
- */
-export const merge = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A & B> => ({
-	headings: a.headings.flatMap((x) => b.headings.map((y) => [...x, ...y])),
-	bind: (layout, context) =>
-		Result.flatMap(a.bind(layout, context), (readA) =>
-			Result.map(
-				b.bind(layout, context),
-				(readB) =>
-					(row: Row): A & B =>
-						Object.freeze({ ...readA(row), ...readB(row) })
-			)
-		)
-})
-
-/** The size of the largest of `headings` whose keys the layout delivers, or undefined when it delivers none of them. */
-const largestIn = (
-	headings: ReadonlyArray<ReadonlyArray<string>>,
-	names: ReadonlySet<string>
-): number | undefined => {
-	const delivered = headings.filter((heading) => heading.every((key) => names.has(key)))
-	return delivered.length === 0
-		? undefined
-		: maxOf(
-				delivered.map((heading) => heading.length),
-				0
-			)
-}
-
-/** Whether a size the layout delivers beats another, where an undelivered one beats nothing. */
-const larger = (x: number | undefined, y: number | undefined): boolean =>
-	x !== undefined && (y === undefined || x > y)
-
-/**
- * A union of two decoders' records: a layout binds the arm owning the largest heading the layout delivers. A heading
- * group's layout holds exactly one arm's heading, and no two arms share a heading (the union builder keys its groups by
- * heading, query/build unionRecords), so only that arm's heading and its strict subsets are delivered by it.
- */
-export const oneOf = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A | B> => ({
-	headings: [...a.headings, ...b.headings],
-	bind: (layout, context) => {
-		const names = new Set(layoutNames(layout))
-		const inA = largestIn(a.headings, names)
-		const inB = largestIn(b.headings, names)
-		if (inA === undefined && inB === undefined) {
-			return binding(() =>
-				refuseLayout(
-					[...names].join(", "),
-					"a union arm whose keys are among the statement's columns"
-				)
-			)
-		}
-		return larger(inA, inB) ? a.bind(layout, context) : b.bind(layout, context)
-	}
-})
-
-/** The children of one row under an attachment the analysis licenses as "option". */
-const optionChildren = <A>(
-	child: RowDecoder<A>,
-	layout: Layout,
-	key: string,
-	context: BindContext
-): ((row: Row) => ReadonlyArray<A>) => {
-	const at =
-		layout.attachments.get(key) ?? refuseLayout(key, "an attachment of the statement's layout")
-	if (!licenses(at.proved, "option")) {
-		refuseLayout(
-			key,
-			`an alternatives arm the analysis proves at most one child of; it proves ${at.proved}`
-		)
-	}
-	const bound = bindGroups(child, at.layouts, context)
-	if (!bound.ok) {
-		throw new Refusal(bound.error)
-	}
-	const read = bound.value
-	const { slot } = at
-	return (row) => childrenAt(row, slot, read)
-}
-
-/** An alternatives arm's attachment on a row whose handle selects the arm: its one child, as Some. */
-export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> => ({
-	bind: (layout, key, context) => {
-		const children = optionChildren(child, layout, key, context)
-		return {
-			read: (row) => context.options.some(provenChild(key, children(row)))
-		}
-	}
-})
-
-/**
- * An alternatives arm's attachment on a row whose handle selects another arm: None. The layout must deliver the arm's
- * attachment, as for a selected arm. The alternatives family law holds the row's children under it empty, so a child
- * there is a state the law excludes: a defect naming the attachment, never a child dropped silently.
- */
-export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> => ({
-	bind: (layout, key, context) => {
-		const children = optionChildren(child, layout, key, context)
-		return {
-			read: (row) => {
-				if (isNonEmpty(children(row))) {
-					throw defect(
-						`a row holds no child under the attachment ${key} of an alternatives arm its handle does not select`
-					)
-				}
-				return context.options.none
-			}
-		}
-	}
-})
 
 /** One field under a name: an attachment's or a read-back's. */
 export class Named<out N extends string, out X> {

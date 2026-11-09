@@ -1,5 +1,5 @@
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { constantColumn } from "#compiler/core/decoder.ts"
+import { constantColumn, type Conversion } from "#compiler/core/decoder.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
@@ -18,7 +18,6 @@ import {
 	sumSql
 } from "#compiler/scalar/compute/tables.ts"
 
-import type { OutputText } from "#compiler/core/wire.ts"
 import {
 	type PredicateValue,
 	predicateExpr,
@@ -40,10 +39,8 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
 import { describeField, literalDescFor, type SqlTag } from "#compiler/scalar/registry.ts"
-import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 import type { HeadValue } from "#compiler/types/query/terms.ts"
@@ -162,20 +159,10 @@ export const fieldTerm = <T, S extends SqlTag>(
 
 export const isTerm = (value: unknown): boolean => termExpr(value) !== undefined
 
-/** The equality of a primitive's host values. */
-const samePrimitive = (literal: unknown, host: unknown): boolean => literal === host
-
-const sameDecimal = (literal: unknown, host: unknown): boolean =>
-	literal instanceof Decimal && host instanceof Decimal && literal.equals(host)
-
-const sameMoney = (literal: unknown, host: unknown): boolean =>
-	literal instanceof Money && host instanceof Money && literal.equals(host)
-
-/** A head literal's SQL type, that type's conversion of its output text, and its equality of host values. */
+/** A head literal's SQL type, and that type's conversion of its output text, which its equality of host values follows. */
 interface LiteralType {
 	readonly sql: SqlTag
-	readonly convert: (text: OutputText) => unknown
-	readonly equal: (literal: unknown, host: unknown) => boolean
+	readonly conversion: Conversion
 }
 
 /**
@@ -185,56 +172,36 @@ interface LiteralType {
  */
 const literalType = (value: HeadValue): LiteralType => {
 	if (typeof value === "string") {
-		return {
-			sql: "text",
-			convert: convertByCarrier.text({ carrier: "text" }),
-			equal: samePrimitive
-		}
+		return { sql: "text", conversion: { carrier: "text" } }
 	}
 	if (typeof value === "number") {
-		return {
-			sql: "integer",
-			convert: convertByCarrier.int4({ carrier: "int4" }),
-			equal: samePrimitive
-		}
+		return { sql: "integer", conversion: { carrier: "int4" } }
 	}
 	if (typeof value === "bigint") {
-		return {
-			sql: "bigint",
-			convert: convertByCarrier.int8({ carrier: "int8" }),
-			equal: samePrimitive
-		}
+		return { sql: "bigint", conversion: { carrier: "int8" } }
 	}
 	if (typeof value === "boolean") {
-		return {
-			sql: "boolean",
-			convert: convertByCarrier.bool({ carrier: "bool" }),
-			equal: samePrimitive
-		}
+		return { sql: "boolean", conversion: { carrier: "bool" } }
 	}
 	if (value instanceof Decimal) {
-		return {
-			sql: "numeric",
-			convert: convertByCarrier.numeric({ carrier: "numeric", typmod: undefined }),
-			equal: sameDecimal
-		}
+		return { sql: "numeric", conversion: { carrier: "numeric" } }
 	}
-	return { sql: "money", convert: convertByCarrier.money({ carrier: "money" }), equal: sameMoney }
+	return { sql: "money", conversion: { carrier: "money" } }
 }
 
 /**
  * A JavaScript value in a head (schema/record.ts headRecord): a carried term over the value, a string, number, bigint,
  * boolean, Decimal or Money, whose column is the value itself, read by its SQL type's conversion and matched by that
- * type's equality, and whose type the checker reads from what it meets, as it types a parameter.
+ * type's equality (schema/record.ts), and whose type the checker reads from what it meets, as it types a parameter.
  */
 export const literalTerm = <const X extends HeadValue>(
 	value: X,
 	label: string
 ): CarriedTerm<X, SqlTag> => {
-	const { sql, convert, equal } = literalType(value)
+	const { sql, conversion } = literalType(value)
 	return carriedTerm(
 		{ kind: "literal", value: untypedLiteral(value, label), type: undefined },
-		{ column: constantColumn(value, convert, equal), sql }
+		{ column: constantColumn(value, conversion), sql }
 	)
 }
 

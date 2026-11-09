@@ -4,7 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { type Delivery, licenses } from "#compiler/core/decoder.ts"
+import { type Delivery, headingsOf, licenses } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -968,7 +968,7 @@ const ruleRecord = (
 	q: QueryValue,
 	heading: Parameters<typeof groupFields>[2]
 ): ReadonlyArray<readonly [string, string]> =>
-	groupFields(defined(q.rows.headings[0], "a rule's one heading group"), q.heading, heading)
+	groupFields(defined(headingsOf(q.rows)[0], "a rule's one heading group"), q.heading, heading)
 
 /** A child's rules: one, or two where it is a union. */
 const rulesOf = (child: Child): ReadonlyArray<boolean> =>

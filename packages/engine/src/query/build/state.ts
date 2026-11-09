@@ -1,4 +1,4 @@
-import { binding, codeColumn, type RowDecoder, refuseLayout } from "#compiler/core/decoder.ts"
+import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -124,16 +124,9 @@ export const queryState = (value: unknown): QueryState | undefined =>
  * one whose head holds a term the builder could not type (a variable of such a query). It delivers no records, and a
  * program that binds it is refused. Such a query is described, checked and lowered, never read.
  */
-export const refusedRows = <A>(): RowDecoder<A> => ({
-	headings: [],
-	bind: () =>
-		binding(() =>
-			refuseLayout(
-				"query",
-				"a query whose rows the builder can decode: one built with query(S) over sources whose fields it types"
-			)
-		)
-})
+export const refusedRows = <A>(): RowDecoder<A> => decoderOf(refusedForm)
+
+const refusedForm: DecoderForm = Object.freeze({ kind: "refused" })
 
 /**
  * Refuses a query or rule that spells the parent variables of a pending attachment child where they are not visible: a

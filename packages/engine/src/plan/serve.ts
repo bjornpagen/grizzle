@@ -51,22 +51,13 @@ export {
 	within
 } from "#compiler/schema/reach.ts"
 export {
-	type ColumnForm,
-	type Conversion,
-	type DecoderForm,
-	type FieldForm,
 	type ServedAbove,
-	type ServedAttach,
-	type ServedAttached,
 	type ServedChange,
 	type ServedChangeValue,
-	type ServedChoice,
 	type ServedContext,
 	servedDirectory,
 	type ServedEntryKey,
 	type ServedFile,
-	type ServedForm,
-	type ServedFused,
 	type ServedKeyLaws,
 	type ServedMember,
 	type ServedPage,
@@ -76,17 +67,24 @@ export {
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,
-	type ServedReadStatement,
 	type ServedRefusals,
 	type ServedRoleForm,
-	type ServedRoots,
-	type ServedSource,
-	type ServedSpec,
-	type ServedSpecified,
-	type ServedSpine,
-	type ServedSpineAttachment,
-	type ServedStatement,
-	type ServedTree,
 	type ServedVariants
 } from "#compiler/served/forms.ts"
 export { servedFile } from "#compiler/served/json.ts"
+export type {
+	ServedAttach,
+	ServedAttached,
+	ServedChoice,
+	ServedForm,
+	ServedFused,
+	ServedReadStatement,
+	ServedRoots,
+	ServedRunStatement,
+	ServedSource,
+	ServedSpec,
+	ServedSpecified,
+	ServedSpine,
+	ServedSpineAttachment,
+	ServedTree
+} from "#compiler/served/read.ts"

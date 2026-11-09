@@ -1,19 +1,13 @@
-import type { Option } from "effect"
 import {
 	attachment,
-	type Decoded,
+	decoderOf,
 	type Delivered,
 	type Delivery,
 	merge,
-	type Named,
-	noChild,
 	type RecordField,
-	type Row,
-	type RowDecoder,
-	someChild
+	type RowDecoder
 } from "#compiler/core/decoder.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { AttachDesc } from "#compiler/ir/desc.ts"
 import { type Heading, hasName, headingField } from "#compiler/query/build/heading.ts"
 import {
@@ -124,35 +118,10 @@ const armed = <
 	child: RowDecoder<CH>,
 	field: F,
 	handle: Hd
-): RowDecoder<ArmSome<Head, Name, CH, F, Hd> | ArmNone<Head, Name, CH, F, Hd>> => {
-	type Chosen = Head & { readonly [K in F]: Hd } & Decoded<
-			[Named<Name, RecordField<Option.Some<CH>>>]
-		>
-	type Other = Head & { readonly [K in F]: Exclude<Head[F], Hd> } & Decoded<
-			[Named<Name, RecordField<Option.None<CH>>>]
-		>
-	const some = record(named<Name, RecordField<Option.Some<CH>>>(name, someChild(child)))
-	const none = record(named<Name, RecordField<Option.None<CH>>>(name, noChild(child)))
-	const isOther = (value: Head[F]): value is Exclude<Head[F], Hd> => value !== handle
-	return {
-		headings: merge(parent, some).headings,
-		bind: (layout, options) =>
-			Result.flatMap(parent.bind(layout, options), (readHead) =>
-				Result.flatMap(some.bind(layout, options), (readSome) =>
-					Result.map(none.bind(layout, options), (readNone) => (row: Row): Chosen | Other => {
-						const head = readHead(row)
-						const value = head[field]
-						if (isOther(value)) {
-							const other: Other = Object.freeze({ ...head, [field]: value, ...readNone(row) })
-							return other
-						}
-						const chosen: Chosen = Object.freeze({ ...head, [field]: handle, ...readSome(row) })
-						return chosen
-					})
-				)
-			)
-	}
-}
+): RowDecoder<ArmSome<Head, Name, CH, F, Hd> | ArmNone<Head, Name, CH, F, Hd>> =>
+	decoderOf(
+		Object.freeze({ kind: "arm", parent: parent.form, name, child: child.form, field, handle })
+	)
 
 /** How a read inside a write transaction reads each stated delivery (types/query ReadBack). */
 const readBack: ReadBack = { array: "array", option: "option", one: "option", arm: "option" }

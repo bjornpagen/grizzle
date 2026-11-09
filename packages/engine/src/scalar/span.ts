@@ -11,7 +11,6 @@ import {
 	serialNameOf,
 	spanType
 } from "#compiler/scalar/registry.ts"
-import { convertSpan } from "#compiler/scalar/values/convert.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 
 /**
@@ -54,19 +53,21 @@ const widthOf = (carrier: "int4" | "int8" | "date", width: unknown): number | bi
 
 /** A span's column over its endpoint's: an admitted endpoint is an integer, whose column is its conversion. */
 export const spanColumn = <A>(endpoint: Column<A>): Column<Span<A>> => {
-	if (endpoint.kind !== "convert") {
-		throw malformedDescription(
-			captureLoc("span endpoint", []),
-			"a span endpoint over an integer field, whose column converts its text"
-		)
+	if (endpoint.kind === "convert") {
+		const carrier = endpoint.conversion.carrier
+		if (carrier === "int4" || carrier === "int8" || carrier === "date") {
+			return convertColumn({ carrier: spanOver[carrier] })
+		}
 	}
-	return convertColumn(convertSpan(endpoint.convert))
+	throw malformedDescription(
+		captureLoc("span endpoint", []),
+		"a span endpoint over an integer field, whose column converts its text"
+	)
 }
 
-/**
- * What the admission core decided: the endpoint as the registry admitted it, the width as the caller gave it (a number
- * over integer, a bigint over bigint) or undefined when it gave none, the span's Description and location.
- */
+/** The span carrier over each endpoint carrier. */
+const spanOver = { int4: "range4", int8: "range8", date: "rangeDate" } as const
+
 interface SpanParts {
 	readonly endpoint: Described
 	readonly width: number | bigint | undefined
