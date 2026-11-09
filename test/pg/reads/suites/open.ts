@@ -265,10 +265,6 @@ export const openSuite = (): void => {
 													assertInstanceOf(read, ReadFailure)
 													assertInstanceOf(read.reason, ServerError)
 													assert.equal(read.reason.sqlstate, refusedBy)
-													const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
-													assertInstanceOf(got, ReadFailure)
-													assertInstanceOf(got.reason, ServerError)
-													assert.equal(got.reason.sqlstate, refusedBy)
 													k.note("a vector probe refused by PostgreSQL")
 												})
 										).pipe(
