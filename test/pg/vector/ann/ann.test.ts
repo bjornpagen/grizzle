@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
+import { groupingSteps, planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -34,7 +34,7 @@ import {
 	vectorParam,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"
+import { assert, contains, defined, nonEmpty } from "#test/support/assert.ts"
 import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -375,7 +375,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"a retained key needs no DISTINCT and the plan is driven by the HNSW index; fanout keeps a Unique node",
+		"a retained key needs no DISTINCT and the plan is driven by the HNSW index; fanout keeps its deduplication",
 		(ctx) =>
 			searched(
 				ctx,
@@ -389,8 +389,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					const direct = compile(unfiltered, fx.installed, "query")
 					assert.equal(has(shapeOf(flight(direct.program.roots)[0].ast), "distinct"), false)
 					const directPlan = yield* plan(session, direct, { vector })
-					lacks(directPlan.nodes, "Unique")
-					lacks(directPlan.nodes, "HashAggregate")
+					assert.deepEqual(groupingSteps(directPlan.nodes), [], Formatter.format(directPlan))
 					assert.equal(hnsw(directPlan.indexes), true, Formatter.format(directPlan))
 
 					/**
@@ -403,7 +402,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					)
 					assert.equal(has(shapeOf(flight(keyed.program.roots)[0].ast), "distinct"), false)
 					const keyedPlan = yield* plan(session, keyed, { account: accountA, vector })
-					lacks(keyedPlan.nodes, "Unique")
+					assert.deepEqual(groupingSteps(keyedPlan.nodes), [], Formatter.format(keyedPlan))
 					assert.equal(hnsw(keyedPlan.indexes), true, Formatter.format(keyedPlan))
 
 					/** Every revision, the revision projected away: multiplicity resolved before top-k. */
@@ -414,7 +413,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					)
 					assert.ok(has(shapeOf(flight(fanout.program.roots)[0].ast), "distinct"))
 					const fanoutPlan = yield* plan(session, fanout, { account: accountA, vector })
-					contains(fanoutPlan.nodes, "Unique")
+					assert.notDeepEqual(groupingSteps(fanoutPlan.nodes), [], Formatter.format(fanoutPlan))
 					assert.equal(hnsw(fanoutPlan.indexes), true, Formatter.format(fanoutPlan))
 
 					const repeating = nonEmpty(

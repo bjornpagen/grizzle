@@ -508,6 +508,17 @@ const planTreeOf = (cell: unknown): EstimatedNode => Result.getOrThrow(parsePlan
 export const planNodeTypes = (cell: unknown): ReadonlyArray<string> =>
 	Arr.fromIterable(planNodes(planTreeOf(cell)).map((node) => node.nodeType))
 
+/** The node types that deduplicate or group rows. */
+const groupingNodeTypes: ReadonlySet<string> = new Set(["Unique", "Aggregate", "Group"])
+
+/**
+ * The deduplication and grouping steps among a plan's node types, in their order: each Unique, Aggregate (sorted, hashed
+ * or plain) and Group. PostgreSQL deduplicates a DISTINCT by a Unique over ordered rows or by a hashed Aggregate,
+ * whichever it costs lower, so in a plan that folds nothing each step is a deduplication, whichever form it takes.
+ */
+export const groupingSteps = (nodeTypes: ReadonlyArray<string>): ReadonlyArray<string> =>
+	Arr.filter(nodeTypes, (t) => groupingNodeTypes.has(t))
+
 /**
  * Every index a node of a cell's plan reads by name (an index scan, an index-only scan, a bitmap index scan), in plan
  * order.

@@ -10,6 +10,7 @@ import {
 	type EstimatedNode,
 	explainStatementWith,
 	findNodes,
+	groupingSteps,
 	type PlanNode,
 	parsePlan,
 	parsePlanTree,
@@ -325,10 +326,6 @@ const rowsReadOf = (plan: PlanNode, relation: string): number =>
 			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
 	)
 
-/** The deduplication and grouping steps of a plan: in a plan that folds nothing, each one deduplicates. */
-const groupingSteps = (plan: EstimatedNode): ReadonlyArray<string> =>
-	Arr.filter(nodeTypes(plan), (t) => t === "Aggregate" || t === "Unique" || t === "Group")
-
 const analyze = (sql: string, params: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
@@ -416,21 +413,29 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 									optimized.sql,
 									paramTexts(optimized, {}, declared(q, template))
 								)
-								assert.deepEqual(groupingSteps(plan), [], "the take deduplicates nothing")
+								assert.deepEqual(
+									groupingSteps(nodeTypes(plan)),
+									[],
+									"the take deduplicates nothing"
+								)
 								assert.equal(nodeTypes(plan).includes("Sort"), false)
 								assert.deepEqual(sequentialScans(plan, relation(c.relation)), [])
 								const redundant = withDistinctBound(
 									only(flight(template.programs.optimized.roots), "program statement").ast
 								)
 								const kept = yield* estimate(printStatement(redundant), [])
-								assert.notDeepEqual(groupingSteps(kept), [], "the elided DISTINCT deduplicates")
+								assert.notDeepEqual(
+									groupingSteps(nodeTypes(kept)),
+									[],
+									"the elided DISTINCT deduplicates"
+								)
 								const conservative = only(template.conservative, "conservative statement")
 								const plain = yield* estimate(
 									conservative.sql,
 									paramTexts(conservative, {}, declared(q, template))
 								)
 								assert.notDeepEqual(
-									groupingSteps(plain),
+									groupingSteps(nodeTypes(plain)),
 									[],
 									"the conservative artifact deduplicates"
 								)
@@ -645,12 +650,16 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								const plan = yield* estimate(statement.sql, [])
 								if (c.bound === "the key") {
 									assert.deepEqual(
-										groupingSteps(plan),
+										groupingSteps(nodeTypes(plan)),
 										["Aggregate"],
 										"one fold, nothing deduplicated"
 									)
 								} else {
-									assert.equal(groupingSteps(plan).length, 2, "a deduplication, then the fold")
+									assert.equal(
+										groupingSteps(nodeTypes(plan)).length,
+										2,
+										"a deduplication, then the fold"
+									)
 								}
 								k.note(`${c.fold} of ${c.bound}`)
 							})

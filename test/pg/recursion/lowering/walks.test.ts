@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { groupingSteps } from "#bench/harness/explain.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -214,9 +215,6 @@ const walkGen: Gen<WalkSketch> = (source) => {
 	return { bound: source.draw(int(1, 6)), graph, start: source.draw(int(0, graph.people)) }
 }
 
-const deduplicating = (nodes: ReadonlyArray<string>): number =>
-	Arr.filter(nodes, (n) => n === "Unique" || n === "Aggregate").length
-
 /** What the walks' search shares. */
 const walkSearch = {
 	draw: drawn(walkGen),
@@ -241,7 +239,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 					suite: "recursion/lowering/walk-plans",
 					oracle: {
 						kind: "postgresql",
-						name: "EXPLAIN's plan: one Recursive Union over one WorkTable Scan and no Unique or Aggregate, where the conservative plan deduplicates"
+						name: "EXPLAIN's plan: one Recursive Union over one WorkTable Scan and no other deduplication step, where the conservative plan deduplicates"
 					},
 					coverage: noCoverage
 				},
@@ -256,10 +254,14 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 						const plan = yield* explainMain(c, optimized)
 						assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1, plan.sql)
 						assert.equal(Arr.filter(plan.nodes, (n) => n === "WorkTable Scan").length, 1, plan.sql)
-						assert.equal(deduplicating(plan.nodes), 0, `${Arr.join(plan.nodes, ", ")}\n${plan.sql}`)
+						assert.deepEqual(
+							groupingSteps(plan.nodes),
+							[],
+							`${Arr.join(plan.nodes, ", ")}\n${plan.sql}`
+						)
 						const baseline = yield* explainMain(c, conservative)
 						contains(baseline.nodes, "Recursive Union")
-						assert.ok(deduplicating(baseline.nodes) > 0, Arr.join(baseline.nodes, ", "))
+						assert.notDeepEqual(groupingSteps(baseline.nodes), [], Arr.join(baseline.nodes, ", "))
 					})
 			)
 		)
@@ -302,7 +304,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 								const plan = yield* explainMain(reached, optimized)
 								assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1)
 								assert.equal(
-									deduplicating(plan.nodes),
+									groupingSteps(plan.nodes).length,
 									1,
 									`${Arr.join(plan.nodes, ", ")}\n${plan.sql}`
 								)
