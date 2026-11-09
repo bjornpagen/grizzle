@@ -21,7 +21,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -70,10 +70,11 @@ import {
 	type ClosedRows,
 	columnKey,
 	familyKey,
+	fieldKey,
 	type HostEvaluator,
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
-import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import { type Nesting, nestingOf, sentLayout } from "#compiler/write/family/nesting.ts"
 import {
 	endColumns,
 	memberFamilies,
@@ -97,8 +98,10 @@ import {
 	type FamilyRemovals,
 	type GeneratedColumn,
 	generating,
+	type CopySource,
 	type ImmediateReference,
 	type Meeting,
+	type OwnerCopy,
 	type RemovalEdit,
 	scheduleStratum,
 	updateChanges
@@ -2074,24 +2077,86 @@ const compile = (
 					(f) => !isTreeOf(f, member) && (slotted.includes(member) || !isSequence(f))
 				)
 			)
-		/** The owners whose rows `member`'s additions copy a column of into their appended rows (an owner copy, fill.ts
-		 * FillRule), which the statement reads as the stratum's earlier statements leave them. */
-		const copiedOwners = (member: string) => [
-			...new Set(
-				memberFamilies(member, families).flatMap((f) =>
-					!isTreeOf(f, member) &&
-					(slotted.includes(member) || !isSequence(f)) &&
-					defined(
-						laws.theory.fill.layouts.get(layoutKey(member, { kind: "member", family: f })),
-						`the fill layout of ${member} as a member of ${f.id.owner}.${f.id.count}`
-					).columns.some(
-						(c) => c.rule.kind === "ownerCopy" && familyKey(c.rule.family.id) === familyKey(f.id)
-					)
-						? [f.owner.name]
+		/**
+		 * The column keys each source of the rows of `owner` the stratum inserts holds as its rows are written: each insert
+		 * or put slot's stated fields (insert/input.ts RelationInput), a classed insertion's complete and generated slots
+		 * apart, never the counts and ends a slot carries at their starts, which a put of a stored owner leaves as stored;
+		 * and its nested rows' sent layout; and whether a described member inserts or puts some, whose rows the database
+		 * computes.
+		 */
+		const insertedRows = (owner: string) => ({
+			carried: [
+				...slots.flatMap((g) =>
+					g.stratum === stratum && g.relation.name === owner
+						? g.inputs.flatMap((input): ReadonlyArray<ReadonlyArray<string>> => {
+								switch (input.kind) {
+									case "single":
+										return input.act.op === "delete"
+											? []
+											: [input.slot.input.stated.map((c) => fieldKey(c.name))]
+									case "nested":
+										return [input.slot.input.stated.map((c) => fieldKey(c.name))]
+									case "classed":
+										return [input.complete, input.generated].map((slot) =>
+											slot.input.stated.map((c) => fieldKey(c.name))
+										)
+								}
+							})
 						: []
-				)
+				),
+				...nestedWrites.flatMap((n) => {
+					const at = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
+					if (at === undefined) {
+						return []
+					}
+					const sent = sentLayout(at)
+					return [[...sent.key, ...sent.columns].map((c) => c.key)]
+				})
+			],
+			described: placedByStratum.some(
+				(p) =>
+					p.stratum === stratum &&
+					p.built.some(
+						(b) =>
+							b.action.relation === owner &&
+							b.action.op !== "delete" &&
+							b.action.source.kind !== "enumerated"
+					)
 			)
-		]
+		})
+		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource). */
+		const copySource = (f: Family, to: NativeColumn): CopySource => {
+			const rows = insertedRows(f.owner.name)
+			if (!isNonEmpty(rows.carried) && !rows.described) {
+				return "stored"
+			}
+			const need = [...f.group.map((g) => fieldKey(g.owner.name)), columnKey(to)]
+			return !rows.described && rows.carried.every((keys) => need.every((k) => keys.includes(k)))
+				? "held"
+				: "drawn"
+		}
+		/** The owner copies `member`'s additions draw, each with where it reads its owner's column (schedule.ts
+		 * OwnerCopy): every family's of its slots', a counted family's of its nested rows', but its own tree's. */
+		const ownerCopiesOf = (member: string): ReadonlyArray<OwnerCopy> =>
+			memberFamilies(member, families).flatMap((f) =>
+				isTreeOf(f, member) || (!slotted.includes(member) && isSequence(f))
+					? []
+					: defined(
+							laws.theory.fill.layouts.get(layoutKey(member, { kind: "member", family: f })),
+							`the fill layout of ${member} as a member of ${f.id.owner}.${f.id.count}`
+						).columns.flatMap((c): ReadonlyArray<OwnerCopy> =>
+							c.rule.kind === "ownerCopy" && familyKey(c.rule.family.id) === familyKey(f.id)
+								? [
+										{
+											family: familyKey(f.id),
+											owner: f.owner.name,
+											column: columnKey(c.column),
+											source: copySource(f, c.rule.to)
+										}
+									]
+								: []
+						)
+			)
 		const recountedOnly = [
 			...new Set(
 				families.flatMap((f) => (redrawing.includes(f.member.name) ? [f.member.name] : []))
@@ -2112,7 +2177,12 @@ const compile = (
 					kind: "additions" as const,
 					appends: "rows" as const,
 					member,
-					copies: copiedOwners(member),
+					copies: [
+						...new Set(
+							ownerCopiesOf(member).flatMap((c) => (c.source === "drawn" ? [c.owner] : []))
+						)
+					],
+					ownerCopies: ownerCopiesOf(member),
 					owners: [
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))

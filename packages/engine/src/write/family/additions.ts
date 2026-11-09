@@ -38,7 +38,12 @@
  * inserts did.
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
@@ -73,7 +78,7 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
+import { type ColumnKey, columnKey, familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import {
 	type PerGroup,
 	readAt,
@@ -107,6 +112,7 @@ import {
 	written
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
+import type { CopySource, OwnerCopy } from "#compiler/write/frontend/schedule.ts"
 import {
 	returnedColumn,
 	rowType,
@@ -132,6 +138,12 @@ export type RowSource =
 			}>
 	  }
 	| { readonly kind: "nestedRows"; readonly stratum: StratumAt; readonly layout: RowLayout }
+
+/** A source of the rows of an owner relation the stratum inserts that an additions statement reads an owner copy from
+ * (schedule.ts CopySource `held`): one of its slots' stated facts, or the stratum's nested rows of it. */
+export type OwnerRows =
+	| { readonly kind: "slot"; readonly slot: MemberSlot }
+	| Extract<RowSource, { readonly kind: "nestedRows" }>
 
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
@@ -175,6 +187,8 @@ export const additionsSql = (
 	w: WriteContext,
 	members: ReadonlyArray<AppendedMember>,
 	putOwners: ReadonlyArray<PutOwner>,
+	ownerCopies: ReadonlyArray<OwnerCopy>,
+	ownerRows: ReadonlyMap<string, ReadonlyArray<OwnerRows>>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
 	const supply = new NameSupply(w.start)
@@ -193,17 +207,14 @@ export const additionsSql = (
 		nestedRead.set(relation.name, rows)
 		return rows
 	}
-	/** The nested rows of an owner relation this statement inserts, which no scan finds stored: none where it inserts
-	 * none. */
-	const nestedOwners = new Map(
-		members.flatMap((m) =>
-			m.sources.flatMap((source) =>
-				source.kind === "nestedRows"
-					? [[m.relation.name, () => nested(m.relation, source)] as const]
-					: []
-			)
+	/** The rows of an owner relation the stratum inserts whose copied columns the parameters hold (schedule.ts
+	 * CopySource `held`), each source as this statement reads it: a slot's facts or the stratum's nested rows. */
+	const ownerShapes = (owner: string): ReadonlyArray<Shaped> =>
+		(ownerRows.get(owner) ?? []).map((rows) =>
+			rows.kind === "slot"
+				? slots(owner, rows.slot)
+				: nested(defined(relations.get(owner), `the owner relation ${owner}`), rows)
 		)
-	)
 	/** Each member's scans, one per family, of the union of the sources the family draws. */
 	const scanned: Array<{ readonly family: Family; readonly scan: Scanned }> = []
 	const drawn = members.flatMap((member): ReadonlyArray<Drawn> => {
@@ -238,7 +249,12 @@ export const additionsSql = (
 				family,
 				columns,
 				input,
-				nestedOwners.get(family.owner.name)
+				(column) =>
+					defined(
+						ownerCopies.find((c) => c.family === familyKey(family.id) && c.column === column),
+						`where ${member.relation.name}'s owner copy ${column} reads its owner`
+					).source,
+				() => ownerShapes(family.owner.name)
 			)
 			scanned.push({ family, scan })
 			for (const x of read) {
@@ -560,7 +576,8 @@ const appendScan = (
 	family: Family,
 	drawnColumns: ReadonlyArray<FillColumn>,
 	appended: Shaped,
-	nestedOwner: (() => Shaped) | undefined
+	copySource: (column: ColumnKey) => CopySource,
+	ownerShapes: () => ReadonlyArray<Shaped>
 ): Scanned => {
 	const bigint = types.bigint
 	const name = member.relation.name
@@ -700,8 +717,12 @@ const appendScan = (
 			)
 		)
 	/**
-	 * An appended row's copy of an owner column: the stored owner's, else the nested owner's, else the base, read as
-	 * COALESCE since an owner's column is never NULL (rule 0).
+	 * An appended row's copy of an owner column, from where the copy reads it (schedule.ts CopySource): a `held` copy the
+	 * owner's row among those the stratum inserts, which the statement's parameters hold, else the stored owner's; a
+	 * `stored` or `drawn` copy the stored owner's alone, a drawn one's owner written by an earlier statement. A group
+	 * that names no owner at all takes the copy's base, so its row is inserted and the family's owner axis refuses it at
+	 * the statement's end, as it refuses any member naming no owner. Read as COALESCE, since an owner's column is never
+	 * NULL (rule 0).
 	 */
 	const ownerValue = (read: {
 		readonly to: NativeColumn
@@ -721,9 +742,9 @@ const appendScan = (
 				ownerAt(o)
 			)
 		}
-		/** The owner among the rows this statement's nested writes insert, which no scan finds stored. */
+		/** The owner among rows the stratum inserts, which the statement's parameters hold. */
 		const inserted = (owners: Shaped): Expr => {
-			const n = supply.relation(internal("nested owner"))
+			const n = supply.relation(internal("inserted owner"))
 			return {
 				kind: "subquery",
 				query: simpleSelect(
@@ -740,11 +761,10 @@ const appendScan = (
 				)
 			}
 		}
-		return firstNonNull([
-			stored,
-			...(nestedOwner === undefined ? [] : [inserted(nestedOwner())]),
-			lowerLiteral(w.names, base, read.type)
-		])
+		const held = copySource(columnKey(read.from)) === "held" ? ownerShapes().map(inserted) : []
+		return firstNonNull(
+			appendNonEmpty(appendNonEmpty(held, stored), lowerLiteral(w.names, base, read.type))
+		)
 	}
 	const kept = col(g2, groups.kept)
 	ctes.push(

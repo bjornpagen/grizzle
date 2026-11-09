@@ -626,6 +626,62 @@ const inserted = (
 /** The seven downstream defects' shapes, then the shapes this search found, each kept by value. */
 const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 	{
+		note: "two counted families on a cycle, each a member of the other's owner and each copying its owner's caller field, both rows inserted by their slots: each additions statement read the other's rows from the table, so each followed the other and the stratum was refused as UnorderableStratum, where the slots hold every value copied",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [relationFlags(true), relationFlags(true)],
+					families: [
+						{ kind: "counted", owner: 1, member: 0, fold: "none" },
+						{ kind: "counted", owner: 0, member: 1, fold: "none" }
+					],
+					copies: [
+						{ family: 0, axis: "owner", source: { kind: "caller" } },
+						{ family: 1, axis: "owner", source: { kind: "caller" } }
+					],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [{ family: 0, owner: 2, slot: 0 }] },
+						{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 1, owner: 1, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a lawful first insert accepted"]
+	},
+	{
+		note: "TEST_SEED=2029266199's case 2: a cycle of families, a counted family whose members copy their owner's caller field and a sequence of its owners nested under them, inserted with no rows: its additions read the copied owners' rows after the statement that nests them, which follows theirs by its owner axis, so the stratum was refused as UnorderableStratum",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [{ generated: true, mutable: true }, relationFlags(true)],
+					families: [
+						{ kind: "counted", owner: 1, member: 0, fold: "none" },
+						{ kind: "ordered", owner: 0, member: 1, fold: "count" }
+					],
+					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
+					steps: []
+				},
+				ends: [{ family: 0, monoid: "or" }],
+				plains: [],
+				laws: []
+			},
+			steps: [inserted([], false, undefined)]
+		},
+		draws: "",
+		reaches: ["a lawful first insert accepted"]
+	},
+	{
 		note: "TEST_SEED=1608381433's case 10: an ordered member's put beside an append to the counted family it owns, whose count its stored members copy, the owner axis deferred since the put re-places the owner; the planner on the host refused it, its members' copies left stale",
 		sketch: {
 			spec: {

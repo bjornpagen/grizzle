@@ -79,6 +79,7 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type AppendedMember,
 	additionsSql,
+	type OwnerRows,
 	type PutOwner,
 	type RowSource
 } from "#compiler/write/family/additions.ts"
@@ -573,7 +574,42 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 								: []
 						}
 					)
-					const sql = additionsSql(w0, appended, putOwners, stored)
+					const ownerCopies = node.appends === "rows" ? node.ownerCopies : []
+					/** The rows of each owner whose copies the statement reads from its parameters (schedule.ts CopySource
+					 * `held`): its slots' facts at the stratum and its nested rows. */
+					const ownerRows = new Map(
+						[...new Set(ownerCopies.flatMap((c) => (c.source === "held" ? [c.owner] : [])))].map(
+							(owner) => {
+								const fromSlots = frontend.slots.flatMap((group) =>
+									group.stratum === s && group.relation.name === owner
+										? group.inputs.flatMap((input): ReadonlyArray<OwnerRows> => {
+												switch (input.kind) {
+													case "single":
+														return input.act.op === "delete"
+															? []
+															: [{ kind: "slot", slot: input.slot }]
+													case "nested":
+														return [{ kind: "slot", slot: input.slot }]
+													case "classed":
+														return [
+															{ kind: "slot", slot: input.complete },
+															{ kind: "slot", slot: input.generated }
+														]
+												}
+											})
+										: []
+								)
+								const layout = nestedRows.get(owner)
+								return [
+									owner,
+									layout === undefined
+										? fromSlots
+										: [...fromSlots, { kind: "nestedRows" as const, stratum: s, layout }]
+								] as const
+							}
+						)
+					)
+					const sql = additionsSql(w0, appended, putOwners, ownerCopies, ownerRows, stored)
 					const step: FamilyWriteStep = {
 						kind: "familyWrite",
 						stratum: s,

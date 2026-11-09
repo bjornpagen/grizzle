@@ -49,6 +49,28 @@ export interface OwnerChanges {
 }
 
 /**
+ * Where an appended member reads the owner's column an owner copy of its family carries (write/family/additions.ts),
+ * by the rows of the owner relation its stratum inserts:
+ * - `stored`: none, so the table holds every owner a member names;
+ * - `held`: every row the stratum inserts holds the copied column and the group's fields in the parameters the
+ *   statement can read, as its row is written, a slot's stated facts or its nested rows, which it reads before the
+ *   table;
+ * - `drawn`: the database draws the copied column of some, a described member's rows or a column no slot states and no
+ *   nested row carries (an identity, a generated field, a count, end or index a family draws in SQL), so it reads the
+ *   table once the owner's own statement has run.
+ */
+export type CopySource = "stored" | "held" | "drawn"
+
+/** An owner copy an appended member's family draws: its family by key, its owner relation, the member's copy column by
+ * key (write/family/fold.ts ColumnKey), and where it reads the owner's column (`CopySource`). */
+export interface OwnerCopy {
+	readonly family: string
+	readonly owner: string
+	readonly column: string
+	readonly source: CopySource
+}
+
+/**
  * One member relation's family additions in a stratum, one statement (write/family/additions.ts): it inserts rows of
  * `member` and changes the rows of `owners`; or, appending none, it recounts the owners its stratum puts of `member`'s
  * families. Each member relation's additions take their own place in the stratum's order, as its appends' keys need, so
@@ -59,9 +81,12 @@ export type FamilyAdditions =
 			readonly kind: "additions"
 			readonly appends: "rows"
 			readonly member: string
-			/** The owner relations whose rows its appended members copy a column of, read as the stratum's earlier
-			 * statements leave them, so it follows each statement that writes them. */
+			/** The owner relations whose rows its appended members copy a column of that the database draws, read as the
+			 * stratum's earlier statements leave them, so it follows each statement that writes them (`OwnerCopy`
+			 * `drawn`). */
 			readonly copies: ReadonlyArray<string>
+			/** Where each owner copy its appended members' families draw reads its owner's column. */
+			readonly ownerCopies: ReadonlyArray<OwnerCopy>
 			readonly owners: ReadonlyArray<OwnerChanges>
 	  }
 	| {
