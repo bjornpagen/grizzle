@@ -786,7 +786,6 @@ const writePlan = (
 						volatility: "STABLE",
 						parallel: "UNSAFE",
 						security: "DEFINER",
-						planCacheMode: "force_generic_plan",
 						returns: "boolean",
 						params: params.map((p) => ({ name: p.column, type: p.type })),
 						body: exists(
@@ -884,7 +883,6 @@ const writePlan = (
 				volatility: "STABLE",
 				parallel: "UNSAFE",
 				security: "DEFINER",
-				planCacheMode: "force_generic_plan",
 				returns: "boolean",
 				params: fields.map((f) => ({ name: f.column, type: f.type })),
 				body

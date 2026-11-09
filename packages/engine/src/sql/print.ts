@@ -1318,7 +1318,7 @@ const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printCatalogType(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)} SECURITY ${fn.security} SET search_path = ${printedSearchPath} SET plan_cache_mode = ${fn.planCacheMode}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}`
 	)
 	switch (fn.language) {
 		case "plpgsql":

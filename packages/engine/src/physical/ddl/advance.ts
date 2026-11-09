@@ -37,7 +37,6 @@ const advanceFunctionDdl = (
 		volatility: "VOLATILE",
 		parallel: "UNSAFE",
 		security: "DEFINER",
-		planCacheMode: "force_custom_plan",
 		body: {
 			declare: [],
 			body: [
@@ -106,7 +105,7 @@ export type AdvanceFunctions = ReadonlyMap<string, ReadonlyMap<string, Node<"str
  * large explicit value moves the counter toward its end, which explicit serial values allow anyway:
  *
  *   CREATE OR REPLACE FUNCTION <schema>.<advance>("past" bigint) RETURNS "pg_catalog"."void" LANGUAGE plpgsql
- *   VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp SET plan_cache_mode = force_custom_plan AS $$
+ *   VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
  *   BEGIN
  *     PERFORM pg_catalog.pg_advisory_xact_lock('"pg_catalog"."pg_class"'::regclass::integer,
  *       '"<schema>"."<sequence>"'::regclass::integer);

@@ -121,7 +121,6 @@ export type ErasureProblem =
 	| { readonly kind: "domainNotNull"; readonly domain: string }
 	| { readonly kind: "notSecurityDefiner"; readonly function: string }
 	| { readonly kind: "searchPathUnfixed"; readonly function: string }
-	| { readonly kind: "planCacheUnfixed"; readonly function: string }
 	| {
 			readonly kind: "volatility"
 			readonly function: string
@@ -505,8 +504,8 @@ const advanceProblems = (
 }
 
 /**
- * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE,
- * planned generically and executable by one role; every other is VOLATILE, planned per call, and is an advance
+ * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE
+ * and executable by one role; every other is VOLATILE, and is an advance
  * function, the refusal function (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no
  * role), or the isolation guard or a law function (EXECUTE to no one). A function the installation does not include is foreign, and
  * judged as one that grants EXECUTE to no one.
@@ -530,11 +529,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 	]
 	const definer = [
 		...installed,
-		...unless(f.volatility === "v", { kind: "volatility", function: f.name, required: "VOLATILE" }),
-		...unless(Arr.contains(f.config, "plan_cache_mode=force_custom_plan"), {
-			kind: "planCacheUnfixed",
-			function: f.name
-		})
+		...unless(f.volatility === "v", { kind: "volatility", function: f.name, required: "VOLATILE" })
 	]
 	const declared = j.expect.functions.get(f.name)
 	const expected: InstalledFunction | undefined =
@@ -557,10 +552,6 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 					kind: "volatility",
 					function: f.name,
 					required: "STABLE"
-				}),
-				...unless(Arr.contains(f.config, "plan_cache_mode=force_generic_plan"), {
-					kind: "planCacheUnfixed",
-					function: f.name
 				}),
 				...grantProblems(j, held, allowed.function, allowed.none),
 				...unless(executors.size <= 1, {
@@ -1025,10 +1016,9 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   no plain view, foreign table, or other type beyond domains and row types, and no pg_enum row: a roster is a
  *   smallint domain;
  * - the only functions are the refusal function, the isolation guard, the snapshot guard and each serial field's
- *   advance function, owned by the owner, SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp` and
- *   `plan_cache_mode = force_custom_plan`; the worlds' functions (each writable query entry's filter function and key
- *   and unique probes), owned by the owner, SECURITY DEFINER, STABLE, with the same search_path and
- *   `plan_cache_mode = force_generic_plan`; and the constants, each named by its content's digest, a SQL function of no
+ *   advance function, owned by the owner, SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`; the
+ *   worlds' functions (each writable query entry's filter function and key and unique probes), owned by the owner,
+ *   SECURITY DEFINER, STABLE, with the same search_path; and the constants, each named by its content's digest, a SQL function of no
  *   argument, IMMUTABLE, owned by the owner, neither SECURITY DEFINER nor carrying a SET clause: a roster's names
  *   constant, the live-codes constant derived from it, and a closed relation's constants. EXECUTE goes to no one on
  *   the isolation guard, to world roles alone on the refusal function, to exactly the logins on the snapshot guard,

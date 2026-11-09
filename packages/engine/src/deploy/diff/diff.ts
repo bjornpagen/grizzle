@@ -1062,10 +1062,11 @@ class Differ {
 
 	/** Drafts what one object of the target needs, by what it is to this migration (Arrival).
 	 *
-	 * The refusal and isolation functions' bodies are fixed.
+	 * The refusal function, the isolation guard and the snapshot guard, created in Setup and replaced there in place when
+	 * their definition changes: a function's name and signature are its identity, so CREATE OR REPLACE keeps its grants.
 	 *
-	 * A serial field's advance function, created after its table, and replaced in place when the sequence it names
-	 * changes (a renamed relation or field), which keeps its grants.
+	 * A serial field's advance function, created after its table, and replaced in place when its definition changes (the
+	 * sequence it names renamed with its relation or field), which keeps its grants.
 	 *
 	 * A role's views, world functions and policies: created again when this migration dropped them at the start of
 	 * Structure, since it changes them or what they read (worldChangesOf), in install order: at the end of Structure, in the transaction that dropped them, with
@@ -1089,12 +1090,16 @@ class Differ {
 			case "schema":
 				this.schemaObject(o, before)
 				return
-			case "databaseDefault":
-			case "ledger":
-			case "extension":
 			case "refusalFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
+				if (before === undefined || !same(before.ddl, o.ddl)) {
+					this.sql("setup", o.ddl)
+				}
+				return
+			case "databaseDefault":
+			case "ledger":
+			case "extension":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
 				} else if (!same(before.ddl, o.ddl)) {

@@ -78,7 +78,6 @@ export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Re
 			volatility: "VOLATILE",
 			parallel: "SAFE",
 			security: "DEFINER",
-			planCacheMode: "force_custom_plan",
 			body: {
 				declare: [],
 				body: [

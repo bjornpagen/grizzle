@@ -1652,22 +1652,20 @@ export interface FunctionParam {
  * no caller's path reaches its body:
  *
  * - PL/pgSQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS trigger | boolean | void LANGUAGE plpgsql
- *   VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp SET plan_cache_mode =
- *   force_custom_plan: the law functions, the isolation guard, and the refusal function `<schema>.__refuse(text, text,
- *   text) RETURNS boolean`, whose body raises its arguments, and the serial advance functions, which return nothing
- *   (physical/ddl/advance.ts).
- *   The plan cache mode plans each of a law function's queries for the key values of
- *   the firing, so a skewed group never moves the function onto a generic plan that scans the whole source. A trigger
- *   function takes no argument;
+ *   VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp: the law functions, the isolation
+ *   guard, and the refusal function `<schema>.__refuse(text, text, text) RETURNS boolean`, whose body raises its
+ *   arguments, and the serial advance functions, which return nothing (physical/ddl/advance.ts). A trigger function
+ *   takes no argument;
  * - SQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
- *   SET search_path = pg_catalog, pg_temp SET plan_cache_mode = force_generic_plan RETURN <expr>: a writable entry's
- *   world functions, its filter that reads another relation, which its policy and its writes' prechecks call, and its
- *   key and unique probes (physical/ddl/roles.ts). Its body names its arguments by position (`$n`), never by name, so
- *   no argument can be read as a column of a relation the body reads. PostgreSQL parses this body under the creating
- *   session's path, not the function's, so only its absolute names make it mean one thing.
+ *   SET search_path = pg_catalog, pg_temp RETURN <expr>: a writable entry's world functions, its filter that reads
+ *   another relation, which its policy and its writes' prechecks call, and its key and unique probes
+ *   (physical/ddl/roles.ts). Its body names its arguments by position (`$n`), never by name, so no argument can be read
+ *   as a column of a relation the body reads. PostgreSQL parses this body under the creating session's path, not the
+ *   function's, so only its absolute names make it mean one thing.
  *
  * `parallel` is the function's parallel safety: SAFE prints PARALLEL SAFE; UNSAFE, PostgreSQL's own default, prints no
- * clause. Only the refusal function is SAFE, so a statement that reads the claims still plans in parallel.
+ * clause. Only the refusal function is SAFE, so a statement that reads the claims still plans in parallel. It declares a
+ * property of the function, as its volatility does, never a planner directive.
  */
 export type CreateFunction =
 	| ({
@@ -1677,7 +1675,6 @@ export type CreateFunction =
 			readonly volatility: "VOLATILE"
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
-			readonly planCacheMode: "force_custom_plan"
 			readonly body: PlBlock
 	  } & (
 			| { readonly returns: "trigger"; readonly params: readonly [] }
@@ -1691,11 +1688,6 @@ export type CreateFunction =
 			readonly volatility: "STABLE"
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
-			/**
-			 * The body is planned once per session, its arguments as parameters: an existence test its indexes serve at
-			 * any argument values gains nothing from a custom plan.
-			 */
-			readonly planCacheMode: "force_generic_plan"
 			readonly returns: "boolean"
 			readonly params: ReadonlyArray<FunctionParam>
 			readonly body: Expr

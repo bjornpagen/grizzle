@@ -153,7 +153,6 @@ const addRuleTable = (
 			volatility: "VOLATILE",
 			parallel: "UNSAFE",
 			security: "DEFINER",
-			planCacheMode: "force_custom_plan",
 			body: {
 				declare: [],
 				body: appendNonEmpty([...probing("DELETE", news), ...probing("INSERT", olds)], {
