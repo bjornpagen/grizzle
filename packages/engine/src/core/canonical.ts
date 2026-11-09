@@ -3,6 +3,7 @@ import {
 	isCompileError,
 	malformedArtifact,
 	malformedDescription,
+	resourceBound,
 	within
 } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -458,9 +459,40 @@ const enclosed = (
 	return text.value
 }
 
-/** An object member's text, `"key":form`, measured before it is built. */
-const memberText = (key: string, form: string): string =>
-	enclosed(`${JSON.stringify(key)}:`, [form], "", "")
+/** An enclosure's length, refused past V8's longest string. */
+const bound = (needed: number): void => {
+	if (needed > maxStringLength.value) {
+		throw new Refusal(
+			resourceBound(canonicalTextLoc, {
+				kind: "stringLength",
+				limit: maxStringLength.value,
+				needed
+			})
+		)
+	}
+}
+
+/**
+ * A member's parts of its object's text, after a comma when it is not the first: its key quoted, a colon and its form.
+ * Its text, `"key":form`, is measured, never built, so the object's enclosure writes it once.
+ */
+const pushMember = (parts: Array<string>, key: string, form: string): void => {
+	const quoted = JSON.stringify(key)
+	bound(quoted.length + 1 + form.length)
+	if (parts.length > 0) {
+		parts.push(",")
+	}
+	parts.push(quoted, ":", form)
+}
+
+/** An object's text, its members' parts enclosed (`pushMember`). */
+const objectText = (members: ReadonlyArray<readonly [string, string]>): string => {
+	const parts: Array<string> = []
+	for (const [key, form] of members) {
+		pushMember(parts, key, form)
+	}
+	return enclosed("{", parts, "", "}")
+}
 
 /**
  * The fold that writes the canonical text: the same bytes as writeCanonicalJson over the JSON form, without building
@@ -469,13 +501,7 @@ const memberText = (key: string, form: string): string =>
 const textFold: Fold<string> = {
 	scalar: (value) => JSON.stringify(value),
 	array: (items) => enclosed("[", items, ",", "]"),
-	object: (members) =>
-		enclosed(
-			"{",
-			members.map(([key, form]) => memberText(key, form)),
-			",",
-			"}"
-		)
+	object: objectText
 }
 
 /** The JSON form of a canonical value. */
@@ -503,11 +529,11 @@ function* jsonItems(value: ReadonlyArray<Json>): Members<Json, string> {
 
 /** A JSON object's members in key order, each written in turn, enclosed. */
 function* jsonMembers(value: { readonly [key: string]: Json }): Members<Json, string> {
-	const members: Array<string> = []
+	const parts: Array<string> = []
 	for (const [key, item] of Object.entries(value).toSorted(([a], [b]) => compareText(a, b))) {
-		members.push(memberText(key, yield item))
+		pushMember(parts, key, yield item)
 	}
-	return enclosed("{", members, ",", "}")
+	return enclosed("{", parts, "", "}")
 }
 
 const readJson = (value: Json): Reading<Json, string> => {
