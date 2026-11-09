@@ -516,7 +516,8 @@ export const readSuite = () => {
 											yield* replace(opened.installed, facts)
 											const rows = payloadRows(facts)
 											const sorted = Arr.sort(rows, c.descending ? Order.flip(byIdText) : byIdText)
-											const got = yield* (yield* member(unions, unionMember(c)).execute({})).collect
+											const got = yield* (yield* member(unions, unionMember(c)).ops.execute({}))
+												.collect
 											if (c.take.kind === "none") {
 												assert.deepEqual(Arr.map(got, plain), sorted)
 											} else {

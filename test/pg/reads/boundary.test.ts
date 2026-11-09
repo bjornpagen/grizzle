@@ -18,7 +18,7 @@ import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
 import { memberOps } from "#adapter/db/handles.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { MemberOps } from "#adapter/db/ops.ts"
 import {
 	type ReadError,
 	ReadFailure,
@@ -110,9 +110,9 @@ interface Subject {
 
 /** The members a case's commands call, each over the tapped pool: a read by account, a key and a paged member. */
 interface Reads {
-	readonly live: CompiledOps<unknown>
-	readonly task: CompiledOps<unknown>
-	readonly ordered: CompiledOps<unknown>
+	readonly live: MemberOps<unknown>
+	readonly task: MemberOps<unknown>
+	readonly ordered: MemberOps<unknown>
 }
 
 /**
@@ -375,7 +375,7 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
 })
 
 /** The cursor of the first page of the paged member `other`, read live. */
-const cursorOf = (other: CompiledOps<unknown>) =>
+const cursorOf = (other: MemberOps<unknown>) =>
 	Effect.flatMap(other.page({}, { first: 1 }), (page) =>
 		Option.match(page.pageInfo.endCursor, {
 			onNone: () => Effect.die(new Error("the other ordered query delivers no row")),
@@ -478,7 +478,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														)
 													)
 													const tapped = { ...context, pool }
-													const opsOf = (name: string) => memberOps(tapped, member(loaded, name))
+													const opsOf = (name: string) =>
+														memberOps(tapped, member(loaded, name)).ops
 													const real: Subject = {
 														reads: {
 															live: opsOf("live"),

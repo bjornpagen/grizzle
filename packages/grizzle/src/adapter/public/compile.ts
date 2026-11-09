@@ -4,7 +4,7 @@ import { fromEngine } from "#adapter/engine.ts"
 import { type OpenError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { servedSessions } from "#adapter/pool/served.ts"
 import { servedEntry, type ServedRefusal } from "#adapter/served/compile.ts"
-import { explainMember as explainLoaded } from "#adapter/served/explain.ts"
+import { explainMember as explainLoaded, type MemberCall } from "#adapter/served/explain.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { OpenOptions, Plan } from "#adapter/types/db.ts"
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
@@ -14,12 +14,12 @@ import {
 	type AnyWorkload,
 	malformedDescription,
 	ownBuilt,
-	type ParamMap,
 	SourceLoc,
 	trustedJson
 } from "#compiler/plan/common.ts"
 
 export type { ServedRefusal, WorkloadPlace } from "#adapter/served/compile.ts"
+export type { MemberCall } from "#adapter/served/explain.ts"
 
 /** The refusal of the login's compile itself, at the login. */
 const atLogin = (error: ServedRefusal["error"]): ServedRefusal => ({
@@ -58,8 +58,10 @@ export const compileServed = (
 	})
 
 /**
- * explainMember(role, member, params, options): the estimate-only plan of every statement the member `member` of the
- * role's served workload runs with `params`, on a Db of the role opened with `options` through its login's layer:
+ * explainMember(role, member, call, options): the estimate-only plan of every statement the member `member` of the
+ * role's served workload runs for `call`, its parameters, beside each call's facts for a ChangeSet that holds array
+ * members, as its handle takes them (served/explain.ts MemberCall), on a Db of the role opened with `options` through its
+ * login's layer:
  * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the role that is rolled back (adapter/served/explain.ts).
  * A read, a key and a paged member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its
  * carriers created and analyzed empty at their places.
@@ -67,7 +69,7 @@ export const compileServed = (
 export const explainMember = <R extends AnyRole, P>(
 	role: ServedRole<R, P>,
 	member: keyof P & string,
-	params: ParamMap,
+	call: MemberCall,
 	options: OpenOptions<R>
 ): Effect.Effect<ReadonlyArray<Plan>, ReadError | OpenError, DbLayerService<R>> =>
 	Effect.gen(function* () {
@@ -82,5 +84,5 @@ export const explainMember = <R extends AnyRole, P>(
 				)
 			})
 		}
-		return yield* explainLoaded(ctx, found.value, params)
+		return yield* explainLoaded(ctx, found.value, call)
 	})

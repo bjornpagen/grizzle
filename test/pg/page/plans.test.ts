@@ -153,7 +153,7 @@ const explorePlans = Effect.gen(function* () {
 			const loaded = yield* load(Rec.map(orders, (q) => paged(q)))
 			const { executor, counts } = countingExecutor(poolExecutor(ctx))
 			/** The paged member of an order, its reads through the counting executor. */
-			const pager = (order: Order) => memberOpsOn(executor, ctx, member(loaded, order))
+			const pager = (order: Order) => memberOpsOn(executor, ctx, member(loaded, order)).ops
 			/** The rows statement the runtime sends for a request: the first statement of that request. */
 			const sentFor = (order: Order, params: { readonly account: Uuid }, request: object) =>
 				Effect.gen(function* () {

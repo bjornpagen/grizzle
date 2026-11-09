@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
-import { hostInputs, valuesFailure } from "#adapter/apply/run.ts"
+import { type HostCall, hostInputs, valuesFailure } from "#adapter/apply/run.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { variantOf } from "#adapter/db/handles.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -9,11 +9,10 @@ import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatements } from "#adapter/reader/run.ts"
 import {
+	type ChangeCall,
 	type LoadedChange,
 	type LoadedMember,
-	type LoadedRead,
-	noFacts,
-	servedCall
+	type LoadedRead
 } from "#adapter/served/load.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -26,7 +25,9 @@ import {
 } from "#adapter/wire/batch.ts"
 import { type Chunks, type ExecutionPart, inForce } from "#compiler/plan/change.ts"
 import {
+	type CompileError,
 	type EmittedText,
+	type EncodingFailure,
 	explainOf,
 	malformedDescription,
 	type Param,
@@ -149,16 +150,57 @@ const explainRead = Effect.fn("explainRead")(function* (
 	)
 })
 
-/** A change member's program for `params`, each statement planned against empty carriers, rolled back. */
+/**
+ * A member's call as explain plans it, as its handle takes it (types/db WorkloadHandles): its parameters, and, for a
+ * ChangeSet that holds array members, each call's facts beside them (FactsApply), on which a chunk's binding depends.
+ */
+export type MemberCall =
+	| { readonly kind: "params"; readonly params: ParamMap }
+	| { readonly kind: "facts"; readonly facts: unknown; readonly params: ParamMap }
+
+/**
+ * The host call of `call` for the change member `name`, whose calls read as `reads` (load.ts ChangeCall); a call of the
+ * other shape is refused as the member's handle never takes it.
+ */
+const hostCallOf = (
+	name: string,
+	reads: ChangeCall,
+	call: MemberCall
+): Result.Result<HostCall, EncodingFailure | CompileError> => {
+	const at = SourceLoc("explainMember", [name])
+	switch (reads.kind) {
+		case "facts":
+			return call.kind === "facts"
+				? reads.call(call.facts, call.params)
+				: Result.fail(
+						malformedDescription(
+							at,
+							"a call's facts beside its parameters, for a ChangeSet with array members"
+						)
+					)
+		case "params":
+			return call.kind === "params"
+				? Result.succeed(reads.call(call.params))
+				: Result.fail(
+						malformedDescription(
+							at,
+							"a call's parameters alone, for a ChangeSet with no array member"
+						)
+					)
+	}
+}
+
+/** A change member's program for `call`, each statement planned against empty carriers, rolled back. */
 const explainChange = Effect.fn("explainChange")(function* (
 	ctx: ServedDbContext,
+	name: string,
 	change: LoadedChange,
-	params: ParamMap
+	call: MemberCall
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError> {
 	const entry = change.entry
 	const inputs = yield* Effect.mapError(
-		Effect.flatMap(Effect.fromResult(servedCall(change, params, noFacts)), (call) =>
-			hostInputs(entry, call)
+		Effect.flatMap(Effect.fromResult(hostCallOf(name, change.call, call)), (host) =>
+			hostInputs(entry, host)
 		),
 		(reason) => new ReadFailure({ reason })
 	)
@@ -216,8 +258,8 @@ const explainChange = Effect.fn("explainChange")(function* (
 })
 
 /**
- * The estimate-only plan of every statement a loaded member runs for `params`, on a session of `ctx`'s pool: EXPLAIN
- * (FORMAT JSON), never ANALYZE, in one transaction of the Db's role that is rolled back. A read, a key and a paged
+ * The estimate-only plan of every statement a loaded member runs for `call` (MemberCall), on a session of `ctx`'s pool:
+ * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the Db's role that is rolled back. A read, a key and a paged
  * member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its carriers created and
  * analyzed empty at their places, and a plan that reads before it writes plans its reads, runs them, and plans the
  * writes it fills from their rows in a second flight of the same transaction.
@@ -225,15 +267,24 @@ const explainChange = Effect.fn("explainChange")(function* (
 export const explainMember = (
 	ctx: ServedDbContext,
 	member: LoadedMember,
-	params: ParamMap
+	call: MemberCall
 ): Effect.Effect<ReadonlyArray<Plan>, ReadError> => {
 	switch (member.kind) {
 		case "read":
 		case "key":
 		case "paged":
-			return explainRead(ctx, member.read, params)
+			return call.kind === "params"
+				? explainRead(ctx, member.read, call.params)
+				: Effect.fail(
+						new ReadFailure({
+							reason: malformedDescription(
+								SourceLoc("explainMember", [member.name]),
+								"a call's parameters alone, for a read"
+							)
+						})
+					)
 		case "change":
-			return explainChange(ctx, variantOf(ctx, member.variants), params)
+			return explainChange(ctx, member.name, variantOf(ctx, member.variants), call)
 		case "refresh":
 			return Effect.fail(
 				new ReadFailure({

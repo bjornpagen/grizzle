@@ -257,7 +257,7 @@ export const withCaseDb = <A, E>(
 					complement: perturbedContext(ctx, complementOf(perturbation))
 				}
 				const db: CaseDb = {
-					read: (name) => Effect.flatMap(member(members, name).execute({}), (r) => r.collect),
+					read: (name) => Effect.flatMap(member(members, name).ops.execute({}), (r) => r.collect),
 					refresh: (named, plan) =>
 						Effect.gen(function* () {
 							const loaded = yield* load({ refresh: refreshMember(named) })

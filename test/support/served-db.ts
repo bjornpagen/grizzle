@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, type Layer, Option, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberOps } from "#adapter/db/handles.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
@@ -89,7 +89,7 @@ export interface ServedDb {
 	) => Effect.Effect<ReadonlyMap<string, LoadedMember>, ServedRefusal | OpenError>
 	readonly serve: (
 		programs: Readonly<Record<string, unknown>>
-	) => Effect.Effect<ReadonlyMap<string, CompiledOps<unknown>>, ServedRefusal | OpenError>
+	) => Effect.Effect<ReadonlyMap<string, ServedOps<unknown>>, ServedRefusal | OpenError>
 }
 
 /** The members of the role `role` of a loaded login, by its name in the login. */
@@ -144,7 +144,7 @@ export const withServedDb = <A, E, R>(
 					load(programs),
 					(loaded) =>
 						new Map(
-							Arr.map([...loaded], ([name, m]): readonly [string, CompiledOps<unknown>] => [
+							Arr.map([...loaded], ([name, m]): readonly [string, ServedOps<unknown>] => [
 								name,
 								memberOps(ctx, m)
 							])

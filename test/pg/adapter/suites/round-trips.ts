@@ -333,7 +333,7 @@ export const roundTripSuite = (): void => {
 								})
 								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 								const context = { ...ctx, pool }
-								const ops = (name: string) => memberOps(context, member(loaded, name))
+								const ops = (name: string) => memberOps(context, member(loaded, name)).ops
 								return yield* explore(
 									{
 										oracle: { kind: "unstated" },
@@ -383,11 +383,10 @@ export const roundTripSuite = (): void => {
 														: call.kind === "get"
 															? ops("task").get({ id: call.present ? t1 : tMissing })
 															: call.kind === "explain"
-																? explainMember(
-																		context,
-																		member(loaded, target.member),
-																		target.params
-																	)
+																? explainMember(context, member(loaded, target.member), {
+																		kind: "params",
+																		params: target.params
+																	})
 																: ops(call.page).page(
 																		{ account: a1 },
 																		Option.match(anchor, {
@@ -665,7 +664,10 @@ export const roundTripSuite = (): void => {
 								Effect.gen(function* () {
 									const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
 									const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
-									const refreshing = memberOps({ ...ctx, pool }, member(loaded, "studentWeekly"))
+									const refreshing = memberOps(
+										{ ...ctx, pool },
+										member(loaded, "studentWeekly")
+									).ops
 									return yield* explore(
 										{
 											oracle: { kind: "unstated" },

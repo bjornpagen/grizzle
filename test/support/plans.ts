@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { DbContext, ServedDbContext } from "#adapter/db/context.ts"
 import { memberOpsOn } from "#adapter/db/handles.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { MemberOps } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import { makeReader, type QueryResultValue } from "#adapter/reader/reader.ts"
@@ -328,9 +328,9 @@ interface UntypedReads {
 export const recordingMembers = (
 	ctx: ServedDbContext
 ): {
-	readonly ops: (member: LoadedMember) => CompiledOps<unknown>
+	readonly ops: (member: LoadedMember) => MemberOps<unknown>
 	readonly counts: Counts
 } => {
 	const { executor, counts } = countingExecutor(poolExecutor(ctx))
-	return { ops: (member) => memberOpsOn(executor, ctx, member), counts }
+	return { ops: (member) => memberOpsOn(executor, ctx, member).ops, counts }
 }

@@ -68,39 +68,49 @@ export interface LoadedPage {
 }
 
 /**
- * A ChangeSet compiled for one set of its fill contexts, loaded: its write entry, its read-backs' decoder bound, the
- * values its declaration bound, and the array members a call supplies facts for (servedCall).
+ * How one call of a loaded ChangeSet reads its write's host inputs (apply/run.ts HostCall), decided once at load by its
+ * array members: a ChangeSet that holds some takes each call's facts beside its parameters (types/db FactsApply), a
+ * record holding under each member's relation an array of its facts, read once at the boundary
+ * (runtime/write/members.ts memberFactsOf, the one checker of a call's facts), a value of any other shape the
+ * EncodingFailure that names it; one that holds none takes its parameters alone. Each call holds the values the
+ * declaration bound.
+ */
+export type ChangeCall =
+	| { readonly kind: "params"; readonly call: (params: ParamMap) => HostCall }
+	| {
+			readonly kind: "facts"
+			readonly call: (facts: unknown, params: ParamMap) => Result.Result<HostCall, EncodingFailure>
+	  }
+
+/**
+ * A ChangeSet compiled for one set of its fill contexts, loaded: its write entry, its read-backs' decoder bound, and how
+ * each call reads its host inputs (ChangeCall).
  */
 export interface LoadedChange {
 	readonly entry: WriteEntry
 	readonly reads: BoundReads<unknown>
-	readonly bound: ReadonlyMap<string, ParamValue>
-	readonly members: ReadonlyArray<ArrayMember>
+	readonly call: ChangeCall
 }
 
-/**
- * The facts of a call that supplies no array member's: what a handle's call passes while its signature takes its
- * parameters alone, so a ChangeSet whose array members a call must supply is refused with the EncodingFailure
- * memberFactsOf names at the member's slot, never run with no facts.
- */
-export const noFacts: Readonly<Record<string, never>> = Object.freeze({})
+/** The member facts of a call of a ChangeSet that holds no array member. */
+const noMemberFacts: ReadonlyMap<string, ReadonlyArray<unknown>> = new Map()
 
-/**
- * One call of a loaded ChangeSet as its write's host inputs read it (apply/run.ts HostCall): the call's parameters, the
- * values the declaration bound, and each array member's facts from the call's `facts`, a record holding under each
- * member's relation an array of its facts, read once at the boundary (runtime/write/members.ts memberFactsOf); a value
- * of any other shape is the EncodingFailure that names it.
- */
-export const servedCall = (
-	change: LoadedChange,
-	params: ParamMap,
-	facts: unknown
-): Result.Result<HostCall, EncodingFailure> =>
-	Result.map(toResult(memberFactsOf(facts, change.members)), (members) => ({
-		params,
-		bound: change.bound,
-		members
-	}))
+/** How each call of a ChangeSet that binds `bound` and holds array members `members` reads its host inputs. */
+const changeCall = (
+	bound: ReadonlyMap<string, ParamValue>,
+	members: ReadonlyArray<ArrayMember>
+): ChangeCall =>
+	Arr.isReadonlyArrayNonEmpty(members)
+		? {
+				kind: "facts",
+				call: (facts, params) =>
+					Result.map(toResult(memberFactsOf(facts, members)), (read) => ({
+						params,
+						bound,
+						members: read
+					}))
+			}
+		: { kind: "params", call: (params) => ({ params, bound, members: noMemberFacts }) }
 
 /** A ChangeSet's variants by its fill contexts, each leaf loaded. */
 export type LoadedVariants =
@@ -215,8 +225,7 @@ const loadChange = (
 	return Result.map(boundReads(entry, decoderOf(change.decoder)), (reads) => ({
 		entry,
 		reads,
-		bound: change.bound,
-		members: change.members
+		call: changeCall(change.bound, change.members)
 	}))
 }
 

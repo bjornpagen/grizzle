@@ -289,7 +289,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 												loaded,
 												`paged${Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(Option.getOrThrow)}`
 											)
-											const q = memberOps(dbCtx, pagedMember)
+											const q = memberOps(dbCtx, pagedMember).ops
 											const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
 											const runtime = compiled.runtime
 											const rows = yield* Effect.flatMap(q.execute({}), (result) => result.collect)

@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { MemberOps } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { ReadExecutor } from "#adapter/reader/executor.ts"
@@ -43,7 +43,7 @@ const admitPage = (page: unknown): PageValue => trusted<PageValue>(page)
  * sign of zero and NaN, an Option.
  */
 export const pageOf = (
-	ops: CompiledOps<unknown>,
+	ops: MemberOps<unknown>,
 	params: ParamMap,
 	request: unknown
 ): Effect.Effect<PageValue, ReadError | CursorError> =>
@@ -211,7 +211,7 @@ const traversalPagesMax = 1_000
  * or backward from { last }, following each startCursor while hasPreviousPage.
  */
 export const traverse = (
-	ops: CompiledOps<unknown>,
+	ops: MemberOps<unknown>,
 	params: ParamMap,
 	direction: "forward" | "backward",
 	size: number,

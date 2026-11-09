@@ -356,11 +356,14 @@ export const explainSuite = (): void => {
 											const read = reads[c.read]
 											const params = read.params(c.pick)
 											const program = member(members, read.member)
-											const plans = yield* explainMember(context, program, params)
+											const plans = yield* explainMember(context, program, {
+												kind: "params",
+												params
+											})
 											const executed = yield* observe(
 												tap,
 												Effect.flatMap(
-													memberOps(context, program).execute(params),
+													memberOps(context, program).ops.execute(params),
 													(result) => result.collect
 												)
 											)

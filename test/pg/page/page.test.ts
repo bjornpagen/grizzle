@@ -699,7 +699,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										Effect.gen(function* () {
 											const params = { account: A }
 											const ops = (handle: Handle) =>
-												memberOps(dbCtx, member(loaded, memberName(walk.query, handle)))
+												memberOps(dbCtx, member(loaded, memberName(walk.query, handle))).ops
 											const compiled = pageTemplate(
 												member(loaded, memberName(walk.query, "member")),
 												opened.installed.names.codes
@@ -969,7 +969,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								const { executor, counts } = countingExecutor(poolExecutor(context))
 								/** A paged member's operations, its reads through the counting executor. */
 								const counted = (name: string) =>
-									memberOpsOn(executor, context, member(loaded, name))
+									memberOpsOn(executor, context, member(loaded, name)).ops
 								return yield* explore(
 									{
 										oracle: { kind: "unstated" },

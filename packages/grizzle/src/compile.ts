@@ -8,6 +8,7 @@
 export {
 	compileServed,
 	explainMember,
+	type MemberCall,
 	type ServedRefusal,
 	type WorkloadPlace
 } from "#adapter/public/compile.ts"

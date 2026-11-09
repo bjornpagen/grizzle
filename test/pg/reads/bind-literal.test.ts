@@ -153,8 +153,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								Effect.gen(function* () {
 									const served = yield* serve({ top, ...imports })
 									for (const [i, b] of bindings.entries()) {
-										const direct = yield* (yield* member(served, "top").execute({ ...b })).collect
-										const viaImport = yield* (yield* member(served, `imported${i}`).execute({}))
+										const direct = yield* (yield* member(served, "top").ops.execute({ ...b }))
+											.collect
+										const viaImport = yield* (yield* member(served, `imported${i}`).ops.execute({}))
 											.collect
 										unorderedEqual(
 											viaImport,

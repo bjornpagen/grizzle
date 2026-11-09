@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { MemberOps } from "#adapter/db/ops.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -492,7 +492,7 @@ const reached = (c: {
 }
 
 /** The rows a served member delivers, run without parameters. */
-const records = (ops: CompiledOps<unknown>) =>
+const records = (ops: MemberOps<unknown>) =>
 	Effect.flatMap(ops.execute({}), (result) => result.collect)
 
 layer(Substrate.layer)("union cells", (it) => {
@@ -584,9 +584,9 @@ layer(Substrate.layer)("union cells", (it) => {
 											first: queryOver(Cells).rule(a),
 											second: queryOver(Cells).rule(b)
 										})
-										const delivered = yield* records(member(served, "planted"))
-										const first = yield* records(member(served, "first"))
-										const second = yield* records(member(served, "second"))
+										const delivered = yield* records(member(served, "planted").ops)
+										const first = yield* records(member(served, "first").ops)
+										const second = yield* records(member(served, "second").ops)
 										const alone = armsAlone([first, second])
 										assert.deepEqual(
 											set(structuralHash, sameRecord)(delivered, alone),
@@ -600,9 +600,9 @@ layer(Substrate.layer)("union cells", (it) => {
 										union: unionOf(arms),
 										...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
 									})
-									const union = yield* records(member(served, "union"))
+									const union = yield* records(member(served, "union").ops)
 									const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
-										records(member(served, `arm${j}`))
+										records(member(served, `arm${j}`).ops)
 									)
 									const alone = armsAlone(armRecords)
 									assert.deepEqual(
