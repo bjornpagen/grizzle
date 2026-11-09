@@ -493,13 +493,18 @@ const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<
 	return fins
 }
 
-/** A closed relation's or side's constants as planned: its key, the string of cells, the key set and the dictionaries. */
-interface PlannedRelation {
+/** A closed relation's or side's constants as planned: its key, the string of cells and the dictionaries. */
+interface PlannedSide {
 	readonly key: PlannedKey
 	readonly cells: PlannedCells
-	readonly keys: PlannedCells
 	readonly payload: ReadonlyArray<CodeSpace>
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
+}
+
+/** A closed relation's constants as planned: its side's over its whole heading, and its key set, which a read of it
+ * tests membership in (sql/constants.ts closedRead). */
+interface PlannedRelation extends PlannedSide {
+	readonly keys: PlannedCells
 }
 
 /**
@@ -543,14 +548,14 @@ const outsideFin = (
  * The constants of `rows`, a closed relation `relation`'s or its side's, over the key fields `key` and the payload fields
  * `payloadFields`, `what` naming them. A row whose slot code is past its owner's count is refused (outsideFin).
  */
-const plannedRelation = (
+const plannedSide = (
 	codes: Codebook,
 	relation: ClosedTheoryRelation,
 	key: NonEmptyReadonlyArray<LawField>,
 	payloadFields: ReadonlyArray<LawField>,
 	rows: ReadonlyArray<Split<TypedLiteral>>,
 	what: string
-): PlannedRelation => {
+): PlannedSide => {
 	const planned = plannedKey(codes, relation, key, what)
 	const fields = keyFieldsOf(planned)
 	const columns = payloadFields.map((f, i) =>
@@ -573,11 +578,9 @@ const plannedRelation = (
 			payload: columns.map((column) => defined(column.codes[r], "a payload code per row"))
 		}
 	})
-	const cells = plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what)
 	return {
 		key: planned,
-		cells,
-		keys: keySetOf(cells),
+		cells: plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what),
 		payload,
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
@@ -637,7 +640,8 @@ export const planClosed = (
 			key: key.map((f) => defined(row[f.position], "a value per field")),
 			payload: payload.map((f) => defined(row[f.position], "a value per field"))
 		}))
-		out.set(r.name, plannedRelation(codes, r, key, payload, rows, `closed relation ${r.name}`))
+		const side = plannedSide(codes, r, key, payload, rows, `closed relation ${r.name}`)
+		out.set(r.name, { ...side, keys: keySetOf(side.cells) })
 	}
 	return { relations: out }
 }
@@ -1102,6 +1106,43 @@ const addBits = (
 	return { live: { name: live, node: liveNode }, domain: { name: domain, node: domainNode } }
 }
 
+/** Each distinct side the installation's ClosedChecks read, by its side and then its target relation's name, its
+ * constants planned once (planSides). */
+export type SidePlans = ReadonlyMap<CellSide<TypedLiteral>, ReadonlyMap<string, PlannedSide>>
+
+/**
+ * The constants of each distinct side of a closed relation the law model's ClosedChecks read, each planned once over
+ * its rows, under the installation's codes: the law model builds each side of one content once
+ * (laws/model/plan.ts closedSidesOf), however many containments read it, so the checks reading one side of one target
+ * read one plan, which names their constants alike. A side's plan is named, in a refusal, by the first check that
+ * reads it.
+ */
+export const planSides = (b: InstallBuilder): SidePlans => {
+	const out = new Map<CellSide<TypedLiteral>, Map<string, PlannedSide>>()
+	for (const { object: check } of b.natives) {
+		if (check.kind !== "ClosedCheck") {
+			continue
+		}
+		const closed = check.target
+		const byTarget = out.get(check.side) ?? new Map<string, PlannedSide>()
+		out.set(check.side, byTarget)
+		if (!byTarget.has(closed.name)) {
+			byTarget.set(
+				closed.name,
+				plannedSide(
+					b.names.codes,
+					closed,
+					mapNonEmpty(check.side.key, (f) => fieldNamed(closed, f)),
+					check.side.payload.map((f) => fieldNamed(closed, f)),
+					[...check.side.rows.values()],
+					`the side of ${closed.name} a containment from ${check.relation.name} reads`
+				)
+			)
+		}
+	}
+	return out
+}
+
 /**
  * A containment into a closed relation's side as the table CHECK that holds it, after its constants, which it adds:
  * the side's string of cells as a closed relation of its own, with its key's owner functions where its key is a
@@ -1126,18 +1167,13 @@ const addBits = (
 export const closedMembership = (
 	b: InstallBuilder,
 	check: NativeOf<"ClosedCheck">,
+	sides: SidePlans,
 	column: (c: NativeColumn) => Expr,
 	lower: (predicate: ScalarExpr) => Expr
 ): { readonly predicate: Expr; readonly constants: ReadonlyArray<Node<"setup">> } => {
-	const side: CellSide<TypedLiteral> = check.side
-	const closed = check.target
-	const plan = plannedRelation(
-		b.names.codes,
-		closed,
-		mapNonEmpty(side.key, (f) => fieldNamed(closed, f)),
-		side.payload.map((f) => fieldNamed(closed, f)),
-		[...side.rows.values()],
-		`the side of ${closed.name} a containment from ${check.relation.name} reads`
+	const plan = defined(
+		sides.get(check.side)?.get(check.target.name),
+		"every ClosedCheck's side is planned (planSides)"
 	)
 	const why = lawReasons(check.lawIds)
 	const constants = [plan.cells, ...layoutOf(plan.key), ...plan.dictionaries].map((planned) =>

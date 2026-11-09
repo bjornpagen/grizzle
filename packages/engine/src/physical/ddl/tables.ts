@@ -18,7 +18,7 @@ import type { LawField, NativeColumn, NativeOf, TableRelation } from "#compiler/
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
-import { closedMembership } from "#compiler/physical/ddl/constants.ts"
+import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
@@ -495,6 +495,7 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 
 /** Each key and CHECK native's plan, in the law model's order, its inline constraint declared into `inline`. */
 const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePlan> => {
+	const sides = planSides(b)
 	const plans: Array<NativePlan> = []
 	/** A secondary constraint, declared inline in its table, and its object. */
 	const declare = (
@@ -701,6 +702,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				const { predicate } = closedMembership(
 					b,
 					o,
+					sides,
 					(c) => tableCol(nativeColumn(b, o.relation.name, c)),
 					(g) => lowerRow(b, o.relation, g, `check ${name}`)
 				)
