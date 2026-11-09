@@ -133,7 +133,14 @@ type KeyOperator = "=" | ">=" | "<=" | "&&"
 interface SearchedKey {
 	readonly field: string
 	readonly searches: ReadonlySet<string>
+	readonly values: KeyValues
 }
+
+/**
+ * How many values a B-tree skip scan may step an index key's column through, read from its type and never its rows
+ * (Table.closed): at most `count` for a closed column, a boolean or a closed id, or no bound for any other.
+ */
+type KeyValues = { readonly kind: "closed"; readonly count: number } | { readonly kind: "open" }
 
 /**
  * How an index tells the values of its leading key apart as it places them (see judgeServing): exactly, or, a GiST index
@@ -328,7 +335,13 @@ interface Table {
 	readonly schema: string
 	readonly name: string
 	readonly spans: ReadonlySet<string>
-	readonly few: ReadonlySet<string>
+	/**
+	 * The closed columns, each by the most values PostgreSQL's B-tree skip scan steps it through, read from its type and
+	 * never its rows: a boolean's two, whose skip support knows both ends; a closed id's every code its roster minted,
+	 * holes included, and one step past the greatest, since the skip support of the smallint under its domain steps by
+	 * one and reads no CHECK; and one more where the column admits null.
+	 */
+	readonly closed: ReadonlyMap<string, number>
 	/** The columns of a vector type, which only the extension's qualified operators compare. */
 	readonly vectors: ReadonlySet<string>
 	/** The columns of a text type, under its domains, that hold a multibyte character on some row. */
@@ -337,21 +350,45 @@ interface Table {
 }
 
 /**
- * What a column of a table holds, by its type under its domains: a span, few values, or many; whether its type is the
- * vector extension's; and whether it is a text type.
+ * What a column of a table holds, by its type under its domains: a span, a boolean, or anything else; whether its type
+ * is the vector extension's; whether it is a text type; and whether it admits null.
  */
 type ColumnHolds = ReadonlyArray<
-	readonly [string, "span" | "few" | "many", "true" | "false", "true" | "false"]
+	readonly [
+		string,
+		"span" | "boolean" | "other",
+		"true" | "false",
+		"true" | "false",
+		"true" | "false"
+	]
 >
 
 const columnHoldsOf = (rows: unknown): ColumnHolds => trusted<ColumnHolds>(rows)
 
-/** The columns of a relation's closed-id fields, each a code a roster's few handles name. */
-const closedIdColumns = (installed: Judged, relation: string): ReadonlyArray<string> => {
+/**
+ * The columns of a relation's closed-id fields, each with the values a skip scan steps it through (Table.closed): every
+ * code its roster minted and the one past them.
+ */
+const closedIdColumns = (
+	installed: Judged,
+	relation: string
+): ReadonlyArray<readonly [column: string, steps: number]> => {
 	const owned = installed.installation.owned.relations[relation]
 	return owned === undefined
 		? []
-		: Arr.flatMap(Rec.values(owned.fields), (f) => (f.desc.kind === "closedId" ? [f.column] : []))
+		: Arr.flatMap(Rec.values(owned.fields), (f) =>
+				f.desc.kind === "closedId"
+					? [
+							[
+								f.column,
+								defined(
+									installed.installation.names.codes.rosters.get(parsedName(f.desc.roster)),
+									`the codes of roster ${f.desc.roster}`
+								).size + 1
+							] as const
+						]
+					: []
+			)
 }
 
 const tableOf = (installed: Judged, relation: string) =>
@@ -361,28 +398,44 @@ const tableOf = (installed: Judged, relation: string) =>
 		const quoted = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 		const columns = yield* Effect.map(
 			admin.queryValues(
-				"WITH RECURSIVE base(name, oid, typtype, typbasetype, typnamespace, typcategory) AS (" +
-					"SELECT a.attname, t.oid, t.typtype, t.typbasetype, t.typnamespace, t.typcategory FROM pg_catalog.pg_attribute AS a " +
+				"WITH RECURSIVE base(name, oid, typtype, typbasetype, typnamespace, typcategory, required) AS (" +
+					"SELECT a.attname, t.oid, t.typtype, t.typbasetype, t.typnamespace, t.typcategory, a.attnotnull FROM pg_catalog.pg_attribute AS a " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid " +
 					"WHERE a.attrelid = $1::text::regclass AND a.attnum > 0 AND NOT a.attisdropped " +
-					"UNION ALL SELECT b.name, t.oid, t.typtype, t.typbasetype, t.typnamespace, t.typcategory FROM base AS b " +
+					"UNION ALL SELECT b.name, t.oid, t.typtype, t.typbasetype, t.typnamespace, t.typcategory, b.required FROM base AS b " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = b.typbasetype WHERE b.typtype = 'd'::\"char\") " +
 					"SELECT name::text, CASE WHEN typtype = 'r'::\"char\" THEN 'span' " +
-					"WHEN oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END, " +
+					"WHEN oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'boolean' ELSE 'other' END, " +
 					"(typnamespace = $2::text::pg_catalog.regnamespace)::text, " +
-					"(typcategory = 'S'::\"char\")::text " +
+					"(typcategory = 'S'::\"char\")::text, " +
+					"(NOT required)::text " +
 					"FROM base WHERE typtype <> 'd'::\"char\"",
 				[quoted, quoteIdent(installed.installation.names.vectorSchema)]
 			),
 			columnHoldsOf
 		)
-		const holding = (holds: "span" | "few"): ReadonlySet<string> =>
+		const holding = (holds: "span" | "boolean"): ReadonlySet<string> =>
 			new Set(
 				Arr.map(
 					Arr.filter(columns, ([, h]) => h === holds),
 					([name]) => name
 				)
 			)
+		const nullable = new Set(
+			Arr.map(
+				Arr.filter(columns, ([, , , , admitsNull]) => admitsNull === "true"),
+				([name]) => name
+			)
+		)
+		const closed = new Map(
+			Arr.map(
+				[
+					...Arr.map([...holding("boolean")], (name) => [name, 2] as const),
+					...closedIdColumns(installed, relation)
+				],
+				([name, count]) => [name, nullable.has(name) ? count + 1 : count] as const
+			)
+		)
 		const rows = yield* countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
 		const multibyte = new Set<string>()
 		for (const [name, , , text] of columns) {
@@ -405,7 +458,7 @@ const tableOf = (installed: Judged, relation: string) =>
 			schema: q.schema,
 			name: q.name,
 			spans: holding("span"),
-			few: new Set([...holding("few"), ...closedIdColumns(installed, relation)]),
+			closed,
 			vectors: new Set(
 				Arr.map(
 					Arr.filter(columns, ([, , vector]) => vector === "true"),
@@ -468,11 +521,13 @@ const indexFacts = (
 				method: i.method,
 				keys: Arr.map(i.keys, (k): SearchedKey => {
 					const column = keyColumn(installed, i.relation, k)
+					const count = table.closed.get(column)
 					return {
 						field: keyText(k),
 						searches: new Set(
 							Arr.flatMap(searches, ([name, operator]) => (name === column ? [operator] : []))
-						)
+						),
+						values: count === undefined ? { kind: "open" } : { kind: "closed", count }
 					}
 				}),
 				unique: i.unique,
@@ -772,13 +827,21 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 /** What a swept scan read past: more descents of its index than it looped, or more buffers than its bound. */
 type Past = "descents" | "buffers"
 
+/** How a served scan descended into its index: once a loop, or by a skip scan within its descents (skipDescents). */
+type Descended = "once a loop" | "by a skip scan"
+
 /**
  * What PostgreSQL made of a probe: served through a planned index; swept through one, the scan meeting every rule but
  * reading past what its result requires (Past); or not served, and why. A scan of an index carries the buffers it
  * touched (scanReads).
  */
 type Verdict =
-	| { readonly kind: "served"; readonly through: PlannedIndex; readonly touched: number }
+	| {
+			readonly kind: "served"
+			readonly through: PlannedIndex
+			readonly touched: number
+			readonly descended: Descended
+	  }
 	| {
 			readonly kind: "swept"
 			readonly through: PlannedIndex
@@ -823,7 +886,8 @@ const plannedScan = (
  * reports per loop), its probe's own; its heap
  * fetches, one per entry for an Index Scan and those its visibility map does not prove for an Index Only Scan; the
  * buffers it touched itself, beside those of the plans under it (a subplan its filter runs), which PostgreSQL counts in
- * its own too; and the bound on them, a descent per loop, the result's share of the index's pages and a page per fetch.
+ * its own too; and the bound on them, the pages of each descent, at least one a loop, the result's share of the index's
+ * pages and a page per fetch.
  */
 interface ScanReads {
 	readonly loops: number
@@ -840,6 +904,10 @@ export const touchedBy = (node: PlanNode): number =>
 /** What a scan of an index of `scanned`'s facts read (ScanReads). */
 export const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
 	const loops = Math.max(1, scan.actualLoops)
+	const descents = Math.max(
+		loops,
+		Option.getOrElse(scan.indexSearches, () => loops)
+	)
 	const entries = (scan.actualRows + scan.rowsRemovedByFilter) * scan.actualLoops
 	const fetched = Option.getOrElse(scan.heapFetches, () => entries)
 	const under = Arr.reduce(scan.children, 0, (sum, child) => sum + touchedBy(child))
@@ -849,21 +917,41 @@ export const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
 		entries,
 		fetched,
 		touched: Math.max(0, touchedBy(scan) - under),
-		bound: descentPages[scanned.method] * loops + share + fetched
+		bound: descentPages[scanned.method] * descents + share + fetched
 	}
 }
 
 /**
- * Why a scan of `index` descended into it more often than it looped (see judgeServing), as a B-tree skip scan over a
- * column the probe leaves unbound does; none for a scan that descends once per loop.
+ * The descents a loop of a scan of an index of `scanned`'s facts may make for a probe of `conditions` (see judgeServing):
+ * those of PostgreSQL's B-tree skip scan over the keys the probe skips, the product of the values it steps each through,
+ * where the probe fixes the index's first key by equality and every key it skips, one before the last key it conditions
+ * that it leaves unconditioned, is closed (KeyValues); one for any other scan.
  */
-const extraDescents = (scan: PlanNode, index: string): Option.Option<string> => {
+const skipDescents = (scanned: IndexFacts, conditions: ReadonlyArray<KeyCondition>): number => {
+	const conditioned = (k: SearchedKey): boolean => Arr.some(conditions, (c) => searchedBy(k, c))
+	const last = Option.getOrElse(Arr.findLastIndex(scanned.keys, conditioned), () => 0)
+	const skipped = Arr.filter(scanned.keys, (k, at) => at < last && !conditioned(k))
+	const counts = Arr.flatMap(skipped, (k) => (k.values.kind === "closed" ? [k.values.count] : []))
+	const led = Arr.some(scanned.keys.slice(0, 1), (k) =>
+		Arr.some(conditions, (c) => c.operator === "=" && searchedBy(k, c))
+	)
+	return scanned.method === "btree" && led && counts.length === skipped.length
+		? Arr.reduce(counts, 1, (product, count) => product * count)
+		: 1
+}
+
+/** A scan whose statement's conditions the judgment does not state: one descent a loop (skipDescents). */
+export const unstatedDescents = (): number => 1
+
+/**
+ * Why a scan of `index` descended into it more often than `allowed` times a loop (skipDescents), as a B-tree skip scan
+ * over a column the probe leaves unbound does; none for a scan within them.
+ */
+const extraDescents = (scan: PlanNode, index: string, allowed: number): Option.Option<string> => {
 	const loops = Math.max(1, scan.actualLoops)
-	return Option.isSome(scan.indexSearches) && scan.indexSearches.value > loops
+	return Option.isSome(scan.indexSearches) && scan.indexSearches.value > loops * allowed
 		? Option.some(
-				loops === 1
-					? `${scan.indexSearches.value} descents of ${index}`
-					: `${scan.indexSearches.value} descents of ${index} over ${loops} loops`
+				`${scan.indexSearches.value} descents of ${index}${loops === 1 ? "" : ` over ${loops} loops`}${allowed === 1 ? "" : `, past the ${allowed} a loop its skipped closed keys allow`}`
 			)
 		: Option.none()
 }
@@ -940,9 +1028,10 @@ const claimProblem = (
 /**
  * The verdict on one scan of a stored relation (see judgeServing), `planned` the indexes the installation planned, by
  * name, `facts` every planned index's facts, `fixes` whether its statement fixes a column, so the scan needs an index
- * condition, `claimOf` what the scan of the index PostgreSQL chose is held to (Claim), and `bounded` what bounds its
- * read: a scan of a planned index, held to its claim, in one descent per loop and, bounded by its own buffers, within
- * the bound of its result; swept when it reads past them; or not served, and why. Both judges read every scan through
+ * condition, `claimOf` what the scan of the index PostgreSQL chose is held to (Claim), `descentsOf` the descents a loop
+ * of a scan of an index of given facts may make (skipDescents), and `bounded` what bounds its read: a scan of a planned
+ * index, held to its claim, within its descents per loop and, bounded by its own buffers, within the bound of its
+ * result; swept when it reads past them; or not served, and why. Both judges read every scan through
  * it: this file's probe of a request (verdictOf), and world-serving.ts's every scan of a world function's statement.
  */
 export const judgeScan = (
@@ -951,6 +1040,7 @@ export const judgeScan = (
 	facts: ReadonlyMap<string, IndexFacts>,
 	fixes: boolean,
 	claimOf: (index: PlannedIndex) => Claim,
+	descentsOf: (scanned: IndexFacts) => number,
 	bounded: BoundedBy
 ): Verdict => {
 	const read = plannedScan(scan, planned, fixes)
@@ -967,7 +1057,8 @@ export const judgeScan = (
 	const sweep =
 		(past: Past) =>
 		(why: string): { readonly past: Past; readonly why: string } => ({ past, why })
-	const swept = Option.orElse(Option.map(extraDescents(scan, index), sweep("descents")), () =>
+	const descents = extraDescents(scan, index, descentsOf(scanned))
+	const swept = Option.orElse(Option.map(descents, sweep("descents")), () =>
 		bounded === "scan"
 			? Option.map(overBound(scan, index, scanned), sweep("buffers"))
 			: Option.none()
@@ -975,7 +1066,17 @@ export const judgeScan = (
 	const touched = scanReads(scan, scanned).touched
 	return Option.isSome(swept)
 		? { kind: "swept", through, touched, ...swept.value }
-		: { kind: "served", through, touched }
+		: {
+				kind: "served",
+				through,
+				touched,
+				descended: Option.exists(
+					scan.indexSearches,
+					(searches) => searches > Math.max(1, scan.actualLoops)
+				)
+					? "by a skip scan"
+					: "once a loop"
+			}
 }
 
 /**
@@ -1008,6 +1109,7 @@ const verdictOf = (
 			claimed(index.index.name)
 				? { kind: "stated", conditions: probe.conditions }
 				: { kind: "read" },
+		(scanned) => skipDescents(scanned, probe.conditions),
 		"scan"
 	)
 	return verdict.kind !== "unserved" &&
@@ -1118,6 +1220,7 @@ export type ServingFeature =
 	| `swept through another index, awaiting upstream/${UpstreamNote}`
 	| "swept through another B-tree in no more buffers than its own index alone"
 	| "swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes"
+	| "read by a skip scan over closed keys after a fixed lead"
 	| "a GiST index serving a B-tree request"
 	| "a created index needed"
 	| "a relation its key bounds below the load, not judged"
@@ -1164,7 +1267,14 @@ const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.O
  *
  * - with an index condition, when the probe fixes a column (every shape but an order and the nearest vectors);
  * - in one descent of the index (Index Searches at most 1), so a B-tree skip scan over a leading column the request
- *   does not fix does not serve it, as the engine states;
+ *   does not fix does not serve it, as the engine states; but for the skip scan of an index the engine places a request
+ *   in led by a column it fixes (physical/indexes/engine.ts, an equality lookup's index led by a requested column of
+ *   many values that holds every requested column), whose keys before the last the probe conditions may hold others
+ *   the probe leaves unbound: where each of those is closed, a boolean or a closed id, PostgreSQL 19 reads the probe by
+ *   a skip scan in at most one descent per combination of the values it steps them through, their types' and never
+ *   their rows' (Table.closed, skipDescents), each within the rows of the fixed lead; a skipped column of any other type
+ *   is no such bound. Measured on PostgreSQL 19, a skip over a boolean takes 2 descents, over a smallint holding 3
+ *   values 4, the last finding none past them, and 5 where it holds nulls too;
  * - through the request's own index, and through any index the needed check below reads, with every condition the
  *   probe states on its keys the index's: the index searches each, holding its field under an operator family that
  *   searches by the condition's operator (pg_amop's search operators, PostgreSQL's own catalog), so no filter rechecks
@@ -1178,7 +1288,7 @@ const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.O
  * - with no sort above it, when the probe asks for an order;
  * - touching at most the buffers its result requires (shared hit and read, PostgreSQL's own count): the result's share of
  *   the index's pages, its entries (the rows it returned and those its filter rechecked) over the index's entries times
- *   its pages, rounded up; a heap page per entry an Index Scan fetched, or per Heap Fetch of an Index Only Scan; and the
+ *   its pages, rounded up; a heap page per entry an Index Scan fetched, or per Heap Fetch of an Index Only Scan; and each
  *   descent, the index's inner pages (two at this volume), the leaf its entries straddle into and the visibility map
  *   page, 4 for a B-tree and 8 for a GiST index, whose sibling keys overlap, so its probe may follow two paths down. The
  *   bound counts what the result requires and nothing the scan read beyond it, so a scan that sweeps the index, or a
@@ -1190,8 +1300,8 @@ const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.O
  *   neighbourhood of its graph whatever the result.
  *
  * Another planned index PostgreSQL reads a probe through, by its cost over the request's own, is not held to the claim
- * but to what it read: one descent, no sort, and the buffers its result requires, the rows its filter rechecks among its
- * entries. What its filter removes is the cost model's choice and the data's draw, not the plan: law probes on Event's
+ * but to what it read: one descent, or a skip scan's as above, no sort, and the buffers its result requires, the rows
+ * its filter rechecks among its entries. What its filter removes is the cost model's choice and the data's draw, not the plan: law probes on Event's
  * (tenant, account) and (tenant, account, id) cost 8.31 through the primary key on id and through the index on (tenant,
  * account) alike, both estimating one row, and PostgreSQL reads the second through the index on (tenant, account),
  * which finds the 5 rows of its sampled pair and rechecks id on them. No plan the engine makes avoids it: the index on
@@ -1288,10 +1398,10 @@ export const judgeServing = (
 		}
 		/** The fields of `relation` among `fields` that hold many values, so that fixing one bounds a scan. */
 		const manyOf = (relation: string, fields: ReadonlyArray<string>): ReadonlyArray<string> => {
-			const few = tableFor(relation).few
+			const closed = tableFor(relation).closed
 			return Arr.filter(
 				fields,
-				(field) => !few.has(installed.installation.names.column(relation, field))
+				(field) => !closed.has(installed.installation.names.column(relation, field))
 			)
 		}
 		/**
@@ -1368,8 +1478,14 @@ export const judgeServing = (
 						probe,
 						swept.past
 					)
+				const descended = (v: Extract<Verdict, { readonly kind: "served" }>) => {
+					if (v.descended === "by a skip scan") {
+						note("read by a skip scan over closed keys after a fixed lead")
+					}
+				}
 				if (verdict.through.index.name === host.index.name) {
 					if (verdict.kind === "served") {
+						descended(verdict)
 						return Result.succeed(Option.none<Residue>())
 					}
 					const residue = pricing(verdict)
@@ -1390,6 +1506,7 @@ export const judgeServing = (
 				if (claim.kind !== "served") {
 					return Result.fail(`${probe.label}, planned on ${host.index.name}, alone: ${claim.why}`)
 				}
+				descended(claim)
 				if (verdict.kind === "served") {
 					return Result.succeed(Option.none<Residue>())
 				}

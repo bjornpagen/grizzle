@@ -86,10 +86,12 @@ import { upTo } from "#test/support/up-to.ts"
  *   about once in 200 cases; a span predicate on a field of a two-field key and a span, beside a take seek whose
  *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
  *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
- *   needed still, since the B-tree does not search the span by overlap (serving.ts); and a span predicate on a text
+ *   needed still, since the B-tree does not search the span by overlap (serving.ts); a span predicate on a text
  *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
  *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
- *   (serving.ts).
+ *   (serving.ts); and a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
+ *   boolean it leaves unbound before its other column, which PostgreSQL reads by a skip scan over the boolean in two
+ *   descents (serving.ts).
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
  *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
@@ -2059,6 +2061,336 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"overlap probe served",
 			"served by a created index",
 			"swept through a GiST index led by multibyte text, which btree_gist prices by its leading bytes",
+			"a created index needed"
+		]
+	},
+	{
+		note: "a join key on Rel1x0's (Bool, tick0) planned on the B-tree a range creates on (tick0, field1, Bool), led by tick0, whose field1 the join key leaves unbound is a boolean: PostgreSQL reads the join key by a skip scan over field1 in 2 descents within tick0's rows, as many as a boolean holds",
+		sketch: {
+			population: "forms",
+			swarm: {
+				"bind fresh": 1,
+				"bind join": 1,
+				"bind existential": 1,
+				"bind literal": 1,
+				"bind param": 3,
+				"bind parent": 1,
+				where: 3,
+				"compare literal": 1,
+				"compare var": 1,
+				"compare param": 3,
+				aggregate: 2,
+				union: 3,
+				take: 3,
+				"attached take": 1,
+				ordered: 1,
+				attach: 1,
+				nested: 1,
+				roster: 1,
+				dense: 3,
+				"candidate key": 1,
+				probe: 3,
+				spelled: 1,
+				"full head": 1,
+				"stated delivery": 1,
+				"plain child": 1,
+				"keyed child": 1,
+				"reflexive child": 1,
+				"arm child": 1,
+				"handle field": 1,
+				import: 3,
+				"import bound": 3,
+				interior: 3,
+				named: 3,
+				"computed head": 3,
+				"computed group key": 3,
+				between: 3,
+				"in set": 3,
+				connective: 3,
+				"relation param": 3,
+				recursive: 3,
+				"contract param": 3,
+				"typmod param": 3,
+				allen: 3,
+				"point in": 3,
+				"literal head": 3
+			},
+			perturbation: { settings: [], multiplier: 1 },
+			ambient: { path: { kind: "default" }, settings: [] },
+			restorage: { shift: 0, respell: 0 },
+			roster: 0,
+			span: 0,
+			relations: [
+				{ name: 0, fields: [{ name: 0, kind: 7282, key: 0 }], candidate: 0, facts: [] },
+				{
+					name: 0,
+					fields: [
+						{ name: 0, kind: 0, key: 0 },
+						{ name: 0, kind: 0, key: 0 },
+						{ name: 0, kind: 24576, key: 32768 },
+						{ name: 0, kind: 16384, key: 0 }
+					],
+					candidate: 0,
+					facts: []
+				},
+				{ name: 0, fields: [{ name: 0, kind: 0, key: 0 }], candidate: 0, facts: [] }
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 21846,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							},
+							{
+								source: 49152,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							}
+						],
+						where: [
+							{ left: 21846, op: 0, pick: 0, value: { cls: 0, sp: 0 } },
+							{ left: 0, op: 0, pick: 0, value: { cls: 0, sp: 0 } }
+						],
+						between: [
+							{
+								left: 0,
+								low: { pick: 0, value: { cls: 0, sp: 0 } },
+								high: { pick: 0, value: { cls: 0, sp: 0 } }
+							}
+						],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [
+							{ kind: 0, args: [{ left: 0, op: 0, pick: 0, value: { cls: 0, sp: 0 } }] }
+						],
+						computed: [],
+						negation: { source: 0, picks: [0, 0] },
+						head: {
+							vars: [],
+							names: [0, 0, 0, 0, 0, 0],
+							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 0,
+									derived: 0,
+									attached: 0,
+									binds: [
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 0, picks: [0, 0] },
+							head: {
+								vars: [],
+								names: [0, 0, 0, 0, 0, 0],
+								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+							}
+						}
+					},
+					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
+					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
+					importable: 0,
+					bindImport: 0,
+					named: 0,
+					relationParam: { relation: 0, facts: [] },
+					closure: { relation: 0, pair: 0, name: 0 },
+					attachments: [
+						{
+							name: 0,
+							link: 0,
+							handle: 0,
+							delivery: 0,
+							rule: {
+								matches: [
+									{
+										source: 0,
+										derived: 0,
+										attached: 0,
+										binds: [
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+										]
+									},
+									{
+										source: 21846,
+										derived: 0,
+										attached: 0,
+										binds: [
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+											{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+										]
+									}
+								],
+								where: [],
+								between: [],
+								inSet: [],
+								allen: [],
+								pointIn: [],
+								connective: [],
+								computed: [],
+								negation: { source: 0, picks: [0, 0] },
+								head: {
+									vars: [],
+									names: [0, 0, 0, 0, 0, 0],
+									folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+								},
+								interior: {
+									matches: [
+										{
+											source: 0,
+											derived: 0,
+											attached: 0,
+											binds: [
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+											]
+										}
+									],
+									where: [],
+									negation: { source: 0, picks: [0, 0] },
+									head: {
+										vars: [],
+										names: [0, 0, 0, 0, 0, 0],
+										folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+									}
+								}
+							},
+							take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+							nested: {
+								name: 0,
+								link: 0,
+								handle: 0,
+								delivery: 0,
+								rule: {
+									matches: [
+										{
+											source: 0,
+											derived: 0,
+											attached: 0,
+											binds: [
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+											]
+										}
+									],
+									where: [],
+									between: [],
+									inSet: [],
+									allen: [],
+									pointIn: [],
+									connective: [],
+									computed: [],
+									negation: { source: 0, picks: [0, 0] },
+									head: {
+										vars: [],
+										names: [0, 0, 0, 0, 0, 0],
+										folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+									},
+									interior: {
+										matches: [
+											{
+												source: 0,
+												derived: 0,
+												attached: 0,
+												binds: [
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+												]
+											}
+										],
+										where: [],
+										negation: { source: 0, picks: [0, 0] },
+										head: {
+											vars: [],
+											names: [0, 0, 0, 0, 0, 0],
+											folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+										}
+									}
+								},
+								take: { rotate: 0, dirs: [0, 0, 0], size: 0 }
+							}
+						}
+					],
+					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+					probe: { kind: 0, pick: 0 },
+					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
+				}
+			],
+			planted: {
+				names: [
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+				],
+				value: { cls: 0, sp: 0 },
+				handle: 0,
+				padding: 0,
+				side: { kind: 0, values: [0, 0, 0] }
+			}
+		},
+		draws:
+			"0.2.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.2.0.0.1.2.0.1.1.2.0.0.0.0.0.0.3.0.0.0.0.1.0.1.0.0.0",
+		reaches: [
+			"a workload installed",
+			"equality probe served",
+			"range probe served",
+			"served by a created index",
+			"read by a skip scan over closed keys after a fixed lead",
 			"a created index needed"
 		]
 	}

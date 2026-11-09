@@ -82,6 +82,7 @@ import {
 	plannedFacts,
 	scanReads,
 	touchedBy,
+	unstatedDescents,
 	type VolumeLoad,
 	withoutOthers
 } from "#test/pg/physical/serving.ts"
@@ -693,7 +694,15 @@ const readingOf = (
 			continue
 		}
 		scans.push({ relation, loops: n.actualLoops, entries: entriesOfScan(n) })
-		const read = judgeScan(n, cx.planned, cx.facts, true, () => ({ kind: "read" }), bounded)
+		const read = judgeScan(
+			n,
+			cx.planned,
+			cx.facts,
+			true,
+			() => ({ kind: "read" }),
+			unstatedDescents,
+			bounded
+		)
 		if (read.kind === "unserved") {
 			problems.push(`${label}: ${relation}: ${read.why}`)
 			continue
@@ -708,6 +717,7 @@ const readingOf = (
 				cx.facts,
 				true,
 				() => ({ kind: "unstated" }),
+				unstatedDescents,
 				bounded
 			)
 			if (claimed.kind === "unserved") {
@@ -900,8 +910,15 @@ const resolveClaims = (
 					Arr.every(
 						scans,
 						(n) =>
-							judgeScan(n, cx.planned, cx.facts, true, () => ({ kind: "unstated" }), bounded)
-								.kind === "served"
+							judgeScan(
+								n,
+								cx.planned,
+								cx.facts,
+								true,
+								() => ({ kind: "unstated" }),
+								unstatedDescents,
+								bounded
+							).kind === "served"
 					)
 				if (served) {
 					break
