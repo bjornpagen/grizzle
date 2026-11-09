@@ -1,3 +1,4 @@
+import { Array as Arr } from "effect"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
@@ -118,7 +119,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const { ir } = frontend
 	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
 	const ownsFamily = (relation: string): boolean =>
-		frontend.laws.families.some((f) => f.owner.name === relation)
+		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
 	const w: WriteContext = writeContext(ir.dag, {
 		names: options.names,
 		reads: options.reads,
@@ -156,7 +157,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	/** 1. The state snapshots of the relations whose deltas a read-back names, each read as the role reads it: through
 	 * the role's view of a whole entry, or, for a relation it writes through a query entry, its table under the role's
 	 * row security, which shows exactly the entry's rows, so the comparison is the entry's own change. */
-	const snapshots = frontend.deltas.flatMap((named) => {
+	const snapshots = Arr.flatMap(frontend.deltas, (named) => {
 		if (named.kind === "empty") {
 			return []
 		}
@@ -186,7 +187,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			)
 		}
 		/** Each action with its input, every member carried before any action's statement. */
-		const placed = actions.map((action) => {
+		const placed = Arr.map(actions, (action) => {
 			const { info } = action
 			const reads = info.reads
 			if (reads.kind === "described") {
@@ -197,8 +198,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				 * base type with the typmod and no contract or refinement domain (`CastInto` "compare"):
 				 * a member value outside the field's domain then matches no fact, as it does when the deletion reads
 				 * the member directly, instead of raising the domain's check at the fill. */
-				const fields = keyFirst(info.relation).filter((f) =>
-					info.heading.some((c) => c.name === f.name)
+				const fields = Arr.filter(keyFirst(info.relation), (f) =>
+					Arr.some(info.heading, (c) => c.name === f.name)
 				)
 				const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
 				const carrier = supply.next(heading, undefined)
@@ -269,7 +270,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			}
 			switch (action.op) {
 				case "delete": {
-					const additions = placed.flatMap((b) =>
+					const additions = Arr.flatMap(placed, (b) =>
 						b.action.relation === action.relation && completeAddition(b.action) ? [b.input] : []
 					)
 					statement(buildExactDelete(w, { relation, input, except: additions }))

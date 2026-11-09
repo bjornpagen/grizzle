@@ -51,7 +51,7 @@ const bound = Effect.fn("bound")(function* (name: string) {
 	if (b.kind !== "bound") {
 		return assert.fail(`${name}: ${b.kind}`)
 	}
-	const artifact = program.artifacts.optimized
+	const artifact = program.artifact
 	return Arr.map(artifact.statements, (statement) => succeeded(b.values(statement)))
 })
 

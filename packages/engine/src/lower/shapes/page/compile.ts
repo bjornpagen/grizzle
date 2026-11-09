@@ -212,7 +212,7 @@ export interface PageTemplate {
 	readonly artifact: PageArtifact
 }
 
-interface PageCompileInput {
+export interface PageCompileInput {
 	/** The template's checked query, which its conservative artifact lowers (program/compile.ts programs.checked). */
 	readonly checked: LogicalQuery
 	/**
@@ -337,7 +337,7 @@ const filtered = (
 		: select(keyedSet(targets, [input.item], where, "a page group's filtered rows"))
 }
 
-const conservativeKit = <F extends PageFill>(input: PageCompileInput): Kit<F> => {
+export const conservativeKit = <F extends PageFill>(input: PageCompileInput): Kit<F> => {
 	const options: ConservativeOptions = {
 		names: input.names,
 		params: input.checked.params,
@@ -407,7 +407,7 @@ const optimizedKit = <F extends PageFill>(input: PageCompileInput, facts: ShapeF
  * The page shape of an artifact's DAG: its root an ordered result over D, or over a heterogeneous union delivered per
  * heading group.
  */
-const shapeOf = <F extends PageFill>(
+export const pageShapeOf = <F extends PageFill>(
 	delivery: Delivery<PageParamSlot<F>>,
 	root: NodeOf<"OrderedResult">
 ): PageShape => {
@@ -634,14 +634,14 @@ interface ArtifactStatements {
  * Every program of one artifact in one mode, each lowered with a fresh kit, in the page's order: a plain request's
  * statements hold size fills alone, an anchored request's and a probe's boundaries too.
  */
-const artifactStatements = (
+export const artifactStatements = (
 	kitFor: <F extends PageFill>() => Kit<F>,
 	root: NodeOf<"OrderedResult">,
 	order: CompletedOrder,
 	comparators: ReadonlyArray<PageComparator>
 ): ArtifactStatements => {
 	const shapeIn = <F extends PageFill>(kit: Kit<F>): PageShape => ({
-		...shapeOf(kit.delivery, root),
+		...pageShapeOf(kit.delivery, root),
 		order
 	})
 	const plainOf = (variant: PlainVariant): StatementRoots<PageDelivered<SizeFill>> => {
@@ -681,7 +681,7 @@ const pageForms = <F extends PageFill>(
 	roots: StatementRoots<PageDelivered<F>>
 ): StatementRoots<PageStatement<F>> => mapTree(roots, pageForm)
 
-const assemble = (statements: ArtifactStatements, shape: PageShape): PageArtifact => {
+export const assemble = (statements: ArtifactStatements, shape: PageShape): PageArtifact => {
 	const request = <V extends PageVariant>(variant: V): PageRequestProgram<V> => {
 		const flags: PageRequestFlags[V] = requestFlags[variant]
 		const delivery: PageRequestDelivery =
@@ -817,8 +817,8 @@ const unionPageOrder = (
  *   an attachment into its rows statement (R36), whose array would be evaluated for the lookahead row as well.
  *
  * The optimized artifact lowers the rewritten query under its duplicate-elimination placement and CTE plan through the
- * shape dispatch (../index.ts); the page oracle's conservative one (conservativePage) lowers the checked query through
- * the baseline plug-ins, which deduplicate at every set boundary. Both deliver D as a set before the bound: the optimized rows are
+ * shape dispatch (../index.ts); the page oracle's conservative one (test/support/conservative.ts conservativePage)
+ * lowers the checked query through the baseline plug-ins, which deduplicate at every set boundary. Both deliver D as a set before the bound: the optimized rows are
  * deduplicated unless the facts prove them unique, so a retained-key page is a plain SELECT with no Unique node, and
  * no hidden key manufactures distinct answers (R17). A probe reads D under EXISTS, which is
  * duplicate-insensitive, so the optimized probe drops D's outermost DISTINCT.
@@ -867,8 +867,8 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			derivedDefinition: false,
 			certify: discardCertificates
 		})
-		const conservativeShape = shapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
-		const optimizedShape = shapeOf(optimizedKit<PageFill>(input, facts).delivery, optimizedRoot)
+		const conservativeShape = pageShapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
+		const optimizedShape = pageShapeOf(optimizedKit<PageFill>(input, facts).delivery, optimizedRoot)
 		/** The checker's completion begins with the stated keys (check/checker.ts complete). */
 		const statedPrefix = conservativeShape.order.keys.slice(0, input.stated.keys.length)
 		if (
@@ -912,35 +912,6 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 				order
 			})
 		}
-	})
-
-/**
- * The conservative lowering of a page compiled from `input` (compilePage), its statements lowered over the template's
- * checked query with no evidence, in `page`'s order and comparators: the page oracle's baseline, which no page compiles.
- */
-export const conservativePage = (
-	input: PageCompileInput,
-	page: PageTemplate
-): Result.Result<PageArtifact, CompileError> =>
-	catchRefusal(() => {
-		const checkedRoot = input.checked.dag.roots[0]
-		if (checkedRoot.kind !== "OrderedResult") {
-			return refuse(
-				"MalformedDescription",
-				"page compiler",
-				"a page over an Ordered query, its root an ordered result"
-			)
-		}
-		const shape = shapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
-		return assemble(
-			artifactStatements(
-				<F extends PageFill>(): Kit<F> => conservativeKit<F>(input),
-				checkedRoot,
-				page.order,
-				page.comparators
-			),
-			{ ...shape, order: page.order }
-		)
 	})
 
 /**

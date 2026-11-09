@@ -217,7 +217,7 @@ describe("a nested write through the program", () => {
 								"a nested write reads nothing first: every group it writes is its own new owner's"
 							)
 							const { chunks } = bound.flights
-							const statements = program.artifacts.optimized.statements
+							const statements = program.artifact.statements
 							const family = Arr.filter(statements, (s) => s.step.kind === "family")
 							const owner = defined(
 								Arr.findFirst(
@@ -450,7 +450,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							const { chunks } = bound.flights
 							const lineStep = Option.getOrUndefined(
 								Arr.findFirst(
-									setShaped.artifacts.optimized.statements,
+									setShaped.artifact.statements,
 									(s) =>
 										s.step.kind === "family" &&
 										s.step.relation === "Line" &&
@@ -546,7 +546,7 @@ describe("a nested tree at depth and width", () => {
 							const step = defined(
 								Option.getOrUndefined(
 									Arr.findFirst(
-										treeShaped.artifacts.optimized.statements,
+										treeShaped.artifact.statements,
 										(s) => s.step.kind === "family" && s.step.relation === "Node"
 									)
 								),

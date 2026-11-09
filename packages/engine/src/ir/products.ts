@@ -319,8 +319,6 @@ export interface WitnessDecoder {
 }
 
 export interface WriteProgram extends ProgramArtifacts {
-	/** The conservative realization's statements, the write oracle's baseline. */
-	readonly conservative: ReadonlyArray<StatementSpec>
 	readonly requirements: TemplateRequirements
 	readonly ir: WriteIR<unknown>
 	readonly strata: ReadonlyArray<ReadonlyArray<StatementSpec>>

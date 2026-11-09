@@ -17,15 +17,12 @@ import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/i
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight, statementOutput } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
-import {
-	compilePage,
-	conservativePage,
-	type PageArtifact
-} from "#compiler/lower/shapes/page/compile.ts"
+import { compilePage, type PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
+import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"

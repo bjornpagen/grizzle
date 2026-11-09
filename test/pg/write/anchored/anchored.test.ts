@@ -268,7 +268,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								keys: Arr.map(keys, (_, i) => ({ key: digestOfItem(i + 2) }))
 							}
 							const program = programs[shape]
-							const statements = program.artifacts.optimized.statements
+							const statements = program.artifact.statements
 							/** Each placeholder's text from the drawn parameters, a relation's normalized once. */
 							const declared = { params: program.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>

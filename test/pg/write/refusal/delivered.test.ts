@@ -5,10 +5,11 @@ import { array, element, type Gen, int, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { compiledWrite } from "#adapter/apply/compile.ts"
 import { runApplication } from "#adapter/apply/index.ts"
 import { openDbContext } from "#adapter/db/open.ts"
+import { toResult } from "#adapter/engine.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -24,6 +25,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, failureOf, succeeded } from "#test/support/assert.ts"
+import { conservativeChange } from "#test/support/conservative.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -343,10 +345,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									return db.apply(changes, {})
 								}
 								const entry = succeeded(
-									compiledWrite(opened, changes, opened.claims),
-									"the ChangeSet compiles"
+									Result.flatMap(compiledWrite(opened, changes, opened.claims), (compiled) =>
+										toResult(conservativeChange(compiled, opened.artifacts.reads))
+									),
+									"the ChangeSet's conservative realization compiles"
 								)
-								return runApplication(opened, entry, {}, artifact, changes.reads)
+								return runApplication(opened, entry, {}, changes.reads)
 							}
 							for (const constraints of passes) {
 								const drops = yield* sql(

@@ -176,7 +176,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
 	}
 	const program = entry.program
-	const artifact = program.artifacts.optimized
+	const artifact = program.artifact
 	const skip = inputs.bound.skip(artifact)
 	/**
 	 * Every statement of the artifact as the application sends it, the placeholder texts of each of its executions, a

@@ -1,6 +1,5 @@
 import { Effect, Result, type Scope } from "effect"
 import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
-import type { ArtifactKind } from "#adapter/apply/readback.ts"
 import {
 	type BoundReads,
 	boundReads,
@@ -50,11 +49,10 @@ export { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
  * the CompileError itself; its handle's apply(params) runs step 2 with each call's parameters and the ChangeSet value's
  * own members.
  *
- * The outcome's reads are the ChangeSet's own reads decoder's record (write/changeset/value.ts), bound once per
- * artifact to the layout of the read-backs' Row (readback.ts); a binding it refuses fails the apply as a ChangeSet
- * that does not compile.
+ * The outcome's reads are the ChangeSet's own reads decoder's record (write/changeset/value.ts), bound once to the
+ * layout of the read-backs' Row (readback.ts); a binding it refuses fails the apply as a ChangeSet that does not
+ * compile.
  */
-export type { ArtifactKind } from "#adapter/apply/readback.ts"
 export { compileFailure, hostInputs, valuesFailure } from "#adapter/apply/run.ts"
 
 /**
@@ -69,8 +67,8 @@ export interface CompiledChangeValue<R> {
 }
 
 /**
- * One application of a compiled ChangeSet value whose reads decoder is bound (steps 2 and 3 of the header), running
- * artifact `kind`.
+ * One application of a compiled ChangeSet value whose reads decoder is bound (steps 2 and 3 of the header), running its
+ * program's artifact.
  *
  * Every application the host does not refuse runs its transaction, one of no statement included (an empty ChangeSet,
  * or one whose every member holds no fact): its frame alone still meets the fence and the snapshot check (run.ts
@@ -81,7 +79,6 @@ const applyBound = <R>(
 	ctx: DbContext,
 	entry: CompiledChange,
 	params: ParamMap,
-	kind: ArtifactKind,
 	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
@@ -92,27 +89,27 @@ const applyBound = <R>(
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbWriteFrame(ctx), entry, kind, inputs, reads)
+				(session) => runWrite(session, dbWriteFrame(ctx), entry, inputs, reads)
 			)
 		)
 	})
 
 /**
  * One application of a compiled ChangeSet value (steps 2 and 3 of the header), its read-backs decoded by `decoder`,
- * running artifact `kind`: the optimized one, or the conservative realization for the write oracle.
+ * running its program's artifact: the optimized one a compilation builds, or the conservative realization the write
+ * oracle builds in its place.
  */
 export const runApplication = <R>(
 	ctx: DbContext,
 	entry: CompiledChange,
 	params: ParamMap,
-	kind: ArtifactKind,
 	decoder: RowDecoder<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.suspend(() => {
-		const reads = boundReads(entry, kind, decoder)
+		const reads = boundReads(entry, decoder)
 		return Result.isFailure(reads)
 			? compileFailure(reads.failure)
-			: applyBound(ctx, entry, params, kind, reads.success)
+			: applyBound(ctx, entry, params, reads.success)
 	})
 
 /** The compiled program of a ChangeSet for an apply, or the apply's failure before any SQL. */
@@ -137,9 +134,7 @@ export const apply = <R>(
 	decoder: RowDecoder<R>,
 	params: ParamMap
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
-	Effect.flatMap(applicable(ctx, changes), (entry) =>
-		runApplication(ctx, entry, params, "optimized", decoder)
-	)
+	Effect.flatMap(applicable(ctx, changes), (entry) => runApplication(ctx, entry, params, decoder))
 
 /**
  * A ChangeSet compiled once for a role and the contexts `claims` holds a fact of, ahead of the applies that run it: its
@@ -159,7 +154,7 @@ export const compileChangeForm = <R>(
 	claims: ReadonlySet<string>
 ): Result.Result<ChangeForm<R>, CompileError> =>
 	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
-		Result.map(boundReads(compiled, "optimized", decoder), (bound): ChangeForm<R> => ({
+		Result.map(boundReads(compiled, decoder), (bound): ChangeForm<R> => ({
 			entry: compiled,
 			bound
 		}))
@@ -180,9 +175,7 @@ export const changeHandle = <R>(
 	Object.freeze({
 		schema: ctx.schema.value,
 		apply: (params: ParamMap) =>
-			whileLive(live, applyReleased, () =>
-				applyBound(ctx, form.entry, params, "optimized", form.bound)
-			)
+			whileLive(live, applyReleased, () => applyBound(ctx, form.entry, params, form.bound))
 	})
 
 /**

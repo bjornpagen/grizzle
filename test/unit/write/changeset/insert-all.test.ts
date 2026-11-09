@@ -29,6 +29,7 @@ import {
 } from "#test/support/agreement/changeset-schema.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { conservativeWrite } from "#test/support/conservative.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -234,8 +235,11 @@ const planOf = (base: Base, change: ChangeSetValue) => {
 	return compiled.ok
 		? {
 				kind: "plan" as const,
-				optimized: Arr.map(compiled.value.artifacts.optimized.statements, (s) => s.spec.sql),
-				conservative: Arr.map(compiled.value.artifacts.conservative.statements, (s) => s.spec.sql),
+				optimized: Arr.map(compiled.value.artifact.statements, (s) => s.spec.sql),
+				conservative: Arr.map(
+					succeeded(conservativeWrite(compiled.value, options)).artifact.statements,
+					(s) => s.spec.sql
+				),
 				params: Arr.map(compiled.value.params, (p) => p.name)
 			}
 		: { kind: "refused" as const, reason: compiled.error.reason._tag }

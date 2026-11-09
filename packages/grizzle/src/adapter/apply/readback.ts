@@ -11,8 +11,7 @@ import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/com
  * Delivering a ChangeSet's read-backs.
  *
  * A read-back is a query over the post-change state and the change's own deltas, lowered as a program of statements by
- * the optimized lowering in the optimized artifact and the conservative one in the conservative artifact
- * (write/readback/lower.ts, write/conservative/realize.ts), and placed after the writes in the WriteProgram's artifact. It
+ * the optimized lowering (write/readback/lower.ts), and placed after the writes in the WriteProgram's artifact. It
  * may attach, order, take and union like any query, so its rows are delivered to the host exactly as a query's are:
  * heading groups merged on the completed order, attachments' child rows grouped under their parents by key. That
  * delivery is the reader's (reader/run.ts programFlight), and a read-back's one flight runs in the applying
@@ -33,8 +32,6 @@ import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/com
  *
  * The rows are held until COMMIT succeeds: nothing a read-back read reaches the caller before.
  */
-export type ArtifactKind = "optimized" | "conservative"
-
 /** One read-back as the reader runs it. */
 interface ReadBackRun {
 	readonly name: string
@@ -68,33 +65,18 @@ export const readsRow = (delivered: ReadonlyArray<ReadonlyArray<Row>>): Row => (
 	children: delivered
 })
 
-/** The read-backs of each artifact of a write program, ready to run. */
-export type ReadBacks = { readonly [K in ArtifactKind]: ReadBackRuns }
-
 /**
- * The read-backs of artifact `kind`, ready to run, in the artifact's order: each its delivery's statements as the
- * runtime runs them, with its attachments' delivered heads read from its query.
+ * The read-backs of `program`'s artifact, ready to run, in the artifact's order, under the installation's codes
+ * `codes`: each its delivery's statements as the runtime runs them, with its attachments' delivered heads read from its
+ * query. Built once, with the program (apply/compile.ts writeEntry), so every application runs them as they are.
  */
-const artifactReadBacks = (
-	program: CompiledWrite,
-	kind: ArtifactKind,
-	codes: Codebook
-): ReadBackRuns => {
-	const each = Arr.map(program.artifacts[kind].readBacks, (delivery): ReadBackRun => ({
+export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBackRuns => {
+	const each = Arr.map(program.artifact.readBacks, (delivery): ReadBackRun => ({
 		name: delivery.name,
 		program: readProgram(delivery.run, attachmentHeads(delivery.query), codes)
 	}))
 	return { runs: each, layout: readsLayout(each) }
 }
-
-/**
- * The read-backs of both artifacts of `program`, under the installation's codes `codes`, built once, with the program
- * (apply/compile.ts writeEntry), so every application runs them as they are.
- */
-export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBacks => ({
-	optimized: artifactReadBacks(program, "optimized", codes),
-	conservative: artifactReadBacks(program, "conservative", codes)
-})
 
 const delivering = (row: Row): Row => row
 

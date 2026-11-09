@@ -1179,7 +1179,7 @@ const precheck = (
 		if (bound.kind !== "bound") {
 			return assert.fail(`${label}: the fact is refused before any SQL`)
 		}
-		const statements = program.artifacts.optimized.statements
+		const statements = program.artifact.statements
 		const at = Arr.findFirstIndex(statements, (st) => st.step.kind === "check")
 		const check = defined(Option.getOrUndefined(at), `${label}: no check statement`)
 		const statement = defined(statements[check], `${label}: the check statement`)

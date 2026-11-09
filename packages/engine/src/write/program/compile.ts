@@ -31,7 +31,6 @@ import { flight, mapTree, type WriteParamSlot } from "#compiler/lower/conservati
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import {
-	deliveredAsOptimized,
 	type FusedStatement,
 	type OptimizedDeliveryProgram,
 	type OptimizedStatement,
@@ -59,10 +58,6 @@ import {
 	memberRows
 } from "#compiler/write/carriers/carriers.ts"
 
-import {
-	type ConservativeWrite,
-	realizeConservative
-} from "#compiler/write/conservative/realize.ts"
 import {
 	buildAnchoredDelete,
 	buildDisplacingDelete,
@@ -190,7 +185,10 @@ export interface CompiledWrite extends WriteProgram {
 	readonly refills: ReadonlyArray<RefillProgram>
 	readonly choices: ReadonlyArray<PutChoice>
 	readonly plan: WritePlan
-	readonly artifacts: { readonly optimized: WriteArtifact; readonly conservative: WriteArtifact }
+	/** The optimized artifact, the one an application runs. */
+	readonly artifact: WriteArtifact
+	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
+	readonly placements: ReadonlyArray<FamilyPlacement>
 	/** The parameters the members and read-backs declare, and the enumerated member slots binding fills. */
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly slots: ReadonlyArray<SlotGroup>
@@ -221,7 +219,10 @@ type AbortKind =
  * key its put targets, or at a unique object besides it, which compares every field of that key (`uniqueBesideKey`),
  * so it is the same concurrent commit; and a probed insert's, at every unique object besides its arbiter, which after
  * the probe only an occupant its snapshot did not see raises. */
-const uniqueAbortsOf = (relation: WrittenRelation, kind: AbortKind): ReadonlyArray<UniqueAbort> => {
+export const uniqueAbortsOf = (
+	relation: WrittenRelation,
+	kind: AbortKind
+): ReadonlyArray<UniqueAbort> => {
 	const aborts = (
 		objects: ReadonlyArray<UniqueObject>,
 		reason: UniqueAbort["reason"]
@@ -260,7 +261,7 @@ const deltaCarrierNames = (plan: WritePlan, relation: string): ReadonlyArray<str
 	return carriers === undefined ? [] : carriersOf(carriers).map((c) => `carrier:${c.name}`)
 }
 
-interface ArtifactBuilder {
+export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
 	 * analysis; its length is the position the next statement placed takes. */
 	readonly statements: Array<PlacedStatement>
@@ -268,11 +269,11 @@ interface ArtifactBuilder {
 	readonly codes: Codebook
 }
 
-const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
+export const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
 
 /** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
  * its node places where the stratum's schedule runs it. */
-type FamilyPlacement =
+export type FamilyPlacement =
 	| {
 			readonly kind: "statement"
 			readonly stratum: number
@@ -546,7 +547,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 /**
  * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it.
  */
-const placeFamily = (
+export const placeFamily = (
 	b: ArtifactBuilder,
 	placements: ReadonlyArray<FamilyPlacement>,
 	stratum: number,
@@ -625,7 +626,7 @@ const placeSpec = (
 }
 
 /** A statement of one form placed at the next position. */
-const place = (
+export const place = (
 	b: ArtifactBuilder,
 	statement: WriteStatement | PutStatement,
 	step: Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" }>,
@@ -686,7 +687,7 @@ const placedRun = (
 /** The statements of the read-back `read`, lowered as `program`, placed after the artifact's statements so far, each
  * naming its read-back and holding the statement it was lowered as, with its whole-relation variant as its large form
  * when the read-back's optimized lowering made a per-execution choice in it. */
-const placeReadBack = (
+export const placeReadBack = (
 	b: ArtifactBuilder,
 	read: ReadBack,
 	program: OptimizedDeliveryProgram<RelationChoice, FusedStatement>,
@@ -725,7 +726,7 @@ const placeReadBack = (
 }
 
 /** The artifact, its carriers analyzed before the statements that join them against stored relations. */
-const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
+export const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
 	withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
@@ -1191,7 +1192,7 @@ const buildWriteOp = (
 }
 
 /** Which of an insert's unique violations abort the apply, by the class it inserts. */
-const insertAborts = (serial: SerialClass): AbortKind =>
+export const insertAborts = (serial: SerialClass): AbortKind =>
 	serial.kind === "generated" ? { kind: "generated", serial } : { kind: "probed" }
 
 /** Which of a write op's unique violations abort the apply (uniqueAbortsOf). */
@@ -1212,96 +1213,9 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 	}
 }
 
-/** The conservative artifact: the conservative realization's steps, every statement after the one before it, each family
- * statement where its stratum's schedule runs it. */
-const conservativeArtifact = (
-	write: ConservativeWrite,
-	codes: Codebook,
-	placements: ReadonlyArray<FamilyPlacement>
-): WriteArtifact => {
-	const b = newBuilder(codes)
-	const after = (): ReadonlyArray<number> =>
-		b.statements.length === 0 ? [] : [b.statements.length - 1]
-	for (const step of write.steps) {
-		const previous = after()
-		switch (step.kind) {
-			case "family":
-				placeFamily(b, placements, step.stratum, step.node, after)
-				break
-			case "readBack":
-				placeReadBack(b, step.read, deliveredAsOptimized(step.program), previous)
-				break
-			case "carrier": {
-				const result = step.statement.result
-				place(
-					b,
-					step.statement,
-					{
-						kind: "carrier",
-						carrier: result.carrier,
-						step: result.step,
-						stratum: step.stratum,
-						casts: step.casts
-					},
-					previous
-				)
-				break
-			}
-			case "action": {
-				const { statement, stratum, action, relation } = step
-				const skip = { skipWhenEmpty: statement.skipWhenEmpty }
-				const result = statement.result
-				place(
-					b,
-					statement,
-					result.kind === "sequenceAdvance"
-						? {
-								kind: "advance",
-								stratum,
-								action,
-								relation: relation.name,
-								field: result.field,
-								...skip
-							}
-						: {
-								kind: "write",
-								stratum,
-								action,
-								relation: relation.name,
-								result,
-								...skip,
-								uniqueAborts: uniqueAbortsOf(
-									relation,
-									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
-								)
-							},
-					previous
-				)
-				break
-			}
-			case "check": {
-				const { statement } = step
-				place(
-					b,
-					statement,
-					{
-						kind: "check",
-						stratum: step.stratum,
-						entry: statement.result.entry,
-						skipWhenEmpty: statement.skipWhenEmpty
-					},
-					previous
-				)
-				break
-			}
-		}
-	}
-	return finish(b, write.carriers)
-}
-
 /** The count rules of an artifact: which statement's rows count under which category for which relation, within one
  * stratum. Across strata the counts are netted by fact identity (`interpretRows`). */
-const countRulesOf = (artifact: WriteArtifact): ReadonlyArray<CountRule> =>
+export const countRulesOf = (artifact: WriteArtifact): ReadonlyArray<CountRule> =>
 	artifact.steps.flatMap((step, statement): ReadonlyArray<CountRule> =>
 		writeRows(step, []).flatMap(({ step: s }) => {
 			const { added, removed } = changeTags(s.result)
@@ -1436,17 +1350,6 @@ const compile = (
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	const family = familyProgram(frontend, lowering.w)
-	const conservative = conservativeArtifact(
-		unwrap(
-			realizeConservative(frontend, {
-				names: options.names,
-				reads: options.reads,
-				share
-			})
-		),
-		options.names.codes,
-		family.placements
-	)
 	const ir = frontend.ir
 	const vector =
 		topoOrder(ir.dag).some((n) => n.heading.some((c) => c.type.carrier === "vector")) ||
@@ -1467,7 +1370,6 @@ const compile = (
 		kind: "write",
 		context: "transaction",
 		optimized: optimized.specs,
-		conservative: conservative.specs,
 		requirements: {
 			schema: frontend.schema.owned.fingerprint,
 			extensions: vector ? ["vector"] : [],
@@ -1487,7 +1389,8 @@ const compile = (
 		frontend,
 		choices: chosen.choices,
 		plan,
-		artifacts: { optimized, conservative },
+		artifact: optimized,
+		placements: family.placements,
 		params: frontend.params,
 		slots: frontend.slots,
 		outcomeContext
@@ -1514,9 +1417,9 @@ const compile = (
  * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, serial/, carriers/, put/),
  *    each write statement extended with the CTEs that fill its delta carriers from its RETURNING,
  *    a single statement's writes its parts,
- *    and each read-back lowered over the post-change state. The conservative artifact is the
- *    conservative realization (conservative/), the write oracle's baseline. In both, each carrier is
- *    analyzed after it is filled and before the first statement that joins it against a stored relation.
+ *    and each read-back lowered over the post-change state. Each carrier is analyzed after it is filled and before
+ *    the first statement that joins it against a stored relation. The conservative realization, the write oracle's
+ *    baseline, is no part of it (test/support/conservative.ts conservativeWrite).
  * 5. The template: its requirements, and the outcome: count rules, the witness decoder and the constraint-to-law map.
  *
  * A WriteProgram holds no parameter value; binding normalizes and encodes one application's inputs as their arrays,

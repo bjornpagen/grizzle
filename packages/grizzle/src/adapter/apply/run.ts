@@ -1,12 +1,7 @@
 import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
-import {
-	type ArtifactKind,
-	type ReadBackRuns,
-	readBackFlight,
-	readsRow
-} from "#adapter/apply/readback.ts"
+import { type ReadBackRuns, readBackFlight, readsRow } from "#adapter/apply/readback.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -356,15 +351,14 @@ export interface BoundReads<R> {
 }
 
 /**
- * The read-backs of artifact `kind` and `decoder` bound to their layout, once per artifact: a layout the decoder
- * cannot bind is the ChangeSet's CompileError.
+ * The read-backs of the entry's artifact and `decoder` bound to their layout, once: a layout the decoder cannot bind is
+ * the ChangeSet's CompileError.
  */
 export const boundReads = <R>(
 	entry: WriteEntry,
-	kind: ArtifactKind,
 	decoder: RowDecoder<R>
 ): Result.Result<BoundReads<R>, CompileError> => {
-	const runs = entry.readBacks[kind]
+	const runs = entry.readBacks
 	const read = bindGroups(decoder, [runs.layout], entry.bind)
 	return read.ok ? Result.succeed({ runs, read: read.value }) : Result.fail(read.error)
 }
@@ -410,13 +404,12 @@ export const runWrite = <R>(
 	session: Session,
 	frame: Frame,
 	entry: WriteEntry,
-	kind: ArtifactKind,
 	inputs: BoundInputs,
 	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
 		const program = entry.program
-		const artifact = program.artifacts[kind]
+		const artifact = program.artifact
 		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
 		let stated = inputs.bound.unplanned
 		const context: WitnessContext = {

@@ -50,11 +50,7 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import {
-	compilePage,
-	conservativePage,
-	type PageTemplate
-} from "#compiler/lower/shapes/page/compile.ts"
+import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
 import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { declaredSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
@@ -64,6 +60,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
+import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"

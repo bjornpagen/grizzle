@@ -24,6 +24,7 @@ import {
 } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { conservativeWrite } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -117,15 +118,19 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop) => {
 		})
 	).names
 	const artifacts = succeeded(testArtifacts(s, testCompile))
-	return (value: unknown, options: ShopCompile) =>
-		compileWrite(checking(s), descOf(value), {
-			names,
-			reads: names,
-			claims: options.claims,
-			world: { kind: "reality" },
-			laws: artifacts.laws,
-			derived: artifacts.derived
-		})
+	return {
+		write: (value: unknown, options: ShopCompile) =>
+			compileWrite(checking(s), descOf(value), {
+				names,
+				reads: names,
+				claims: options.claims,
+				world: { kind: "reality" },
+				laws: artifacts.laws,
+				derived: artifacts.derived
+			}),
+		/** The write oracle's baseline of a write of the Shop (write/program/compile.ts conservativeWrite). */
+		conservative: (program: CompiledWrite) => conservativeWrite(program, { names, reads: names })
+	}
 }
 
 /** A write of the Shop compiled, or the compiler's refusal of it. */
@@ -133,10 +138,17 @@ const shopWrite = shopWriter(Shop)
 const mutableCrewWrite = shopWriter(MutableCrewShop)
 
 export const shopCompiled = (value: unknown, options: ShopCompile): CompiledWrite =>
-	succeeded(shopWrite(value, options))
+	succeeded(shopWrite.write(value, options))
 
 export const mutableCrewCompiled = (value: unknown, options: ShopCompile): CompiledWrite =>
-	succeeded(mutableCrewWrite(value, options))
+	succeeded(mutableCrewWrite.write(value, options))
+
+/** A compiled write of the Shop, or of the mutable-crew Shop, with its conservative realization as its artifact. */
+export const shopConservative = (program: CompiledWrite): CompiledWrite =>
+	succeeded(shopWrite.conservative(program))
+
+export const mutableCrewConservative = (program: CompiledWrite): CompiledWrite =>
+	succeeded(mutableCrewWrite.conservative(program))
 
 /** The facts of a relation parameter `name` of a relation's heading, put as they are: a described put that reads no
  * stored relation. */

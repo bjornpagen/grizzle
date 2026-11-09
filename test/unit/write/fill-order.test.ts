@@ -565,7 +565,7 @@ const property = (
 			)
 		}
 		const chunks = writes.value
-		for (const statement of program.value.artifacts.optimized.statements) {
+		for (const statement of program.value.artifact.statements) {
 			const sent = chunks(statement)
 			if (!sent.ok) {
 				return assert.fail(`every statement's rows, not ${Formatter.format(sent.error)}`)

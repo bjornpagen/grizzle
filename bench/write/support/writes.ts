@@ -8,10 +8,11 @@ import {
 	Result,
 	type Scope
 } from "effect"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { writeProgramOf, runApplication } from "#adapter/apply/index.ts"
-import type { ArtifactKind } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
+import { toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import {
@@ -45,6 +46,7 @@ import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/wor
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { ArtifactStatement, WriteStepResult } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
+import { conservativeChange } from "#test/support/conservative.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -773,7 +775,7 @@ export const observedChange = (
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit
 ): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(opened.ctx, changes, labelOf, beforeCommit, "optimized")
+	observedArtifact(opened.ctx, changes, labelOf, beforeCommit, (entry) => Result.succeed(entry))
 
 /**
  * The same, applying the program's conservative realization, every stratum's statements in sequence, which the write
@@ -784,24 +786,26 @@ export const observedConservative = (
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string
 ): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(opened.ctx, changes, labelOf, { kind: "none" }, "conservative")
+	observedArtifact(opened.ctx, changes, labelOf, { kind: "none" }, (entry) =>
+		toResult(conservativeChange(entry, opened.ctx.artifacts.reads))
+	)
 
 const observedArtifact = (
 	context: DbContext,
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit,
-	kind: ArtifactKind
+	realization: (entry: CompiledChange) => Result.Result<CompiledChange, CompileError>
 ): Result.Result<ObservedChange, CompileError | GateSetupError> => {
 	if (!isChangeSetValue(changes)) {
 		return Result.fail(new GateSetupError({ what: "observedChange: not a ChangeSet value" }))
 	}
 	const decoder = changes.reads
-	const entry = writeProgramOf(context, changes)
+	const entry = Result.flatMap(writeProgramOf(context, changes), realization)
 	if (Result.isFailure(entry)) {
 		return Result.fail(entry.failure)
 	}
-	const statements = Arr.map(entry.success.program.artifacts[kind].statements, observedStatement)
+	const statements = Arr.map(entry.success.program.artifact.statements, observedStatement)
 	const attribute = attributor(statements)
 	return Result.succeed({
 		statements,
@@ -825,7 +829,7 @@ const observedArtifact = (
 						first === undefined ? { kind: "none" } : { kind: "refused", failure: first.failure }
 					return Effect.succeed({ value, failure, attempted: attemptedOf(value, failure, labelOf) })
 				}
-				return runApplication(observed, entry.success, params, kind, decoder).pipe(
+				return runApplication(observed, entry.success, params, decoder).pipe(
 					Effect.map((value): ObservedValue => observedOutcome(value)),
 					Effect.catchTag("TransientFailure", (error) =>
 						Effect.succeed<ObservedValue>({ kind: "transient", reason: error.reason })

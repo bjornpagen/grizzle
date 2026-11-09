@@ -5,7 +5,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import {
 	compilePage,
-	conservativePage,
 	type PageArtifact,
 	type PageTemplate,
 	statedOrderOf
@@ -16,6 +15,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTemplate, type TestCompileOptions, testArtifacts } from "#test/support/compile.ts"
+import { conservativePage } from "#test/support/conservative.ts"
 
 const Title = str.regex("^.+$", "su")
 const Level = closed("Level", ["Low", "High"])

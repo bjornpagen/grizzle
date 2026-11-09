@@ -17,6 +17,7 @@ import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { conservativeWrite } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -116,8 +117,11 @@ const keyedCarriers = (artifact: WriteArtifact): Arr.NonEmptyReadonlyArray<Keyed
 	)
 
 const carriers = {
-	optimized: keyedCarriers(program.artifacts.optimized),
-	conservative: keyedCarriers(program.artifacts.conservative)
+	optimized: keyedCarriers(program.artifact),
+	conservative: keyedCarriers(
+		succeeded(conservativeWrite(program, { names, reads: names }), "the conservative realization")
+			.artifact
+	)
 } as const
 
 /** The facts a case writes: two at key 0, one at key 1. */

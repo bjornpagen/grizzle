@@ -86,7 +86,9 @@ import {
 	Crew,
 	mutableCrewChangeSet,
 	mutableCrewCompiled,
+	mutableCrewConservative,
 	shopCompiled,
+	shopConservative,
 	shopChangeSet,
 	Hand,
 	Item,
@@ -614,11 +616,15 @@ const changeSetOf = (w: WriteSketch) => {
 	return w.described ? value.put(Stock, relabel("a", "b")) : value
 }
 
-/** Every statement a write compilation places, its optimized artifact's and then its conservative artifact's. */
+/**
+ * Every statement a write compilation places, its optimized artifact's and then its conservative realization's
+ * (write/program/compile.ts conservativeWrite).
+ */
 const writtenStatements = (w: WriteSketch) => {
-	const compiled = w.crew === "mutable" ? mutableCrewCompiled : shopCompiled
-	const { optimized, conservative } = compiled(changeSetOf(w), shopCompile).artifacts
-	return [...optimized.statements, ...conservative.statements]
+	const mutable = w.crew === "mutable"
+	const compiled = (mutable ? mutableCrewCompiled : shopCompiled)(changeSetOf(w), shopCompile)
+	const conservative = (mutable ? mutableCrewConservative : shopConservative)(compiled)
+	return [...compiled.artifact.statements, ...conservative.artifact.statements]
 }
 
 const writtenLive = (w: WriteSketch): Live => {

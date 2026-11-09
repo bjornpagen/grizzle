@@ -314,7 +314,7 @@ describe("a nested write's identities", () => {
 							const { chunks } = bound.flights
 							const step = Option.getOrUndefined(
 								Arr.findFirst(
-									program.artifacts.optimized.statements,
+									program.artifact.statements,
 									(s) =>
 										s.step.kind === "family" &&
 										s.step.relation === "Member" &&

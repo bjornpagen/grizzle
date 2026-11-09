@@ -47,7 +47,6 @@ import {
 	type ChangeSetValue,
 	changeSetDesc
 } from "#compiler/write/changeset/value.ts"
-import { realizeConservative } from "#compiler/write/conservative/realize.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare, type WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
@@ -67,6 +66,7 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { realizeConservative } from "#test/support/oracle/write/realize.ts"
 import { checking } from "#test/support/policy.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"

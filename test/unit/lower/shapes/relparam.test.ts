@@ -96,7 +96,7 @@ describe("a write's enumerated members", () => {
 							if (bound.kind !== "bound") {
 								return assert.fail(`the input binds, not ${bound.kind}`)
 							}
-							const artifact = compiled.artifacts.optimized
+							const artifact = compiled.artifact
 							const skip = bound.skip(artifact)
 							let arraysSent = 0
 							for (const s of artifact.statements) {

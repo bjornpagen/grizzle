@@ -157,7 +157,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							compileWrite(checking(S), desc, reality),
 							"the ChangeSet compiles"
 						)
-						const artifact = program.artifacts.optimized
+						const artifact = program.artifact
 						const found = Arr.findFirst(artifact.statements, (st) => st.step.kind === "write")
 						if (Option.isNone(found)) {
 							throw new Error("no insert statement")

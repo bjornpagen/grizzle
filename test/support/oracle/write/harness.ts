@@ -21,6 +21,7 @@ import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identit
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
+import { conservativeChange } from "#test/support/conservative.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type AppliedOutcome,
@@ -1094,7 +1095,7 @@ const takesOf = (
 		if (ready.kind !== "bound") {
 			return []
 		}
-		const artifact = entry.program.artifacts.optimized
+		const artifact = entry.program.artifact
 		return Arr.flatMap(artifact.statements, (st): ReadonlyArray<TakeForm> =>
 			st.forms.kind === "chosen"
 				? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
@@ -1107,7 +1108,7 @@ const takesOf = (
  * several write statements in sequence, and a deletion anchored on its own relation (write/delete/anchor.ts).
  */
 const realizationsOf = (program: CompiledChange["program"]): ReadonlyArray<WriteOracleFeature> => {
-	const steps = program.artifacts.optimized.steps
+	const steps = program.artifact.steps
 	const writes = new Map<number, number>()
 	for (const step of steps) {
 		if (step.kind === "write") {
@@ -1269,13 +1270,20 @@ export const runCase = (
 			})
 		}
 		const program = entry.success.program
+		const baseline = conservativeChange(entry.success, t.ctx.artifacts.reads)
+		if (!baseline.ok) {
+			return yield* new CaseFailed({
+				report: `${header()}\nthe ChangeSet's conservative realization does not compile: ${baseline.error.message}`
+			})
+		}
+		const entries = { optimized: entry.success, conservative: baseline.value } as const
 		const problems: Array<string> = []
 		for (const artifact of ["optimized", "conservative"] as const) {
 			const audited = yield* Effect.result(
 				Effect.try({
 					try: () => {
 						checkedStatements(
-							Arr.map(program.artifacts[artifact].statements, (st) => st.ast),
+							Arr.map(entries[artifact].program.artifact.statements, (st) => st.ast),
 							`${artifact} write statement`
 						)
 					},
@@ -1318,7 +1326,7 @@ export const runCase = (
 				t,
 				group,
 				expected.initial.sequences,
-				entry.success,
+				entries[artifact],
 				changes,
 				params,
 				artifact,
@@ -1509,7 +1517,7 @@ export const runCase = (
 			if (origin.kind === "planted" && origin.arm === "lagging repeat") {
 				note("a generated repeat of a kept fact refused")
 			}
-			if (Arr.some(program.artifacts.optimized.steps, (step) => step.kind === "single")) {
+			if (Arr.some(program.artifact.steps, (step) => step.kind === "single")) {
 				note("a single statement refused by a law")
 			}
 			const metKind = Option.flatMap(Arr.head(outcomes), (met) =>

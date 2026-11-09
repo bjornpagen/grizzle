@@ -451,7 +451,7 @@ export const applyWith = (
 		const ctx = loggedContext(perturbed, log)
 		const attempt =
 			artifact === "conservative"
-				? runApplication(ctx, entry, params, "conservative", changes.reads)
+				? runApplication(ctx, entry, params, changes.reads)
 				: entryPoint === "apply"
 					? apply(ctx, changes, changes.reads, params)
 					: Effect.scoped(

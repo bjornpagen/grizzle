@@ -1,5 +1,5 @@
 import { Result } from "effect"
-import { type ReadBacks, readBacks } from "#adapter/apply/readback.ts"
+import { type ReadBackRuns, readBacks } from "#adapter/apply/readback.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
@@ -43,8 +43,8 @@ export interface WriteEntry {
 	readonly schema: SchemaFingerprint
 	readonly names: WriteNames
 	readonly violation: ViolationClassifier
-	/** The read-backs of each artifact, ready to run, built with the program. */
-	readonly readBacks: ReadBacks
+	/** The read-backs of the program's artifact, ready to run, built with the program. */
+	readonly readBacks: ReadBackRuns
 	/** The codecs of the program's declared parameters, which its read-backs read, built with the program. */
 	readonly codecs: ParamCodecs
 	/** What the ChangeSet's reads decoder binds under besides its layout: the role's (db/context.ts RoleContext). */

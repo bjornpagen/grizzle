@@ -2002,7 +2002,7 @@ const runStep =
 			if (!checked()) {
 				return refuse("check")
 			}
-			for (const statement of compiled.artifacts.optimized.statements) {
+			for (const statement of compiled.artifact.statements) {
 				const s = statement.step
 				if (
 					s.kind === "write" &&
@@ -2027,7 +2027,7 @@ const runStep =
 				}
 			}
 			stated[command].inserted(db, p)
-			for (const statement of compiled.artifacts.optimized.statements) {
+			for (const statement of compiled.artifact.statements) {
 				const step = statement.step
 				if (step.kind !== "family") {
 					continue

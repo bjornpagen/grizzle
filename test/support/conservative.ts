@@ -1,4 +1,6 @@
 import { Array as Arr, Effect, Result as EffectResult } from "effect"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
+import { readBacks } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
@@ -13,12 +15,14 @@ import {
 	type ReadForm,
 	readHandle
 } from "#adapter/reader/reader.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { PageFill, StatementSpec } from "#compiler/ir/products.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	type ConservativeProgram,
@@ -27,7 +31,16 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { deliveredAsOptimized, type RelationChoice } from "#compiler/lower/shapes/index.ts"
-import { conservativePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
+import {
+	artifactStatements,
+	assemble,
+	conservativeKit,
+	type PageArtifact,
+	type PageCompileInput,
+	type PageTemplate,
+	pageShapeOf,
+	statedOrderOf
+} from "#compiler/lower/shapes/page/compile.ts"
 import {
 	type SpecifiedArtifact,
 	type SpecifiedForm,
@@ -37,6 +50,22 @@ import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
+import { StatementShare } from "#compiler/write/insert/statement.ts"
+import { byStratum, type WriteArtifact } from "#compiler/write/program/artifact.ts"
+import {
+	type CompiledWrite,
+	type CompileWriteOptions,
+	countRulesOf,
+	type FamilyPlacement,
+	finish,
+	insertAborts,
+	newBuilder,
+	place,
+	placeFamily,
+	placeReadBack,
+	uniqueAbortsOf
+} from "#compiler/write/program/compile.ts"
+import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
  * A query template with its conservative lowering beside its optimized one, as the oracles read both: the checked
@@ -128,7 +157,7 @@ export const conservativePageRuntime = (
 	)
 
 /** The Db context's compilation, every template running its conservative lowering in its optimized one's place. */
-export const conservativeCompile =
+const conservativeCompile =
 	(ctx: DbContext): DbContext["compile"] =>
 	(input, request) =>
 		Result.flatMap(ctx.compile(input, request), (prepared) =>
@@ -188,3 +217,178 @@ export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): Read
 			)
 	}
 }
+/**
+ * The write oracle's baseline of a compiled ChangeSet: `entry` with its program's conservative realization
+ * (write/program/compile.ts conservativeWrite) and that realization's read-backs in their place, which an application
+ * then runs as it runs the optimized one. `reads` names the relations the members and read-backs read under, the
+ * entry's role's.
+ */
+export const conservativeChange = (
+	entry: CompiledChange,
+	reads: PhysicalNames
+): Result.Result<CompiledChange, CompileError> =>
+	Result.map(conservativeWrite(entry.program, { names: entry.names, reads }), (program) => ({
+		...entry,
+		program,
+		readBacks: readBacks(program, entry.names.codes)
+	}))
+
+/**
+ * The conservative lowering of a page compiled from `input` (lower/shapes/page/compile.ts compilePage), its
+ * statements lowered over the template's checked query with no evidence, in `page`'s order and comparators: the page
+ * oracle's baseline, which no page compiles.
+ */
+export const conservativePage = (
+	input: PageCompileInput,
+	page: PageTemplate
+): Result.Result<PageArtifact, CompileError> =>
+	catchRefusal(() => {
+		const checkedRoot = input.checked.dag.roots[0]
+		if (checkedRoot.kind !== "OrderedResult") {
+			throw new Refusal(
+				malformedDescription(
+					SourceLoc("page compiler", []),
+					"a page over an Ordered query, its root an ordered result"
+				)
+			)
+		}
+		const shape = pageShapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
+		return assemble(
+			artifactStatements(
+				<F extends PageFill>() => conservativeKit<F>(input),
+				checkedRoot,
+				page.order,
+				page.comparators
+			),
+			{ ...shape, order: page.order }
+		)
+	})
+
+/**
+ * The conservative artifact of a write: its conservative realization's steps (oracle/write/realize.ts), every
+ * statement after the one before it, each family statement where its stratum's schedule runs it, as the program placed
+ * it (write/program/compile.ts CompiledWrite.placements).
+ */
+const conservativeArtifact = (
+	write: ConservativeWrite,
+	codes: Codebook,
+	placements: ReadonlyArray<FamilyPlacement>
+): WriteArtifact => {
+	const b = newBuilder(codes)
+	const after = (): ReadonlyArray<number> =>
+		b.statements.length === 0 ? [] : [b.statements.length - 1]
+	for (const step of write.steps) {
+		const previous = after()
+		switch (step.kind) {
+			case "family":
+				placeFamily(b, placements, step.stratum, step.node, after)
+				break
+			case "readBack":
+				placeReadBack(b, step.read, deliveredAsOptimized(step.program), previous)
+				break
+			case "carrier": {
+				const result = step.statement.result
+				place(
+					b,
+					step.statement,
+					{
+						kind: "carrier",
+						carrier: result.carrier,
+						step: result.step,
+						stratum: step.stratum,
+						casts: step.casts
+					},
+					previous
+				)
+				break
+			}
+			case "action": {
+				const { statement, stratum, action, relation } = step
+				const skip = { skipWhenEmpty: statement.skipWhenEmpty }
+				const result = statement.result
+				place(
+					b,
+					statement,
+					result.kind === "sequenceAdvance"
+						? {
+								kind: "advance",
+								stratum,
+								action,
+								relation: relation.name,
+								field: result.field,
+								...skip
+							}
+						: {
+								kind: "write",
+								stratum,
+								action,
+								relation: relation.name,
+								result,
+								...skip,
+								uniqueAborts: uniqueAbortsOf(
+									relation,
+									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
+								)
+							},
+					previous
+				)
+				break
+			}
+			case "check": {
+				const { statement } = step
+				place(
+					b,
+					statement,
+					{
+						kind: "check",
+						stratum: step.stratum,
+						entry: statement.result.entry,
+						skipWhenEmpty: statement.skipWhenEmpty
+					},
+					previous
+				)
+				break
+			}
+		}
+	}
+	return finish(b, write.carriers)
+}
+
+/**
+ * The write oracle's baseline of a compiled write: the same program with its conservative realization as the artifact
+ * an application runs, and everything read off the artifact read off that one. It rests on no evidence. No compilation
+ * builds it: the write oracle does, to run beside the program (test/support/oracle/write).
+ */
+export const conservativeWrite = (
+	program: CompiledWrite,
+	options: Pick<CompileWriteOptions, "names" | "reads">
+): Result.Result<CompiledWrite, CompileError> =>
+	Result.flatMap(
+		realizeConservative(program.frontend, {
+			names: options.names,
+			reads: options.reads,
+			share: new StatementShare()
+		}),
+		(write) =>
+			catchRefusal((): CompiledWrite => {
+				const artifact = conservativeArtifact(write, options.names.codes, program.placements)
+				const reads: Record<string, number> = {}
+				for (const r of artifact.readBacks) {
+					reads[r.name] = r.statements[0].index
+				}
+				return {
+					...program,
+					optimized: artifact.specs,
+					certificates: [],
+					nameMap: artifact.nameMap,
+					strata: Arr.map(byStratum(artifact.statements), (statements) =>
+						Arr.map(statements, (s) => s.spec)
+					),
+					carriers: artifact.carriers,
+					deltas: artifact.deltas,
+					reads,
+					outcome: { counts: countRulesOf(artifact), witness: program.outcome.witness },
+					artifact
+				}
+			})
+	)
