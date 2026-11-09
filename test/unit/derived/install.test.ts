@@ -20,16 +20,17 @@ import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** A derived relation's view columns in the fresh installation: two head names that convert to one PostgreSQL column
- * identifier are refused as IdentifierCollision, and names that convert apart install side by side.
+ * identifier are refused as IdentifierCollision naming that identifier, and names that convert apart install side by
+ * side.
  *
  * What a derived relation installs, each view column's type, typmod and collation, and every refreshed view against its
  * definition, is PostgreSQL's to judge, in the database suites. */
 const Org = relation("Org", { id: f.uuid }, ["id"])
 const Base: SchemaDesc = { name: "Base", relations: [Org], statements: [], extends: undefined }
 
-/** A derived relation over Org whose head binds Org's id under two names. */
+/** A level over Base holding a derived relation over Org whose head binds Org's id under two names. */
 const pairs = (a: string, b: string): SchemaDesc => ({
-	name: "Base",
+	name: "Upper",
 	extends: Base,
 	relations: [
 		{
@@ -94,7 +95,8 @@ describe("derived relation view columns", () => {
 						([wa, wb, [s, t]]) => ({
 							a: spell(wa, s),
 							b: spell(wb, t),
-							same: wa.length === wb.length && Arr.every(wa, (w, i) => w === wb[i])
+							same: wa.length === wb.length && Arr.every(wa, (w, i) => w === wb[i]),
+							identifier: spell(wa, "snake")
 						})
 					),
 					({ a, b }) => a !== b,
@@ -116,14 +118,22 @@ describe("derived relation view columns", () => {
 							]),
 							caseHang
 						},
-						({ a, b, same }, c) =>
+						({ a, b, same, identifier }, c) =>
 							Effect.sync(() => {
 								const installed = Result.flatMap(own(decodedSchema(pairs(a, b))), (owned) =>
 									compileInstallation(owned, withDerivedRelations(installOptions(owned, "owner")))
 								)
 								if (same) {
 									c.note("a collision refused")
-									refused(installed, "IdentifierCollision")
+									const reason = refused(installed, "IdentifierCollision").reason
+									if (reason._tag !== "IdentifierCollision") {
+										return assert.fail(`an IdentifierCollision, not ${reason._tag}`)
+									}
+									assert.equal(
+										reason.identifier,
+										identifier,
+										"the identifier both head names convert to"
+									)
 									return
 								}
 								c.note("names installed apart")
