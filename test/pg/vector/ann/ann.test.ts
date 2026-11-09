@@ -232,7 +232,7 @@ const supersededFeatures = (c: Superseding): ReadonlyArray<SupersededFeature> =>
 
 const searcher = (fx: Fixture) =>
 	Effect.flatMap(Substrate, (s) =>
-		s.session({ ...worldSession(fx.installed.world(fx.opened.app)), label: "searcher" })
+		s.session({ ...worldSession(fx.installed.world(fx.app)), label: "searcher" })
 	)
 
 layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {

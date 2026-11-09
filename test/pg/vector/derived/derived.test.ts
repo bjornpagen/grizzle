@@ -6,16 +6,17 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
-import { ReadFailure } from "#adapter/errors/execution.ts"
+import { Db } from "#adapter/public/db.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import * as Result from "#compiler/core/result.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { queryInput } from "#compiler/program/compile.ts"
+import { workload as servedPrograms } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import { refresh, workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	admittedPolicy,
@@ -31,11 +32,14 @@ import { type Installed, installMigrated as install } from "#test/support/instal
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { type ServedFixture, servedFixture, servedJson } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
-/** The fixture under the declared name `name`. */
+/**
+ * The fixture under the declared name `name`: its login's workload holds the viewer's exact scoring of an account's
+ * documents, `scored`, and the refresher's refresh of the view, `embeddings`.
+ */
 const build = (name: string) => {
 	const Document = relation("Document", { id: uuid, account: uuid }, ["id"])
 	const DocumentEmbedding = relation(
@@ -61,7 +65,6 @@ const build = (name: string) => {
 	const Reports = schema.extend(Core, `${name}_1`, { Embeddings }, [])
 	const viewer = role(Reports, "viewer", { Embeddings })
 	const refresher = role(Reports, "refresher", { Embeddings }, { refresh: ["Embeddings"] })
-	const server = login(Reports, "server", [viewer, refresher])
 	/** The exact scoring of an account's documents through the view, the viewer's one relation. */
 	const scored = query(viewer).rule((r) => {
 		const { document, value } = v(Embeddings, "embeddings")
@@ -69,6 +72,12 @@ const build = (name: string) => {
 			document,
 			distance: Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
 		})
+	})
+	const server = login(Reports, "server", [viewer, refresher], {
+		workload: [
+			workload(viewer, { scored }),
+			workload(refresher, { embeddings: refresh(Embeddings) })
+		]
 	})
 	return {
 		Embeddings,
@@ -102,14 +111,17 @@ const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.
 interface Opened {
 	readonly installed: Installed
 	readonly fixture: ReturnType<typeof build>
+	/** The fixture's login served as an application serves it. */
+	readonly served: ServedFixture<ReturnType<typeof build>["server"]>
 	/** A relation's qualified, quoted name in the installation. */
 	readonly table: (relation: string) => string
 	readonly probe: Probe
 }
 
 /**
- * Installs the fixture under a fresh schema, loads the documents, refreshes the view as the refresher, and rebuilds
- * the fixture under the installed name, so Db.open takes on the installed roles (test/pg/reads/support.ts).
+ * Installs the fixture under a fresh schema, loads the documents, rebuilds the fixture under the installed name, so
+ * Db.open takes on the installed roles (test/pg/reads/support.ts), serves its login, and refreshes the view through the
+ * refresher's workload member.
  */
 const opened = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -145,11 +157,12 @@ const opened = Effect.gen(function* () {
 		[]
 	)
 	const fixture = build(installed.declared)
+	const served = yield* servedFixture(installed, fixture.server)
 	yield* Effect.gen(function* () {
-		const db = yield* compiledOpen(fixture.server.roles.refresher, {})
-		yield* db.refresh(fixture.Embeddings)
-	}).pipe(Effect.scoped, withLayer(loginLayer(installed, fixture.server)))
-	return { installed, fixture, table, probe } satisfies Opened
+		const db = yield* Db.open(served.login.roles.refresher, {})
+		yield* db.workload.embeddings.refresh
+	}).pipe(Effect.scoped, withLayer(served.layer))
+	return { installed, fixture, served, table, probe } satisfies Opened
 })
 
 /** A case: the account the viewer scores, the probe it scores by, and the take of a search over the view. */
@@ -176,7 +189,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						label: "viewer"
 					})
 					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(o.fixture.server.roles.viewer, {})
+						const db = yield* Db.open(o.served.login.roles.viewer, {})
 						return yield* explore(
 							{
 								suite: "pg/vector/derived",
@@ -247,7 +260,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 										textRows
 									)
 									assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
-									const rows = yield* (yield* db.execute(o.fixture.scored, {
+									const rows = yield* (yield* db.workload.scored.execute({
 										account,
 										vector: vectorParam(vector)
 									})).collect
@@ -263,7 +276,10 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 										])
 									)
 									k.note(c.account === "A" ? "account A scored" : "account B scored")
-									/** A ranked vector must be a stored relation's field: a search over the view is refused. */
+									/**
+									 * A ranked vector must be a stored relation's field: a search over the view is refused by the
+									 * checker, and by the compile of a served workload that holds it, at the program.
+									 */
 									const nearest = o.fixture.scored.approximateNearest({
 										by: "distance",
 										take: c.take
@@ -275,17 +291,22 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 										"UnsupportedOperation",
 										"the checker refuses the search"
 									)
-									const read = yield* Effect.flip(
-										Effect.flatMap(
-											db.execute(nearest, { account, vector: vectorParam(vector) }),
-											(r) => r.collect
+									const refusal = yield* Effect.flip(
+										Effect.asVoid(
+											servedJson(o.installed, o.fixture.server, [
+												servedPrograms(o.fixture.viewer, { nearest })
+											])
 										)
 									)
-									assert.ok(read instanceof ReadFailure && read.stage === "compile")
+									assert.deepEqual(refusal.place, {
+										kind: "program",
+										role: "viewer",
+										program: "nearest"
+									})
 									k.note("a search over the view refused")
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
+					}).pipe(Effect.scoped, withLayer(o.served.layer))
 				})
 			)
 	)

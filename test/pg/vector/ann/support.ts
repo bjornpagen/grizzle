@@ -383,28 +383,41 @@ const checked = (q: unknown) =>
 		checkQuery(checking(AnnSearch), input.desc, checkOptions("query"))
 	)
 
-/** The installed schema with the HNSW index each of `programs` requests, as Db.open takes it. */
-const openAnn = (programs: Readonly<Record<string, unknown>>) =>
-	installed(AnnSearch, {}, { label: "ann", extensions: [workloadRequests(programs)], programs: {} })
+/** The programs of a fixture's workload, by name. */
+type AnnPrograms = Readonly<Record<string, unknown>>
 
-export type AnnOpened = Effect.Success<ReturnType<typeof openAnn>>
+/**
+ * The installed schema with the HNSW index each of `programs` requests, its full world's login serving them as its
+ * workload's members.
+ */
+const openAnn = <const P extends AnnPrograms>(programs: P) =>
+	installed(AnnSearch, {}, { label: "ann", extensions: [workloadRequests(programs)], programs })
 
+/** The installed schema whose full world's login serves the programs P (test/pg/reads/support.ts installed). */
+export type AnnOpened<P extends AnnPrograms> = Effect.Success<ReturnType<typeof openAnn<P>>>
+
+/** The installation and its population, which a direct writer reads as the full world's role `app`. */
 export interface Fixture {
 	readonly installed: Installed
-	readonly opened: AnnOpened
+	readonly app: AnnOpened<AnnPrograms>["app"]
 	readonly facts: ReadonlyArray<DocumentFact>
 	readonly table: (relation: string) => string
 	/** The query vector a test numbers `n`: distinct per number, drawn with the population. */
 	readonly probe: (n: number) => ReadonlyArray<number>
 }
 
+/** A fixture whose full world's login serves the programs P, opened through `opened.served`. */
+interface ServedAnn<P extends AnnPrograms> extends Fixture {
+	readonly opened: AnnOpened<P>
+}
+
 /**
  * Installs the schema with the workload's HNSW index, loads the population of `draw`, and analyzes the tables so plans
  * are those of the pinned sizes. The installation's first migration stores the fixed search policy as the defaults of
  * the login whose role names a vector (physical/ddl/roles.ts), so every search here runs under it. `opened` is the
- * installed schema with its full world and the layer of its login.
+ * installed schema with its full world, whose login serves `programs`.
  */
-const installDrawn = (programs: Readonly<Record<string, unknown>>, draw: number) =>
+const installDrawn = <const P extends AnnPrograms>(programs: P, draw: number) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const opened = yield* openAnn(programs)
@@ -453,18 +466,25 @@ const installDrawn = (programs: Readonly<Record<string, unknown>>, draw: number)
 		for (const r of ["Document", "DocumentCurrent", "DocumentEmbedding", "DocumentTag"]) {
 			yield* s.admin.query(`VACUUM ANALYZE ${table(r)}`, [])
 		}
-		return { installed: fixture, opened, facts, table, probe: probeOf(draw) } satisfies Fixture
+		return {
+			installed: fixture,
+			app: opened.app,
+			opened,
+			facts,
+			table,
+			probe: probeOf(draw)
+		} satisfies ServedAnn<P>
 	})
 
 /** The fixture over the run's population: new vectors in every run. */
-export const installFixture = (programs: Readonly<Record<string, unknown>>) =>
+export const installFixture = <const P extends AnnPrograms>(programs: P) =>
 	Effect.flatMap(runDraw, (draw) => installDrawn(programs, draw))
 
 /**
  * The fixture over the population `label` alone fixes, the way a witness phase's stream is fixed: the same vectors and
  * probes on every run seed, so a statistical verdict over it is the test source's, never the run's.
  */
-export const installLabelled = (programs: Readonly<Record<string, unknown>>, label: string) =>
+export const installLabelled = <const P extends AnnPrograms>(programs: P, label: string) =>
 	installDrawn(programs, drawOf(floorSeed(label)))
 
 export interface Compiled {

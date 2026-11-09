@@ -4,8 +4,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { openServed } from "#adapter/db/served.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
@@ -14,7 +14,6 @@ import {
 	admittedPolicy,
 	candidates,
 	compile,
-	type Fixture,
 	installFixture,
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
@@ -23,9 +22,13 @@ import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
+
+/** The ANN fixture whose full world's login serves the typed approximateNearest read, `candidates`. */
+const policyFixture = installFixture({ candidates })
+
+type Fixture = Effect.Success<typeof policyFixture>
 
 /** The fixture's login role, which holds the search defaults. */
 const loginRole = (fx: Fixture): string => fx.installed.as(fx.opened.server).role
@@ -41,7 +44,7 @@ const storedSettings = (fx: Fixture) =>
 
 const searcher = (fx: Fixture, label: string) =>
 	Effect.flatMap(Substrate, (s) =>
-		s.session({ ...worldSession(fx.installed.world(fx.opened.app)), label })
+		s.session({ ...worldSession(fx.installed.world(fx.app)), label })
 	)
 
 /** The parameters of the typed read: account B, probed with the fixture's vector numbered 21. */
@@ -51,7 +54,7 @@ const paramsOf = (fx: Fixture) => ({ account: accountB, vector: vectorParam(fx.p
  * Why a read through `db` underfilled: the iterative scan setting and the candidates statement's plan, both
  * read in the Db's own pooled session, which tell a setting missing there from an early stop of the strict scan.
  */
-const underfill = (ctx: DbContext, fx: Fixture) =>
+const underfill = (ctx: ServedDbContext, fx: Fixture) =>
 	Effect.gen(function* () {
 		const spec = defined(
 			compile(candidates, fx.installed, "query").specs[0],
@@ -124,7 +127,7 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const fx = yield* installFixture({ candidates })
+					const fx = yield* policyFixture
 					const settings = yield* storedSettings(fx)
 					const stored = Arr.map(settings, (row) => String(row[0]))
 					for (const setting of policySettings) {
@@ -165,14 +168,15 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 							Effect.scoped(
 								Effect.gen(function* () {
 									yield* changedDefault(fx, change)
-									const open = openDbContext(fx.opened.server.roles.app, {})
+									const open = openServed(fx.opened.served.login.roles.app, {})
 									yield* Effect.gen(function* () {
 										const { db, ctx: dbCtx } = yield* open
 										assert.deepEqual(
 											admittedPolicy(fx.opened.installed.snapshot, role),
 											policySettings
 										)
-										const rows = yield* (yield* db.execute(candidates, paramsOf(fx))).collect
+										const rows = yield* (yield* db.workload.candidates.execute(paramsOf(fx)))
+											.collect
 										const why =
 											rows.length === 20
 												? "the policy fills the request"
@@ -181,10 +185,7 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 										for (const row of rows) {
 											assert.equal(typeof row.distance, "number")
 										}
-									}).pipe(
-										Effect.scoped,
-										withLayer(loginLayer(fx.opened.installed, fx.opened.server))
-									)
+									}).pipe(Effect.scoped, withLayer(fx.opened.served.layer))
 									k.note("the stored policy fills the read")
 								})
 							)
