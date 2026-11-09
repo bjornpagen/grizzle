@@ -2534,7 +2534,8 @@ interface Admitted {
  * pattern's language or a lexical form, a value inside width_bucket's domain, a power's result inside its type's
  * range), a text function's place in a query
  * (a concatenation beside an equation, a translation of a long text, a length outside a predicate), the digits of an
- * exact decimal's text, and the values of a pattern term the build must see.
+ * exact decimal's text, the values of a pattern term the build must see, and a match guard some text of its subject
+ * passes: the types read a pattern string as a string, never its language, so no type meets it with the subject's.
  */
 const engineDecides = {
 	fits: "decided: a fit",
@@ -2547,7 +2548,8 @@ const engineDecides = {
 	digits: "decided: a decimal's digits",
 	pattern: "decided: a pattern's values",
 	literal: "decided: a literal's value",
-	integral: "decided: a number's integrality"
+	integral: "decided: a number's integrality",
+	overlap: "decided: a match's overlap"
 } as const
 type DecidedNote = (typeof engineDecides)[keyof typeof engineDecides]
 const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
@@ -2560,7 +2562,8 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 	"decided: a decimal's digits",
 	"decided: a pattern's values",
 	"decided: a literal's value",
-	"decided: a number's integrality"
+	"decided: a number's integrality",
+	"decided: a match's overlap"
 ]
 
 /**
@@ -2574,8 +2577,9 @@ type ContestedNote = typeof contestedNote
 /**
  * Which of the engine's decisions no type states a refusal is, where it is one: a precondition compilation alone
  * proves, a literal's value against its contract or pattern, and, by the engine's words, a decimal's digits, a pattern
- * term's values, a translate's map and a text function's place. A JavaScript number's integrality is the whole case's
- * (verdictOf).
+ * term's values, a translate's map, a text function's place and a match guard's patterns that no text of its subject
+ * passes, whose branch would read the subject as text of an empty language. A JavaScript number's integrality is the
+ * whole case's (verdictOf).
  */
 const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 	if (!(thrown instanceof CompileError)) {
@@ -2615,7 +2619,11 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 					? engineDecides.literal
 					: Str.includes(" in a query")(text)
 						? engineDecides.placement
-						: undefined
+						: Str.endsWith(
+									" match no admitted text value together, so no value is ever of their type"
+							  )(text)
+							? engineDecides.overlap
+							: undefined
 }
 
 /**
