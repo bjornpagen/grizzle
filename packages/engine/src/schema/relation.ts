@@ -4,12 +4,7 @@ import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	isNonEmpty,
-	lastNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { lastNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -32,7 +27,7 @@ import {
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
-import { Roster as RosterValue } from "#compiler/ir/scalar.ts"
+import { rosterOf } from "#compiler/ir/scalar.ts"
 import { handleTerm } from "#compiler/scalar/compute/builders.ts"
 import {
 	type ClosedReadTyping,
@@ -46,6 +41,7 @@ import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
 	type Described,
+	isOwnedDescriptor,
 	type ScalarEnv,
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
@@ -66,8 +62,7 @@ import {
 	ownValue,
 	queryDescOf,
 	requireName,
-	requireNames,
-	rosterHandlesOf
+	requireNames
 } from "#compiler/schema/protocol.ts"
 import { mint, record } from "#compiler/schema/record.ts"
 import { rowScalars } from "#compiler/schema/terms.ts"
@@ -658,10 +653,6 @@ export const closed = <
 	return value
 }
 
-/** Whether a field descriptor is a closed id, through any depth of contracts. */
-const isClosedIdDesc = (desc: FieldDesc): boolean =>
-	desc.kind === "closedId" || (desc.kind === "contract" && isClosedIdDesc(desc.base))
-
 /**
  * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
  * row written twice is one row, its first, and two rows of one key but other payloads break the key law, refused naming
@@ -671,8 +662,7 @@ const isClosedIdDesc = (desc: FieldDesc): boolean =>
  */
 const closedRows = (
 	rows: unknown,
-	fields: Readonly<Record<string, FieldDesc>>,
-	descriptors: Readonly<Record<string, unknown>>,
+	described: Readonly<Record<string, Described>>,
 	key: unknown,
 	label: string
 ): {
@@ -682,21 +672,16 @@ const closedRows = (
 	if (!isList(rows)) {
 		throw malformed(label, "rows: a list of the relation's facts")
 	}
-	const names = Object.keys(fields)
-	/** Each field with its roster's handles where it is a closed id, read once into a set each cell is found in. */
-	const typed = Object.entries(fields).map(([field, desc]) => {
-		if (!isClosedIdDesc(desc)) {
-			return { field, desc, handles: undefined }
-		}
-		const roster = rosterHandlesOf(descriptors[field])
-		if (roster === undefined) {
-			throw malformed(
-				label,
-				`a closed id ${field} built by closedId(roster), which carries its roster`
-			)
-		}
-		return { field, desc, handles: new Set<LiteralDesc>(roster) }
-	})
+	const names = Object.keys(described)
+	/**
+	 * Each field with its roster's handles where it is a closed id, through any depth of contracts: the roster its type
+	 * holds, read once into a set each cell is found in.
+	 */
+	const typed = Object.entries(described).map(([field, { desc, scalar }]) => ({
+		field,
+		desc,
+		handles: scalar.carrier === "code" ? new Set<LiteralDesc>(scalar.roster.handles) : undefined
+	}))
 	const keyFields =
 		isList(key) && key.every((k): k is string => typeof k === "string" && names.includes(k))
 			? key
@@ -778,7 +763,7 @@ export const admitClosedRelation = (
 	}
 	const described = describedFields(descriptors, label)
 	const fieldDescs = fieldMap(described)
-	const facts = closedRows(rows, fieldDescs, descriptors, key, label)
+	const facts = closedRows(rows, described, key, label)
 	/**
 	 * The description decoded without its rows, which closedRows proved, each a value of exactly the relation's fields
 	 * as literalFor reads it, one per key: decoding them again would prove it twice, and is most of a large relation's
@@ -809,7 +794,6 @@ export const admitClosedRelation = (
 const closedReadTyping = (
 	desc: ClosedRelationDesc,
 	described: Readonly<Record<string, Described>>,
-	descriptors: Readonly<Record<string, unknown>>,
 	label: string
 ): ClosedReadTyping => {
 	const typeOf = (field: string): Described => {
@@ -822,15 +806,14 @@ const closedReadTyping = (
 	const types = new Map(Object.entries(described).map(([field, d]) => [field, d.scalar] as const))
 	const payload = new Set(Object.keys(described).filter((field) => !desc.key.includes(field)))
 	const last = lastNonEmpty(desc.key)
-	const lastDesc = typeOf(last).desc
-	const handles = rosterHandlesOf(descriptors[last])
-	if (lastDesc.kind !== "closedId" || handles === undefined || !isNonEmpty(handles)) {
+	const { desc: lastDesc, scalar: lastType } = typeOf(last)
+	if (lastDesc.kind !== "closedId" || lastType.carrier !== "code") {
 		throw malformed(label, `a key of closed ids, each built by closedId(roster); ${last} is none`)
 	}
 	const roster = lastDesc.roster
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (n) => (n === roster ? new RosterValue(n, handles) : undefined)
+		roster: (n) => (n === roster ? lastType.roster : undefined)
 	}
 	const set = orThrow(scalarTypeOf({ kind: "bits", roster }, env, SourceLoc(label, [])))
 	return {
@@ -861,7 +844,7 @@ export const closedRelation = <
 	const label = `closed.relation ${name}`
 	const admitted = admitClosedRelation(name, fields, key, rows, extra)
 	const copied = frozenCopy(fields)
-	const typing = closedReadTyping(admitted.desc, admitted.described, copied, label)
+	const typing = closedReadTyping(admitted.desc, admitted.described, label)
 	return ownValue(
 		{
 			kind: "closedRelation",
@@ -1130,6 +1113,17 @@ const descriptorOf = (value: unknown): unknown => {
 	const entry =
 		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
 	return entry === undefined ? value : hasProperties(value) ? value["type"] : value
+}
+
+/**
+ * The handles of the roster a field value's closedId or bits descriptor references, through a slot, drawn, accumulated or
+ * generated field's declared type and any depth of contracts: the roster its descriptor's type holds, whose handles
+ * closedId(roster) and bits(roster) admitted when they built it, and a contract's type mirrors its base's; undefined for
+ * any other value.
+ */
+export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefined => {
+	const descriptor = descriptorOf(value)
+	return isOwnedDescriptor(descriptor) ? rosterOf(descriptor.scalar)?.handles : undefined
 }
 
 export const namedRelation = (value: unknown, label: string): NamedRelation => {

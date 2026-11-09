@@ -19,10 +19,9 @@ import {
 	ownedDesc,
 	ownedEntry,
 	ownValue,
-	requireName,
-	rosterHandlesOf
+	requireName
 } from "#compiler/schema/protocol.ts"
-import { derivedDraftOf, relationContentOf } from "#compiler/schema/relation.ts"
+import { derivedDraftOf, relationContentOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"

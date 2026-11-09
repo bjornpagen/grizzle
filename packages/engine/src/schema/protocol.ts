@@ -142,22 +142,6 @@ export const describedField = (value: unknown, label: string): Described =>
 export const fieldDescOf = (value: unknown, label: string): FieldDesc =>
 	describedField(value, label).desc
 
-/**
- * The handles of the roster a closedId descriptor references, when it carries the closed relation (the field
- * builder keeps it as `roster`), through any depth of contracts (a contract keeps its base descriptor as `base`);
- * undefined when only its Description is known.
- */
-export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefined => {
-	if (!hasProperties(value)) {
-		return undefined
-	}
-	if (!hasProperties(value["roster"])) {
-		return value["base"] === undefined ? undefined : rosterHandlesOf(value["base"])
-	}
-	const handles = value["roster"]["handles"]
-	return isList(handles) && handles.every(isName) ? handles : undefined
-}
-
 export interface PredicateValue extends Built {
 	readonly predicate: true
 	readonly expr: OpenExpr
