@@ -64,7 +64,7 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 		return undefined
 	}
 	/** One reader through one input position (DagEditor.readers): a region matching the take twice reads it twice. */
-	const readers = ed.readers()
+	const readers = DagEditor.readers(ed.topoOrder())
 	const [consumer, ...others] = readers(cell)
 	if (consumer === undefined || others.length > 0) {
 		return undefined
@@ -102,7 +102,7 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 			return undefined
 		}
 		/** Nothing else in the take's input reads a node outside it. */
-		const inside = ed.subtree(take.input)
+		const inside = DagEditor.subtree(take.input)
 		const insideLabels = new Set<NodeId>([...inside].map((n) => n.id))
 		const rewritten = new Set(outer.map((c) => c.expr))
 		const region = at

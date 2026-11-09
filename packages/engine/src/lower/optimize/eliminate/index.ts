@@ -99,7 +99,7 @@ const eliminationWays = (
 	cell: Cell,
 	region: Region
 ): ReadonlyArray<EliminationWay> => {
-	if (region.occurrences.length < 2 || cx.editor.readsFeedback(cell)) {
+	if (region.occurrences.length < 2 || cx.cells.feedback.has(cell)) {
 		return []
 	}
 	return region.occurrences.flatMap((o) => {
@@ -274,7 +274,7 @@ const keyJoinFold: Rule = {
 		if (
 			node.kind !== "MatchRegion" ||
 			node.occurrences.length < 2 ||
-			cx.editor.readsFeedback(cell) ||
+			cx.cells.feedback.has(cell) ||
 			!twoScansOfOne(node.occurrences)
 		) {
 			return false
@@ -392,7 +392,7 @@ const eliminateRule: Rule = {
 
 const eliminationPotential: Potential = (cx) => {
 	let count = 0
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
 			count += node.occurrences.length

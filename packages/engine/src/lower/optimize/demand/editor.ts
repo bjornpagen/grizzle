@@ -237,6 +237,15 @@ function* copyStep(
  * this one mints `nw`, `ew`, `vw`, `ow` and `sw` labels, the catalog the allocated kinds' own prefixes, so for one DAG
  * they mint different labels.
  */
+/**
+ * One state of an editor's cells as a graph: the cells the roots reach, in topological order, and those of them that
+ * read a recursion's feedback. A reader of that state reads it from the one value its driver computed for it.
+ */
+export interface CellState {
+	readonly order: ReadonlyArray<Cell>
+	readonly feedback: ReadonlySet<Cell>
+}
+
 export class DagEditor<R extends Roots = Roots> {
 	/** Every cell, in creation order: the base's, each after its inputs, then each one a rewrite added. */
 	readonly #cells: Array<Cell> = []
@@ -255,16 +264,6 @@ export class DagEditor<R extends Roots = Roots> {
 		scope: new FreshIds("sw", [])
 	}
 	#version = 0
-	/**
-	 * The editor's analyses of its current cells, each made on its first read and dropped by the next change
-	 * (#changed): the topological order, the cells reading a recursion's feedback, the discriminant spine, and each
-	 * cell's subtree and whether it is correlated.
-	 */
-	#order: ReadonlyArray<Cell> | undefined
-	#feedback: ReadonlySet<Cell> | undefined
-	#spine: ReadonlySet<Cell> | undefined
-	readonly #subtrees = new Map<Cell, ReadonlySet<Cell>>()
-	readonly #correlated = new Map<Cell, boolean>()
 
 	/** The DAG the editor started from. */
 	readonly base: ValidDag<R>
@@ -436,21 +435,27 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/**
 	 * Every cell the roots reach, in topological order, inputs first (ir/dag.ts cellOrder; a SelfRef's feedback is a
-	 * name, not followed). The walk ends over any edges: a cycle a rewrite made is finish's refusal.
+	 * name, not followed). The walk ends over any edges: a cycle a rewrite made is finish's refusal. Computed at each
+	 * call: a reader that reads the order of one state of the cells more than once holds it (cellState).
 	 */
 	topoOrder(): ReadonlyArray<Cell> {
-		this.#order ??= cellOrder(this.roots)
-		return this.#order
+		return cellOrder(this.roots)
+	}
+
+	/** The cells the roots reach now, in topological order, and those of them on a recursive step (CellState). */
+	cellState(): CellState {
+		const order = this.topoOrder()
+		return { order, feedback: feedbackReadsOf(cellGraph, order) }
 	}
 
 	/**
-	 * The readers of each cell through data inputs, one per input position, in topological order: the reachable cells
-	 * that read it, a cell that reads it twice (a semi-join on both sides, a region matching it twice) listed twice, as
-	 * the lowering emits it twice; none for a cell no reachable cell reads.
+	 * The readers of each cell through data inputs, one per input position, in `order`, the cells the roots reach: the
+	 * reachable cells that read it, a cell that reads it twice (a semi-join on both sides, a region matching it twice)
+	 * listed twice, as the lowering emits it twice; none for a cell no reachable cell reads.
 	 */
-	readers(): (cell: Cell) => ReadonlyArray<Cell> {
+	static readers(order: ReadonlyArray<Cell>): (cell: Cell) => ReadonlyArray<Cell> {
 		const out = new Map<Cell, Array<Cell>>()
-		for (const cell of this.topoOrder()) {
+		for (const cell of order) {
 			for (const input of edgesOf(cell.current)) {
 				const known = out.get(input)
 				if (known === undefined) {
@@ -463,58 +468,31 @@ export class DagEditor<R extends Roots = Roots> {
 		return (cell) => out.get(cell) ?? []
 	}
 
-	/** How many references a cell has: its readers, one per input position (readers()), plus the roots at it. */
+	/** How many references a cell has: its readers, one per input position (readers), plus the roots at it. */
 	refCount(cell: Cell, readers: (cell: Cell) => ReadonlyArray<Cell>): number {
 		return readers(cell).length + this.roots.filter((r) => r === cell).length
 	}
 
 	/** The cells reachable from `cell` through data inputs, `cell` included. */
-	subtree(cell: Cell): ReadonlySet<Cell> {
-		const known = this.#subtrees.get(cell)
-		if (known !== undefined) {
-			return known
-		}
-		const made = subtreeOf(cellGraph, cell)
-		this.#subtrees.set(cell, made)
-		return made
+	static subtree(cell: Cell): ReadonlySet<Cell> {
+		return subtreeOf(cellGraph, cell)
 	}
 
 	/**
 	 * Whether some expression in the subtree of `cell` reads a node outside that subtree: the subtree is correlated with
 	 * an enclosing scope, and moving it would change what that reference names.
 	 */
-	correlated(cell: Cell): boolean {
-		const known = this.#correlated.get(cell)
-		if (known !== undefined) {
-			return known
-		}
-		const made = readsOutside(cellGraph, this.subtree(cell))
-		this.#correlated.set(cell, made)
-		return made
+	static correlated(cell: Cell): boolean {
+		return readsOutside(cellGraph, subtreeOf(cellGraph, cell))
 	}
 
 	/**
-	 * Whether `cell` lies on a recursive step: it reaches a SelfRef other than through that SelfRef's own Recursive,
-	 * which encloses the feedback. No rewrite touches the feedback region, whose single self-reference and complete state
-	 * the recursive lowering owns. A Recursive itself is checked through its base only.
+	 * The cells a union's discriminant is read through, among `order`, the cells the roots reach: from each arm down the
+	 * chain of nodes that keep their input's rows (rel.ts keptRowsOf) to the projection that binds the literal, the chain
+	 * a valid DAG binds the literal through. Replacing one of them by a closed relation would hide the literal, so branch
+	 * removal drops a vacuous arm from its union instead.
 	 */
-	readsFeedback(cell: Cell): boolean {
-		this.#feedback ??= feedbackReadsOf(cellGraph, this.topoOrder())
-		return this.#feedback.has(cell)
-	}
-
-	/**
-	 * The cells a union's discriminant is read through: from each arm down the chain of nodes that keep their input's
-	 * rows (rel.ts keptRowsOf) to the projection that binds the literal, the chain a valid DAG binds the literal through.
-	 * Replacing one of them by a closed relation would hide the literal, so branch removal drops a vacuous arm from its
-	 * union instead.
-	 */
-	discriminantSpine(): ReadonlySet<Cell> {
-		this.#spine ??= this.#spineOf()
-		return this.#spine
-	}
-
-	#spineOf(): ReadonlySet<Cell> {
+	static discriminantSpine(order: ReadonlyArray<Cell>): ReadonlySet<Cell> {
 		const spine = new Set<Cell>()
 		/** An arm and every cell beneath it that keeps its input's rows. */
 		const walk = (arm: Cell): void => {
@@ -523,7 +501,7 @@ export class DagEditor<R extends Roots = Roots> {
 				at = keptRowsOf(at.current)?.input
 			}
 		}
-		for (const cell of this.topoOrder()) {
+		for (const cell of order) {
 			const node = cell.current
 			if (node.kind !== "Union" || node.discriminant.length === 0) {
 				continue
@@ -571,14 +549,9 @@ export class DagEditor<R extends Roots = Roots> {
 		this.#changed()
 	}
 
-	/** A change: the version moves on, and every analysis of the cells before it is dropped. */
+	/** A change: the version moves on. */
 	#changed(): void {
 		this.#version++
-		this.#order = undefined
-		this.#feedback = undefined
-		this.#spine = undefined
-		this.#subtrees.clear()
-		this.#correlated.clear()
 	}
 
 	/**
@@ -589,9 +562,9 @@ export class DagEditor<R extends Roots = Roots> {
 	 */
 	insertAbove(target: Cell, wrap: (target: Cell) => Cell): Cell {
 		const top = wrap(target)
-		const except = new Set(this.subtree(target))
+		const except = new Set(DagEditor.subtree(target))
 		except.add(top)
-		for (const c of this.subtree(top)) {
+		for (const c of DagEditor.subtree(top)) {
 			except.add(c)
 		}
 		this.redirectExcept(target, top, except)

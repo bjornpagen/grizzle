@@ -37,15 +37,14 @@ const predicateVars = (chain: RegionChain): ReadonlySet<string> =>
  * nodes aside, which no other reference may read (quietChain).
  */
 const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): boolean => {
-	const ed = cx.editor
 	const inner = chain.region
 	if (chain.regionCell === cell || inner.correlated.length > 0) {
 		return false
 	}
-	if (ed.readsFeedback(cell)) {
+	if (cx.cells.feedback.has(cell)) {
 		return false
 	}
-	if (ed.correlated(o.source)) {
+	if (DagEditor.correlated(o.source)) {
 		return false
 	}
 	if (columnRefs(inner.occurrences.flatMap((x) => x.constants.map((c) => c.expr))).length > 0) {
@@ -311,7 +310,7 @@ const fuseRule: Rule = {
  * above the fused region are no regions. So each fusion removes exactly one region and adds none.
  */
 const fusionPotential: Potential = (cx) =>
-	cx.editor.topoOrder().filter((cell) => cell.current.kind === "MatchRegion").length
+	cx.cells.order.filter((cell) => cell.current.kind === "MatchRegion").length
 
 /**
  * The R01 pass.

@@ -9,7 +9,7 @@ import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compile
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	columnRefs,
-	type DagEditor,
+	DagEditor,
 	derivedMeta,
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
@@ -110,8 +110,7 @@ const membershipOf = (cx: RewriteCx, region: Region, o: Occurrence): Membership 
 	) {
 		return undefined
 	}
-	const ed = cx.editor
-	const others = region.occurrences.filter((x) => x.id !== o.id && !ed.correlated(x.source))
+	const others = region.occurrences.filter((x) => x.id !== o.id && !DagEditor.correlated(x.source))
 	const elsewhere = new Set(others.flatMap((x) => x.bindings.map((b) => b.var.id)))
 	const key: Array<KeyValue> = []
 	for (const column of source.heading.slice(0, evidence.key.length)) {
@@ -133,7 +132,7 @@ const shapedMemberships = (
 	cell: Cell,
 	region: Region
 ): ReadonlyArray<Membership> => {
-	if (region.occurrences.length < 2 || cx.editor.readsFeedback(cell)) {
+	if (region.occurrences.length < 2 || cx.cells.feedback.has(cell)) {
 		return []
 	}
 	return region.occurrences.flatMap((o) => {
@@ -266,7 +265,7 @@ const rewriteMembership = (cx: RewriteCx, cell: Cell, region: Region, m: Members
 }
 
 const membershipPotential: Potential = (cx) => {
-	const shaped = cx.editor.topoOrder().flatMap((cell) => {
+	const shaped = cx.cells.order.flatMap((cell) => {
 		const node = cell.current
 		return node.kind === "MatchRegion" ? shapedMemberships(cx, cell, node) : []
 	})

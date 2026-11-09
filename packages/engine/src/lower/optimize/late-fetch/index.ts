@@ -16,7 +16,7 @@ import type {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { type DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellPhysical,
 	overDemand,
@@ -62,8 +62,11 @@ interface Plan {
  * scans a stored relation, which every plan fetches from (lateFetchPlans).
  */
 const lateFetchChain = (cx: RewriteCx, takeCell: Cell, take: Take): RegionChain | undefined => {
-	const ed = cx.editor
-	if (take.correlation.length > 0 || ed.readsFeedback(takeCell) || ed.correlated(take.input)) {
+	if (
+		take.correlation.length > 0 ||
+		cx.cells.feedback.has(takeCell) ||
+		DagEditor.correlated(take.input)
+	) {
 		return undefined
 	}
 	const chain = regionChain(take.input)
@@ -278,7 +281,7 @@ const lateFetch: Rule = {
  */
 const lateFetchPotential: Potential = (cx) => {
 	let count = 0
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind !== "Take") {
 			continue

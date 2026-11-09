@@ -16,7 +16,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
-import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
 	type CellDemand,
@@ -146,11 +146,7 @@ const foldFilter: Rule = {
 		if (folded.kind === "expr" && folded.expr === node.pred) {
 			return false
 		}
-		if (
-			folded.kind === "value" &&
-			!folded.value &&
-			!replaceable(cx.editor, cell, cx.editor.discriminantSpine())
-		) {
+		if (folded.kind === "value" && !folded.value && !replaceable(cx, cell)) {
 			return false
 		}
 		if (folded.kind === "value" && folded.value) {
@@ -177,9 +173,9 @@ const foldFilter: Rule = {
  * before the rewrite pass (index.ts), and no rule of that pass need lower an endpoint count.
  */
 export const allenNormalForm = (cx: RewriteCx): void => {
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
-		if (node.kind !== "Filter" || cx.editor.readsFeedback(cell)) {
+		if (node.kind !== "Filter" || cx.cells.feedback.has(cell)) {
 			continue
 		}
 		const pred = allenNormal(cx.editor, node.pred)
@@ -199,11 +195,7 @@ const finiteFold: Rule = {
 		}
 		const sourceCell = node.input
 		const source = sourceCell.current
-		if (
-			source.kind !== "Closed" ||
-			source.rows.length === 0 ||
-			!replaceable(cx.editor, cell, cx.editor.discriminantSpine())
-		) {
+		if (source.kind !== "Closed" || source.rows.length === 0 || !replaceable(cx, cell)) {
 			return false
 		}
 		const index = new Map(source.heading.map((c, i) => [c.name, i]))
@@ -238,11 +230,11 @@ const finiteFold: Rule = {
  * attachment hangs below it, since an attachment is a delivered statement of its own that an empty parent would
  * silently drop.
  */
-const replaceable = (ed: DagEditor, cell: Cell, spine: ReadonlySet<Cell>): boolean => {
-	if (spine.has(cell)) {
+const replaceable = (cx: RewriteCx, cell: Cell): boolean => {
+	if (DagEditor.discriminantSpine(cx.cells.order).has(cell)) {
 		return false
 	}
-	for (const c of ed.subtree(cell)) {
+	for (const c of DagEditor.subtree(cell)) {
 		if (c.current.kind === "Attach") {
 			return false
 		}
@@ -330,14 +322,13 @@ const emptyRule: Rule = {
 	at: (cell, cx) => {
 		const ed = cx.editor
 		const node = cell.current
-		const spine = ed.discriminantSpine()
 		if (node.kind === "Union") {
 			const memo = new Map<Cell, boolean>()
 			const gone = (a: Cell) => vacuous(a, memo)
 			if (
 				node.groups.length === 1 &&
 				node.groups.every((g) => g.arms.every(gone)) &&
-				replaceable(ed, cell, spine)
+				replaceable(cx, cell)
 			) {
 				const arms = node.groups.flatMap((g) => g.arms)
 				certify(cx, simplifyRules.empty, ids(arms), node.heading, [cell.id])
@@ -359,11 +350,8 @@ const emptyRule: Rule = {
 			return true
 		}
 		const emptied = (): boolean => {
-			if (!replaceable(ed, cell, spine)) {
-				return false
-			}
 			const inputs = emptiedBy(node, (c) => isEmptyRelation(c.current))
-			if (inputs === undefined) {
+			if (inputs === undefined || !replaceable(cx, cell)) {
 				return false
 			}
 			certify(cx, simplifyRules.empty, ids(inputs), node.heading, [cell.id])
@@ -664,7 +652,7 @@ const standingOf = (cx: RewriteCx): Standing => {
 	let shape = 0
 	let unfolded = 0
 	let equated = 0
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
 		shape += 1 + (inputsOf(node).length > 0 ? 1 : 0) + edgesOf(node).length
 		if (node.kind !== "Filter") {
@@ -699,7 +687,7 @@ const standingOf = (cx: RewriteCx): Standing => {
  * lowers it, and its first value is quadratic in the pass's DAG.
  */
 export const simplificationPotential = (start: RewriteCx): Potential => {
-	const weight = start.editor.topoOrder().filter((c) => c.current.kind === "Filter").length + 1
+	const weight = start.cells.order.filter((c) => c.current.kind === "Filter").length + 1
 	return (cx) => {
 		const now = standingOf(cx)
 		return weight * (now.shape + now.unfolded) + now.equated

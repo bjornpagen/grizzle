@@ -3,7 +3,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
 import type { Cell, EditNode, Heading } from "#compiler/ir/rel.ts"
-import { restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
+import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
 	cellDemand,
@@ -19,13 +19,13 @@ const pruneRule = "prune.heading"
  */
 const prunePinned = (cx: RewriteCx): ReadonlySet<NodeId> => {
 	const ed = cx.editor
-	const readers = ed.readers()
+	const readers = DagEditor.readers(cx.cells.order)
 	const pinned = new Set<NodeId>()
-	for (const cell of ed.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		if (
 			ed.isRoot(cell) ||
-			ed.readsFeedback(cell) ||
-			readers(cell).some((r) => ed.readsFeedback(r))
+			cx.cells.feedback.has(cell) ||
+			readers(cell).some((r) => cx.cells.feedback.has(r))
 		) {
 			pinned.add(cell.id)
 		}
@@ -56,7 +56,7 @@ const step = (cx: RewriteCx): void => {
 	const ed = cx.editor
 	const pinnedNodes = prunePinned(cx)
 	const d = pruneDemand(cx, pinnedNodes)
-	const order = ed.topoOrder()
+	const order = cx.cells.order
 	const changed: Array<NodeId> = []
 	/** A node narrowed to its demanded columns, or undefined when it keeps its form. */
 	const pruned = (

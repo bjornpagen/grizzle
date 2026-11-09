@@ -16,7 +16,7 @@ import {
 import { baseOf } from "#compiler/ir/scalar.ts"
 import {
 	columnRefs,
-	type DagEditor,
+	DagEditor,
 	derivedMeta,
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
@@ -43,9 +43,9 @@ type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
  * correlated source (a take or an aggregate correlated to the region's variable) is evaluated per value
  * of what it reads.
  */
-const regionReads = (cx: RewriteCx, region: Cell, o: Occurrence): ReadonlySet<string> => {
+const regionReads = (region: Cell, o: Occurrence): ReadonlySet<string> => {
 	const out = new Set<string>()
-	for (const c of cx.editor.subtree(o.source)) {
+	for (const c of DagEditor.subtree(o.source)) {
 		for (const r of columnRefs(exprsOf(c.current)).filter((ref) => ref.node === region.id)) {
 			out.add(r.name)
 		}
@@ -61,14 +61,13 @@ const regionReads = (cx: RewriteCx, region: Cell, o: Occurrence): ReadonlySet<st
  * existence test, and moving it into a semi-join would leave the correlated source with nothing to follow.
  */
 const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
-	const ed = cx.editor
-	if (region.occurrences.length < 2 || ed.readsFeedback(cell)) {
+	if (region.occurrences.length < 2 || cx.cells.feedback.has(cell)) {
 		return []
 	}
 	/** Each occurrence with the region's variables it reads. */
 	const scanned = region.occurrences.map((x) => ({
 		occurrence: x,
-		reads: regionReads(cx, cell, x)
+		reads: regionReads(cell, x)
 	}))
 	return region.occurrences.filter((o) => {
 		const others = scanned.filter((x) => x.occurrence.id !== o.id)
@@ -83,7 +82,7 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
 		if (columnRefs(o.constants.map((c) => c.expr)).length > 0) {
 			return false
 		}
-		return !ed.correlated(o.source) && !ed.readsFeedback(o.source)
+		return !DagEditor.correlated(o.source) && !cx.cells.feedback.has(o.source)
 	})
 }
 
@@ -148,7 +147,7 @@ const groups = (region: Region, occurrences: ReadonlyArray<Occurrence>): number 
  */
 const stacked = (cx: RewriteCx, region: Cell): number => {
 	const ed = cx.editor
-	const readers = ed.readers()
+	const readers = DagEditor.readers(cx.cells.order)
 	let count = 0
 	for (let at = region; !ed.isRoot(at);) {
 		const [above, ...more] = readers(at)
@@ -361,7 +360,7 @@ const setComparison: Rule = {
 		if (node.kind !== "Intersect" && node.kind !== "Difference") {
 			return false
 		}
-		if (ed.correlated(node.right)) {
+		if (DagEditor.correlated(node.right)) {
 			return false
 		}
 		const { left, right } = node
@@ -407,7 +406,7 @@ const setComparison: Rule = {
 const existencePotential: Potential = (cx) => {
 	let comparisons = 0
 	const shaped: Array<Occurrence> = []
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
 			appendAll(shaped, shapedExistence(cx, cell, node))

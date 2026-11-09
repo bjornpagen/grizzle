@@ -88,10 +88,10 @@ type SiteForm =
 /** Whether `reader` is the one consumer of the recursion `cell` holds, which is no root and off every feedback. */
 const readOnlyBy = (cx: RewriteCx, cell: Cell, reader: Cell): boolean => {
 	const ed = cx.editor
-	if (cell.current.kind !== "Recursive" || ed.isRoot(cell) || ed.readsFeedback(cell)) {
+	if (cell.current.kind !== "Recursive" || ed.isRoot(cell) || cx.cells.feedback.has(cell)) {
 		return false
 	}
-	const readers = ed.readers()(cell)
+	const readers = DagEditor.readers(cx.cells.order)(cell)
 	return readers.length === 1 && readers[0] === reader
 }
 
@@ -402,10 +402,9 @@ const pushed = (site: Site): boolean => {
 
 /** Every site not yet pushed, over the reachable DAG. */
 const openSites = (cx: RewriteCx, analyses: DemandAnalyses): ReadonlyArray<Site> => {
-	const ed = cx.editor
 	const out: Array<Site> = []
-	for (const cell of ed.topoOrder()) {
-		if (ed.readsFeedback(cell)) {
+	for (const cell of cx.cells.order) {
+		if (cx.cells.feedback.has(cell)) {
 			continue
 		}
 		appendAll(
@@ -423,7 +422,7 @@ const openSites = (cx: RewriteCx, analyses: DemandAnalyses): ReadonlyArray<Site>
  * conjuncts and constants times the recursion occurrences.
  */
 export const seedPotential: Potential = (cx) =>
-	cx.editor.topoOrder().some((cell) => !cx.editor.readsFeedback(cell) && seedable(cx, cell))
+	cx.cells.order.some((cell) => !cx.cells.feedback.has(cell) && seedable(cx, cell))
 		? measureOverDemand((analyses) => openSites(cx, analyses).length)
 		: 0
 
@@ -490,11 +489,12 @@ const push = (cx: RewriteCx, site: Site): void => {
 		coercion: [],
 		params: params.length === 0 ? undefined : params
 	})
-	if (!seedable(cx, filter)) {
+	const now: RewriteCx = { ...cx, cells: ed.cellState() }
+	if (!seedable(now, filter)) {
 		return
 	}
-	for (const below of sitesAt(cx, demandAnalyses(ed), filter).filter((s) => !pushed(s))) {
-		push(cx, below)
+	for (const below of sitesAt(now, demandAnalyses(ed), filter).filter((s) => !pushed(s))) {
+		push(now, below)
 	}
 }
 

@@ -73,7 +73,7 @@ const semiOver = (ed: DagEditor, left: Cell, right: Cell, on: ColumnPairs): Cell
  * step.
  */
 const movable = (cx: RewriteCx, demand: CellDemand, cell: Cell): boolean =>
-	exclusive(cx, demand, cell) && !cx.editor.correlated(cell) && !cx.editor.readsFeedback(cell)
+	exclusive(cx, demand, cell) && !DagEditor.correlated(cell) && !cx.cells.feedback.has(cell)
 
 /** The source column `occurrence` binds `variable` to, where it binds it. */
 const boundColumn = (
@@ -152,12 +152,11 @@ const belowGroup = (cx: RewriteCx, m: Moving, groupCell: Cell, group: Group): bo
 const semiRule: Rule = {
 	name: "semi-join pushdown",
 	at: (cell, cx) => {
-		const ed = cx.editor
 		const semi = cell.current
 		if (semi.kind !== "SemiJoin" || semi.on.length === 0) {
 			return false
 		}
-		if (ed.correlated(semi.right)) {
+		if (DagEditor.correlated(semi.right)) {
 			return false
 		}
 		const m: Moving = { cell, semi }
@@ -203,10 +202,10 @@ const semiRule: Rule = {
 
 const semiPotential: Potential = (cx) => {
 	let sum = 0
-	for (const cell of cx.editor.topoOrder()) {
+	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind === "SemiJoin") {
-			sum += cx.editor.subtree(node.left).size
+			sum += DagEditor.subtree(node.left).size
 		}
 	}
 	return sum

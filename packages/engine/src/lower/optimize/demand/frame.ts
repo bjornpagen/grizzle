@@ -15,7 +15,7 @@ import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Pass, PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, RelDag, Rooted, Roots, VarDecl } from "#compiler/ir/rel.ts"
-import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { type CellState, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 /**
  * Demand analysis (analysis/demand) of one snapshot of the editor, read cell by cell: each cell is read as its node in
@@ -52,12 +52,14 @@ export interface CellPhysical {
 	readonly of: (cell: Cell) => PhysicalNode
 }
 
-/** What a rule sees while it decides and rewrites. */
+/** What a rule sees while it decides and rewrites, at one state of the edited DAG. */
 export interface RewriteCx {
 	readonly editor: DagEditor
 	readonly ctx: PassContext
 	readonly pass: string
 	readonly catalog: EvidenceCatalog
+	/** The editor's cells at that state (CellState), which the driver computed once for every reader of the state. */
+	readonly cells: CellState
 	/** Records a rewrite's certificate in the context's log; a refused certificate fails the pass. */
 	readonly certify: (input: Certificate) => void
 }
@@ -207,12 +209,13 @@ const withPhysical = (
 	return { analyses, computed: { kind: "physical", analyses } }
 }
 
-/** The rewrite cx over one editor, under the compilation's catalog. */
+/** The rewrite cx over one editor's cells as they are now, under the compilation's catalog. */
 const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx => ({
 	editor,
 	ctx,
 	pass,
 	catalog: ctx.catalog,
+	cells: editor.cellState(),
 	certify: (input) => {
 		const cert = unwrap(makeCertificate(input))
 		ctx.certificates.record(cert)
@@ -261,7 +264,7 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
-			const cx = rewriteCx(editor, ctx, spec.name)
+			let cx = rewriteCx(editor, ctx, spec.name)
 			const potential = spec.potential(cx)
 			let start = measured(potential, cx, noneComputed)
 			for (
@@ -269,6 +272,7 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 				fired !== undefined;
 				fired = fireNext(spec.rules, cx, start.computed)
 			) {
+				cx = rewriteCx(editor, ctx, spec.name)
 				const after = measured(potential, cx, noneComputed)
 				invariant(
 					Number.isInteger(after.value) && after.value >= 0 && after.value < start.value,
@@ -319,8 +323,8 @@ const fireNext = (
 			}
 		}
 	}
-	for (const cell of editor.topoOrder()) {
-		if (editor.readsFeedback(cell)) {
+	for (const cell of cx.cells.order) {
+		if (cx.cells.feedback.has(cell)) {
 			continue
 		}
 		for (const rule of rules) {

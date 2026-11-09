@@ -196,7 +196,7 @@ const intoSource = (
 ): boolean => {
 	const ed = cx.editor
 	const filter = m.filter
-	if (ed.readsFeedback(regionCell)) {
+	if (cx.cells.feedback.has(regionCell)) {
 		return false
 	}
 	const parts = conjuncts(filter.pred)
@@ -215,7 +215,7 @@ const intoSource = (
 		if (
 			!boundaryKinds.includes(source.kind) ||
 			!exclusive(cx, demand, sourceCell) ||
-			ed.correlated(sourceCell)
+			DagEditor.correlated(sourceCell)
 		) {
 			return false
 		}
@@ -332,7 +332,7 @@ const pushRule: Rule = {
  * placed, so every tree keeps its non-filter nodes. Its first value is at most the conjuncts times the nodes.
  */
 const pushdownPotential: Potential = (cx) =>
-	!cx.editor.topoOrder().some((cell) => cell.current.kind === "Filter")
+	!cx.cells.order.some((cell) => cell.current.kind === "Filter")
 		? 0
 		: measureOverDemand(({ demand }) => {
 				const reach = new Map<Cell, number>()
@@ -341,7 +341,7 @@ const pushdownPotential: Potential = (cx) =>
 						? defined(reach.get(c), "an input's reach, set before its readers in topological order")
 						: 0
 				let sum = 0
-				for (const cell of cx.editor.topoOrder()) {
+				for (const cell of cx.cells.order) {
 					const node = cell.current
 					const below = inputsOf(node).reduce((n, input) => n + exclusiveReach(input), 0)
 					reach.set(cell, (node.kind === "Filter" ? 0 : 1) + below)
