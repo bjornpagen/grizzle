@@ -25,7 +25,6 @@ import {
 	certifiedRules,
 	columnAt,
 	compile,
-	conditions,
 	counterexample,
 	GateSetupError,
 	handwritten,
@@ -325,15 +324,16 @@ export default defineGate({
 			cases.push({
 				name: "conditional counts and sums per student, where none, some and every score qualifies",
 				gates: ["R24"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"sum(cond(score > t, 1, 0)) and sum(cond(score > t, score, 0)) per student for t = 3, -1, 100",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: { thresholds: [3, -1, 100] },
-					semantics: "per student, the count and the score sum of its sittings above the threshold",
-					cache: warm
-				}),
+					resultSemantics:
+						"per student, the count and the score sum of its sittings above the threshold",
+					cacheState: warm
+				},
 				phases: {},
 				variants: conditionalVariants,
 				comparisons: [],
@@ -391,16 +391,16 @@ export default defineGate({
 				{
 					name: "ordinals and running aggregates per student by (day, id)",
 					gates: ["R26", "R41"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"Sitting matched twice on the student, the second occurrence at or before the first by (day, id)",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"each sitting's ordinal, running score total, running maximum and running count of scores above 3",
-						cache: warm
-					}),
+						cacheState: warm
+					},
 					phases: {},
 					variants: [runningM.generated, runningM.conservative, runningHand],
 					comparisons: [compareVariants(runningM.generated, runningHand)],
@@ -416,14 +416,14 @@ export default defineGate({
 				{
 					name: "ordinals alone",
 					gates: ["R26"],
-					conditions: conditions({
+					conditions: {
 						workload: "the same self-match counting only",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each sitting's ordinal within its student",
-						cache: warm
-					}),
+						resultSemantics: "each sitting's ordinal within its student",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [ordinalM.generated, ordinalM.conservative, ordinalHand],
 					comparisons: [],
@@ -434,14 +434,15 @@ export default defineGate({
 				{
 					name: "a running maximum over the qualifying rows only (kept composed)",
 					gates: ["R41"],
-					conditions: conditions({
+					conditions: {
 						workload: "the self-match with a further predicate on the second occurrence, score > 3",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each sitting's maximum score above 3 at or before it, where one exists",
-						cache: "the refusal is timed once, after its first execution"
-					}),
+						resultSemantics:
+							"each sitting's maximum score above 3 at or before it, where one exists",
+						cacheState: "the refusal is timed once, after its first execution"
+					},
 					phases: {},
 					variants: [qualifiedM.generated, qualifiedM.conservative],
 					comparisons: [],
@@ -544,14 +545,14 @@ export default defineGate({
 				{
 					name: "each student's count beside the total",
 					gates: ["R28"],
-					conditions: conditions({
+					conditions: {
 						workload: "a grouped count joined to the ungrouped count of the same input",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "per student, its sitting count and the total count",
-						cache: warm
-					}),
+						resultSemantics: "per student, its sitting count and the total count",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [groupedM.generated, groupedM.conservative, groupedHand, groupedJoin],
 					comparisons: [
@@ -568,14 +569,14 @@ export default defineGate({
 				{
 					name: "each sitting with its student's count",
 					gates: ["R28"],
-					conditions: conditions({
+					conditions: {
 						workload: "a per-student count joined back to its input on the student",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each sitting with the number of sittings of its student",
-						cache: warm
-					}),
+						resultSemantics: "each sitting with the number of sittings of its student",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [keyedM.generated, keyedM.conservative, keyedHand],
 					comparisons: [],
@@ -681,15 +682,15 @@ export default defineGate({
 				{
 					name: "discrete percentiles 1/2 and 1/4 of each student's scores",
 					gates: ["R29"],
-					conditions: conditions({
+					conditions: {
 						workload: "the score at ordinal ceil(p n) by (score, id) for p = 0.5 and 0.25",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"per student, its median and lower-quartile scores by the discrete definition",
-						cache: warm
-					}),
+						cacheState: warm
+					},
 					phases: {},
 					variants: [discM.generated, discM.conservative, discHand],
 					comparisons: [],
@@ -703,17 +704,17 @@ export default defineGate({
 				...Arr.map(counterexamples, ({ label, m, native, compiled }): CaseRecord<Gates> => ({
 					name: `the score at ordinal ceil(${label} n) of each room (an R29 counterexample)`,
 					gates: ["R29"],
-					conditions: conditions({
+					conditions: {
 						workload: `the score at ordinal ceil(${label} n) by (score, id) per room`,
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { p: Number(label) },
-						semantics:
+						resultSemantics:
 							label === "0"
 								? "no row: ceil(0) selects no ordinal"
 								: "per room, the score at the composition's ordinal ceil((0.07 n::float8)::numeric)",
-						cache: "the counterexample is timed once, after its first execution"
-					}),
+						cacheState: "the counterexample is timed once, after its first execution"
+					},
 					phases: {},
 					variants: [m.generated, m.conservative, native],
 					comparisons: [compareVariants(m.generated, native)],
@@ -728,14 +729,14 @@ export default defineGate({
 				{
 					name: "the interpolated median of each student's scores",
 					gates: ["R30"],
-					conditions: conditions({
+					conditions: {
 						workload: "the values at floor and ceil of 1 + (n - 1)/2, interpolated",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { tolerance },
-						semantics: "per student, its continuous median score",
-						cache: warm
-					}),
+						resultSemantics: "per student, its continuous median score",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [contM.generated, contM.conservative, contHand],
 					comparisons: [],
@@ -751,14 +752,14 @@ export default defineGate({
 				{
 					name: "each student's most frequent day, ties to the earliest",
 					gates: ["R31"],
-					conditions: conditions({
+					conditions: {
 						workload: "a count per day ordered by count desc, day asc, take(1), bound per student",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "per student with sittings, its modal day",
-						cache: warm
-					}),
+						resultSemantics: "per student with sittings, its modal day",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [
 						modeM.generated,
@@ -882,15 +883,15 @@ export default defineGate({
 				{
 					name: "sittings and points per cohort over the Student join",
 					gates: ["R08"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"Student joined to Sitting by student, grouped by cohort, the sitting key bound",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "per cohort, the number of sittings and the sum of their points",
-						cache: warm
-					}),
+						resultSemantics: "per cohort, the number of sittings and the sum of their points",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [directM.generated, directM.conservative, directHand, preaggregated],
 					comparisons: [
@@ -908,14 +909,14 @@ export default defineGate({
 				{
 					name: "points per cohort with the sitting key unbound (the counterexample)",
 					gates: ["R08"],
-					conditions: conditions({
+					conditions: {
 						workload: "the same join, binding (cohort, student, points) without the sitting key",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "per cohort, the sum over distinct (student, points) bindings",
-						cache: "the counterexample is timed once, after its first execution"
-					}),
+						resultSemantics: "per cohort, the sum over distinct (student, points) bindings",
+						cacheState: "the counterexample is timed once, after its first execution"
+					},
 					phases: {},
 					variants: [distinctM.generated, distinctM.conservative, bagSum, argumentDistinct],
 					comparisons: [],

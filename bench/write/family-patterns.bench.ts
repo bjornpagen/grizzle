@@ -17,7 +17,6 @@ import {
 	observedChange,
 	openFull,
 	timed,
-	writeConditions,
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -187,14 +186,14 @@ export default defineGate({
 			const cases: Array<CaseRecord<"family-patterns">> = Arr.map(readings, (r) => ({
 				name: `a family of ${r.length} members, ${r.variant}`,
 				gates: ["family-patterns"],
-				conditions: writeConditions({
+				conditions: {
 					workload: `one owner with ${r.length} nested members, ${r.variant === "cycling" ? `cycling through ${kinds.length} kinds` : "all of one kind"}, written through a Db`,
 					schemaState: loadedByOwner,
-					data: `${2 * options.lengths.length} owners, one family each`,
+					dataDistribution: `${2 * options.lengths.length} owners, one family each`,
 					parameters: { length: r.length, variant: r.variant, patterns: kinds.length },
-					semantics: "every member matches its kind's pattern, so the family commits",
-					cache: "a fresh Db per family"
-				}),
+					resultSemantics: "every member matches its kind's pattern, so the family commits",
+					cacheState: "a fresh Db per family"
+				},
 				phases: { operationMs: summarize([r.ms]) },
 				variants: [],
 				comparisons: [],

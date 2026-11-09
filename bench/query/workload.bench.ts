@@ -12,7 +12,6 @@ import {
 	agrees,
 	autocommit,
 	compile,
-	conditions,
 	fill,
 	GateSetupError,
 	handwritten,
@@ -326,16 +325,16 @@ export default defineGate({
 				{
 					name: "the installation's indexes and their justifications",
 					gates: ["R13"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"fresh install with three workload programs; the same schema without a workload beside it",
 						schemaState: installedState,
-						data: `${options.accounts} accounts, ${options.tasks} tasks in each installation`,
+						dataDistribution: `${options.accounts} accounts, ${options.tasks} tasks in each installation`,
 						parameters: { batch: options.batch },
-						semantics:
+						resultSemantics:
 							"the catalog's indexes, the manifest's reasons, and the indexes the reduced workload keeps",
-						cache: "the insert batches run one after another on one session"
-					}),
+						cacheState: "the insert batches run one after another on one session"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -369,14 +368,14 @@ export default defineGate({
 				{
 					name: "a program outside the workload: tasks by title",
 					gates: ["R13"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task by title equality, a program no workload records",
 						schemaState: installedState,
-						data: `${options.tasks} tasks, 5000 distinct titles`,
+						dataDistribution: `${options.tasks} tasks, 5000 distinct titles`,
 						parameters: { title: "task 42" },
-						semantics: "the (id, title) of the tasks with the title",
-						cache: "warm: each variant runs once before its timed samples"
-					}),
+						resultSemantics: "the (id, title) of the tasks with the title",
+						cacheState: "warm: each variant runs once before its timed samples"
+					},
 					phases: {},
 					variants: [titledM.generated, titledM.conservative, titledHand],
 					comparisons: [],

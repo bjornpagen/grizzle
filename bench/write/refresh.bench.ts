@@ -26,7 +26,7 @@ import {
 	type TransactionMeasure,
 	type TransactionPlan
 } from "#bench/harness/transaction.ts"
-import { fill, GateSetupError, settle } from "#bench/query/support/kit.ts"
+import { fill, GateSetupError, rawSession, settle } from "#bench/query/support/kit.ts"
 import {
 	baselineSchema,
 	installWrites,
@@ -37,9 +37,7 @@ import {
 	plainStatement,
 	timed,
 	warmedOnce,
-	writeConditions,
-	writePhases,
-	writerSession
+	writePhases
 } from "#bench/write/support/writes.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -302,7 +300,7 @@ export default defineGate({
 						what: "the second refresh of level 1 reports no statement for StudentWeekly"
 					})
 			)
-			const refresher = yield* writerSession(fx, R.refresher, "m15c refresh refresher")
+			const refresher = yield* rawSession(fx, R.refresher, "m15c refresh refresher")
 			const B = yield* baselineSchema("benchrefreshhand")
 			const handDefinition = `SELECT s.${c("Sitting", "student")} AS student, s.${c("Sitting", "week")} AS week, pg_catalog.count(*) AS sittings, pg_catalog.count(*) FILTER (WHERE s.${c("Sitting", "passed")}) AS passes FROM ${fx.table("Sitting")} AS s GROUP BY 1, 2`
 			yield* owner(
@@ -348,15 +346,17 @@ export default defineGate({
 				{
 					name: "one level per call",
 					gates: ["refresh-lifetime"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.refresh of level 1 (StudentWeekly, TopFee), then of level 2 (WeekBusy), each its own call: first refreshes, then later ones",
 						schemaState: loadedByOwner,
-						data,
+						dataDistribution: data,
 						parameters: { students: options.students, weeks: options.weeks },
-						semantics: "each call refreshes exactly its level's relations, one statement each",
-						cache: "the first refreshes populate the views; the later ones refresh CONCURRENTLY"
-					}),
+						resultSemantics:
+							"each call refreshes exactly its level's relations, one statement each",
+						cacheState:
+							"the first refreshes populate the views; the later ones refresh CONCURRENTLY"
+					},
 					phases: { refreshMs: summarize(levelMs) },
 					variants: [],
 					comparisons: [],
@@ -370,15 +370,15 @@ export default defineGate({
 				{
 					name: "rows written by a refresh",
 					gates: ["R40"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.refresh of both levels with no base change, after one new sitting, and after one fee rewritten as an equal numeric with another spelling",
 						schemaState: loadedByOwner,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "a refresh writes exactly the rows whose record image changed",
-						cache: warmedOnce
-					}),
+						resultSemantics: "a refresh writes exactly the rows whose record image changed",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -397,15 +397,15 @@ export default defineGate({
 				{
 					name: "the refresh statement against a hand-written materialized view",
 					gates: ["R40"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"the REFRESH MATERIALIZED VIEW CONCURRENTLY of StudentWeekly the runtime issued, replayed as the refresher role, and one of a hand-written view of the same definition as the owner, each in a measured SERIALIZABLE transaction with no base change",
 						schemaState: loadedByOwner,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "the same rows; nothing to write",
-						cache: warmedOnce
-					}),
+						resultSemantics: "the same rows; nothing to write",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

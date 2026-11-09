@@ -19,7 +19,6 @@ import {
 	autocommit,
 	type Compiled,
 	compile,
-	conditions,
 	deliveredAgree,
 	fill,
 	GateSetupError,
@@ -403,15 +402,15 @@ export default defineGate({
 			cases.push({
 				name: "a region's accounts with one-, two- and five-field attachments",
 				gates: ["R36"],
-				conditions: conditions({
+				conditions: {
 					workload: "Account by region with three attachments over its tasks",
 					schemaState: installed,
-					data: `${options.accounts} accounts in 40 regions, ${options.tasksPerAccount} tasks each, titles repeating per account`,
+					dataDistribution: `${options.accounts} accounts in 40 regions, ${options.tasksPerAccount} tasks each, titles repeating per account`,
 					parameters: { region },
-					semantics:
+					resultSemantics:
 						"each account of the region with its set of titles, its (id, priority) pairs and its task sheets",
-					cache: warm
-				}),
+					cacheState: warm
+				},
 				phases: {},
 				variants: [
 					cardsM.generated,
@@ -594,15 +593,15 @@ export default defineGate({
 			cases.push({
 				name: "a range of tree nodes with the people each reaches",
 				gates: ["R37"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"a recursive relation of (origin, person) over follows, attached by origin to a range of people",
 					schemaState: installed,
-					data: `${options.people} people in a binary follows tree (i follows 2i and 2i + 1)`,
+					dataDistribution: `${options.people} people in a binary follows tree (i follows 2i and 2i + 1)`,
 					parameters: { lo: String(lo), hi: String(lo + span - 1n) },
-					semantics: "each person of the range with the set of people reachable from it",
-					cache: warm
-				}),
+					resultSemantics: "each person of the range with the set of people reachable from it",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [reachM.generated, reachM.conservative, reachHand],
 				comparisons: [compareVariants(reachM.generated, reachHand)],

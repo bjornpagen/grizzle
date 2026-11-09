@@ -17,7 +17,6 @@ import {
 	oneRow,
 	openFull,
 	timed,
-	writeConditions,
 	writePhases,
 	writesOf
 } from "#bench/write/support/writes.ts"
@@ -168,15 +167,15 @@ export default defineGate({
 			const cases: Array<CaseRecord<"families">> = Arr.map(Arr.zip(fresh, growth), ([f, g]) => ({
 				name: `a family of ${f.length} members`,
 				gates: ["families"],
-				conditions: writeConditions({
+				conditions: {
 					workload: `one owner with ${f.length} nested members written through a Db; then one UPDATE of its count by the owner, rolled back`,
 					schemaState: loadedByOwner,
-					data: `${options.lengths.length} owners, one family each`,
+					dataDistribution: `${options.lengths.length} owners, one family each`,
 					parameters: { length: f.length },
-					semantics:
+					resultSemantics:
 						"the fresh family is lawful and commits; the count's UPDATE is rolled back unchecked",
-					cache: "a fresh Db per family; the UPDATE on the owner's warm session"
-				}),
+					cacheState: "a fresh Db per family; the UPDATE on the owner's warm session"
+				},
 				phases: { operationMs: summarize([f.ms]), executeMs: summarize([g.ms]) },
 				variants: [],
 				comparisons: [],

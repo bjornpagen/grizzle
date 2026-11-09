@@ -21,7 +21,6 @@ import {
 	autocommit,
 	type Compiled,
 	compile,
-	conditions,
 	deliveredAgree,
 	fill,
 	GateSetupError,
@@ -399,14 +398,15 @@ export default defineGate({
 				{
 					name: "an account's open tasks and done tasks with notes, delivered by heading group",
 					gates: ["R21"],
-					conditions: conditions({
+					conditions: {
 						workload: "a union of two arms of different headings, discriminated by kind",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(account) },
-						semantics: "the account's open tasks with their titles and done tasks with each note",
-						cache: warm
-					}),
+						resultSemantics:
+							"the account's open tasks with their titles and done tasks with each note",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [
 						unionM.generated,
@@ -427,15 +427,16 @@ export default defineGate({
 				{
 					name: "the first ten of the union by id, delivered and consumed",
 					gates: ["R21"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"take(10) by id of the union, delivered per group and merged; and matched by another query",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(account) },
-						semantics: "the activity rows of the first ten (id, kind, ...) tuples, and their ids",
-						cache: warm
-					}),
+						resultSemantics:
+							"the activity rows of the first ten (id, kind, ...) tuples, and their ids",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [
 						boundedM.generated,
@@ -571,15 +572,15 @@ export default defineGate({
 			cases.push({
 				name: "a region's accounts with the same tasks attached twice",
 				gates: ["R25"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"two identical pipelined attachments (five fields each) of one parent statement",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: { region },
-					semantics: "each account of the region with its tasks, delivered under two names",
-					cache: warm
-				}),
+					resultSemantics: "each account of the region with its tasks, delivered under two names",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [sharedM.generated, sharedM.conservative, once, sharedHand],
 				comparisons: [

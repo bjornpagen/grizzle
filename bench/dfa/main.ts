@@ -1,21 +1,15 @@
 #!/usr/bin/env -S node
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Array as Arr, Console, Data, DateTime, Effect, pipe, String as Str } from "effect"
 import {
-	Array as Arr,
-	Console,
-	Data,
-	DateTime,
-	Effect,
-	FileSystem,
-	pipe,
-	String as Str
-} from "effect"
-import { repoRoot, type RunIdentity, runIdentity, sourceIdentity } from "#bench/cold/identity.ts"
+	type RunIdentity,
+	runIdentity,
+	sourceIdentity,
+	writeRunRecord
+} from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
-import type { Json } from "#compiler/core/canonical.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { jsonDocument, trusted } from "#compiler/core/trusted.ts"
 import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
@@ -62,19 +56,15 @@ const plain = (family: string, source: string): Pattern => ({
 const kthFromEnd = (k: number): Pattern => plain("kth-from-end", `^(?:a|b)*a(?:a|b){${k}}$`)
 
 /** The `n` code points from U+4E00 on, one each, as a literal chain of `n` distinct sets. */
-const distinctChain = (n: number, anchored: boolean): Pattern => {
-	const chain = Arr.join(
+const distinctChain = (n: number): Pattern => ({
+	family: "distinct-sets",
+	label: `/<${n} distinct code points>/u`,
+	source: Arr.join(
 		Arr.makeBy(n, (i) => String.fromCodePoint(0x4e00 + i)),
 		""
-	)
-	const anchor = anchored ? "^" : ""
-	return {
-		family: "distinct-sets",
-		label: `/${anchor}<${n} distinct code points>/u`,
-		source: `${anchor}${chain}`,
-		flags: "u"
-	}
-}
+	),
+	flags: "u"
+})
 
 /**
  * A chain of `n` classes of `width` code points each from U+20000 on, every code point apart from the next, so each
@@ -90,23 +80,6 @@ const scatteredChain = (n: number, width: number): Pattern => {
 		family: "scattered-sets",
 		label: `/<${n} classes of ${width} scattered code points>/u`,
 		source: Arr.join(Arr.makeBy(n, classOf), ""),
-		flags: "u"
-	}
-}
-
-/**
- * 255 times `k` distinct code points, or as many code points of any kind: every state's `.` edges hold each of the
- * chain's atoms, so every transition moves somewhere.
- */
-const distinctOrDots = (k: number): Pattern => {
-	const chain = Arr.join(
-		Arr.makeBy(255 * k, (i) => String.fromCodePoint(0x4e00 + i)),
-		""
-	)
-	return {
-		family: "distinct-sets",
-		label: `/^(?:<${255 * k} distinct code points>|(?:.{255}){${k}})$/u`,
-		source: `^(?:${chain}|(?:.{255}){${k}})$`,
 		flags: "u"
 	}
 }
@@ -127,12 +100,8 @@ const patterns: ReadonlyArray<Pattern> = [
 	plain("copies-255", "(?:a?){255}"),
 	plain("copies-255", "(?:ab){255}"),
 	plain("copies-255", "(?:a?){255}(?:b?){100}c"),
-	distinctChain(1_024, false),
-	distinctChain(4_096, false),
-	distinctChain(4_095, true),
-	scatteredChain(512, 8),
-	scatteredChain(4_096, 8),
-	distinctOrDots(8)
+	distinctChain(1_024),
+	scatteredChain(512, 8)
 ]
 
 /** What one construction spent, and what it came to: the minimal DFA's size, or the limit it stopped at. */
@@ -276,15 +245,11 @@ const row = (c: DfaCase): string =>
 		"  "
 	)
 
-const recordFile = (outDir: string, at: DateTime.Utc): string =>
-	`${outDir}/dfa-${Str.replaceAll(":", "")(Str.slice(0, 19)(DateTime.formatIso(at)))}.json`
-
 const main = Effect.gen(function* () {
 	const args = yield* Effect.sync((): ReadonlyArray<string> => process.argv.slice(2))
 	if (Arr.isReadonlyArrayNonEmpty(args)) {
 		return yield* new DfaUsage({ reason: `unknown argument ${args[0]}` })
 	}
-	const fs = yield* FileSystem.FileSystem
 	const source = yield* sourceIdentity
 	const startedAt = yield* DateTime.now
 	const cases = yield* Effect.forEach(patterns, (p) =>
@@ -298,11 +263,7 @@ const main = Effect.gen(function* () {
 		source
 	})
 	const record: DfaRecord = { identity, limits, ceilingLimits, cases }
-	const outDir = `${repoRoot}/bench/results/dfa`
-	const file = recordFile(outDir, startedAt)
-	yield* fs.makeDirectory(outDir, { recursive: true })
-	yield* fs.writeFileString(file, `${jsonDocument(trusted<Json>(record))}\n`)
-	yield* Console.info(`record: ${file}`)
+	yield* writeRunRecord(startedAt, record)
 })
 
 const setStatus = (status: number): Effect.Effect<void> =>

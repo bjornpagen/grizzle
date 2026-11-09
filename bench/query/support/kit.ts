@@ -21,7 +21,7 @@ import { type FlightFailure, type Prologue, readFrame, runFramed } from "#adapte
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import type { ExplainOptions, MalformedPlan, PlanMode } from "#bench/harness/explain.ts"
-import { type GateCheck, type Conditions, equivalence } from "#bench/harness/gate.ts"
+import { type GateCheck, equivalence } from "#bench/harness/gate.ts"
 import {
 	type MalformedRows,
 	measureVariant,
@@ -331,7 +331,7 @@ export const installedIndexes = Effect.fn("installedIndexes")(function* <S>(
 /**
  * A raw direct session in a world of the fixture, `role` (fixture.world.app, its full role, or a role of a login the
  * gate installed): logged in as the role's login, with its defaults (the C.UTF-8 categories, extra_float_digits
- * = 1), and taking on the role. The session handwritten variants and every EXPLAIN run on.
+ * = 1), and taking on the role. The session handwritten variants, every EXPLAIN and a gate's direct SQL writers run on.
  */
 export const rawSession = Effect.fn("rawSession")(function* <S>(
 	fixture: Fixture<S>,
@@ -984,22 +984,6 @@ export const counterexample = (
 	transaction,
 	decode: { kind: "none" },
 	outside: {}
-})
-
-export const conditions = (c: {
-	readonly workload: string
-	readonly schemaState: string
-	readonly data: string
-	readonly parameters: Readonly<Record<string, unknown>>
-	readonly semantics: string
-	readonly cache: string
-}): Conditions => ({
-	workload: c.workload,
-	schemaState: c.schemaState,
-	dataDistribution: c.data,
-	parameters: c.parameters,
-	resultSemantics: c.semantics,
-	cacheState: c.cache
 })
 
 /**

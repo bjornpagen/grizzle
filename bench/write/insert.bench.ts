@@ -13,7 +13,7 @@ import {
 	summarizeTransactions,
 	type TransactionMeasure
 } from "#bench/harness/transaction.ts"
-import { GateSetupError, settle } from "#bench/query/support/kit.ts"
+import { GateSetupError, rawSession, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
 	insertsOf,
@@ -31,9 +31,7 @@ import {
 	timedSamples,
 	transactionOf,
 	warmedOnce,
-	writeConditions,
-	writePhases,
-	writerSession
+	writePhases
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -228,7 +226,7 @@ export default defineGate({
 			yield* settle(fx)
 			const role = loginRoleOf(fx)
 			const db = yield* openFull(fx, S)
-			const direct = yield* writerSession(fx, fx.world.app, "m15c insert direct")
+			const direct = yield* rawSession(fx, fx.world.app, "m15c insert direct")
 			const directPid = yield* direct.pid
 			const statementsOf = (changes: unknown): ReadonlyArray<ObservedStatement> => {
 				const change = observedChange(db, changes, attemptLabel, { kind: "none" })
@@ -412,16 +410,16 @@ export default defineGate({
 				{
 					name: "schedules: an identical insert in flight, a committed conflict, an exact repeat",
 					gates: ["R33"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"a direct SQL writer holds an uncommitted insert of a key while a grizzle writer inserts the same fact, then commits or rolls back once the grizzle writer's backend waits on it; a grizzle insert over a committed different payload; one fact inserted twice",
 						schemaState: loadedByOwner,
-						data: "Item keyed by id, immutable",
+						dataDistribution: "Item keyed by id, immutable",
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"a repeat is no-change, an aborted holder's fact is inserted, a conflict is invariant-rejected with the key law",
-						cache: warmedOnce
-					}),
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -444,15 +442,15 @@ export default defineGate({
 				{
 					name: `overlapping concurrent additions, ${options.writers} writers`,
 					gates: ["R33"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `each round, every writer adds the same ${options.keys} keys in its own order; Item has only its primary key, Coded also a key on code in the reverse order`,
 						schemaState: loadedByOwner,
-						data: "fresh keys per round",
+						dataDistribution: "fresh keys per round",
 						parameters: { writers: options.writers, rounds: options.rounds, keys: options.keys },
-						semantics:
+						resultSemantics:
 							"per key one writer inserts and the others meet an exact repeat; a 40001 or a 40P01 is a TransientFailure, which the harness retries",
-						cache: warmedOnce
-					}),
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -471,15 +469,16 @@ export default defineGate({
 				{
 					name: `batches of ${options.batch} facts`,
 					gates: ["R33"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.apply of an enumerated insert of new facts, of the same facts again, and of them with another payload; the hand-written protocol and ON CONFLICT DO NOTHING on new facts",
 						schemaState: loadedByOwner,
-						data: "Item keyed by id",
+						dataDistribution: "Item keyed by id",
 						parameters: { batch: options.batch },
-						semantics: "accepted, no-change, invariant-rejected; DO NOTHING reports no conflict",
-						cache: warmedOnce
-					}),
+						resultSemantics:
+							"accepted, no-change, invariant-rejected; DO NOTHING reports no conflict",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: newFacts.ms },
 					variants: [],
 					comparisons: [],
@@ -500,15 +499,15 @@ export default defineGate({
 				{
 					name: "the protocol's statements",
 					gates: ["R33"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"the compiled insert of one fact into an immutable, a mutable and a pure-set relation",
 						schemaState: loadedByOwner,
-						data: "no facts needed",
+						dataDistribution: "no facts needed",
 						parameters: {},
-						semantics: "the statements as the runtime sends them",
-						cache: warmedOnce
-					}),
+						resultSemantics: "the statements as the runtime sends them",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

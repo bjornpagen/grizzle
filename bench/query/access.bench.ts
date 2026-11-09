@@ -21,7 +21,6 @@ import {
 	autocommit,
 	type Compiled,
 	compile,
-	conditions,
 	type Fixture,
 	fill,
 	GateSetupError,
@@ -494,15 +493,15 @@ export default defineGate({
 			cases.push({
 				name: "open entries in an amount range",
 				gates: ["R04", "R18"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"Entry filtered by kind = Open and amount in [lo, hi), amount a contract over bigint",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: { lo: "1000", hi: "3000" },
-					semantics: "the (id, amount) of open entries in the range",
-					cache: warm
-				}),
+					resultSemantics: "the (id, amount) of open entries in the range",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [rangeM.generated, rangeM.conservative, rangeHand],
 				comparisons: [compareVariants(rangeM.generated, rangeHand)],
@@ -625,15 +624,16 @@ export default defineGate({
 			cases.push({
 				name: "an account's codes in a prefix's code-point interval",
 				gates: ["R39", "R18"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"Entry by account with code >= lo and code < hi, a prefix's code-point interval",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: { account: String(prefixAccount), prefixes },
-					semantics: "the (id, code) of the account's entries whose code starts with the prefix",
-					cache: warm
-				}),
+					resultSemantics:
+						"the (id, code) of the account's entries whose code starts with the prefix",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [firstPrefix.generated, firstPrefix.conservative, firstStartsWith],
 				comparisons: [compareVariants(firstPrefix.generated, firstStartsWith)],

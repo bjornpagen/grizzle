@@ -20,15 +20,18 @@ import { defineConfig } from "#adapter/config/define.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { DbConnection, PoolBounds } from "#adapter/types/layer.ts"
-import { repoRoot, type RunIdentity, runIdentity, sourceIdentity } from "#bench/cold/identity.ts"
+import {
+	type RunIdentity,
+	runIdentity,
+	sourceIdentity,
+	writeRunRecord
+} from "#bench/cold/identity.ts"
 import { elapsed } from "#bench/cold/stats.ts"
 import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import { checkFiles } from "#cli/check.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { readTargets } from "#cli/migrate.ts"
 import { type ConfigLoader, runCli } from "#cli/run.ts"
-import type { Json } from "#compiler/core/canonical.ts"
-import { jsonDocument, trusted } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -393,9 +396,6 @@ const row = (phase: Phase, at: Measured, twice: Measured): string => {
 	)
 }
 
-const recordFile = (outDir: string, at: DateTime.Utc): string =>
-	`${outDir}/compile-${Str.replaceAll(":", "")(Str.slice(0, 19)(DateTime.formatIso(at)))}.json`
-
 const main = Effect.gen(function* () {
 	const args = yield* Effect.sync((): ReadonlyArray<string> => process.argv.slice(2))
 	const unknown = Arr.findFirst(args, (a) => a !== "--quick")
@@ -403,7 +403,6 @@ const main = Effect.gen(function* () {
 		return yield* new CompileUsage({ reason: `unknown argument ${unknown.value}` })
 	}
 	const scale = Arr.contains(args, "--quick") ? quickScale : fullScale
-	const fs = yield* FileSystem.FileSystem
 	const source = yield* sourceIdentity
 	const startedAt = yield* DateTime.now
 	const at = yield* measure(scale)
@@ -420,11 +419,7 @@ const main = Effect.gen(function* () {
 		source
 	})
 	const record: CompileRecord = { identity, scales: [at, twice] }
-	const outDir = `${repoRoot}/bench/results/compile`
-	const out = recordFile(outDir, startedAt)
-	yield* fs.makeDirectory(outDir, { recursive: true })
-	yield* fs.writeFileString(out, `${jsonDocument(trusted<Json>(record))}\n`)
-	yield* Console.info(`record: ${out}`)
+	yield* writeRunRecord(startedAt, record)
 })
 
 const setStatus = (status: number): Effect.Effect<void> =>

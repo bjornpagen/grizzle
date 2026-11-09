@@ -19,7 +19,6 @@ import {
 	autocommit,
 	columnAt,
 	compile,
-	conditions,
 	counterexample,
 	fill,
 	GateSetupError,
@@ -366,15 +365,15 @@ export default defineGate({
 				{
 					name: "urgent tasks of one region through an imported stage",
 					gates: ["R01"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"Task filtered by priority > 5 in an imported stage, joined to Account by region",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: fusedValues,
-						semantics: "the set of (id, priority) of urgent tasks of region 7's accounts",
-						cache: warm
-					}),
+						resultSemantics: "the set of (id, priority) of urgent tasks of region 7's accounts",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [fusedM.generated, fusedM.conservative, fusedHand],
 					comparisons: [fusedVsHand, compareVariants(fusedM.generated, fusedM.conservative)],
@@ -400,14 +399,15 @@ export default defineGate({
 				{
 					name: "priority levels per account through a key-dropping stage (the counterexample)",
 					gates: ["R01"],
-					conditions: conditions({
+					conditions: {
 						workload: "a count over an imported stage that projects the task id away",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: fusedValues,
-						semantics: "per account of region 7, the number of distinct priorities among its tasks",
-						cache: warm
-					}),
+						resultSemantics:
+							"per account of region 7, the number of distinct priorities among its tasks",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [counterM.generated, counterM.conservative, counterHand, counterBag],
 					comparisons: [
@@ -515,15 +515,15 @@ export default defineGate({
 				{
 					name: "tasks of one region with a note (duplicate witnesses)",
 					gates: ["R02"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"Task joined to Account by region, matching Note on the task without binding it",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: fusedValues,
-						semantics: "the ids of region 7's tasks that have at least one note",
-						cache: warm
-					}),
+						resultSemantics: "the ids of region 7's tasks that have at least one note",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [notedM.generated, notedM.conservative, notedHand],
 					comparisons: [compareVariants(notedM.generated, notedHand)],
@@ -537,14 +537,14 @@ export default defineGate({
 				{
 					name: "tasks of one region without a note",
 					gates: ["R02"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task joined to Account by region, with r.not(Note, { task })",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: fusedValues,
-						semantics: "the ids of region 7's tasks that have no note",
-						cache: warm
-					}),
+						resultSemantics: "the ids of region 7's tasks that have no note",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [unnotedM.generated, unnotedM.conservative, unnotedHand],
 					comparisons: [compareVariants(unnotedM.generated, unnotedHand)],
@@ -654,14 +654,14 @@ export default defineGate({
 				{
 					name: "tasks at a priority with a key-only Account match, snapshot context",
 					gates: ["R03"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task matched to Account by key only, filtered by priority and an id bound",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { p: 3, below: String(r03Values.below) },
-						semantics: "the (id, account) of tasks at priority 3 below the id bound",
-						cache: warm
-					}),
+						resultSemantics: "the (id, account) of tasks at priority 3 below the id bound",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [eliminatedM.generated, eliminatedM.conservative, eliminatedHand],
 					comparisons: [compareVariants(eliminatedM.generated, eliminatedHand)],
@@ -675,14 +675,14 @@ export default defineGate({
 				{
 					name: "the same query compiled for a transaction, whose deferred containment can be false",
 					gates: ["R03"],
-					conditions: conditions({
+					conditions: {
 						workload: "the same query, template context `transaction`",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { p: 3, below: String(r03Values.below) },
-						semantics: "the same set",
-						cache: warm
-					}),
+						resultSemantics: "the same set",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [inTransactionM.generated, inTransactionM.conservative],
 					comparisons: [],
@@ -695,18 +695,18 @@ export default defineGate({
 				{
 					name: "the same reads inside a write transaction that deleted a referenced Account (the counterexample)",
 					gates: ["R03"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"as the writer, DELETE of an Account its tasks refer to under the deferred foreign key, then the " +
 							"transaction template, the conservative lowering and the snapshot template's eliminated statement " +
 							"in the same transaction, rolled back",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { p: 3, below: String(r03Values.below), deletedAccount: danglingAccount },
-						semantics:
+						resultSemantics:
 							"the (id, account) of tasks at priority 3 below the bound whose account exists",
-						cache: "each statement runs once"
-					}),
+						cacheState: "each statement runs once"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -722,14 +722,14 @@ export default defineGate({
 				{
 					name: "tasks at a priority whose Account match also filters the region",
 					gates: ["R03"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task matched to Account by key and filtered by the account's region",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { p: 3, region: 7 },
-						semantics: "the (id, account) of region 7's tasks at priority 3",
-						cache: warm
-					}),
+						resultSemantics: "the (id, account) of region 7's tasks at priority 3",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [filteredM.generated],
 					comparisons: [],
@@ -826,14 +826,14 @@ export default defineGate({
 				{
 					name: "an account's tasks with their key retained",
 					gates: ["R17"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task by account parameter, delivering (id, priority)",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(accountValues.account) },
-						semantics: "the set of the account's (id, priority)",
-						cache: warm
-					}),
+						resultSemantics: "the set of the account's (id, priority)",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [keyedM.generated, keyedM.conservative],
 					comparisons: [],
@@ -844,14 +844,14 @@ export default defineGate({
 				{
 					name: "the first ten of an account's tasks by id",
 					gates: ["R17"],
-					conditions: conditions({
+					conditions: {
 						workload: "take(10) by id of an account's task ids",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(accountValues.account) },
-						semantics: "the ten least task ids of the account",
-						cache: warm
-					}),
+						resultSemantics: "the ten least task ids of the account",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [pageM.generated, pageM.conservative, pageHand, pageDistinct],
 					comparisons: [
@@ -868,14 +868,14 @@ export default defineGate({
 				{
 					name: "an account's priorities, the task key dropped",
 					gates: ["R17"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task by account parameter, delivering priority only",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(accountValues.account) },
-						semantics: "the set of priorities among the account's tasks",
-						cache: warm
-					}),
+						resultSemantics: "the set of priorities among the account's tasks",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [droppedM.generated, droppedM.conservative],
 					comparisons: [],
@@ -886,14 +886,14 @@ export default defineGate({
 				{
 					name: "region priorities, parent-only fanout",
 					gates: ["R17"],
-					conditions: conditions({
+					conditions: {
 						workload: "Task joined to Account by region, delivering (region, priority)",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: fusedValues,
-						semantics: "the set of (region, priority) pairs of region 7",
-						cache: warm
-					}),
+						resultSemantics: "the set of (region, priority) pairs of region 7",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [fanoutM.generated, fanoutM.conservative],
 					comparisons: [],

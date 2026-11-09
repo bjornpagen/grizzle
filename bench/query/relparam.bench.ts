@@ -11,7 +11,6 @@ import { compareVariants, measureVariant, type VariantOptions } from "#bench/har
 import {
 	autocommit,
 	compile,
-	conditions,
 	deliver,
 	deliveredAgree,
 	deliveredAlone,
@@ -212,14 +211,14 @@ export default defineGate({
 				{
 					name: "ten ids, each given twice, as arrays",
 					gates: ["R22"],
-					conditions: conditions({
+					conditions: {
 						workload: "a relation parameter of ids joined to Item by key",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { ids: Arr.map(distinctIds, String), repeated: true },
-						semantics: "the (id, price) of the named items",
-						cache: "warm: each variant runs once before its timed samples"
-					}),
+						resultSemantics: "the (id, price) of the named items",
+						cacheState: "warm: each variant runs once before its timed samples"
+					},
 					phases: {},
 					variants: [arraysM, valuesHand, orTree],
 					comparisons: [compareVariants(arraysM, valuesHand), compareVariants(arraysM, orTree)],
@@ -233,14 +232,14 @@ export default defineGate({
 				{
 					name: "the arrays at 50, 200 and 800 ids",
 					gates: ["R22"],
-					conditions: conditions({
+					conditions: {
 						workload: "the same join with ids sent as one array",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { sizes: [...sizes] },
-						semantics: "the (id, price) of the named items",
-						cache: "each size runs once before its one timed sample"
-					}),
+						resultSemantics: "the (id, price) of the named items",
+						cacheState: "each size runs once before its one timed sample"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

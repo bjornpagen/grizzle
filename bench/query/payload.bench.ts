@@ -19,7 +19,6 @@ import {
 	agrees,
 	autocommit,
 	compile,
-	conditions,
 	fill,
 	GateSetupError,
 	handwritten,
@@ -235,15 +234,16 @@ export default defineGate({
 				{
 					name: "the twenty best-ranked documents with their bodies",
 					gates: ["R06"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"take(20) by (rank desc, id) of Doc delivering id, rank, title and body; outside the workload",
 						schemaState,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "the 20 documents first by rank descending then id, with their payload",
-						cache: "warm: each variant runs once before its timed samples"
-					}),
+						resultSemantics:
+							"the 20 documents first by rank descending then id, with their payload",
+						cacheState: "warm: each variant runs once before its timed samples"
+					},
 					phases: {},
 					variants: [topM.generated, topM.conservative, lateFetch, plain],
 					comparisons: [
@@ -273,14 +273,14 @@ export default defineGate({
 				{
 					name: "the twenty best (rank, body) pairs, the key projected away",
 					gates: ["R06"],
-					conditions: conditions({
+					conditions: {
 						workload: "take(20) by rank desc of Doc's distinct (rank, body) pairs",
 						schemaState,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "the first 20 distinct (rank, body) pairs, completed by body",
-						cache: "timed once, after its first execution"
-					}),
+						resultSemantics: "the first 20 distinct (rank, body) pairs, completed by body",
+						cacheState: "timed once, after its first execution"
+					},
 					phases: {},
 					variants: [bodiesM.generated, bodiesM.conservative],
 					comparisons: [],

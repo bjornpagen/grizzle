@@ -26,7 +26,6 @@ import {
 	readBackRows,
 	timedSamples,
 	warmedOnce,
-	writeConditions,
 	writesOf,
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
@@ -535,15 +534,15 @@ export default defineGate({
 				{
 					name: "a described put with a post-change read-back, immutable target",
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.apply of a described put crediting one account, with a read-back of its new row",
 						schemaState: loadedByOwner,
-						data: `${options.accounts} accounts`,
+						dataDistribution: `${options.accounts} accounts`,
 						parameters: { amount: 5 },
-						semantics: "accepted, one fact put, the read-back its new row",
-						cache: warmedOnce
-					}),
+						resultSemantics: "accepted, one fact put, the read-back its new row",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: immutable.timed.ms },
 					variants: [],
 					comparisons: [],
@@ -561,14 +560,14 @@ export default defineGate({
 				{
 					name: "the same put, mutable target",
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload: "the same ChangeSet with Account declared mutable",
 						schemaState: loadedByOwner,
-						data: `${options.accounts} accounts`,
+						dataDistribution: `${options.accounts} accounts`,
 						parameters: { amount: 5 },
-						semantics: "accepted, one fact put, the read-back its new row",
-						cache: warmedOnce
-					}),
+						resultSemantics: "accepted, one fact put, the read-back its new row",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: mutableRun.timed.ms },
 					variants: [],
 					comparisons: [],
@@ -586,14 +585,14 @@ export default defineGate({
 				{
 					name: `${options.appliers} concurrent appliers crediting one account`,
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `each applier credits the same account ${options.credits} times by the described put`,
 						schemaState: loadedByOwner,
-						data: "the account starts at zero",
+						dataDistribution: "the account starts at zero",
 						parameters: { appliers: options.appliers, credits: options.credits },
-						semantics: "every credit is applied exactly once",
-						cache: warmedOnce
-					}),
+						resultSemantics: "every credit is applied exactly once",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -613,15 +612,16 @@ export default defineGate({
 				{
 					name: "a described post with a read-back, one statement",
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.apply of a described post: an insert of Entry and a deletion of Pending, read back",
 						schemaState: loadedByOwner,
-						data: `${options.accounts} accounts of ${options.pendingPerAccount} pending amounts`,
+						dataDistribution: `${options.accounts} accounts of ${options.pendingPerAccount} pending amounts`,
 						parameters: { account: "a fresh account per sample" },
-						semantics: "accepted, the account's amounts posted, the read-back its new entries",
-						cache: warmedOnce
-					}),
+						resultSemantics:
+							"accepted, the account's amounts posted, the read-back its new entries",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: single.timed.ms },
 					variants: [],
 					comparisons: [],
@@ -639,14 +639,15 @@ export default defineGate({
 				{
 					name: "the same post in its conservative realization, in sequence",
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload: "the same ChangeSet through the program's conservative realization",
 						schemaState: loadedByOwner,
-						data: `${options.accounts} accounts of ${options.pendingPerAccount} pending amounts`,
+						dataDistribution: `${options.accounts} accounts of ${options.pendingPerAccount} pending amounts`,
 						parameters: { account: "a fresh account per sample" },
-						semantics: "accepted, the account's amounts posted, the read-back its new entries",
-						cache: warmedOnce
-					}),
+						resultSemantics:
+							"accepted, the account's amounts posted, the read-back its new entries",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: sequential.timed.ms },
 					variants: [],
 					comparisons: [],
@@ -664,15 +665,15 @@ export default defineGate({
 				{
 					name: `${options.appliers} concurrent appliers posting one account, in each realization`,
 					gates: ["R35"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"each applier posts the same account once, the single statement and the sequence",
 						schemaState: loadedByOwner,
-						data: `${options.pendingPerAccount} pending amounts of the account`,
+						dataDistribution: `${options.pendingPerAccount} pending amounts of the account`,
 						parameters: { appliers: options.appliers },
-						semantics: "one applier posts the account; every other finds nothing left",
-						cache: warmedOnce
-					}),
+						resultSemantics: "one applier posts the account; every other finds nothing left",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

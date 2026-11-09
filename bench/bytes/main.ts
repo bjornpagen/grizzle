@@ -1,22 +1,16 @@
 #!/usr/bin/env -S node
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Array as Arr, Console, Data, DateTime, Effect, Layer, pipe, String as Str } from "effect"
 import {
-	Array as Arr,
-	Console,
-	Data,
-	DateTime,
-	Effect,
-	FileSystem,
-	Layer,
-	pipe,
-	String as Str
-} from "effect"
-import { repoRoot, type RunIdentity, runIdentity, sourceIdentity } from "#bench/cold/identity.ts"
+	type RunIdentity,
+	runIdentity,
+	sourceIdentity,
+	writeRunRecord
+} from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
-import type { Json } from "#compiler/core/canonical.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
-import { jsonDocument, trusted } from "#compiler/core/trusted.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { OutputRows } from "#compiler/core/wire.ts"
 import { deliveredRows, deliveryOfColumns, textColumn } from "#compiler/lower/delivery.ts"
 import { col, provedCore, table, targetAs } from "#compiler/sql/build.ts"
@@ -146,9 +140,6 @@ const row = (c: BytesCase): string =>
 		"  "
 	)
 
-const recordFile = (outDir: string, at: DateTime.Utc): string =>
-	`${outDir}/bytes-${Str.replaceAll(":", "")(Str.slice(0, 19)(DateTime.formatIso(at)))}.json`
-
 const bench = Effect.gen(function* () {
 	const s = yield* Substrate
 	const owner = yield* s.session(ownerSession())
@@ -201,7 +192,6 @@ const bench = Effect.gen(function* () {
 })
 
 const main = Effect.gen(function* () {
-	const fs = yield* FileSystem.FileSystem
 	const source = yield* sourceIdentity
 	const startedAt = yield* DateTime.now
 	const cases = yield* Effect.scoped(
@@ -222,11 +212,7 @@ const main = Effect.gen(function* () {
 		inForce: bytesChunkLength.value,
 		cases
 	}
-	const outDir = `${repoRoot}/bench/results/bytes`
-	const file = recordFile(outDir, startedAt)
-	yield* fs.makeDirectory(outDir, { recursive: true })
-	yield* fs.writeFileString(file, `${jsonDocument(trusted<Json>(record))}\n`)
-	yield* Console.info(`record: ${file}`)
+	yield* writeRunRecord(startedAt, record)
 })
 
 NodeRuntime.runMain(

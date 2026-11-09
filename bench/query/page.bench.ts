@@ -28,7 +28,6 @@ import {
 import {
 	autocommit,
 	compile,
-	conditions,
 	handwritten,
 	handwrittenRows,
 	headingOf,
@@ -244,16 +243,16 @@ export default defineGate({
 				{
 					name: "the page after (50000, 0) of an account's entries by amount",
 					gates: ["R05"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"page { first: 20, after } of an account's (id, amount) ordered by amount, id",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(account), after: boundary, size: pageSize },
-						semantics:
+						resultSemantics:
 							"the 21 entries (page and lookahead) following the boundary in (amount, id) order",
-						cache: "warm: each variant runs once before its timed samples"
-					}),
+						cacheState: "warm: each variant runs once before its timed samples"
+					},
 					phases: {},
 					variants: [seek, seekConservative, orM, rowM],
 					comparisons: [compareVariants(seek, orM), compareVariants(seek, rowM)],
@@ -274,14 +273,14 @@ export default defineGate({
 				{
 					name: "the page after 50000 of an account's amounts, the key dropped",
 					gates: ["R05"],
-					conditions: conditions({
+					conditions: {
 						workload: "page { first: 20, after } of an account's distinct amounts",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { account: String(account), after: ["50000"], size: pageSize },
-						semantics: "the 21 distinct amounts following 50000",
-						cache: "warm: each variant runs once before its timed samples"
-					}),
+						resultSemantics: "the 21 distinct amounts following 50000",
+						cacheState: "warm: each variant runs once before its timed samples"
+					},
 					phases: {},
 					variants: [droppedAfter, droppedConservative],
 					comparisons: [],

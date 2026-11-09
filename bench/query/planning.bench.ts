@@ -23,7 +23,6 @@ import {
 	type Compiled,
 	certifiedRules,
 	compile,
-	conditions,
 	deliver,
 	fill,
 	GateSetupError,
@@ -405,20 +404,20 @@ export default defineGate({
 				cases.push({
 					name: `${kind === "path" ? "a path" : "a union"} of ${size} ${kind === "path" ? "edges" : "arms"}`,
 					gates: ["R14"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							kind === "path"
 								? `a join chain of ${size} Edge matches from a start node`
 								: `a union of ${size} filtered arms`,
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { size },
-						semantics:
+						resultSemantics:
 							kind === "path"
 								? "the end nodes of every path of the length"
 								: "the edges of the arms' weights",
-						cache: "warm variants; firstMs is the first execution on a fresh backend"
-					}),
+						cacheState: "warm variants; firstMs is the first execution on a fresh backend"
+					},
 					phases: {},
 					variants: [m.generated, m.conservative, hand],
 					comparisons: [versusHand],
@@ -463,15 +462,15 @@ export default defineGate({
 			cases.push({
 				name: "a path of 12 edges, explained and run once",
 				gates: ["R14"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"a join chain of 12 Edge matches from a start node, past join_collapse_limit, and the handwritten JOIN chain",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: { size: 12 },
-					semantics: "the end nodes of every path of 12 edges",
-					cache: "one EXPLAIN ANALYZE and one execution after the runtime's delivery"
-				}),
+					resultSemantics: "the end nodes of every path of 12 edges",
+					cacheState: "one EXPLAIN ANALYZE and one execution after the runtime's delivery"
+				},
 				phases: {},
 				variants: [],
 				comparisons: [],

@@ -22,7 +22,6 @@ import {
 	autocommit,
 	columnAt,
 	compile,
-	conditions,
 	fill,
 	handwritten,
 	handwrittenRows,
@@ -259,15 +258,15 @@ export default defineGate({
 				{
 					name: "the day of one instant",
 					gates: ["R38"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"a one-fact relation parameter of instants matched to Day by r.pointIn(at, span), span a nonoverlap key",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { t: String(t), instants },
-						semantics: "the (day, week) whose span contains the instant, at most one",
-						cache: warm
-					}),
+						resultSemantics: "the (day, week) whose span contains the instant, at most one",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [lookupM.generated, lookupM.conservative, btree, bare],
 					comparisons: [],
@@ -282,14 +281,14 @@ export default defineGate({
 				{
 					name: "every visit's day, a lookup per fact of a joined relation",
 					gates: ["R38"],
-					conditions: conditions({
+					conditions: {
 						workload: "Visit joined to Day by r.pointIn(at, span), visits below an id",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { below: "200" },
-						semantics: "each visit below the id with its day",
-						cache: warm
-					}),
+						resultSemantics: "each visit below the id with its day",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [joinedM.generated, joinedM.conservative],
 					comparisons: [],

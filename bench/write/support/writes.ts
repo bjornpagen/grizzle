@@ -22,7 +22,6 @@ import {
 } from "#adapter/wire/session.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import { explain, type MalformedPlan } from "#bench/harness/explain.ts"
-import type { Conditions } from "#bench/harness/gate.ts"
 import type { Attempted } from "#bench/harness/load.ts"
 import {
 	type Constraint,
@@ -50,7 +49,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
 import { paramText } from "#test/support/wire.ts"
@@ -143,19 +142,6 @@ export const openFull = <F>(
 	value: Parameters<typeof fullWorld>[0]
 ): Effect.Effect<Db<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> =>
 	openDb(fixture, fullWorld(value).server.roles.app)
-
-/**
- * A raw session in the world of `role` (fixture.world.app, or a role of a login the gate installed), on the substrate's
- * route: a direct SQL writer, logged in as the role's login and taking on the role.
- */
-export const writerSession = Effect.fn("writerSession")(function* <S>(
-	fixture: Fixture<S>,
-	role: AnyRole,
-	label: string
-): Effect.fn.Return<RawSession, SqlError, Substrate | Scope.Scope> {
-	const s = yield* Substrate
-	return yield* s.session({ ...worldSession(fixture.installed.world(role)), label })
-})
 
 /**
  * The login role of the fixture's full world: what pg_stat_activity names a session of it by, the session user of every
@@ -1130,22 +1116,6 @@ export const loadedByOwner =
 
 /** The cache state of a measured operation run once before its timed samples. */
 export const warmedOnce = "warm: each measured operation runs once before its timed samples"
-
-export const writeConditions = (c: {
-	readonly workload: string
-	readonly schemaState: string
-	readonly data: string
-	readonly parameters: Readonly<Record<string, unknown>>
-	readonly semantics: string
-	readonly cache: string
-}): Conditions => ({
-	workload: c.workload,
-	schemaState: c.schemaState,
-	dataDistribution: c.data,
-	parameters: c.parameters,
-	resultSemantics: c.semantics,
-	cacheState: c.cache
-})
 
 /**
  * The phase names the write gates time: a measured transaction's (bench/harness/transaction.ts), a whole operation as

@@ -9,7 +9,7 @@ import {
 	mechanism
 } from "#bench/harness/gate.ts"
 import { GateSetupError } from "#bench/query/support/kit.ts"
-import { oneRow, timed, writeConditions } from "#bench/write/support/writes.ts"
+import { oneRow, timed } from "#bench/write/support/writes.ts"
 import type { Limit } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
@@ -521,12 +521,9 @@ const schemaState =
 
 const data = `the set's ${triples.members} members of ${cellCount(triples)} cells, scattered by the stride ${stride}, taken in rank order`
 
-const conditions = (c: {
-	readonly workload: string
-	readonly parameters: Readonly<Record<string, unknown>>
-	readonly semantics: string
-	readonly cache: string
-}): Conditions => writeConditions({ ...c, schemaState, data })
+const conditions = (
+	c: Pick<Conditions, "workload" | "parameters" | "resultSemantics" | "cacheState">
+): Conditions => ({ ...c, schemaState, dataDistribution: data })
 
 /** @internal */
 export default defineGate({
@@ -602,9 +599,9 @@ export default defineGate({
 					conditions: conditions({
 						workload: `the engine's CREATE FUNCTION of the constant's hex literal, its ${relation.members} members over ${cellCount(relation)} cells`,
 						parameters: { cells: cellCount(relation), members: relation.members },
-						semantics:
+						resultSemantics:
 							"the function returns the constant: its cells at their width, its members present",
-						cache: "each sample a fresh function, dropped after it is timed"
+						cacheState: "each sample a fresh function, dropped after it is timed"
 					}),
 					phases: { packMs: summarize(packs) },
 					variants: [],
@@ -753,8 +750,8 @@ export default defineGate({
 						statements: options.statements,
 						rounds: options.rounds
 					},
-					semantics: "every row is a member, so every INSERT keeps its law and is accepted",
-					cache:
+					resultSemantics: "every row is a member, so every INSERT keeps its law and is accepted",
+					cacheState:
 						"one warm owner backend: a warm-up round before the measured ones, the tables interleaved in each round"
 				}),
 				phases: { loopMs: summarize(loopsOf(table)) },
@@ -835,8 +832,8 @@ export default defineGate({
 				conditions: conditions({
 					workload: `in a fresh backend, two one-row INSERTs into ${table.name}, each timed`,
 					parameters: { table: table.name, backends: options.backends },
-					semantics: "both rows are members and are accepted",
-					cache:
+					resultSemantics: "both rows are members and are accepted",
+					cacheState:
 						"each sample a fresh backend: its first INSERT plans the table's expressions and, through a roster domain, folds its constant into the typcache"
 				}),
 				phases: { firstInsertMs: summarize(use.first), secondInsertMs: summarize(use.second) },
@@ -909,9 +906,9 @@ export default defineGate({
 				conditions: conditions({
 					workload: `${options.rows} rows in ${checkedTriples.name} and ${derivedTriples.name}; ${checkedTriples.name}'s CHECK re-pointed (DROP CONSTRAINT, then ADD CONSTRAINT NOT VALID) and VALIDATEd, and ${derivedTriples.name}'s derived column rewritten by SET EXPRESSION, ${options.changes} times between the grown set and the set`,
 					parameters: { rows: options.rows, changes: options.changes },
-					semantics:
+					resultSemantics:
 						"every stored row of the checked table is a member of both constants, so every VALIDATE passes, and every rewrite re-derives every row",
-					cache: "one warm owner backend; each sample reads the constant its re-point installs"
+					cacheState: "one warm owner backend; each sample reads the constant its re-point installs"
 				}),
 				phases: {
 					swapMs: summarize(Arr.map(changes, (x) => x.swap)),

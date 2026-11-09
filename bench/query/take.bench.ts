@@ -18,7 +18,6 @@ import {
 	autocommit,
 	type Compiled,
 	compile,
-	conditions,
 	deliver,
 	deliveredAgree,
 	fill,
@@ -320,20 +319,20 @@ export default defineGate({
 			cases.push({
 				name: "a student by key and the students up to an id, each with its three best sittings attached, pipelined",
 				gates: ["R20"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"an attachment take(3) by (score desc, id), five array fields, over a key-lookup parent and over a parent " +
 						"statement with no bound",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: {
 						id: oneParent,
 						many: manyParents,
 						lateralParentMax: lateralParentMax.value
 					},
-					semantics: "each parent student with its three best sittings",
-					cache: warm
-				}),
+					resultSemantics: "each parent student with its three best sittings",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [fewM.generated, fewM.conservative, manyM.generated, manyM.conservative],
 				comparisons: [],
@@ -404,14 +403,14 @@ export default defineGate({
 				{
 					name: "every student's three best sittings, bound",
 					gates: ["R20"],
-					conditions: conditions({
+					conditions: {
 						workload: "take(3) by (score desc, id) bound to every Student",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each student with its three best sittings",
-						cache: warm
-					}),
+						resultSemantics: "each student with its three best sittings",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [everyM.generated, everyM.conservative, everyLateral, everyWindow],
 					comparisons: [
@@ -430,14 +429,14 @@ export default defineGate({
 				{
 					name: "every student's best sitting, bound, k = 1",
 					gates: ["R20"],
-					conditions: conditions({
+					conditions: {
 						workload: "take(1) by (score desc, id) bound to every Student",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each student with its best sitting",
-						cache: warm
-					}),
+						resultSemantics: "each student with its best sitting",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [oneM.generated, oneM.conservative, oneDistinctOn],
 					comparisons: [],
@@ -448,19 +447,19 @@ export default defineGate({
 				{
 					name: "a relation parameter's students with their three best sittings",
 					gates: ["R20"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"take(3) bound to the facts of a relation parameter, delivered with a few students and with every student",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {
 							fewStudents: Arr.map(wanted, (w) => w.id),
 							manyStudents: everyone.length,
 							lateralParentMax: lateralParentMax.value
 						},
-						semantics: "each named student with its three best sittings",
-						cache: warm
-					}),
+						resultSemantics: "each named student with its three best sittings",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [
 						forParamM.generated,
@@ -591,19 +590,19 @@ export default defineGate({
 			cases.push({
 				name: "every student's three best sittings as a derived relation, refreshed",
 				gates: ["R20"],
-				conditions: conditions({
+				conditions: {
 					workload:
 						"BestThree = derived(take(3) by (score desc, id) bound to every Student), refreshed by db.refresh's " +
 						"transaction as the refreshing identity",
 					schemaState:
 						"fresh install of LabReports (Lab extended with BestThree) with the derived relation's view, the Lab facts " +
 						"loaded, then VACUUM (ANALYZE) of every base table",
-					data,
+					dataDistribution: data,
 					parameters: {},
-					semantics: "the view holds each student with its three best sittings",
-					cache:
+					resultSemantics: "the view holds each student with its three best sittings",
+					cacheState:
 						"the first refresh populates the view; the later ones run CONCURRENTLY over an unchanged base"
-				}),
+				},
 				phases: {},
 				variants: [],
 				comparisons: [],
@@ -724,19 +723,19 @@ export default defineGate({
 						cases.push({
 							name,
 							gates: ["R20"],
-							conditions: conditions({
+							conditions: {
 								workload: `take(${perParent}) by (score desc, id) bound to a relation parameter's students`,
 								schemaState: formsInstalled,
-								data: formsData,
+								dataDistribution: formsData,
 								parameters: {
 									parents,
 									groupSize: band.groupSize,
 									k: perParent,
 									lateralParentMax: lateralParentMax.value
 								},
-								semantics: "each named student with its best sittings",
-								cache: warm
-							}),
+								resultSemantics: "each named student with its best sittings",
+								cacheState: warm
+							},
 							phases: {},
 							variants: [lateral, whole],
 							comparisons: [comparison],
@@ -887,14 +886,14 @@ export default defineGate({
 			cases.push({
 				name: "every sitting with its student's next sitting by (day, id)",
 				gates: ["R27"],
-				conditions: conditions({
+				conditions: {
 					workload: "take(1) of the strict successor by (day, id), bound to every sitting",
 					schemaState: installed,
-					data,
+					dataDistribution: data,
 					parameters: {},
-					semantics: "each sitting that has a successor, with the successor's id and score",
-					cache: warm
-				}),
+					resultSemantics: "each sitting that has a successor, with the successor's id and score",
+					cacheState: warm
+				},
 				phases: {},
 				variants: [nextM.generated, nextM.conservative, nextLateral, nextLead],
 				comparisons: [compareVariants(nextM.generated, nextLateral)],
@@ -968,15 +967,16 @@ export default defineGate({
 				{
 					name: "every sitting with its student's latest price at or before its day",
 					gates: ["R42"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"take(1) by (day desc, id desc) of Price with day <= the sitting's day, bound to every sitting",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics: "each sitting with a price at or before its day, with the latest such price",
-						cache: warm
-					}),
+						resultSemantics:
+							"each sitting with a price at or before its day, with the latest such price",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [asOfM.generated, asOfM.conservative, asOfLateral],
 					comparisons: [compareVariants(asOfM.generated, asOfLateral)],
@@ -995,16 +995,16 @@ export default defineGate({
 				{
 					name: "every sitting with its student's earliest price at or after its day (the mirror)",
 					gates: ["R42"],
-					conditions: conditions({
+					conditions: {
 						workload:
 							"take(1) by (day, id) of Price with day >= the sitting's day, bound to every sitting",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"each sitting with a price at or after its day, with the earliest such price",
-						cache: warm
-					}),
+						cacheState: warm
+					},
 					phases: {},
 					variants: [mirrorM.generated, mirrorM.conservative, mirrorLateral],
 					comparisons: [],
@@ -1015,14 +1015,14 @@ export default defineGate({
 				{
 					name: "a relation parameter's students' sittings with their as-of price",
 					gates: ["R42"],
-					conditions: conditions({
+					conditions: {
 						workload: "the as-of take bound to the sittings of a relation parameter's six students",
 						schemaState: installed,
-						data,
+						dataDistribution: data,
 						parameters: { students: Arr.map(few, (w) => w.id) },
-						semantics: "each such sitting with its latest price at or before its day",
-						cache: warm
-					}),
+						resultSemantics: "each such sitting with its latest price at or before its day",
+						cacheState: warm
+					},
 					phases: {},
 					variants: [boundM.generated, boundM.conservative],
 					comparisons: [],

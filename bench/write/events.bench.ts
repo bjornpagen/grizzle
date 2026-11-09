@@ -14,15 +14,13 @@ import {
 	type TransactionMeasure,
 	type TransactionSeries
 } from "#bench/harness/transaction.ts"
-import { fillTogether, GateSetupError, settle } from "#bench/query/support/kit.ts"
+import { fillTogether, GateSetupError, rawSession, settle } from "#bench/query/support/kit.ts"
 import {
 	installWrites,
 	loadedByOwner,
 	loginRoleOf,
 	plainStatement,
-	writeConditions,
-	writePhases,
-	writerSession
+	writePhases
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -114,7 +112,7 @@ export default defineGate({
 			])
 			yield* settle(fx)
 			yield* grantMemoryReading(s.admin, loginRoleOf(fx))
-			const writer = yield* writerSession(fx, fx.world.app, "m15c events writer")
+			const writer = yield* rawSession(fx, fx.world.app, "m15c events writer")
 			const generated = (first: number, n: number) =>
 				`INSERT INTO ${M} (${c("Member", "id")}, ${c("Member", "grp")}) SELECT ${first} + g, 1 + (g % ${options.groups}) FROM pg_catalog.generate_series(1, ${n}) AS g`
 			/**
@@ -163,14 +161,14 @@ export default defineGate({
 				sizeCases.push({
 					name: `${n} rows queued in one transaction`,
 					gates: ["R12"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `INSERT of ${n} members spread over ${options.groups} groups, the event memory read before the end, rolled back`,
 						schemaState: loadedByOwner,
-						data: `${options.groups} groups of one member each`,
+						dataDistribution: `${options.groups} groups of one member each`,
 						parameters: { rows: n },
-						semantics: "the events stay queued; nothing is checked",
-						cache: "each sample a fresh transaction on a warm session"
-					}),
+						resultSemantics: "the events stay queued; nothing is checked",
+						cacheState: "each sample a fresh transaction on a warm session"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -225,14 +223,14 @@ export default defineGate({
 				moveCases.push({
 					name: `one key moved ${k} times`,
 					gates: ["R12"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `${k} UPDATEs moving one member between groups 1 and 2 in one transaction, then the deferred checks and COMMIT`,
 						schemaState: loadedByOwner,
-						data: `${options.groups} groups of one member each`,
+						dataDistribution: `${options.groups} groups of one member each`,
 						parameters: { moves: k },
-						semantics: "every move keeps its foreign key; the transaction commits",
-						cache: "each sample a fresh transaction on a warm session"
-					}),
+						resultSemantics: "every move keeps its foreign key; the transaction commits",
+						cacheState: "each sample a fresh transaction on a warm session"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

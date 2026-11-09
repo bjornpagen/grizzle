@@ -17,8 +17,7 @@ import {
 	openFull,
 	theStatement,
 	timedSamples,
-	warmedOnce,
-	writeConditions
+	warmedOnce
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -205,16 +204,16 @@ export default defineGate({
 				{
 					name: "same-key and repeated facts in a described and a Stream member",
 					gates: ["R34"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.apply of a described insert folding two relation-parameter rows onto one key, and of a Stream member with a repeat",
 						schemaState: loadedByOwner,
-						data: "Item empty at those keys",
+						dataDistribution: "Item empty at those keys",
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"two facts at one key with different payloads are invariant-rejected with the key law; equal facts count once",
-						cache: warmedOnce
-					}),
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -231,15 +230,15 @@ export default defineGate({
 				{
 					name: `a described insert of ${options.batch} facts with and without key evidence`,
 					gates: ["R34"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"db.apply of a described insert projecting Src's key over a range, and of the same facts through a relation parameter",
 						schemaState: loadedByOwner,
-						data: `Src holds ${options.batch * (options.samples + 2)} facts`,
+						dataDistribution: `Src holds ${options.batch * (options.samples + 2)} facts`,
 						parameters: { batch: options.batch },
-						semantics: "every fact is new; accepted",
-						cache: warmedOnce
-					}),
+						resultSemantics: "every fact is new; accepted",
+						cacheState: warmedOnce
+					},
 					phases: { operationMs: withEvidence.ms },
 					variants: [],
 					comparisons: [],

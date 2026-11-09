@@ -12,7 +12,7 @@ import {
 	summarizeTransactions,
 	type TransactionMeasure
 } from "#bench/harness/transaction.ts"
-import { settle } from "#bench/query/support/kit.ts"
+import { rawSession, settle } from "#bench/query/support/kit.ts"
 import {
 	installWrites,
 	loadedByOwner,
@@ -22,9 +22,7 @@ import {
 	tableScans,
 	transactionOf,
 	warmedOnce,
-	writeConditions,
-	writePhases,
-	writerSession
+	writePhases
 } from "#bench/write/support/writes.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -112,7 +110,7 @@ export default defineGate({
 			const timesheetTable = fx.relationName("Timesheet")
 			const c = (rel: string, f: string) => fx.column(rel, f)
 			const status = (handle: string) => fx.handle("ShiftStatus", handle)
-			const writer = yield* writerSession(fx, fx.world.app, "m15c containment writer")
+			const writer = yield* rawSession(fx, fx.world.app, "m15c containment writer")
 			let loadedEmployees = 0
 			let nextShift = 1
 			/**
@@ -215,14 +213,14 @@ export default defineGate({
 			const at = (m: typeof small, employees: number): CaseRecord<"R11"> => ({
 				name: `a batch of ${options.batch} approved shifts, ${employees} employees`,
 				gates: ["R11"],
-				conditions: writeConditions({
+				conditions: {
 					workload: `one INSERT of ${options.batch} approved shifts on distinct existing timesheets, then the deferred checks and COMMIT`,
 					schemaState: loadedByOwner,
-					data: `${employees} employees with ${options.weeks} timesheets each and ${options.shifts} approved shifts per timesheet`,
+					dataDistribution: `${employees} employees with ${options.weeks} timesheets each and ${options.shifts} approved shifts per timesheet`,
 					parameters: { employees, batch: options.batch },
-					semantics: "every shift has its timesheet; the batch commits",
-					cache: warmedOnce
-				}),
+					resultSemantics: "every shift has its timesheet; the batch commits",
+					cacheState: warmedOnce
+				},
 				phases: {},
 				variants: [],
 				comparisons: [],
@@ -244,14 +242,14 @@ export default defineGate({
 				{
 					name: "the threatening events",
 					gates: ["R11"],
-					conditions: writeConditions({
+					conditions: {
 						workload: "each event alone with every constraint IMMEDIATE, rolled back",
 						schemaState: loadedByOwner,
-						data: `${loadedEmployees} employees`,
+						dataDistribution: `${loadedEmployees} employees`,
 						parameters: {},
-						semantics: "every probed statement keeps the law",
-						cache: warmedOnce
-					}),
+						resultSemantics: "every probed statement keeps the law",
+						cacheState: warmedOnce
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],

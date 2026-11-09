@@ -77,7 +77,6 @@ import {
 	type RoleSamples,
 	sampleRole,
 	updatesInPlace,
-	writeConditions,
 	writesOf
 } from "#bench/write/support/writes.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
@@ -1118,14 +1117,14 @@ export default defineGate({
 			const runCase = (name: string, run: Run, workload: string): CaseRecord<"queue"> => ({
 				name,
 				gates: ["queue"],
-				conditions: writeConditions({
+				conditions: {
 					workload,
 					schemaState: loadedByOwner,
-					data: `${options.pending} pending render items in slot 0 (keys are SHA-256 digests, uniform), ${seats} gpu seats`,
+					dataDistribution: `${options.pending} pending render items in slot 0 (keys are SHA-256 digests, uniform), ${seats} gpu seats`,
 					parameters: loadParameters,
-					semantics: "every claim leases one item or finds none; every lease is settled done",
-					cache: "warm: each holder's Db compiled its claim and settlement before the load"
-				}),
+					resultSemantics: "every claim leases one item or finds none; every lease is settled done",
+					cacheState: "warm: each holder's Db compiled its claim and settlement before the load"
+				},
 				phases: {
 					...phaseOf("claimMs", run.stats.claims),
 					...phaseOf("settleMs", run.stats.settles)
@@ -1190,15 +1189,15 @@ export default defineGate({
 				{
 					name: "reclaim after worker loss",
 					gates: ["queue"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `${options.dead} transcode items leased on cpu with leases already expired and never settled; a live holder reclaims each, then the dead worker settles late`,
 						schemaState: loadedByOwner,
-						data: `${options.dead} transcode items, ${options.dead} cpu seats`,
+						dataDistribution: `${options.dead} transcode items, ${options.dead} cpu seats`,
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"each reclaim takes the next epoch in the dead lease's seat; each late settlement is no-change",
-						cache: "warm: each holder's Db compiled its claim and settlement before the load"
-					}),
+						cacheState: "warm: each holder's Db compiled its claim and settlement before the load"
+					},
 					phases: phaseOf("reclaimMs", reclaimMs),
 					variants: [],
 					comparisons: [],
@@ -1221,15 +1220,15 @@ export default defineGate({
 				{
 					name: "one claim's statements and predicate locks",
 					gates: ["queue"],
-					conditions: writeConditions({
+					conditions: {
 						workload: `with ${claimFootprint.live} leases held and not settled, one more claim on a Db of its own reads its own SSI read locks just before its COMMIT, and EXPLAIN (GENERIC_PLAN) of each statement it ran; then every lease is settled`,
 						schemaState: loadedByOwner,
-						data: `the mutable installation after its loads; ${seats} gpu seats`,
+						dataDistribution: `the mutable installation after its loads; ${seats} gpu seats`,
 						parameters: {},
-						semantics:
+						resultSemantics:
 							"information for the transient failure analysis: the claim's SQL, its plans, and the predicate locks one claim holds",
-						cache: "warm: the probing Db compiled its claim before the probe"
-					}),
+						cacheState: "warm: the probing Db compiled its claim before the probe"
+					},
 					phases: {},
 					variants: [],
 					comparisons: [],
@@ -1262,15 +1261,15 @@ export default defineGate({
 				{
 					name: "the hand-written SKIP LOCKED claim",
 					gates: ["queue"],
-					conditions: writeConditions({
+					conditions: {
 						workload:
 							"each holder claims the first unlocked wanted item from a fresh random key and the first unlocked free seat from its own, with FOR UPDATE SKIP LOCKED, then settles",
 						schemaState: loadedByOwner,
-						data: `the same installation after the grizzle loads; ${seats} gpu seats`,
+						dataDistribution: `the same installation after the grizzle loads; ${seats} gpu seats`,
 						parameters: loadParameters,
-						semantics: "every claim leases one item or finds none; the laws hold at COMMIT",
-						cache: "warm sessions; each holder's operations run back to back"
-					}),
+						resultSemantics: "every claim leases one item or finds none; the laws hold at COMMIT",
+						cacheState: "warm sessions; each holder's operations run back to back"
+					},
 					phases: {
 						...phaseOf("claimMs", baselineStats.claims),
 						...phaseOf("settleMs", baselineStats.settles)

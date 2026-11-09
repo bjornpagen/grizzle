@@ -3,6 +3,7 @@ import {
 	Array as Arr,
 	Config,
 	ConfigProvider,
+	Console,
 	Data,
 	DateTime,
 	Effect,
@@ -15,7 +16,8 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import type { Json } from "#compiler/core/canonical.ts"
+import { jsonDocument, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
@@ -309,6 +311,25 @@ export const runIdentity = Effect.fn("runIdentity")(function* (input: RunIdentit
 		options: input.options
 	}
 	return identity
+})
+
+/**
+ * Writes a standalone benchmark's record, JSON indented by tabs, to
+ * bench/results/<benchmark>/<benchmark>-<start>.json, its benchmark its identity's and its start the second `startedAt`
+ * names, and prints the path.
+ */
+export const writeRunRecord = Effect.fn("writeRunRecord")(function* (
+	startedAt: DateTime.Utc,
+	record: { readonly identity: RunIdentity }
+) {
+	const fs = yield* FileSystem.FileSystem
+	const benchmark = record.identity.benchmark
+	const outDir = `${repoRoot}/bench/results/${benchmark}`
+	const stamp = Str.replaceAll(":", "")(Str.slice(0, 19)(DateTime.formatIso(startedAt)))
+	const file = `${outDir}/${benchmark}-${stamp}.json`
+	yield* fs.makeDirectory(outDir, { recursive: true })
+	yield* fs.writeFileString(file, `${jsonDocument(trusted<Json>(record))}\n`)
+	yield* Console.info(`record: ${file}`)
 })
 
 interface IdentityInput extends RunIdentityInput {
