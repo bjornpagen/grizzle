@@ -2,6 +2,7 @@ import { indices, maxOf } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -42,6 +43,12 @@ import type {
 	WriteStatement
 } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement } from "#compiler/write/program/single.ts"
+import {
+	carriersOf,
+	nestedColumnOf,
+	type Staged,
+	stagedOf
+} from "#compiler/write/program/staged.ts"
 import type { PutResult, PutStatement } from "#compiler/write/put/statement.ts"
 
 /** A unique violation at a statement into `relation` that aborts the apply with a TransientFailure of `reason`: a
@@ -291,14 +298,16 @@ export interface SentForm {
  * than the choice's threshold (runsLargeForm). */
 export type ArtifactForms = StatementForms<RelationChoice, SentForm>
 
-/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, and its
- * forms. */
+/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, its forms, and
+ * its staged form, which sends its nested rows through carriers where they are past one Bind message
+ * (write/program/staged.ts). */
 export interface ArtifactStatement {
 	readonly index: number
 	readonly step: WriteStep
 	readonly spec: StatementSpec<WriteSlot>
 	readonly ast: SqlStatement
 	readonly forms: ArtifactForms
+	readonly staged: Staged
 }
 
 /** The form of a statement an execution sends: its whole-relation form when it runs some per-execution choice large
@@ -468,13 +477,22 @@ export const settledArtifact = (
 	placed: ReadonlyArray<PlacedStatement>,
 	carriers: ReadonlyArray<WriteCarrier>
 ): WriteArtifact => {
+	/** The carrier the next staged form names first: after the program's own, and every earlier statement's. */
+	let carrier = carriers.length + 1
 	const settled = placed.map((p, index) => {
+		const forms = placedForms(p)
+		const staged = stagedOf(p.ast, p.spec.paramSlots.map(nestedColumnOf), carrier)
+		if (staged.kind === "carriers" && forms.kind === "chosen") {
+			throw defect("a statement that reads nested rows has one form")
+		}
+		carrier += carriersOf(staged)
 		const statement: ArtifactStatement = Object.freeze({
 			index,
 			step: placedStep(p),
 			spec: p.spec,
 			ast: p.ast,
-			forms: placedForms(p)
+			forms,
+			staged
 		})
 		return { placed: p, statement }
 	})

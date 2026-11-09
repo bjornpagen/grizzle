@@ -78,7 +78,6 @@ import {
 } from "#compiler/write/family/nesting.ts"
 import {
 	columnArray,
-	typedColumnArray,
 	type FamilyStatement,
 	type OwnerWrite,
 	type Phase,
@@ -132,6 +131,14 @@ import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/
 import { ownerSlots } from "#compiler/write/program/decide.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
 import {
+	type Execution,
+	executionsOf,
+	type NestedCells,
+	nestedColumn,
+	type NestedPlaceholder,
+	statementPart
+} from "#compiler/write/program/staged.ts"
+import {
 	type FilledColumn,
 	hostJudgement,
 	type JudgedRow,
@@ -182,17 +189,21 @@ export interface BoundWrite {
 }
 
 /**
- * The placeholder texts of each execution of a statement, in the order they are sent: one, its `values`, for every
- * statement but a family step's; a family step's, one per statement of its kind in its family's plan (write/family/
- * order.ts plan), each its rows' arrays, none when the application writes no row of that kind. Every execution sends
- * the statement's one text, and its rows are every execution's, in order. A row no statement carries even alone is its
- * family's FamilyRowBound, and a change an immutable owner's stored family refuses its CompileError (write/family/
- * edit.ts planEdits), before any write statement is sent: the read flight has found the stored groups.
+ * The executions of a statement under `transport`, the message bound of the session that sends them, in the order they
+ * are sent (write/program/staged.ts Execution): a family step's one per statement of its kind in its family's plan
+ * (write/family/order.ts plan), each its rows' arrays under the statement's one text, none when the application writes
+ * no row of that kind; any other statement's its one, its `values`, or, where its nested rows' arrays are past the
+ * transport's message, its staged form's: its carriers created and filled chunk by chunk, their ANALYZE, then the
+ * staged statement (write/program/staged.ts executionsOf). Its rows are every execution's, in order. A row no
+ * statement or fill carries even alone is its family's FamilyRowBound, and a change an immutable owner's stored family
+ * refuses its CompileError (write/family/edit.ts planEdits), before any write statement is sent: the read flight has
+ * found the stored groups.
  */
 export type Chunks = (
-	statement: ArtifactStatement
+	statement: ArtifactStatement,
+	transport: Transport
 ) => Result.Result<
-	ReadonlyArray<ReadonlyArray<Param>>,
+	ReadonlyArray<Execution>,
 	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
@@ -422,22 +433,25 @@ export const bindWrite = (
 			case "member":
 				return slot.encode(slotFacts(slot.slot), slot.part)
 			case "nestedRows": {
-				const layout = sentLayout(nestedAt(slot.stratum, slot.relation))
-				return typedColumnArray(
-					slot.relation,
-					`column ${slot.part + 1}`,
-					defined(
-						[...layout.key, ...layout.columns][slot.part],
-						"the sent layout's column a nested rows placeholder carries"
-					).type,
-					nestedRows(slot.stratum, slot.relation).map((row) =>
-						defined(
-							rowTexts(rowOfValues(frontend.codes, layout, row.values))[slot.part],
-							"a nested row holds each column of its sent layout"
-						)
-					)
-				)
+				const cells = nestedCellsOf(nestedRows, slot.stratum, slot.relation)
+				return nestedColumn(cells, slot.part, cells.rows)
 			}
+		}
+	}
+	/** A stratum's nested rows of `relation` as their placeholders carry them: their sent layout's column types, and each
+	 * row's cells in its order (write/program/staged.ts NestedCells). */
+	const nestedCellsOf = (
+		nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>,
+		stratum: StratumAt,
+		relation: string
+	): NestedCells => {
+		const layout = sentLayout(nestedAt(stratum, relation))
+		return {
+			relation,
+			types: [...layout.key, ...layout.columns].map((c) => c.type),
+			rows: nestedRows(stratum, relation).map((row) =>
+				rowTexts(rowOfValues(frontend.codes, layout, row.values))
+			)
 		}
 	}
 	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
@@ -1370,23 +1384,48 @@ export const bindWrite = (
 	const chunksOf = (
 		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
 	): Chunks => {
-		const own = valuesOver(
-			(slot) =>
-				plans.ok
-					? (plans.value.slots.get(slot) ?? fresh.get(slot) ?? factsOf(slot))
-					: (fresh.get(slot) ?? factsOf(slot)),
-			nestedRowsOf
-		)
-		return (statement) => {
+		const slotFacts = (slot: ParamId): NormalizedSlot =>
+			plans.ok
+				? (plans.value.slots.get(slot) ?? fresh.get(slot) ?? factsOf(slot))
+				: (fresh.get(slot) ?? factsOf(slot))
+		return (statement, transport) => {
 			const step = statement.step
+			const sent = form(statement)
 			if (step.kind !== "family") {
-				return Result.map(own(statement), (one) => [one])
+				const sources = new Map<string, NestedCells>()
+				const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined => {
+					if (slot.kind !== "nestedRows") {
+						return undefined
+					}
+					const source = `${slot.stratum} ${slot.relation}`
+					const cells =
+						sources.get(source) ?? nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation)
+					sources.set(source, cells)
+					return { part: slot.part, cells }
+				})
+				const executions = executionsOf(
+					{ sql: sent.sql, staged: statement.staged, nested },
+					(position) =>
+						encodeSlot(
+							defined(sent.paramSlots[position], "a placeholder of the statement's form"),
+							slotFacts,
+							nestedRowsOf
+						),
+					transport
+				)
+				if (executions.ok) {
+					return executions
+				}
+				const refused = executions.error
+				return Result.err(
+					refused._tag === "NestedRowBound" ? rowBound(refused.relation, refused.row) : refused
+				)
 			}
 			if (!plans.ok) {
 				return plans
 			}
 			const target = step.target
-			const sent: ReadonlyArray<FamilyStatement> = defined(
+			const ofStep: ReadonlyArray<FamilyStatement> = defined(
 				plans.value.plans.get(step.stratum),
 				`the plan of stratum ${step.stratum}, which a family statement the schedule placed sends`
 			)
@@ -1398,13 +1437,13 @@ export const bindWrite = (
 							? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
 							: target.kind === "rows" && s.relation === target.relation)
 				)
-			const out: Array<ReadonlyArray<Param>> = []
-			for (const s of sent) {
+			const out: Array<Execution> = []
+			for (const s of ofStep) {
 				const arrays = arraysOf(step.relation, s)
 				if (!arrays.ok) {
 					return arrays
 				}
-				out.push(arrays.value)
+				out.push({ sql: sent.sql, params: arrays.value, part: statementPart })
 			}
 			return Result.ok(out)
 		}

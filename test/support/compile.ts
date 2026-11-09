@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import { type AdmittedQuery, admitQuery } from "#compiler/check/index.ts"
 import {
 	type NormalizedRelation,
@@ -64,6 +65,7 @@ import {
 } from "#compiler/schema/own.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import type { Chunks } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -541,10 +543,12 @@ export const nestedRowsColumn = (
 			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part
 		)
 		if (Option.isSome(at)) {
-			const [execution] = succeeded(chunks(statement))
+			const [execution] = succeeded(chunks(statement, inForce(bindFrame)))
 			return Arr.map(
 				readArrayLiteral(
-					textOfParam(defined(execution?.[at.value], `column ${part} of ${relation}'s nested rows`))
+					textOfParam(
+						defined(execution?.params[at.value], `column ${part} of ${relation}'s nested rows`)
+					)
 				),
 				(item) => {
 					if (item === null) {

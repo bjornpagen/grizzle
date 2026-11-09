@@ -2867,7 +2867,8 @@ throws `CompileError` for a rule that is no check of the schema.
 **`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
 **`ExecutionFailure`**: `ServerError`, `CompileError`, `InputTooLarge` or `UnreadableAnswer`.
 
-**`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
+**`InputTooLarge`** is found on the host before the call's flight is sent, all but `carrier`, which the flight meets
+before anything commits. Its `bound`, which never counts rows:
 
 - `message`: one statement's Bind message is longer than PostgreSQL reads (1,073,741,822 bytes,
   `PQ_LARGE_MESSAGE_LIMIT`), with the statement and its length. Split the input across calls.
@@ -2883,6 +2884,9 @@ throws `CompileError` for a rule that is no check of the schema.
   TLS carries (1,908,342,784 bytes), with its length. Nothing was sent, so nothing ran. Split the input across calls.
 - `parse`: a statement's Parse message, its text with its name and fields, is longer than PostgreSQL reads
   (1,073,741,822 bytes), with its length. Nothing was sent, so nothing ran.
+- `carrier`: a nested write's rows of the relation `input` are past one Bind message, so they travel through a
+  temporary table, and the role holds no `TEMPORARY` privilege on the database to create it. Nothing committed. Grant
+  the privilege, or split the input across calls.
 
 **`CompileError`**'s reason holds where it refused, `at`, and:
 
@@ -2980,7 +2984,9 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan to machine
   code first.
 - **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
-  the role the snapshot's, by table and name. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  the role the snapshot's, by table and name. A write whose nested rows are past one Bind message needs the
+  `TEMPORARY` privilege on the database, which PostgreSQL grants to `PUBLIC` and grizzle never revokes; without it the
+  write is `InputTooLarge` (`carrier`). The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.
@@ -3221,7 +3227,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 `messageMaxBytes`, `maxStringLength`, `bytesMaxLength` and `flightMaxBytes` are exported as `Limit` values, whose `.value` is the number.
 
-- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone, a family write's included: one copy of each value, made as the call is sent, after its member is measured from its values' lengths.
+- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone: one copy of each value, made as the call is sent, after its member is measured from its values' lengths. A nested write's rows of one relation are no statement's bound: where their arrays would make the statement that writes them longer than one Bind message, the call creates a temporary table in the same flight, fills it with consecutive chunks of the rows, each as long as one Bind message carries, and runs the statement once over it, so what it writes and what its laws judge are one statement's. The temporary table drops at the transaction's end.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
 - **A call's flight is at most 1,908,342,784 bytes** (`flightMaxBytes`): every message the driver writes for it, its statements' texts and parameters among them, in the one write a round trip is. Node hands that write to one `SSL_write`, whose length is a C int, and its ciphertext to one send, which macOS refuses past 2,147,483,647 bytes, so the bound is the whole TLS 1.2 records whose largest ciphertext fits one send. A longer flight is `InputTooLarge` (`flight`) before any byte is written: grizzle never splits a call into more round trips, so split the input across calls. Without the bound such a write fails whole, the connection ends with a transaction open, and a write would report `CommitLost` though nothing committed.
 - **A statement's Parse message is at most 1,073,741,822 bytes** (`messageMaxBytes`): its text and 8 bytes of fields, as the driver writes it. A longer one is `InputTooLarge` (`parse`) before any byte of its flight is written, where the server would end the connection at it.

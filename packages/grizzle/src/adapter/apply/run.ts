@@ -10,9 +10,10 @@ import {
 } from "#adapter/errors/execution.ts"
 import {
 	familyRowBound,
-	type InputTooLarge,
+	InputTooLarge,
 	literalBound,
 	messageBound,
+	type ServerError,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
@@ -42,6 +43,7 @@ import {
 	bindWrite,
 	type BoundWrite,
 	type Chunks,
+	type ExecutionPart,
 	type FamilyId,
 	type FamilyRowBound,
 	type GeneratedRejection,
@@ -52,6 +54,7 @@ import {
 	type Raw,
 	type StatementAt,
 	statementRelations,
+	type Transport,
 	type Witness,
 	type WriteArtifact
 } from "#compiler/plan/change.ts"
@@ -65,7 +68,8 @@ import {
 	type ParamMap,
 	type ParamValue,
 	type Row,
-	type RowDecoder
+	type RowDecoder,
+	sqlstates
 } from "#compiler/plan/common.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 
@@ -154,8 +158,11 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  *
  * 1. Every write, family, carrier and sequence-advance statement of the artifact, in the order its statements run, each
  *    with the placeholder texts binding gave it, goes in the flight, a family's once per statement its plan cuts, and
- *    none where its nested write writes no row of the statement's kind; a statement whose enumerated member holds no
- *    fact is skipped, because it produces no statement. A flight left with no statement still sends its frame, BEGIN, the
+ *    none where its nested write writes no row of the statement's kind; a statement whose nested rows are past the
+ *    session's message once, as its staged form, behind its carriers' creations, their fills, a chunk of the rows each,
+ *    and their ANALYZE (write/program/staged.ts), so it still runs once over every row, and a carrier the role holds no
+ *    TEMPORARY privilege to create is InputTooLarge (carrier); a statement whose enumerated member holds no fact is
+ *    skipped, because it produces no statement. A flight left with no statement still sends its frame, BEGIN, the
  *    prologue's fence and snapshot check, and COMMIT, so an all-empty application meets the check every transaction
  *    of the Db meets. No statement's rows decide whether a later one is sent: whatever
  *    refuses the write raises inside the statement that detects it (write/refusal.ts), and PostgreSQL then aborts the
@@ -287,11 +294,17 @@ const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, Ap
 
 /**
  * A statement a write sends, by its index across its flights: a family's stored-suffix read, in the read flight a plan
- * that reads sends first, or the `chunk`th execution of an artifact statement (BoundWrite chunks).
+ * that reads sends first, or the `chunk`th execution of an artifact statement (BoundWrite chunks), its `part` what the
+ * execution is: the statement itself, or one of its staged carriers' creation, fills or ANALYZE.
  */
 type SentStatement =
 	| { readonly kind: "read"; readonly family: FamilyId }
-	| { readonly kind: "statement"; readonly statement: ArtifactStatement; readonly chunk: number }
+	| {
+			readonly kind: "statement"
+			readonly statement: ArtifactStatement
+			readonly chunk: number
+			readonly part: ExecutionPart
+	  }
 
 /**
  * The origin of the write's statement at `index`: the read or write statement sent there, or a read-back, whose
@@ -308,6 +321,22 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
+ * A staged carrier's creation the server refused for the role's want of the TEMPORARY privilege on the database
+ * (42501), as the InputTooLarge naming the relation whose nested rows it would hold; none for any other refusal.
+ */
+const refusedCarrier = (
+	at: SentStatement | undefined,
+	error: ServerError
+): InputTooLarge | undefined =>
+	at?.kind === "statement" &&
+	at.part.kind === "create" &&
+	error.sqlstate === sqlstates.insufficientPrivilege
+		? new InputTooLarge({
+				bound: { kind: "carrier", input: at.part.relation, privilege: "TEMPORARY" }
+			})
+		: undefined
+
+/**
  * What a write's failed flight means: a refused statement, or a refusal at COMMIT, is classified at its origin; the
  * fence's refusal is StaleSnapshot; any other refused prologue, which only a login that lost the role's
  * membership meets, is the server's.
@@ -318,13 +347,17 @@ const flightFailure = <R>(
 	context: WitnessContext
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (failure._tag) {
-		case "BatchRefused":
-			return outcomeOf(
-				classifyServerError(failure.failure, {
-					...context,
-					origin: statementOrigin(sent, failure.index)
-				})
-			)
+		case "BatchRefused": {
+			const carrier = refusedCarrier(sent[failure.index], failure.failure)
+			return carrier === undefined
+				? outcomeOf(
+						classifyServerError(failure.failure, {
+							...context,
+							origin: statementOrigin(sent, failure.index)
+						})
+					)
+				: Effect.fail(new ExecutionFailure({ reason: carrier }))
+		}
 		case "CommitRefused":
 			return outcomeOf(
 				classifyServerError(failure.failure, { ...context, origin: { kind: "commit" } })
@@ -364,14 +397,16 @@ export const boundReads = <R>(
 }
 
 /**
- * An artifact's write statements as `chunks` executes them, in the order they are sent, each by the artifact statement
- * it executes (SentStatement): one execution of most, and one of a family step per statement of its kind its family's
- * plan cuts, each the step's one text over its own rows' arrays; none of a read-back's, which follow every write.
+ * An artifact's write statements as `chunks` executes them under `transport`, in the order they are sent, each by the
+ * artifact statement it executes (SentStatement): one execution of most, a staged statement's carriers' creations,
+ * fills and ANALYZE before it, and one of a family step per statement of its kind its family's plan cuts, each the
+ * step's one text over its own rows' arrays; none of a read-back's, which follow every write.
  */
 const writeStatements = (
 	artifact: WriteArtifact,
 	inputs: BoundInputs,
-	chunks: Chunks
+	chunks: Chunks,
+	transport: Transport
 ): Result.Result<
 	{
 		readonly sent: ReadonlyArray<SentStatement>
@@ -386,14 +421,13 @@ const writeStatements = (
 		if (s.step.kind === "readBack" || skip.has(s.index)) {
 			continue
 		}
-		const executions = chunks(s)
+		const executions = chunks(s, transport)
 		if (!executions.ok) {
 			return Result.fail(valuesFailure(executions.error))
 		}
-		const sql = inputs.bound.form(s).sql
-		for (const [chunk, params] of executions.value.entries()) {
-			sent.push({ kind: "statement", statement: s, chunk })
-			statements.push({ sql, params })
+		for (const [chunk, execution] of executions.value.entries()) {
+			sent.push({ kind: "statement", statement: s, chunk, part: execution.part })
+			statements.push({ sql: execution.sql, params: execution.params })
 		}
 	}
 	return Result.succeed({ sent, statements })
@@ -429,12 +463,14 @@ export const runWrite = <R>(
 		let sent: ReadonlyArray<SentStatement> = []
 		/** How many statements precede the read-backs: the read flight's and the write statements. */
 		let written = 0
+		/** What one statement carries on the session: the longest message its server reads, around the wire's frame. */
+		const transport: Transport = { ...inForce(bindFrame), messageBytes: session.messageMaxBytes }
 		/** The write statements and the read-backs behind them, the flight that ends the transaction. */
 		const closing = (
 			chunks: Chunks,
 			before: ReadonlyArray<SentStatement>
 		): Result.Result<ReadonlyArray<BatchStatement>, InputFailure> =>
-			Result.map(writeStatements(artifact, inputs, chunks), (w) => {
+			Result.map(writeStatements(artifact, inputs, chunks, transport), (w) => {
 				sent = [...before, ...w.sent]
 				written = sent.length
 				return [...w.statements, ...backs.statements]

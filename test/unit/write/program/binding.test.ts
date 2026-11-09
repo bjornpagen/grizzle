@@ -124,7 +124,7 @@ const sent = (program: CompiledWrite, bound: ReturnType<typeof bindWrite>): unkn
 		return { reads: Arr.map(flights.reads, (r) => r.params) }
 	}
 	return Arr.map(program.artifact.statements, (s) => {
-		const executions = flights.chunks(s)
+		const executions = flights.chunks(s, inForce(bindFrame))
 		return executions.ok ? executions.value : { refused: executions.error }
 	})
 }

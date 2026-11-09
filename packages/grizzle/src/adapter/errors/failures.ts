@@ -459,7 +459,11 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  *   which the backend ends the connection instead of answering;
  * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
  *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'
- *   lengths before any of its bytes is read or copied.
+ *   lengths before any of its bytes is read or copied;
+ * - carrier: the nested rows of `input` are past one Bind message, so they travel through a transaction carrier
+ *   (write/program/staged.ts), which the role may not create: it holds no `privilege` on the database, and PostgreSQL
+ *   refused the carrier's CREATE TEMPORARY TABLE, the one bound met in the flight rather than before it, which commits
+ *   nothing.
  *
  * None bounds a count of rows: a ChangeSet input, a relation parameter or a family of any number of facts travels
  * whenever each row's texts fit and the call's flight fits one write.
@@ -501,10 +505,15 @@ export type InputBound =
 			readonly bytes: number
 			readonly limit: number
 	  }
+	| {
+			readonly kind: "carrier"
+			readonly input: string
+			readonly privilege: "TEMPORARY"
+	  }
 
 /**
- * An execution's parameters are past a bound of their transport (InputBound), before any SQL: split the input across
- * calls.
+ * An execution's parameters are past a bound of their transport (InputBound), before any SQL, or, for `carrier`, at the
+ * carrier the role may not create, with nothing committed: split the input across calls, or grant the privilege.
  */
 export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 	readonly bound: InputBound
@@ -532,6 +541,8 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 				return `a statement's Parse message would be ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}: its text is longer than one message carries`
 			case "input":
 				return `the arrays of input ${bound.input} would make a Bind message of at least ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
+			case "carrier":
+				return `the nested rows of ${bound.input} are past one Bind message, so they travel through a temporary table, and the role holds no ${bound.privilege} privilege on the database to create one; grant it, or split the input across calls`
 		}
 	}
 }

@@ -22,7 +22,12 @@ export {
 	type ParsedChangeSet
 } from "#compiler/write/changeset/value.ts"
 export { outcomeKind, type RelationCounts } from "#compiler/write/delta/net.ts"
-export { type BindFrame, inForce, type Unsendable } from "#compiler/write/family/order.ts"
+export {
+	type BindFrame,
+	inForce,
+	type Transport,
+	type Unsendable
+} from "#compiler/write/family/order.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -46,6 +51,7 @@ export {
 	type Raw
 } from "#compiler/write/program/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+export type { ExecutionPart } from "#compiler/write/program/staged.ts"
 export {
 	interpretRows,
 	type KeyDecoder,

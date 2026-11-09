@@ -14,11 +14,12 @@ import {
 	asReadFailure,
 	type BatchOutcome,
 	type BatchStatement,
+	bindFrame,
 	runFramed,
 	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
-import { type Chunks, isChangeSetValue } from "#compiler/plan/change.ts"
+import { type Chunks, inForce, isChangeSetValue } from "#compiler/plan/change.ts"
 import {
 	type EmittedText,
 	Engine,
@@ -190,8 +191,10 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	const artifact = program.artifact
 	const skip = inputs.bound.skip(artifact)
 	/**
-	 * Every statement of the artifact as the application sends it, the placeholder texts of each of its executions, a
-	 * family step's one per statement its plan cuts (write/program/bind.ts Chunks).
+	 * Every statement of the artifact as the application sends it, under the bound in force, each of its executions with
+	 * its text and placeholder values: a family step's one per statement its plan cuts, and a staged statement's
+	 * carriers' creations, fills and ANALYZE before it (write/program/bind.ts Chunks). A creation and an ANALYZE run
+	 * unplanned, as the program's own carriers' do, so every statement after them plans against its carrier.
 	 */
 	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
 		const statements: Array<Explained> = []
@@ -199,17 +202,19 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 			if (skip.has(s.index)) {
 				continue
 			}
-			const sql = inputs.bound.form(s).sql
-			const executions = chunks(s)
+			const executions = chunks(s, inForce(bindFrame))
 			if (!executions.ok) {
 				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
 			}
 			const step = s.step
-			for (const texts of executions.value) {
+			for (const { sql, params, part } of executions.value) {
 				statements.push(
-					(step.kind === "carrier" && step.step === "create") || step.kind === "analyze"
-						? { statement: { sql, params: texts }, planned: false }
-						: planned(sql, texts)
+					(step.kind === "carrier" && step.step === "create") ||
+						step.kind === "analyze" ||
+						part.kind === "create" ||
+						part.kind === "analyze"
+						? { statement: { sql, params }, planned: false }
+						: planned(sql, params)
 				)
 			}
 		}
