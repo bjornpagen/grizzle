@@ -139,7 +139,7 @@ export const servedSnapshot = (
 	return Result.ok({
 		fingerprint: served.fingerprint,
 		schemas: served.levels.map((l) => l.schema),
-		levels: served.levels.map((l) => ({ name: l.name, fingerprint: l.fingerprint })),
+		fingerprints: served.levels.map((l) => l.fingerprint),
 		above,
 		constraintToLaw: trusted<ConstraintLaws>(constraintToLaw.value),
 		codes: rosterCodebook(rosters),

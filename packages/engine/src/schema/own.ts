@@ -882,29 +882,25 @@ const hashedLevels: LevelFingerprints = (levels) => {
 }
 
 /** A level of a schema as its installation's snapshot records it: its declared name and its fingerprint. */
-export interface RecordedLevel {
-	readonly name: string
-	readonly fingerprint: SchemaFingerprint
-}
-
 /**
- * Each level's fingerprint as the installation's snapshot records it, the level at its position, which must be the one
- * of its declared name: the fingerprints a layer serves under, which `grizzle generate` hashed and recorded, so the layer
- * hashes none. A level the snapshot records under another name, or does not record, is MalformedDescription.
+ * Each level's fingerprint as the installation's snapshot records it at the level's position: the fingerprints a layer
+ * serves under, which `grizzle generate` hashed and recorded, so the layer hashes none. The snapshot is trusted as the
+ * one generate wrote for the schema, which check, drift and migrate verify, so nothing of it is compared with the
+ * schema here; a position it records no level at is MalformedDescription, since no fingerprint stands there.
  */
 const recordedLevels =
-	(recorded: ReadonlyArray<RecordedLevel>): LevelFingerprints =>
+	(recorded: ReadonlyArray<SchemaFingerprint>): LevelFingerprints =>
 	(levels) =>
 		mapNonEmpty(levels, (level, at) => {
-			const r = recorded[at]
-			if (r === undefined || r.name !== level.name) {
+			const fingerprint = recorded[at]
+			if (fingerprint === undefined) {
 				return fail(
 					"MalformedDescription",
 					level.loc,
-					`the snapshot's level ${at} recorded as schema ${level.name}; it records ${r === undefined ? "no such level" : `schema ${r.name}`}`
+					`a snapshot.json that records level ${at}, schema ${level.name}: it records ${recorded.length} levels`
 				)
 			}
-			return { level, fingerprint: r.fingerprint }
+			return { level, fingerprint }
 		})
 
 /** The PostgreSQL schemas an owned schema's levels install in under their declared names, root first. */
@@ -2067,7 +2063,7 @@ export const ownBuilt = (built: BuiltLevels): Result.Result<Owned, CompileError>
  */
 export const ownServed = (
 	built: BuiltLevels,
-	recorded: ReadonlyArray<RecordedLevel>
+	recorded: ReadonlyArray<SchemaFingerprint>
 ): Result.Result<Owned, CompileError> =>
 	ownWith(built.desc, writtenOf(built.content), recordedLevels(recorded))
 

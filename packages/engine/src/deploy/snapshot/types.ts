@@ -178,8 +178,8 @@ export interface ServedSnapshot {
 	readonly fingerprint: SchemaFingerprint
 	/** Every level's PostgreSQL schema, root first. */
 	readonly schemas: ReadonlyArray<string>
-	/** Every level by its declared name with its fingerprint, root first, which the layer owns its base under. */
-	readonly levels: ReadonlyArray<Pick<SnapshotLevel, "name" | "fingerprint">>
+	/** Every level's recorded fingerprint, root first, which the layer owns its base's levels under, by position. */
+	readonly fingerprints: ReadonlyArray<SchemaFingerprint>
 	/** The levels above the one the layer serves, root first, each by its name with the laws it states. */
 	readonly above: ReadonlyArray<Pick<SnapshotLevel, "name" | "laws">>
 	readonly constraintToLaw: ConstraintLaws
