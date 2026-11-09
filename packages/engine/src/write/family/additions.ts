@@ -694,6 +694,10 @@ const appendScan = (
 				eq(col(o, w.names.column(owner.name, g.owner.name)), defined(aGroup[i], "a group key"))
 			)
 		)
+	/**
+	 * An appended row's copy of an owner column: the stored owner's, else the nested owner's, else the base, read as
+	 * COALESCE since an owner's column is never NULL (rule 0).
+	 */
 	const ownerValue = (read: {
 		readonly to: NativeColumn
 		readonly from: NativeColumn
@@ -731,7 +735,6 @@ const appendScan = (
 				)
 			}
 		}
-		/** The stored owner's copy, else the nested owner's, else the base: an owner's column is never NULL (rule 0). */
 		return coalesce([
 			stored,
 			...(nestedOwner === undefined ? [] : [inserted(nestedOwner())]),

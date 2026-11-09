@@ -677,7 +677,10 @@ const redraw = (
 			)
 		)
 	}
-	/** A member's value of each column as the edit leaves it: the put's where it updates the member, else stored. */
+	/**
+	 * A member's value of each column as the edit leaves it: the put's where it updates the member, else stored, read as
+	 * COALESCE since a column is never NULL (rule 0).
+	 */
 	const memberColumn = (m: string, k: ColumnKey): Expr => {
 		const stored = col(
 			m,
@@ -698,7 +701,6 @@ const redraw = (
 				)
 			)
 		const u = supply.relation(internal("put overlay"))
-		/** The put's value where it updates the member, else the stored one: a column is never NULL (rule 0). */
 		return coalesce([
 			{
 				kind: "subquery",
@@ -1181,7 +1183,7 @@ const writesOf = (
 		)
 	)
 	/** A written row's final value of a column: the scan of the family that draws it where it redrew the row, else the
-	 * row's own as the edit leaves it. */
+	 * row's own as the edit leaves it, read as COALESCE since a drawn value is never NULL. */
 	const finalOf = (a: string, key: ColumnKey): Expr => {
 		const drawer = own.find((x) => {
 			const family = defined(
@@ -1200,7 +1202,6 @@ const writesOf = (
 				mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
 			)
 		const s = supply.relation(internal("final drawn"))
-		/** The drawer's value where it redrew the row, else the row's own: a drawn value is never NULL. */
 		return coalesce([
 			{
 				kind: "subquery",
