@@ -6,8 +6,9 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -15,6 +16,7 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { refresh, workload } from "#compiler/public/workload.ts"
 import {
 	installDerived,
 	type Opened,
@@ -24,7 +26,6 @@ import { defined } from "#test/support/assert.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type GrizzleActor,
@@ -46,9 +47,9 @@ import {
 	type SerialRaceFailed,
 	type SessionEnd
 } from "#test/support/schedules/serial.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const derivedNames = ["StudentWeekly", "StudentTotal", "WeekBusy"] as const
 export type DerivedName = (typeof derivedNames)[number]
@@ -61,7 +62,9 @@ export type DerivedName = (typeof derivedNames)[number]
  * level 2. Its roles:
  *
  * - `refresher` and `refresher2`, two grizzle refreshers in the login `server`, each a Db opened through a DbLayer of
- *   its own exactly as an application opens one, whose actor is the one session its Db's pool holds;
+ *   its own over the login's served file exactly as an application opens one, whose actor is the one session its Db's
+ *   pool holds; the login's workload holds the empty ChangeSet each refresher's first call applies, and a refresh of
+ *   every non-empty set of the derived relations, the one a call names whatever its order;
  * - in the login `psql`, which direct sessions log in as before they take on their role:
  *   - `holder`, a third refresher that a raw session takes on: inside its open transaction a REFRESH MATERIALIZED VIEW
  *     holds the view's lock, so the grizzle refreshers that meet it wait with snapshots taken before they waited;
@@ -106,10 +109,10 @@ const build = (name: string) => {
 		})
 	)
 	const Reports = schema.extend(Level1, `${name}_2`, { WeekBusy }, [])
-	const refresh = derivedNames
-	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), { refresh })
-	const refresher2 = role(Reports, "refresher2", wholeEntriesOf(Reports), { refresh })
-	const holder = role(Reports, "holder", wholeEntriesOf(Reports), { refresh })
+	const refreshList = derivedNames
+	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), { refresh: refreshList })
+	const refresher2 = role(Reports, "refresher2", wholeEntriesOf(Reports), { refresh: refreshList })
+	const holder = role(Reports, "holder", wholeEntriesOf(Reports), { refresh: refreshList })
 	const writer = role(Reports, "writer", { Sitting, StudentWeekly }, { write: ["Sitting"] })
 	const reader = role(Reports, "reader", { StudentWeekly, StudentTotal, WeekBusy })
 	return {
@@ -123,7 +126,20 @@ const build = (name: string) => {
 		holder,
 		writer,
 		reader,
-		server: login(Reports, "server", [refresher, refresher2]),
+		server: login(Reports, "server", [refresher, refresher2], {
+			workload: [
+				workload(Reports, {
+					noop: ChangeSet.empty(Reports),
+					refreshW: refresh([StudentWeekly]),
+					refreshT: refresh([StudentTotal]),
+					refreshB: refresh([WeekBusy]),
+					refreshWT: refresh([StudentWeekly, StudentTotal]),
+					refreshWB: refresh([StudentWeekly, WeekBusy]),
+					refreshTB: refresh([StudentTotal, WeekBusy]),
+					refreshWTB: refresh([StudentWeekly, StudentTotal, WeekBusy])
+				})
+			]
+		}),
 		psql: login(Reports, "psql", [holder, writer, reader])
 	}
 }
@@ -195,8 +211,28 @@ export type Writer =
 	| { readonly kind: "none" }
 	| { readonly kind: "writes"; readonly reads: boolean; readonly change: Change }
 
-/** A grizzle refresher's one db.refresh call: the derived relations it names, in the order it names them. */
+/** A grizzle refresher's one refresh call: the derived relations it names, in the order it names them. */
 export type Call = Arr.NonEmptyReadonlyArray<DerivedName>
+
+/** The refresh member of the set of derived relations a call names, each once, whatever its order. */
+const refreshOf = (call: Call) => {
+	const w = call.includes("StudentWeekly")
+	const t = call.includes("StudentTotal")
+	const b = call.includes("WeekBusy")
+	return w
+		? t
+			? b
+				? "refreshWTB"
+				: "refreshWT"
+			: b
+				? "refreshWB"
+				: "refreshW"
+		: t
+			? b
+				? "refreshTB"
+				: "refreshT"
+			: "refreshB"
+}
 
 /**
  * A race of refreshes: the drawn labels, the initial state, the raw refresher, the grizzle refreshers' calls (the
@@ -323,7 +359,7 @@ interface Fixture {
 /** Installs the shape with no sitting, and opens the two grizzle refreshers and the observer. */
 const open: Effect.Effect<
 	Fixture,
-	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack | OpenError,
+	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack | OpenError | ServedRefusal,
 	Substrate | Scope.Scope
 > = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -334,33 +370,21 @@ const open: Effect.Effect<
 	])
 	const f = build(opened.installed.declared)
 	const server = opened.installed.as(f.server).role
-	const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresherDb = yield* compiledOpen(f.server.roles.refresher, {}).pipe(
+	const served = yield* servedFixture(opened.installed, f.server)
+	const refresherContext = yield* Layer.build(served.layer)
+	const refresherDb = yield* Db.open(served.login.roles.refresher, {}).pipe(
 		Effect.provideContext(refresherContext)
 	)
-	const first = yield* grizzleActor(
-		"refresher",
-		server,
-		refresherDb.apply(ChangeSet.empty(f.Reports), {}),
-		[]
-	)
-	const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresher2Db = yield* compiledOpen(f.server.roles.refresher2, {}).pipe(
+	const first = yield* grizzleActor("refresher", server, refresherDb.workload.noop.apply({}), [])
+	const refresher2Context = yield* Layer.build(served.layer)
+	const refresher2Db = yield* Db.open(served.login.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
 	const refreshers = {
 		refresher: first,
-		refresher2: yield* grizzleActor(
-			"refresher2",
-			server,
-			refresher2Db.apply(ChangeSet.empty(f.Reports), {}),
-			[first.pid]
-		)
-	}
-	const values = {
-		StudentWeekly: f.StudentWeekly,
-		StudentTotal: f.StudentTotal,
-		WeekBusy: f.WeekBusy
+		refresher2: yield* grizzleActor("refresher2", server, refresher2Db.workload.noop.apply({}), [
+			first.pid
+		])
 	}
 	return {
 		opened,
@@ -368,11 +392,8 @@ const open: Effect.Effect<
 		env: yield* exploreEnv(s),
 		names: namesOf(opened.installed),
 		refreshers,
-		refresh: (refresher, call) => {
-			const named = Arr.map(call, (r) => values[r])
-			const db = refresher === "refresher" ? refresherDb : refresher2Db
-			return db.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
-		}
+		refresh: (refresher, call) =>
+			(refresher === "refresher" ? refresherDb : refresher2Db).workload[refreshOf(call)].refresh
 	}
 })
 
@@ -470,7 +491,8 @@ const runDerivedRace = (
 	| TransactionRolledBack
 	| OpenError
 	| PsqlProcessError
-	| SerialRaceFailed,
+	| SerialRaceFailed
+	| ServedRefusal,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
