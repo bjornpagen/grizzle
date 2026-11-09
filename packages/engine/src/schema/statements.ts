@@ -6,7 +6,6 @@ import {
 	type ContainedDesc,
 	candidateKeyFields,
 	conjunctsOf,
-	decodeSide,
 	everyFact,
 	type ExprDesc,
 	type FieldDesc,
@@ -14,6 +13,7 @@ import {
 	monoidNames,
 	type SideDesc,
 	type SlotsDesc,
+	sideOver,
 	type StatementDesc,
 	type TermDesc,
 	termText
@@ -323,10 +323,10 @@ export const predBuilder = <const F extends string>(field: F): Pred<F> => {
 /** A term a caller wrote: a field's name, or a pred(field) value, as data. */
 const termOf = (value: unknown, label: string): TermDesc => {
 	if (isName(value)) {
-		return { kind: "field", field: value }
+		return Object.freeze({ kind: "field", field: value })
 	}
 	if (hasProperties(value) && value["kind"] === "pred" && isName(value["field"])) {
-		return { kind: "pred", field: value["field"] }
+		return Object.freeze({ kind: "pred", field: value["field"] })
 	}
 	throw malformed(label, "terms that are field names or pred(field) values")
 }
@@ -375,7 +375,7 @@ const admitOn = (source: unknown, terms: unknown): SideDesc => {
 		selected === undefined
 			? everyFact
 			: Object.freeze({ conjuncts: Object.freeze(conjunctsOf(selected.desc.predicate)) })
-	return orThrow(decodeSide({ relation: rel.name, terms: list }, selection))
+	return orThrow(sideOver(rel.name, list, selection))
 }
 
 /**

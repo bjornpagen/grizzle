@@ -1764,17 +1764,12 @@ const termDescShape: S.Shape<TermDesc> = S.tagged("kind", {
 
 const selectionDescShape: S.Shape<SelectionDesc> = S.struct({ conjuncts: S.array(exprDescShape) })
 
-const sideTerms = S.nonEmptyUniqueArray(termDescShape, termKey, "side terms")
-
 /** A side's terms are distinct: a field and pred of it are two terms, each at most once. */
 const sideDescShape: S.Shape<SideDesc> = S.struct({
 	relation: name,
-	terms: sideTerms,
+	terms: S.nonEmptyUniqueArray(termDescShape, termKey, "side terms"),
 	selection: selectionDescShape
 })
-
-/** A side's relation and terms, as a decode of the side reads them, its selection passed over. */
-const sideTermsShape = S.struct({ relation: name, terms: sideTerms })
 
 /** A contained statement's fields: its two sides. */
 const sideLinkShape = S.located(S.structWith({ left: sideDescShape, right: sideDescShape }, loc))
@@ -2352,16 +2347,20 @@ export const admitLoginRoles = (
 }
 
 /**
- * A side's Description: its relation and terms, which its caller wrote, decoded as a statement's side decodes them,
- * over its selection, whose conjuncts the selection's predicate decoded.
+ * A side's Description over its relation, its terms and its selection, each read where it entered: a declared
+ * relation's name, terms each a field or pred of a declared name, and a selection whose conjuncts the selection's
+ * predicate decoded. Refused, as a decode of the side refuses it, at the first term that repeats an earlier one.
  */
-export const decodeSide = (
-	value: unknown,
+export const sideOver = (
+	relation: string,
+	terms: NonEmptyReadonlyArray<TermDesc>,
 	selection: SelectionDesc
-): Result.Result<SideDesc, CompileError> =>
-	Result.map(S.decodeWith(sideTermsShape, value, "side description"), (side) =>
-		Object.freeze({ relation: side.relation, terms: side.terms, selection })
-	)
+): Result.Result<SideDesc, CompileError> => {
+	const repeated = S.repeatedAt("side description", ["terms"], terms, termKey, "side terms")
+	return repeated === undefined
+		? Result.ok(Object.freeze({ relation, terms: Object.freeze(terms), selection }))
+		: Result.err(repeated)
+}
 
 /**
  * The Description boundary.
