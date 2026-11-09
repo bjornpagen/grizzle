@@ -8,8 +8,8 @@ import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { MemberAt } from "#compiler/runtime/write/binding.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
+import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
-import type { UnservedMember, UnservedReason } from "#compiler/write/program/served.ts"
 
 /**
  * The array members a served call of a workload's ChangeSet supplies (`ArrayMember`), its members as its binding holds

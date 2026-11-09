@@ -4,13 +4,13 @@
  * process runs it, so every application runs the served form.
  *
  * A write whose family work the host plans from a read flight (bind.ts Flights `read`) is no served write: its plan reads
- * the compiled front end itself. `servedWrite` refuses it, naming each such shape (`UnservedReason`).
+ * the compiled front end itself. `servedWrite` refuses it, naming each such shape (served/unserved.ts `UnservedReason`).
  */
 import { maxOf } from "#compiler/core/array.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
+import { type FamilyId, familyKey } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
@@ -22,41 +22,10 @@ import {
 	type ServedWriteChoice,
 	type ServedWriteForm
 } from "#compiler/runtime/write/flight.ts"
+import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-
-/**
- * Why a served file holds no ChangeSet: a family write of it the host plans from a read flight, which no served write
- * holds, a stratum's edit of a member relation, a stratum's refill, with the families it draws again, whether a path of
- * it reads a tree, and the most owner axes one path of it rides, or a stratum's nested writes whose families the host
- * plans; or a member no served call can supply (served-members.ts servedMembers), a Stream member, whose facts are code,
- * a value ChangeSet.bind closed with no canonical text, whose private name follows the order the ChangeSet was built in,
- * not its declaration, or two array members of one relation, whose facts one call keys alike.
- */
-export type UnservedReason =
-	| { readonly kind: "edit"; readonly stratum: StratumAt; readonly relation: string }
-	| {
-			readonly kind: "refill"
-			readonly stratum: StratumAt
-			readonly families: ReadonlyArray<FamilyId>
-			readonly tree: boolean
-			readonly hops: number
-	  }
-	| { readonly kind: "nested"; readonly stratum: StratumAt }
-	| { readonly kind: "stream"; readonly slot: string; readonly relation: string }
-	| { readonly kind: "opaqueBinding"; readonly name: string }
-	| {
-			readonly kind: "repeated"
-			readonly relation: string
-			readonly slots: readonly [string, string]
-	  }
-
-/** A ChangeSet no served file holds, with every reason it holds none (`UnservedReason`). */
-export interface UnservedMember {
-	readonly _tag: "UnservedMember"
-	readonly reasons: NonEmptyReadonlyArray<UnservedReason>
-}
 
 /** A form's data: its text and placeholders. */
 const servedWriteForm = (form: {
@@ -111,6 +80,20 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 		)
 	})
 
+/** Every family the nested writes of `stratum` reach, each once. */
+const nestedFamilies = (compiled: CompiledWrite, stratum: StratumAt): ReadonlyArray<FamilyId> => [
+	...new Map(
+		compiled.frontend.nested
+			.filter((n) => n.stratum === stratum)
+			.flatMap((n) =>
+				n.nesting.reached.map((r): readonly [string, FamilyId] => [
+					familyKey(r.family.id),
+					r.family.id
+				])
+			)
+	).values()
+]
+
 /**
  * The shapes of `compiled` the host plans from a read flight: each edit and refill program, and each stratum with
  * family steps the host plans that neither names, its nested writes'.
@@ -129,7 +112,8 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedReason> 
 		...compiled.edits.map((e): UnservedReason => ({
 			kind: "edit",
 			stratum: e.edit.stratum,
-			relation: e.target.relation.name
+			relation: e.target.relation.name,
+			families: e.target.families.map((f) => f.family.id)
 		})),
 		...compiled.refills.map((r): UnservedReason => ({
 			kind: "refill",
@@ -141,7 +125,11 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedReason> 
 				0
 			)
 		})),
-		...[...planned].map((stratum): UnservedReason => ({ kind: "nested", stratum }))
+		...[...planned].map((stratum): UnservedReason => ({
+			kind: "nested",
+			stratum,
+			families: nestedFamilies(compiled, stratum)
+		}))
 	]
 }
 

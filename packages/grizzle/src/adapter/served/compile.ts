@@ -37,7 +37,7 @@ export type WorkloadPlace =
 
 /**
  * The compile of a login's workload refused, at `place`, for `error`: a CompileError, or a workload ChangeSet no served
- * file can hold, with every reason (write/program/served.ts UnservedMember).
+ * file can hold, with every reason (served/unserved.ts UnservedMember).
  */
 export interface ServedRefusal {
 	readonly place: WorkloadPlace

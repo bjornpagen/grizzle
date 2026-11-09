@@ -318,7 +318,7 @@ export type BindResult =
 
 /**
  * A write as binding runs it: loaded as a served file holds it (served.ts loadWrite), or, where the host plans some of
- * its family work from a read flight, which no served file holds (served.ts UnservedMember), loaded beside the compiled
+ * its family work from a read flight, which no served file holds (served/unserved.ts UnservedMember), loaded beside the compiled
  * write that plan reads.
  */
 export type RunnableWrite =
@@ -790,7 +790,7 @@ export const bindWrite = (
 		}
 	}
 	/**
-	 * The flights of a write the host plans some of whose family work from a read flight (served.ts UnservedMember), over
+	 * The flights of a write the host plans some of whose family work from a read flight (served/unserved.ts UnservedMember), over
 	 * its compiled front end: a read flight first where its changes name a stored member of a family, else its one
 	 * flight, planned now.
 	 */

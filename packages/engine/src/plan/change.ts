@@ -53,12 +53,7 @@ export {
 	type ServedWrite
 } from "#compiler/runtime/write/flight.ts"
 export { type ArrayMember, memberFactsOf } from "#compiler/runtime/write/members.ts"
-export {
-	projectWrite,
-	servedWrite,
-	type UnservedMember,
-	type UnservedReason
-} from "#compiler/write/program/served.ts"
+export { projectWrite, servedWrite } from "#compiler/write/program/served.ts"
 export {
 	interpretRows,
 	type KeyDecoder,

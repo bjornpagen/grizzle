@@ -2,6 +2,7 @@ import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
+import type { FamilyId } from "#compiler/plan/change.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
 import {
 	maxMigrationNameLength,
@@ -621,24 +622,29 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
 	}
 }
 
-/** Why no served file can hold a workload ChangeSet: one reason's text (write/program/served.ts UnservedReason). */
+/** Families as a refusal names them: each by its owner relation and count field. */
+const familiesText = (families: ReadonlyArray<FamilyId>): string =>
+	`${families.length === 1 ? "the family" : "the families"} ${Arr.join(
+		Arr.map(families, (family) => `${family.owner}.${family.count}`),
+		", "
+	)}`
+
+/** Why no served file can hold a workload ChangeSet: one reason's text, what is refused, the work it needs and what to
+ * change where a declaration can (served/unserved.ts UnservedReason). */
 const unservedReasonText = (reason: UnservedReason): string => {
 	switch (reason.kind) {
 		case "edit":
-			return `an edit of a family's member relation ${reason.relation} in stratum ${reason.stratum}, which runs on the host`
+			return `stratum ${reason.stratum} edits ${reason.relation}, a member relation of ${familiesText(reason.families)}: each group it touches is rewritten from the group's stored suffix, which the host reads and fills before the write, and a served file holds no host fill`
 		case "refill":
-			return `a refill of the families counted by ${Arr.join(
-				Arr.map(reason.families, (family) => `${family.owner}.${family.count}`),
-				", "
-			)} in stratum ${reason.stratum}${reason.tree ? ", over a tree" : ""}${reason.hops > 1 ? `, across ${reason.hops} hops` : ""}, which runs on the host`
+			return `stratum ${reason.stratum} refills ${familiesText(reason.families)}${reason.tree ? " through a tree" : ""}${reason.hops > 1 ? ` across ${reason.hops} owner hops` : ""}: their stale values are drawn again from the rows a read flight finds, which the host fills before the write, and a served file holds no host fill`
 		case "nested":
-			return `nested rows in stratum ${reason.stratum}, which the host fills`
+			return `stratum ${reason.stratum} writes nested rows of ${familiesText(reason.families)}: the host walks each nested fact and fills those families' rows before the write, and a served file holds no host fill`
 		case "stream":
-			return `a Stream member of ${reason.relation} in slot ${reason.slot}, whose facts are code`
+			return `${reason.relation}'s Stream member (slot ${reason.slot}) supplies its facts as code, and a served call supplies arrays: give it an array member or a query member over parameters`
 		case "opaqueBinding":
-			return `the bound value ${reason.name}, which has no canonical text`
+			return `the bound value ${reason.name} has no canonical text a served file can hold: bind a value of a declared type, or make it a parameter`
 		case "repeated":
-			return `array members ${reason.slots[0]} and ${reason.slots[1]} of one relation ${reason.relation}, whose facts one call keys alike`
+			return `two array members write ${reason.relation} (slots ${reason.slots[0]} and ${reason.slots[1]}): a call's facts are keyed by relation, so make one of them a query member over parameters, or merge them into one member`
 	}
 }
 
