@@ -217,7 +217,7 @@ export interface LawSource {
 /**
  * Laws: the normalized law node and its native objects.
  *
- * Every law means a violation query that must be empty (rel.ts Forbid, analysis/theory/violations.ts); the public
+ * Every law means a violation query that must be empty (rel.ts Forbid, laws/model/violations.ts); the public
  * constructors produce its recognized shapes. A NormalizedLaw records one recognized obligation with its source
  * identity, and the law model lowers it to native objects alone, each listing the laws it discharges
  * (NativeObject.lawIds): keys, foreign keys, table CHECKs, domains and a family's drawn columns, which PostgreSQL

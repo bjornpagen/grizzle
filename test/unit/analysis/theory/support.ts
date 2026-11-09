@@ -2,7 +2,6 @@ import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { buildTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
-import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -14,6 +13,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import * as S from "#compiler/ir/shape.ts"
+import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { own } from "#compiler/schema/own.ts"
@@ -58,7 +58,7 @@ export interface TestTheory extends Theory {
 export const theoryResult = (desc: SchemaDesc): Result.Result<TestTheory, CompileError> =>
 	Result.flatMap(Result.flatMap(own(decodedSchema(desc)), checkedSchema), (checked) =>
 		Result.flatMap(buildTheory(checked), (t) =>
-			Result.map(theoryViolations(checked), (violations) => Object.freeze({ ...t, violations }))
+			Result.map(theoryViolations(checked, t), (violations) => Object.freeze({ ...t, violations }))
 		)
 	)
 

@@ -18,7 +18,6 @@ import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import { theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import { canonicalTextOf, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
@@ -37,6 +36,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { draftCodebook, firstCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
+import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -738,7 +738,9 @@ const freshOfDeclaration = (d: Declaration): DeploySnapshot => {
 /** Whether the law's violation query has a row over the target's closed rows, by the reference evaluator, a second
  * implementation of the query's meaning. */
 const lawBroken = (installation: Installation): boolean => {
-	const violations = succeeded(theoryViolations(installation.laws.checked))
+	const violations = succeeded(
+		theoryViolations(installation.laws.checked, installation.laws.theory)
+	)
 	const forbid = violations.forbids.get(lawOfPair())
 	if (forbid?.kind !== "Forbid") {
 		return assert.fail("the theory's violation queries hold the closed law's Forbid")

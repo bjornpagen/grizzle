@@ -84,7 +84,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
+import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -124,13 +124,23 @@ interface StatedCheck {
 }
 
 /**
+ * A rule one of whose sides reads a derived relation, judged on its definition at every commit by the deferred
+ * constraint triggers the law model plans for it (analysis/theory/query.ts), as its statement states it.
+ */
+interface StatedRule {
+	readonly kind: "rule"
+	readonly rule: QueryRule
+}
+
+/**
  * A law's detail as normalization states it, before its violation query is written: a row check's predicate not yet
- * lowered, and a family's or a tree's shape before the containments it carries and the folds over it. Every written
- * detail is one of these too, so a law's identity reads either.
+ * lowered, a rule's violation query not yet checked, and a family's or a tree's shape before the containments it
+ * carries and the folds over it. Every written detail is one of these too, so a law's identity reads either.
  */
 export type StatedDetail =
-	| Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" }>
+	| Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" | "rule" }>
 	| StatedCheck
+	| StatedRule
 	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds"> }
 	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds"> }
 
@@ -183,14 +193,11 @@ export type LawDetail =
 	  }
 	| { readonly kind: "family"; readonly family: Family }
 	| { readonly kind: "tree"; readonly family: TreeFamily }
-	| {
-			/**
-			 * A rule one of whose sides reads a derived relation, judged on its definition at every commit by the deferred
-			 * constraint triggers the law model plans for it (analysis/theory/query.ts).
-			 */
-			readonly kind: "rule"
-			readonly rule: QueryRule
-	  }
+	| (StatedRule & {
+			/** Its violation query as the checker admitted it, which the theory checks once and the violation queries'
+			 * writer reads (laws/model/violations.ts). */
+			readonly violation: { readonly dag: ValidDag; readonly root: RelNode }
+	  })
 	| {
 			readonly kind: "fold"
 			readonly family: FamilyId
@@ -367,9 +374,9 @@ interface LawDraft {
 
 /**
  * How a law is written: in the theory's builder, its detail as the theory carries it (theory.ts buildTheory) apart from
- * its violation query, which only the violation queries' writer writes (violations.ts); or, for a rule over a query, as
- * a query description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits and the
- * violation queries' writer merges into its DAG.
+ * its violation query, which only the violation queries' writer writes (laws/model/violations.ts); or, for a rule over
+ * a query, as a query description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits
+ * and the violation queries' writer merges into its DAG.
  */
 type LawWriting =
 	| {
@@ -377,10 +384,7 @@ type LawWriting =
 			readonly detail: (b: ViolationBuilder) => WrittenDetail
 			readonly violation: (b: ViolationBuilder) => RelNode
 	  }
-	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: RuleDetail }
-
-/** A rule over a query's detail. */
-type RuleDetail = Extract<LawDetail, { readonly kind: "rule" }>
+	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: StatedRule }
 
 /**
  * A law's detail as the theory law carries it, and the nodes of the theory's DAG it lowered: a row check's with its
@@ -1139,7 +1143,7 @@ export class Normalizer {
 		sources: ReadonlyArray<StatementSource>,
 		loc: SourceLoc
 	): void {
-		const detail: RuleDetail = { kind: "rule", rule }
+		const detail: StatedRule = { kind: "rule", rule }
 		this.#keep(
 			{
 				identity: { shape, source, reads: ruleReads(rule), detail },

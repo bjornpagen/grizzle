@@ -202,7 +202,7 @@ export interface Theory extends CheckedTheory {
 	 * primary key per ordinary relation. */
 	readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
 	/** What the theory lowers, in one DAG (Builder.#written), with its label supply, which the law model's merge reads:
-	 * no law's violation query (violations.ts). */
+	 * no law's violation query (laws/model/violations.ts). */
 	readonly dag: LabelledDag
 	/**
 	 * Every family, ordered, counted or a tree, in statement order, with its axes' carried pairs and its folds resolved
@@ -582,12 +582,12 @@ class Builder {
 	}
 
 	/**
-	 * Each law with its detail written, in law order: each primary key's law with its relation, then every other law. The
-	 * families are resolved first, each fold's step selection lowered, since a family's and a tree's law carry them; a
-	 * row check's predicate is lowered over a scan of its row; a rule over a query is admitted, its violation query
-	 * checked against the checked schema. No law's violation query is written (violations.ts writes them). The DAG holds
-	 * what the theory lowered, each fold's nonempty step selection and each row check's predicate projected over its
-	 * scan, so the law model's own DAG extends it under labels apart from every one they carry.
+	 * Each law with its detail written, in law order: each primary key's law with its relation, then every other law.
+	 * The families are resolved first, each fold's step selection lowered, since a family's and a tree's law carry
+	 * them; a row check's predicate is lowered over a scan of its row; a rule over a query is admitted, its violation
+	 * query checked against the checked schema. No law's violation query is written (laws/model/violations.ts writes
+	 * them). The DAG holds what the theory lowered, each fold's nonempty step selection and each row check's predicate
+	 * projected over its scan, so the law model's own DAG extends it under labels apart from every one they carry.
 	 */
 	#written(
 		normalizer: Normalizer,
@@ -623,7 +623,13 @@ class Builder {
 					if (!checked.ok) {
 						throw new Refusal(checked.error)
 					}
-					return Object.freeze({ ...law, detail: writing.detail })
+					return Object.freeze({
+						...law,
+						detail: {
+							...writing.detail,
+							violation: { dag: checked.value.dag, root: checked.value.dag.roots[0] }
+						}
+					})
 				}
 			}
 		}
@@ -750,8 +756,8 @@ export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, Compi
 
 /**
  * An owned schema's laws normalized as buildTheory normalizes them (Builder.normalize), none written, or the first
- * refusal thrown: what the violation queries' writer (violations.ts) writes them from, so it names and orders every law
- * as the theory does.
+ * refusal thrown: what the violation queries' writer (laws/model/violations.ts) writes them from, so it names and
+ * orders every law as the theory does.
  */
 export const normalizedLaws = (checked: CheckedSchema): Normalizer =>
 	new Builder(checked).normalize()

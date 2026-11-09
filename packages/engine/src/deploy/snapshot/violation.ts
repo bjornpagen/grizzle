@@ -1,9 +1,9 @@
-import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
+import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Select } from "#compiler/sql/ast.ts"
@@ -69,7 +69,7 @@ const checkOf = (
 }
 
 /**
- * An installation's checks, from its theory's violation queries written once (analysis/theory/violations.ts):
+ * An installation's checks, from its theory's violation queries written once (laws/model/violations.ts):
  * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws;
  * `rules`, each rule over a query in law order, its violation query over every row, which the migration that adds the
  * rule, or changes it or a definition it reads, runs once its rows are written, before its triggers hold it at every
@@ -82,7 +82,7 @@ export const lawChecks = (
 	readonly migrations: ReadonlyArray<MigrationCheck>
 	readonly rules: ReadonlyArray<MigrationCheck>
 } => {
-	const violations = theoryViolations(installation.laws.checked)
+	const violations = theoryViolations(installation.laws.checked, installation.laws.theory)
 	if (!violations.ok) {
 		throw new Refusal(violations.error)
 	}

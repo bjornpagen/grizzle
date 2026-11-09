@@ -6,13 +6,13 @@ import {
 	type Theory,
 	theoryEvidence
 } from "#compiler/analysis/theory/theory.ts"
-import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
+import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 
 import type { Case } from "@grizzle/testing/explore"
 import type {
@@ -62,7 +62,7 @@ export const theoryUnder = (desc: SchemaDesc, immediate: ReadonlySet<LawId>): Te
 	return Object.freeze({
 		...t,
 		evidence: theoryEvidence(t.laws, immediate),
-		violations: succeeded(theoryViolations(checked))
+		violations: succeeded(theoryViolations(checked, t))
 	})
 }
 
