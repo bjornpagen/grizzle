@@ -38,29 +38,31 @@ import {
 	completeInstallOptions,
 	customMigration,
 	type Declarations,
-	type DeploySnapshot,
 	type DraftInput,
 	draftMigration,
-	everySlice,
 	findMarkers,
 	type FolderNaming,
 	generateMigration,
 	type GenerateResult,
 	type Installation,
 	installationOver,
-	installationsOf,
-	installBasis,
-	isEmptySnapshot,
 	lossText,
 	type MigrationDraft,
 	type MigrationFolder,
-	noWorkload,
-	rosterFates,
-	derivedHolds,
-	type SnapshotFiles,
-	snapshotFileName,
 	workloadExtension
 } from "#compiler/plan/migration.ts"
+import {
+	type DeploySnapshot,
+	derivedHolds,
+	everySlice,
+	installationsOf,
+	installBasis,
+	isEmptySnapshot,
+	noWorkload,
+	rosterFates,
+	snapshotFileName,
+	type SnapshotFiles
+} from "#compiler/plan/serve.ts"
 
 interface GenerateOptions {
 	readonly mode: GenerateMode

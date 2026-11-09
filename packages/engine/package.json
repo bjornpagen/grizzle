@@ -72,6 +72,11 @@
 			"types": "./dist/plan/read.d.ts",
 			"default": "./dist/plan/read.js"
 		},
+		"./internal/plan/serve.ts": {
+			"grizzle-source": "./src/plan/serve.ts",
+			"types": "./dist/plan/serve.d.ts",
+			"default": "./dist/plan/serve.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"files": [

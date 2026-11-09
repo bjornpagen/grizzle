@@ -13,14 +13,8 @@ import {
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
 import type { CompileError } from "#compiler/plan/common.ts"
-import {
-	type DeploySnapshot,
-	emptyFingerprint,
-	emptySnapshot,
-	folderTimestamp,
-	isFolderName,
-	type ReadMeta
-} from "#compiler/plan/migration.ts"
+import { folderTimestamp, isFolderName, type ReadMeta } from "#compiler/plan/migration.ts"
+import { type DeploySnapshot, emptyFingerprint, emptySnapshot } from "#compiler/plan/serve.ts"
 
 /**
  * What a schema's directory commits: its empty snapshot, before its first migration, which is no file and records no

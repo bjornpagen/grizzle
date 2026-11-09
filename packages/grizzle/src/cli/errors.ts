@@ -2,12 +2,8 @@ import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
-import {
-	manifestFileName,
-	maxMigrationNameLength,
-	metaFileName,
-	snapshotFileName
-} from "#compiler/plan/migration.ts"
+import { maxMigrationNameLength, metaFileName } from "#compiler/plan/migration.ts"
+import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
 
 /**
  * The failure of a `grizzle` command outside the apply runner.

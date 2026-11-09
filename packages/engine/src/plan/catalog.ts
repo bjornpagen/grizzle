@@ -1,8 +1,8 @@
 /**
- * The expected catalog: what admission and drift compare a live database against — the manifest, the roles and grants a
- * snapshot expects, the catalog reads, and the names the installation gives its objects.
+ * The expected catalog: what admission and drift compare a live database against — the roles and grants a snapshot
+ * expects, the catalog reads, and the names the installation gives its objects. The manifest it records is
+ * plan/migration.ts's, which a login's runtime never loads.
  */
-export { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 export {
 	databaseSettings,
 	type DefaultGrant,

@@ -69,6 +69,7 @@ import {
 	type SchemaArtifacts,
 	SourceLoc
 } from "#compiler/plan/common.ts"
+import { templateFor } from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,
 	type PlanBasis,
@@ -79,8 +80,7 @@ import {
 	sliceOf,
 	type SnapshotDerived,
 	within
-} from "#compiler/plan/migration.ts"
-import { templateFor } from "#compiler/plan/read.ts"
+} from "#compiler/plan/serve.ts"
 
 /**
  * The DbLayer service: one login's connection settings, its verify, its snapshot, its workloads compiled, and its one

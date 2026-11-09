@@ -9,7 +9,6 @@ import {
 import type { MigrationText } from "#adapter/wire/batch.ts"
 import { compareCodePoints, sha256Hex } from "#compiler/plan/common.ts"
 import {
-	type DeploySnapshot,
 	isFolderName,
 	isNoTransaction,
 	lex,
@@ -18,6 +17,7 @@ import {
 	splitStatements,
 	type Token
 } from "#compiler/plan/migration.ts"
+import type { DeploySnapshot } from "#compiler/plan/serve.ts"
 
 /**
  * What `grizzle migrate` is given, checked before it connects.

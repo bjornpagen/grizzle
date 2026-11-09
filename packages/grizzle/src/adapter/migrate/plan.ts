@@ -13,14 +13,8 @@ import {
 } from "#adapter/migrate/errors.ts"
 import type { ParsedFile, ParsedFolder, ParsedTarget } from "#adapter/migrate/input.ts"
 import type { SchemaFingerprint } from "#compiler/plan/common.ts"
-import {
-	decideFolder,
-	findMarkers,
-	type LedgerState,
-	lossDecisions,
-	lossText,
-	type RecordedFolder
-} from "#compiler/plan/migration.ts"
+import { findMarkers, lossDecisions, lossText } from "#compiler/plan/migration.ts"
+import { decideFolder, type LedgerState, type RecordedFolder } from "#compiler/plan/serve.ts"
 
 /**
  * A folder the apply runs: one no apply started, every file of it, or the partially applied one, resumed at the files it

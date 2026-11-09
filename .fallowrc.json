@@ -60,6 +60,45 @@
 				]
 			},
 			{
+				// What only generate, check and migrate load: drafting and rendering a migration, the installation's DDL and
+				// its indexes, the workload's access compile, and their facade (plan/migration.ts). No zone a login's runtime
+				// loads imports one, so DbLayer.make and a Db load none of them; plan/serve.ts is the runtime's facade.
+				"name": "install",
+				"patterns": [
+					"packages/engine/src/plan/migration.ts",
+					"packages/engine/src/deploy/admission/manifest.ts",
+					"packages/engine/src/deploy/diff/**",
+					"packages/engine/src/deploy/phases/**",
+					"packages/engine/src/deploy/render/**",
+					"packages/engine/src/laws/model/restate.ts",
+					"packages/engine/src/physical/access/**",
+					"packages/engine/src/physical/complete.ts",
+					"packages/engine/src/physical/date/storage.ts",
+					"packages/engine/src/physical/ddl/advance.ts",
+					"packages/engine/src/physical/ddl/literal.ts",
+					"packages/engine/src/physical/ddl/rules.ts",
+					"packages/engine/src/physical/ddl/tables.ts",
+					"packages/engine/src/physical/indexes/**",
+					"packages/engine/src/physical/install/comments.ts",
+					"packages/engine/src/physical/install/compile.ts",
+					"packages/engine/src/physical/refined/constants.ts",
+					"packages/engine/src/physical/statistics/**",
+					"packages/engine/src/program/workload/compile.ts",
+					"packages/engine/src/program/workload/world.ts",
+					"packages/engine/src/sql/lexer.ts"
+				]
+			},
+			{
+				// The shell's migration, drift and manifest readers, which only generate, check and migrate run.
+				"name": "adapter-install",
+				"patterns": [
+					"packages/grizzle/src/adapter/admission/drift.ts",
+					"packages/grizzle/src/adapter/admission/expectation.ts",
+					"packages/grizzle/src/adapter/boundary/meta.ts",
+					"packages/grizzle/src/adapter/migrate/**"
+				]
+			},
+			{
 				"name": "core",
 				"patterns": ["packages/engine/src/core/**"]
 			},
@@ -190,6 +229,56 @@
 				]
 			},
 			{
+				"from": "install",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"deploy",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"physical",
+					"program",
+					"query",
+					"scalar",
+					"schema",
+					"sql",
+					"text",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "adapter-install",
+				"allow": [
+					"adapter",
+					"adapter-decode",
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"deploy",
+					"install",
+					"ir",
+					"logical",
+					"lower",
+					"physical",
+					"plan",
+					"program",
+					"query",
+					"scalar",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
 				"from": "core",
 				"allow": []
 			},
@@ -287,7 +376,8 @@
 					"text",
 					"types",
 					"write"
-				]
+				],
+				"allowTypeOnly": ["install"]
 			},
 			{
 				"from": "program",
@@ -311,7 +401,8 @@
 			},
 			{
 				"from": "deploy",
-				"allow": ["core", "ir", "laws", "lower", "physical", "schema", "sql", "text"]
+				"allow": ["core", "ir", "laws", "lower", "physical", "schema", "sql", "text"],
+				"allowTypeOnly": ["install"]
 			},
 			{
 				"from": "public",
@@ -391,8 +482,10 @@
 				"from": "cli",
 				"allow": [
 					"adapter",
+					"adapter-install",
 					"core",
 					"deploy",
+					"install",
 					"ir",
 					"physical",
 					"plan",

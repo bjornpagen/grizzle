@@ -16,7 +16,7 @@ import {
 	servedSnapshot,
 	type SnapshotFiles,
 	snapshotFingerprint
-} from "#compiler/plan/migration.ts"
+} from "#compiler/plan/serve.ts"
 
 /**
  * The snapshot a revived JSON value is: the value itself, trusted once its recorded fingerprint is the digest of its

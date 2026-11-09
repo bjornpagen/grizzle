@@ -14,7 +14,7 @@ import {
 	type RosterCodec,
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
-import type { DescribedLaw, ServedSnapshot } from "#compiler/plan/migration.ts"
+import type { DescribedLaw, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** One column a domain types in a table, with the law that column's use of the domain discharges. */
 type DomainUse = Extract<

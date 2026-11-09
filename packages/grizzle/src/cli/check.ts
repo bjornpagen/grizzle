@@ -26,8 +26,6 @@ import { compileReasonText, looksLikeLiteralPack } from "#compiler/plan/common.t
 import {
 	accessDrift,
 	accessDriftText,
-	type DeploySnapshot,
-	derivedHolds,
 	findMarkers,
 	type Installation,
 	literalPackFault,
@@ -36,9 +34,9 @@ import {
 	noTransactionMarker,
 	orderFolderFiles,
 	type PackFault,
-	snapshotFileName,
 	splitStatements
 } from "#compiler/plan/migration.ts"
+import { type DeploySnapshot, derivedHolds, snapshotFileName } from "#compiler/plan/serve.ts"
 
 /** One finding: which refusal it is, where, what, and the fix. */
 interface CheckFinding {

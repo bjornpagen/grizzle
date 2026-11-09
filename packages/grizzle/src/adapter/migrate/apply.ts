@@ -71,8 +71,8 @@ import {
 	type SchemaFingerprint,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
+import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
 /**
  * `grizzle migrate`: the apply runner.

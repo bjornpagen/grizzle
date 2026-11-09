@@ -34,8 +34,6 @@ import {
 	identityHooks,
 	judgedSchemas,
 	manifestRoles,
-	type ManifestStatement,
-	manifestStatements,
 	roleExpectation,
 	transformCreateIndex,
 	transformStatement
@@ -53,8 +51,9 @@ import {
 	type SqlStatement,
 	type TypeSchema
 } from "#compiler/plan/common.ts"
-import type { DeploySnapshot, LedgerState } from "#compiler/plan/migration.ts"
+import { type ManifestStatement, manifestStatements } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
+import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
 
 /**
  * The drift check: the installed schema against the target snapshot, judged by PostgreSQL, after `grizzle migrate`.

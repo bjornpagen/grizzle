@@ -27,7 +27,7 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { DescribedLaw } from "#compiler/plan/migration.ts"
+import type { DescribedLaw } from "#compiler/plan/serve.ts"
 
 /**
  * The ErrorResponse fields a violation is classified by: the identity fields PostgreSQL reports and grizzle controls

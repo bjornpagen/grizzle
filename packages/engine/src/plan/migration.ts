@@ -1,17 +1,11 @@
 /**
- * The migration plan: what a migration is, and what the shell drafts, reviews and applies it by — the draft and its
- * folder, the snapshot it starts from and ends at, the ledger, and the installation it installs.
+ * The migration plan: what a migration is, and what generate, check and migrate draft, review and apply it by, every
+ * module of it one a login's runtime never loads — the draft and its folder, its markers, the installation it installs
+ * and the manifest it records, and the workload's access compile. What a runtime also reads, the snapshot, the ledger,
+ * the slice and the basis, is plan/serve.ts's.
  */
+export { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 export type { AbandonedSchema, Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
-export {
-	decideFolder,
-	type LedgerRow,
-	ledgerState,
-	type LedgerState,
-	ledgerStatements,
-	type LedgerStatements,
-	type RecordedFolder
-} from "#compiler/deploy/ledger/ledger.ts"
 export {
 	type FolderNaming,
 	folderTimestamp,
@@ -45,47 +39,10 @@ export {
 	noTransactionMarker,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
-export {
-	codebookOf,
-	derivedHolds,
-	emptyFingerprint,
-	emptySnapshot,
-	isEmptySnapshot,
-	joinedSnapshot,
-	noWorkload,
-	rosterFates,
-	snapshotFingerprint
-} from "#compiler/deploy/snapshot/build.ts"
-export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
-export {
-	type DeploySnapshot,
-	manifestFileName,
-	type ServedSnapshot,
-	type SnapshotDerived,
-	type SnapshotFiles,
-	type SnapshotLevel,
-	snapshotFileName
-} from "#compiler/deploy/snapshot/types.ts"
 export { workloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
-export { installationsOf } from "#compiler/schema/own.ts"
-export {
-	everySlice,
-	type RoleProgram,
-	type Slice,
-	sliceOf,
-	within
-} from "#compiler/schema/reach.ts"
-export { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 export { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
-export {
-	type DescribedLaw,
-	type InstallBasis,
-	installBasis,
-	type PlanBasis,
-	planBasis
-} from "#compiler/physical/install/plan.ts"
 export {
 	accessDrift,
 	accessDriftText,

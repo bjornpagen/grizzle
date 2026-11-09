@@ -21,16 +21,16 @@ import {
 	rowText,
 	SchemaFingerprint
 } from "#compiler/plan/common.ts"
+import { countParam, textParam } from "#compiler/plan/read.ts"
 import {
 	emptyFingerprint,
 	type LedgerRow,
-	ledgerState,
 	type LedgerState,
-	ledgerStatements,
+	ledgerState,
 	type LedgerStatements,
+	ledgerStatements,
 	ledgerTableName
-} from "#compiler/plan/migration.ts"
-import { countParam, textParam } from "#compiler/plan/read.ts"
+} from "#compiler/plan/serve.ts"
 
 const relations = C.from("pg_class", "c")
 const namespaces = C.from("pg_namespace", "n")

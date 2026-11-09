@@ -18,13 +18,8 @@ import {
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
-import {
-	manifestFileName,
-	metaFileName,
-	type MigrationFolder,
-	type SnapshotFiles,
-	snapshotFileName
-} from "#compiler/plan/migration.ts"
+import { metaFileName, type MigrationFolder } from "#compiler/plan/migration.ts"
+import { manifestFileName, snapshotFileName, type SnapshotFiles } from "#compiler/plan/serve.ts"
 
 /**
  * The migrations directory on disk.
