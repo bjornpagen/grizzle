@@ -27,11 +27,10 @@ import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { PayrollInstalled } from "#test/pg/e2e-laws/payroll.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
 import { defined } from "#test/support/assert.ts"
@@ -171,7 +170,13 @@ const runRace = (
 	c: Case<LeaveFeature>
 ): Effect.Effect<
 	void,
-	CompileError | SqlError | TransactionRolledBack | OpenError | PsqlProcessError | SerialRaceFailed,
+	| CompileError
+	| SqlError
+	| TransactionRolledBack
+	| OpenError
+	| PsqlProcessError
+	| SerialRaceFailed
+	| ServedRefusal,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
@@ -182,10 +187,9 @@ const runRace = (
 		})
 		const s: PayrollInstalled = f.rebuilt(P.Payroll)
 		const worlds = P.reportingWorlds(s)
-		const serverContext = yield* Layer.build(f.layer(worlds.server))
-		const hr = yield* compiledOpen(worlds.server.roles.hr, {}).pipe(
-			Effect.provideContext(serverContext)
-		)
+		const served = yield* f.served(worlds.server)
+		const serverContext = yield* Layer.build(served.layer)
+		const hr = yield* Db.open(served.login.roles.hr, {}).pipe(Effect.provideContext(serverContext))
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
@@ -193,7 +197,7 @@ const runRace = (
 		const g = yield* grizzleActor(
 			"g",
 			f.installed.as(worlds.server).role,
-			hr.apply(ChangeSet.empty(s), {}),
+			hr.workload.noop.apply({}),
 			[psqlPid]
 		)
 		const env = yield* exploreEnv(substrate)
@@ -214,17 +218,19 @@ const runRace = (
 						kind: "grizzle",
 						session: "g",
 						label: "insert ada's leave",
-						call: hr.apply(
-							ChangeSet.empty(s).insert(P.Leave, [
-								{
-									employee: ada,
-									during: {
-										start: instantOf(race.requested.start),
-										end: instantOf(race.requested.end)
-									},
-									reason: race.requested.reason
-								}
-							]),
+						call: hr.workload.insertLeave.apply(
+							{
+								Leave: [
+									{
+										employee: ada,
+										during: {
+											start: instantOf(race.requested.start),
+											end: instantOf(race.requested.end)
+										},
+										reason: race.requested.reason
+									}
+								]
+							},
 							{}
 						),
 						footprint: everyRelation
