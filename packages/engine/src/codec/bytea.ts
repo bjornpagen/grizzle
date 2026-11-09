@@ -6,6 +6,7 @@
  * with format code 1 and every other parameter as text, each by its own format code, so one statement mixes the two
  * (pg-protocol's serializer, `writeValues`).
  */
+import { utf8Bytes } from "#compiler/codec/cursor/bytes.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
@@ -165,6 +166,12 @@ export const byteaArray = (
  * One text column's text[] in the array binary format (`binaryArray`), each element its parameter text's UTF-8 bytes,
  * which text's receive function reads as the literal's element would be read: no quoting or escaping, and no string
  * of the whole array, so a column of any total length within a message travels.
+ *
+ * Each element's bytes are the platform encoder's whole encoding of its text (codec/cursor/bytes.ts utf8Bytes), copied
+ * into place. TextEncoder.encodeInto is not used: on Node 26.13 it writes one character short into a destination of
+ * exactly the text's length when the text ends in a scalar of U+0400 to U+07FF and is long enough to take its
+ * vectorized path (from 53 UTF-16 units), which left the last character's two bytes 0x00 and PostgreSQL refused the
+ * array as invalid UTF-8.
  */
 export const textArray = (
 	input: string,
@@ -172,10 +179,8 @@ export const textArray = (
 	texts: ReadonlyArray<string>
 ): Result.Result<ParamBinary, LiteralBound> => {
 	const lengths = texts.map(utf8Length)
-	const encoder = new TextEncoder()
 	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
-		const n = defined(lengths[i], "the length of each text counted")
-		encoder.encodeInto(defined(texts[i], "each text counted"), out.subarray(at, at + n))
+		out.set(utf8Bytes(defined(texts[i], "each text counted")), at)
 		return Result.ok(undefined)
 	})
 }

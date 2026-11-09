@@ -7,6 +7,7 @@ import {
 	constant,
 	element,
 	type Gen,
+	int,
 	map,
 	oneOf,
 	weighted
@@ -14,7 +15,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
 import { compiledOpen } from "#adapter/db/open.ts"
 import { textArrayParam } from "#compiler/codec/recordset.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -37,18 +38,26 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * relation parameter carries, reaches PostgreSQL as the very text the host holds, as the literal array it replaced
  * delivered it.
  *
- * The schema is one mutable relation of a key and a text of any characters. A case is a list of texts, each drawn from
- * the characters a literal array quotes or escapes (quotes, backslashes, braces, commas, white space, the text NULL),
- * every plane's scalars (multibyte and astral), the empty text and long texts. It inserts one row per text, reads them
- * back, puts each row's text reversed, reads them back, deletes the rows at even keys by their facts, reads the rest
- * back, and reads the texts back through a relation parameter.
+ * The schema is two mutable relations of a key and a text of any characters, Note and Response, the second written as
+ * edullm writes a child's answers, from a relation parameter. A case is a list of texts, each drawn from the
+ * characters a literal array quotes or escapes (quotes, backslashes, braces, commas, white space, the text NULL), every
+ * plane's scalars (multibyte and astral, Cyrillic, Hebrew and Arabic among them), the empty text, texts of 53 to 1200
+ * units with a scalar of U+0400 to U+07FF throughout or near their end, and long texts. It inserts one Note per text, reads them back, puts each row's text reversed, reads them back,
+ * deletes the rows at even keys by their facts, reads the rest back, reads the texts back through a relation parameter,
+ * and writes one Response per text from a relation parameter and reads them back.
+ *
+ * Node's TextEncoder.encodeInto underfilled a destination of exactly a text's UTF-8 length when the text held a scalar
+ * of U+0400 to U+07FF and was 53 units or longer (nodejs/node#65994), which left 0x00 bytes in a binary text[] element;
+ * its failing lengths are not contiguous, so such texts are kept: a child's Cyrillic answer ending in U+0400, a Hebrew
+ * one ending in a Hebrew letter, and six texts at lengths where it underfilled on Node v26.13.0 (upstream/node).
  *
  * The oracle is the literal path the binary array replaced (codec/recordset.ts textArrayParam): each read gives exactly
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
  */
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: uuid, body: Body }, ["id"])
-const Texts = schema("TextArrays", { Note }, [mutable(Note)])
+const Response = relation("Response", { id: uuid, value: Body }, ["id"])
+const Texts = schema("TextArrays", { Note, Response }, [mutable(Note), mutable(Response)])
 
 /** One scalar of a text: a character a literal array quotes or escapes, or a scalar of any plane but NUL. */
 const scalar: Gen<string> = weighted([
@@ -66,6 +75,9 @@ const scalar: Gen<string> = weighted([
 			"'",
 			"a",
 			"é",
+			"Ѐ",
+			"ש",
+			"ك",
 			"漢",
 			"\u{1F600}",
 			"\u{10FFFF}"
@@ -74,13 +86,54 @@ const scalar: Gen<string> = weighted([
 	[1, oneOf([codePoint(0x01, 0xd7_ff), codePoint(0xe0_00, 0x10_ff_ff)])]
 ])
 
-/** A text: the empty text, the text NULL in a case, a run of scalars, or a long run of one scalar. */
+/** A scalar whose presence let the encodeInto of nodejs/node#65994 underfill: U+0400 to U+07FF. */
+const twoByteRange: Gen<string> = codePoint(0x04_00, 0x07_ff)
+
+/**
+ * A text: the empty text, the text NULL in a case, a short run of scalars, a run of 53 to 1200 scalars, a run of one
+ * scalar ending in a scalar of U+0400 to U+07FF and a tail of up to three scalars, a run of ASCII with one scalar of
+ * U+0400 to U+07FF anywhere in it, or a long run of one scalar. The underfill's lengths are not contiguous, so every
+ * length of the band is drawn.
+ */
 const text: Gen<string> = weighted([
 	[1, constant("")],
 	[1, element(["NULL", "null", "Null"])],
-	[6, map(array(scalar, { min: 1, max: 8 }), Arr.join(""))],
+	[4, map(array(scalar, { min: 1, max: 8 }), Arr.join(""))],
+	[2, map(array(scalar, { min: 53, max: 1200 }), Arr.join(""))],
+	[
+		2,
+		(s) => {
+			const run = Str.repeat(s.draw(int(0, 1200)))(s.draw(scalar))
+			const tail = Arr.join(s.draw(array(scalar, { min: 0, max: 3 })), "")
+			return `${run}${s.draw(twoByteRange)}${tail}`
+		}
+	],
+	[
+		1,
+		(s) => {
+			const length = s.draw(int(53, 1200))
+			const at = s.draw(int(0, length - 1))
+			return `${Str.repeat(at)("a")}${s.draw(twoByteRange)}${Str.repeat(length - 1 - at)("a")}`
+		}
+	],
 	[1, map(scalar, (s) => Str.repeat(2 ** 12)(s))]
 ])
+
+/** A child's Cyrillic answer of 281 units ending in U+0400. */
+const cyrillicAnswer = `${Str.repeat(14)("Ученик выбрал ответ ")}Ѐ`
+
+/** A child's Hebrew answer of 271 units ending in a Hebrew letter. */
+const hebrewAnswer = `${Str.repeat(15)("התלמיד בחר בתשובה ")}ש`
+
+/** The texts of the lengths where nodejs/node#65994 underfilled on Node v26.13.0, beside the two answers. */
+const underfilled: ReadonlyArray<readonly [string, string]> = [
+	["U+0400 x 258 then 'a'", `${Str.repeat(258)("Ѐ")}a`],
+	["U+0400 x 263 then 'a'", `${Str.repeat(263)("Ѐ")}a`],
+	["U+0400 x 317 then 'a'", `${Str.repeat(317)("Ѐ")}a`],
+	["U+0400 x 950 then 'a'", `${Str.repeat(950)("Ѐ")}a`],
+	["'a' x 52 then U+0400", `${Str.repeat(52)("a")}Ѐ`],
+	["'a' x 309 then U+0400", `${Str.repeat(309)("a")}Ѐ`]
+]
 
 type TextFeature =
 	| "a quote or a backslash"
@@ -89,6 +142,7 @@ type TextFeature =
 	| "an astral scalar"
 	| "the empty text"
 	| "a long text"
+	| "a text of 53 units or more holding U+0400 to U+07FF"
 
 const features: Arr.NonEmptyReadonlyArray<TextFeature> = [
 	"a quote or a backslash",
@@ -96,8 +150,15 @@ const features: Arr.NonEmptyReadonlyArray<TextFeature> = [
 	"the text NULL",
 	"an astral scalar",
 	"the empty text",
-	"a long text"
+	"a long text",
+	"a text of 53 units or more holding U+0400 to U+07FF"
 ]
+
+/** Whether a text holds a scalar of U+0400 to U+07FF. */
+const holdsTwoByteRange = (t: string): boolean =>
+	Arr.some(Arr.fromIterable(t), (point) =>
+		Option.exists(Str.codePointAt(0)(point), (code) => code >= 0x04_00 && code <= 0x07_ff)
+	)
 
 /** A text's code points reversed, so a put changes every text but a palindrome's. */
 const reversed = (t: string): string => Arr.join(Arr.reverse(Array.from(t)), "")
@@ -136,6 +197,19 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 							Effect.flatMap(db.execute(notes, {}), (r) => r.collect),
 							(rows) => sorted(Arr.map(rows, (row) => row.body))
 						)
+						const answered = query(o.schema).rule((r) => {
+							const given = r.relation("responses", { id: Response.fields.id, value: Body })
+							const row = v(given, "given")
+							return r.match(given, row).find(row)
+						})
+						const recorded = query(o.schema).rule((r) => {
+							const { id, value } = v(Response, "response")
+							return r.match(Response, { id, value }).find({ id, value })
+						})
+						const values = Effect.map(
+							Effect.flatMap(db.execute(recorded, {}), (r) => r.collect),
+							(rows) => sorted(Arr.map(rows, (row) => row.value))
+						)
 						return yield* explore(
 							{
 								suite: "pg/write/text-arrays",
@@ -146,7 +220,28 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 									name: "the texts PostgreSQL stores from the text array literal of the texts written"
 								},
 								coverage: required<TextFeature>(features, { cases: 40, sense: notesOnly }),
-								kept: [],
+								kept: [
+									{
+										note: "a child's Cyrillic answer of 281 units ending in U+0400, which encodeInto wrote two bytes short",
+										sketch: [cyrillicAnswer],
+										draws: "",
+										reaches: ["a text of 53 units or more holding U+0400 to U+07FF"]
+									},
+									{
+										note: "a child's Hebrew answer of 271 units ending in a Hebrew letter, which encodeInto wrote two bytes short",
+										sketch: [hebrewAnswer],
+										draws: "",
+										reaches: ["a text of 53 units or more holding U+0400 to U+07FF"]
+									},
+									...Arr.map(underfilled, ([note, t]) => ({
+										note: `nodejs/node#65994 on Node v26.13.0: ${note}`,
+										sketch: [t],
+										draws: "",
+										reaches: Arr.of<TextFeature>(
+											"a text of 53 units or more holding U+0400 to U+07FF"
+										)
+									}))
+								],
 								runs: 40,
 								shrink: completeShrink,
 								concurrency: 1,
@@ -213,6 +308,21 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										echoedLiteral,
 										"a relation parameter's texts read back"
 									)
+									const responses = Arr.map(texts, (value, i) => ({ id: uuidOf(i + 1), value }))
+									const answeredOutcome = yield* db.apply(empty.insert(Response, answered), {
+										responses
+									})
+									assert.equal(
+										answeredOutcome.kind,
+										"accepted",
+										"the write from a relation parameter is accepted"
+									)
+									const afterAnswers = yield* values
+									assert.deepEqual(
+										afterAnswers,
+										insertedLiteral,
+										"a relation parameter's written texts read back"
+									)
 									const all = Arr.join(texts, "")
 									/** Whether the texts hold any of `points`. */
 									const holdsAny = (points: ReadonlyArray<string>): boolean =>
@@ -234,6 +344,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 									}
 									if (Arr.some(texts, (t) => t.length >= 2 ** 12)) {
 										c.note("a long text")
+									}
+									if (Arr.some(texts, (t) => t.length >= 53 && holdsTwoByteRange(t))) {
+										c.note("a text of 53 units or more holding U+0400 to U+07FF")
 									}
 								})
 						)

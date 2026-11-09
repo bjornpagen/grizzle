@@ -252,6 +252,11 @@ post-beta swarm's fixes for the next release.
   within one relation, apart. fill.ts writesVerdict's `edit` arm turns back into refills when they land.
 
 ## Upstream, for the owner to file
+- upstream/node: TextEncoder.encodeInto underfills an exactly sized destination for text holding U+0400 to U+07FF
+  (nodejs/node#65994, fixed by #65997, unreleased). Once a Node release carries #65997 (repro.sh prints PASS on every
+  line), restore encodeInto in packages/engine/src/codec/bytea.ts textArray, whose encode() per element is the interim
+  and allocates per row, with test/unit/codec/text-array.test.ts and test/pg/write/text-arrays as its guards, and
+  delete the folder.
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
   comparison of two texts that read no row (42P22); grizzle folds such constants on the host.
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.

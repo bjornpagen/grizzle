@@ -1,0 +1,46 @@
+EVIDENCE: node (nodejs/node#65994), measured on node v26.13.0, macOS arm64, 2026-11-09. Each line a probe of encodeInto into a destination of exactly the text's UTF-8 length.
+
+a*k+Ѐ total len: 53
+Ѐ*n: 258
+漢*k+Ѐ total: 258
+ā (U+0101)*n: none<5000
+߿ (U+07FF)*n: 258
+ÿ (U+00FF) ending, two-byte string: none<5000
+ending in Ѐ then 'é': none<5000
+Ѐ in the middle, ending ascii: none<5000
+worst bytes missing: 2
+short-ending code points: U+0400-U+07ff
+100 min total length (漢+a*n+ch): none
+3ff min total length (漢+a*n+ch): none
+400 min total length (漢+a*n+ch): 67
+7ff min total length (漢+a*n+ch): 67
+
+Content classes, 4000 random texts each of up to 2000 units, missing bytes > 0:
+ascii+three: 0/4000 fail, shortest failing Infinity units
+ascii+latin1+three: 0/4000 fail, shortest failing Infinity units
+three: 0/4000 fail, shortest failing Infinity units
+astral+ascii: 0/4000 fail, shortest failing Infinity units
+two1+ascii: 0/4000 fail, shortest failing Infinity units
+two1: 0/4000 fail, shortest failing Infinity units
+two2: 3468/4000 fail, shortest failing 258 units
+two2+ascii: 1073/4000 fail, shortest failing 258 units
+two2+three: 1877/4000 fail, shortest failing 258 units
+latin1+two1: 0/4000 fail, shortest failing Infinity units
+ascii+two1+three+astral: 0/4000 fail, shortest failing Infinity units
+
+Shortest failing text among 300,000 random mixed texts of up to 70 units, and structured probes:
+shortest failing text in 300k random texts of up to 70 units: Infinity []
+a*k+Ѐ first fails at k = 52 units 53
+Ѐ+a*k+ש first fails at units 60
+
+repro.sh:
+node v26.13.0, v8 14.6.202.34-node.40
+FAIL U+0400 x 258, exact destination: 258 units, 516 bytes, read 257, written 514
+FAIL 'a' x 52 then U+0400, exact destination: 53 units, 54 bytes, read 52, written 52
+FAIL U+07FF x 4096, exact destination: 4096 units, 8192 bytes, read 4095, written 8190
+PASS control: U+0400 x 257, exact destination (scalar path): 257 units, 514 bytes, read 257, written 514
+PASS control: U+0400 x 4096, one spare byte: 4096 units, 8192 bytes, read 4096, written 8192
+PASS control: U+0101 x 4096, exact destination: 4096 units, 8192 bytes, read 4096, written 8192
+FAIL control: U+0400 x 4096 then 'a', exact destination: 4097 units, 8193 bytes, read 4096, written 8192
+PASS control: U+00E9 x 4096 (one-byte string), exact destination: 4096 units, 8192 bytes, read 4096, written 8192
+PASS control: encode() of U+0400 x 4096 gives 8192 bytes

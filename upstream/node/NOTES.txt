@@ -1,0 +1,29 @@
+NOTES: node (TextEncoder.encodeInto underfills an exactly sized destination)
+
+Status: known upstream, not filed by us. nodejs/node#65994 (open), "TextEncoder.encodeInto() underfills the destination
+for some non-ASCII text"; the fix is nodejs/node#65997 (open, unmerged, no backport label). The cause, per the issue:
+src/encoding_binding.cc simpleUtfEncodingLength's `if (c < 0x400) return 2;`, where 0x800 is meant, a regression since
+v25.4.0, so a scalar of U+0400 to U+07FF is counted as three bytes and encodeInto stops before a last scalar that fits.
+
+1. Independent confirmation, on Node v26.13.0 (V8 14.6.202.34-node.40, macOS arm64), measured before the issue was found
+   (EVIDENCE.txt, repro.sh):
+   - encodeInto(text, destination of exactly text's UTF-8 length) leaves the last scalar unwritten (1 to 3 bytes, 0x00 in
+     a fresh array) when the text holds a scalar of U+0400 to U+07FF and is long enough: the shortest failing text found
+     is 53 UTF-16 units ('a' x 52 then U+0400); a run of U+0400 fails from 258 units.
+   - No text without a U+0400-07FF scalar failed (ASCII, Latin-1, U+0100-03FF, three-byte and astral, alone or mixed).
+   - A destination one byte longer is written whole; TextEncoder.encode() and Buffer.from(text, "utf8") are exact on
+     every text tried (253,442 texts covering every BMP code point).
+
+2. What it broke in grizzle, and the interim.
+   - packages/engine/src/codec/bytea.ts textArray wrote each element of a text column's binary text[] with encodeInto
+     into exactly the element's UTF-8 length, so such a text lost its last scalar and PostgreSQL refused the array
+     ("invalid byte sequence for encoding "UTF8": 0x00"). Every write slot and read relation parameter over a text
+     column travels so; edullm's saveSelection and recordAnswer write a child's anyText answers from relation
+     parameters, so a long Cyrillic, Hebrew or Arabic answer failed its write.
+   - Interim: textArray copies TextEncoder.encode()'s bytes into place, one allocation per element, which per-row code
+     should not make; the representation is encodeInto again once a Node release carries #65997 (TODO.md).
+   - Guards for the switch back: test/unit/codec/text-array.test.ts (it fails on the encodeInto writer) and
+     test/pg/write/text-arrays, whose kept cases are a 281-unit Cyrillic answer ending in U+0400 and a 271-unit Hebrew one
+     ending in a Hebrew letter.
+
+3. How to check a release: `sh repro.sh`. Every line prints PASS on a release carrying #65997.
