@@ -38,6 +38,37 @@ export type FamilyNode =
 			readonly member: string
 			readonly changes: ReadonlyArray<string>
 	  }
+	| FamilyAdditions
+	| FamilyRemovals
+
+/**
+ * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members`, and changes
+ * the rows of `owners` at the columns `changes` names of each, their counts and ends, each generated column that reads
+ * one of them among them.
+ */
+export interface FamilyAdditions {
+	readonly kind: "additions"
+	readonly members: ReadonlyArray<string>
+	readonly owners: ReadonlyArray<{ readonly relation: string; readonly changes: ReadonlyArray<string> }>
+}
+
+/**
+ * A stratum's family removals as one statement (write/family/removals.ts): it deletes, re-places and updates in place
+ * rows of `members`, and changes the rows of `owners` at the columns `changes` names of each, their counts and ends. Its
+ * stratum's additions follow it.
+ */
+export interface FamilyRemovals {
+	readonly kind: "removals"
+	readonly members: ReadonlyArray<string>
+	readonly owners: ReadonlyArray<{ readonly relation: string; readonly changes: ReadonlyArray<string> }>
+}
+
+/** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions statement's
+ * members and owners. */
+export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
+	node.kind === "additions" || node.kind === "removals"
+		? [...node.members, ...node.owners.map((o) => o.relation)]
+		: [node.relation]
 
 /** A column PostgreSQL generates from its row, by key (write/family/fold.ts ColumnKey), with the keys of the columns it
  * reads. */
@@ -305,6 +336,17 @@ export const scheduleStratum = <A extends Scheduled>(
 		}
 	}
 	for (const { node, vertex } of statements) {
+		if (node.kind === "additions") {
+			for (const other of statements) {
+				if (other.node.kind === "removals") {
+					before(other.vertex, vertex)
+				}
+			}
+			continue
+		}
+		if (node.kind === "removals") {
+			continue
+		}
 		if (node.kind === "rows") {
 			if (node.statement === "update") {
 				before(rowsOf(node.relation, "delete"), vertex)
@@ -375,6 +417,10 @@ export const scheduleStratum = <A extends Scheduled>(
 	for (const { action, vertex: x } of plain) {
 		for (const { node, vertex: y } of statements) {
 			const a = action.action.relation
+			if (node.kind === "additions" || node.kind === "removals") {
+				orderFamilyWrite(action, x, node, y, references)
+				continue
+			}
 			if (a === node.relation) {
 				y.follows.add(x)
 			}
@@ -432,8 +478,56 @@ export const scheduleStratum = <A extends Scheduled>(
 
 /** Whether a family statement that changes rows in place changes one of `columns`. */
 const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
+	node.kind !== "additions" &&
+	node.kind !== "removals" &&
 	(node.kind === "owners" || node.statement === "refill" || node.statement === "update") &&
 	node.changes.some((c) => columns.includes(c))
+
+/**
+ * Orders an action `x` and a stratum's family additions or removals `y` (FamilyAdditions, FamilyRemovals): the additions
+ * follow every action of a relation they insert into or recount, whose rows they read as landed; and the immediate
+ * references between them order them as any two writes' do, the additions adding the rows they insert, the removals
+ * removing and changing the rows they delete, re-place and update, and either adding and changing an owner's facts at
+ * the columns its recount changes.
+ */
+const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
+	action: Scheduled,
+	x: V,
+	node: FamilyAdditions | FamilyRemovals,
+	y: V,
+	references: ReadonlyArray<ImmediateReference>
+): void => {
+	const a = action.action.relation
+	if (node.kind === "additions" && (node.members.includes(a) || node.owners.some((o) => o.relation === a))) {
+		y.follows.add(x)
+	}
+	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
+		if (node.members.includes(relation)) {
+			return node.kind === "additions"
+				? { adds: true, removes: false, updates: false }
+				: { adds: true, removes: true, updates: true }
+		}
+		const owner = node.owners.find((o) => o.relation === relation)
+		if (owner === undefined) {
+			return undefined
+		}
+		const touched = owner.changes.some((c) => columns.includes(c))
+		return { adds: touched, removes: false, updates: touched }
+	}
+	for (const r of references) {
+		if (r.from === r.to) {
+			continue
+		}
+		const asSource = r.to === a ? effectAt(r.from, r.fromColumns) : undefined
+		if (asSource !== undefined) {
+			order(x, actionEffect(action), y, asSource, r)
+		}
+		const asTarget = r.from === a ? effectAt(r.to, r.toColumns) : undefined
+		if (asTarget !== undefined) {
+			order(y, asTarget, x, actionEffect(action), r)
+		}
+	}
+}
 
 /** Whether two families are one: the same owner and count. */
 const sameFamily = (a: FamilyId, b: FamilyId): boolean => a.owner === b.owner && a.count === b.count
@@ -533,7 +627,15 @@ const cycleAmong = <A>(
 }
 
 /** Whether two family statements of a stratum are one: their kind, their relation and statement or their family. */
-export const sameNode = (a: FamilyNode, b: FamilyNode): boolean =>
-	a.kind === "owners"
-		? b.kind === "owners" && a.family.owner === b.family.owner && a.family.count === b.family.count
-		: b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
+export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
+	switch (a.kind) {
+		case "owners":
+			return b.kind === "owners" && a.family.owner === b.family.owner && a.family.count === b.family.count
+		case "rows":
+			return b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
+		case "additions":
+			return b.kind === "additions"
+		case "removals":
+			return b.kind === "removals"
+	}
+}

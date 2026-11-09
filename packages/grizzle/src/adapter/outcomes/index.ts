@@ -159,6 +159,12 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 			}
 		case "family":
 			return { kind: "write", stratum: step.stratum, relations: [step.relation] }
+		case "familyWrite":
+			return {
+				kind: "write",
+				stratum: step.stratum,
+				relations: Arr.dedupe(Arr.map(step.parts, (p) => p.relation))
+			}
 		case "check":
 			return { kind: "precheck", stratum: step.stratum, entry: step.entry }
 		case "carrier":
@@ -198,6 +204,11 @@ const stepText = (step: WriteStep): string => {
 			return `the precheck of entry ${step.entry}`
 		case "family":
 			return `a family's ${step.statement} of ${step.relation}`
+		case "familyWrite":
+			return `the family ${step.statement} writing ${Arr.join(
+				Arr.dedupe(Arr.map(step.parts, (p) => p.relation)),
+				", "
+			)}`
 	}
 }
 

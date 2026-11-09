@@ -155,12 +155,7 @@ export const interpretRows = (
 ): WriteChanges => {
 	const changes = byStratum(artifact.statements).map((statements) => {
 		const returned = statements
-			.flatMap((s) =>
-				writeRows(s.step, rowsOf(s.index)).map((w) => ({
-					...w,
-					counts: s.step.kind === "family" && s.step.statement === "count"
-				}))
-			)
+			.flatMap((s) => writeRows(s.step, rowsOf(s.index)))
 			.filter((w) => w.rows.length > 0)
 		return new Map(
 			context.written.flatMap(({ relation, identity }) => {

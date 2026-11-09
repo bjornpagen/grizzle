@@ -30,6 +30,7 @@ import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { AddedTag, RemovedTag } from "#compiler/write/delta/net.ts"
+import type { FamilyPart } from "#compiler/write/family/written.ts"
 import type { FamilyStatement } from "#compiler/write/family/order.ts"
 import type { FamilySql } from "#compiler/write/family/statements.ts"
 import type {
@@ -145,6 +146,20 @@ export type WriteStep =
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
 	| FamilyStep
+	| FamilyWriteStep
+
+/**
+ * A stratum's family additions or removals as one statement (write/family/additions.ts): its rows are each part's
+ * behind the part's tag, as a single statement's are, each part's facts of its relation as its result says, a recount's
+ * an owner's key, counts and ends after and before. It is sent once, and its violations are the family laws' natives,
+ * which the installation's classifier names; it aborts nothing.
+ */
+export interface FamilyWriteStep {
+	readonly kind: "familyWrite"
+	readonly stratum: number
+	readonly statement: "additions" | "removals"
+	readonly parts: NonEmptyReadonlyArray<FamilyPart>
+}
 
 /**
  * The statements of one kind of one family of a stratum's nested writes (write/family/statements.ts): its text is
@@ -185,6 +200,8 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 			return [step]
 		case "single":
 			return step.parts.map((part) => part.step)
+		case "familyWrite":
+			return step.parts
 		case "carrier":
 		case "analyze":
 		case "advance":
@@ -203,17 +220,31 @@ export const writeRows = (
 ): ReadonlyArray<{
 	readonly step: RowsStep
 	readonly rows: ReadonlyArray<ReadonlyArray<OutputText>>
+	/** Whether its rows are owners' keys, counts and ends alone, a recount's, which the outcome tells apart by those
+	 * columns only. */
+	readonly counts: boolean
 }> => {
 	switch (step.kind) {
 		case "write":
+			return [{ step, rows, counts: false }]
 		case "family":
-			return [{ step, rows }]
+			return [{ step, rows, counts: step.statement === "count" }]
 		case "single":
 			return step.parts.map((part, tag) => {
 				const own = String(tag)
 				return {
 					step: part.step,
-					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : []))
+					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : [])),
+					counts: false
+				}
+			})
+		case "familyWrite":
+			return step.parts.map((part, tag) => {
+				const own = String(tag)
+				return {
+					step: part,
+					rows: rows.flatMap((row) => (row[0] === own ? [row.slice(1, 1 + part.width)] : [])),
+					counts: part.rows === "counts"
 				}
 			})
 		case "carrier":
@@ -408,6 +439,7 @@ export const stratumOf = (step: WriteStep): number | undefined => {
 		case "check":
 		case "single":
 		case "family":
+		case "familyWrite":
 			return step.stratum
 	}
 }

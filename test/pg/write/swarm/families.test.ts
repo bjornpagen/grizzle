@@ -39,6 +39,7 @@ import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { oneFlight } from "#test/support/one-flight.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -1238,14 +1239,15 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							const host = hostSchema(spec, built, laws)
 							const world = fullWorld(value)
 							yield* Effect.gen(function* () {
-								const { ctx: context } = yield* openDbContext(world.server.roles.app, {})
+								const { ctx: opened } = yield* openDbContext(world.server.roles.app, {})
+								const flight = yield* oneFlight(opened, done.as(world.server))
 								let state = nothingStored
 								for (const [i, step] of steps.entries()) {
 									const label = `step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`
 									const expected = expectStep(spec, built, laws, host, state, step)
 									const { changes, params } = changeSetOf(spec, built, value, state, step)
 									const applied = yield* Effect.result(
-										apply(context, changes, changes.reads, params)
+										flight.judged(label, apply(flight.context, changes, changes.reads, params))
 									)
 									if (Result.isFailure(applied)) {
 										const failure = applied.failure

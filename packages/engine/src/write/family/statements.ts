@@ -265,7 +265,7 @@ const arraysOf = (
 	const at = (i: number) => defined(named[i], `column ${i} of a family statement's ${named.length}`)
 	const raw = (i: number): Expr => col(alias, at(i).name)
 	return {
-		from: arrays({ kind: "columns", columns }, alias),
+		from: arrays({ kind: "columns", columns, ordinal: undefined }, alias),
 		alias,
 		raw,
 		value: (i) => {
@@ -651,7 +651,7 @@ const arraysAt = (
 		array: positionalValue(first + i)
 	}))
 	return {
-		from: arrays({ kind: "columns", columns }, alias),
+		from: arrays({ kind: "columns", columns, ordinal: undefined }, alias),
 		raw: (i) => col(alias, defined(named[i], `read key ${i}`).name)
 	}
 }

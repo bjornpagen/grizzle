@@ -1,14 +1,17 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import { indices } from "#compiler/core/array.ts"
+import { layoutKey } from "#compiler/analysis/theory/fill.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import { type Family, isTreeOf } from "#compiler/ir/family.ts"
+import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
@@ -90,6 +93,8 @@ import {
 } from "#compiler/write/family/statements.ts"
 import {
 	compileChangeSet,
+	inputSlots,
+	type MemberSlot,
 	type SlotGroup,
 	type StratumEdit,
 	type WriteFrontend,
@@ -113,7 +118,12 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
-import { castsNothing, type FamilyStep } from "#compiler/write/program/artifact.ts"
+import { castsNothing, type FamilyStep, type FamilyWriteStep } from "#compiler/write/program/artifact.ts"
+import { type AppendedMember, additionsSql, type PutOwner } from "#compiler/write/family/additions.ts"
+import { type Deferring, type EditedMember, familyInputs, removalsSql } from "#compiler/write/family/removals.ts"
+import type { FillColumn } from "#compiler/ir/fill.ts"
+import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
+import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type ArtifactForms,
 	byStratum,
@@ -262,12 +272,58 @@ const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], code
 
 /** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
  * its node places where the stratum's schedule runs it. */
-interface FamilyPlacement {
-	readonly stratum: number
-	readonly node: FamilyNode
-	readonly step: FamilyStep
-	readonly sql: FamilySql
-}
+type FamilyPlacement =
+	| {
+			readonly kind: "statement"
+			readonly stratum: number
+			readonly node: FamilyNode
+			readonly step: FamilyStep
+			readonly sql: FamilySql
+	  }
+	| {
+			readonly kind: "write"
+			readonly stratum: number
+			readonly node: FamilyNode
+			readonly step: FamilyWriteStep
+			readonly sql: FamilyWriteSql
+	  }
+
+/**
+ * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
+ * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
+ */
+const familyDrawn = (frontend: WriteFrontend, relation: string, family: Family): ReadonlyArray<FillColumn> =>
+	defined(
+		frontend.laws.theory.fill.layouts.get(layoutKey(relation, { kind: "member", family })),
+		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
+	).columns.filter((c) => {
+		if (isSequence(family)) {
+			const rule = c.rule
+			return (
+				c.writer.kind === "walk" &&
+				(rule.kind === "index" ||
+					rule.kind === "copy" ||
+					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
+						familyKey(rule.family.id) === familyKey(family.id)))
+			)
+		}
+		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
+	})
+
+/** The member slot `slot` names among the front end's slot groups: every edit's slot is one of them. */
+const memberSlotOf = (frontend: WriteFrontend, slot: ParamId): MemberSlot =>
+	defined(
+		frontend.slots
+			.flatMap((group) => group.inputs.flatMap((input) => inputSlots(input)))
+			.find((m) => m.slot === slot),
+		`the member slot ${slot}, an edit's`
+	)
+
+/** The relations a family placement reads and writes, which orders it against the artifact's other statements. */
+const placementRelations = (placement: FamilyPlacement): ReadonlyArray<string> =>
+	placement.kind === "statement"
+		? [placement.step.relation]
+		: [...new Set(placement.step.parts.map((p) => p.relation))]
 
 /** A stratum's edits of one member relation as the program runs them: its slots, its row layout and families, and each
  * family's read, built once (write/family/edit.ts). */
@@ -314,7 +370,13 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
 		return rowLayout(info, all)
 	}
-	const edits = frontend.edits.map((edit): EditProgram => {
+	/** The strata whose family work is one additions statement, which plans nothing on the host. */
+	const added = new Set(
+		frontend.ir.strata.flatMap((stratum, s) =>
+			stratum.family.some(({ node }) => node.kind === "additions" || node.kind === "removals") ? [s] : []
+		)
+	)
+	const edits = frontend.edits.filter((edit) => !added.has(edit.stratum)).map((edit): EditProgram => {
 		const layout = layoutOf(edit.relation.name)
 		const families = memberFamilies(edit.relation.name, all).filter(
 			(f) => !isTreeOf(f, edit.relation.name)
@@ -370,6 +432,96 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		)
 	const placements = frontend.ir.strata.flatMap((stratum, s) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
+			if (node.kind === "additions" || node.kind === "removals") {
+				const edits = frontend.edits.filter((edit) => edit.stratum === s)
+				const familiesOf = (relation: RelationInfo) => {
+					const own = memberFamilies(relation.name, all).filter((f) => !isTreeOf(f, relation.name))
+					if (!isNonEmpty(own)) {
+						throw defect(`the families of ${relation.name}, which a family write draws`)
+					}
+					return mapNonEmpty(own, (family) => ({
+						family,
+						drawn: familyDrawn(frontend, relation.name, family),
+						inputs: familyInputs(family, relation)
+					}))
+				}
+				const slotOf = (slot: ParamId | undefined): MemberSlot | undefined =>
+					slot === undefined ? undefined : memberSlotOf(frontend, slot)
+				const ownerSlots = (op: "put" | "delete") =>
+					frontend.slots.flatMap((group) =>
+						group.stratum === s
+							? group.inputs.flatMap((input) =>
+									input.kind === "single" && input.act.op === op
+										? [{ relation: group.relation.name, slot: input.slot }]
+										: []
+								)
+							: []
+					)
+				const w0 = { ...w, start: ownStatement }
+				if (node.kind === "additions") {
+					const appended = edits.flatMap((edit): ReadonlyArray<AppendedMember> => {
+						if (edit.inserts === undefined && edit.puts === undefined) {
+							return []
+						}
+						const relation = info(edit.relation.name)
+						return [
+							{
+								relation,
+								layout: layoutOf(relation.name),
+								inserts: slotOf(edit.inserts),
+								puts: slotOf(edit.puts),
+								families: familiesOf(relation)
+							}
+						]
+					})
+					if (!isNonEmpty(appended)) {
+						throw defect(`the appended members of stratum ${s}'s additions statement`)
+					}
+					const edited = new Set(edits.map((e) => e.relation.name))
+					const putOwners = ownerSlots("put").flatMap(({ relation, slot }): ReadonlyArray<PutOwner> => {
+						const recounted = all.filter(
+							(f) => f.owner.name === relation && !isSequence(f) && edited.has(f.member.name)
+						)
+						const owner = info(relation)
+						return isNonEmpty(recounted) && owner.mutable ? [{ owner, slot, families: recounted }] : []
+					})
+					const sql = additionsSql(w0, appended, putOwners, stored)
+					const step: FamilyWriteStep = { kind: "familyWrite", stratum: s, statement: "additions", parts: sql.parts }
+					return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+				}
+				const removing = edits.flatMap((edit): ReadonlyArray<EditedMember> => {
+					if (edit.puts === undefined && edit.deletes === undefined) {
+						return []
+					}
+					const relation = info(edit.relation.name)
+					return [
+						{
+							relation,
+							layout: layoutOf(relation.name),
+							puts: slotOf(edit.puts),
+							deletes: slotOf(edit.deletes),
+							families: familiesOf(relation)
+						}
+					]
+				})
+				if (!isNonEmpty(removing)) {
+					throw defect(`the edited members of stratum ${s}'s removals statement`)
+				}
+				const deferring: ReadonlyArray<Deferring> = [
+					...edits.flatMap((edit) => [
+						...(edit.inserts === undefined
+							? []
+							: [{ relation: edit.relation.name, slot: memberSlotOf(frontend, edit.inserts), as: "inserts" as const }]),
+						...(edit.puts === undefined
+							? []
+							: [{ relation: edit.relation.name, slot: memberSlotOf(frontend, edit.puts), as: "puts" as const }])
+					]),
+					...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({ ...o, as: "owners" as const }))
+				]
+				const sql = removalsSql(w0, removing, deferring, stored)
+				const step: FamilyWriteStep = { kind: "familyWrite", stratum: s, statement: "removals", parts: sql.parts }
+				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+			}
 			const sql: FamilySql =
 				node.kind === "owners"
 					? unwrap(countStatement(familyOf(node.family), w, stored))
@@ -385,7 +537,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 				relation: sql.result.relation,
 				result: sql.result
 			}
-			return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
+			return Object.freeze({ kind: "statement", stratum: s, node, step: Object.freeze(step), sql })
 		})
 	)
 	return { placements, edits, refills }
@@ -399,26 +551,53 @@ const placeFamily = (
 	placements: ReadonlyArray<FamilyPlacement>,
 	stratum: number,
 	node: FamilyNode,
-	deps: (step: FamilyStep) => ReadonlyArray<number>
+	deps: (placement: FamilyPlacement) => ReadonlyArray<number>
 ): void => {
-	const { step, sql } = defined(
+	const placement = defined(
 		placements.find((p) => p.stratum === stratum && sameNode(p.node, node)),
 		"a family statement the schedule placed, built once"
 	)
-	placeSpec(
-		b,
-		step,
-		Object.freeze({
-			sql: sql.sql.text,
-			paramSlots: Object.freeze([]),
-			heading: resultHeading(sql.result),
-			role: "member",
-			dependsOn: Object.freeze([...deps(step)])
-		}),
-		sql.ast,
-		sql.sql.nameMap,
-		oneForm
-	)
+	switch (placement.kind) {
+		case "statement": {
+			const { step, sql } = placement
+			placeSpec(
+				b,
+				step,
+				Object.freeze({
+					sql: sql.sql.text,
+					paramSlots: Object.freeze([]),
+					heading: resultHeading(sql.result),
+					role: "member",
+					dependsOn: Object.freeze([...deps(placement)])
+				}),
+				sql.ast,
+				sql.sql.nameMap,
+				oneForm
+			)
+			return
+		}
+		case "write": {
+			const { step, sql } = placement
+			const width = Math.max(...step.parts.map((p) => p.width))
+			placeSpec(
+				b,
+				step,
+				Object.freeze({
+					sql: sql.sql.text,
+					paramSlots: Object.freeze(sql.params.map(writeSlotOf(b.codes))),
+					heading: [
+						{ name: "tag", type: plainType("int4") },
+						...indices(width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
+					],
+					role: "member",
+					dependsOn: Object.freeze([...deps(placement)])
+				}),
+				sql.ast,
+				sql.sql.nameMap,
+				oneForm
+			)
+		}
+	}
 }
 
 /** A statement placed at the next position: its step, its spec, its audited AST and its forms. */
@@ -426,7 +605,7 @@ const placeSpec = (
 	b: ArtifactBuilder,
 	step: Extract<
 		WriteStep,
-		{ readonly kind: "write" | "advance" | "carrier" | "single" | "check" | "family" }
+		{ readonly kind: "write" | "advance" | "carrier" | "single" | "check" | "family" | "familyWrite" }
 	>,
 	spec: StatementSpec<WriteSlot>,
 	ast: SqlStatement,
@@ -688,10 +867,16 @@ const optimizedPlacement = (
 	}
 	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
 	const families = familyProgram(frontend, w).placements
-	const familyDeps = (step: FamilyStep): ReadonlyArray<number> =>
-		tracker.add(step.target.kind === "owners" ? [`relation:${step.relation}`] : [], [
-			`relation:${step.relation}`
-		])
+	const familyDeps = (placement: FamilyPlacement): ReadonlyArray<number> => {
+		const relations = placementRelations(placement).map((r) => `relation:${r}`)
+		return tracker.add(
+			placement.kind === "write" ||
+				(placement.step.target.kind === "owners")
+				? relations
+				: [],
+			relations
+		)
+	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
 			case "family":

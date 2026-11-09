@@ -167,6 +167,7 @@ export const arraysSource = (slots: NonEmptyReadonlyArray<ArraySlot>): ArraysSou
 	}
 	return {
 		kind: "columns",
+		ordinal: undefined,
 		columns: mapNonEmpty(columns, (column, index) => ({
 			definition: column.definition,
 			array: positionalValue(

@@ -11,7 +11,7 @@ import type { ActionCore } from "#compiler/ir/write.ts"
 import { completeClass } from "#compiler/ir/write.ts"
 import {
 	canonicalActionOrder,
-	type FamilyNode,
+	type FamilyNode as AnyFamilyNode,
 	type FamilyPair,
 	type ImmediateReference,
 	type MemberEdit,
@@ -23,6 +23,9 @@ import {
 } from "#compiler/write/frontend/schedule.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+
+/** A family statement this model's strata hold: a member relation's rows or a family's counts, the planner's own. */
+type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removals" }>
 
 /**
  * A stratum's schedule holds an immediate foreign key at every statement, or names a cycle no order keeps. A stratum's
@@ -583,13 +586,16 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 		}
 	}
 	/** A family statement's number, by its identity: its kind, its relation and statement, or its family. */
-	const statementOf = (node: FamilyNode): number | undefined =>
+	const statementOf = (node: AnyFamilyNode): number | undefined =>
 		Arr.findFirst(families, ({ f }) =>
 			node.kind === "owners"
 				? f.kind === "owners" &&
 					f.family.owner === node.family.owner &&
 					f.family.count === node.family.count
-				: f.kind === "rows" && f.relation === node.relation && f.statement === node.statement
+				: node.kind === "rows" &&
+					f.kind === "rows" &&
+					f.relation === node.relation &&
+					f.statement === node.statement
 		).pipe(
 			Option.map((x) => x.id),
 			Option.getOrUndefined

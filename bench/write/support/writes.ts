@@ -250,6 +250,17 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 			}
 		case "family":
 			return { kind: "family", position, relation: step.relation, statement: step.statement }
+		case "familyWrite":
+			return {
+				kind: "single",
+				position,
+				parts: Arr.map(step.parts, (p) => ({
+					kind: "write",
+					position,
+					relation: p.relation,
+					result: p.result
+				}))
+			}
 	}
 }
 

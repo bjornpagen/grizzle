@@ -41,6 +41,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { oneFlight } from "#test/support/one-flight.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
 
 /**
@@ -640,8 +641,13 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								cs.insert(defined(built.relations[relationName(r)]), facts.get(r) ?? [])
 							)
 							yield* Effect.gen(function* () {
-								const { ctx } = yield* openDbContext(world.server.roles.app, {})
-								const outcome = yield* apply(ctx, changes, changes.reads, {})
+								const { ctx: opened } = yield* openDbContext(world.server.roles.app, {})
+								const flight = yield* oneFlight(opened, done.as(world.server))
+								const ctx = flight.context
+								const outcome = yield* flight.judged(
+									"the instance's first insert",
+									apply(ctx, changes, changes.reads, {})
+								)
 								assert.equal(
 									outcome.kind,
 									rows.length === 0 ? "no-change" : "accepted",
@@ -679,7 +685,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 											return cs.delete(relation, m.facts)
 									}
 								})
-								const second = yield* apply(ctx, next, next.reads, {})
+								const second = yield* flight.judged("the follow-up", apply(ctx, next, next.reads, {}))
 								assert.equal(
 									second.kind,
 									"accepted",

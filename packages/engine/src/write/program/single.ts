@@ -94,7 +94,8 @@ const movedArrays = (source: ArraysSource, offset: number): ArraysSource =>
 		? { kind: "count", count: moved(source.count, offset) }
 		: {
 				kind: "columns",
-				columns: mapNonEmpty(source.columns, (c) => ({ ...c, array: moved(c.array, offset) }))
+				columns: mapNonEmpty(source.columns, (c) => ({ ...c, array: moved(c.array, offset) })),
+				ordinal: source.ordinal
 			}
 
 /**

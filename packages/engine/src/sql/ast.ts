@@ -537,7 +537,13 @@ export interface ArrayColumn {
  * or, for an input of no column, which PostgreSQL holds as rows of no column, the count of its facts.
  */
 export type ArraysSource =
-	| { readonly kind: "columns"; readonly columns: NonEmptyReadonlyArray<ArrayColumn> }
+	| {
+			readonly kind: "columns"
+			readonly columns: NonEmptyReadonlyArray<ArrayColumn>
+			/** The column each row's position among the facts is delivered as, 1 for the first, by the first column's
+			 * array's subscripts read in lockstep with the arrays; none where no reader needs the order. */
+			readonly ordinal: string | undefined
+	  }
 	| { readonly kind: "count"; readonly count: ValuePlaceholder }
 
 /**

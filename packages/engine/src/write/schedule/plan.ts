@@ -14,7 +14,7 @@ import { type WriteCarrier, CarrierSupply, typesDigest } from "#compiler/write/c
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
-import type { FamilyAt, FamilyNode } from "#compiler/write/frontend/schedule.ts"
+import { type FamilyAt, type FamilyNode, familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import {
 	type InputProof,
@@ -573,7 +573,9 @@ const sequentialSteps = (
 		family.filter((f) => f.at <= index)
 	const placed = drafted.map((draft) => {
 		for (const f of familyBefore(draft.at.index)) {
-			written.add(f.node.relation)
+			for (const relation of familyNodeRelations(f.node)) {
+				written.add(relation)
+			}
 		}
 		const p = placeAction(draft)
 		if (draft.steps.some(isWriteStep)) {

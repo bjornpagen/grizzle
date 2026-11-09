@@ -1007,6 +1007,7 @@ const arraysEntry = (d: Draw): Entry => {
 					? { kind: "count", count: d.arrayParam() }
 					: {
 							kind: "columns",
+							ordinal: undefined,
 							columns: Arr.map(named, (c) => ({
 								definition: columnDefinition(c.name, typeRefs[c.type]),
 								array: d.arrayParam()

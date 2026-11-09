@@ -708,8 +708,17 @@ const printArrays = (source: ArraysSource, alias: string): string => {
 	switch (source.kind) {
 		case "count":
 			return `${inCatalog("generate_series")}(1${castTo("bigint")}, $${source.count.number}${castTo("bigint")}) AS ${quoteIdent(alias)}`
-		case "columns":
-			return `(SELECT ${source.columns.map(printArrayColumn).join(", ")}) AS ${quoteIdent(alias)}`
+		case "columns": {
+			const columns = source.columns.map(printArrayColumn)
+			const [first] = source.columns
+			const ordinal =
+				source.ordinal === undefined
+					? []
+					: [
+							`${inCatalog("generate_subscripts")}($${first.array.number}::${arrayOf(first.definition.type)}, 1) AS ${quoteIdent(source.ordinal)}`
+						]
+			return `(SELECT ${[...columns, ...ordinal].join(", ")}) AS ${quoteIdent(alias)}`
+		}
 	}
 }
 

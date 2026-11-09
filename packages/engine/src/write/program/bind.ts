@@ -37,6 +37,7 @@ import {
 	type FilledRow,
 	type FillContext,
 	foldRecounts,
+	groupOf,
 	groupOfOwner,
 	keyOf,
 	mergeStored,
@@ -55,7 +56,10 @@ import {
 	type ColumnKey,
 	familyKey,
 	fieldKey,
+	filler,
+	fillRefusal,
 	type GeneratedNull,
+	type HostNode,
 	literalHost
 } from "#compiler/write/family/fold.ts"
 import { type NestedRow, rowOfValues } from "#compiler/write/family/nesting.ts"
@@ -1325,7 +1329,9 @@ export const bindWrite = (
 		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
 	): Chunks => {
 		const own = valuesOver((slot) =>
-			plans.ok ? (plans.value.slots.get(slot) ?? factsOf(slot)) : factsOf(slot)
+			plans.ok
+				? (plans.value.slots.get(slot) ?? fresh.get(slot) ?? factsOf(slot))
+				: (fresh.get(slot) ?? factsOf(slot))
 		)
 		return (statement) => {
 			const step = statement.step
@@ -1379,6 +1385,22 @@ export const bindWrite = (
 		}
 		return Result.ok({ kind: "write", ...writtenOf(Result.err(plans.error)) })
 	}
+	/**
+	 * Each owner slot of a stratum whose family work is one additions statement (write/family/additions.ts), its facts'
+	 * counts and ends of each counted family the stratum appends to as the stratum's own appends to the owner draw them,
+	 * the owner fresh (`freshOwners`). An owner stored at the fact's key is the insert's exact repeat or its conflict,
+	 * which the insert proposes nothing of (insert/statement.ts Proposal), so its stored families are the statement's to
+	 * draw.
+	 */
+	const freshlyCounted = freshOwners(frontend, (slot) => factsOf(slot), ownerSlots)
+	if (!freshlyCounted.ok) {
+		const refusal = freshlyCounted.error
+		if (refusal._tag === "EncodingFailure") {
+			return Result.err(refusal)
+		}
+		return Result.ok({ kind: "generated-rejected", rejection: generatedRejection(refusal.stratum, refusal) })
+	}
+	const fresh = freshlyCounted.value
 	const flown: Result.Result<Flights, GeneratedRejection> =
 		unreadable !== undefined
 			? Result.ok({ kind: "write", ...writtenOf(Result.err(unreadable)) })
@@ -1454,3 +1476,104 @@ interface Planned {
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
 	readonly fills: ReadonlyMap<number, StratumFill>
 }
+
+/** A generated field with no value an owner's fresh fill read, at the stratum whose owner it fills. */
+interface FreshGeneratedNull extends GeneratedNull {
+	readonly stratum: number
+}
+
+/**
+ * Each owner slot of a stratum whose family work is one additions statement (frontend/schedule.ts FamilyAdditions),
+ * with every fact's counts and ends of each counted family the stratum appends to as the host's filler fills the owner
+ * with its appended members, the stratum's member facts naming it (write/family/fold.ts filler): what a fresh owner
+ * holds once its appends land, which its own insert carries so every CHECK over them and every member's axes meet its
+ * final values. The filler reads no stored row: a fresh owner's every member is one the stratum states.
+ */
+const freshOwners = (
+	frontend: CompiledWrite["frontend"],
+	factsOf: (slot: ParamId) => NormalizedSlot,
+	ownerSlots: (stratum: number, relation: string) => ReadonlyArray<ParamId>
+): Result.Result<ReadonlyMap<ParamId, NormalizedSlot>, EncodingFailure | FreshGeneratedNull> => {
+	const out = new Map<ParamId, NormalizedSlot>()
+	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
+	const fill = filler(frontend.laws.theory.fill, frontend.codes, frontend.evaluate)
+	for (const [s, stratum] of frontend.ir.strata.entries()) {
+		if (!stratum.family.some(({ node }) => node.kind === "additions" || node.kind === "removals")) {
+			continue
+		}
+		const appended = frontend.edits.flatMap((e) =>
+			e.stratum === s
+				? [e.inserts, e.puts].flatMap((slot) => (slot === undefined ? [] : [{ relation: e.relation.name, slot }]))
+				: []
+		)
+		const counted = frontend.laws.families.filter(
+			(f) => !isSequence(f) && appended.some((a) => a.relation === f.member.name)
+		)
+		/** Each counted family's appended member facts, by the group they name. */
+		const byGroup = new Map(
+			counted.map((f) => {
+				const groups = new TupleMap<Owner, Array<Fact>>()
+				for (const a of appended) {
+					if (a.relation !== f.member.name) {
+						continue
+					}
+					for (const fact of factsOf(a.slot).facts) {
+						const group = groupOf(ctx, f, factValues(fact))
+						const list = groups.get(group) ?? []
+						list.push(fact)
+						groups.set(group, list)
+					}
+				}
+				return [familyKey(f.id), groups] as const
+			})
+		)
+		for (const owner of new Set(counted.map((f) => f.owner.name))) {
+			const families = counted.filter((f) => f.owner.name === owner)
+			for (const slot of ownerSlots(s, owner)) {
+				const current = factsOf(slot)
+				const filledFacts = new Map<Fact, Fact>()
+				for (const fact of current.facts) {
+					const values = factValues(fact)
+					const node: HostNode = {
+						relation: owner,
+						values,
+						families: families.map((f) => ({
+							family: f.id,
+							members: (byGroup.get(familyKey(f.id))?.get(groupOfOwner(ctx, f, values)) ?? []).map(
+								(m): HostNode => ({ relation: f.member.name, values: factValues(m), families: [] })
+							)
+						}))
+					}
+					const filled = fill(node)
+					if (!filled.ok) {
+						const refusal = fillRefusal(filled.error.stop, slotPlace(owner))
+						return refusal._tag === "GeneratedNull"
+							? Result.err({ ...refusal, stratum: s })
+							: Result.err(refusal)
+					}
+					const drawnNames = new Set(families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)]))
+					filledFacts.set(
+						fact,
+						Object.freeze(
+							Object.fromEntries(
+								Object.entries(fact).map(([name, v]) => [
+									name,
+									drawnNames.has(name) ? filled.value.values.get(fieldKey(name)) : v
+								])
+							)
+						)
+					)
+				}
+				out.set(
+					slot,
+					refilledSlot(current, (fact) => defined(filledFacts.get(fact), "an owner fact the fill filled"))
+				)
+			}
+		}
+	}
+	return Result.ok(out)
+}
+
+/** A fact's values by column key. */
+const factValues = (fact: Fact): ReadonlyMap<ColumnKey, unknown> =>
+	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))

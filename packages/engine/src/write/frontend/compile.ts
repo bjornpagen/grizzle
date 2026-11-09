@@ -1834,6 +1834,10 @@ const compile = (
 	const familyNodesOf = (stratum: number): ReadonlyArray<FamilyNode> => {
 		const edited = [...new Set(edits.filter((e) => e.stratum === stratum).map((e) => e.relation))]
 		const refill = refillOf(stratum)
+		const written = familyWritesOf(stratum, edited, refill)
+		if (written !== undefined) {
+			return written
+		}
 		const refilled = refill?.relations ?? []
 		const inserted = [
 			...new Set([
@@ -1927,6 +1931,56 @@ const compile = (
 		]
 	}
 
+	/**
+	 * A stratum's family work as one statement of removals and one of additions (write/family/removals.ts,
+	 * write/family/additions.ts), where no nested write fills a family and nothing refills: the removals where an edit
+	 * puts or deletes, the additions where one inserts or puts, each with the members it writes and each owner of their
+	 * families, its count and ends changed; none for any other stratum, whose family statements the family planner plans.
+	 */
+	const familyWritesOf = (
+		stratum: number,
+		edited: ReadonlyArray<string>,
+		refill: StratumRefill | undefined
+	): ReadonlyArray<FamilyNode> | undefined => {
+		const own = edits.filter((e) => e.stratum === stratum)
+		if (
+			edited.length === 0 ||
+			refill !== undefined ||
+			nestedWrites.some((n) => n.stratum === stratum) ||
+			own.some((e) => e.write.op === "nested")
+		) {
+			return undefined
+		}
+		const by = (ops: ReadonlyArray<"insert" | "put" | "delete">) => [
+			...new Set(own.flatMap((e) => (ops.some((op) => op === e.write.op) ? [e.relation] : [])))
+		]
+		const ownersOf = (members: ReadonlyArray<string>) => {
+			const counted = members.flatMap((relation) =>
+				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
+			)
+			return [...new Set(counted.map((f) => f.owner.name))].map((relation) => ({
+				relation,
+				changes: generating(
+					counted
+						.filter((f) => f.owner.name === relation)
+						.flatMap((f) => [
+							columnKey({ kind: "field", field: f.count }),
+							...endColumns(f).map((field) => columnKey({ kind: "field", field }))
+						]),
+					generatedOf(relation)
+				)
+			}))
+		}
+		const removing = by(["put", "delete"])
+		const adding = by(["insert", "put"])
+		return [
+			...(removing.length === 0
+				? []
+				: [{ kind: "removals" as const, members: removing, owners: ownersOf(removing) }]),
+			...(adding.length === 0 ? [] : [{ kind: "additions" as const, members: adding, owners: ownersOf(adding) }])
+		]
+	}
+
 	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
 	 * since no order of its statements keeps every key at every statement. */
 	const strata = placedByStratum.map(({ built, outside }, stratum): WriteStratum => {
@@ -1947,15 +2001,20 @@ const compile = (
 					cycle: mapNonEmpty(schedule.cycle, (w) =>
 						w.kind === "action"
 							? { relation: w.action.action.relation, op: w.action.action.op }
-							: {
-									relation: w.node.relation,
-									op:
-										w.node.kind === "owners"
-											? "count"
-											: w.node.statement === "refill"
-												? "update"
-												: w.node.statement
-								}
+							: w.node.kind === "additions" || w.node.kind === "removals"
+								? {
+										relation: defined(w.node.members[0], "a family write's member"),
+										op: w.node.kind === "additions" ? "insert" : "delete"
+									}
+								: {
+										relation: w.node.relation,
+										op:
+											w.node.kind === "owners"
+												? "count"
+												: w.node.statement === "refill"
+													? "update"
+													: w.node.statement
+									}
 					)
 				})
 			)

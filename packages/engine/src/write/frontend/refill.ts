@@ -119,8 +119,18 @@ const refillOrder = (
 	const precedes = new Map<string, RefillOrder["precedes"][number]>()
 	const edges = new Map<string, RefillOrder["edges"][number]>()
 	const edge = (first: FamilyNode, second: FamilyNode): void => {
-		const key = (n: FamilyNode): string =>
-			n.kind === "owners" ? `o:${familyKey(n.family)}` : `${n.statement}:${n.relation}`
+		const key = (n: FamilyNode): string => {
+			switch (n.kind) {
+				case "owners":
+					return `o:${familyKey(n.family)}`
+				case "rows":
+					return `${n.statement}:${n.relation}`
+				case "additions":
+					return "additions"
+				case "removals":
+					return "removals"
+			}
+		}
 		edges.set(`${key(first)}\u0000${key(second)}`, { before: first, after: second })
 	}
 	for (const path of closure.paths) {
