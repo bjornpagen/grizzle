@@ -1,4 +1,4 @@
-import { compareText } from "#compiler/core/canonical.ts"
+import { catchSignal, compareText } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -53,15 +53,9 @@ const typeOccurrence = "~t:"
 const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	isRecord(value) && !isList(value)
 
-/** JSON text read as any JSON value, or none for text that is no JSON. */
-const parsedJson = (text: string): Result.Result<unknown, undefined> => {
-	try {
-		const parsed: unknown = JSON.parse(text)
-		return Result.ok(parsed)
-	} catch {
-		return Result.err(undefined)
-	}
-}
+/** JSON text read as any JSON value, or the SyntaxError of text that is no JSON (core/canonical.ts catchSignal). */
+const parsedJson = (text: string): Result.Result<unknown, SyntaxError> =>
+	catchSignal(SyntaxError, (): unknown => JSON.parse(text))
 
 /** A JSON value with every type occurrence in it replaced by the entry of `types` it indexes. */
 const withTypes = (json: unknown, types: ReadonlyArray<unknown>): unknown => {
