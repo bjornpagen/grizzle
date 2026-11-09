@@ -20,7 +20,6 @@ import type { FillAt } from "#compiler/ir/fill.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
@@ -120,16 +119,17 @@ import {
 	refilledSlot,
 	type SlotData
 } from "#compiler/write/normalize/normalize.ts"
-import {
-	type ArtifactStatement,
-	type SentForm,
-	sentForm,
-	type WriteArtifact
-} from "#compiler/write/program/artifact.ts"
 import type { FreshStratum, JudgedRelation, OwnedColumn } from "#compiler/write/program/binding.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { ownerSlots } from "#compiler/write/program/decide.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
+import {
+	type FlightForm,
+	type FlightStatement,
+	type FlightWrite,
+	type ServedWriteChoice,
+	sentForm
+} from "#compiler/write/program/served.ts"
 import {
 	type Execution,
 	executionsOf,
@@ -173,16 +173,16 @@ export interface BoundWrite {
 	 * read flight meets judges, which states none of them.
 	 */
 	readonly unplanned: StatedRows
-	/** The positions of each artifact the runtime may skip: their enumerated member holds no fact. */
-	readonly skip: (artifact: WriteArtifact) => ReadonlySet<number>
-	/** The form of a statement of an artifact this application sends (`sentForm`). */
-	readonly form: (statement: ArtifactStatement) => SentForm
+	/** The positions of the write's statements the runtime may skip: their enumerated member holds no fact. */
+	readonly skip: ReadonlySet<number>
+	/** The form of a statement of the write this application sends (served.ts sentForm). */
+	readonly form: (statement: FlightStatement) => FlightForm
 	/**
 	 * The placeholder values of that form, each a text or a bytes or text column's binary array: none reads another
 	 * statement's rows. A relation input's arrays are written once per statement, by the encoder its placeholders share.
 	 */
 	readonly values: (
-		statement: ArtifactStatement
+		statement: FlightStatement
 	) => Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound>
 	/** How the application's statements reach the server: one flight, or a read flight first (`Flights`). */
 	readonly flights: Flights
@@ -200,7 +200,7 @@ export interface BoundWrite {
  * found the stored groups.
  */
 export type Chunks = (
-	statement: ArtifactStatement,
+	statement: FlightStatement,
 	transport: Transport
 ) => Result.Result<
 	ReadonlyArray<Execution>,
@@ -324,9 +324,11 @@ export type BindResult =
  *    holds is refused as its LiteralBound, which the shell raises as InputTooLarge. */
 export const bindWrite = (
 	program: CompiledWrite,
+	flight: FlightWrite,
 	inputs: BindInputs
 ): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
-	const { frontend, edits: programEdits, binding, prepared } = program
+	const { frontend, edits: programEdits, prepared } = program
+	const binding = flight.binding
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
 	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
@@ -334,7 +336,7 @@ export const bindWrite = (
 	 * that binds it read. */
 	const relationInputs = new Map<ParamId, NormalizedRelation>()
 	const paramValue = (name: string): unknown => inputs.params[name]
-	for (const decl of program.params) {
+	for (const decl of flight.params) {
 		const value = paramValue(decl.name)
 		if (decl.kind === "relation") {
 			const normalize = parameterNormalizer({
@@ -398,16 +400,15 @@ export const bindWrite = (
 	const factsOf = (slot: ParamId): NormalizedSlot =>
 		defined(normalized.slots.get(slot), `the normal facts of member slot ${slot}`)
 	const holdsNoFact = (slot: ParamId): boolean => factsOf(slot).count === 0
-	const skip = (artifact: WriteArtifact): ReadonlySet<number> =>
-		new Set(
-			artifact.steps.flatMap((step, i) =>
-				(step.kind === "write" || step.kind === "advance" || step.kind === "check") &&
-				step.skipWhenEmpty !== undefined &&
-				holdsNoFact(step.skipWhenEmpty)
-					? [i]
-					: []
-			)
+	const skip: ReadonlySet<number> = new Set(
+		flight.statements.flatMap(({ step, index }) =>
+			(step.kind === "write" || step.kind === "advance" || step.kind === "check") &&
+			step.skipWhenEmpty !== undefined &&
+			holdsNoFact(step.skipWhenEmpty)
+				? [index]
+				: []
 		)
+	)
 	/**
 	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
 	 * relation parameter's normalized input or a member slot's normal facts, which its own encoder writes; or the array
@@ -456,9 +457,9 @@ export const bindWrite = (
 	}
 	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
 	 * facts than its threshold. Both forms deliver the same rows, so the count decides only which one is sent. */
-	const runsLarge = (choice: RelationChoice): boolean =>
+	const runsLarge = (choice: ServedWriteChoice): boolean =>
 		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
-	const form = (statement: ArtifactStatement): SentForm => sentForm(statement, runsLarge)
+	const form = (statement: FlightStatement): FlightForm => sentForm(statement, runsLarge)
 	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts, and `nestedRows`, each stratum's
 	 * nested rows of a relation. */
 	const valuesOver =
@@ -467,7 +468,7 @@ export const bindWrite = (
 			nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
 		) =>
 		(
-			statement: ArtifactStatement
+			statement: FlightStatement
 		): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> => {
 			const out: Array<Param> = []
 			for (const slot of form(statement).paramSlots) {

@@ -68,6 +68,7 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import type { Chunks } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
@@ -445,7 +446,7 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
  * execution normalizes it, and each of its placeholders writes its own array of that one set.
  */
 export const paramTexts = (
-	spec: StatementSpec,
+	spec: Pick<StatementSpec, "paramSlots">,
 	params: Readonly<Record<string, unknown>>,
 	declared: Declared
 ): ReadonlyArray<string> => {
@@ -537,9 +538,9 @@ export const nestedRowsColumn = (
 	relation: string,
 	part: number
 ): ReadonlyArray<string> => {
-	for (const statement of program.artifact.statements) {
+	for (const statement of flightOf(program, program.frontend.codes).statements) {
 		const at = Arr.findFirstIndex(
-			statement.spec.paramSlots,
+			statement.form.paramSlots,
 			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part
 		)
 		if (Option.isSome(at)) {

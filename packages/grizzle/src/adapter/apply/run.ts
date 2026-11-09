@@ -39,13 +39,14 @@ import {
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
 import {
-	type ArtifactStatement,
 	bindWrite,
 	type BoundWrite,
 	type Chunks,
 	type ExecutionPart,
 	type FamilyId,
 	type FamilyRowBound,
+	type FlightStatement,
+	type FlightWrite,
 	type GeneratedRejection,
 	hostJudgement,
 	inForce,
@@ -55,8 +56,7 @@ import {
 	type StatementAt,
 	statementRelations,
 	type Transport,
-	type Witness,
-	type WriteArtifact
+	type Witness
 } from "#compiler/plan/change.ts"
 import {
 	bindGroups,
@@ -249,12 +249,16 @@ export const hostInputs = (
 	Effect.gen(function* () {
 		const program = compiled.program
 		const members = yield* collectInputs(program.binding.groups, compiled.change.inputs)
-		const host = yield* declaredParams(program.params, params, compiled.change.values)
+		const host = yield* declaredParams(compiled.flight.params, params, compiled.change.values)
 		/**
 		 * `host` holds every bound value under its private name with its Stream collected, so the statements bind the
 		 * same values the read-backs read; the raw bindings would hand them an uncollected Stream.
 		 */
-		const bound = bindWrite(program, { members, params: host, transport: inForce(bindFrame) })
+		const bound = bindWrite(program, compiled.flight, {
+			members,
+			params: host,
+			transport: inForce(bindFrame)
+		})
 		if (!bound.ok) {
 			return yield* Effect.fail(valuesFailure(bound.error))
 		}
@@ -301,7 +305,7 @@ type SentStatement =
 	| { readonly kind: "read"; readonly family: FamilyId }
 	| {
 			readonly kind: "statement"
-			readonly statement: ArtifactStatement
+			readonly statement: FlightStatement
 			readonly chunk: number
 			readonly part: ExecutionPart
 	  }
@@ -397,13 +401,13 @@ export const boundReads = <R>(
 }
 
 /**
- * An artifact's write statements as `chunks` executes them under `transport`, in the order they are sent, each by the
- * artifact statement it executes (SentStatement): one execution of most, a staged statement's carriers' creations,
- * fills and ANALYZE before it, and one of a family step per statement of its kind its family's plan cuts, each the
- * step's one text over its own rows' arrays; none of a read-back's, which follow every write.
+ * A write's statements as `chunks` executes them under `transport`, in the order they are sent, each by the statement
+ * it executes (SentStatement): one execution of most, a staged statement's carriers' creations, fills and ANALYZE
+ * before it, and one of a family step per statement of its kind its family's plan cuts, each the step's one text over
+ * its own rows' arrays. The read-backs' follow every write.
  */
 const writeStatements = (
-	artifact: WriteArtifact,
+	flight: FlightWrite,
 	inputs: BoundInputs,
 	chunks: Chunks,
 	transport: Transport
@@ -414,11 +418,11 @@ const writeStatements = (
 	},
 	InputFailure
 > => {
-	const skip = inputs.bound.skip(artifact)
+	const skip = inputs.bound.skip
 	const sent: Array<SentStatement> = []
 	const statements: Array<BatchStatement> = []
-	for (const s of artifact.statements) {
-		if (s.step.kind === "readBack" || skip.has(s.index)) {
+	for (const s of flight.statements) {
+		if (skip.has(s.index)) {
 			continue
 		}
 		const executions = chunks(s, transport)
@@ -443,7 +447,7 @@ export const runWrite = <R>(
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
 		const program = entry.program
-		const artifact = program.artifact
+		const flight = entry.flight
 		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
 		let stated = inputs.bound.unplanned
 		const context: WitnessContext = {
@@ -470,7 +474,7 @@ export const runWrite = <R>(
 			chunks: Chunks,
 			before: ReadonlyArray<SentStatement>
 		): Result.Result<ReadonlyArray<BatchStatement>, InputFailure> =>
-			Result.map(writeStatements(artifact, inputs, chunks, transport), (w) => {
+			Result.map(writeStatements(flight, inputs, chunks, transport), (w) => {
 				sent = [...before, ...w.sent]
 				written = sent.length
 				return [...w.statements, ...backs.statements]
@@ -558,6 +562,6 @@ export const runWrite = <R>(
 					reason: new UnreadableAnswer({ index: written + unreadable.index, fate: unreadable.fate })
 				})
 		)
-		const changes = interpretRows(program.outcomeContext, artifact, (i) => raws.get(i) ?? noRows)
+		const changes = interpretRows(flight.outcome, flight.statements, (i) => raws.get(i) ?? noRows)
 		return applyOutcome.committed(changes.counts, reads.read(readsRow(delivered)))
 	})

@@ -62,6 +62,7 @@ import {
 	placeReadBack,
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
@@ -247,6 +248,7 @@ export const conservativeChange = (
 				(program) => ({
 					...entry,
 					program,
+					flight: flightOf(program, entry.names.codes),
 					readBacks: readBacks(program, entry.names.codes)
 				})
 			)

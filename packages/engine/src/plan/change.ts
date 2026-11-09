@@ -53,6 +53,17 @@ export {
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 export type { ExecutionPart } from "#compiler/write/program/staged.ts"
 export {
+	type FlightStatement,
+	type FlightWrite,
+	flightOf,
+	loadWrite,
+	projectWrite,
+	type ServedWrite,
+	servedWrite,
+	type UnservedMember,
+	type UnservedShape
+} from "#compiler/write/program/served.ts"
+export {
 	interpretRows,
 	type KeyDecoder,
 	keyWitness,

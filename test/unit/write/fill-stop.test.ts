@@ -34,6 +34,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { hostJudgement, type StatedRows } from "#compiler/write/program/witness.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -287,7 +288,11 @@ const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 	Effect.map(
 		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
 		(members): Outcome => {
-			const bound = bindWrite(path.program, { members, params: {}, transport: inForce(bindFrame) })
+			const bound = bindWrite(path.program, flightOf(path.program, path.program.frontend.codes), {
+				members,
+				params: {},
+				transport: inForce(bindFrame)
+			})
 			if (!bound.ok) {
 				return { kind: "other", what: bound.error._tag }
 			}

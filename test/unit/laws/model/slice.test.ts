@@ -903,7 +903,7 @@ const compiledQuery = (
 
 /** What an application runs of a template or a program and what it rests on: its statements, its certificates, its
  * requirements. */
-const ran = (p: ProgramArtifacts) => ({
+const ran = <S>(p: ProgramArtifacts<S>) => ({
 	optimized: p.optimized,
 	certificates: p.certificates,
 	requirements: p.requirements
@@ -1241,8 +1241,7 @@ describe("a compile's law model", () => {
 							}
 							const raised = witness.raised.get(law.id)
 							assert.ok(
-								raised !== undefined &&
-									canonicalEquals(raised, wholeRaised.get(law.id), labelFree),
+								raised !== undefined && canonicalEquals(raised, wholeRaised.get(law.id), labelFree),
 								`the law ${law.id} over a written relation, which a write statement of the slice refuses, raised as the whole model describes it`
 							)
 						}

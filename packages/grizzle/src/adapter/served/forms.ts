@@ -14,6 +14,7 @@ import type { RoleContext } from "#adapter/served/role.ts"
 import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
 	compileWrite,
+	flightOf,
 	parseChangeSet,
 	type ParsedChangeSet,
 	type WriteNames
@@ -316,6 +317,7 @@ const writeEntry = (
 				),
 				(program) => ({
 					program,
+					flight: flightOf(program, artifacts.names.codes),
 					schema: artifacts.fingerprint,
 					names: artifacts.names,
 					violation: witness.classify,

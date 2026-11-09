@@ -187,9 +187,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	if (inputs.kind === "rejected") {
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
 	}
-	const program = entry.program
-	const artifact = program.artifact
-	const skip = inputs.bound.skip(artifact)
+	const skip = inputs.bound.skip
 	/**
 	 * Every statement of the artifact as the application sends it, under the bound in force, each of its executions with
 	 * its text and placeholder values: a family step's one per statement its plan cuts, and a staged statement's
@@ -198,7 +196,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	 */
 	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
 		const statements: Array<Explained> = []
-		for (const s of artifact.statements) {
+		for (const s of entry.flight.statements) {
 			if (skip.has(s.index)) {
 				continue
 			}

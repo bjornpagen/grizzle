@@ -14,6 +14,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, deepEquals, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawIdOf } from "#test/support/kernel/naming.ts"
@@ -54,7 +55,13 @@ const program = (changes: unknown): CompiledWrite =>
 const bind = Effect.fn("bind")(function* (value: ReturnType<typeof ChangeSet.empty>) {
 	const p = program(value)
 	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
-	return succeeded(bindWrite(p, { members, params: {}, transport: inForce(bindFrame) }))
+	return succeeded(
+		bindWrite(p, flightOf(p, p.frontend.codes), {
+			members,
+			params: {},
+			transport: inForce(bindFrame)
+		})
+	)
 })
 
 interface Booked {

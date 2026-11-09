@@ -22,6 +22,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installedCodes, paramTexts, realityWrite, testArtifacts } from "#test/support/compile.ts"
@@ -268,7 +269,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								keys: Arr.map(keys, (_, i) => ({ key: digestOfItem(i + 2) }))
 							}
 							const program = programs[shape]
-							const statements = program.artifact.statements
+							const statements = flightOf(program, names.codes).statements
 							/** Each placeholder's text from the drawn parameters, a relation's normalized once. */
 							const declared = { params: program.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>
@@ -289,12 +290,12 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 									yield* pinned.query("BEGIN", [])
 									for (const st of statements.slice(0, at)) {
 										if (st.step.kind === "carrier" || st.step.kind === "analyze") {
-											yield* pinned.query(st.spec.sql, paramTexts(st.spec, hostParams, declared))
+											yield* pinned.query(st.form.sql, paramTexts(st.form, hostParams, declared))
 										}
 									}
 									const rows = yield* pinned.queryValues(
-										`EXPLAIN (FORMAT JSON) ${deletion.spec.sql}`,
-										paramTexts(deletion.spec, hostParams, declared)
+										`EXPLAIN (FORMAT JSON) ${deletion.form.sql}`,
+										paramTexts(deletion.form, hostParams, declared)
 									)
 									yield* pinned.query("ROLLBACK", [])
 									return succeeded(parsePlanTree(rows[0]?.[0]), "one EXPLAIN plan")

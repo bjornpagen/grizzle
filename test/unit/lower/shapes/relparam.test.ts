@@ -16,6 +16,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -94,17 +95,16 @@ describe("a write's enumerated members", () => {
 								compiled.binding.groups,
 								parsedOf(changes).inputs
 							)
+							const flight = flightOf(compiled, compiled.frontend.codes)
 							const bound = succeeded(
-								bindWrite(compiled, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(compiled, flight, { members, params: {}, transport: inForce(bindFrame) })
 							)
 							if (bound.kind !== "bound") {
 								return assert.fail(`the input binds, not ${bound.kind}`)
 							}
-							const artifact = compiled.artifact
-							const skip = bound.skip(artifact)
 							let arraysSent = 0
-							for (const s of artifact.statements) {
-								if (s.step.kind === "readBack" || skip.has(s.index)) {
+							for (const s of flight.statements) {
+								if (bound.skip.has(s.index)) {
 									continue
 								}
 								const form = bound.form(s)

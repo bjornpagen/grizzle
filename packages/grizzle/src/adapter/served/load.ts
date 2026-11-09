@@ -11,6 +11,7 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
+import { flightOf } from "#compiler/plan/change.ts"
 import {
 	type BindContext,
 	bindGroups,
@@ -169,6 +170,7 @@ const loadChange = (
 	const program = change.program
 	const entry: CompiledChange = {
 		program,
+		flight: flightOf(program, codes),
 		violation,
 		readBacks: readBacks(program, codes),
 		codecs: paramCodecs(program.params, codes),

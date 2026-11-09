@@ -14,6 +14,7 @@ import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type Binding, prepareBinding } from "#compiler/write/program/binding.ts"
 import { compileWrite, type CompiledWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
+import { type FlightWrite, flightOf } from "#compiler/write/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -111,7 +112,7 @@ const widened = (program: CompiledWrite): CompiledWrite => {
 }
 
 /** What a bound write sends: every statement's executions' placeholder texts, or its refusal. */
-const sent = (program: CompiledWrite, bound: ReturnType<typeof bindWrite>): unknown => {
+const sent = (flight: FlightWrite, bound: ReturnType<typeof bindWrite>): unknown => {
 	if (!bound.ok) {
 		return { refused: bound.error }
 	}
@@ -123,7 +124,7 @@ const sent = (program: CompiledWrite, bound: ReturnType<typeof bindWrite>): unkn
 	if (flights.kind !== "write") {
 		return { reads: Arr.map(flights.reads, (r) => r.params) }
 	}
-	return Arr.map(program.artifact.statements, (s) => {
+	return Arr.map(flight.statements, (s) => {
 		const executions = flights.chunks(s, inForce(bindFrame))
 		return executions.ok ? executions.value : { refused: executions.error }
 	})
@@ -155,9 +156,11 @@ const property = (case_: BindingCase, note: (s: BindingSituation) => void): Effe
 		const members = yield* collectInputs(program.binding.groups, parsedOf(all).inputs)
 		const inputs = { members, params: {}, transport: inForce(bindFrame) }
 		const wide = widened(program)
+		const flight = flightOf(program, program.frontend.codes)
+		const wideFlight = flightOf(wide, wide.frontend.codes)
 		assert.deepEqual(
-			sent(program, bindWrite(program, inputs)),
-			sent(wide, bindWrite(wide, inputs)),
+			sent(flight, bindWrite(program, flight, inputs)),
+			sent(wideFlight, bindWrite(wide, wideFlight, inputs)),
 			"the write binds by its slice as by the whole fill order"
 		)
 	})

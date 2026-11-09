@@ -31,6 +31,7 @@ import { inForce } from "#compiler/write/family/order.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import {
 	Bin,
 	Budget,
@@ -2386,7 +2387,11 @@ const bound = (
 	}
 	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
-	return bindWrite(program, { members, params, transport: inForce(bindFrame) })
+	return bindWrite(program, flightOf(program, program.frontend.codes), {
+		members,
+		params,
+		transport: inForce(bindFrame)
+	})
 }
 
 /**

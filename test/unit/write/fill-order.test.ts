@@ -20,6 +20,7 @@ import { inForce } from "#compiler/write/family/order.ts"
 import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -548,7 +549,11 @@ const property = (
 			return
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
-		const bound = bindWrite(program.value, { members, params: {}, transport: inForce(bindFrame) })
+		const bound = bindWrite(program.value, flightOf(program.value, program.value.frontend.codes), {
+			members,
+			params: {},
+			transport: inForce(bindFrame)
+		})
 		if (!bound.ok || bound.value.kind !== "bound") {
 			return assert.fail(
 				`the instance binds to statements, not ${bound.ok ? bound.value.kind : Formatter.format(bound.error)}`
@@ -565,7 +570,7 @@ const property = (
 			)
 		}
 		const chunks = writes.value
-		for (const statement of program.value.artifact.statements) {
+		for (const statement of flightOf(program.value, program.value.frontend.codes).statements) {
 			const sent = chunks(statement, inForce(bindFrame))
 			if (!sent.ok) {
 				return assert.fail(`every statement's rows, not ${Formatter.format(sent.error)}`)

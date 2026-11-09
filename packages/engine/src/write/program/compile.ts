@@ -14,14 +14,18 @@ import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ParamDecl, StatementSpec, WriteProgram, WriteSlot } from "#compiler/ir/products.ts"
+import type { ParamDecl, StatementSpec, WriteProgram } from "#compiler/ir/products.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
-import { flight, type WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import {
+	type DeclaredParamSlot,
+	flight,
+	type WriteParamSlot
+} from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import {
@@ -40,7 +44,7 @@ import {
 	StatementSharing
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { declaredSlotOf, statementSpec, writeSlotOf } from "#compiler/lower/template.ts"
+import { statementSpec } from "#compiler/lower/template.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
@@ -153,7 +157,6 @@ import {
 	prepareBinding
 } from "#compiler/write/program/binding.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
-import { type OutcomeContext, writtenOutcome } from "#compiler/write/program/outcome.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
 import {
@@ -188,7 +191,7 @@ export interface CompileWriteOptions {
 	readonly derived: DerivedAnalysis
 }
 
-export interface CompiledWrite extends WriteProgram {
+export interface CompiledWrite extends WriteProgram<WriteParamSlot> {
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
@@ -203,7 +206,6 @@ export interface CompiledWrite extends WriteProgram {
 	/** The parameters the members and read-backs declare, and the enumerated member slots binding fills. */
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly slots: ReadonlyArray<SlotGroup>
-	readonly outcomeContext: OutcomeContext
 	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
 	readonly binding: Binding
 	/** The binding's closures, built once (binding.ts prepareBinding). */
@@ -280,7 +282,7 @@ export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
 	 * analysis; its length is the position the next statement placed takes. */
 	readonly statements: Array<PlacedStatement>
-	/** The installation's codes, which every placeholder's encoder writes a closed id's and a set's values by. */
+	/** The installation's codes, which a read-back's placeholders' encoders write a closed id's and a set's values by. */
 	readonly codes: Codebook
 }
 
@@ -711,7 +713,7 @@ export const placeFamily = (
 				step,
 				Object.freeze({
 					sql: sql.sql.text,
-					paramSlots: Object.freeze(sql.params.map(writeSlotOf(b.codes))),
+					paramSlots: sql.params,
 					heading: [
 						{ name: "tag", type: plainType("int4") },
 						...indices(width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
@@ -736,7 +738,7 @@ const placeSpec = (
 			readonly kind: "write" | "advance" | "carrier" | "single" | "check" | "family" | "familyWrite"
 		}
 	>,
-	spec: StatementSpec<WriteSlot>,
+	spec: StatementSpec<WriteParamSlot>,
 	ast: SqlStatement,
 	nameMap: WriteStatement["sql"]["nameMap"],
 	forms: ArtifactForms
@@ -763,38 +765,34 @@ export const place = (
 	placeSpec(
 		b,
 		step,
-		writeStatementSpec(statement, dependsOn, b.codes),
+		writeStatementSpec(statement, dependsOn),
 		statement.ast,
 		statement.sql.nameMap,
 		oneForm
 	)
 
-/** The form of a built statement as an execution sends it under the installation's codes: its text, its
- * placeholders' encoders and its AST. */
-const sentOf =
-	(codes: Codebook) =>
-	(statement: {
-		readonly sql: { readonly text: EmittedText }
-		readonly params: ReadonlyArray<WriteParamSlot>
-		readonly ast: SqlStatement
-	}): SentForm =>
-		Object.freeze({
-			sql: statement.sql.text,
-			paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
-			ast: statement.ast
-		})
+/** The form of a built statement as an execution sends it: its text, its placeholders and its AST. */
+const sentOf = (statement: {
+	readonly sql: { readonly text: EmittedText }
+	readonly params: ReadonlyArray<WriteParamSlot>
+	readonly ast: SqlStatement
+}): SentForm =>
+	Object.freeze({
+		sql: statement.sql.text,
+		params: statement.params,
+		ast: statement.ast
+	})
 
 /** A read-back statement with its forms as placed: when its lowering made per-execution choices, its whole-relation
- * form with the executable text and encoders an execution sends. */
+ * form with the executable text and placeholders an execution sends. */
 const placedRun = (
-	statement: OptimizedStatement<RelationChoice, FusedStatement>,
-	codes: Codebook
+	statement: OptimizedStatement<RelationChoice, FusedStatement>
 ): OptimizedStatement<RelationChoice, PlacedLarge> => {
 	const forms = statement.forms
 	if (forms.kind === "one") {
 		return { ...statement, forms }
 	}
-	const spec = unwrap(statementSpec(forms.large, declaredSlotOf(codes)))
+	const spec = unwrap(statementSpec(forms.large, (slot: DeclaredParamSlot) => slot))
 	return {
 		...statement,
 		forms: Object.freeze({
@@ -804,7 +802,7 @@ const placedRun = (
 				statement: forms.large,
 				sent: Object.freeze({
 					sql: spec.sql,
-					paramSlots: spec.paramSlots,
+					params: spec.paramSlots,
 					ast: forms.large.ast
 				})
 			})
@@ -822,11 +820,11 @@ export const placeReadBack = (
 	extraDeps: ReadonlyArray<number>
 ): void => {
 	const offset = b.statements.length
-	const placed = mapTree(readBackSpecs(program.roots, offset, b.codes), ({ statement, spec }) => {
+	const placed = mapTree(readBackSpecs(program.roots, offset), ({ statement, spec }) => {
 		const deps = new Set([...spec.dependsOn, ...extraDeps])
 		return {
 			statement,
-			run: placedRun(statement, b.codes),
+			run: placedRun(statement),
 			spec: Object.freeze({
 				...spec,
 				dependsOn: Object.freeze([...deps].toSorted((x, y) => x - y))
@@ -838,7 +836,7 @@ export const placeReadBack = (
 		query: read.query,
 		run: Object.freeze({
 			delivery: program.delivery,
-			roots: mapTree(placed, (p) => specifiedRun(p.run, p.spec))
+			roots: mapTree(placed, (p) => specifiedRun(p.run, p.spec, b.codes))
 		})
 	})
 	for (const { statement, run, spec } of flight(placed)) {
@@ -919,11 +917,11 @@ const optimizedPlacement = (
 			statement: S
 		) => Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" }>
 	): number => {
-		const { statement, forms } = formed(build, sentOf(b.codes))
+		const { statement, forms } = formed(build, sentOf)
 		return placeSpec(
 			b,
 			step(statement),
-			writeStatementSpec(statement, dependsOn, b.codes),
+			writeStatementSpec(statement, dependsOn),
 			statement.ast,
 			statement.sql.nameMap,
 			forms
@@ -1128,7 +1126,7 @@ const optimizedPlacement = (
 					)
 					return { single, writes }
 				}
-				const { statement, forms } = formed(buildSingle, (large) => sentOf(b.codes)(large.single))
+				const { statement, forms } = formed(buildSingle, (large) => sentOf(large.single))
 				const { single, writes } = statement
 				/** What the parts read, past the shared sub-queries the statement now carries. */
 				const accesses = mapNonEmpty(step.writes, (planned) => writeAccess(planned))
@@ -1148,7 +1146,7 @@ const optimizedPlacement = (
 						})),
 						uniqueAborts: writes.flatMap((x) => x.step.uniqueAborts)
 					},
-					singleStatementSpec(single, deps, b.codes),
+					singleStatementSpec(single, deps),
 					single.ast,
 					single.sql.nameMap,
 					forms
@@ -1456,12 +1454,6 @@ const compile = (
 	const vector =
 		topoOrder(ir.dag).some((n) => n.heading.some((c) => c.type.carrier === "vector")) ||
 		frontend.written.some((r) => r.heading.some((c) => c.type.carrier === "vector"))
-	const outcomeContext: OutcomeContext = Object.freeze({
-		written: frontend.written.map(writtenOutcome(options.names.codes)),
-		/** Every written relation and every witness relation is an ordinary relation of the base, whole entry or not. */
-		relations: frontend.schema.definitions().relations,
-		codes: options.names.codes
-	})
 	const binding = decideBinding(frontend)
 	const program: CompiledWrite = {
 		edits: family.edits,
@@ -1483,7 +1475,6 @@ const compile = (
 		placements: family.placements,
 		params: frontend.params,
 		slots: frontend.slots,
-		outcomeContext,
 		binding,
 		prepared: prepareBinding(binding, frontend.codes)
 	}

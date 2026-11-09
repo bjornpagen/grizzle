@@ -24,6 +24,7 @@ import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
@@ -157,8 +158,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							compileWrite(checking(S), desc, reality),
 							"the ChangeSet compiles"
 						)
-						const artifact = program.artifact
-						const found = Arr.findFirst(artifact.statements, (st) => st.step.kind === "write")
+						const flight = flightOf(program, program.frontend.codes)
+						const found = Arr.findFirst(flight.statements, (st) => st.step.kind === "write")
 						if (Option.isNone(found)) {
 							throw new Error("no insert statement")
 						}
@@ -209,7 +210,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								},
 								(parents, c) =>
 									Effect.gen(function* () {
-										const bound = bindWrite(program, {
+										const bound = bindWrite(program, flight, {
 											members: new Map(),
 											params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) },
 											transport: inForce(bindFrame)
@@ -259,7 +260,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												false,
 												"db.explain plans the LATERAL form for few parents"
 											)
-											assert.equal(sent.sql, insert.spec.sql, "few parents send the LATERAL form")
+											assert.equal(sent.sql, insert.form.sql, "few parents send the LATERAL form")
 											assert.deepEqual(
 												Arr.filter(scans, (n) => n.nodeType === "Seq Scan"),
 												[],

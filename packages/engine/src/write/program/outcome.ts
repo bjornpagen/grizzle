@@ -1,8 +1,7 @@
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { RelationInfo } from "#compiler/ir/law.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -24,7 +23,7 @@ import { type Fact, writeRowConverter } from "#compiler/write/insert/rows.ts"
 import {
 	byStratum,
 	removedTag,
-	type WriteArtifact,
+	type WriteStep,
 	type WriteStepResult,
 	writeRows
 } from "#compiler/write/program/artifact.ts"
@@ -40,31 +39,40 @@ interface WriteChanges {
 	readonly deltas: ReadonlyMap<string, NettedRelation>
 }
 
-/** A relation the ChangeSet writes, with the identity its facts are netted across strata by: every field's value
- * (delta/net.ts relationIdentity). */
+/** A relation the ChangeSet writes, by name, with the identity its facts are netted across strata by: every field's
+ * value (delta/net.ts relationIdentity). */
 export interface WrittenOutcome {
-	readonly relation: RelationInfo
+	readonly relation: string
 	readonly identity: (fact: Fact) => FactIdentity
+}
+
+/** A relation the ChangeSet writes, by name, with its heading, every field's name and type. */
+export interface WrittenHeading {
+	readonly relation: string
+	readonly heading: Heading
 }
 
 /** A written relation with its facts' identity, a closed id's and a set's values read by the installation's codes. */
 export const writtenOutcome =
 	(codes: Codebook) =>
-	(relation: RelationInfo): WrittenOutcome =>
+	(written: WrittenHeading): WrittenOutcome =>
 		Object.freeze({
-			relation,
-			identity: relationIdentity(
-				relation.heading.map((f) => ({ name: f.name, type: f.type })),
-				codes
-			)
+			relation: written.relation,
+			identity: relationIdentity(written.heading, codes)
 		})
 
+/** What a write's rows are read by: the relations it writes, and the installation's codes, which a returned row's closed
+ * ids and sets are read by. */
 export interface OutcomeContext {
 	/** The relations the ChangeSet writes, in code point order. */
 	readonly written: ReadonlyArray<WrittenOutcome>
-	/** Every ordinary relation of the base by name, as a witness the server reports names it. */
-	readonly relations: ReadonlyMap<string, RelationInfo>
-	/** The installation's codes, which a returned row's and a witness's closed ids and sets are read by. */
+	readonly codes: Codebook
+}
+
+/** What a witness the server reports is read by: every ordinary relation of the base by name, with its heading, and the
+ * installation's codes, which a witness's closed ids and sets are read by. */
+export interface WitnessRelations {
+	readonly relations: ReadonlyMap<string, { readonly heading: Heading }>
 	readonly codes: Codebook
 }
 
@@ -151,16 +159,16 @@ const stepIdentity = (
  */
 export const interpretRows = (
 	context: OutcomeContext,
-	artifact: WriteArtifact,
+	statements: ReadonlyArray<{ readonly index: number; readonly step: WriteStep }>,
 	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<OutputText>>
 ): WriteChanges => {
-	const changes = byStratum(artifact.statements).map((statements) => {
-		const returned = statements
+	const changes = byStratum(statements).map((inStratum) => {
+		const returned = inStratum
 			.flatMap((s) => writeRows(s.step, rowsOf(s.index)))
 			.filter((w) => w.rows.length > 0)
 		return new Map(
 			context.written.flatMap(({ relation, identity }) => {
-				const own = returned.filter((w) => w.step.relation === relation.name)
+				const own = returned.filter((w) => w.step.relation === relation)
 				if (own.length === 0) {
 					return []
 				}
@@ -174,11 +182,11 @@ export const interpretRows = (
 						}))
 					)
 				})
-				return [[relation.name, stratumChange(rows)] as const]
+				return [[relation, stratumChange(rows)] as const]
 			})
 		)
 	})
-	const written = context.written.map((w) => w.relation.name)
+	const written = context.written.map((w) => w.relation)
 	const counts = outcomeCounts(written, changes)
 	const deltas = new Map<string, NettedRelation>()
 	for (const relation of written) {
@@ -217,10 +225,7 @@ export interface KeyDecoder {
 /** A witness is converted from the server's answer, so a text naming a relation, a field or a law this installation does
  * not have, or a key value no key holds, is no witness: undefined, which the caller reports as any statement it cannot
  * classify. */
-export const witnessDecoder = (context: {
-	readonly relations: ReadonlyMap<string, { readonly heading: ReadonlyArray<HeadingColumn> }>
-	readonly codes: Codebook
-}): KeyDecoder => {
+export const witnessDecoder = (context: WitnessRelations): KeyDecoder => {
 	const convertKey = (
 		relation: string,
 		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>

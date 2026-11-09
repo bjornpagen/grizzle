@@ -10,6 +10,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -41,8 +42,9 @@ const bound = Effect.fn("bound")(function* (name: string) {
 		name
 	)
 	const members = yield* membersOf(program, value)
+	const flight = flightOf(program, program.frontend.codes)
 	const b = succeeded(
-		bindWrite(program, {
+		bindWrite(program, flight, {
 			members,
 			params: { [name]: [fact(1), fact(2)] },
 			transport: inForce(bindFrame)
@@ -51,8 +53,7 @@ const bound = Effect.fn("bound")(function* (name: string) {
 	if (b.kind !== "bound") {
 		return assert.fail(`${name}: ${b.kind}`)
 	}
-	const artifact = program.artifact
-	return Arr.map(artifact.statements, (statement) => succeeded(b.values(statement)))
+	return Arr.map(flight.statements, (statement) => succeeded(b.values(statement)))
 })
 
 describe("parameter names", () => {

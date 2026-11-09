@@ -12,6 +12,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -197,7 +198,11 @@ describe("a write that names rows by a primary key", () => {
 								const program = succeeded(compiled, "a write that names its rows by stated fields")
 								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 								const bound = succeeded(
-									bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+									bindWrite(program, flightOf(program, program.frontend.codes), {
+										members,
+										params: {},
+										transport: inForce(bindFrame)
+									})
 								)
 								assertVariant(bound, "kind", "bound", "a write whose keys hold no index binds")
 								c.note(

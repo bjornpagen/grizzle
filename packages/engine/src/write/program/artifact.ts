@@ -8,9 +8,10 @@ import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
-import type { StatementRole, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
+import type { StatementRole, StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import {
 	type FusedStatement,
 	type OptimizedStatement,
@@ -22,8 +23,7 @@ import {
 	declaredSlotOf,
 	type SpecifiedArtifact,
 	type SpecifiedStatement,
-	statementSpec,
-	writeSlotOf
+	statementSpec
 } from "#compiler/lower/template.ts"
 import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -284,11 +284,11 @@ export interface ReadBackDelivery {
 	readonly run: SpecifiedArtifact
 }
 
-/** A form of a statement as one execution sends it: its text, the encoder of each placeholder ($n is paramSlots[n - 1])
- * and its AST. */
+/** A form of a statement as one execution sends it: its text, what fills each placeholder ($n is params[n - 1]), and
+ * its AST. */
 export interface SentForm {
 	readonly sql: EmittedText
-	readonly paramSlots: ReadonlyArray<WriteSlot>
+	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly ast: SqlStatement
 }
 
@@ -304,26 +304,10 @@ export type ArtifactForms = StatementForms<RelationChoice, SentForm>
 export interface ArtifactStatement {
 	readonly index: number
 	readonly step: WriteStep
-	readonly spec: StatementSpec<WriteSlot>
+	readonly spec: StatementSpec<WriteParamSlot>
 	readonly ast: SqlStatement
 	readonly forms: ArtifactForms
 	readonly staged: Staged
-}
-
-/** The form of a statement an execution sends: its whole-relation form when it runs some per-execution choice large
- * (`runsLarge`, by the distinct fact count of the relation parameter the choice reads), its own otherwise. */
-export const sentForm = (
-	statement: ArtifactStatement,
-	runsLarge: (choice: RelationChoice) => boolean
-): SentForm => {
-	const forms = statement.forms
-	const own = { sql: statement.spec.sql, paramSlots: statement.spec.paramSlots, ast: statement.ast }
-	switch (forms.kind) {
-		case "one":
-			return own
-		case "chosen":
-			return forms.choices.some((c) => runsLarge(c)) ? forms.large : own
-	}
 }
 
 /** One artifact of a WriteProgram: its statements as the runtime binds, runs and converts them, and what each statement's
@@ -352,7 +336,7 @@ export interface WriteArtifact {
 	 * (spec.dependsOn). */
 	readonly statements: ReadonlyArray<ArtifactStatement>
 	/** The statements' specs and steps, position by position. */
-	readonly specs: ReadonlyArray<StatementSpec>
+	readonly specs: ReadonlyArray<StatementSpec<WriteParamSlot>>
 	readonly steps: ReadonlyArray<WriteStep>
 	/** Per stratum, the artifact positions of its statements, the carriers it fills at its start included: every step
 	 * but a read-back's names its stratum or none. */
@@ -371,10 +355,11 @@ export interface WriteArtifact {
 	readonly nameMap: Readonly<Record<string, string>>
 }
 
-/** The large form of a read-back's placed statement: the large mode's statement and the form an execution sends. */
+/** The large form of a read-back's placed statement: the large mode's statement and the form an execution sends, each
+ * placeholder a declared parameter's. */
 export interface PlacedLarge {
 	readonly statement: FusedStatement
-	readonly sent: SentForm
+	readonly sent: SentForm & { readonly params: ReadonlyArray<DeclaredParamSlot> }
 }
 
 /** The step of a statement of the write program's own: every step but a read-back's. */
@@ -384,14 +369,19 @@ export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
  * read-back's, with its read-back and the statement its program lowered there, which determine its step and its forms.
  * Each holds its spec, its AST, and the generated names its text holds. */
 export type PlacedStatement = {
-	readonly spec: StatementSpec<WriteSlot>
 	readonly ast: SqlStatement
 	readonly names: NameMap
 } & (
-	| { readonly kind: "own"; readonly step: OwnStep; readonly forms: ArtifactForms }
+	| {
+			readonly kind: "own"
+			readonly step: OwnStep
+			readonly spec: StatementSpec<WriteParamSlot>
+			readonly forms: ArtifactForms
+	  }
 	| {
 			readonly kind: "readBack"
 			readonly of: ReadBackOf
+			readonly spec: StatementSpec<DeclaredParamSlot>
 			readonly run: OptimizedStatement<RelationChoice, PlacedLarge>
 	  }
 )
@@ -411,15 +401,17 @@ const placedForms = (placed: PlacedStatement): ArtifactForms => {
 		: Object.freeze({ kind: "chosen", choices: forms.choices, large: forms.large.sent })
 }
 
-/** A read-back's statement as the runtime runs it, under its spec in the artifact `spec`: its large form, when it has
- * one, specified as the form it sends. */
+/** A read-back's statement as the runtime runs it, under its spec in the artifact `spec`, each placeholder with its
+ * encoder under the installation's codes: its large form, when it has one, specified as the form it sends. */
 export const specifiedRun = (
 	run: OptimizedStatement<RelationChoice, PlacedLarge>,
-	spec: StatementSpec<WriteSlot>
+	spec: StatementSpec<DeclaredParamSlot>,
+	codes: Codebook
 ): SpecifiedStatement => {
+	const encoded = Object.freeze({ ...spec, paramSlots: spec.paramSlots.map(declaredSlotOf(codes)) })
 	const forms = run.forms
 	if (forms.kind === "one") {
-		return Object.freeze({ statement: { ...run, forms }, spec })
+		return Object.freeze({ statement: { ...run, forms }, spec: encoded })
 	}
 	const large = forms.large
 	return Object.freeze({
@@ -429,11 +421,15 @@ export const specifiedRun = (
 				...forms,
 				large: {
 					statement: large.statement,
-					spec: Object.freeze({ ...spec, sql: large.sent.sql, paramSlots: large.sent.paramSlots })
+					spec: Object.freeze({
+						...encoded,
+						sql: large.sent.sql,
+						paramSlots: large.sent.params.map(declaredSlotOf(codes))
+					})
 				}
 			}
 		},
-		spec
+		spec: encoded
 	})
 }
 
@@ -572,16 +568,14 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 	}
 }
 
-/** The StatementSpec of a write, carrier or sequence-advance statement, its placeholders encoded under the
- * installation's codes. */
+/** The StatementSpec of a write, carrier or sequence-advance statement. */
 export const writeStatementSpec = (
 	statement: WriteStatement | PutStatement,
-	dependsOn: ReadonlyArray<number>,
-	codes: Codebook
-): StatementSpec<WriteSlot> =>
+	dependsOn: ReadonlyArray<number>
+): StatementSpec<WriteParamSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
-		paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
+		paramSlots: statement.params,
 		heading: resultHeading(statement.result),
 		role: statement.role,
 		dependsOn: Object.freeze([...dependsOn])
@@ -591,12 +585,11 @@ export const writeStatementSpec = (
  * columns, padded with empty texts to the widest part, every column a text but the tag. */
 export const singleStatementSpec = (
 	statement: SingleStatement,
-	dependsOn: ReadonlyArray<number>,
-	codes: Codebook
-): StatementSpec<WriteSlot> =>
+	dependsOn: ReadonlyArray<number>
+): StatementSpec<WriteParamSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
-		paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
+		paramSlots: statement.params,
 		heading: [
 			{ name: "tag", type: plainType("int4") },
 			...indices(statement.width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
@@ -609,11 +602,10 @@ export const singleStatementSpec = (
  * executable texts, each statement's dependencies moved to artifact positions. */
 export const readBackSpecs = <S extends FusedStatement>(
 	roots: StatementRoots<S>,
-	offset: number,
-	codes: Codebook
-): StatementRoots<{ readonly statement: S; readonly spec: StatementSpec<WriteSlot> }> =>
+	offset: number
+): StatementRoots<{ readonly statement: S; readonly spec: StatementSpec<DeclaredParamSlot> }> =>
 	mapTree(roots, (statement) => {
-		const spec = statementSpec(statement, declaredSlotOf(codes))
+		const spec = statementSpec(statement, (slot: DeclaredParamSlot) => slot)
 		if (!spec.ok) {
 			throw new Refusal(spec.error)
 		}

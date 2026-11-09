@@ -23,6 +23,7 @@ import {
 } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
 	nestedRowsColumn,
@@ -241,7 +242,11 @@ describe("a nested write's identities", () => {
 								parsedOf(value).inputs
 							)
 							const bound = succeeded(
-								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(program, flightOf(program, program.frontend.codes), {
+									members,
+									params: {},
+									transport: inForce(bindFrame)
+								})
 							)
 							const keyed = keyedAt(program, box.facts, box.length)
 							const longest = Arr.reduce(statedTexts(box.facts, box.length), 0, (n, t) =>

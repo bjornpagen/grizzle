@@ -34,9 +34,11 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import type { LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
+import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import { partIndex } from "#compiler/lower/template.ts"
 import type {
 	ArrayColumn,
 	CreateCarrier,
@@ -60,8 +62,10 @@ export interface NestedColumnSlot {
 }
 
 /** The column of nested rows a placeholder carries, none for any other. */
-export const nestedColumnOf = (slot: WriteSlot): NestedColumnSlot | undefined =>
-	slot.kind === "nestedRows" ? slot : undefined
+export const nestedColumnOf = (slot: WriteParamSlot): NestedColumnSlot | undefined =>
+	slot.kind === "nestedRows"
+		? { stratum: slot.stratum, relation: slot.relation, part: partIndex(slot.part) }
+		: undefined
 
 /**
  * One carrier of a staged statement: its creation, its fill, and the positions among the inline form's placeholders

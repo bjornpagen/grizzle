@@ -34,6 +34,7 @@ import { inForce } from "#compiler/write/family/order.ts"
 import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -126,7 +127,7 @@ describe("a write of large bytes values", () => {
 									parsedOf(change).inputs
 								)
 								const before = process.memoryUsage().arrayBuffers
-								const bound = bindWrite(program, {
+								const bound = bindWrite(program, flightOf(program, program.frontend.codes), {
 									members,
 									params: {},
 									transport: inForce(bindFrame)

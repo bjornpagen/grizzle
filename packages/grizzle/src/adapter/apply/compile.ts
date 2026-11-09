@@ -1,7 +1,7 @@
 import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
-import type { CompiledWrite, ParsedChangeSet } from "#compiler/plan/change.ts"
+import type { CompiledWrite, FlightWrite, ParsedChangeSet } from "#compiler/plan/change.ts"
 import type { BindContext } from "#compiler/plan/common.ts"
 
 /**
@@ -21,6 +21,8 @@ import type { BindContext } from "#compiler/plan/common.ts"
  */
 export interface WriteEntry {
 	readonly program: CompiledWrite
+	/** The program as an application runs it, projected and loaded as a served one is (write/program/served.ts). */
+	readonly flight: FlightWrite
 	readonly violation: ViolationClassifier
 	/** The read-backs of the program's artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBackRuns

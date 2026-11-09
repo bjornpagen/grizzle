@@ -11,6 +11,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, failed } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -101,7 +102,11 @@ describe("the write program's relation parameters", () => {
 								})
 							)
 							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-							const bound = bindWrite(program, { members, params, transport: inForce(bindFrame) })
+							const bound = bindWrite(program, flightOf(program, program.frontend.codes), {
+								members,
+								params,
+								transport: inForce(bindFrame)
+							})
 							const faulty = Arr.filter(drawnMembers, (m) => m.given.kind !== "facts")
 							if (faulty.length === 0) {
 								c.note("every parameter given")

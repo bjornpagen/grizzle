@@ -268,7 +268,7 @@ export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>
  * per fused attachment column): a read's are decoded by the value's decoder (core/decoder.ts), a write's by the write
  * program's outcome (write/program/outcome.ts).
  */
-export interface StatementSpec<S extends ParamSlot = ParamSlot> {
+export interface StatementSpec<S = ParamSlot> {
 	/** The emitted text; placeholder $n is paramSlots[n - 1]. */
 	readonly sql: EmittedText
 	readonly paramSlots: ReadonlyArray<S>
@@ -288,10 +288,10 @@ export interface TemplateRequirements {
  * Stable SQL, positional codecs, expected native types, runtime requirements: the optimized artifact, the one an
  * execution runs, for the context it was compiled for.
  */
-export interface ProgramArtifacts {
+export interface ProgramArtifacts<S = ParamSlot> {
 	readonly kind: "query" | "ordered" | "write"
 	readonly context: TemplateContext
-	readonly optimized: ReadonlyArray<StatementSpec>
+	readonly optimized: ReadonlyArray<StatementSpec<S>>
 	readonly requirements: TemplateRequirements
 	readonly certificates: ReadonlyArray<Certificate>
 	/** Generated SQL name to the source variable or relation occurrence it stands for. */
@@ -304,7 +304,8 @@ export interface CarrierDecl {
 	readonly fill: "insertSelect"
 }
 
-export interface WriteProgram extends ProgramArtifacts {
+/** A write's artifacts, each placeholder of its statements filled as `S` says. */
+export interface WriteProgram<S> extends ProgramArtifacts<S> {
 	readonly requirements: TemplateRequirements
 }
 

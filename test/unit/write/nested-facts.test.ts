@@ -23,6 +23,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
@@ -198,7 +199,7 @@ describe("a nested addition's facts", () => {
 								const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
 								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 								const bound = withinMessage(
-									bindWrite(program, {
+									bindWrite(program, flightOf(program, program.frontend.codes), {
 										members,
 										params: {},
 										transport: inForce(bindFrame)

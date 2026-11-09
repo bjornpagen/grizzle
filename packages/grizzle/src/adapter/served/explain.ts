@@ -10,6 +10,7 @@ import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatements } from "#adapter/reader/run.ts"
 import type { LoadedChange, LoadedMember, LoadedRead } from "#adapter/served/load.ts"
 import type { Plan } from "#adapter/types/db.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import {
 	asReadFailure,
 	type BatchOutcome,
@@ -18,7 +19,7 @@ import {
 	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
-import type { Chunks } from "#compiler/plan/change.ts"
+import { type Chunks, inForce } from "#compiler/plan/change.ts"
 import { type EmittedText, explainOf, type Param, type ParamMap } from "#compiler/plan/common.ts"
 
 /**
@@ -147,25 +148,26 @@ const explainChange = Effect.fn("explainChange")(function* (
 	if (inputs.kind === "rejected") {
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
 	}
-	const artifact = entry.program.artifact
-	const skip = inputs.bound.skip(artifact)
+	const skip = inputs.bound.skip
 	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
 		const statements: Array<Explained> = []
-		for (const s of artifact.statements) {
+		for (const s of entry.flight.statements) {
 			if (skip.has(s.index)) {
 				continue
 			}
-			const sql = inputs.bound.form(s).sql
-			const executions = chunks(s)
+			const executions = chunks(s, inForce(bindFrame))
 			if (!executions.ok) {
 				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
 			}
 			const step = s.step
-			for (const texts of executions.value) {
+			for (const { sql, params, part } of executions.value) {
 				statements.push(
-					(step.kind === "carrier" && step.step === "create") || step.kind === "analyze"
-						? { statement: { sql, params: texts }, planned: false }
-						: planned(sql, texts)
+					(step.kind === "carrier" && step.step === "create") ||
+						step.kind === "analyze" ||
+						part.kind === "create" ||
+						part.kind === "analyze"
+						? { statement: { sql, params }, planned: false }
+						: planned(sql, params)
 				)
 			}
 		}

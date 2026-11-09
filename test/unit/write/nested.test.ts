@@ -27,6 +27,7 @@ import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { inputSlotsOf } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -195,7 +196,11 @@ describe("a nested write through the program", () => {
 							const program = programOf(value)
 							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
-								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(program, flightOf(program, program.frontend.codes), {
+									members,
+									params: {},
+									transport: inForce(bindFrame)
+								})
 							)
 							assert.equal(bound.kind, "bound", "the facts bind")
 							if (bound.kind !== "bound") {
@@ -366,7 +371,11 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							setShaped ??= compiled(value)
 							const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
-								bindWrite(setShaped, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(setShaped, flightOf(setShaped, setShaped.frontend.codes), {
+									members,
+									params: {},
+									transport: inForce(bindFrame)
+								})
 							)
 							/** The specification: the stated facts as a set by identity, then the keys it holds twice. */
 							const distinct = Arr.dedupeWith(
@@ -492,7 +501,11 @@ describe("a nested tree at depth and width", () => {
 								parsedOf(value).inputs
 							)
 							const bound = succeeded(
-								bindWrite(treeShaped, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(treeShaped, flightOf(treeShaped, treeShaped.frontend.codes), {
+									members,
+									params: {},
+									transport: inForce(bindFrame)
+								})
 							)
 							assertVariant(bound, "kind", "bound", "a tree binds")
 							assertVariant(bound.flights, "kind", "write", "a fresh tree reads nothing first")

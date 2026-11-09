@@ -1095,8 +1095,7 @@ const takesOf = (
 		if (ready.kind !== "bound") {
 			return []
 		}
-		const artifact = entry.program.artifact
-		return Arr.flatMap(artifact.statements, (st): ReadonlyArray<TakeForm> =>
+		return Arr.flatMap(entry.flight.statements, (st): ReadonlyArray<TakeForm> =>
 			st.forms.kind === "chosen"
 				? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
 				: []
