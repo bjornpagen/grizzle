@@ -27,6 +27,7 @@ import {
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -612,7 +613,7 @@ class Builder {
 			switch (writing.kind) {
 				case "built": {
 					const written = writing.detail(vb)
-					roots.push(...written.roots)
+					appendAll(roots, written.roots)
 					return Object.freeze({ ...law, detail: written.detail })
 				}
 				case "query": {

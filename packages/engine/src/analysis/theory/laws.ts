@@ -28,6 +28,7 @@ import {
 	ridesOf,
 	slotsText,
 	type TreeFamily,
+	type TreeFamilyShape,
 	type TreeStatement,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
@@ -1259,7 +1260,6 @@ export class Normalizer {
 	#family(s: FamilyStatement, index: number): void {
 		const loc = s.loc
 		const f = this.#entry(s.slots, loc).shape
-		const sides = this.#familySides(f, loc)
 		this.#keep(
 			{
 				identity: {
@@ -1273,7 +1273,7 @@ export class Normalizer {
 						detail: { kind: "family", family: this.#resolvedFamily(f.id) },
 						roots: []
 					}),
-					violation: (b) => b.union(familyArms(b, this.env, sides, loc))
+					violation: (b) => b.union(familyArms(b, this.env, this.#familySides(f, loc), loc))
 				}
 			},
 			loc,
@@ -1282,17 +1282,13 @@ export class Normalizer {
 	}
 
 	/**
-	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
-	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
-	 * predecessor (T4), end → end on the last (T5).
+	 * A tree's sides, which its violation query reads: its family's (`#familySides`), and T0 to T6's with the root pin,
+	 * each a side of its member or its owner, each check a row predicate of its member.
 	 */
-	#tree(s: TreeStatement, index: number): void {
-		const loc = s.loc
-		const entry = this.#entry(s.slots, loc)
-		const f = entry.shape
-		if (!isTree(f)) {
-			throw defect("a tree statement's family is a tree")
-		}
+	#treeSides(
+		f: TreeFamilyShape,
+		loc: SourceLoc
+	): { readonly sides: FamilySides; readonly tree: TreeSides } {
 		const sides = this.#familySides(f, loc)
 		const t = f.members
 		const parent = headNonEmpty(f.group).member
@@ -1365,6 +1361,22 @@ export class Normalizer {
 			],
 			checks: [rooted, pinned, nonEmpty]
 		}
+		return { sides, tree }
+	}
+
+	/**
+	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
+	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
+	 * predecessor (T4), end → end on the last (T5).
+	 */
+	#tree(s: TreeStatement, index: number): void {
+		const loc = s.loc
+		const entry = this.#entry(s.slots, loc)
+		const f = entry.shape
+		if (!isTree(f)) {
+			throw defect("a tree statement's family is a tree")
+		}
+		const t = f.members
 		this.#keep(
 			{
 				identity: {
@@ -1384,11 +1396,13 @@ export class Normalizer {
 							roots: []
 						}
 					},
-					violation: (b) =>
-						b.union([
+					violation: (b) => {
+						const { sides, tree } = this.#treeSides(f, loc)
+						return b.union([
 							...familyArms(b, this.env, sides, loc),
 							...treeArms(b, this.env, sides.witness, f.member, tree, loc)
 						])
+					}
 				}
 			},
 			loc,
@@ -1662,12 +1676,12 @@ export class Normalizer {
 		const ride: Ride | undefined =
 			span === undefined ? ridesOf(this.#shapes(), fromSide, toSide, resolved) : undefined
 		const entry = ride === undefined ? undefined : this.#entry(ride.family, loc)
-		const pins = ride === undefined || entry === undefined ? [] : ridingPins(entry.shape, ride)
-		const width = resolved.length - (ride?.carried.length ?? 0)
 		const violation = (b: ViolationBuilder): RelNode => {
 			if (span !== undefined) {
 				return coverageViolation(b, this.env, fromSide, toSide, resolved, span, loc)
 			}
+			const pins = ride === undefined || entry === undefined ? [] : ridingPins(entry.shape, ride)
+			const width = resolved.length - (ride?.carried.length ?? 0)
 			const own = containmentViolation(b, this.env, fromSide, toSide, resolved, loc)
 			const [lead, ...rest] = own.heading.slice(0, width)
 			if (!isNonEmpty(pins) || lead === undefined) {

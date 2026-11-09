@@ -2161,15 +2161,16 @@ class FamilyPlanner {
 		targetBase: NonEmptyReadonlyArray<PlannedColumn>
 	): ReadonlyArray<CarriedPair> {
 		const textOf = plannedText
-		const keyOf = (c: PlannedColumn): string => `${c.kind === "field" ? "f" : "l"} ${textOf(c)}`
-		const baseKeys = base.map(keyOf)
-		const targetKeys = targetBase.map(keyOf)
+		const carriedKey = (c: PlannedColumn): string =>
+			`${c.kind === "field" ? "f" : "l"} ${textOf(c)}`
+		const baseKeys = base.map(carriedKey)
+		const targetKeys = targetBase.map(carriedKey)
 		const out: Array<CarriedPair> = []
 		for (const p of pairs) {
 			const from = this.#planned(p.from)
 			const to = this.#planned(p.to)
-			const fromKey = keyOf(from)
-			const toKey = keyOf(to)
+			const fromKey = carriedKey(from)
+			const toKey = carriedKey(to)
 			const at = targetKeys.indexOf(toKey)
 			if (at !== -1 && baseKeys[at] === fromKey) {
 				continue
