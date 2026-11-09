@@ -7,6 +7,7 @@ import type {
 	Snapshot,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
+import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -200,6 +201,12 @@ export interface SnapshotDerived {
 	 * cells to name it by its digest; DbLayer.make reads them here and packs nothing.
 	 */
 	readonly closed: ClosedNames
+	/**
+	 * The foreign key graph's strongly connected components of more than one relation, names in code point order, which
+	 * a layer planning only a slice reads for its deferral (laws/model/model.ts FkCycles). generate plans them from every
+	 * law; DbLayer.make reads them here and plans no law its slice does not name.
+	 */
+	readonly fkCycles: FkCycles
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

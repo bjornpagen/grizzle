@@ -514,9 +514,11 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
 }
 
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
- * each closed relation's constants as readers address them, the installation's plan's. */
+ * each closed relation's constants as readers address them, the installation's plan's, and the foreign key graph's
+ * cycles, its law model's, which planned them from every law. */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
-	closed: installation.closed
+	closed: installation.closed,
+	fkCycles: installation.laws.fkCycles
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
@@ -813,7 +815,8 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 
 /** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
-	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const))
+	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
+	fkCycles: d.fkCycles
 })
 
 const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): FormOf<S> =>

@@ -68,12 +68,12 @@ import {
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
-	type ClosedNames,
 	ledgerStatements,
 	loginSlice,
 	type PlanBasis,
 	planBasis,
-	type ServedSnapshot
+	type ServedSnapshot,
+	type SnapshotDerived
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
 
@@ -312,17 +312,21 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
 /**
  * The artifacts of a login's base, owned once, compiled once under its own installation and vector schema
  * (program/schema.ts baseArtifacts), its law model for the writes of the login's roles (schema/reach.ts loginSlice),
- * which the database holds every write of the login to, under the codes `codes` and the closed relations' constant names
- * `closed` the installation's snapshot records (physical/install/plan.ts planBasis), so no closed relation's cells are
- * packed: what every one of its roles reads.
+ * which the database holds every write of the login to, under the codes `codes` and the facts `derived` the
+ * installation's snapshot records (physical/install/plan.ts planBasis): the closed relations' constant names, so no
+ * closed relation's cells are packed, and the foreign key graph's cycles, so the law model plans only the laws the
+ * slice names. What every one of its roles reads.
  */
 export const artifactsUnder = (
 	login: OwnedLogin,
 	codes: Codebook,
-	closed: ClosedNames
+	derived: SnapshotDerived
 ): Engine.Result<SchemaArtifacts, CompileError> =>
 	Engine.flatMap(
-		planBasis(login.base, codes, loginSlice(login), closed, { kind: "planned" }),
+		planBasis(login.base, codes, loginSlice(login), derived.closed, {
+			kind: "recorded",
+			cycles: derived.fkCycles
+		}),
 		artifactsOver
 	)
 
@@ -437,7 +441,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
-	const artifacts = yield* openStage(artifactsUnder(owned, codes, snapshot.derived.closed))
+	const artifacts = yield* openStage(artifactsUnder(owned, codes, snapshot.derived))
 	const above = lawsAbove(snapshot)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts, above),

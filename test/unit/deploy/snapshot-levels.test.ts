@@ -201,6 +201,7 @@ describe("snapshot.json", () => {
 										}
 									])
 								)
+								assert.deepEqual(served.derived.fkCycles, installation.laws.fkCycles)
 							}
 							k.note(c.placement)
 						})

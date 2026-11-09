@@ -477,12 +477,15 @@ describe("a login's runtime law model", () => {
 						Effect.sync(() => {
 							const login = loginOf(c)
 							const codes = firstCodebook(rostersOf(login.base))
-							const recorded = succeeded(
+							const basis = succeeded(
 								installBasis(login.base, codes, everySlice(login.base)),
 								"the installation's basis"
-							).closed
+							)
 							const runtime = succeeded(
-								artifactsUnder(login, codes, recorded),
+								artifactsUnder(login, codes, {
+									closed: basis.closed,
+									fkCycles: basis.model.fkCycles
+								}),
 								"the layer's artifacts"
 							)
 							const whole = installed(login.base, codes)

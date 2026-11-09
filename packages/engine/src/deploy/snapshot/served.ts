@@ -9,6 +9,7 @@ import type { ServedSnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, emptyCodebook, type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
+import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 
@@ -47,7 +48,10 @@ interface ServedJson {
 	readonly levels: ReadonlyArray<LevelJson>
 	readonly constraintToLaw: unknown
 	readonly rosters: Readonly<Record<string, unknown>>
-	readonly derived: { readonly closed: Readonly<Record<string, NamedClosed>> }
+	readonly derived: {
+		readonly closed: Readonly<Record<string, NamedClosed>>
+		readonly fkCycles: FkCycles
+	}
 }
 
 /** A member of a snapshot's JSON form at `path`, its canonical tags revived. */
@@ -60,9 +64,10 @@ const revived = (value: unknown, path: Path): Result.Result<unknown, CompileErro
  * is verified where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
  * schema and recorded fingerprint, and the laws of each level above `level`, their canonical tags revived (`fromJson`);
  * its constraint-to-law map and its rosters' codes, revived; and the installation's derived runtime facts
- * (SnapshotDerived), each closed relation's constants as readers address them, which hold names and numbers alone, so
- * their JSON form is their value. Nothing else of it is read: the laws of `level` and the levels below it are the
- * layer's own artifacts', and manifest.json, the rest of the snapshot, is generate's, check's, drift's and migrate's.
+ * (SnapshotDerived), each closed relation's constants as readers address them and the foreign key graph's cycles, which
+ * hold names and numbers alone, so their JSON form is their value. Nothing else of it is read: the laws of `level` and
+ * the levels below it are the layer's own artifacts', and manifest.json, the rest of the snapshot, is generate's,
+ * check's, drift's and migrate's.
  */
 export const servedSnapshot = (
 	json: unknown,
@@ -97,6 +102,9 @@ export const servedSnapshot = (
 		above,
 		constraintToLaw: trusted<ConstraintLaws>(constraintToLaw.value),
 		codes: rosterCodebook(rosters),
-		derived: { closed: new Map(Object.entries(served.derived.closed)) }
+		derived: {
+			closed: new Map(Object.entries(served.derived.closed)),
+			fkCycles: served.derived.fkCycles
+		}
 	})
 }
