@@ -1,8 +1,10 @@
 /**
- * The binary array of a bytes column, a hot path: a member's bytes values travel in PostgreSQL's binary format, never as
- * their hex text, so a value of n bytes sends n bytes and its length, and the server reads them with array_recv and
- * bytearecv, no hex to parse. The driver sends a Uint8Array parameter with format code 1 and every other parameter as
- * text, each by its own format code, so one statement mixes the two (pg-protocol's serializer, `writeValues`).
+ * The binary arrays of bytes and text columns, a hot path: a member's bytes values travel in PostgreSQL's binary format,
+ * never as their hex text, so a value of n bytes sends n bytes and its length, and the server reads them with
+ * array_recv and bytearecv, no hex to parse; a text column's values travel as their UTF-8 bytes, read by textrecv, so
+ * no literal of the whole array, with its quoting, is ever built as one string. The driver sends a Uint8Array parameter
+ * with format code 1 and every other parameter as text, each by its own format code, so one statement mixes the two
+ * (pg-protocol's serializer, `writeValues`).
  */
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
@@ -10,8 +12,8 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { messageMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import type { ParamBinary } from "#compiler/core/wire.ts"
+import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
+import type { ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 
@@ -25,6 +27,13 @@ const binary = nominal<Uint8Array<ArrayBuffer>, ParamBinary>()
  * @formatConstant bytea's pg_type OID
  */
 const byteaOid = 17
+
+/**
+ * text's type OID, which a text[]'s header names as its element type: pg_type.dat's `oid => '25'`.
+ *
+ * @formatConstant text's pg_type OID
+ */
+const textOid = 25
 
 /**
  * The width of each Int32 field of the array binary format (array_send): the dimension count, the flags, the element
@@ -73,23 +82,21 @@ const detached = (value: Uint8Array): boolean => {
 }
 
 /**
- * One column's bytea[] in the array binary format (src/backend/utils/adt/arrayfuncs.c array_send and array_recv): one
- * dimension of `values.length` elements from 1, no NULL, element type bytea, then each value's length and bytes in
- * order; an empty input is the array of no dimension. Its length is counted from its values' lengths before it is
- * built, so an array longer than any message PostgreSQL reads (core/limits.ts messageMaxBytes), which no placeholder
- * could carry, is refused as `column`'s bound of `input` before a byte of it is allocated. Each value is copied into it
- * once, from its caller's array (scalar/values/bytes.ts AdmittedBytes), the one copy grizzle makes of it, and the copy
- * is checked against the value's digest: a value its caller changed since admission, its bytes, its length or its
- * buffer, detached since, is refused as bytesChanged at `input`, so the bytes sent are the bytes every identity of the
- * write was worked out from.
+ * One column's array in the array binary format (src/backend/utils/adt/arrayfuncs.c array_send and array_recv): one
+ * dimension of `lengths.length` elements from 1, no NULL, element type `oid`, then each element's length and bytes in
+ * order, which `write` puts at its offset; an empty input is the array of no dimension. Its length is counted from the
+ * elements' lengths before it is built, so an array longer than any message PostgreSQL reads (core/limits.ts
+ * messageMaxBytes), which no placeholder could carry, is refused as `column`'s bound of `input` before a byte of it is
+ * allocated.
  */
-export const byteaArray = (
+const binaryArray = (
+	oid: number,
 	input: string,
 	column: string,
-	values: ReadonlyArray<AdmittedBytes>
+	lengths: ReadonlyArray<number>,
+	write: (out: Uint8Array, at: number, i: number) => Result.Result<void, EncodingFailure>
 ): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
-	const lengths = values.map((value) => value.bytes.length)
-	let length = byteaHeaderBytes(values.length)
+	let length = byteaHeaderBytes(lengths.length)
 	for (const n of lengths) {
 		length += byteaElementBytes(n)
 	}
@@ -109,24 +116,66 @@ export const byteaArray = (
 		view.setInt32(at, n)
 		at += int32Bytes
 	}
-	field(values.length === 0 ? 0 : 1)
+	field(lengths.length === 0 ? 0 : 1)
 	field(0)
-	field(byteaOid)
-	if (values.length > 0) {
-		field(values.length)
+	field(oid)
+	if (lengths.length > 0) {
+		field(lengths.length)
 		field(lowerBound)
 	}
-	for (const [i, value] of values.entries()) {
-		const n = defined(lengths[i], "the length of each value counted")
-		if (value.bytes.length !== n || detached(value.bytes)) {
-			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
-		}
+	for (const [i, n] of lengths.entries()) {
 		field(n)
-		out.set(value.bytes, at)
-		if (sha256Hex(out.subarray(at, at + n)) !== value.digest) {
-			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+		const written = write(out, at, i)
+		if (!written.ok) {
+			return written
 		}
 		at += n
 	}
 	return Result.ok(binary(out))
+}
+
+/**
+ * One bytes column's bytea[] in the array binary format (`binaryArray`). Each value is copied into it once, from its
+ * caller's array (scalar/values/bytes.ts AdmittedBytes), the one copy grizzle makes of it, and the copy is checked
+ * against the value's digest: a value its caller changed since admission, its bytes, its length or its buffer, detached
+ * since, is refused as bytesChanged at `input`, so the bytes sent are the bytes every identity of the write was worked
+ * out from.
+ */
+export const byteaArray = (
+	input: string,
+	column: string,
+	values: ReadonlyArray<AdmittedBytes>
+): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
+	const lengths = values.map((value) => value.bytes.length)
+	return binaryArray(byteaOid, input, column, lengths, (out, at, i) => {
+		const value = defined(values[i], "each value counted")
+		const n = defined(lengths[i], "the length of each value counted")
+		if (value.bytes.length !== n || detached(value.bytes)) {
+			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+		}
+		out.set(value.bytes, at)
+		if (sha256Hex(out.subarray(at, at + n)) !== value.digest) {
+			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+		}
+		return Result.ok(undefined)
+	})
+}
+
+/**
+ * One text column's text[] in the array binary format (`binaryArray`), each element its parameter text's UTF-8 bytes,
+ * which text's receive function reads as the literal's element would be read: no quoting or escaping, and no string
+ * of the whole array, so a column of any total length within a message travels.
+ */
+export const textArray = (
+	input: string,
+	column: string,
+	texts: ReadonlyArray<ParamText>
+): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
+	const lengths = texts.map(utf8Length)
+	const encoder = new TextEncoder()
+	return binaryArray(textOid, input, column, lengths, (out, at, i) => {
+		const n = defined(lengths[i], "the length of each text counted")
+		encoder.encodeInto(defined(texts[i], "each text counted"), out.subarray(at, at + n))
+		return Result.ok(undefined)
+	})
 }

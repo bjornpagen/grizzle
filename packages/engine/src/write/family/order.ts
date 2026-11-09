@@ -41,7 +41,12 @@
  * statement's predecessor keys and owner axes are checked at its end, and no two of its rows hold one slot, so its rows
  * go in any order.
  */
-import { byteaArray, byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
+import {
+	byteaArray,
+	byteaElementBytes,
+	byteaHeaderBytes,
+	textArray
+} from "#compiler/codec/bytea.ts"
 import { columnLiteral, literalAlone } from "#compiler/codec/recordset.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
@@ -52,6 +57,7 @@ import type { ReadonlyTupleMap, ReadonlyTupleSet } from "#compiler/core/tuple-ma
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	type CountRow,
@@ -244,6 +250,29 @@ export const columnArray = (
 		return byteaArray(input, column, values)
 	}
 	throw defect(`a family statement's column ${column} carries one kind of cell`)
+}
+
+/**
+ * A column's array of nested rows' cells (write/family/additions.ts RowSource), its encoding chosen by its type: a text
+ * column's binary text[] (codec/bytea.ts textArray), any other's as `columnArray` writes it.
+ */
+export const typedColumnArray = (
+	input: string,
+	column: string,
+	type: ScalarType,
+	cells: ReadonlyArray<MemberCell>
+): Result.Result<Param, LiteralBound | EncodingFailure> => {
+	if (type.carrier !== "text") {
+		return columnArray(input, column, cells)
+	}
+	const texts: Array<ParamText> = []
+	for (const cell of cells) {
+		if (typeof cell !== "string") {
+			throw defect(`a text column ${column} of ${input} carrying bytes`)
+		}
+		texts.push(cell)
+	}
+	return textArray(input, column, texts)
 }
 
 /** The UTF-16 code units of a column's literal alone: none for a binary array, which is no string. */
