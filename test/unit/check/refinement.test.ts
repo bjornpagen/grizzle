@@ -650,16 +650,27 @@ describe("refined constants", () => {
 						Effect.sync(() => {
 							const checked = checking(closedSchema(c))
 							const heading = defined(checked.closed.get("Payloads"), "Payloads").heading
+							/** Each cell by its field and its row's key, the site naming it: two rows may hold one value. */
 							const expected = Arr.flatMap(c.rows, (row) =>
 								Arr.flatMap(c.fields, (x, i) => {
 									const cell = defined(row.values[i], "a row's value")
 									return x.payload.checked
-										? [{ literal: cell.literal, type: columnType(heading, x.name, x.name) }]
+										? [
+												{
+													literal: cell.literal,
+													type: columnType(heading, x.name, x.name),
+													site: `closed Payloads.${x.name} at (${row.key})`
+												}
+											]
 										: []
 								})
 							)
 							unorderedEqual(
-								Arr.map(refinedConstants(checked), (x) => ({ literal: x.literal, type: x.type })),
+								Arr.map(refinedConstants(checked), (x) => ({
+									literal: x.literal,
+									type: x.type,
+									site: x.site
+								})),
 								expected
 							)
 							if (c.rows.length === 0) {
