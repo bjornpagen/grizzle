@@ -5,7 +5,7 @@ import { boolean, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type PrivilegeFamily, privilegeFamilies } from "#compiler/deploy/admission/roles.ts"
@@ -23,14 +23,15 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
+import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	fixtureWorlds,
 	installed,
 	installedRoleOf,
 	worldsExpectation
 } from "#test/pg/physical/support.ts"
-import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import { expectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
 
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -689,6 +690,18 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							extensions: []
 						})
 						const schemas = mapNonEmpty(done.installation.names.levels, identifierOf)
+						/** Each stored or derived relation's table or view, by its identifier, in its level's schema. */
+						const placed = new Map<string, ObjectName>(
+							Arr.flatMap(Rec.values(done.installation.owned.relations), (r) => {
+								if (r.kind !== "relation" && r.kind !== "derived") {
+									return []
+								}
+								const at = done.installation.names.relation(r.name)
+								return [[at.name, at] as const]
+							})
+						)
+						const tableIn = (name: string): string =>
+							printObjectName(defined(placed.get(name), `the installed table or view ${name}`))
 						const scope = installedScope(done.installation, done.snapshot)
 						const expect = scope.erasure
 						const baseline = yield* drifted(schemas, [])
@@ -855,7 +868,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							},
 							(source) => {
 								const p = source.draw(element(policies))
-								const on = `${quoteIdent(p.name)} ON ${qualified(baseline, p.table)}`
+								const on = `${quoteIdent(p.name)} ON ${tableIn(p.table)}`
 								return source.draw(boolean)
 									? {
 											statements: [`ALTER POLICY ${on} USING (true)`],
@@ -874,16 +887,12 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								const t = source.draw(element(secured))
 								return source.draw(boolean)
 									? {
-											statements: [
-												`ALTER TABLE ${qualified(baseline, t.name)} DISABLE ROW LEVEL SECURITY`
-											],
+											statements: [`ALTER TABLE ${tableIn(t.name)} DISABLE ROW LEVEL SECURITY`],
 											raises: [{ kind: "rowSecurityMissing", table: t.name }],
 											feature: "row security disabled"
 										}
 									: {
-											statements: [
-												`ALTER TABLE ${qualified(baseline, t.name)} FORCE ROW LEVEL SECURITY`
-											],
+											statements: [`ALTER TABLE ${tableIn(t.name)} FORCE ROW LEVEL SECURITY`],
 											raises: [{ kind: "rowSecurityForced", table: t.name }],
 											feature: "row security forced"
 										}
@@ -892,16 +901,12 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								const { view, role: r, refreshes } = source.draw(element(refreshed))
 								return refreshes
 									? {
-											statements: [
-												`REVOKE MAINTAIN ON ${qualified(baseline, view)} FROM ${quoteIdent(r)}`
-											],
+											statements: [`REVOKE MAINTAIN ON ${tableIn(view)} FROM ${quoteIdent(r)}`],
 											raises: [{ kind: "maintainMissing", view, role: r }],
 											feature: "MAINTAIN revoked from a refresher"
 										}
 									: {
-											statements: [
-												`GRANT MAINTAIN ON ${qualified(baseline, view)} TO ${quoteIdent(r)}`
-											],
+											statements: [`GRANT MAINTAIN ON ${tableIn(view)} TO ${quoteIdent(r)}`],
 											raises: [{ kind: "maintainBeyondRefresh", view, grantee: r }],
 											feature: "MAINTAIN beyond the refreshers"
 										}
