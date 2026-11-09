@@ -31,7 +31,7 @@ const characters: ReadonlyArray<Interval> = Object.freeze([
 const boundsOf = (intervals: ReadonlyArray<Interval>): ReadonlyArray<number> =>
 	intervals.flatMap(([lo, hi]) => [lo, hi])
 
-/** The colors of a pattern: how many, and how many each of its sets spans. */
+/** The colors of a pattern: how many, and how many each set its IR holds spans, read by that set. */
 export interface Colors {
 	readonly count: number
 	readonly spanned: (set: CharSet) => number
@@ -47,26 +47,32 @@ export const colorsOf = (ir: LiveNode): Colors => {
 	folded(nodes, ir, () => true)
 	const keys = new TupleMap<ReadonlyArray<number>, number>()
 	const printed: Array<ReadonlyArray<Interval>> = []
+	/** Each set the IR holds, by the position of its printed intervals among the distinct ones. */
+	const positions = new Map<CharSet, number>()
 	for (const node of nodes.keys()) {
 		if (node.kind !== "set") {
 			continue
 		}
 		const intervals = printableIntervals(node.set)
 		const bounds = boundsOf(intervals)
-		if (!keys.has(bounds)) {
+		const known = keys.get(bounds)
+		if (known === undefined) {
 			keys.set(bounds, printed.length)
+			positions.set(node.set, printed.length)
 			printed.push(intervals)
+		} else {
+			positions.set(node.set, known)
 		}
 	}
 	const partition = partitionOf(printed, characters)
 	return {
 		count: partition.atomCount,
 		spanned: (set) => {
-			const index = keys.get(boundsOf(printableIntervals(set)))
-			if (index === undefined) {
-				throw defect("a set of the pattern, which colorsOf partitioned")
+			const position = positions.get(set)
+			if (position === undefined) {
+				throw defect("a set the pattern's IR holds, which colorsOf partitioned")
 			}
-			return entry(partition.setAtoms, index).length
+			return entry(partition.setAtoms, position).length
 		}
 	}
 }
