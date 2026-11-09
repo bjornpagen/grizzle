@@ -44,14 +44,22 @@ import type {
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
-import { domainKey, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import {
+	emptyUse,
+	structuralRegex,
+	type TextColumnUse,
+	type TypeUse,
+	type UsedType,
+	useColumns,
+	usedNodes
+} from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
 import {
 	levelIn,
@@ -190,89 +198,11 @@ export interface WorldsPlan {
 	readonly worlds: ReadonlyArray<InstalledLogin>
 }
 
-/** A domain columns are typed by: its name, the identity it was minted from, and its object, when the installation
- * creates one. */
-interface UsedType {
-	readonly name: ObjectName
-	readonly identity: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
-	readonly node: Node<"setup"> | undefined
-}
-
 /** The names of `m`'s types, ordered by the identities they were minted from. */
 const sortedNames = (m: ReadonlyMap<string, UsedType>): ReadonlyArray<ObjectName> =>
 	[...m.values()]
 		.toSorted((a, b) => compareIdentities(a.identity, b.identity))
 		.map((use) => use.name)
-
-/** The domains columns are typed by, by name, and whether one is a vector. */
-interface TypeUse {
-	readonly domains: Map<string, UsedType>
-	vector: boolean
-}
-
-const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
-
-/** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
- * refinement's, a closed id's roster domain and a set's bits domain. */
-const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
-	const contract = contractOf(t)
-	if (contract !== undefined) {
-		const name = b.names.contractDomain(contract.name)
-		use.domains.set(domainKey(name), {
-			name,
-			identity: b.names.contractNamed(contract.name),
-			node: b.typeNamed(name)
-		})
-		useType(b, contract.base, use)
-		return
-	}
-	if (t.carrier === "code") {
-		const name = b.names.rosterDomain(t.roster.closed)
-		use.domains.set(domainKey(name), {
-			name,
-			identity: identity.rosterDomain(t.roster.closed),
-			node: b.typeNamed(name)
-		})
-	}
-	if (t.carrier === "bits") {
-		const name = b.names.bitsDomain(t.roster.closed)
-		const codec = defined(
-			b.names.codes.rosters.get(t.roster.closed),
-			"the codebook holds every roster"
-		)
-		use.domains.set(domainKey(name), {
-			name,
-			identity: identity.bitsDomain(t.roster.closed, codec.width),
-			node: b.typeNamed(name)
-		})
-	}
-	const span = spanOf(t)
-	if (span !== undefined) {
-		useType(b, span.endpoint, use)
-	}
-	if (t.carrier === "vector") {
-		use.vector = true
-	}
-	const regex = structuralRegex(t)
-	if (regex !== undefined) {
-		const name = b.names.textDomain(regex)
-		const named = b.names.textNamed(regex)
-		if (name !== undefined && named !== undefined) {
-			use.domains.set(domainKey(name), { name, identity: named, node: b.typeNamed(name) })
-		}
-	}
-}
-
-/** The types of every column of `heading`. */
-const useColumns = (
-	b: InstallBuilder,
-	heading: ReadonlyArray<HeadingColumn>,
-	use: TypeUse
-): void => {
-	for (const c of heading) {
-		useType(b, c.type, use)
-	}
-}
 
 /** The objects a world object's statements read: every relation, type and function they name that the installation
  * has created so far (a table, a materialized view, a view, a domain, a function, a constant), each once. A world object
@@ -1005,10 +935,6 @@ interface RoleOutcome {
 	readonly writers: ReadonlyArray<Writer>
 	readonly views: ReadonlyArray<ObjectName>
 }
-
-/** The objects of the domains `use` holds, each the installation creates. */
-const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
-	[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : [t.node]))
 
 /** The drawn law columns of `relation`, in the law model's order: columns the host writes beside the caller's fields. */
 const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<string> =>

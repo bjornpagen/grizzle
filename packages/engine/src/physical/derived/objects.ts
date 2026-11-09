@@ -22,11 +22,16 @@ import * as Result from "#compiler/core/result.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import type { InstallationManifest } from "#compiler/ir/products.ts"
-import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
-import { domainKey, type InstallBuilder, type TargetField } from "#compiler/physical/ddl/context.ts"
-import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
+import {
+	emptyUse,
+	structuralRegex,
+	type TextColumnUse,
+	useColumns,
+	usedNodes
+} from "#compiler/physical/ddl/domains.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
@@ -52,43 +57,6 @@ const unwrapResult = <A>(result: Result.Result<A, CompileError>): A => {
 	}
 	return result.value
 }
-
-/** The domains a column of type `t` names, down a contract's base chain, each with its object when the
- * installation creates one. */
-interface TypeUse {
-	readonly domains: Map<string, Node<"setup"> | undefined>
-}
-
-const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
-	const contract = contractOf(t)
-	if (contract !== undefined) {
-		const name = b.names.contractDomain(contract.name)
-		use.domains.set(domainKey(name), b.typeNamed(name))
-		useType(b, contract.base, use)
-		return
-	}
-	if (t.carrier === "code") {
-		const name = b.names.rosterDomain(t.roster.closed)
-		use.domains.set(domainKey(name), b.typeNamed(name))
-	}
-	if (t.carrier === "bits") {
-		const name = b.names.bitsDomain(t.roster.closed)
-		use.domains.set(domainKey(name), b.typeNamed(name))
-	}
-	const span = spanOf(t)
-	if (span !== undefined) {
-		useType(b, span.endpoint, use)
-	}
-	const regex = structuralRegex(t)
-	if (regex !== undefined) {
-		const name = b.names.textDomain(regex)
-		if (name !== undefined) {
-			use.domains.set(domainKey(name), b.typeNamed(name))
-		}
-	}
-}
-
-const emptyUse = (): TypeUse => ({ domains: new Map() })
 
 /**
  * The laws a derived key's proof rests on, by their identities and each once: a stored relation's key law for each declared key
@@ -176,9 +144,7 @@ const viewObjects = (
 		from: [{ kind: "PUBLIC" }]
 	}
 	const use = emptyUse()
-	for (const c of a.heading) {
-		useType(b, c.type, use)
-	}
+	useColumns(b, a.heading, use)
 	const viewObject = b.add(
 		{
 			kind: "materializedView",
@@ -193,7 +159,7 @@ const viewObjects = (
 				const from = b.readObject(read)
 				return from === undefined ? [] : [from]
 			}),
-			...[...use.domains.values()].flatMap((t) => (t === undefined ? [] : [t])),
+			...usedNodes(use),
 			...b.constantNodes([create])
 		]
 	)

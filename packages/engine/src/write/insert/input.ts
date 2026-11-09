@@ -14,19 +14,36 @@ import {
 	relationColumns
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { Expr, FromItem, OperandCore, Select, SetCore, Target } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	OperandCore,
+	Select,
+	SetCore,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	arrays,
+	asc,
 	cast,
 	col,
 	columnDefinition,
 	core,
+	countStar,
+	cte,
+	cteRef,
 	derived,
 	distinctCore,
+	gt,
+	lit,
+	notExists,
 	provedCore,
 	sameTypeRef,
 	select,
+	simpleSelect,
 	target,
+	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
@@ -75,6 +92,36 @@ export interface InputProof {
 
 /** Whether an input's rows are unique on its primary key, by any of the reasons. */
 export const keyUniqueBy = (u: KeyUniqueness): boolean => u.kind !== "unproved"
+
+/**
+ * The same-key check `r4` of a statement's input `r1`, read at `inCol`: the least primary key two of its facts share, in
+ * `keys`' columns, so the witness never depends on the plan.
+ */
+export const sameKeyCte = (
+	r4: string,
+	r1: string,
+	pk: NonEmptyReadonlyArray<LawField>,
+	keys: FieldColumns<string>,
+	inCol: (f: LawField) => Expr
+): Cte =>
+	cte(r4, keys.columns, {
+		...select({
+			...provedCore(
+				"grouped",
+				pk.map((f) => target(inCol(f))),
+				[cteRef(r1)],
+				undefined
+			),
+			groupBy: pk.map(inCol),
+			having: gt(countStar(), lit.int(1, types.integer))
+		}),
+		orderBy: pk.map((f) => asc(inCol(f))),
+		limit: lit.int(1, types.integer)
+	})
+
+/** The gate the same-key check `r4` puts on a statement's writes: no key two of its input's facts share. */
+export const noSharedKey = (r4: string): Expr =>
+	notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))
 
 /** Nothing proved: the statement deduplicates the input and checks it for same-key pairs. */
 export const unproved: InputProof = Object.freeze({
@@ -382,8 +429,8 @@ export const readInput = (
 	options: Extract<ReadOptions, { readonly kind: "input" }>,
 	at: string
 ): InputRead => {
-	const { from, targets, types } = readTargets(w, input, options, at)
-	return { select: select(inputSet(input, targets, from)), types }
+	const read = readTargets(w, input, options, at)
+	return { select: select(inputSet(input, read.targets, read.from)), types: read.types }
 }
 
 /** Reads an input as an operand of the set operation that deduplicates it, an exact deletion's EXCEPT: no DISTINCT and

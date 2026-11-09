@@ -782,14 +782,17 @@ export const finishSnapshot = (
 	}))
 
 /**
- * A JSON form value written with tabs, `head` before its first line and `tail` after its last: object keys in code
- * point order (RFC 8785's order, as the canonical text), one member or item per line, a member's key in its head and
- * its separating comma in its tail.
+ * A JSON form's list or record written with tabs, `head` before its first line and `tail` after its last: one item or
+ * member per line, each written by `write`, an object's keys in code point order (RFC 8785's order, as the canonical
+ * text), a member's key in its head and its separating comma in its tail.
  */
-const jsonValue = (out: Lines, head: string, value: Json, tail: string): void => {
-	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-		return out.line(`${head}${JSON.stringify(value)}${tail}`)
-	}
+const nestedValue = <V>(
+	out: Lines,
+	head: string,
+	value: ReadonlyArray<V> | { readonly [key: string]: V },
+	tail: string,
+	write: (out: Lines, head: string, value: V, tail: string) => void
+): void => {
 	if (isList(value)) {
 		if (value.length === 0) {
 			return out.line(`${head}[]${tail}`)
@@ -797,7 +800,7 @@ const jsonValue = (out: Lines, head: string, value: Json, tail: string): void =>
 		out.line(`${head}[`)
 		const items = out.nested()
 		for (const [i, item] of value.entries()) {
-			jsonValue(items, "", item, i === value.length - 1 ? "" : ",")
+			write(items, "", item, i === value.length - 1 ? "" : ",")
 		}
 		return out.line(`]${tail}`)
 	}
@@ -808,10 +811,16 @@ const jsonValue = (out: Lines, head: string, value: Json, tail: string): void =>
 	out.line(`${head}{`)
 	const members = out.nested()
 	for (const [i, [key, member]] of entries.entries()) {
-		jsonValue(members, `${JSON.stringify(key)}: `, member, i === entries.length - 1 ? "" : ",")
+		write(members, `${JSON.stringify(key)}: `, member, i === entries.length - 1 ? "" : ",")
 	}
 	return out.line(`}${tail}`)
 }
+
+/** A JSON form value written with tabs, `head` before its first line and `tail` after its last (`nestedValue`). */
+const jsonValue = (out: Lines, head: string, value: Json, tail: string): void =>
+	typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+		? out.line(`${head}${JSON.stringify(value)}${tail}`)
+		: nestedValue(out, head, value, tail, jsonValue)
 
 const jsonTextLoc = SourceLoc("JSON text", [])
 
@@ -852,27 +861,7 @@ const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: s
 	if (typeof value !== "object") {
 		return jsonValue(out, head, valueOf(toJson(value, everyProperty)), tail)
 	}
-	if (isList(value)) {
-		if (value.length === 0) {
-			return out.line(`${head}[]${tail}`)
-		}
-		out.line(`${head}[`)
-		const items = out.nested()
-		for (const [i, item] of value.entries()) {
-			formValue(items, "", item, i === value.length - 1 ? "" : ",")
-		}
-		return out.line(`]${tail}`)
-	}
-	const entries = Object.entries(value).toSorted(([a], [b]) => compareStrings(a, b))
-	if (entries.length === 0) {
-		return out.line(`${head}{}${tail}`)
-	}
-	out.line(`${head}{`)
-	const members = out.nested()
-	for (const [i, [key, member]] of entries.entries()) {
-		formValue(members, `${JSON.stringify(key)}: `, member, i === entries.length - 1 ? "" : ",")
-	}
-	return out.line(`}${tail}`)
+	return nestedValue(out, head, value, tail, formValue)
 }
 
 /** The text of snapshot.json. The file `migrations/<schema>/snapshot.json` is the snapshot's canonical JSON form,

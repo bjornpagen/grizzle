@@ -22,13 +22,11 @@ import {
 	col,
 	conjunction,
 	continuedAll,
-	countStar,
 	cte,
 	cteRef,
 	cteRefAs,
 	eq,
 	exists,
-	gt,
 	join,
 	lit,
 	ne,
@@ -52,7 +50,9 @@ import {
 	inputStated,
 	inputSharing,
 	keyUniqueBy,
+	noSharedKey,
 	readInput,
+	sameKeyCte,
 	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
@@ -390,22 +390,7 @@ export const buildInsert = (
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
 		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 		if (r4 !== undefined) {
-			ctes.push(
-				cte(r4, keys.columns, {
-					...select({
-						...provedCore(
-							"grouped",
-							pk.map((f) => target(inCol(f))),
-							[cteRef(r1)],
-							undefined
-						),
-						groupBy: pk.map(inCol),
-						having: gt(countStar(), lit.int(1, types.integer))
-					}),
-					orderBy: pk.map((f) => asc(inCol(f))),
-					limit: lit.int(1, types.integer)
-				})
-			)
+			ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 		}
 		/** The unique probe, after every other name: its refusal gates the INSERT as the same-key check does. */
 		const probe = buildProbe(w, supply, {
@@ -474,9 +459,7 @@ export const buildInsert = (
 		/** Into a family owner, only the requested facts no row stores (`proposalOf`). */
 		const unstored = proposes === "unstored" ? [storedAbsent(w, supply, relation, inCol)] : []
 		const gates = [
-			...(r4 === undefined
-				? []
-				: [notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))]),
+			...(r4 === undefined ? [] : [noSharedKey(r4)]),
 			...(unique.kind === "none"
 				? []
 				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate]),

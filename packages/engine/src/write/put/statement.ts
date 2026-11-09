@@ -41,19 +41,15 @@ import {
 	and,
 	asc,
 	col,
-	countStar,
 	cte,
 	cteRef,
 	eq,
-	gt,
 	join,
 	lit,
 	ne,
-	notExists,
 	provedCore,
 	provedSelect,
 	select,
-	simpleSelect,
 	target,
 	targetAs,
 	types,
@@ -68,8 +64,10 @@ import {
 	inputFamily,
 	inputStated,
 	keyUniqueBy,
+	noSharedKey,
 	type RelationInput,
 	readInput,
+	sameKeyCte,
 	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
@@ -283,27 +281,9 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
 	const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 	if (r4 !== undefined) {
-		ctes.push(
-			cte(r4, keys.columns, {
-				...select({
-					...provedCore(
-						"grouped",
-						pk.map((f) => target(inCol(f))),
-						[cteRef(r1)],
-						undefined
-					),
-					groupBy: pk.map(inCol),
-					having: gt(countStar(), lit.int(1, types.integer))
-				}),
-				orderBy: pk.map((f) => asc(inCol(f))),
-				limit: lit.int(1, types.integer)
-			})
-		)
+		ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 	}
-	const gate =
-		r4 === undefined
-			? undefined
-			: notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))
+	const gate = r4 === undefined ? undefined : noSharedKey(r4)
 	const column = (f: LawField) => w.names.column(relation.name, f.name)
 	/** A requested fact's value at any field (insert/statement.ts requestedValue). */
 	const requested = requestedValue(w, relation, written, inCol)

@@ -25,18 +25,20 @@ import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
 	contractOf,
 	patternsText,
 	type RegexRef,
-	type ScalarType
+	type ScalarType,
+	spanOf
 } from "#compiler/ir/scalar.ts"
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
-import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
+import { domainKey, type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { type ContractSource, domainBase, missing } from "#compiler/physical/ddl/names.ts"
-import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
+import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
@@ -55,6 +57,88 @@ export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
 	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
 		? t.text.regex
 		: undefined
+
+/** A domain columns are typed by: its name, the identity it was minted from, and its object, when the installation
+ * creates one. */
+export interface UsedType {
+	readonly name: ObjectName
+	readonly identity: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
+	readonly node: Node<"setup"> | undefined
+}
+
+/** The domains columns are typed by, by name, and whether one is a vector. */
+export interface TypeUse {
+	readonly domains: Map<string, UsedType>
+	vector: boolean
+}
+
+export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
+
+/** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
+ * refinement's, a closed id's roster domain and a set's bits domain. */
+const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
+	const contract = contractOf(t)
+	if (contract !== undefined) {
+		const name = b.names.contractDomain(contract.name)
+		use.domains.set(domainKey(name), {
+			name,
+			identity: b.names.contractNamed(contract.name),
+			node: b.typeNamed(name)
+		})
+		useType(b, contract.base, use)
+		return
+	}
+	if (t.carrier === "code") {
+		const name = b.names.rosterDomain(t.roster.closed)
+		use.domains.set(domainKey(name), {
+			name,
+			identity: identity.rosterDomain(t.roster.closed),
+			node: b.typeNamed(name)
+		})
+	}
+	if (t.carrier === "bits") {
+		const name = b.names.bitsDomain(t.roster.closed)
+		const codec = defined(
+			b.names.codes.rosters.get(t.roster.closed),
+			"the codebook holds every roster"
+		)
+		use.domains.set(domainKey(name), {
+			name,
+			identity: identity.bitsDomain(t.roster.closed, codec.width),
+			node: b.typeNamed(name)
+		})
+	}
+	const span = spanOf(t)
+	if (span !== undefined) {
+		useType(b, span.endpoint, use)
+	}
+	if (t.carrier === "vector") {
+		use.vector = true
+	}
+	const regex = structuralRegex(t)
+	if (regex !== undefined) {
+		const name = b.names.textDomain(regex)
+		const named = b.names.textNamed(regex)
+		if (name !== undefined && named !== undefined) {
+			use.domains.set(domainKey(name), { name, identity: named, node: b.typeNamed(name) })
+		}
+	}
+}
+
+/** The types of every column of `heading`. */
+export const useColumns = (
+	b: InstallBuilder,
+	heading: ReadonlyArray<HeadingColumn>,
+	use: TypeUse
+): void => {
+	for (const c of heading) {
+		useType(b, c.type, use)
+	}
+}
+
+/** The objects of the domains `use` holds, each the installation creates. */
+export const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
+	[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : [t.node]))
 
 /** A stored field whose patterns state a law: its relation, the field, its refinement, and the law, spelled as the
  * field declares its patterns. */

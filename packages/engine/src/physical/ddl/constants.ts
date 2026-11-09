@@ -75,7 +75,7 @@ import {
 	payloadCode,
 	payloadDigit
 } from "#compiler/sql/constants.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
+import { printObjectName, textArrayLiteral } from "#compiler/sql/print.ts"
 
 /**
  * The installation's constants: the functions a closed fact is read from, each an IMMUTABLE SQL function of no argument
@@ -734,7 +734,7 @@ const dictionaryOf = (b: InstallBuilder, planned: PlannedDictionary): CreateCons
 		params: [],
 		returns: array,
 		body: lit.text(
-			arrayText(planned.values.map((v) => persistentText(b.names, v, planned.field.type))),
+			textArrayLiteral(planned.values.map((v) => persistentText(b.names, v, planned.field.type))),
 			array
 		)
 	}
@@ -780,13 +780,6 @@ export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void =>
 		}
 	}
 }
-
-/**
- * The text of an array literal of `elements`, each double-quoted with its backslashes and quotes escaped, so an empty
- * element, a hole's name, and one holding a comma, a brace or a space read back as themselves.
- */
-const arrayText = (elements: ReadonlyArray<string>): string =>
-	`{${elements.map((e) => `"${e.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`).join(",")}}`
 
 /** What one roster installs: its names constant and its domain, and, when a set is typed over it, its live-codes
  * constant and its bits domain. */
@@ -931,7 +924,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 							name: names,
 							params: [],
 							returns: namesType,
-							body: lit.text(arrayText(codec.names), namesType)
+							body: lit.text(textArrayLiteral(codec.names), namesType)
 						},
 						revokeFromPublic(names)
 					],

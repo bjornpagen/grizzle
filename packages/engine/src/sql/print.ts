@@ -189,9 +189,9 @@ export const printStartupOptions = (settings: NonEmptyReadonlyArray<RoleSetting>
 
 /**
  * A text[] literal's text: each element double-quoted, its backslashes and double quotes escaped, so any name is one
- * element.
+ * element, an empty one and one holding a comma, a brace or a space included.
  */
-const textArrayLiteral = (elements: ReadonlyArray<string>): string =>
+export const textArrayLiteral = (elements: ReadonlyArray<string>): string =>
 	`{${elements.map((e) => `"${e.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`).join(",")}}`
 
 /** The setting a Db's transactions hold their claims in, which the prologue sets (deploy/ledger/ledger.ts enter). */
