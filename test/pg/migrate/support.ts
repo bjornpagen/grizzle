@@ -29,7 +29,8 @@ import {
 	openMigrationSession
 } from "#adapter/migrate/session.ts"
 import { sentAnswer } from "#adapter/wire/batch.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
@@ -255,24 +256,29 @@ export const id = (n: number): Uuid =>
  * pg_get_functiondef, every non-internal trigger's pg_get_triggerdef (its events and UPDATE OF columns) and every
  * materialized view's pg_get_viewdef, by kind and name; the migrations ledger's guard trigger, which only a migrated
  * installation holds, left out. */
-const definitions = (s: RawSession, schema: string, abstract: (text: string) => string) =>
-	Effect.map(
+const definitions = (
+	s: RawSession,
+	installation: Installation,
+	abstract: (text: string) => string
+) => {
+	const schema = installation.names.schema
+	return Effect.map(
 		s.values(
 			`SELECT d.kind, d.name, d.def, d.relation FROM (
 	SELECT 'function' AS kind, p.proname::text AS name, pg_catalog.pg_get_functiondef(p.oid) AS def, '' AS relation
 	FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
-	WHERE n.nspname = $1::text
+	WHERE n.nspname = ANY($1::text[])
 	UNION ALL
 	SELECT 'trigger', c.relname::text || '.' || t.tgname::text, pg_catalog.pg_get_triggerdef(t.oid), c.relname::text
 	FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid
 	JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-	WHERE n.nspname = $1::text AND NOT t.tgisinternal
+	WHERE n.nspname = ANY($1::text[]) AND NOT t.tgisinternal
 	UNION ALL
 	SELECT 'view', c.relname::text, pg_catalog.pg_get_viewdef(c.oid), c.relname::text
 	FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-	WHERE n.nspname = $1::text AND c.relkind = 'm'
+	WHERE n.nspname = ANY($1::text[]) AND c.relkind = 'm'
 ) AS d ORDER BY d.kind COLLATE "C", d.name COLLATE "C"`,
-			[schema]
+			[Arr.map(installation.names.levels, identifierOf)]
 		),
 		(rows) =>
 			Arr.sort(
@@ -287,6 +293,7 @@ const definitions = (s: RawSession, schema: string, abstract: (text: string) => 
 				byKindAndName
 			)
 	)
+}
 
 /** Definitions by their kind, then by their name: a definition's first two texts. */
 const byKindAndName: Order.Order<ReadonlyArray<string>> = Order.combine(
@@ -365,34 +372,41 @@ type ComparableCatalog = WithRest<{
 }>
 
 /**
- * Every name an installation minted under its own schema's identity whose spelling depends on it, as the text that
- * names it under any schema. A hashed name (a filter function's or a key probe's, whose stem and digest both carry the
- * installation) names one object of the whole installation (core/identity.ts censusOf), so it maps through the identity
- * it was minted from, to that identity's canonical encoding without the installation's, read off the naming door's
- * identities, never off its spelling. A readable name is its own label: it spells its identity, and one spelling may
- * name several objects (a role, its schema and its policies are all `<schema>__<role>`), so the schema's identifier it
- * starts with is the one placeholder, as is the installation's own display, which its hashed objects' comments hold. A
- * role's view is named by its relation's declared name alone, the same under any schema, so it is no such name.
+ * Every name an installation minted under one of its levels' schema identities whose spelling depends on it, as the
+ * text that names it under any schemas. A hashed name (a filter function's or a key probe's, whose stem and digest both
+ * carry the installation) names one object of the whole installation (core/identity.ts censusOf), so it maps through
+ * the identity it was minted from, to that identity's canonical encoding without its level's, read off the naming
+ * door's identities, never off its spelling. A readable name is its own label: it spells its identity, and one spelling
+ * may name several objects (a role, its schema and its policies are all `<schema>__<role>`), so the identifier of the
+ * level's schema it starts with is the one placeholder, the level's by its depth, as is each level's display, which its
+ * hashed objects' comments hold. A role's view is named by its relation's declared name alone, the same under any
+ * schema, so it is no such name.
  */
 export const installationAbstraction = (installation: Installation): ((text: string) => string) => {
-	const at = installation.names.installation
+	const placeholder = (depth: number): string => `\u0000${depth === 0 ? "" : String(depth)}`
+	const levels = Arr.map(installation.names.levels, (at, depth) => ({
+		at,
+		mark: placeholder(depth)
+	}))
 	const hashed = new Map<string, string>()
 	for (const i of installation.identities) {
-		if (i.form === "hashed" && Str.includes(at.canonical)(i.canonical)) {
-			hashed.set(i.identifier, `\u0000${Str.replaceAll(at.canonical, "")(i.canonical)}`)
+		for (const { at, mark } of levels) {
+			if (i.form === "hashed" && Str.includes(at.canonical)(i.canonical)) {
+				hashed.set(i.identifier, `${mark}${Str.replaceAll(at.canonical, "")(i.canonical)}`)
+			}
 		}
 	}
-	const entries: ReadonlyArray<readonly [string, string]> = [...hashed, [at.identifier, "\u0000"]]
-	/** Longest first: a hashed name spells the schema's identifier in its stem. */
+	const entries: ReadonlyArray<readonly [string, string]> = [
+		...hashed,
+		...Arr.map(levels, ({ at, mark }) => [at.identifier, mark] as const),
+		...Arr.map(levels, ({ at, mark }) => [at.display, mark] as const)
+	]
+	/** Longest first: a hashed name spells its level's identifier in its stem, and a level's spells the root's. */
 	const names = Arr.sort(
 		entries,
 		Order.flip(Order.mapInput(Order.Number, (entry: readonly [string, string]) => entry[0].length))
 	)
-	return (text) =>
-		Str.replaceAll(
-			at.display,
-			"\u0000"
-		)(Arr.reduce(names, text, (t, [from, to]) => Str.replaceAll(from, to)(t)))
+	return (text) => Arr.reduce(names, text, (t, [from, to]) => Str.replaceAll(from, to)(t))
 }
 
 /**
@@ -486,11 +500,14 @@ const comparable = (
 	}
 }
 
-/** The catalog of a schema an installation reached: its absence is a defect of the test. */
-const presentCatalog = (schema: string) =>
+/** The catalog of every level's schema an installation reached: its absence is a defect of the test. */
+const presentCatalog = (installation: Installation) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const installed = yield* readCatalog(substrate.admin, [schema])
+		const installed = yield* readCatalog(
+			substrate.admin,
+			mapNonEmpty(installation.names.levels, identifierOf)
+		)
 		if (installed.kind === "absent") {
 			return yield* Effect.die(new Error(`the schema ${installed.schema} is absent`))
 		}
@@ -510,16 +527,16 @@ export const sameCatalog = (
 		const substrate = yield* Substrate
 		const ofExpected = installationAbstraction(expected)
 		const ofActual = installationAbstraction(actual)
-		const expectedCatalog = yield* presentCatalog(expected.names.schema)
+		const expectedCatalog = yield* presentCatalog(expected)
 		const a = comparable(expectedCatalog, expected.names.schema, ofExpected)
-		const actualCatalog = yield* presentCatalog(actual.names.schema)
+		const actualCatalog = yield* presentCatalog(actual)
 		const b = comparable(actualCatalog, actual.names.schema, ofActual)
 		for (const part of Rec.keys(a)) {
 			assert.deepEqual(b[part], a[part], `${what}: catalog ${part}`)
 		}
 		const s = yield* substrate.session({ ...ownerSession(), label: `definitions ${what}` })
-		const actualDefinitions = yield* definitions(s, actual.names.schema, ofActual)
-		const expectedDefinitions = yield* definitions(s, expected.names.schema, ofExpected)
+		const actualDefinitions = yield* definitions(s, actual, ofActual)
+		const expectedDefinitions = yield* definitions(s, expected, ofExpected)
 		assert.deepEqual(actualDefinitions, expectedDefinitions, `${what}: definitions`)
 	}).pipe(Effect.scoped)
 

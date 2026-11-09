@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -397,7 +398,10 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 							const last = defined(built[built.length - 1], "the last version")
 							yield* withDbClaims(m, last.login.roles.editor, { sub: "u_ann" }, () => Effect.void)
 							yield* withDb(m, last.login.roles.viewer, () => Effect.void)
-							const read = yield* readCatalog(substrate.admin, [m.schema])
+							const read = yield* readCatalog(
+								substrate.admin,
+								mapNonEmpty(m.installation.names.levels, identifierOf)
+							)
 							assert.ok(read.kind === "present", `the migrated schema ${m.schema} is absent`)
 							assert.deepEqual(
 								checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),

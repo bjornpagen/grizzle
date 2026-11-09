@@ -6,6 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { identifierOf } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type PrivilegeFamily, privilegeFamilies } from "#compiler/deploy/admission/roles.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -121,8 +123,11 @@ const driftWorlds = (name: string) => {
 	return { base, editor, viewer, desk: login(base, "desk", [editor, viewer]) }
 }
 
-/** The catalog of `schema` as the migration identity sees it after `statements`, which are then rolled back. */
-const drifted = (schema: string, statements: ReadonlyArray<string>) =>
+/**
+ * The catalog of the installation whose level schemas are `schemas` (the root's first), as the migration identity sees
+ * it after `statements`, which are then rolled back.
+ */
+const drifted = (schemas: Arr.NonEmptyReadonlyArray<string>, statements: ReadonlyArray<string>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -133,9 +138,9 @@ const drifted = (schema: string, statements: ReadonlyArray<string>) =>
 					for (const sql of statements) {
 						yield* pinned.query(sql, [])
 					}
-					const read = yield* readCatalog(pinned, [schema])
+					const read = yield* readCatalog(pinned, schemas)
 					if (read.kind === "absent") {
-						return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
+						return yield* Effect.die(new Error(`the installed schema ${schemas[0]} is absent`))
 					}
 					return read.catalog
 				}),
@@ -585,7 +590,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							caseHang
 						},
 						(drift, c) =>
-							Effect.map(drifted(schema, drift.statements), (after) => {
+							Effect.map(drifted([schema], drift.statements), (after) => {
 								named(verifyErasure(after, expectation), drift)
 								c.note(drift.feature)
 							})
@@ -634,10 +639,13 @@ layer(Substrate.layer)("catalog drift", (it) => {
 						},
 						({ table, key }, c) =>
 							Effect.map(
-								drifted(schema, [
-									`ALTER TABLE ${qualified(catalog, table)} DROP CONSTRAINT ${quoteIdent(key.name)}`,
-									`ALTER TABLE ${qualified(catalog, table)} ADD CONSTRAINT ${quoteIdent(key.name)} ${key.definition} NOT VALID`
-								]),
+								drifted(
+									[schema],
+									[
+										`ALTER TABLE ${qualified(catalog, table)} DROP CONSTRAINT ${quoteIdent(key.name)}`,
+										`ALTER TABLE ${qualified(catalog, table)} ADD CONSTRAINT ${quoteIdent(key.name)} ${key.definition} NOT VALID`
+									]
+								),
 								(after) => {
 									assert.deepEqual(verifyErasure(after, expectation), [], "the shape rules hold")
 									const projected = projectCatalog(after)
@@ -680,10 +688,10 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							logins: [declared.desk],
 							extensions: []
 						})
-						const schema = done.schema
+						const schemas = mapNonEmpty(done.installation.names.levels, identifierOf)
 						const scope = installedScope(done.installation, done.snapshot)
 						const expect = scope.erasure
-						const baseline = yield* drifted(schema, [])
+						const baseline = yield* drifted(schemas, [])
 						assert.deepEqual(checkInstalled(baseline, scope), [], "the installation as installed")
 						const owner = baseline.owner
 						const roles = nonEmpty(
@@ -946,7 +954,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								caseHang
 							},
 							(drift, c) =>
-								Effect.map(drifted(schema, drift.statements), (after) => {
+								Effect.map(drifted(schemas, drift.statements), (after) => {
 									named(checkInstalled(after, scope), drift)
 									c.note(drift.feature)
 								})
