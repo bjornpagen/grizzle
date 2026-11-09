@@ -92,19 +92,15 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		const name = b.names.rosterDomain(t.roster.closed)
 		use.domains.set(domainKey(name), {
 			name,
-			identity: identity.rosterDomain(t.roster.closed),
+			identity: b.names.rosterNamed(t.roster.closed),
 			node: b.typeNamed(name)
 		})
 	}
 	if (t.carrier === "bits") {
 		const name = b.names.bitsDomain(t.roster.closed)
-		const codec = defined(
-			b.names.codes.rosters.get(t.roster.closed),
-			"the codebook holds every roster"
-		)
 		use.domains.set(domainKey(name), {
 			name,
-			identity: identity.bitsDomain(t.roster.closed, codec.width),
+			identity: b.names.bitsNamed(t.roster.closed),
 			node: b.typeNamed(name)
 		})
 	}

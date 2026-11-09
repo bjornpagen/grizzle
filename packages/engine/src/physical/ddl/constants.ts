@@ -1006,7 +1006,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				},
 				[b.schemaNode]
 			)
-			const domainNamed = identity.rosterDomain(roster)
+			const domainNamed = b.names.rosterNamed(roster)
 			const domain = b.names.rosterDomain(roster)
 			const domainName: ObjectName = { schema: domain.schema, name: b.name(domainNamed) }
 			const create: CreateDomain = {
@@ -1074,7 +1074,7 @@ const addBits = (
 		},
 		[b.schemaNode]
 	)
-	const domainNamed = identity.bitsDomain(roster, codec.width)
+	const domainNamed = b.names.bitsNamed(roster)
 	const domain: ObjectName = {
 		schema: b.names.bitsDomain(roster).schema,
 		name: b.name(domainNamed)

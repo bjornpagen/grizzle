@@ -14,7 +14,7 @@ import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
 import {
 	baseTypeRef,
@@ -86,6 +86,10 @@ export interface InstallNames extends PhysicalNames {
 	readonly contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
 	/** The identity of the structural text domain of a pattern the installation names, by its definition's digest. */
 	readonly textNamed: (regex: RegexRef) => Identity<"textDomain"> | undefined
+	/** The identity of a roster's domain, which ownership minted with the roster. */
+	readonly rosterNamed: (roster: DeclaredName) => Identity<"rosterDomain">
+	/** The identity of the domain of sets over a roster, at the roster's width in the installation's codes. */
+	readonly bitsNamed: (roster: DeclaredName) => Identity<"bitsDomain">
 }
 
 /**
@@ -349,10 +353,6 @@ const rosterOf = (owned: Owned, roster: string) => {
 	return r.kind === "closed" ? r : missing(`physical: ${roster} is no roster of the owned schema`)
 }
 
-/** A roster's codes in the installation's codebook, which holds every roster the schema declares. */
-const rosterCodec = (codes: Codebook, roster: DeclaredName): RosterCodec =>
-	codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
-
 /** The installed names of one schema, gathered under the PostgreSQL schema the installation targets, so the installer,
  * the grants and the query lowerings (`PhysicalNames`) address one set of objects. Every name is minted at the naming
  * door (core/identity.ts) from the identity of what it names: ownership mints the relations', fields', contracts',
@@ -397,6 +397,17 @@ export const installNames = (input: NamesInput): InstallNames => {
 		Array.from(input.textDomains, ([key, digest]) => [key, identity.textDomain(digest)] as const)
 	)
 	const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined => texts.get(regex.key)
+	const rosterNamed = (roster: DeclaredName): Identity<"rosterDomain"> =>
+		rosterOf(owned, roster).named
+	/** Each roster's bits domain at its width in the codes, minted once as the names are built. */
+	const bits = new Map(
+		Array.from(
+			input.codes.rosters,
+			([roster, codec]) => [roster, identity.bitsDomain(roster, codec.width)] as const
+		)
+	)
+	const bitsNamed = (roster: DeclaredName): Identity<"bitsDomain"> =>
+		bits.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
 	const names: InstallNames = {
 		installation,
 		schema,
@@ -422,11 +433,11 @@ export const installNames = (input: NamesInput): InstallNames => {
 		},
 		rosterDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
-			name: identifierOf(rosterOf(owned, roster).named)
+			name: identifierOf(rosterNamed(roster))
 		}),
 		bitsDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
-			name: identifierOf(identity.bitsDomain(roster, rosterCodec(input.codes, roster).width))
+			name: identifierOf(bitsNamed(roster))
 		}),
 		codes: input.codes,
 		closed: (relation) =>
@@ -440,6 +451,8 @@ export const installNames = (input: NamesInput): InstallNames => {
 			return named === undefined ? undefined : { schema: types, name: identifierOf(named) }
 		},
 		textNamed,
+		rosterNamed,
+		bitsNamed,
 		sequence: (relation, field) => {
 			const sequence = relationOf(owned, relation).fields[field]?.sequence
 			if (sequence === undefined) {
