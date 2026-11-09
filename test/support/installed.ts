@@ -1,10 +1,7 @@
-import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
-import type { OpenError } from "#adapter/errors/execution.ts"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import type { CompiledDbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -23,7 +20,6 @@ import {
 	type StatementsReadBack,
 	type StatementsWithin,
 	type UnderOwnNames,
-	roleNameOf,
 	schema
 } from "#compiler/public/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
@@ -45,10 +41,9 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { dropRole, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { testVerify } from "#test/support/worlds.ts"
 
 /**
  * One version of a migrated schema: its schema value, built under the allocated name, and the logins over it whose
@@ -71,26 +66,6 @@ interface Migrated extends Installed {
 	/** `$S` replaced by the quoted schema, run as the owner. */
 	readonly sql: (text: string) => Effect.Effect<void, SqlError>
 }
-
-/**
- * The DbLayer of `login`, typed by it, given the committed `snapshot`, its role given a password in the scope this runs
- * in: the cluster's connection (test/support/pg.ts clusterConnection), the test pool, and testVerify.
- */
-export const loginLayerOf = <L extends AnyLogin>(
-	login: L,
-	snapshot: CompiledDbConfigShape<L>["snapshot"]
-): Effect.Effect<Layer.Layer<DbLayerOf<L>, OpenError>, SqlError, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const given = yield* substrate.login(roleNameOf(login))
-		return compiledDbLayer({
-			...clusterConnection(substrate.cluster, substrate.database, given.password),
-			pool: clusterPool,
-			login,
-			snapshot,
-			verify: testVerify
-		})
-	})
 
 /**
  * Rebuilds `fixture` under `name` from its own relations and statements: a schema value whose statements name only its
