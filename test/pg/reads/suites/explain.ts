@@ -10,9 +10,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
+import { memberOps } from "#adapter/db/handles.ts"
 import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
+import { explainMember } from "#adapter/served/explain.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -27,7 +29,7 @@ import { exactValue, valueHash } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -60,11 +62,8 @@ const estimateOnly = (plan: Plan): void => {
 	}
 }
 
-/**
- * An opened Db of no workload program whose operations run on a tapped pool of one session, warmed so a window holds
- * one call's traffic.
- */
-const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
+/** A tapped pool of one session for `credentials`, warmed so a window holds one call's traffic. */
+const tappedPool = (credentials: Credentials) =>
 	Effect.gen(function* () {
 		const { cluster } = yield* Substrate
 		const tap = makeTap(cluster)
@@ -76,6 +75,12 @@ const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
 		yield* Effect.scoped(
 			Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 		)
+		return { pool, tap }
+	})
+
+/** An opened Db of no workload program whose operations run on a tapped pool of one session (tappedPool). */
+const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
+	Effect.map(tappedPool(credentials), ({ pool, tap }) => {
 		const context: DbContext = { ...opened.ctx, pool }
 		return { db: makeDb<R, unknown>(context, {}), context, tap }
 	})
@@ -242,8 +247,10 @@ const budget = {
 } as const
 
 /**
- * db.explain on PostgreSQL 19: one estimate-only Plan per statement the call it explains would emit, nothing executed,
- * and each refusal at its stage before any session is leased. It lives under test/pg/reads beside the read suite.
+ * Explain on PostgreSQL 19: one estimate-only Plan per statement the call it explains would emit, nothing executed,
+ * and each refusal at its stage before any session is leased. A read is a workload member of the login's served file,
+ * explained as explainMember explains it (adapter/served/explain.ts); a ChangeSet is still explained on the in-process
+ * Db, db.explain, until its served write is ported. It lives under test/pg/reads beside the read suite.
  *
  * The oracle of "one plan per statement" is the call itself: each case runs on a Db whose pool of one session is
  * tapped (test/support/wire-tap.ts), explains the program, then runs it, and the plans must number exactly the
@@ -251,7 +258,8 @@ const budget = {
  * ANALYZE (utility statements PostgreSQL never plans). As properties:
  *
  * - a read drawn over the worked example's Work (a plain read, a heterogeneous union, fused attachments, nested
- *   pipelined attachments, a relation parameter of drawn ids) is explained one plan per statement db.execute sends;
+ *   pipelined attachments, a relation parameter of drawn ids), each a served member, is explained one plan per
+ *   statement its execute sends;
  * - a ChangeSet drawn over the Shop fixture (one or two strata of generated additions, inserts, puts and deletes,
  *   with or without read-backs of delta.added and delta.removed, one joining a delta carrier with a stored relation) is
  *   explained one plan per plannable statement db.apply sends, in a transaction that is rolled back: no fact written,
@@ -304,61 +312,71 @@ export const explainSuite = (): void => {
 										),
 								"array"
 							)
-						return yield* Effect.gen(function* () {
-							const opened = yield* openDbContext(o.server.roles.app, {})
-							const { context, tap } = yield* tapped(opened, o.installed.as(o.server))
-							const reads = {
-								"a plain read": { query: W.automaticBudget, params: () => ({}) },
-								"a union": { query: W.taskPayloads, params: () => ({}) },
-								"fused attachments": {
-									query: W.taskCards,
-									params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-								},
-								"nested attachments": {
-									query: accountTasks,
-									params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-								},
-								"a relation parameter": {
-									query: W.tasksById,
-									params: (pick: number) => ({
-										ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
-									})
-								}
-							} as const
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									...budget,
-									suite: "reads/explain queries",
-									draw: drawn(queryCaseGen),
-									kept: [],
-									runs: 20,
-									coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
-								},
-								(c, notes) =>
-									Effect.gen(function* () {
-										const read = reads[c.read]
-										const params = read.params(c.pick)
-										const plans = yield* explain(context, read.query, params)
-										const executed = yield* observe(
-											tap,
-											Effect.flatMap(
-												dbReader(context).execute(read.query, params),
-												(result) => result.collect
+						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+							Effect.gen(function* () {
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const members = yield* load({
+									plainRead: W.automaticBudget,
+									union: W.taskPayloads,
+									fused: W.taskCards,
+									nested: accountTasks,
+									relationParameter: W.tasksById
+								})
+								const reads = {
+									"a plain read": { member: "plainRead", params: () => ({}) },
+									"a union": { member: "union", params: () => ({}) },
+									"fused attachments": {
+										member: "fused",
+										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
+									},
+									"nested attachments": {
+										member: "nested",
+										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
+									},
+									"a relation parameter": {
+										member: "relationParameter",
+										params: (pick: number) => ({
+											ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
+										})
+									}
+								} as const
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										...budget,
+										suite: "reads/explain queries",
+										draw: drawn(queryCaseGen),
+										kept: [],
+										runs: 20,
+										coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											const read = reads[c.read]
+											const params = read.params(c.pick)
+											const program = member(members, read.member)
+											const plans = yield* explainMember(context, program, params)
+											const executed = yield* observe(
+												tap,
+												Effect.flatMap(
+													memberOps(context, program).execute(params),
+													(result) => result.collect
+												)
 											)
-										)
-										assert.equal(
-											plans.length,
-											plannedStatements(tap, executed.window, context.prologue),
-											"one plan per statement"
-										)
-										for (const plan of plans) {
-											estimateOnly(plan)
-										}
-										notes.note(c.read)
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+											assert.equal(
+												plans.length,
+												plannedStatements(tap, executed.window, context.prologue),
+												"one plan per statement"
+											)
+											for (const plan of plans) {
+												estimateOnly(plan)
+											}
+											notes.note(c.read)
+										})
+								)
+							})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)

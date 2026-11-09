@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -17,7 +17,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A schema of closed relations only installs, opens and reads on PostgreSQL 19.
@@ -27,7 +26,7 @@ import { loginLayer } from "#test/support/worlds.ts"
  * two rosters, a drawn subset of a handle pool in a drawn order, and a closed relation over one of them, keyed by its
  * closed id, with a number and a text drawn per handle. It installs through its first migration as any schema does, its
  * law theory is empty, it stores no table (a roster is a domain and its names constant, a closed relation's rows reach
- * the database only as constants), Db.open admits it, and a reader reads every roster's handles. A closed relation's
+ * the database only as constants), Db.open admits it, and a workload member reads every roster's handles. A closed relation's
  * rows are read only through its closed reads, which stand in predicates and generation expressions, never in a query's
  * head, so no query delivers them.
  */
@@ -98,37 +97,37 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						)
 						const Region = closed("Region", c.regions)
 						const Plans = schema("Plans", { Tier, TierInfo, Region }, [])
+						const tiers = query(Plans).rule((r) => {
+							const { id } = v(Tier, "tier")
+							return r.match(Tier, { id }).find({ id })
+						})
+						const regions = query(Plans).rule((r) => {
+							const { id } = v(Region, "region")
+							return r.match(Region, { id }).find({ id })
+						})
 						const opened = yield* installed(
 							Plans,
 							{},
-							{ label: "real", extensions: [], programs: {} }
+							{ label: "real", extensions: [], programs: { tiers, regions } }
 						)
 						assert.deepEqual(opened.installed.installation.laws.theory.laws, [])
 						assert.ok(
 							Rec.isEmptyRecord(opened.installed.plan.tables),
 							"a schema of rosters and closed relations stores no table"
 						)
-						const tiers = query(opened.schema).rule((r) => {
-							const { id } = v(Tier, "tier")
-							return r.match(Tier, { id }).find({ id })
-						})
-						const regions = query(opened.schema).rule((r) => {
-							const { id } = v(Region, "region")
-							return r.match(Region, { id }).find({ id })
-						})
 						yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(opened.server.roles.app, {})
-							const all = yield* (yield* db.execute(tiers, {})).collect
+							const db = yield* Db.open(opened.served.login.roles.app, {})
+							const all = yield* (yield* db.workload.tiers.execute({})).collect
 							unorderedEqual(
 								Arr.map(all, (row) => row.id),
 								[...c.tiers]
 							)
-							const rs = yield* (yield* db.execute(regions, {})).collect
+							const rs = yield* (yield* db.workload.regions.execute({})).collect
 							unorderedEqual(
 								Arr.map(rs, (row) => row.id),
 								[...c.regions]
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
+						}).pipe(Effect.scoped, withLayer(opened.served.layer))
 						notes.noteAll(
 							Arr.flatMap([c.tiers, c.regions], (roster): ReadonlyArray<ClosedFeature> =>
 								roster.length === 1

@@ -7,14 +7,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { ServerError } from "#adapter/errors/failures.ts"
-import { poolExecutor } from "#adapter/reader/executor.ts"
-import { makeReader, type ReaderValue } from "#adapter/reader/reader.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer } from "#adapter/public/layer.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import type { AnyLogin } from "#compiler/public/schema.ts"
 import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	type RoleDefaultParameter,
@@ -26,12 +26,14 @@ import { assert } from "#test/support/assert.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installMigratedIn as installIn } from "#test/support/install-migrate.ts"
+import { type Installed, installMigratedIn as installIn } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
+import type { ServedFixture } from "#test/support/served-db.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayerIn } from "#test/support/worlds.ts"
+import { testVerify } from "#test/support/worlds.ts"
 
 const builtinCUtf8 =
 	"ENCODING 'UTF8' LOCALE_PROVIDER builtin BUILTIN_LOCALE 'C.UTF-8' LOCALE 'C.UTF-8'"
@@ -152,9 +154,10 @@ const holdsSchema = (c: OpenCase): boolean =>
  * pool sends the defaults again as its startup options; on a database that holds none, the read's fence refuses it, the
  * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector names
  * pgvector's type in the vector schema, which grizzle checks nothing of: a Search Db, whose role holds USAGE on it,
- * answers one where its schema is installed; a Work Db compiles one (db.compile) and PostgreSQL refuses it at the call,
- * a ReadFailure with the server's ServerError: where pgvector is installed the role holds no USAGE on its schema
- * (42501), and where it is not the schema does not exist (3F000).
+ * answers one where its schema is installed; Work's served file holds one too, compiled as any program, and PostgreSQL
+ * refuses it at the call, a ReadFailure with the server's ServerError: where pgvector is installed the role holds no
+ * USAGE on its schema (42501), and where it is not the schema does not exist (3F000). Each login is served from its
+ * file as the installation compiled it, on a DbLayer of the case's database.
  *
  * The opens a role, token or claims refuse are the worlds model's (test/pg/world-model); a password Effect's failure is
  * the connection suite's.
@@ -170,13 +173,36 @@ export const openSuite = (): void => {
 						const work = yield* installed(W.Work, workFacts, {
 							label: "real",
 							extensions: [],
-							programs: {}
+							programs: { task: W.Task, vectorProbe }
 						})
 						const searching = yield* installed(
 							search.Search,
 							{},
-							{ label: "real", extensions: [], programs: {} }
+							{
+								label: "real",
+								extensions: [],
+								programs: { document: search.Document, searchProbe }
+							}
 						)
+						/** The DbLayer of a fixture's served login in `database`, as an application builds it. */
+						const layerIn = <L extends AnyLogin>(
+							database: string,
+							o: {
+								readonly installed: Installed
+								readonly server: L
+								readonly served: ServedFixture<L>
+							}
+						) =>
+							DbLayer.make({
+								...clusterConnection(
+									o.installed.cluster,
+									database,
+									o.installed.as(o.server).password
+								),
+								pool: clusterPool,
+								login: o.served.login,
+								verify: testVerify
+							})
 						const libc = yield* bareDatabase(
 							"bare",
 							"ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C'"
@@ -237,85 +263,71 @@ export const openSuite = (): void => {
 										}
 									}
 									if (c.schema === "Work") {
-										yield* Effect.flatMap(
-											openDbContext(work.server.roles.app, {}),
-											({ db, ctx: context }) =>
-												Effect.gen(function* () {
-													const reader: ReaderValue = makeReader(context, poolExecutor(context))
-													const found = yield* Effect.result(reader.get(W.Task, { id: t1 }))
-													if (holdsSchema(c)) {
-														assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
-														assert.equal(
-															Option.isSome(found.success),
-															c.database === "installed",
-															"a task is found exactly where the facts were loaded"
-														)
-														k.note("Work read")
-													} else {
-														assert.ok(Result.isFailure(found), `a read of ${c.database}`)
-														noLedger(found.failure)
-														k.note(
-															"a read refused at the fence, the database without the schema's ledger"
-														)
-													}
-													yield* Effect.scoped(db.compile(vectorProbe))
-													if (!holdsSchema(c)) {
-														return
-													}
-													/**
-													 * The probe names vector_ext.vector(3): where pgvector is installed the role holds no USAGE
-													 * on its schema (42501), and where it is not the schema does not exist (3F000).
-													 */
-													const refusedBy =
-														c.database === "installed"
-															? sqlstates.insufficientPrivilege
-															: sqlstates.invalidSchemaName
-													const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
-													assertInstanceOf(read, ReadFailure)
-													assertInstanceOf(read.reason, ServerError)
-													assert.equal(read.reason.sqlstate, refusedBy)
-													k.note("a vector probe refused by PostgreSQL")
-												})
-										).pipe(
-											Effect.orDie,
-											withLayer(Layer.fresh(loginLayerIn(database, work.installed, work.server)))
-										)
-										return
-									}
-									yield* Effect.flatMap(
-										openDbContext(searching.server.roles.app, {}),
-										({ db, ctx: dbCtx }) =>
+										yield* Effect.flatMap(Db.open(work.served.login.roles.app, {}), (db) =>
 											Effect.gen(function* () {
-												assert.equal(
-													dbCtx.artifacts.names.vectorSchema,
-													testTypeSchema("vector_ext")
-												)
-												const found = yield* Effect.result(
-													db.get(search.Document, { id: "00000000-0000-4000-8000-000000000001" })
-												)
-												if (!holdsSchema(c)) {
+												const found = yield* Effect.result(db.workload.task.get({ id: t1 }))
+												if (holdsSchema(c)) {
+													assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
+													assert.equal(
+														Option.isSome(found.success),
+														c.database === "installed",
+														"a task is found exactly where the facts were loaded"
+													)
+													k.note("Work read")
+												} else {
 													assert.ok(Result.isFailure(found), `a read of ${c.database}`)
 													noLedger(found.failure)
 													k.note(
 														"a read refused at the fence, the database without the schema's ledger"
 													)
+												}
+												if (!holdsSchema(c)) {
 													return
 												}
-												assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
-												assert.equal(found.success._tag, "None")
-												const probed = yield* Effect.orDie(
-													Effect.flatMap(db.execute(searchProbe, { qs }), (r) => r.collect)
-												)
-												assert.deepEqual(probed, [])
-												k.note("a vector probe answered")
-												k.note("Search read")
+												/**
+												 * The probe names vector_ext.vector(3): where pgvector is installed the role holds no USAGE
+												 * on its schema (42501), and where it is not the schema does not exist (3F000).
+												 */
+												const refusedBy =
+													c.database === "installed"
+														? sqlstates.insufficientPrivilege
+														: sqlstates.invalidSchemaName
+												const read = yield* Effect.flip(db.workload.vectorProbe.execute({ qs }))
+												assertInstanceOf(read, ReadFailure)
+												assertInstanceOf(read.reason, ServerError)
+												assert.equal(read.reason.sqlstate, refusedBy)
+												k.note("a vector probe refused by PostgreSQL")
 											})
-									).pipe(
-										Effect.orDie,
-										withLayer(
-											Layer.fresh(loginLayerIn(database, searching.installed, searching.server))
-										)
-									)
+										).pipe(Effect.orDie, withLayer(Layer.fresh(layerIn(database, work))))
+										return
+									}
+									yield* Effect.flatMap(Db.open(searching.served.login.roles.app, {}), (db) =>
+										Effect.gen(function* () {
+											assert.equal(
+												searching.installed.names.vectorSchema,
+												testTypeSchema("vector_ext")
+											)
+											const found = yield* Effect.result(
+												db.workload.document.get({ id: "00000000-0000-4000-8000-000000000001" })
+											)
+											if (!holdsSchema(c)) {
+												assert.ok(Result.isFailure(found), `a read of ${c.database}`)
+												noLedger(found.failure)
+												k.note(
+													"a read refused at the fence, the database without the schema's ledger"
+												)
+												return
+											}
+											assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
+											assert.equal(found.success._tag, "None")
+											const probed = yield* Effect.orDie(
+												Effect.flatMap(db.workload.searchProbe.execute({ qs }), (r) => r.collect)
+											)
+											assert.deepEqual(probed, [])
+											k.note("a vector probe answered")
+											k.note("Search read")
+										})
+									).pipe(Effect.orDie, withLayer(Layer.fresh(layerIn(database, searching))))
 								})
 						)
 					}).pipe(Effect.scoped)

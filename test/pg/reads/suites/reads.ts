@@ -28,10 +28,7 @@ import {
 	Stream,
 	String as Str
 } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { compiledOpen, openDbContext } from "#adapter/db/open.ts"
-import { poolExecutor } from "#adapter/reader/executor.ts"
-import { makeReader } from "#adapter/reader/reader.ts"
+import { Db } from "#adapter/public/db.ts"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -47,9 +44,9 @@ import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A delivered value with its carriers kept and Options spelled out, comparable by deepStrictEqual. */
 const plain = (value: unknown): unknown => {
@@ -208,20 +205,6 @@ const accountTaskNotes = query(W.Work)
 		"array"
 	)
 
-/** A Db context over a pool that counts its leases: a read refused before any SQL leases none. */
-const countingReader = (ctx: DbContext) => {
-	const leases = { count: 0 }
-	const pool = {
-		...ctx.pool,
-		lease: Effect.suspend(() => {
-			leases.count++
-			return ctx.pool.lease
-		})
-	}
-	const counted = { ...ctx, pool }
-	return { reader: makeReader(counted, poolExecutor(counted)), leases }
-}
-
 type RelationFeature =
 	| "an array"
 	| "a Stream"
@@ -328,6 +311,34 @@ interface UnionCase {
 	readonly take: { readonly kind: "none" } | { readonly kind: "take"; readonly k: number }
 }
 
+/** The largest take a union case draws. */
+const takeMax = 14
+
+/** The member a union case reads: the union ordered by id in its direction, with its take or none. */
+const unionMember = (c: Pick<UnionCase, "descending" | "take">): string =>
+	`${c.descending ? "desc" : "asc"}${c.take.kind === "none" ? "" : String(c.take.k)}`
+
+/**
+ * Every member a union case reads, served at once: the union ordered by id ascending and descending, each with no take
+ * and with every take a case draws.
+ */
+const unionMembers: Readonly<Record<string, unknown>> = Rec.fromEntries(
+	Arr.flatMap([false, true], (descending) => {
+		const ordered = W.taskPayloads.orderBy(["id", descending ? "desc" : "asc"])
+		return [
+			[unionMember({ descending, take: { kind: "none" } }), ordered] as const,
+			...Arr.map(
+				indices(takeMax),
+				(n) =>
+					[
+						unionMember({ descending, take: { kind: "take", k: n + 1 } }),
+						ordered.take(n + 1)
+					] as const
+			)
+		]
+	})
+)
+
 const unionCaseGen: Gen<UnionCase> = (source) => ({
 	accounts: source.draw(int(1, 4)),
 	tasks: source.draw(array(taskSketchGen, { min: 0, max: 12 })),
@@ -335,7 +346,7 @@ const unionCaseGen: Gen<UnionCase> = (source) => ({
 	take: source.draw(
 		oneOf<UnionCase["take"]>([
 			constant({ kind: "none" }),
-			map(int(1, 14), (k) => ({ kind: "take", k }))
+			map(int(1, takeMax), (k) => ({ kind: "take", k }))
 		])
 	)
 })
@@ -359,10 +370,11 @@ const byIdText: Order.Order<Readonly<Record<string, unknown>>> = Order.mapInput(
 const byId: Order.Order<unknown> = Order.mapInput(Order.String, idOf)
 
 /**
- * The read suite: QueryReader over the worked example's Work, through Db.open and a DbLayer, exactly as an application
- * reads. A suite is a function of its target: test/pg/reads/reads.test.ts runs it straight to the server on :5433.
- * get over keys and queries, attachments stitched by parent key, execute against a compiled handle and the encoding refusal are
- * the public-boundary differential's (test/pg/oracle/public), over generated programs. Here, as properties:
+ * The read suite: workload members over the worked example's Work, served through its login's served file and run
+ * through Db.open and a DbLayer, exactly as an application reads. A suite is a function of its target:
+ * test/pg/reads/reads.test.ts runs it straight to the server on :5433. get over keys and queries, attachments stitched
+ * by parent key and the encoding refusal are the public-boundary differential's (test/pg/oracle/public), over generated
+ * programs. Here, as properties:
  *
  * - a relation parameter is a set of facts, as an array or as a Stream: a repeated fact is one, an absent key matches
  *   nothing, and an input of 250,000 distinct facts, past any bound of rows, is read like a small one;
@@ -382,13 +394,12 @@ export const readSuite = () => {
 						const opened = yield* installed(W.Work, workFacts, {
 							label: "real",
 							extensions: [],
-							programs: {}
+							programs: { tasksById: W.tasksById }
 						})
-						const sessions = yield* Layer.build(loginLayer(opened.installed, opened.server))
-						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {}).pipe(
+						const sessions = yield* Layer.build(opened.served.layer)
+						const db = yield* Db.open(opened.served.login.roles.app, {}).pipe(
 							Effect.provideContext(sessions)
 						)
-						const { reader } = countingReader(dbCtx)
 						const stored = workFacts.Task
 						return yield* explore(
 							{
@@ -431,7 +442,7 @@ export const readSuite = () => {
 									)
 									const outcome = yield* Effect.result(
 										Effect.flatMap(
-											reader.execute(W.tasksById, {
+											db.workload.tasksById.execute({
 												ids: c.stream ? Stream.fromIterable(facts) : facts
 											}),
 											(result) => result.collect
@@ -474,55 +485,55 @@ export const readSuite = () => {
 							{},
 							{ label: "real", extensions: [], programs: {} }
 						)
-						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(opened.server.roles.app, {})
-							let group = 0
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									...budget,
-									/** The case's facts replace the last case's whole (substrate/replace.ts). */
-									suite: "reads/union",
-									draw: drawn(unionCaseGen),
-									kept: [],
-									runs: 60,
-									coverage: required<UnionFeature>(
-										[
-											"ascending",
-											"descending",
-											"a take",
-											"no take",
-											"an empty group",
-											"a take past the union"
-										],
-										{ cases: 60, sense: notesOnly }
-									)
-								},
-								(c, notes) =>
-									Effect.gen(function* () {
-										const facts = workFactsOf(group++, c.accounts, c.tasks)
-										yield* replace(opened.installed, facts)
-										const ordered = W.taskPayloads.orderBy(["id", c.descending ? "desc" : "asc"])
-										const rows = payloadRows(facts)
-										const sorted = Arr.sort(rows, c.descending ? Order.flip(byIdText) : byIdText)
-										if (c.take.kind === "none") {
-											const got = yield* (yield* db.execute(ordered, {})).collect
-											assert.deepEqual(Arr.map(got, plain), sorted)
-										} else {
-											const got = yield* (yield* db.execute(ordered.take(c.take.k), {})).collect
-											assert.deepEqual(Arr.map(got, plain), sorted.slice(0, c.take.k))
-											if (c.take.k > rows.length) {
-												notes.note("a take past the union")
+						return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
+							Effect.gen(function* () {
+								const unions = yield* serve(unionMembers)
+								let group = 0
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										...budget,
+										/** The case's facts replace the last case's whole (substrate/replace.ts). */
+										suite: "reads/union",
+										draw: drawn(unionCaseGen),
+										kept: [],
+										runs: 60,
+										coverage: required<UnionFeature>(
+											[
+												"ascending",
+												"descending",
+												"a take",
+												"no take",
+												"an empty group",
+												"a take past the union"
+											],
+											{ cases: 60, sense: notesOnly }
+										)
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											const facts = workFactsOf(group++, c.accounts, c.tasks)
+											yield* replace(opened.installed, facts)
+											const rows = payloadRows(facts)
+											const sorted = Arr.sort(rows, c.descending ? Order.flip(byIdText) : byIdText)
+											const got = yield* (yield* member(unions, unionMember(c)).execute({})).collect
+											if (c.take.kind === "none") {
+												assert.deepEqual(Arr.map(got, plain), sorted)
+											} else {
+												assert.deepEqual(Arr.map(got, plain), sorted.slice(0, c.take.k))
+												if (c.take.k > rows.length) {
+													notes.note("a take past the union")
+												}
 											}
-										}
-										notes.note(c.descending ? "descending" : "ascending")
-										notes.note(c.take.kind === "none" ? "no take" : "a take")
-										if (facts.AutomaticTask.length === 0 || facts.ManualTask.length === 0) {
-											notes.note("an empty group")
-										}
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
+											notes.note(c.descending ? "descending" : "ascending")
+											notes.note(c.take.kind === "none" ? "no take" : "a take")
+											if (facts.AutomaticTask.length === 0 || facts.ManualTask.length === 0) {
+												notes.note("an empty group")
+											}
+										})
+								)
+							})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -537,7 +548,7 @@ export const readSuite = () => {
 						const opened = yield* installed(W.Work, workFacts, {
 							label: "real",
 							extensions: [],
-							programs: {}
+							programs: { taskPayloads: W.taskPayloads, accountTaskNotes }
 						})
 						const names = namesOf(opened.installed)
 						/** Kind's codes: a closed id is stored as its handle's code. */
@@ -551,10 +562,13 @@ export const readSuite = () => {
 						 */
 						const role = opened.installed.as(opened.server).role
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(opened.server.roles.app, {})
+							const db = yield* Db.open(opened.served.login.roles.app, {})
 							const reads = {
-								union: Effect.flatMap(db.execute(W.taskPayloads, {}), (r) => r.collect),
-								attachment: Effect.flatMap(db.execute(accountTaskNotes, {}), (r) => r.collect)
+								union: Effect.flatMap(db.workload.taskPayloads.execute({}), (r) => r.collect),
+								attachment: Effect.flatMap(
+									db.workload.accountTaskNotes.execute({}),
+									(r) => r.collect
+								)
 							}
 							/** A read's answer, its rows in id order where the query leaves the order open. */
 							const answer = (rows: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
@@ -669,7 +683,7 @@ export const readSuite = () => {
 										notes.note(state)
 									}).pipe(Effect.scoped)
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
+						}).pipe(Effect.scoped, withLayer(opened.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)

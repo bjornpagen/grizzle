@@ -4,8 +4,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -14,9 +13,8 @@ import { installed } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * An imported query's parameters bound to literals, generated: the import reads exactly the rows the query reads with
@@ -26,7 +24,8 @@ import { loginLayer } from "#test/support/worlds.ts"
  * takes the first k by score: a parameter in a match, in a filter, in a relational negation and as take's bound. A run
  * draws its facts (a few items in two groups, marks of two tags) and binding cases of values inside and outside the
  * facts; each case binds every parameter to a literal in an importing rule (`query.bind({ ... })`) and the importer,
- * which has no parameters of its own, must read the same rows as the query executed with the same values.
+ * which has no parameters of its own, must read the same rows as the query executed with the same values. The query and
+ * every importer are members of the login's workload, served as one file.
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, grp: pg.integer, score: pg.integer }, ["id"])
@@ -139,26 +138,32 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								})
 								.orderBy(["score", "desc"], ["id", "asc"])
 								.take("k")
-							const rowsOf = (
-								rows: ReadonlyArray<{ readonly id: number; readonly score: number }>
-							) => Arr.map(rows, ({ id, score }) => ({ id, score }))
-							yield* Effect.gen(function* () {
-								const db = yield* compiledOpen(opened.server.roles.app, {})
-								for (const b of bindings) {
-									const imported = query(s).rule((r) => {
+							/** Each binding's importer, by its index. */
+							const imports = Rec.fromEntries(
+								Arr.map(bindings, (b, i) => [
+									`imported${i}`,
+									query(s).rule((r) => {
 										const bound = top.bind({ grp: b.grp, lo: b.lo, k: b.k, tag: b.tag })
 										const { id, score } = v(bound, "bound")
 										return r.match(bound, { id, score }).find({ id, score })
 									})
-									const direct = yield* (yield* db.execute(top, b)).collect
-									const viaImport = yield* (yield* db.execute(imported, {})).collect
-									unorderedEqual(
-										rowsOf(viaImport),
-										rowsOf(direct),
-										`${Formatter.format(b)} over ${Formatter.format(facts)}`
-									)
-								}
-							}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
+								])
+							)
+							yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
+								Effect.gen(function* () {
+									const served = yield* serve({ top, ...imports })
+									for (const [i, b] of bindings.entries()) {
+										const direct = yield* (yield* member(served, "top").execute({ ...b })).collect
+										const viaImport = yield* (yield* member(served, `imported${i}`).execute({}))
+											.collect
+										unorderedEqual(
+											viaImport,
+											direct,
+											`${Formatter.format(b)} over ${Formatter.format(facts)}`
+										)
+									}
+								})
+							)
 						}).pipe(Effect.scoped)
 				)
 			)

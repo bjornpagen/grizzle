@@ -17,10 +17,10 @@ import { type Equivalence, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option, Order, Record as Rec } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
-import { ReadFailure } from "#adapter/errors/execution.ts"
-import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import type { CompiledOps } from "#adapter/db/ops.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -30,22 +30,19 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Union cells on PostgreSQL 19: a union's rows decode to exactly the records its arms decode to, each read alone.
  *
  * Property: for a drawn union of plain arms over one relation, in one heading group or two (told apart by a tag
  * literal), every arm delivering each key of its heading as a head literal or as the relation's field, the records
- * db.execute delivers for the union are the set union of the records it delivers for each arm run as a query of its
- * own: the union holds each record once, however many arms deliver it, and each arm alone holds each of its records
+ * its member's execute delivers for the union are the set union of the records it delivers for each arm run as a query
+ * of its own: the union holds each record once, however many arms deliver it, and each arm alone holds each of its records
  * once, so a delivery that repeats a record fails. The oracle is that decoding: an arm alone is one heading group of one
  * arm, whose cells no other arm shares, so it reads each literal as itself and each field by its type; the union must
  * read every cell as the arm that wrote it would. Records compare by their keys, and each value by its host kind and
@@ -62,8 +59,9 @@ import { loginLayer } from "#test/support/worlds.ts"
  * head literal takes the type the group's field arm delivers its column at when it is a value of it (check/checker.ts
  * #positionedTypes): 1 is a float, so against the float field the union decodes to the records its arms decode to
  * alone, the literal's cell read as a float beside the field's -0 and 1.5; a JavaScript number is never a numeric, so
- * against the numeric field the literal keeps its integer type and the union is refused before any SQL
- * (MalformedDescription): a numeric "1.00" never meets a literal's cell.
+ * against the numeric field the literal keeps its integer type and the union is refused where its workload member is
+ * compiled (MalformedDescription), before any SQL: a numeric "1.00" never meets a literal's cell. Every union and arm is
+ * a member of the login's workload, served for its case.
  */
 const handles = ["A", "B", "C"] as const
 type Handle = (typeof handles)[number]
@@ -493,19 +491,9 @@ const reached = (c: {
 	return out
 }
 
-/** A tag a read failure's reason or its compile refusal carries. */
-type RefusalTag = ReadFailure["reason"]["_tag"] | GrizzleErrorTag | CompileReasonTag
-
-/**
- * A read failure by its tags: its reason's, and a compile refusal's own reason beside it; none for any other failure.
- * A union whose column has two types is refused at compile, MalformedDescription.
- */
-const refusalTags = (failure: unknown): ReadonlyArray<RefusalTag> =>
-	failure instanceof ReadFailure
-		? failure.reason._tag === "CompileError"
-			? ["CompileError", failure.reason.reason._tag]
-			: [failure.reason._tag]
-		: []
+/** The rows a served member delivers, run without parameters. */
+const records = (ops: CompiledOps<unknown>) =>
+	Effect.flatMap(ops.execute({}), (result) => result.collect)
 
 layer(Substrate.layer)("union cells", (it) => {
 	it.effect(
@@ -531,13 +519,8 @@ layer(Substrate.layer)("union cells", (it) => {
 						Arr.map(columns, (c) => names.column(Cell, c)),
 						", "
 					)}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-					return yield* Effect.gen(function* () {
-						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
-						const rows = dbReader(dbCtx)
-						/** The case's facts replace the last case's whole (substrate/replace.ts). */
-						const records = (q: QueryValue) =>
-							Effect.flatMap(rows.execute(q, {}), (result) => result.collect)
-						return yield* explore(
+					return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
+						explore(
 							{
 								oracle: { kind: "unstated" },
 								suite: "pg/reads/union-cells",
@@ -575,20 +558,35 @@ layer(Substrate.layer)("union cells", (it) => {
 										const [a, b] = plantedArms(c.against, c.literalFirst)
 										const planted = queryOver(Cells).rule(a).rule(b)
 										if (c.against === "numeric") {
-											const exit = yield* Effect.exit(records(planted))
+											const refused = yield* Effect.result(serve({ planted }))
+											assert.ok(
+												Result.isFailure(refused),
+												"a literal against the numeric field is compiled"
+											)
+											assert.ok(
+												!(refused.failure instanceof OpenError),
+												Formatter.format(refused.failure)
+											)
+											const error = refused.failure.error
+											assert.ok(isCompileError(error), Formatter.format(error))
 											assert.deepEqual(
-												Option.map(Exit.findErrorOption(exit), refusalTags),
-												Option.some<ReadonlyArray<RefusalTag>>([
-													"CompileError",
+												[refused.failure.place, error.reason._tag],
+												[
+													{ kind: "program", role: "app", program: "planted" },
 													"MalformedDescription"
-												]),
-												"a literal against the numeric field is refused before any SQL"
+												],
+												"a literal against the numeric field is refused where the member is compiled"
 											)
 											return
 										}
-										const delivered = yield* records(planted)
-										const first = yield* records(queryOver(Cells).rule(a))
-										const second = yield* records(queryOver(Cells).rule(b))
+										const served = yield* serve({
+											planted,
+											first: queryOver(Cells).rule(a),
+											second: queryOver(Cells).rule(b)
+										})
+										const delivered = yield* records(member(served, "planted"))
+										const first = yield* records(member(served, "first"))
+										const second = yield* records(member(served, "second"))
 										const alone = armsAlone([first, second])
 										assert.deepEqual(
 											set(structuralHash, sameRecord)(delivered, alone),
@@ -598,8 +596,14 @@ layer(Substrate.layer)("union cells", (it) => {
 										return
 									}
 									const arms = armsOf(c.groups)
-									const union = yield* records(unionOf(arms))
-									const armRecords = yield* Effect.forEach(arms, (arm) => records(unionOf([arm])))
+									const served = yield* serve({
+										union: unionOf(arms),
+										...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
+									})
+									const union = yield* records(member(served, "union"))
+									const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
+										records(member(served, `arm${j}`))
+									)
 									const alone = armsAlone(armRecords)
 									assert.deepEqual(
 										set(structuralHash, sameRecord)(union, alone),
@@ -609,7 +613,7 @@ layer(Substrate.layer)("union cells", (it) => {
 									notes.noteAll(reached(c))
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
+					)
 				}).pipe(Effect.scoped)
 			)
 	)
