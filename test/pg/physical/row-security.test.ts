@@ -5,7 +5,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { Drifted } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -257,7 +257,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: 'row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration; the drift check, refusing exactly a catalog whose row security was changed by hand'
+							name: "row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration; the drift check, refusing exactly a catalog whose row security was changed by hand"
 						},
 						coverage: required<RowSecurityFeature>(
 							[
@@ -385,8 +385,8 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 								const facts = Arr.map(reason.mismatches, (d) => d.fact)
 								for (const r of changed) {
 									assert.ok(
-										Arr.some(facts, (f) => f.includes(tableOf(r))),
-										`drift names the changed table ${tableOf(r)}: ${facts.join("; ")}`
+										Arr.some(facts, (f) => Str.includes(tableOf(r))(f)),
+										`drift names the changed table ${tableOf(r)}: ${Arr.join(facts, "; ")}`
 									)
 								}
 								k.note(`a changed table drifted, row security ${planted}`)

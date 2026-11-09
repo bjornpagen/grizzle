@@ -33,7 +33,12 @@ import {
 	Struct
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
+import {
+	type OpenError,
+	type ReadError,
+	ReadFailure,
+	StaleSnapshot
+} from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -97,12 +102,12 @@ const nextNow = cliClock()
  * - `grizzle generate --custom` with a data step, failing or not, and the fix of a failing one;
  * - tampering, undone after: snapshot.json or meta.json made unreadable or off the chain (check, migrate and generate
  *   all refuse, nothing written or run), or an applied file edited (migrate refuses, nothing run);
- * - Db.open against the committed snapshot: admitted exactly when every folder up to the last generated one is applied,
- *   a custom folder after it keeping the snapshot's target;
+ * - Db.open against the committed snapshot: its first read answers exactly when every folder up to the last generated
+ *   one is applied, a custom folder after it keeping the snapshot's target;
  * - `grizzle migrate` with a wrong password: refused at its connection, nothing run;
  * - scenarios, each a step drawn with the steps that make it reachable: a workload program removed, a placeholder
- *   reviewed, a folder resumed after its failing data step was fixed, Db.open admitting a database fully applied, and
- *   Db.open refusing one a new snapshot is generated over.
+ *   reviewed, a folder resumed after its failing data step was fixed, a first call answering on a database fully
+ *   applied, and one refused on a database a new snapshot is generated over.
  *
  * After every command the real workspace and database are read back and must be what the model claims: the exit code,
  * the folders on disk, the folders the ledger records complete, and after every refusal that runs nothing, the ledger
@@ -192,8 +197,8 @@ const commandKinds = [
 	"tamper with snapshot.json",
 	"tamper with meta.json",
 	"tamper with an applied file",
-	"Db.open admits",
-	"Db.open refuses",
+	"a first call answers",
+	"a first call is refused",
 	"wrong password"
 ] as const
 type CommandKind = (typeof commandKinds)[number]
@@ -696,15 +701,16 @@ const runTamper = (r: Workspace, kind: TamperKind, model: Model) =>
 	})
 
 /**
- * Db.open against the committed snapshot: admits once the ledger's latest complete target is the snapshot, whichever
- * folders are still pending. The first migration creates the login's role: before it there is no role to log in as,
- * and any password is refused. Both versions' login is one login, `server`. Nothing applied leaves no reader to
- * authenticate; a pending folder leaves the ledger behind.
+ * A Db opened against the committed snapshot and its first call, a read: Db.open contacts nothing, so it always opens,
+ * and the read answers once the ledger's latest complete target is the snapshot, whichever folders are still pending.
+ * The first migration creates the login's role: before it there is no role to log in as, and the read's connection is
+ * refused at stage acquire whatever its password. Both versions' login is one login, `server`. A pending folder leaves
+ * the ledger behind, and the read's fence refuses it with StaleSnapshot.
  */
 const runOpen = (r: Workspace, model: Model) =>
 	Effect.gen(function* () {
-		const admits = atSnapshot(model)
-		r.c.note(admits ? "Db.open admits" : "Db.open refuses")
+		const answers = atSnapshot(model)
+		r.c.note(answers ? "a first call answers" : "a first call is refused")
 		const snapshot = yield* readText(`${schemaDir(r)}/snapshot.json`)
 		/** The configuration the committed snapshot was generated from: its schema value, its login's workload. */
 		const generated = defined(
@@ -722,30 +728,40 @@ const runOpen = (r: Workspace, model: Model) =>
 			snapshot: snapshotJson(snapshot),
 			verify: testVerify
 		}
-		/** Opened as the reader of that schema value, through its login's layer given the committed snapshot. */
-		const open: Effect.Effect<unknown, OpenError> =
+		/** Opened as the reader of that schema value, through its login's layer given the committed snapshot, and read. */
+		const read: Effect.Effect<unknown, OpenError | ReadError> =
 			generated.version === 2
 				? withLayer(
-						Effect.scoped(Db.open(v2.server.roles.reader, {})),
+						Effect.scoped(
+							Effect.flatMap(Db.open(v2.server.roles.reader, {}), (db) =>
+								db.get(v2.Customer, { id: id(1) })
+							)
+						),
 						DbLayer.make({ ...connection, login: v2.server })
 					)
 				: withLayer(
-						Effect.scoped(Db.open(v1.server.roles.reader, {})),
+						Effect.scoped(
+							Effect.flatMap(Db.open(v1.server.roles.reader, {}), (db) =>
+								db.get(v1.Customer, { id: id(1) })
+							)
+						),
 						DbLayer.make({ ...connection, login: v1.server })
 					)
-		const opened = yield* Effect.result(Effect.as(open, "admitted"))
-		if (admits) {
-			assert.ok(
-				Result.isSuccess(opened),
-				"Db.open admits the database once every folder is applied"
-			)
+		const answered = yield* Effect.result(read)
+		if (answers) {
+			assert.ok(Result.isSuccess(answered), "the first read answers once every folder is applied")
 		} else {
 			assert.ok(
-				Result.isFailure(opened),
-				"Db.open refuses a database short of the committed snapshot"
+				Result.isFailure(answered),
+				"the first read is refused short of the committed snapshot"
 			)
-			assert.ok(opened.failure instanceof OpenError, `an OpenError, not ${String(opened.failure)}`)
-			assert.equal(opened.failure.stage, model.applied === 0 ? "authentication" : "ledger")
+			const failure = answered.failure
+			if (model.applied === 0) {
+				assert.ok(failure instanceof ReadFailure, `a ReadFailure, not ${String(failure)}`)
+				assert.equal(failure.stage, "acquire")
+			} else {
+				assert.ok(failure instanceof StaleSnapshot, `a StaleSnapshot, not ${String(failure)}`)
+			}
 		}
 		yield* confirm(model, r)
 	})
@@ -854,10 +870,10 @@ const always = (): boolean => true
  *   2 is generated, no later generate adds the field again;
  * - a folder resumed: a failing custom data step over a settled workspace; migrate stops at it, the step is fixed, and
  *   migrate resumes the partial folder;
- * - Db.open admitting: every folder applied over a settled workspace, a failing data step fixed on the way; generate
- *   drafts nothing, check passes, Db.open admits the database, and each tampering makes the commands refuse;
+ * - a first call answering: every folder applied over a settled workspace, a failing data step fixed on the way;
+ *   generate drafts nothing, check passes, a Db's first call answers, and each tampering makes the commands refuse;
  * - a new workload pending: a settled, fully applied workspace whose workload then changes; migrate, which compiles
- *   nothing, applies nothing until it is generated, then Db.open refuses the database short of the new snapshot, and
+ *   nothing, applies nothing until it is generated, then a Db's first call is refused short of the new snapshot, and
  *   migrate with a wrong password is refused at its connection, until migrate applies it;
  * - a stray table: a settled, fully applied workspace that drifts; drift passes, a table created by hand makes drift
  *   and migrate refuse it, and once it is dropped drift passes again.
@@ -905,7 +921,7 @@ const scenarios = {
 			add({ kind: "migrate" })
 		}
 	},
-	"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with":
+	"scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with":
 		{
 			applies: always,
 			plan: (state, add) => {
@@ -920,7 +936,7 @@ const scenarios = {
 				}
 			}
 		},
-	"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+	"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate":
 		{
 			applies: always,
 			plan: (state, add) => {
@@ -991,8 +1007,8 @@ type WorkflowParameters = {
 	readonly "scenario: a workload program removed, its index dropped": undefined
 	readonly "scenario: version 2 generated over version 1, its placeholder reviewed": undefined
 	readonly "scenario: a failing data step stops migrate, is fixed, and migrate resumes": undefined
-	readonly "scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with": undefined
-	readonly "scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate": undefined
+	readonly "scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with": undefined
+	readonly "scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate": undefined
 	readonly "scenario: a table created by hand: drift and migrate refuse it until it is dropped": undefined
 }
 
@@ -1081,13 +1097,13 @@ const workflow: Machine<Model, WorkflowParameters, never> = {
 		"scenario: a failing data step stops migrate, is fixed, and migrate resumes": scenarioCommand(
 			"scenario: a failing data step stops migrate, is fixed, and migrate resumes"
 		),
-		"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with":
+		"scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with":
 			scenarioCommand(
-				"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with"
+				"scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with"
 			),
-		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate":
 			scenarioCommand(
-				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate"
+				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate"
 			),
 		"scenario: a table created by hand: drift and migrate refuse it until it is dropped":
 			scenarioCommand(
@@ -1129,13 +1145,13 @@ const realOf = (r: Workspace): Real<Model, WorkflowParameters, never, StepError,
 		"scenario: a failing data step stops migrate, is fixed, and migrate resumes": scenario(
 			"scenario: a failing data step stops migrate, is fixed, and migrate resumes"
 		),
-		"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with":
+		"scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with":
 			scenario(
-				"scenario: generated again, every folder applied, check passes, Db.open admits, each file tampered with"
+				"scenario: generated again, every folder applied, check passes, a first call answers, each file tampered with"
 			),
-		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate":
+		"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate":
 			scenario(
-				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then Db.open refuses and a wrong password is refused until migrate"
+				"scenario: a new workload configured over an applied workspace: migrate applies nothing until it is generated, then a first call is refused and a wrong password is refused until migrate"
 			),
 		"scenario: a table created by hand: drift and migrate refuse it until it is dropped": scenario(
 			"scenario: a table created by hand: drift and migrate refuse it until it is dropped"

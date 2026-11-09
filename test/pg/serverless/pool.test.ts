@@ -21,7 +21,7 @@ import {
 	Scheduler,
 	Scope
 } from "effect"
-import { OpenError } from "#adapter/errors/execution.ts"
+import { ReadFailure } from "#adapter/errors/execution.ts"
 import { LayerReleased } from "#adapter/errors/failures.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -499,7 +499,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									assert.ok(Result.isSuccess(error), "the lease fails")
 									const failure = error.success
 									assert.ok(failure instanceof LayerReleased, String(failure))
-									assert.equal(new OpenError({ reason: failure }).stage, "released")
+									assert.equal(new ReadFailure({ reason: failure }).stage, "acquire")
 									assert.equal(asked(), 0, "pg is never asked for a client")
 									assert.equal(gate.state.attempts, attempts, "no connection is attempted")
 									assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")

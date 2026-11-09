@@ -12,6 +12,7 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import { MissingCapability, ServerError } from "#adapter/errors/failures.ts"
 import { makeReader, poolExecutor, type ReaderValue } from "#adapter/reader/reader.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -191,7 +192,7 @@ export const openSuite = (): void => {
 						const noLedger = (error: unknown): void => {
 							assertInstanceOf(error, ReadFailure)
 							assertInstanceOf(error.reason, ServerError)
-							assert.equal(error.reason.sqlstate, "42P01")
+							assert.equal(error.reason.sqlstate, sqlstates.undefinedTable)
 						}
 						return yield* explore(
 							{
@@ -246,7 +247,9 @@ export const openSuite = (): void => {
 													} else {
 														assert.ok(Result.isFailure(found), `a read of ${c.database}`)
 														noLedger(found.failure)
-														k.note("a read refused at the fence, the database without the schema's ledger")
+														k.note(
+															"a read refused at the fence, the database without the schema's ledger"
+														)
 													}
 													const activity = s.admin.queryValues(
 														"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
@@ -261,7 +264,9 @@ export const openSuite = (): void => {
 													assertInstanceOf(got, ReadFailure)
 													assertInstanceOf(got.reason, MissingCapability)
 													assert.equal(got.stage, "capability")
-													const compiled = yield* Effect.flip(Effect.scoped(db.compile(vectorProbe)))
+													const compiled = yield* Effect.flip(
+														Effect.scoped(db.compile(vectorProbe))
+													)
 													if (!isCompileError(compiled)) {
 														return assert.fail("the probe's compile fails with a CompileError")
 													}
@@ -280,14 +285,19 @@ export const openSuite = (): void => {
 										openDbContext(searching.server.roles.app, {}),
 										({ db, ctx: dbCtx }) =>
 											Effect.gen(function* () {
-												assert.equal(dbCtx.artifacts.names.vectorSchema, testTypeSchema("vector_ext"))
+												assert.equal(
+													dbCtx.artifacts.names.vectorSchema,
+													testTypeSchema("vector_ext")
+												)
 												const found = yield* Effect.result(
 													db.get(search.Document, { id: "00000000-0000-4000-8000-000000000001" })
 												)
 												if (!holdsSchema(c)) {
 													assert.ok(Result.isFailure(found), `a read of ${c.database}`)
 													noLedger(found.failure)
-													k.note("a read refused at the fence, the database without the schema's ledger")
+													k.note(
+														"a read refused at the fence, the database without the schema's ledger"
+													)
 													return
 												}
 												assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
