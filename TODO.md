@@ -24,6 +24,12 @@ post-beta swarm's fixes for the next release.
 - **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
   relation lists for its key, e.g. one row per (domain, pattern), compiled into the CHECK as each key's patterns ANDed.
   It would delete qti-pie's product regex (~1.2 MB of install SQL for NCName). Until then qti-pie keeps it.
+- **edullm's workarounds, for the owner (2026-11-08):**
+  - `Query.bind` exists only on plain queries, so an Ordered with attachments cannot be a bound import; edullm ports
+    pantry's document scan as a child under its own parent instead.
+  - `Compute.cast` refuses an aggregate, so a count reaches natural through a bound sub-query under
+    `Compute.nonnegative`.
+  - `Db.open`'s own round trip: edullm asks that its checks travel in the first call's flight (owner deciding).
 - **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, plus a counted family over
   a live derived relation, and Compute.matches over patterns held as data. #7 (row order for the regex cache) is
   performance machinery, ruled out.
