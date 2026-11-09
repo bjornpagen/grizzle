@@ -142,7 +142,7 @@ const main = Effect.gen(function* () {
 		`grizzle ${Str.slice(0, 12)(source.gitSha)}${source.gitDirty ? " (dirty)" : ""}, ` +
 			`PostgreSQL ${server.serverVersion} (${pgPin.tag}), node ${runtime.node}`
 	)
-	yield* print("compile (fresh process per sample)", record.compile)
+	yield* print("load (fresh process per sample)", record.load)
 	yield* print("database (fresh process per sample)", record.database)
 	yield* Console.info(`record: ${recordFile(outDir)}`)
 })

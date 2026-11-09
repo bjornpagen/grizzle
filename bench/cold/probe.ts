@@ -6,33 +6,33 @@ import {
 	FileSystem,
 	Layer,
 	Order,
-	Record as Rec,
 	Redacted,
+	Result,
 	Stdio,
 	Stream
 } from "effect"
-import { queryInput } from "#compiler/program/compile.ts"
+import type { ColdLogin } from "#bench/cold/workload.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 const boot = performance.now()
 
 /**
- * One cold start, in a fresh Node process: cold import and compile costs, in cold and warm cases. A warm
- * compilation compiles the same query again with the process's modules loaded.
+ * One cold start of an application, in a fresh Node process, serving the cold bench's login (bench/cold/workload.ts)
+ * from its served file, as an application serves the file `grizzle generate` committed: by the login's type alone, so
+ * no schema module is evaluated and nothing is compiled.
  *
- * bench/cold/run.ts spawns this file once per sample and writes the run's input to its stdin as JSON. The process
- * starts with nothing of grizzle loaded: this module has no static import of the library, because ESM evaluates every
- * static dependency before the module's first statement, so the first reading of performance.now() below is the
- * process's own boot time (Node's startup and this module's load, measured from the process's time origin). Then:
+ * bench/cold/run.ts spawns this file once per sample and writes the run's input to its stdin as JSON, the served file's
+ * text among it. The process starts with nothing of grizzle loaded: this module has no static import of the library,
+ * because ESM evaluates every static dependency before the module's first statement, so the first reading of
+ * performance.now() below is the process's own boot time (Node's startup and this module's load, measured from the
+ * process's time origin). Then:
  *
- * - mode "compile": import the package entry, packages/grizzle/src/index.ts (#index.ts, the file package.json's "." export names under
- *   the grizzle-source condition), then the workload (the Work fixture's schema and queries, built by the public
- *   builders); compile the schema's artifacts once, as a DbLayer does; compile each query for the first time; then
- *   compile each one again, warm, as a Db compiles a program it runs without compiling it ahead.
- * - mode "database": the same imports, then the serverless cold start of a read: build the DbLayer, Db.open (the first
- *   session, admission and the schema's artifacts), the first execution of each query (its compilation, statement
- *   parse on the backend and the round trip) and warm executions, each compiled again and sent unnamed.
- *   The standalone compile phases are not run first, so nothing the read pays for is already warm.
+ * - mode "load": import the runtime entry, @bjornpagen/grizzle/runtime, parse the served file's text, and load it as a
+ *   layer does (adapter/served/load.ts loadServed): every encoder, decoder and reader of its programs built, and none
+ *   compiled.
+ * - mode "database": the same import and parse, then the serverless cold start of a read: build the DbLayer over the
+ *   served file (its load and its first session), Db.open, the first execution of each served read (statement parse on
+ *   the backend and the round trip) and its warm executions.
  *
  * The result is one line on stdout, prefixed by resultMarker; anything else the process prints is ignored. The
  * password arrives on stdin, never in argv or the environment, and never appears in the result.
@@ -43,30 +43,32 @@ export type ProbeDatabase = {
 	readonly host: string
 	readonly port: number
 	readonly database: string
-	readonly schema: string
-	/** The password of the Work fixture's login `server`, whose role `reader` the probe opens. */
+	/** The password of the cold bench's login `server`, whose role `reader` the probe opens. */
 	readonly password: string
 	readonly caFile: string
-	/** The committed snapshot.json the installation reached, which the application passes to Db.open. */
-	readonly snapshot: string
 	/** The connect timeout of the probe's connection, its parent's (bench/harness/limits.ts benchConnectTimeout). */
 	readonly connectTimeoutMs: number
 	/** The idle timeout of the probe's pool, its parent's (bench/harness/limits.ts benchIdleTimeout). */
 	readonly idleTimeoutMs: number
-	/** The account whose tasks the parameterized queries read. */
+	/** The account whose tasks the parameterized reads read. */
 	readonly account: Uuid
 }
 
-/** A compile probe, or a database probe with the installation it reads. */
+/** A load probe, or a database probe with the installation it reads; each with the login's served file's text. */
 export type ProbeInput =
-	| { readonly mode: "compile"; readonly warmRepeats: number }
-	| { readonly mode: "database"; readonly warmRepeats: number; readonly database: ProbeDatabase }
+	| { readonly mode: "load"; readonly warmRepeats: number; readonly served: string }
+	| {
+			readonly mode: "database"
+			readonly warmRepeats: number
+			readonly served: string
+			readonly database: ProbeDatabase
+	  }
 
 export type ProbeResult = {
-	readonly mode: "compile" | "database"
+	readonly mode: "load" | "database"
 	/** Milliseconds per phase, in the order they ran. */
 	readonly phases: Readonly<Record<string, number>>
-	/** Per query: milliseconds per measure, and the statements or rows it involved. */
+	/** Per read: milliseconds per measure, and the rows it delivered. */
 	readonly queries: Readonly<Record<string, Readonly<Record<string, number>>>>
 	readonly memory: { readonly rssBytes: number; readonly heapUsedBytes: number }
 }
@@ -100,84 +102,26 @@ const main = Effect.gen(function* () {
 	const queries: Record<string, Record<string, number>> = {}
 
 	let t = performance.now()
-	const grizzle = yield* Effect.promise(() => import("#index.ts"))
-	const { compiledDbLayer } = yield* Effect.promise(() => import("#adapter/pool/registry.ts"))
-	const { compiledOpen } = yield* Effect.promise(() => import("#adapter/db/open.ts"))
+	const runtime = yield* Effect.promise(() => import("@bjornpagen/grizzle/runtime"))
 	phases["importEntryMs"] = since(t)
-	t = performance.now()
-	const { snapshotJson } = yield* Effect.promise(() => import("#test/support/snapshot-json.ts"))
-	const W = yield* Effect.promise(() => import("#test/support/fixtures/api/work.ts"))
-	phases["importWorkloadMs"] = since(t)
 	/** The input is read once the entry is loaded, outside every measured phase. */
 	const { trustedJson } = yield* Effect.promise(() => import("#compiler/core/trusted.ts"))
 	const input = trustedJson<ProbeInput>(text)
 	if (!(Number.isInteger(input.warmRepeats) && input.warmRepeats >= 1)) {
 		throw new Error(`warmRepeats must be a positive integer, not ${input.warmRepeats}`)
 	}
+	t = performance.now()
+	const file = trustedJson<unknown>(input.served)
+	phases["parseServedMs"] = since(t)
 
-	if (input.mode === "compile") {
-		/** The compilation a Db runs for a program (program/template.ts); already loaded by the entry. */
-		const { templateFor } = yield* Effect.promise(() => import("#compiler/program/template.ts"))
-		const { parseSchemaInput, schemaArtifacts } = yield* Effect.promise(
-			() => import("#compiler/program/schema.ts")
-		)
-		/** The engine's Result, the answer of every compile step below. */
-		const Engine = yield* Effect.promise(() => import("#compiler/core/result.ts"))
-		/** A snapshot read as the Work fixture's reader role, as a Db of it compiles one. */
-		const reading = { context: "snapshot", read: "rows" } as const
-		const reader = W.workWorlds(W.Work).reader
+	if (input.mode === "load") {
+		/** What a layer runs over the served file when it is built; already loaded by the entry. */
+		const { loadServed } = yield* Effect.promise(() => import("#adapter/served/load.ts"))
 		t = performance.now()
-		const schemaInput = parseSchemaInput(reader)
-		if (!schemaInput.ok) {
-			throw new Error(`schema input: ${schemaInput.error.message}`)
-		}
-		/** A fresh installation's codes, as a first install's snapshot records them. */
-		const { firstCodebook } = yield* Effect.promise(() => import("#compiler/ir/codes.ts"))
-		const { ownRole, rostersOf } = yield* Effect.promise(() => import("#compiler/schema/own.ts"))
-		const owned = schemaInput.value.kind === "role" ? ownRole(schemaInput.value.desc) : undefined
-		if (owned === undefined || !owned.ok) {
-			throw new Error("schema input: the Work fixture's reader is a role over its schema")
-		}
-		const artifacts = schemaArtifacts(schemaInput.value, {
-			codes: firstCodebook(rostersOf(owned.value.base))
-		})
-		phases["schemaArtifactsMs"] = since(t)
-		if (!artifacts.ok) {
-			throw new Error(`schema artifacts: ${artifacts.error.message}`)
-		}
-		const workload = {
-			automaticTasksFor: W.automaticTasksFor,
-			automaticBudgetFor: W.automaticBudgetFor,
-			taskCards: W.taskCards,
-			largestPerAccount: W.largestPerAccount,
-			labeledAutomaticTasks: W.labeledAutomaticTasks
-		}
-		for (const [name, query] of Rec.toEntries(workload)) {
-			t = performance.now()
-			const compile = () =>
-				Engine.flatMap(queryInput(query), (q) =>
-					templateFor(q, schemaInput.value, artifacts.value, reading)
-				)
-			const first = compile()
-			const firstMs = since(t)
-			if (!first.ok) {
-				throw new Error(`${name}: ${first.error.message}`)
-			}
-			const warm: Array<number> = []
-			for (let i = 0; i < input.warmRepeats; i++) {
-				t = performance.now()
-				const again = compile()
-				warm.push(since(t))
-				if (!again.ok) {
-					throw new Error(`${name}: warm compilation ${i} refused`)
-				}
-			}
-			queries[name] = {
-				firstCompileMs: firstMs,
-				warmCompileFirstMs: sampleAt(warm, 0),
-				warmCompileP50Ms: median(warm),
-				statements: first.value.template.optimized.length
-			}
+		const loaded = loadServed(file, "server")
+		phases["loadServedMs"] = since(t)
+		if (Result.isFailure(loaded)) {
+			throw new Error(`the served file does not load: ${String(loaded.failure)}`)
 		}
 	} else {
 		const target = input.database
@@ -185,15 +129,9 @@ const main = Effect.gen(function* () {
 		const ca = yield* fs.readFileString(target.caFile)
 		/** node-postgres, as an application imports it beside grizzle, read once the measured imports are done. */
 		const pg = yield* Effect.promise(() => import("pg"))
-		/**
-		 * The Work fixture under the installed schema name, its worlds over it, so the Db logs in as the installed login and
-		 * takes on the installed reader role, and its reads over it.
-		 */
-		const work = grizzle.schema(target.schema, W.Work.relations, W.Work.statements)
-		const worlds = W.workWorlds(work)
-		const reads = W.workReads(work)
+		const login = runtime.served<ColdLogin>(file, "server")
 		const password: Redacted.Redacted = Redacted.make(target.password)
-		const layer = compiledDbLayer({
+		const layer = runtime.DbLayer.make({
 			driver: pg.default,
 			transport: {
 				kind: "sslRequest",
@@ -207,8 +145,7 @@ const main = Effect.gen(function* () {
 			password,
 			connectTimeoutMs: target.connectTimeoutMs,
 			pool: { max: 1, min: 1, idleTimeoutMs: target.idleTimeoutMs },
-			login: worlds.server,
-			snapshot: snapshotJson(target.snapshot)
+			login
 		})
 		const params = { account: target.account }
 		let opened = 0
@@ -240,12 +177,13 @@ const main = Effect.gen(function* () {
 			})
 		const executions = Effect.gen(function* () {
 			opened = performance.now()
-			const db = yield* compiledOpen(worlds.server.roles.reader, {})
+			const db = yield* runtime.Db.open(login.roles.reader, {})
 			phases["openMs"] = since(opened)
-			yield* measure("automaticTasksFor", () => db.execute(reads.automaticTasksFor, params))
-			yield* measure("automaticBudgetFor", () => db.execute(reads.automaticBudgetFor, params))
-			yield* measure("taskCards", () => db.execute(reads.taskCards, params))
-			yield* measure("largestPerAccount", () => db.execute(reads.largestPerAccount, {}))
+			const reads = db.workload
+			yield* measure("automaticTasksFor", () => reads.automaticTasksFor.execute(params))
+			yield* measure("automaticBudgetFor", () => reads.automaticBudgetFor.execute(params))
+			yield* measure("taskCards", () => reads.taskCards.execute(params))
+			yield* measure("largestPerAccount", () => reads.largestPerAccount.execute({}))
 			finished = performance.now()
 		})
 		/** The layer is built in the read's own scope, which closes the session before the layer, as providing it would. */

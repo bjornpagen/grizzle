@@ -298,8 +298,9 @@ child query in each row. The result is a set, and its type follows from the quer
 ```
 
 Nothing there is annotated by hand. grizzle also knows each result's keys. `postPage` fixes `id`, `Post`'s key, to its
-one parameter, `id: Uuid`, so it returns at most one row, and `db.get(postPage, { id })` returns an `Option` of that
-row; on a query that can return several rows, `db.get` is a type error. An aggregate is typed as PostgreSQL computes
+one parameter, `id: Uuid`, so it returns at most one row, and served in a workload its handle's `get`,
+`db.workload.postPage.get({ id })`, returns an `Option` of that row; on a query that can return several rows, `get` is
+a type error. An aggregate is typed as PostgreSQL computes
 it: `r.count()` is a `bigint`, and the `r.sum` of a bigint is an exact `Decimal`. Negation is
 `r.not(Comment, { post: id })`, a union is a second `.rule(...)`, and there is no `` sql`…` `` to fall back to.
 [Queries](#queries) has the whole language.
@@ -695,7 +696,7 @@ CREATE TABLE "rooms"."booking" (
 ALTER TABLE "rooms"."booking" ADD CONSTRAINT "__booking_fk_room_during_254p6ghcbd" FOREIGN KEY ("room", PERIOD "during") REFERENCES "rooms"."opening" ("room", PERIOD "hours") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
-A booking that overlaps another comes back from `db.apply` as `invariant-rejected`, naming the rule, `{ kind: "primaryKey", relation: "Booking", fields: ["room", "during"] }`, with the room and span you submitted as its witness. A booking outside opening hours names the coverage rule, at commit. The constraints are PostgreSQL's, so two overlapping bookings sent in the same second can't both commit, whether the app, psql or a second service sends them.
+A booking that overlaps another comes back from its write's `apply` as `invariant-rejected`, naming the rule, `{ kind: "primaryKey", relation: "Booking", fields: ["room", "during"] }`, with the room and span you submitted as its witness. A booking outside opening hours names the coverage rule, at commit. The constraints are PostgreSQL's, so two overlapping bookings sent in the same second can't both commit, whether the app, psql or a second service sends them.
 
 ### 5. A budget no burst of requests can overdraw
 
@@ -1160,12 +1161,12 @@ For porting an app, each Drizzle construct and what takes its place:
 | `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
 | `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, typed as PostgreSQL types it (a `Decimal` for a `bigint`)  |
 | `db.query.post.findMany({ with: { comments: true } })` | `.attach("comments", (post) => ..., "array")`                                                   |
-| `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or `db.page` for cursors                                            |
+| `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or a `paged(query)` member's `page` for cursors                     |
 | `db.insert(post).values(rows)`                         | `ChangeSet.empty(Blog).insert(Post, rows)`                                                      |
 | `.onConflictDoUpdate(...)`, `db.update(post).set(...)` | `.put(Post, rows)`: after the change, the row at each key is the one given                      |
 | `db.delete(post).where(...)`                           | `.delete(Post, rows)`, the rows given or read by a query                                        |
 | `.returning()`                                         | `.read(name, (delta) => query)`                                                                 |
-| `db.transaction(async (tx) => { ... })`                | one ChangeSet and `db.apply`; a read that decides a write is a query inside the ChangeSet       |
+| `db.transaction(async (tx) => { ... })`                | one ChangeSet, a workload member, and its `apply`; a read that decides a write is a query inside it |
 | `` sql`...` ``                                         | none at run time                                                                                |
 | `drizzle-kit generate`, `migrate`, `check`             | `grizzle generate`, `grizzle migrate`, `grizzle check`                                          |
 | `drizzle-kit push`                                     | none: every change is a migration you review                                                    |
@@ -1613,7 +1614,7 @@ PostgreSQL's other spellings are the same fields.
   only a value's SHA-256 digest, which is how the host knows it: two values of one digest that differ are a SHA-256
   collision, refused as an `EncodingFailure` (`bytesCollision`) rather than taken as one. grizzle reads your array
   where it is and copies it once, into its column's binary array, as the call is sent, checking the copy against the
-  digest: an array you change or detach after passing it to `db.apply`, before the call is sent, is an
+  digest: an array you change or detach after passing it to a write's `apply`, before the call is sent, is an
   `EncodingFailure` (`bytesChanged`) rather than sent unlike the value the write was worked out from. Its bound,
   1,073,741,819 bytes (`bytesMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming
   its field, before any SQL. An attachment whose rows hold a bytes field is a statement of its own, so one under rows
@@ -1976,7 +1977,7 @@ definition too.
   Its function runs the rule's violation query, compiled by grizzle's own query compiler, over the rows the write
   touched, and raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. The functions
   are SECURITY DEFINER on a pinned `search_path`, and no role may run them.
-- **Outcomes.** `db.apply` answers `invariant-rejected` naming the rule, its witness `unreported`: the row that breaks
+- **Outcomes.** A write's `apply` answers `invariant-rejected` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders each trigger's reads against the writes
   it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
@@ -2091,8 +2092,8 @@ narrowed into its column's type unproved.
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later, or an owner you put. A delete of a member of an immutable owner's family and a put of an immutable
   owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
-  stratum that inserts no such owner is a type error where the ChangeSet is compiled (`db.apply`, `db.compile`,
-  `db.explain`, a workload), since a later insert or a union may still add the owner.
+  stratum that inserts no such owner is a type error where a workload declares the ChangeSet, since a later insert or
+  a union may still add the owner.
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
   makes it, and from JavaScript `UnsupportedOperation` when the ChangeSet compiles.
 
@@ -2264,7 +2265,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | aggregate | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a min or max is one of its values, at its type, contract included |
 | combine | a second `.rule(...)`, the union of both rules' rows. Rules of different columns need a constant that tells them apart; a rule with an attachment shares its columns with no other. A take or attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"`, `"one"` or `arm(field, name)` |
-| order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or `db.page` |
+| order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's `page` |
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
 | compute | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute` |

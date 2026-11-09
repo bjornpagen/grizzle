@@ -475,7 +475,8 @@ The command line's own refusals, by stage:
   applied is a mismatch of its own), so it can watch a production database from CI or a schedule; it connects as the
   migration identity, since the check replays the snapshot into a scratch schema in a transaction it rolls back.
 - Open a `Db` per request or handler: `Db.open` sends nothing, so this costs no round trip.
-- `db.page` takes any safe integer of at least 1 as its size: there is no default and no cap.
+- A paged member's `page` (`db.workload.<name>.page`) takes any safe integer of at least 1 as its size: there is no
+  default and no cap.
 - Every transaction of a `Db` checks the ledger first, in the same round trip, and runs nothing unless the database
   holds its snapshot: while a migration runs, its calls fail with `StaleSnapshot` (reason `Migrating`), and once a
   migration to another snapshot completed, with `StaleSnapshot` (reason `Migrated`). An apply with nothing to write

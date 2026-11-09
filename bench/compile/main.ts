@@ -19,7 +19,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { DbConnection, PoolBounds } from "#adapter/types/layer.ts"
 import {
@@ -35,6 +35,7 @@ import { resolveConfig } from "#cli/config.ts"
 import { readTargets } from "#cli/migrate.ts"
 import { type ConfigLoader, runCli } from "#cli/run.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -51,11 +52,11 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
+import { servedPath } from "#compiler/served/forms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 
 /**
  * The compile benchmark, `pnpm bench compile`: what a large schema costs to build and to compile, with no database, and
@@ -79,8 +80,8 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * - `grizzle generate`, in process, into a scratch directory, and `grizzle check` over what it wrote;
  * - migrate's work before it connects: the configuration resolved, the committed files checked and the migration
  *   targets read, which compiles nothing;
- * - DbLayer.make over the drafted snapshot, built in a scope and closed, which compiles the login's programs and opens
- *   no connection.
+ * - DbLayer.make over the login's served file generate wrote, built in a scope and closed, which loads the file,
+ *   compiles nothing and opens no connection.
  *
  * The record, with its full identity, goes to bench/results/compile/compile-<time>.json, one file a run, and a table is
  * printed with each phase's ratio from the scale to twice it, information on this machine. The verdict counts work,
@@ -425,11 +426,15 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 	if (directory === undefined) {
 		return yield* new PhaseFailed({ phase: "layer", reason: "the configuration lists no schema" })
 	}
-	const text = yield* fs.readFileString(`${directory}/snapshot.json`)
+	const text = yield* fs.readFileString(`${directory}/${servedPath(made.web.name)}`)
 	const [, layer] = yield* timedEffect(
 		Effect.scoped(
 			Layer.build(
-				compiledDbLayer({ ...offline, login: made.web, snapshot: snapshotJson(text), pool })
+				DbLayer.make({
+					...offline,
+					login: served<typeof made.web>(trustedJson<unknown>(text), made.web.name),
+					pool
+				})
 			)
 		)
 	)

@@ -6,12 +6,11 @@ import {
 	Option,
 	Record as Rec,
 	Redacted,
-	Result,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { toResult } from "#adapter/engine.ts"
+import { compileServed } from "#adapter/public/compile.ts"
 import {
 	type BenchIdentity,
 	benchIdentity,
@@ -27,36 +26,40 @@ import {
 	resultMarker
 } from "#bench/cold/probe.ts"
 import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/stats.ts"
+import { coldLogin } from "#bench/cold/workload.ts"
 import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { sourceCondition } from "#test/support/process.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The cold-start benchmark: cold import, first compile and warm hit; cold import and compile costs; cold-start and
- * pooled serverless cases; first and warm backend behavior, in cold and warm cases.
+ * The cold-start benchmark of an application serving its login's served file: the runtime entry's import, the served
+ * file's parse and load, the serverless cold start of a read, and first and warm backend behavior.
  *
  * Every sample is a fresh Node process running bench/cold/probe.ts, so nothing of grizzle is loaded and every cache
- * is empty when it starts; samples run one after another, never concurrently, so one does not slow another.
+ * is empty when it starts; samples run one after another, never concurrently, so one does not slow another. Both
+ * series serve the cold bench's login (bench/cold/workload.ts), its served file compiled once by the compile
+ * `grizzle generate` runs (adapter/public/compile.ts compileServed), under the snapshot of the Work fixture installed
+ * under a unique schema in a database of the series' own.
  *
- * - compile: the package entry's import, the workload's (the Work fixture's schema and five queries),
- *   the schema's artifacts, each query's first compilation and its warm compilations.
- * - database, direct to PostgreSQL: the serverless cold start of a read, DbLayer and Db.open (first session,
- *   admission), each query's first execution and its warm executions, against the Work fixture installed under a
- *   unique schema in a database of the series' own.
+ * - load: the runtime entry's import, the served file's parse, and its load as a layer loads it, every program's
+ *   encoders, decoders and readers built and none compiled.
+ * - database, direct to PostgreSQL: the serverless cold start of a read, the DbLayer over the served file (its load
+ *   and its first session) and Db.open, each served read's first execution and its warm executions.
  *
  * The record carries the full identity (identity.ts), the conditions of each series (schema and index state, data
  * distribution, parameters, result semantics, cache state, samples, scope), summaries, and every raw sample. Nothing here is a gate: the timings of this machine are information.
  */
 export interface ColdOptions {
-	/** Fresh processes for the compile series. */
+	/** Fresh processes for the load series. */
 	readonly samples: number
 	/** Fresh processes for the database series. */
 	readonly databaseSamples: number
@@ -82,10 +85,8 @@ export const coldQuick: ColdOptions = {
 const coldPhases = [
 	"bootMs",
 	"importEntryMs",
-	"importWorkloadMs",
-	"schemaArtifactsMs",
-	"firstCompileMs",
-	"warmCompileMs",
+	"parseServedMs",
+	"loadServedMs",
 	"layerMs",
 	"openMs",
 	"firstExecuteMs",
@@ -108,7 +109,7 @@ interface ColdConditions {
 	readonly parameters: Readonly<Record<string, unknown>>
 	readonly resultSemantics: string
 	readonly cacheState: string
-	/** The connection a database series reads through; a compile series opens none. */
+	/** The connection a database series reads through; a load series opens none. */
 	readonly connection:
 		| { readonly kind: "none" }
 		| { readonly kind: "database"; readonly port: number }
@@ -126,7 +127,7 @@ export interface ColdSeries {
 
 interface ColdRecord {
 	readonly identity: BenchIdentity
-	readonly compile: ColdSeries
+	readonly load: ColdSeries
 	readonly database: ColdSeries
 }
 
@@ -213,15 +214,15 @@ const series = (conditions: ColdConditions, raw: ReadonlyArray<ColdSample>): Col
 }
 
 const workload =
-	"the Work fixture: 6 relations (one closed roster), the alternatives law; 5 queries for compile, 4 for reads"
+	"the Work fixture: 6 relations (one closed roster), the alternatives law; its login serving 4 reads to its reader"
 
-const compileConditions: ColdConditions = {
+const loadConditions: ColdConditions = {
 	workload,
-	schemaState: "not installed: compilation only",
+	schemaState: "the served file compiled under the installation's snapshot; no connection",
 	dataDistribution: "none",
 	parameters: {},
 	resultSemantics:
-		"a compiled template per query, optimized and conservative artifacts, for the snapshot context; a warm compilation compiles the same query again",
+		"the served file parsed and loaded: every program's encoders, decoders and readers built",
 	cacheState: "process cold (no module loaded); the OS file cache is warm after the first sample",
 	connection: { kind: "none" }
 }
@@ -229,7 +230,7 @@ const compileConditions: ColdConditions = {
 const databaseConditions = (port: number): ColdConditions => ({
 	workload,
 	schemaState:
-		"the Work fixture installed by the fresh-install compiler under a unique schema; primary-key, key and law indexes only; no ANALYZE",
+		"the Work fixture installed by the fresh-install compiler under a unique schema, with its login's workload's indexes; no ANALYZE",
 	dataDistribution:
 		"the Work fixture's golden facts: 6 accounts, 7 tasks, 4 automatic arms, 3 manual arms, 2 notes",
 	parameters: { account: a1 },
@@ -241,68 +242,70 @@ const databaseConditions = (port: number): ColdConditions => ({
 })
 
 const coldScope =
-	"Cold starts in fresh Node processes: module import, workload construction, schema artifacts, first and warm compilations; and the serverless cold start of reads (DbLayer, Db.open with admission, first and warm executions). Excludes network latency beyond localhost and the Vercel deployment."
+	"Cold starts in fresh Node processes serving a login's served file: the runtime entry's import, the served file's parse and load; and the serverless cold start of reads (DbLayer, Db.open, first and warm executions). Excludes network latency beyond localhost and the Vercel deployment."
 
 /**
- * The database series and the server's identity, in a database of its own cloned from the template, which
- * bench/cold/main.ts sweeps once the series has run.
+ * Both series and the server's identity, in a database of its own cloned from the template, which bench/cold/main.ts
+ * sweeps once the series have run: the Work fixture installed with the cold bench's login, and that login's served
+ * file compiled under the installation's snapshot, the cold bench's login rebuilt over the installed schema's name.
  */
-const databaseRun = Effect.fn("databaseRun")(function* (options: ColdOptions) {
+const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 	const s = yield* Substrate
 	const server = yield* serverIdentity(s.admin)
 	const work = yield* install(W.Work, {
 		ambient: ordinarySession,
 		label: "cold",
-		logins: [W.workWorlds(W.Work).server],
+		logins: [coldLogin(W.Work)],
 		extensions: []
 	})
 	yield* load(work, workFacts)
-	/** The credentials of the Work fixture's login, whose reader role the probe opens. */
-	const credentials = work.as(W.workWorlds(W.Work).server)
+	const installed = coldLogin(schema(work.schema, W.Work.relations, W.Work.statements))
+	const compiled = yield* compileServed(
+		installed,
+		snapshotValue(work.snapshot, work.installation),
+		installed.workload
+	)
+	const served = jsonText(trusted<Json>(compiled))
+	const loadRaw = yield* Effect.forEach(
+		Arr.makeBy(options.samples, (i) => i),
+		() => sample({ mode: "load", warmRepeats: options.warmRepeats, served })
+	)
+	/** The credentials of the cold bench's login, whose reader role the probe opens. */
+	const credentials = work.as(installed)
 	const target: ProbeDatabase = {
 		host: pgPin.host,
 		port: pgPin.port,
 		database: s.database,
-		schema: work.schema,
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
-		snapshot: Result.getOrThrow(
-			toResult(writeSnapshot(work.snapshot, derivedOf(work.installation)))
-		).snapshot,
 		account: a1,
 		connectTimeoutMs: benchConnectTimeout.value,
 		idleTimeoutMs: benchIdleTimeout.value
 	}
-	const raw = yield* Effect.forEach(
+	const databaseRaw = yield* Effect.forEach(
 		Arr.makeBy(options.databaseSamples, (i) => i),
-		() => sample({ mode: "database", warmRepeats: options.warmRepeats, database: target })
+		() => sample({ mode: "database", warmRepeats: options.warmRepeats, served, database: target })
 	)
-	return { server, series: series(databaseConditions(pgPin.port), raw) }
+	return {
+		server,
+		load: series(loadConditions, loadRaw),
+		database: series(databaseConditions(pgPin.port), databaseRaw)
+	}
 }, Effect.scoped)
 
-/** The benchmark: the compile series, then the database series in a database of its own. */
+/** The benchmark: the load series, then the database series, in a database of its own. */
 const coldBench = Effect.fn("coldBench")(function* (options: ColdOptions) {
 	const source = yield* sourceIdentity
-	const compileRaw = yield* Effect.forEach(
-		Arr.makeBy(options.samples, (i) => i),
-		() => sample({ mode: "compile", warmRepeats: options.warmRepeats })
-	)
-
-	const head = yield* databaseRun(options)
-	const database = head.series
+	const run = yield* benchRun(options)
 	const identity = yield* benchIdentity({
 		benchmark: "cold",
-		server: head.server,
+		server: run.server,
 		phases: coldPhases,
 		scope: coldScope,
 		options: { ...options },
 		source
 	})
-	return {
-		identity,
-		compile: series(compileConditions, compileRaw),
-		database
-	} satisfies ColdRecord
+	return { identity, load: run.load, database: run.database } satisfies ColdRecord
 })
 
 export const recordFile = (outDir: string): string => `${outDir}/cold.json`
