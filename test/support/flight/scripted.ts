@@ -15,6 +15,7 @@ import {
 } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { flightMaxBytes, messageMaxBytes } from "#compiler/core/limits.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { outputRows } from "#test/support/wire.ts"
 
@@ -547,6 +548,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	return {
 		role: scriptedRole,
+		controls: servedSession,
 		flightMaxBytes: flightMaxBytes.value,
 		messageMaxBytes: messageMaxBytes.value,
 		cancel,
@@ -569,7 +571,9 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 /** The SQL of each query of a flight, BEGIN, COMMIT and ROLLBACK among them. */
 export const texts = (flight: SentFlight | undefined): ReadonlyArray<string> =>
-	Arr.map(flight?.pipeline ?? [], (q) => (q._tag === "control" ? controlText(q.control) : q.sql))
+	Arr.map(flight?.pipeline ?? [], (q) =>
+		q._tag === "control" ? controlText(servedSession, q.control) : q.sql
+	)
 
 /** The rows of every outcome, as their first cells. */
 export const firstCells = (outcomes: ReadonlyArray<BatchOutcome>): ReadonlyArray<unknown> =>

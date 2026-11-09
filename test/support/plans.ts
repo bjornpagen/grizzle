@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
-import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
+import { poolExecutor } from "#adapter/reader/executor.ts"
+import { makeReader } from "#adapter/reader/reader.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"

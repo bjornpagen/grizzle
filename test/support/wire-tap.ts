@@ -7,6 +7,7 @@ import type { ConnectRefusal } from "#adapter/errors/failures.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
@@ -554,8 +555,8 @@ export const tappedSession = (
 	Effect.suspend(() => {
 		const tap = makeTap(options.cluster)
 		return Effect.map(
-			connectSession(
-				parsedConnection(
+			connectSession({
+				...parsedConnection(
 					{
 						driver: pgDriver,
 						transport: tap.transport,
@@ -564,8 +565,9 @@ export const tappedSession = (
 						connectTimeoutMs: testConnectTimeout.value
 					},
 					options.role
-				)
-			),
+				),
+				controls: servedSession
+			}),
 			(session) => ({
 				session,
 				mark: tap.mark,

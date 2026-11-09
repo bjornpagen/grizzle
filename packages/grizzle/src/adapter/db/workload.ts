@@ -4,14 +4,9 @@ import type { DbContext } from "#adapter/db/context.ts"
 import { changeOps, readOps, rowsOps } from "#adapter/db/db.ts"
 import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
+import { poolExecutor } from "#adapter/reader/executor.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
-import {
-	poolExecutor,
-	type ReadForm,
-	readHandle,
-	type RowsForm,
-	rowsHandle
-} from "#adapter/reader/reader.ts"
+import { type ReadForm, readHandle, type RowsForm, rowsHandle } from "#adapter/reader/reader.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 
 /**

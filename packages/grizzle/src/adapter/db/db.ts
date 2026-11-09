@@ -9,10 +9,10 @@ import type { DbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
+import { poolExecutor } from "#adapter/reader/executor.ts"
 import {
 	type CompiledRead,
 	makeReader,
-	poolExecutor,
 	type Reader,
 	type RowsRead
 } from "#adapter/reader/reader.ts"
@@ -143,7 +143,7 @@ export const runtimeOf = <S>(ctx: DbContext): Runtime<S> => {
 /**
  * The Db object.
  *
- * Db<R, P> is a QueryReader whose reads each acquire their own transaction (reader/reader.ts poolExecutor), plus the
+ * Db<R, P> is a QueryReader whose reads each acquire their own transaction (reader/executor.ts poolExecutor), plus the
  * operations of the opened database:
  *
  * - workload holds the handles of the login's workload programs over R, compiled once by the layer (workload.ts);

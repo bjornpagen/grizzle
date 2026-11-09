@@ -34,6 +34,7 @@ import {
 	type ServedPage,
 	type ServedRead,
 	type ServedRoleForm,
+	type ServedSession,
 	type ServedVariants
 } from "#compiler/plan/serve.ts"
 
@@ -99,8 +100,8 @@ export interface LoadedRole {
 
 /**
  * A served login, loaded: its declared name and its base's, the PostgreSQL role every session of its pool logs in as,
- * the fingerprint every Db's prologue guards the ledger with, the prologue's two texts, and its roles in the login's
- * order.
+ * the fingerprint every Db's prologue guards the ledger with, the prologue's two texts, its sessions' startup options and
+ * control texts, and its roles in the login's order.
  */
 export interface LoadedLogin {
 	readonly login: string
@@ -108,6 +109,8 @@ export interface LoadedLogin {
 	readonly role: string
 	readonly fingerprint: SchemaFingerprint
 	readonly prologue: PrologueStatements
+	/** What every session of the login's pool sends that no program states (wire/session.ts makePool). */
+	readonly session: ServedSession
 	readonly roles: Arr.NonEmptyReadonlyArray<LoadedRole>
 }
 
@@ -298,6 +301,7 @@ export const loadServed = (json: unknown, name: string): Result.Result<LoadedLog
 			role: file.role,
 			fingerprint: file.fingerprint,
 			prologue: file.prologue,
+			session: file.session,
 			roles
 		}
 	})

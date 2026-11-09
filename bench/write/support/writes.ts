@@ -628,7 +628,7 @@ const observedSession = (
 					}
 				: {
 						kind: "unattributed",
-						sql: query._tag === "control" ? controlText(query.control) : query.sql
+						sql: query._tag === "control" ? controlText(session.controls, query.control) : query.sql
 					}
 		)
 	}

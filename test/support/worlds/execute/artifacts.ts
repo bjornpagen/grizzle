@@ -1,7 +1,8 @@
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref } from "effect"
 import { type DbContext, dbReadFrame } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { makeReader, type ReaderValue, type ReadExecutor } from "#adapter/reader/reader.ts"
+import type { ReadExecutor } from "#adapter/reader/executor.ts"
+import { makeReader, type ReaderValue } from "#adapter/reader/reader.ts"
 import {
 	asReadFailure,
 	type BatchOutcome,

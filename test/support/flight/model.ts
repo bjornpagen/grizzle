@@ -26,6 +26,7 @@ import {
 	ledgerStatements,
 	ledgerTable
 } from "#compiler/deploy/ledger/ledger.ts"
+import { servedSession } from "#compiler/program/served.ts"
 
 import {
 	ledgerTableName,
@@ -274,7 +275,7 @@ export const framedOf =
 	(call: Call, statementOf: (planned: Planned) => BatchStatement): ((query: WireQuery) => Framed) =>
 	(query: WireQuery): Framed => {
 		if (query._tag === "control") {
-			return { kind: "text", text: controlText(query.control) }
+			return { kind: "text", text: controlText(servedSession, query.control) }
 		}
 		const known = Arr.some(plannedOf(call), (planned) => statementOf(planned).sql === query.sql)
 		return known

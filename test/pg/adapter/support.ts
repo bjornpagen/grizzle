@@ -5,6 +5,7 @@ import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer
 import type { ApartFailure } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
@@ -121,6 +122,7 @@ export const poolFor = (
 				},
 				credentials.role
 			),
+			session: servedSession,
 			bounds: options.pool,
 			attachPool: options.attachPool
 		})

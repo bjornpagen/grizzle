@@ -48,6 +48,7 @@ import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
@@ -466,9 +467,10 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	const world = fixture.installed.world(role)
 	const login = world.login
 	const session = yield* Effect.mapError(
-		connectSession(
-			parsedConnection(clusterConnection(s.cluster, s.database, login.password), login.role)
-		),
+		connectSession({
+			...parsedConnection(clusterConnection(s.cluster, s.database, login.password), login.role),
+			controls: servedSession
+		}),
 		(failure) =>
 			new SqlError({
 				reason: { _tag: "ConnectionError", message: failure.message },

@@ -1,5 +1,5 @@
 import { Effect, type Option, Result, type Scope } from "effect"
-import { type DbContext, dbReadFrame } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	HandleReleased,
@@ -10,6 +10,7 @@ import { page as pageRuntime } from "#adapter/page/index.ts"
 import type { PageSource } from "#adapter/page/page.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
+import type { ReadExecutor } from "#adapter/reader/executor.ts"
 import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import { executionInputs, type ParamCodecs } from "#adapter/reader/relations.ts"
 import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
@@ -23,7 +24,7 @@ import type {
 	QueryReader,
 	QueryResult
 } from "#adapter/types/db.ts"
-import { asReadFailure, type Flight, runFramed } from "#adapter/wire/batch.ts"
+import type { Flight } from "#adapter/wire/batch.ts"
 import {
 	type CompileError,
 	type CursorError,
@@ -87,37 +88,6 @@ import {
  * stage resource, both before any SQL is sent (relations.ts, wire/batch.ts). An acquisition that fails on a direct read
  * is its refusal, at stage acquire.
  *
- * Runs a read's flight on a session of its own (see the header).
- */
-export interface ReadExecutor {
-	readonly run: <A>(flight: Flight<A, UnreadableAnswer>) => Effect.Effect<A, ReadError>
-}
-
-/**
- * Db's executor: each read leases a session of the Db's pool for its flight, runs it as the Db's role, and ends the lease
- * with the read.
- */
-export const poolExecutor = (ctx: Pick<DbContext, "pool" | "prologue">): ReadExecutor => ({
-	run: (flight) =>
-		Effect.scoped(
-			Effect.gen(function* () {
-				const session = yield* Effect.mapError(
-					ctx.pool.lease,
-					(reason) => new ReadFailure({ reason })
-				)
-				const outcomes = yield* Effect.mapError(
-					runFramed(session, dbReadFrame(ctx), flight.statements),
-					asReadFailure
-				)
-				return yield* Effect.mapError(
-					flight.read(outcomes),
-					(reason) => new ReadFailure({ reason })
-				)
-			})
-		)
-})
-
-/**
  * The readers are built under their public types (types/db QueryReader, QueryResult): makeReader's methods
  * are implemented under QueryReader<S>'s signatures, so a query argument has its precise type, and the rows a read
  * delivers are its decoder's records. Parameters arrive as ParamArg<P>, each value a ParamValue by construction

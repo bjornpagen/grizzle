@@ -104,6 +104,12 @@
 				]
 			},
 			{
+				// What a served layer and its Dbs run beside the core: the statement helpers a read's and a write's runtime share
+				// with the lowering that compiles them. Nothing here loads the compiler.
+				"name": "runtime",
+				"patterns": ["packages/engine/src/runtime/**"]
+			},
+			{
 				"name": "core",
 				"patterns": ["packages/engine/src/core/**"]
 			},
@@ -206,7 +212,7 @@
 			},
 			{
 				"name": "index",
-				"patterns": ["packages/grizzle/src/index.ts"]
+				"patterns": ["packages/grizzle/src/index.ts", "packages/grizzle/src/runtime.ts"]
 			}
 		],
 		"rules": [
@@ -290,6 +296,10 @@
 				]
 			},
 			{
+				"from": "runtime",
+				"allow": ["codec", "core", "ir", "scalar"]
+			},
+			{
 				"from": "core",
 				"allow": []
 			},
@@ -350,7 +360,7 @@
 			},
 			{
 				"from": "lower",
-				"allow": ["analysis", "check", "codec", "core", "ir", "logical", "scalar", "sql"]
+				"allow": ["analysis", "check", "codec", "core", "ir", "logical", "runtime", "scalar", "sql"]
 			},
 			{
 				"from": "write",
@@ -365,6 +375,7 @@
 					"logical",
 					"lower",
 					"query",
+					"runtime",
 					"scalar",
 					"schema",
 					"served",
@@ -405,6 +416,7 @@
 					"lower",
 					"physical",
 					"query",
+					"runtime",
 					"schema",
 					"served",
 					"sql",
@@ -425,7 +437,7 @@
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
 				"from": "served",
 				"allow": ["check", "core", "ir", "scalar"],
-				"allowTypeOnly": ["codec", "laws", "lower", "physical", "sql", "types", "write"]
+				"allowTypeOnly": ["codec", "laws", "lower", "physical", "runtime", "sql", "types", "write"]
 			},
 			{
 				"from": "plan",
@@ -441,6 +453,7 @@
 					"physical",
 					"program",
 					"query",
+					"runtime",
 					"scalar",
 					"schema",
 					"served",

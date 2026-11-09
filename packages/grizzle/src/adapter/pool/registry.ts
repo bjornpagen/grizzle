@@ -42,6 +42,7 @@ import {
 	type RoleDesc,
 	SourceLoc
 } from "#compiler/plan/common.ts"
+import { servedSession } from "#compiler/plan/migration.ts"
 import { ledgerStatements, type ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /**
@@ -244,6 +245,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 			password: config.password,
 			connectTimeoutMs: config.connectTimeoutMs
 		},
+		session: servedSession,
 		bounds: config.pool,
 		attachPool: config.attachPool
 	})

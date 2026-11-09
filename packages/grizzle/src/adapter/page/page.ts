@@ -1,22 +1,22 @@
-import { Brand, Effect, Option, Result } from "effect"
+import { Effect, Result } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
+import { pageOf } from "#adapter/page/edges.ts"
+import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
 import { pageRequest } from "#adapter/page/request.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
+import type { ReadExecutor } from "#adapter/reader/executor.ts"
 import { hostParams } from "#adapter/reader/params.ts"
-import type { ReadExecutor } from "#adapter/reader/reader.ts"
 import { executionInputs, type ParamCodecs } from "#adapter/reader/relations.ts"
 import { compiledPageTemplate } from "#adapter/served/forms.ts"
 import {
 	bindGroups,
 	type CursorError,
 	type ParamMap,
-	type Row,
 	type RowDecoder
 } from "#compiler/plan/common.ts"
-import type { CompiledTemplate, Page, PageCursor, PageEdge } from "#compiler/plan/read.ts"
+import type { CompiledTemplate, Page } from "#compiler/plan/read.ts"
 
 /**
  * QueryReader.page and Compiled.page.
@@ -97,44 +97,6 @@ const pageTemplateOf = <A>(run: PageRun<A>): Effect.Effect<CompiledPage, ReadErr
 	run.source.kind === "compiled"
 		? Effect.succeed(run.source.page)
 		: Effect.suspend(() => Effect.fromResult(compilePageTemplate(run.ctx, run.query)))
-
-/**
- * A cursor token the page's codec made, for the page's query Q: the brand's constructor, which checks nothing; the
- * codec that made the token is its check.
- */
-const pageCursor = <Q>(token: string): PageCursor<Q> => Brand.nominal<PageCursor<Q>>()(token)
-
-/**
- * The Page of a page's rows, each node its Row read by `read`, every cursor made before it is returned; each cursor is
- * branded for Q, the query its handle reads (a direct page's query, or a compiled handle's).
- */
-export const pageOf = <A, Q>(
-	runtime: PageRuntime,
-	rows: PageRows,
-	read: (row: Row) => A
-): Result.Result<Page<A, Q>, CursorError> => {
-	const edges: Array<PageEdge<A, Q>> = []
-	for (const edge of rows.edges) {
-		const token = runtime.codec.encode(edge.tuple)
-		if (!token.ok) {
-			return Result.fail(token.error)
-		}
-		edges.push(Object.freeze({ node: read(edge.row), cursor: pageCursor<Q>(token.value) }))
-	}
-	const first = edges[0]
-	const last = edges[edges.length - 1]
-	return Result.succeed(
-		Object.freeze({
-			edges: Object.freeze(edges),
-			pageInfo: Object.freeze({
-				startCursor: first === undefined ? Option.none() : Option.some(first.cursor),
-				endCursor: last === undefined ? Option.none() : Option.some(last.cursor),
-				hasPreviousPage: rows.hasPreviousPage,
-				hasNextPage: rows.hasNextPage
-			})
-		})
-	)
-}
 
 /** One page request through a reader. */
 export const runPage = <A, Q>(

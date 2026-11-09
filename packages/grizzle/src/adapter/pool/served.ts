@@ -197,6 +197,7 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* (
 			password: config.password,
 			connectTimeoutMs: config.connectTimeoutMs
 		},
+		session: login.session,
 		bounds: config.pool,
 		attachPool: config.attachPool
 	})

@@ -14,12 +14,11 @@ import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
+import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
 import {
 	type CompiledReadValue,
 	makeReader,
-	poolExecutor,
 	type QueryResultValue,
-	type ReadExecutor,
 	type ReaderValue
 } from "#adapter/reader/reader.ts"
 import { deliveredRows, readProgram } from "#adapter/reader/run.ts"

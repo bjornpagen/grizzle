@@ -11,6 +11,7 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
 import { makePool, type Password } from "#adapter/wire/session.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -289,6 +290,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 						Effect.gen(function* () {
 							const pool = yield* makePool({
 								connection: connectionOf(attempt),
+								session: servedSession,
 								bounds: clusterPool,
 								attachPool: () => undefined
 							})

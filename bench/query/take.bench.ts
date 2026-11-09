@@ -76,6 +76,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { testArtifacts } from "#test/support/compile.ts"
@@ -499,6 +500,7 @@ export default defineGate({
 					clusterConnection(substrate.cluster, substrate.database, refresherLogin.password),
 					refresherLogin.role
 				),
+				session: servedSession,
 				bounds: clusterPool,
 				attachPool: () => undefined
 			})

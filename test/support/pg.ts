@@ -38,6 +38,7 @@ import { testConnectTimeout, testIdleTimeout, testPoolMax } from "#test/support/
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
+import { servedSession } from "#compiler/program/served.ts"
 
 /**
  * No password, for a role the server authenticates without one (trust, peer, a client certificate): the empty text,
@@ -624,12 +625,13 @@ export const wireSession = (
 	options: Omit<SessionOptions, "applicationName">
 ): Effect.Effect<Session, SqlError, Scope.Scope> =>
 	Effect.mapError(
-		connectSession(
-			parsedConnection(
+		connectSession({
+			...parsedConnection(
 				clusterConnection(cluster, options.database, options.password),
 				options.username
-			)
-		),
+			),
+			controls: servedSession
+		}),
 		(failure) =>
 			new SqlError({
 				reason: { _tag: "ConnectionError", message: failure.message },

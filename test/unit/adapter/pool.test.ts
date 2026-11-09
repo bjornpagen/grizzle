@@ -23,6 +23,7 @@ import pgDriver from "pg"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import { makePool, type Session } from "#adapter/wire/session.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	caseHang,
@@ -491,6 +492,7 @@ describe("the session pool", () => {
 										},
 										"fake"
 									),
+									session: servedSession,
 									bounds: { idleTimeoutMs: idleMillis[idle], min: 1, max },
 									attachPool: () => undefined
 								}),

@@ -122,7 +122,7 @@ export const openToken = (options: unknown): Result.Result<Option.Option<string>
 }
 
 /** An opened served Db and the one context every operation of it reads (context.ts). */
-export interface OpenedServed<R, P> {
+interface OpenedServed<R, P> {
 	readonly db: DbOf<R, P>
 	readonly ctx: ServedDbContext
 }

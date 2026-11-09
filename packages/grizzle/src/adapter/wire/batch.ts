@@ -40,7 +40,13 @@ import {
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 
-import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
+import {
+	type Answer,
+	type ControlTexts,
+	controlText,
+	type WireQuery,
+	type Session
+} from "#adapter/wire/session.ts"
 import type { BindFrame } from "#compiler/plan/change.ts"
 import {
 	defect,
@@ -608,7 +614,7 @@ const send = (
 	pipeline: ReadonlyArray<WireQuery>,
 	awaited: number
 ): Result.Result<Sent, InputTooLarge> => {
-	const accounted = accountFlight(pipeline, session.messageMaxBytes)
+	const accounted = accountFlight(pipeline, session.messageMaxBytes, session.controls)
 	if (Result.isFailure(accounted)) {
 		return Result.fail(accounted.failure)
 	}
@@ -1110,12 +1116,13 @@ const executionBytes = (params: ReadonlyArray<Param>): number =>
  */
 const accountFlight = (
 	pipeline: ReadonlyArray<WireQuery>,
-	messageLimit: number
+	messageLimit: number,
+	controls: ControlTexts
 ): Result.Result<number, InputTooLarge> => {
 	let bytes = 0
 	for (const query of pipeline) {
 		if (query._tag === "control") {
-			bytes += textMessageBytes(controlText(query.control))
+			bytes += textMessageBytes(controlText(controls, query.control))
 			continue
 		}
 		bytes += executionBytes(query.params)

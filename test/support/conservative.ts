@@ -4,11 +4,11 @@ import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
+import type { ReadExecutor } from "#adapter/reader/executor.ts"
 import {
 	type CompiledReadValue,
 	makeReader,
 	type ReaderValue,
-	type ReadExecutor,
 	type ReadForm,
 	readHandle
 } from "#adapter/reader/reader.ts"

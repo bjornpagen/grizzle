@@ -46,6 +46,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import { connectSession, controlText, type Session } from "#adapter/wire/session.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
 import { caseHang, testConnectTimeout } from "#test/support/limits.ts"
@@ -460,8 +461,8 @@ const historied = (): Effect.Effect<
 > =>
 	Effect.gen(function* () {
 		const server = yield* WireServer.opened
-		const session = yield* connectSession(
-			parsedConnection(
+		const session = yield* connectSession({
+			...parsedConnection(
 				{
 					driver: pgDriver,
 					transport: server.transport,
@@ -470,8 +471,9 @@ const historied = (): Effect.Effect<
 					connectTimeoutMs: testConnectTimeout.value
 				},
 				"flight"
-			)
-		)
+			),
+			controls: servedSession
+		})
 		return { session, server, mark: server.read.length }
 	})
 
@@ -600,7 +602,7 @@ describe("the flight bound", () => {
 								)
 								assert.deepEqual(
 									Arr.map(read.slice(opened.length), (m) => [m.type, m.text]),
-									[["Q", controlText({ kind: "end", end: "ROLLBACK" })]],
+									[["Q", controlText(servedSession, { kind: "end", end: "ROLLBACK" })]],
 									"the refused second flight writes nothing, and its transaction is rolled back"
 								)
 								assert.ok(!subject.server.open, "no transaction is left open")
@@ -895,7 +897,7 @@ describe("a statement's Parse message", () => {
 								)
 								assert.deepEqual(
 									Arr.map(read.slice(opened.length), (m) => [m.type, m.text]),
-									[["Q", controlText({ kind: "end", end: "ROLLBACK" })]],
+									[["Q", controlText(servedSession, { kind: "end", end: "ROLLBACK" })]],
 									"the refused second flight writes nothing, and its transaction is rolled back"
 								)
 								assert.ok(!subject.server.open, "no transaction is left open")

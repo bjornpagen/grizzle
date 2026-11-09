@@ -21,7 +21,6 @@ import {
 } from "effect"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
-import type { SessionKind } from "#adapter/connection/environment.ts"
 import {
 	type AcquireRefusal,
 	ConnectionClosed,
@@ -48,16 +47,15 @@ import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import { emptyNameMap, loginStartupOptions } from "#compiler/plan/catalog.ts"
 import {
 	type EmittedText,
-	emitText,
 	flightMaxBytes,
 	messageMaxBytes,
 	nominal,
 	type OutputRows,
 	type Param
 } from "#compiler/plan/common.ts"
+import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
  * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,
@@ -133,14 +131,32 @@ import {
 export type Password = ParsedConnection["password"]
 
 /**
+ * What a session sends that no program states, each emitted where it was compiled (served/forms.ts ServedSession): a
+ * transaction's BEGIN, read-only or read-write, and its end, COMMIT or ROLLBACK. A served login's file carries them, and
+ * an owner's session takes generate's own.
+ */
+export interface ControlTexts {
+	readonly begin: { readonly [A in Transaction["access"]]: EmittedText }
+	readonly commit: EmittedText
+	readonly rollback: EmittedText
+}
+
+/**
+ * Whose session it is: a login's, every session of a pool, which starts under the options pinning its role's defaults,
+ * or an owner's, one outside any pool, which states none.
+ */
+type Startup = { readonly kind: "owner" } | { readonly kind: "login"; readonly options: string }
+
+/**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
- * transport, database, password and connect timeout, the login role, and whose session it is: a login's, every session
- * of a pool, or an owner's, one outside any pool.
+ * transport, database, password and connect timeout, the login role, whose session it is, and its transactions' control
+ * texts.
  */
 interface SessionSpec extends ParsedConnection {
 	/** The login role. */
 	readonly role: string
-	readonly startup: SessionKind
+	readonly startup: Startup
+	readonly controls: ControlTexts
 }
 
 /**
@@ -151,21 +167,13 @@ export type TxControl =
 	| { readonly kind: "begin"; readonly access: Transaction["access"] }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
-/** The text each BEGIN sends, printed from its statement. */
-const beginText: { readonly [A in Transaction["access"]]: EmittedText } = {
-	readOnly: emitText({ kind: "begin", readOnly: true }, emptyNameMap).text,
-	readWrite: emitText({ kind: "begin", readOnly: false }, emptyNameMap).text
-}
-
-/** The text each end sends, printed from its statement. */
-const endText: { readonly [E in Transaction["end"]]: EmittedText } = {
-	COMMIT: emitText({ kind: "commit" }, emptyNameMap).text,
-	ROLLBACK: emitText({ kind: "rollback" }, emptyNameMap).text
-}
-
-/** The text a control sends. */
-export const controlText = (control: TxControl): EmittedText =>
-	control.kind === "begin" ? beginText[control.access] : endText[control.end]
+/** The text a control sends, among a session's control texts. */
+export const controlText = (controls: ControlTexts, control: TxControl): EmittedText =>
+	control.kind === "begin"
+		? controls.begin[control.access]
+		: control.end === "COMMIT"
+			? controls.commit
+			: controls.rollback
 
 /**
  * One query of a pipeline: a statement, on the extended protocol with its own Sync, or a transaction control, a simple
@@ -427,7 +435,7 @@ const clientConfig = (
 	password,
 	client_encoding: "utf8",
 	sslnegotiation: "postgres",
-	...(spec.startup === "login" ? { options: loginStartupOptions } : {}),
+	...(spec.startup.kind === "login" ? { options: spec.startup.options } : {}),
 	pipeline: true,
 	types: rawText,
 	connectionTimeoutMillis: spec.connectTimeoutMs,
@@ -541,6 +549,8 @@ export const sessionTransitions: {
 export interface Session {
 	/** The login role the session logged in as, which its statements run as unless a prologue enters another. */
 	readonly role: string
+	/** The texts its transactions' controls send (ControlTexts). */
+	readonly controls: ControlTexts
 	/**
 	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
 	 * waits on the statement it cancels.
@@ -657,7 +667,7 @@ const makeSession = (
 				}
 				if (query._tag === "control") {
 					client.query<Array<unknown>, Array<string>>(
-						controlQuery(controlText(query.control)),
+						controlQuery(controlText(spec.controls, query.control)),
 						answer
 					)
 				} else {
@@ -677,6 +687,7 @@ const makeSession = (
 	}
 	return {
 		role: spec.role,
+		controls: spec.controls,
 		flightMaxBytes: flightMaxBytes.value,
 		messageMaxBytes: messageMaxBytes.value,
 		cancel: cancelRequest(spec, key),
@@ -771,7 +782,7 @@ export const connectSession = (
 ): Effect.Effect<Session, ConnectRefusal, Scope.Scope> =>
 	Effect.uninterruptibleMask((restore) =>
 		Effect.gen(function* () {
-			const spec: SessionSpec = { ...given, startup: "owner" }
+			const spec: SessionSpec = { ...given, startup: { kind: "owner" } }
 			const services = yield* Effect.context()
 			const sockets: Array<PgSocket> = []
 			const sessions: Array<Session> = []
@@ -927,7 +938,12 @@ const answerAttempt =
 
 interface PoolConfig {
 	/** The driver, the transport, the database, the derived login role, the password and the connect timeout. */
-	readonly connection: Omit<SessionSpec, "startup">
+	readonly connection: Omit<SessionSpec, "startup" | "controls">
+	/**
+	 * What every session of the login sends that no program states: the startup options pinning its role's defaults and
+	 * its transactions' control texts, its served file's (served/forms.ts ServedSession).
+	 */
+	readonly session: ServedSession
 	/** The pool's bounds (DbConfig.pool). */
 	readonly bounds: PoolBounds
 	/** The platform's hook, handed pg's Pool once, when it is built (DbConfig.attachPool). */
@@ -963,7 +979,12 @@ export interface SessionPool {
 export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const { bounds } = config
-		const spec: SessionSpec = { ...config.connection, startup: "login" }
+		const session = config.session
+		const spec: SessionSpec = {
+			...config.connection,
+			startup: { kind: "login", options: session.startup },
+			controls: session
+		}
 		const own = yield* Effect.context()
 		const attemptServices: AttemptServices = { current: own, own }
 		/**
