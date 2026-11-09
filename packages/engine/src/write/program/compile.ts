@@ -485,7 +485,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 						refills: (
 							ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
 						).flatMap((way) =>
-							way.root.kind === "recount" ? [] : [{ root: way.root, hop: way.hop }]
+							way.root.kind === "recount" ? [] : [{ root: way.root, hops: way.hops }]
 						)
 					}))
 					if (!isNonEmpty(own)) {

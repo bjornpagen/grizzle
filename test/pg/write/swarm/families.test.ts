@@ -348,6 +348,21 @@ const steppedCopy = coreOf(
 	[{ family: 0, copy: 0 }]
 )
 
+/** A mutable owner R0 of a counted family of R1, itself the owner of a counted family of R2 whose sum fold steps R2's
+ * copy of R1's copy of R0's `v`: a put of R0 reaches the fold along two owner axes. */
+const twoHopCopy = coreOf(
+	[true, true, true],
+	[
+		{ kind: "counted", owner: 0, member: 1, fold: "none" },
+		{ kind: "counted", owner: 1, member: 2, fold: "sum" }
+	],
+	[
+		{ family: 0, axis: "owner", source: { kind: "caller" } },
+		{ family: 1, axis: "owner", source: { kind: "copy", copy: 0 } }
+	],
+	[{ family: 1, copy: 1 }]
+)
+
 /** A case over `spec` whose first insert of a drawn instance of at least `least` top rows per relation breaks a law
  * as `how` says: one top fact stated twice at its key, or a counted member naming no owner. */
 const brokenFirst =
@@ -1447,6 +1462,40 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up refilling a value", "a member owning a family written"]
+	},
+	{
+		note: "a put of an owner whose v two owner axes carry into a counted family's members' copies, which its sum fold steps: the refill reaches the fold through the middle relation's rows, which the stratum neither puts nor deletes, and rides in the call's one flight",
+		sketch: {
+			spec: bare(twoHopCopy),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 2, id: 3, v: 2n, memberOf: [{ family: 1, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.some(5n),
+						inserted: [],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
 	}
 ]
 

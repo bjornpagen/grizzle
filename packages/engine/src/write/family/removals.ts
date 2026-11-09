@@ -318,22 +318,24 @@ export interface RefillRoot {
 
 /**
  * One way a change reaches a refilled family's members: where it starts, a put of a plain relation (`RefillRoot`) or an
- * edit of a member relation whose rows this statement redraws by `family`; and the family whose owner axis carries the
- * changed columns into its members' copies, the refilled family's member relation's rows.
+ * edit of a member relation whose rows this statement redraws by `family`; and the families whose owner axes carry the
+ * changed columns on, in order from the root's rows, each into its members' copies, the last's member the refilled
+ * family's member relation, whose rows it reaches: one for an edit, one or more for a put.
  */
 export interface RefillWay {
 	readonly root:
 		| { readonly kind: "put"; readonly relation: string }
 		| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
-	readonly hop: Family
+	readonly hops: NonEmptyReadonlyArray<Family>
 }
 
 /**
- * A member relation's rows a refill reaches as the stratum's changes leave them (`RefillWay`): each row in a group a
- * root's rows name, every column as stored but each copy its family's owner axis carries of a column those rows state,
- * which takes their value, as the axis's cascade would. A put's refill writes them ahead of the put, so the cascade
- * finds them changed, and each row check over a copy meets its redrawn values; an edit's, beside the edit's own rows,
- * whose redraw the root's rows are.
+ * A member relation's rows a refill reaches as the stratum's changes leave them (`RefillWay`): each row whose group a
+ * row of the last hop's owner names, and so on back along the hops to a group a root's rows name, every column as
+ * stored but each copy a hop's owner axis carries of a column the root's rows state, or of a copy the hop before it
+ * changes, which takes that value, as the axes' cascades would. A put's refill writes them ahead of the put, so the
+ * cascades find them changed, and each row check over a copy meets its redrawn values; an edit's, beside the edit's own
+ * rows, whose redraw the root's rows are.
  */
 const cascaded = (
 	w: WriteContext,
@@ -354,36 +356,97 @@ const cascaded = (
 	const s = supply.relation(internal("cascaded stored"))
 	const factsOf = (way: RefillWay): Shaped =>
 		defined(rootFacts.get(way.root.relation), `the rows of ${way.root.relation} a refill reads`)
-	/** The way's put facts naming the stored member's group, read as `p`. */
-	const naming = (way: RefillWay, p: string): Expr =>
-		and(
-			mapNonEmpty(way.hop.group, (g) =>
+	/** The hop at `level` of a way: the family whose owner axis carries the change into that level's rows. */
+	const hopAt = (way: RefillWay, level: number): Family =>
+		defined(way.hops[level], `hop ${level} of a refill's way`)
+	/** Whether the rows at `level` of a way, its hop's members, hold `key` changed: a copy the hop's owner axis carries of
+	 * a column the root's rows state, at the first level, or of a column the level before it changes. */
+	const changes = (way: RefillWay, level: number, key: ColumnKey): boolean =>
+		hopAt(way, level).axes.owner.some(
+			(pair) =>
+				columnKey(pair.from) === key &&
+				(level === 0
+					? factsOf(way).columns.has(columnKey(pair.to))
+					: changes(way, level - 1, columnKey(pair.to)))
+		)
+	/** Whether the row at alias `at`, of the members of the way's hop at `level`, names in its group the owner row at
+	 * alias `o`: a root's row read from its facts, at the first level, or a stored row of the hop's owner. */
+	const naming = (way: RefillWay, level: number, at: string, o: string): Expr => {
+		const hop = hopAt(way, level)
+		return and(
+			mapNonEmpty(hop.group, (g) =>
 				eq(
-					col(s, w.names.column(name, g.member.name)),
-					col(p, columnAt(factsOf(way), fieldKey(g.owner.name)))
+					col(at, w.names.column(hop.member.name, g.member.name)),
+					level === 0
+						? col(o, columnAt(factsOf(way), fieldKey(g.owner.name)))
+						: col(o, w.names.column(hop.owner.name, g.owner.name))
 				)
 			)
 		)
-	/** A column's value: the put's field a way's owner axis copies into it, else the stored one. */
+	}
+	/** The rows of the owner of the way's hop at `level`, under alias `o`: the root's facts, or the owner's table. */
+	const ownerRows = (way: RefillWay, level: number, o: string) =>
+		level === 0 ? cteRefAs(factsOf(way).name, o) : tableAs(w, hopAt(way, level).owner.name, o)
+	/** Whether a row of `level`'s members at alias `at` is one the way reaches: its owner is a root's row, or a row the
+	 * level before it reaches. */
+	const reached = (way: RefillWay, level: number, at: string): Expr => {
+		const o = supply.relation(internal("cascading owner"))
+		const named = naming(way, level, at, o)
+		return exists(
+			simpleSelect(
+				[target(one)],
+				[ownerRows(way, level, o)],
+				level === 0 ? named : and([named, reached(way, level - 1, o)])
+			)
+		)
+	}
+	/** The value at `key` of a row of `level`'s members at alias `at` as the way leaves it: the value its owner holds at
+	 * the column a hop's pair copies into `key`, where `key` changes, else none. */
+	const leftAt = (way: RefillWay, level: number, at: string, key: ColumnKey): ReadonlyArray<Expr> =>
+		hopAt(way, level).axes.owner.flatMap((pair): ReadonlyArray<Expr> => {
+			const to = columnKey(pair.to)
+			if (columnKey(pair.from) !== key) {
+				return []
+			}
+			const o = supply.relation(internal("cascading owner"))
+			if (level === 0) {
+				const put = factsOf(way).columns.get(to)
+				return put === undefined
+					? []
+					: [
+							{
+								kind: "subquery",
+								query: simpleSelect(
+									[target(col(o, put))],
+									[ownerRows(way, 0, o)],
+									naming(way, 0, at, o)
+								)
+							}
+						]
+			}
+			if (!changes(way, level - 1, to)) {
+				return []
+			}
+			const owner = hopAt(way, level).owner.name
+			const [first, ...rest] = leftAt(way, level - 1, o, to)
+			if (first === undefined) {
+				return []
+			}
+			return [
+				{
+					kind: "subquery",
+					query: simpleSelect(
+						[target(firstNonNull([first, ...rest, col(o, installed(w, owner, pair.to))]))],
+						[ownerRows(way, level, o)],
+						naming(way, level, at, o)
+					)
+				}
+			]
+		})
+	/** A column's value: what a way leaves it at, else the stored one. */
 	const valueOf = (key: ColumnKey): Expr => {
 		const stored = col(s, installed(w, name, columnOf(key)))
-		const puts = ways.flatMap((way) =>
-			way.hop.axes.owner.flatMap((pair): ReadonlyArray<Expr> => {
-				const facts = factsOf(way)
-				const put = facts.columns.get(columnKey(pair.to))
-				if (columnKey(pair.from) !== key || put === undefined) {
-					return []
-				}
-				const p = supply.relation(internal("cascading put"))
-				return [
-					{
-						kind: "subquery",
-						query: simpleSelect([target(col(p, put))], [cteRefAs(facts.name, p)], naming(way, p))
-					}
-				]
-			})
-		)
-		const [first, ...rest] = puts
+		const [first, ...rest] = ways.flatMap((way) => leftAt(way, way.hops.length - 1, s, key))
 		return first === undefined ? stored : firstNonNull([first, ...rest, stored])
 	}
 	ctes.push(
@@ -395,14 +458,7 @@ const cascaded = (
 					"keyed",
 					keys.map((k) => targetAs(valueOf(k), columnAt(out, k))),
 					[tableAs(w, name, s)],
-					or(
-						mapNonEmpty(ways, (way) => {
-							const p = supply.relation(internal("cascading put"))
-							return exists(
-								simpleSelect([target(one)], [cteRefAs(factsOf(way).name, p)], naming(way, p))
-							)
-						})
-					)
+					or(mapNonEmpty(ways, (way) => reached(way, way.hops.length - 1, s)))
 				)
 			)
 		)
