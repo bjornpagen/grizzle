@@ -41,7 +41,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -555,8 +555,8 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							(rows) => String(rows[0]?.[0])
 						)
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(b.login.roles.stocker, {})
-						const managerDb = yield* Db.open(b.login.roles.manager, {})
+						const db = yield* compiledOpen(b.login.roles.stocker, {})
+						const managerDb = yield* compiledOpen(b.login.roles.manager, {})
 						return yield* explore(
 							{
 								suite: "physical/family-grants/apply",

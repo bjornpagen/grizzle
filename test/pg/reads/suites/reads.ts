@@ -29,8 +29,7 @@ import {
 	String as Str
 } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen, openDbContext } from "#adapter/db/open.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -466,7 +465,7 @@ export const readSuite = () => {
 					Effect.gen(function* () {
 						const opened = yield* installed(W.Work, {}, { label: "real", extensions: [] })
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(opened.server.roles.app, {})
+							const db = yield* compiledOpen(opened.server.roles.app, {})
 							let group = 0
 							return yield* explore(
 								{
@@ -538,7 +537,7 @@ export const readSuite = () => {
 						 */
 						const role = opened.installed.as(opened.server).role
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(opened.server.roles.app, {})
+							const db = yield* compiledOpen(opened.server.roles.app, {})
 							const reads = {
 								union: Effect.flatMap(db.execute(W.taskPayloads, {}), (r) => r.collect),
 								attachment: Effect.flatMap(db.execute(accountTaskNotes, {}), (r) => r.collect)

@@ -5,10 +5,10 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
@@ -372,7 +372,7 @@ const migrates = (h: History) =>
 				() => new Error(`the installation's login ${login.name}`)
 			)
 			const credentials = yield* substrate.login(installedLogin.role)
-			const loginLayer = DbLayer.make({
+			const loginLayer = compiledDbLayer({
 				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 				pool: clusterPool,
 				login,
@@ -382,7 +382,10 @@ const migrates = (h: History) =>
 			for (const role of Rec.values(login.roles)) {
 				yield* Effect.scoped(
 					Effect.flatMap(Layer.build(loginLayer), (context) =>
-						Effect.provideContext(Effect.asVoid(Db.open(role, { token: tokenOf({}) })), context)
+						Effect.provideContext(
+							Effect.asVoid(compiledOpen(role, { token: tokenOf({}) })),
+							context
+						)
 					)
 				)
 			}

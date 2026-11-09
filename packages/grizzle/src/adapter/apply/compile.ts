@@ -1,8 +1,8 @@
 import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
-import type { CompiledWrite, ParsedChangeSet, WriteNames } from "#compiler/plan/change.ts"
-import type { BindContext, SchemaFingerprint } from "#compiler/plan/common.ts"
+import type { CompiledWrite, ParsedChangeSet } from "#compiler/plan/change.ts"
+import type { BindContext } from "#compiler/plan/common.ts"
 
 /**
  * Compiling a ChangeSet for a role.
@@ -14,17 +14,13 @@ import type { BindContext, SchemaFingerprint } from "#compiler/plan/common.ts"
  * (write/frontend/entry.ts), in the transaction evidence context. Every db.apply compiles its ChangeSet: grizzle keeps
  * no cache of programs, and a caller that applies one again keeps its compiled form itself (the workload, db.compile).
  *
- * A program carries what running it needs besides itself: the installed names it was compiled against (a read-back's
- * statements are rebuilt from them, readback.ts) and the installation's violation classifier (packages/grizzle/src/adapter/witness),
- * which decodes an integrity violation a statement or its COMMIT reports into a law and its witness through the
- * installation's key-law map, a superset of the program's own (outcomes/index.ts). The classifier is the layer's,
- * built once per role when the layer was built (pool/registry.ts).
+ * A program carries what running it needs besides itself: the installation's violation classifier
+ * (packages/grizzle/src/adapter/witness), which decodes an integrity violation a statement or its COMMIT reports into a
+ * law and its witness through the installation's key-law map, a superset of the program's own (outcomes/index.ts), its
+ * read-backs and its parameters' codecs. The layer builds each once, when it loads its served file (served/load.ts).
  */
 export interface WriteEntry {
 	readonly program: CompiledWrite
-	/** The fingerprint of the schema the program was compiled against. */
-	readonly schema: SchemaFingerprint
-	readonly names: WriteNames
 	readonly violation: ViolationClassifier
 	/** The read-backs of the program's artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBackRuns
@@ -35,9 +31,9 @@ export interface WriteEntry {
 }
 
 /**
- * A ChangeSet value compiled for this Db: its program entry, and the value itself as applying it reads it, parsed once
- * where it entered.
+ * A ChangeSet compiled for a role: its program entry, and what applying it reads of its value besides its program,
+ * its array members' facts and its bound values.
  */
 export interface CompiledChange extends WriteEntry {
-	readonly change: ParsedChangeSet
+	readonly change: Pick<ParsedChangeSet, "inputs" | "values">
 }

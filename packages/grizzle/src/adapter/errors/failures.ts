@@ -267,6 +267,20 @@ export class ConnectionEnvironmentRefused extends Data.TaggedError("ConnectionEn
 }
 
 /**
+ * DbLayer.make was handed a served file of another login: served(file, name) was given the file of the login `file`
+ * names, as the login `login`. `grizzle generate` writes each login's file under its own name, so the import named the
+ * wrong file.
+ */
+export class ServedLoginRefused extends Data.TaggedError("ServedLoginRefused")<{
+	readonly login: string
+	readonly file: string
+}> {
+	override get message(): string {
+		return `the served file is login ${this.file}'s, served as login ${this.login}: import served/${this.login}.json`
+	}
+}
+
+/**
  * No provided DbLayer serves the role: the context holds no layer built for the login that holds it (`login`), or the
  * role is in no login at all (undefined).
  */

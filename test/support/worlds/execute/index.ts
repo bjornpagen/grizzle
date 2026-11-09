@@ -18,7 +18,7 @@ import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -313,7 +313,7 @@ const realizeWith = (
 			use: LayerUse
 		): Effect.Effect<Layer.Layer<DbLayerOf<BuiltLogin>, OpenError>> =>
 			Effect.map(get(built.logins, login, "login"), (value) =>
-				DbLayer.make({
+				compiledDbLayer({
 					...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 					pool: Option.match(poolSize, {
 						onNone: () => clusterPool,
@@ -438,7 +438,7 @@ const realizeWith = (
 		const stranger = yield* Effect.orDie(
 			Scope.provide(
 				Layer.build(
-					DbLayer.make({
+					compiledDbLayer({
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool: clusterPool,
 						login: strangerLogin,

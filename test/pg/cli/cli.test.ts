@@ -20,8 +20,8 @@ import {
 import type { TestContext } from "vitest"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { defineConfig } from "#adapter/config/define.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { Db } from "#adapter/public/db.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
@@ -183,13 +183,13 @@ const roundTrip = (name: string, fixture: Fixture, snapshot: string, n: number) 
 			const s = shopV1(name, fixture.workload)
 			const loginLayer = yield* loginLayerOf(s.server, committed)
 			const outcome = yield* Effect.scoped(
-				Effect.flatMap(Db.open(s.server.roles.writer, {}), (db) =>
+				Effect.flatMap(compiledOpen(s.server.roles.writer, {}), (db) =>
 					db.apply(ChangeSet.empty(s.schema).insert(s.Customer, [{ id: id(n), name: "ada" }]), {})
 				)
 			).pipe(withLayer(loginLayer))
 			assert.equal(outcome.kind, "accepted")
 			const rows = yield* Effect.scoped(
-				Effect.flatMap(Db.open(s.server.roles.reader, {}), (db) =>
+				Effect.flatMap(compiledOpen(s.server.roles.reader, {}), (db) =>
 					Effect.flatMap(db.execute(s.customersByName, { name: "ada" }), (r) => r.collect)
 				)
 			).pipe(withLayer(loginLayer))
@@ -202,13 +202,13 @@ const roundTrip = (name: string, fixture: Fixture, snapshot: string, n: number) 
 		const l = ledger(name)
 		const loginLayer = yield* loginLayerOf(l.server, committed)
 		const outcome = yield* Effect.scoped(
-			Effect.flatMap(Db.open(l.server.roles.writer, {}), (db) =>
+			Effect.flatMap(compiledOpen(l.server.roles.writer, {}), (db) =>
 				db.apply(ChangeSet.empty(l.schema).insert(l.Customer, [{ id: id(n), name: "ada" }]), {})
 			)
 		).pipe(withLayer(loginLayer))
 		assert.equal(outcome.kind, "accepted")
 		const rows = yield* Effect.scoped(
-			Effect.flatMap(Db.open(l.server.roles.reader, {}), (db) =>
+			Effect.flatMap(compiledOpen(l.server.roles.reader, {}), (db) =>
 				Effect.flatMap(db.execute(l.customersByName, { name: "ada" }), (r) => r.collect)
 			)
 		).pipe(withLayer(loginLayer))

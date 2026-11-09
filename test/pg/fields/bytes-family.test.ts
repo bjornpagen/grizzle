@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
@@ -159,7 +159,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 								}
 								const o = yield* installed(Files, {}, { label: "bytesfamily", extensions: [] })
 								yield* Effect.gen(function* () {
-									const db = yield* Db.open(o.server.roles.app, {})
+									const db = yield* compiledOpen(o.server.roles.app, {})
 									const owner = uuidOf(1)
 									const members = Arr.map(d.values, (x, i) => ({
 										id: uuidOf(100 + i),

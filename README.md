@@ -435,7 +435,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 **What you get.** The dashboard's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this organization's keys", with rows `{ id: Uuid; name: string }`. There is no `where` to forget and no `org` to pass. `orgKeys` fixes `org` to the claim, so inserting `{ id, name }` stores the caller's organization.
 
-Another organization's keys don't exist for this role: deleting one does nothing, and an insert at an `id` one already holds is `invariant-rejected` on the primary key, its witness the `id` you submitted, never the other row. `Db.open(Dashboard.roles.key_admin, ...)` doesn't compile without a token, and opening runs your `verify` function on it once.
+Another organization's keys don't exist for this role: deleting one does nothing, and an insert at an `id` one already holds is `invariant-rejected` on the primary key, its witness the `id` you submitted, never the other row. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
 
 grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard)` is the login's PostgreSQL role, here `keys__dashboard`; `roleNameOf(KeyAdmin)` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
 
@@ -1323,7 +1323,7 @@ export const EtlJob = login(Blog, "etl_job", [Etl])
 
 A query for a role is written over the role and sees only what the role sees: `MemberPost` is already the member's filtered view of posts, so `memberFeed` has no filter to forget.
 
-A `workload` names the queries and writes your app runs on its hot paths. The app compiles them once, when it starts; `grizzle generate` compiles them the same way, derives the indexes they need and records them in the snapshot, so a program the app would refuse to start with, generate refuses first. Edit `memberFeed` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again: the index ships in the same migration as the query that needs it. One index serves an equality lookup when it is led by a column the lookup fixes that holds many values and holds the lookup's other columns after it, so an index on `(account, flagged, tenant)` serves a lookup by `account` and `tenant`; where the columns between, here `flagged`, are booleans or closed ids, PostgreSQL reads it by a skip scan over their few values, within `account`'s rows.
+A `workload` names the queries and writes your app runs. `grizzle generate` compiles them, for every role of their login, derives the indexes they need and records them in the snapshot, and commits each login's compiled programs as `migrations/blog/served/<login>.json`: the app serves that file and compiles nothing, so a program that does not compile is refused by generate, never by the app. Edit `memberFeed` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again: the index ships in the same migration as the query that needs it. One index serves an equality lookup when it is led by a column the lookup fixes that holds many values and holds the lookup's other columns after it, so an index on `(account, flagged, tenant)` serves a lookup by `account` and `tenant`; where the columns between, here `flagged`, are booleans or closed ids, PostgreSQL reads it by a skip scan over their few values, within `account`'s rows.
 
 A `login` is one PostgreSQL user, the one `roleNameOf(Web)` names (here `blog__web`), with its password and its own connection pool, that can act as the roles it lists. The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
 
@@ -1331,12 +1331,14 @@ A `login` is one PostgreSQL user, the one `roleNameOf(Web)` names (here `blog__w
 
 ```ts
 import net from "node:net"
-import { CredentialError, DbLayer, TokenError } from "@bjornpagen/grizzle"
+import { CredentialError, DbLayer, served, TokenError } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
-import snapshot from "./migrations/blog/snapshot.json" with { type: "json" }
+import etlJobFile from "./migrations/blog/served/etl_job.json" with { type: "json" }
+import webFile from "./migrations/blog/served/web.json" with { type: "json" }
+import type { EtlJob, Web } from "./schema.ts"
 
 declare const caPem: string
 
@@ -1356,10 +1358,12 @@ const connection = {
 	connectTimeoutMs: 10_000
 } as const
 
+/** The web login's committed workload, served as its type: the app evaluates no schema module. */
+export const WebServed = served<typeof Web>(webFile, "web")
+
 export const WebLayer = DbLayer.make({
 	...connection,
-	login: Web,
-	snapshot,
+	login: WebServed,
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
@@ -1378,13 +1382,13 @@ export const WebLayer = DbLayer.make({
 })
 ```
 
-`DbLayer.make` builds one login's connection pool, which serves every role of the login. It takes the `snapshot.json` that `grizzle generate` writes ([Migrating and deploying](#migrating-and-deploying)), the part of the snapshot an app reads (the `manifest.json` beside it is for `grizzle` alone), and the connection:
+`DbLayer.make` builds one login's connection pool, which serves every role of the login. It takes the login's served workload and the connection. `served<typeof Web>(webFile, "web")` serves the file `grizzle generate` commits for the login ([Migrating and deploying](#migrating-and-deploying)), the one thing the app loads of its schema, as the login's type: `Web` is imported with `import type`, so no schema module runs in the app, and the name is the login's, which the layer checks the file against. The app imports grizzle from `@bjornpagen/grizzle/runtime`, which loads none of its compiler. The connection:
 
 - `driver`: the `pg` you import.
 - `transport`: how each connection reaches the server. `open` makes a new, unconnected socket, which pg connects to `host` and `port`; then come an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca` and naming `servername`. `host` is a name or an IP address, never a Unix socket's path, since PostgreSQL offers no TLS over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own connection the same way.
 - `password`: a `Redacted`, or an Effect that yields one for each new connection, so a rotated credential needs no restart.
 - `connectTimeoutMs`: how long one connection attempt may take, past which it fails with `ConnectTimedOut`, and how long the one CancelRequest an interrupted call sends may take.
-- `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use.
+- `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
 
 A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
 
@@ -1424,10 +1428,10 @@ export const GET = (request: Request): Promise<Response> => {
 	const token = bearer(request)
 	const feed = Effect.gen(function* () {
 		if (token === undefined) {
-			const db = yield* Db.open(Web.roles.anon, {})
+			const db = yield* Db.open(WebServed.roles.anon, {})
 			return yield* (yield* db.workload.anonFeed.execute({})).collect
 		}
-		const db = yield* Db.open(Web.roles.member, { token })
+		const db = yield* Db.open(WebServed.roles.member, { token })
 		return yield* (yield* db.workload.memberFeed.execute({})).collect
 	})
 	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
@@ -1443,7 +1447,7 @@ export const POST = (request: Request): Promise<Response> => {
 			Effect.promise(() => request.json()),
 			Schema.decodeUnknownEffect(Draft)
 		)
-		const db = yield* Db.open(Web.roles.member, { token })
+		const db = yield* Db.open(WebServed.roles.member, { token })
 		const outcome = yield* db.apply(draft(post), {})
 		switch (outcome.kind) {
 			case "accepted":
@@ -1460,7 +1464,7 @@ export const POST = (request: Request): Promise<Response> => {
 }
 ```
 
-`Db.open(role, { token })` opens a database handle as one role, for one request, contacting nothing: each call is one round trip. The types follow the roles: `Db.open(Web.roles.member, ...)` does not compile without a token, `Db.open(Web.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled when the layer was built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's three states:
+`Db.open(role, { token })` opens a database handle as one role, for one request, contacting nothing: each call is one round trip. The types follow the roles: `Db.open(WebServed.roles.member, ...)` does not compile without a token, `Db.open(WebServed.roles.anon, {})` needs none, and each handle's `db.workload` holds exactly its login's workload programs for its role, compiled by `grizzle generate` and loaded when the layer was built. The draft is a ChangeSet built per request, so `db.apply` compiles it for the call. The handler meets Clerk's three states:
 
 - **Signed out.** No token: the handler opens `anon` and returns published posts.
 - **Signed in, no organization.** The token has `sub` and no `o`, so `Session` has a row and `Org` has none. The feed is the published posts, and a draft comes back `outside-world`: there is no organization to fill `org` from, so the post is not one `MyPost` can hold.
@@ -1473,10 +1477,11 @@ Errors stay in the Effect's error channel, and this handler lets them reject its
 ### The nightly job
 
 ```ts
+export const EtlServed = served<typeof EtlJob>(etlJobFile, "etl_job")
+
 export const EtlLayer = DbLayer.make({
 	...connection,
-	login: EtlJob,
-	snapshot,
+	login: EtlServed,
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
@@ -1489,7 +1494,7 @@ const etl = ManagedRuntime.make(EtlLayer)
 export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>) =>
 	etl.runPromise(
 		Effect.gen(function* () {
-			const db = yield* Db.open(EtlJob.roles.etl, {})
+			const db = yield* Db.open(EtlServed.roles.etl, {})
 			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
 		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
 	)
@@ -1514,15 +1519,15 @@ Each piece is PostgreSQL's to enforce or TypeScript's to check, so the guarantee
 Before the app's first request, install the schema. `grizzle.config.ts` names `Blog`, both logins, the migrations directory and the connection of the role that owns the database; [Migrations](#migrations) shows it in full. Then:
 
 ```sh
-pnpm exec grizzle generate grizzle.config.ts   # draft migrations/blog/<timestamp>_<name>/, snapshot.json, manifest.json
+pnpm exec grizzle generate grizzle.config.ts   # draft migrations/blog/<timestamp>_<name>/, snapshot.json, manifest.json, served/
 pnpm exec grizzle check grizzle.config.ts      # offline: generated, resolved and untampered?
 pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the owner
 ```
 
 Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web)` and `roleNameOf(EtlJob)`, without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
 
-- **The code and the database move together.** `DbLayer.make` refuses a snapshot that is not the code's schema, and a workload whose index needs differ from it. Every `Db` transaction refuses a database whose latest migration did not reach that snapshot. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
-- **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`); once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new `snapshot.json`.
+- **The code and the database move together.** `grizzle check` refuses a served file that is not its login's compile under the snapshot, so the app's programs are the schema's. Every `Db` transaction refuses a database whose latest migration did not reach the snapshot its served file was compiled under. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
+- **Migrations are downtime.** While one runs, every `Db` call fails at once with `StaleSnapshot` (reason `Migrating`); once it completes, a `Db` of the old code fails with `StaleSnapshot` (reason `Migrated`). Deploy the code that carries the new served files.
 
 [Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers what `DbLayer.make` and every transaction check, Vercel, and RDS IAM authentication.
 
@@ -2116,12 +2121,16 @@ of views. Each is the name the installation creates, minted by the same function
 spell one. Each throws `CompileError` for a value no builder made and for a name the installation refuses, as
 `grizzle generate` does.
 
-`DbLayer.make({ login, snapshot, ... })` builds the login's pool and compiles its workloads. It requires `verify`
+`served<typeof Web>(file, "web")` is a login's committed workload, `migrations/<root>/served/<login>.json`, served as
+the login's type; `roleNameOf(WebServed)`, from `@bjornpagen/grizzle/runtime`, is its PostgreSQL role, read from the
+file. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
+refuses a file of another login than the name it was served as, at stage `config`. It requires `verify`
 exactly when one of the login's roles reads a context. A layer with `verify` runs it on every token it is handed, for
 a role that reads no context too.
 
-`Db.open(Web.roles.member, { token })` is the only way to open a `Db`, and only where the layer of the role's login is
-provided. It requires `token` exactly when the role reads a context. It runs `verify` once per `Db` and decodes the
+`Db.open(WebServed.roles.member, { token })` is the only way to open a `Db`, and only where the layer of the role's
+login is provided: a role of the login itself (`Web.roles.member`) is a type error, since the app holds the login as a
+type alone. It requires `token` exactly when the role reads a context. It runs `verify` once per `Db` and decodes the
 role's contexts from what it returns, and the `Db` keeps those claims. A `Db` opened without a token, or on a layer
 without `verify`, has no context rows. A role that reads no context opens whatever the payload.
 
@@ -2500,9 +2509,8 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 - **Read-only is the worlds model.** `Learner` holds `Qti`'s tables whole and writes only its own sittings: it reads `Qti`
   through views in its own schema, owned by the migration role, and holds no privilege on a `Qti` table. Since it
   holds every `Qti` table whole, every query over `Qti` runs on it, through those views.
-- **Every level is served.** `DbLayer.make` takes a login over any level of the installation and the installation's
-  snapshot: a process built from `Qti` alone, such as `AuthorApp`'s, is checked against `Qti`'s level of the snapshot
-  and compiles nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
+- **Every level is served.** `DbLayer.make` takes the served file of a login over any level of the installation: a
+  process of `Qti` alone, such as `AuthorApp`'s, loads only what its programs over `Qti` read, and nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
   `Sitting` holds, the outcome is `invariant-rejected` with the law `{ kind: "above", level: "Ledger", law }`, which
   names the level and the law as that level states it.
 
@@ -2584,9 +2592,9 @@ deploy.
   and every login's workloads with the committed snapshot, and writes the new snapshot and a folder
   `migrations/<root>/<timestamp>_<name>/` of numbered SQL files and a `meta.json`, `<root>` the PostgreSQL schema of
   the installation's root level. A snapshot is two files in `migrations/<root>/`, one value under the one fingerprint
-  `snapshot.json` records: `snapshot.json`, what an app imports for `DbLayer.make` (the fingerprint, the levels, the
-  constraints' laws and the rosters' codes), and `manifest.json`, the rest, which only `generate`, `check`, `drift`
-  and `migrate` read. Commit both.
+  `snapshot.json` records: `snapshot.json` (the fingerprint, the levels, the constraints' laws and the rosters' codes)
+  and `manifest.json`, the rest. Beside them, `served/<login>.json` holds each login's workloads compiled under the
+  snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
   caller writes: by a cast, or by the expression you write at a `-- grizzle: placeholder` marker, which also asks for
@@ -2665,8 +2673,8 @@ deploy.
   function as `"pg_catalog"."count"`. So a relation may be called `Text` or `Uuid`, and no search_path, the
   database's, a role's or a session's, changes what a migration or a query means.
 - **Indexes follow the code.** Every index comes from a rule, from a workload program's queries through the roles they
-  read, or from a role's write filter. A workload program edit that needs no other index takes effect as is; one that
-  does, or a program added, renamed or removed, is refused by `check` and by `DbLayer.make` until you run `generate`.
+  read, or from a role's write filter. Every workload program edit, addition, rename or removal is refused by `check`
+  until you run `generate`, which commits the login's served file again, with the indexes the edit needs.
 
 The [agent guide](packages/grizzle/skills/grizzle/SKILL.md) is the full workflow: markers, renames, legal edits,
 refusals and deploys.
@@ -2939,17 +2947,17 @@ creates. Qti's first install holds about 15,100 locks (15,900 with the Ledger ov
 PostgreSQL's message, names `max_locks_per_transaction`, and states the three settings it read from the server. The
 drift check, which rebuilds the snapshot beside the schema in one transaction, needs the same.
 
-Build each `DbLayer` once per process. Building it parses the snapshot, compiles the laws of the relations the login's
-workloads name and write, the login's roles and every workload program for every role it runs on (the compilation
-`grizzle generate` ran), and checks the workloads' index needs
-against the snapshot. It reads `snapshot.json` alone and trusts its recorded fingerprint: `grizzle check` and `grizzle
-migrate` refuse a `snapshot.json` or `manifest.json` edited by hand. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse, a schema
-that is not the snapshot's, a role or program that does not compile, or a workload program added,
-renamed, removed or changed since `grizzle generate`; the error names the program and says to run `grizzle generate`.
+Build each `DbLayer` once per process, in module scope. Building it reads the login's served file once and rebuilds what
+runs each of its programs: the parameters' codecs, the rows' readers, the refusal classifier and the prologue, under
+the codes of the rosters the file holds. It compiles nothing and evaluates no schema, so it costs tens of milliseconds
+however large the schema. grizzle trusts its own file: `grizzle check` refuses a served file that is not its login's
+compile under the committed snapshot, a stale one or one edited by hand, and every transaction guards the database
+with the file's fingerprint. `DbLayer.make` fails with an `OpenError` at stage `config` for a file of another login
+than the name `served` was given.
 
 Open a `Db` per request or handler. `Db.open` contacts nothing: it finds the role's login layer, turns the token into
 claims and builds the handle on the host, so a request's first call is its first round trip. grizzle assumes the
-database is the one the snapshot was migrated to, and checks nothing of it at runtime beyond what every transaction
+database is the one the served file's snapshot was migrated to, and checks nothing of it at runtime beyond what every transaction
 checks (below). `grizzle migrate`, which runs the drift check after every apply, and `grizzle drift` judge the rest:
 
 - **The server:** PostgreSQL 19, the database UTF8 with the builtin `C.UTF-8` locale, and the server's
@@ -2972,8 +2980,9 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.
 
-A value that is not a role reached through its login is refused at stage `schema`. Otherwise `Db.open`'s refusal is an
-`OpenError` at the first stage that fails: `role` (no provided layer holds its login), `schema` (the token is not a
+A value that is not a role of a served login is refused at stage `schema`. Otherwise `Db.open`'s refusal is an
+`OpenError` at the first stage that fails: `role` (no provided layer holds its login, or the layer's file holds no role
+of its name), `schema` (the token is not a
 string) and `token` (`verify` refused or threw, or the payload does not decode through the role's contexts). A claim of
 a refined field is judged by the field's domain where a statement reads it: one PostgreSQL refuses fails that call
 with the server's `ServerError`, as does a statement naming an extension's type the role holds no USAGE on, or that
@@ -2982,7 +2991,7 @@ the database does not install.
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call
 fails at once with `StaleSnapshot` (reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `StaleSnapshot` (reason `Migrated`),
-and keeps failing: deploy the code that carries the new `snapshot.json` and open new `Db`s with it.
+and keeps failing: deploy the code that carries the new served files and open new `Db`s with them.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round
 trip: one takes the ledger's lock without waiting, so a running migration refuses it at once and the app never waits;
@@ -2994,7 +3003,7 @@ statements and COMMIT, so a stale `Db` never answers `no-change`.
 connections before an instance suspends. grizzle depends on no platform's package.
 
 **RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
-`@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlJob)` names. Grant that role
+`@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlServed)` names. Grant that role
 `rds_iam` with `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`. `grizzle drift` judges what a login can do, not
 how its memberships are spelled: a membership beyond the login's roles is no drift when it carries SET FALSE and no
 ADMIN and the login's privileges on the installation stay exactly its own (USAGE on the schema, SELECT on the ledger).
@@ -3003,13 +3012,12 @@ ownership there is. This has not been run against RDS.
 
 ```ts
 import { Signer } from "@aws-sdk/rds-signer"
-import { roleNameOf } from "@bjornpagen/grizzle"
+import { roleNameOf } from "@bjornpagen/grizzle/runtime"
 import { Redacted } from "effect"
 
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
-	login: EtlJob,
-	snapshot,
+	login: EtlServed,
 	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
 	password: Effect.tryPromise({
 		try: () =>
@@ -3017,7 +3025,7 @@ export const RdsEtlLayer = DbLayer.make({
 				hostname: "db.internal",
 				port: 5432,
 				region: "us-east-1",
-				username: roleNameOf(EtlJob)
+				username: roleNameOf(EtlServed)
 			}).getAuthToken(),
 		catch: (cause) => new CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))

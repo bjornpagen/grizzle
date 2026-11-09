@@ -7,11 +7,10 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { makeDb } from "#adapter/db/db.ts"
-import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
+import { compiledOpen, openDbContext, type OpenedDb } from "#adapter/db/open.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { CompileError, CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -536,7 +535,7 @@ export const roundTripSuite = (): void => {
 						const substrate = yield* Substrate
 						const tap = makeTap(substrate.cluster)
 						/** The login's own layer, every byte of its pool's one session through the tap. */
-						const tappedLayer = DbLayer.make({
+						const tappedLayer = compiledDbLayer({
 							...clusterConnection(
 								o.installed.cluster,
 								o.installed.database,
@@ -550,7 +549,7 @@ export const roundTripSuite = (): void => {
 						})
 						return yield* Effect.gen(function* () {
 							/** The session's startup, outside every window: a call of a Db opened before the cases. */
-							const warm = yield* Db.open(o.server.roles.app, {})
+							const warm = yield* compiledOpen(o.server.roles.app, {})
 							yield* warm.get(W.Task, { id: t1 })
 							return yield* explore(
 								{
@@ -576,7 +575,7 @@ export const roundTripSuite = (): void => {
 									Effect.gen(function* () {
 										const mark = tap.mark()
 										const dbs = yield* Effect.forEach(Arr.range(1, c.opens), () =>
-											Db.open(o.server.roles.app, {})
+											compiledOpen(o.server.roles.app, {})
 										)
 										const opened = tap.since(mark)
 										assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")

@@ -1,13 +1,14 @@
 import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
-import type { CompiledOps } from "#adapter/db/db.ts"
 import { openDbContext } from "#adapter/db/open.ts"
+import type { CompiledOps } from "#adapter/db/ops.ts"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { QueryResultValue } from "#adapter/reader/reader.ts"
-import type { DbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
+import type { CompiledDbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -87,12 +88,12 @@ interface Migrated extends Installed {
  */
 export const loginLayerOf = <L extends AnyLogin>(
 	login: L,
-	snapshot: DbConfigShape<L>["snapshot"]
+	snapshot: CompiledDbConfigShape<L>["snapshot"]
 ): Effect.Effect<Layer.Layer<DbLayerOf<L>, OpenError>, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const given = yield* substrate.login(roleNameOf(login))
-		return DbLayer.make({
+		return compiledDbLayer({
 			...clusterConnection(substrate.cluster, substrate.database, given.password),
 			pool: clusterPool,
 			login,

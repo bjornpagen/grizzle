@@ -64,11 +64,12 @@ export default defineConfig({
   at stage `acquire`.
 - A level reaches the levels below it only by a containment of plain fields into a key, or through a rule over a
   query; any other law over a lower relation is `LevelRefused` when the schema is built. A process over a lower level
-  opens the installation's snapshot, and a refusal by a law above it is `{ kind: "above", level, law }`.
+  serves its login's file, which holds what its programs may meet of the levels above, and a refusal by a law above it
+  is `{ kind: "above", level, law }`.
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets and relation keys. An ordered query the application pages is
-  the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and DbLayer.make compiles a page
+  the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and generate compiles a page
   template for no other member. Two programs of one name across a login's workloads are refused when the login is
   built.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
@@ -84,11 +85,11 @@ export default defineConfig({
 
 ## The loop
 
-1. Edit the schema, its roles and logins in code. A program the application runs on every request belongs in a
-   workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup. `grizzle
-   generate` compiles it the same way for every role of its login first, so a program the layer would refuse fails
-   generate with the same CompileError. DbLayer.make compiles the laws of the relations its workloads name and write
-   alone, so a program outside them that names or writes another relation compiles that relation's laws at its call.
+1. Edit the schema, its roles and logins in code. Every program the application runs belongs in a workload of its
+   login: its access paths earn indexes, and `grizzle generate` compiles it for every role of its login and commits
+   the login's compiled workload as `migrations/<root>/served/<login>.json`, which the application serves
+   (`served<typeof Login>(file, name)`) and compiles nothing. A program that does not compile fails generate with its
+   CompileError, naming the role and the program.
 2. Run `grizzle generate grizzle.config.ts`, declaring what became of every name the schema no longer holds: a
    `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
    It prints one line per written file, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its
@@ -422,12 +423,15 @@ The command line's own refusals, by stage:
   decide which rows an `approximateNearest` read returns and how many; JIT is the owner's too, and on a server built
   with LLVM `jit_above_cost` can make a large statement compile its plan first; and the server's messages come in its
   `lc_messages` language.
-- Pass the committed snapshot to the login's `DbLayer.make`, and open each `Db` through its login:
+- Serve the login's committed workload, pass it to the login's `DbLayer.make`, and open each `Db` through it, all from
+  `@bjornpagen/grizzle/runtime`, importing the login as a type alone, so the application evaluates no schema module:
 
   ```ts
-  import snapshot from "./migrations/blog/snapshot.json" with { type: "json" }
-  export const WebLayer = DbLayer.make({ ...connection, login: Web, snapshot, password, pool, verify })
-  const db = yield* Db.open(Web.roles.member, { token })
+  import webFile from "./migrations/blog/served/web.json" with { type: "json" }
+  import type { Web } from "./schema.ts"
+  export const WebServed = served<typeof Web>(webFile, "web")
+  export const WebLayer = DbLayer.make({ ...connection, login: WebServed, password, pool, verify })
+  const db = yield* Db.open(WebServed.roles.member, { token })
   const feed = yield* db.workload.memberFeed.execute({})
   ```
 
@@ -438,11 +442,12 @@ The command line's own refusals, by stage:
   `{ max, min, idleTimeoutMs }`. grizzle states no number of its own: a `Db` call waits for a session until it gets
   one or is interrupted, and an interrupted statement sends one CancelRequest and destroys its session.
 
-  `DbLayer.make` compiles every program of the login's workloads once, under the snapshot it is given, which it
-  compares with nothing: `grizzle check` finds a program added, renamed or dropped, or whose access paths moved,
-  since the snapshot was generated; run `grizzle generate`. A program edit that moves no access path just takes
-  effect. `Db.open` contacts nothing and checks nothing of the database: grizzle assumes it is the one the snapshot was
-  migrated to, and the request's first call is its first round trip. `token` is required exactly when the role's
+  `DbLayer.make` loads the served file once and compiles nothing; it refuses, at stage `config`, a file of another
+  login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under
+  the committed snapshot: a program added, renamed, dropped or edited since the file was generated; run `grizzle
+  generate`. `roleNameOf(WebServed)` is the login's PostgreSQL role, read from the file. `Db.open` contacts nothing and
+  checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first
+  call is its first round trip. `token` is required exactly when the role's
   relations read a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
   judged by its domain where a statement reads it. `grizzle migrate` judges the database after every apply and when
   nothing is pending, and refuses drift: the login's and the role's settings and privileges exactly the snapshot's,

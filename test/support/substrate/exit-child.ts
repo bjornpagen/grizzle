@@ -9,7 +9,7 @@
  * Its case is its one argument, JSON: `{ "dbs": 0 | 1 | 2, "read": boolean }`.
  */
 import { Effect, Layer } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -54,7 +54,7 @@ const work = (c: ExitCase) =>
 			for (let opened = 0; opened < c.dbs; opened++) {
 				yield* Effect.scoped(
 					Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
+						const db = yield* compiledOpen(o.server.roles.app, {})
 						if (c.read) {
 							yield* Effect.flatMap(db.execute(notes, {}), (result) => result.collect)
 						}

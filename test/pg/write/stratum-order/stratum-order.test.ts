@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -141,7 +141,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									)
 									yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
 									yield* Effect.gen(function* () {
-										const db = yield* Db.open(o.server.roles.app, {})
+										const db = yield* compiledOpen(o.server.roles.app, {})
 										const bs = Arr.map(k.ts, (_, i) => ({
 											id: uuidOf(100 + i),
 											m: upTo(defined(k.qs[i], "a B's nested count"), (j) => ({

@@ -14,6 +14,7 @@ export {
 	query,
 	role,
 	schema,
+	served,
 	v,
 	wholeEntriesOf,
 	writableNamesOf

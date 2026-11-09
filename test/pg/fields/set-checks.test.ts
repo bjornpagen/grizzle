@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, pg } from "#compiler/public/fields.ts"
@@ -136,7 +136,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* exhaust(
 								{
 									box: { kind: "unstated" },

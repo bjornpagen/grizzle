@@ -15,7 +15,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -1179,7 +1180,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			p: item.p
 		})
 		const stored = yield* Effect.gen(function* () {
-			const db = yield* Db.open(o.server.roles.app, {})
+			const db = yield* compiledOpen(o.server.roles.app, {})
 			const empty = ChangeSet.empty(o.schema)
 			for (const [at, relation] of built.checked.entries()) {
 				const pred = c.checks[at === 0 ? 0 : 1]

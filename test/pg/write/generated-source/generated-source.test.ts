@@ -25,7 +25,7 @@ import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
@@ -218,7 +218,7 @@ layer(Substrate.layer)(
 						const o = yield* installed(Items, {}, { label: "genquery", extensions: [] })
 						const group = installationGroup(namesOf(o.installed))
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							/** Each relation's rows as grizzle reads them, generated fields included, and the write's source,
 							 * the rows its relation parameter binds, delivered as they are. */
 							const rowsOf = {

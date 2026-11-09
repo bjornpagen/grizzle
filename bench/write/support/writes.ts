@@ -8,13 +8,13 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { writeProgramOf, runApplication } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { CompiledEntry } from "#adapter/served/forms.ts"
 import {
 	type Answer,
 	controlText,
@@ -795,7 +795,7 @@ const observedArtifact = (
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit,
-	realization: (entry: CompiledChange) => Result.Result<CompiledChange, CompileError>
+	realization: (entry: CompiledEntry) => Result.Result<CompiledEntry, CompileError>
 ): Result.Result<ObservedChange, CompileError | GateSetupError> => {
 	if (!isChangeSetValue(changes)) {
 		return Result.fail(new GateSetupError({ what: "observedChange: not a ChangeSet value" }))

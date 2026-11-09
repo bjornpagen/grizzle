@@ -1,46 +1,6 @@
-import { hostRead } from "#compiler/core/host.ts"
-import * as Result from "#compiler/core/result.ts"
+import { readsAsData } from "#compiler/core/host.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
-
-/**
- * Whether every own property of `value`, and of every unfrozen object it holds, is a data property. It reads each
- * object's prototype too, as the builder does when it tests a value's class (instanceof, a plain record), so a trap
- * that throws there throws here, at the boundary.
- */
-const dataOnly = (value: unknown, seen: Set<object>): boolean => {
-	if (
-		typeof value !== "object" ||
-		value === null ||
-		seen.has(value) ||
-		queryState(value) !== undefined
-	) {
-		return true
-	}
-	seen.add(value)
-	Object.getPrototypeOf(value)
-	const deep = !Object.isFrozen(value)
-	for (const key of Reflect.ownKeys(value)) {
-		const descriptor = Reflect.getOwnPropertyDescriptor(value, key)
-		if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) {
-			return false
-		}
-		if (deep && !dataOnly(descriptor.value, seen)) {
-			return false
-		}
-	}
-	return true
-}
-
-/** A reading that throws, which readableArguments answers as no data, with nothing to say. */
-const noFault = (): undefined => undefined
-
-/** Whether every argument reads as data, a reading that throws counting as one that does not. */
-const readableArguments = (args: ReadonlyArray<unknown>): boolean => {
-	const seen = new Set<object>()
-	const read = hostRead(noFault, () => Result.ok(args.every((a) => dataOnly(a, seen))))
-	return read.ok && read.value
-}
 
 /**
  * A JavaScript caller's arguments at the builder's boundary, read once.
@@ -64,7 +24,7 @@ const readableArguments = (args: ReadonlyArray<unknown>): boolean => {
  * Reads every argument of the entry `label` once, refusing one whose reading throws or that holds a getter or setter.
  */
 export const hostArguments = (label: string, args: ReadonlyArray<unknown>): void => {
-	if (!readableArguments(args)) {
+	if (!readsAsData(args, (value) => queryState(value) !== undefined)) {
 		throw malformed(
 			label,
 			"an argument whose properties can be read as data: no getter, setter or refusing proxy"

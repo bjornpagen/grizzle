@@ -19,7 +19,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { DbConnection, PoolBounds } from "#adapter/types/layer.ts"
 import {
@@ -428,7 +428,9 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 	const text = yield* fs.readFileString(`${directory}/snapshot.json`)
 	const [, layer] = yield* timedEffect(
 		Effect.scoped(
-			Layer.build(DbLayer.make({ ...offline, login: made.web, snapshot: snapshotJson(text), pool }))
+			Layer.build(
+				compiledDbLayer({ ...offline, login: made.web, snapshot: snapshotJson(text), pool })
+			)
 		)
 	)
 	const times: Readonly<Record<Phase, Spent>> = {

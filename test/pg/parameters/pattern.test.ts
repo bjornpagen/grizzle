@@ -15,8 +15,8 @@ import { array, codePoint, element, type Gen, oneOf, string } from "@grizzle/tes
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ReadFailure, type ReadError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { type CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -116,7 +116,7 @@ layer(Substrate.layer)(
 							{ label: "real", extensions: [] }
 						)
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* explore(
 								{
 									suite: "parameters/pattern",

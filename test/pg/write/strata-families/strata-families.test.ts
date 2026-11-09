@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -66,7 +66,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const o = yield* installed(Strata, {}, { label: "strata_families", extensions: [] })
 					const group = installationGroup(namesOf(o.installed))
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
+						const db = yield* compiledOpen(o.server.roles.app, {})
 						const members = query(o.schema).rule((r) => {
 							const { m, club } = v(Member, "member")
 							return r.match(Member, { m, club }).find({ m })

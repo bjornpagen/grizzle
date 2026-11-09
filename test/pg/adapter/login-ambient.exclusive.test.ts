@@ -40,7 +40,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -440,7 +440,7 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 					/** The program's every outcome and answer, through a Db the login opens on a layer of its own. */
 					const run = (p: Program) =>
 						Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							const empty = ChangeSet.empty(o.schema)
 							const texts = Arr.dedupeWith(p.texts, sameId)
 							const links = [

@@ -33,6 +33,7 @@ import {
 	Struct
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import {
 	type OpenError,
 	type ReadError,
@@ -41,8 +42,7 @@ import {
 } from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
@@ -736,19 +736,19 @@ const runOpen = (r: Workspace, model: Model) =>
 			generated.version === 2
 				? withLayer(
 						Effect.scoped(
-							Effect.flatMap(Db.open(v2.server.roles.reader, {}), (db) =>
+							Effect.flatMap(compiledOpen(v2.server.roles.reader, {}), (db) =>
 								db.get(v2.Customer, { id: id(1) })
 							)
 						),
-						DbLayer.make({ ...connection, login: v2.server })
+						compiledDbLayer({ ...connection, login: v2.server })
 					)
 				: withLayer(
 						Effect.scoped(
-							Effect.flatMap(Db.open(v1.server.roles.reader, {}), (db) =>
+							Effect.flatMap(compiledOpen(v1.server.roles.reader, {}), (db) =>
 								db.get(v1.Customer, { id: id(1) })
 							)
 						),
-						DbLayer.make({ ...connection, login: v1.server })
+						compiledDbLayer({ ...connection, login: v1.server })
 					)
 		const answered = yield* Effect.result(read)
 		if (answers) {

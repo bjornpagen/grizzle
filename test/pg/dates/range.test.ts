@@ -15,7 +15,7 @@ import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, pipe, Result, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
@@ -98,7 +98,7 @@ layer(Substrate.layer)(
 						const range = identifierOf(identity.dateCheck("Event", "day"))
 						const insert = `INSERT INTO ${names.table(Event)} (${names.column(Event, "id")}, ${names.column(Event, "day")}) VALUES ($1::integer, $2::date)`
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							const writer = yield* s.session({
 								...worldSession(o.installed.world(o.app)),
 								label: "writer"

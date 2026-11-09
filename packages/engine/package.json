@@ -72,6 +72,11 @@
 			"types": "./dist/plan/read.d.ts",
 			"default": "./dist/plan/read.js"
 		},
+		"./internal/plan/runtime.ts": {
+			"grizzle-source": "./src/plan/runtime.ts",
+			"types": "./dist/plan/runtime.d.ts",
+			"default": "./dist/plan/runtime.js"
+		},
 		"./internal/plan/serve.ts": {
 			"grizzle-source": "./src/plan/serve.ts",
 			"types": "./dist/plan/serve.d.ts",

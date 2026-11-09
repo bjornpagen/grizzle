@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -183,7 +183,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									})
 									yield* Effect.gen(function* () {
-										const db = yield* Db.open(o.server.roles.app, {})
+										const db = yield* compiledOpen(o.server.roles.app, {})
 										const outcome = yield* db.apply(
 											ChangeSet.empty(o.schema).insert(
 												R,

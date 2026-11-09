@@ -101,6 +101,8 @@ const main = Effect.gen(function* () {
 
 	let t = performance.now()
 	const grizzle = yield* Effect.promise(() => import("#index.ts"))
+	const { compiledDbLayer } = yield* Effect.promise(() => import("#adapter/pool/registry.ts"))
+	const { compiledOpen } = yield* Effect.promise(() => import("#adapter/db/open.ts"))
 	phases["importEntryMs"] = since(t)
 	t = performance.now()
 	const { snapshotJson } = yield* Effect.promise(() => import("#test/support/snapshot-json.ts"))
@@ -191,7 +193,7 @@ const main = Effect.gen(function* () {
 		const worlds = W.workWorlds(work)
 		const reads = W.workReads(work)
 		const password: Redacted.Redacted = Redacted.make(target.password)
-		const layer = grizzle.DbLayer.make({
+		const layer = compiledDbLayer({
 			driver: pg.default,
 			transport: {
 				kind: "sslRequest",
@@ -238,7 +240,7 @@ const main = Effect.gen(function* () {
 			})
 		const executions = Effect.gen(function* () {
 			opened = performance.now()
-			const db = yield* grizzle.Db.open(worlds.server.roles.reader, {})
+			const db = yield* compiledOpen(worlds.server.roles.reader, {})
 			phases["openMs"] = since(opened)
 			yield* measure("automaticTasksFor", () => db.execute(reads.automaticTasksFor, params))
 			yield* measure("automaticBudgetFor", () => db.execute(reads.automaticBudgetFor, params))

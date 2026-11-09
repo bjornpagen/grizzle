@@ -17,7 +17,7 @@ import {
 import { HandleReleased } from "#adapter/errors/failures.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { whileLive } from "#adapter/reader/reader.ts"
-import { compileChangeForm, compiledWrite } from "#adapter/served/forms.ts"
+import { compileChangeForm, type CompiledEntry, compiledWrite } from "#adapter/served/forms.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
@@ -193,4 +193,4 @@ export const compileChange = <R>(
 export const writeProgramOf = (
 	ctx: DbContext,
 	changes: unknown
-): Result.Result<CompiledChange, CompileError> => compiledWrite(ctx, changes, ctx.claims)
+): Result.Result<CompiledEntry, CompileError> => compiledWrite(ctx, changes, ctx.claims)

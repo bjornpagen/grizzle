@@ -6,7 +6,7 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -189,7 +189,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 								const opened = yield* Effect.exit(
 									Effect.scoped(
 										Layer.build(
-											DbLayer.make({
+											compiledDbLayer({
 												...offlineConnection,
 												pool: clusterPool,
 												login: pairs.login,

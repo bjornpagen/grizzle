@@ -17,6 +17,7 @@ import {
 	PutTargetConflict,
 	RoleOutsideLayers,
 	SerializationFailure,
+	ServedLoginRefused,
 	ServerError,
 	SpanKeyChange,
 	type StaleReason,
@@ -50,7 +51,7 @@ import {
 
 /**
  * Why opening a Db or building a DbLayer failed, on the host, before anything is sent: a DbConfig no connection can
- * use, or an environment that sets a connection option grizzle cannot override; a role no provided layer serves; a
+ * use, an environment that sets a connection option grizzle cannot override, or a served file of another login; a role no provided layer serves; a
  * token verify refused or threw, or claims that do not decode through the role's contexts; a schema, login, snapshot or
  * option value that does not compile or parse (CompileError), a login whose role name the naming door refuses
  * included.
@@ -58,6 +59,7 @@ import {
 export type OpenReason =
 	| DbConfigRefused
 	| ConnectionEnvironmentRefused
+	| ServedLoginRefused
 	| RoleOutsideLayers
 	| TokenError
 	| ClaimRefused
@@ -65,7 +67,7 @@ export type OpenReason =
 
 /**
  * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
- * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
+ * refused, or a served file of another login than the one it was served as; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
  * or whose claims do not decode; or `schema`, a value that does not compile or parse.
  */
 export type OpenStage = "config" | "role" | "token" | "schema"
@@ -74,6 +76,7 @@ const openStage = (reason: OpenReason): OpenStage => {
 	switch (reason._tag) {
 		case "DbConfigRefused":
 		case "ConnectionEnvironmentRefused":
+		case "ServedLoginRefused":
 			return "config"
 		case "RoleOutsideLayers":
 			return "role"

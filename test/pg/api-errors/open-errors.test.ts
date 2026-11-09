@@ -6,10 +6,12 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { CredentialError, Db, DbLayer, OpenError, relation, schema, uuid } from "#index.ts"
+import { CredentialError, OpenError, relation, schema, uuid } from "#index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { admittedNames, aliasGroups } from "#test/support/kernel/dict.ts"
@@ -197,7 +199,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 									attempts++
 									return Effect.fail(new CredentialError({ cause: "no connection is expected" }))
 								})
-								const layer = DbLayer.make({
+								const layer = compiledDbLayer({
 									...clusterConnection(cluster, "postgres", password),
 									pool: clusterPool,
 									login: world.server,
@@ -208,7 +210,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 								 * opens without contacting the database.
 								 */
 								const opened = yield* Effect.result(
-									Effect.scoped(Db.open(world.server.roles.app, {})).pipe(withLayer(layer))
+									Effect.scoped(compiledOpen(world.server.roles.app, {})).pipe(withLayer(layer))
 								)
 								assert.equal(attempts, 0, "no connection is attempted")
 								if (collision) {

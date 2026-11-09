@@ -1,0 +1,221 @@
+import { Effect, type Option, Result } from "effect"
+import { compileFailure, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
+import { dbWriteFrame, type ServedDbContext } from "#adapter/db/context.ts"
+import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
+import { fromEngine } from "#adapter/engine.ts"
+import {
+	type ApplyError,
+	type ReadError,
+	ReadFailure,
+	TransportFailure
+} from "#adapter/errors/execution.ts"
+import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { applyOutcome } from "#adapter/outcomes/index.ts"
+import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
+import { pageOf } from "#adapter/page/page.ts"
+import { pageRequest } from "#adapter/page/request.ts"
+import type { ExecutionInputs } from "#adapter/reader/execution.ts"
+import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
+import { poolExecutor, type ReadExecutor } from "#adapter/reader/reader.ts"
+import { executionInputs } from "#adapter/reader/relations.ts"
+import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
+import type {
+	LoadedChange,
+	LoadedMember,
+	LoadedPage,
+	LoadedRead,
+	LoadedVariants
+} from "#adapter/served/load.ts"
+import type { ApplyOutcome, QueryResult } from "#adapter/types/db.ts"
+import type { Flight } from "#adapter/wire/batch.ts"
+import {
+	type CompileError,
+	type CursorError,
+	malformedDescription,
+	type ParamMap,
+	type Row,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import type { Page } from "#compiler/plan/read.ts"
+
+/**
+ * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
+ * the Db's pool, under its name. A handle lives as long as the layer that loaded its program.
+ *
+ * The refusal of an operation a member's program does not allow, which its typed handle never offers: a JavaScript
+ * caller meets it before any SQL.
+ */
+const notItsOperation = (): CompileError =>
+	malformedDescription(
+		SourceLoc("db.workload", []),
+		"an operation of the program: execute and get read a query, page pages a paged member, apply applies a ChangeSet, a key gets its row"
+	)
+
+/** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
+type Delivery<X> = (
+	program: ReadProgram,
+	inputs: ExecutionInputs,
+	read: (row: Row) => unknown
+) => Effect.Effect<Flight<X, UnreadableAnswer>, InputTooLarge>
+
+/**
+ * One run of a loaded read with the caller's parameters, through `executor`: the parameters read once and every Stream
+ * collected (reader/params.ts hostParams), the inputs encoded by the read's codecs, then its one flight, its rows read
+ * by its bound decoder and delivered by `delivery`.
+ */
+const runRead = <X>(
+	executor: ReadExecutor,
+	read: LoadedRead,
+	params: ParamMap,
+	delivery: Delivery<X>
+): Effect.Effect<X, ReadError> =>
+	Effect.gen(function* () {
+		const values = yield* hostParams(read.params, params)
+		const flight = yield* Effect.mapError(
+			Effect.flatMap(Effect.fromResult(executionInputs(read.codecs, values)), (ready) =>
+				delivery(read.program, ready, read.read)
+			),
+			(reason) => new ReadFailure({ reason })
+		)
+		return yield* executor.run(flight)
+	})
+
+/** A read's complete result over its rows. */
+const collected = (rows: ReadonlyArray<unknown>): QueryResult<unknown> => ({
+	collect: Effect.succeed(rows)
+})
+
+const refusedRead = (): Effect.Effect<never, ReadFailure> =>
+	Effect.fail(new ReadFailure({ reason: notItsOperation() }))
+
+const refusedApply = (): Effect.Effect<never, ApplyError> => compileFailure(notItsOperation())
+
+/** A loaded read's execute and get: get only of a query proved at most one row per parameter binding. */
+const readOps = (executor: ReadExecutor, read: LoadedRead): CompiledOps<unknown> => ({
+	execute: (params) => Effect.map(runRead(executor, read, params, programFlight), collected),
+	get: (params) =>
+		Result.isFailure(read.get)
+			? Effect.fail(new ReadFailure({ reason: read.get.failure }))
+			: runRead(executor, read, params, programGetFlight),
+	page: refusedRead,
+	apply: refusedApply
+})
+
+/**
+ * One page of a paged member (page/page.ts): the request read first, then the parameters as a read's, an anchored
+ * request's cursor decoded by the page's codec, the request variant's one flight, and each delivered edge's node read
+ * by the decoder the layer bound to that variant's layouts, its cursor made by the codec.
+ */
+const runPage = <Q>(
+	executor: ReadExecutor,
+	read: LoadedRead,
+	page: LoadedPage,
+	params: ParamMap,
+	request: unknown
+): Effect.Effect<Page<unknown, Q>, ReadError | CursorError> =>
+	Effect.gen(function* () {
+		const asked = yield* Effect.fromResult(pageRequest(request))
+		const values = yield* hostParams(read.params, params)
+		const inputs = yield* Effect.fromResult(
+			Result.mapError(executionInputs(read.codecs, values), (reason) => new ReadFailure({ reason }))
+		)
+		const call: PageCall =
+			asked.variant === "first" || asked.variant === "last"
+				? asked
+				: {
+						variant: asked.variant,
+						size: asked.size,
+						boundary: (yield* fromEngine(page.runtime.codec.decode(asked.cursor))).texts
+					}
+		const flight = yield* Effect.mapError(
+			pageFlight(page.runtime, inputs, call),
+			(reason) => new ReadFailure({ reason })
+		)
+		const rows = yield* executor.run(flight)
+		return yield* Effect.fromResult(
+			pageOf<unknown, Q>(page.runtime, rows, page.reads[asked.variant])
+		)
+	})
+
+/**
+ * One application of a loaded ChangeSet (apply/run.ts): its inputs readied on the host, a same-key pair the host
+ * already refuses answered as invariant-rejected before any SQL, else its one transaction on a session of the Db's
+ * pool, whose acquisition's refusal is a TransportFailure at stage acquire.
+ */
+const applyChange = (
+	ctx: ServedDbContext,
+	change: LoadedChange,
+	params: ParamMap
+): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
+	Effect.gen(function* () {
+		const inputs = yield* Effect.mapError(hostInputs(change.entry, params), inputApplyError)
+		if (inputs.kind === "rejected") {
+			return applyOutcome.invariantRejected({ kind: "every", laws: [inputs.law] }, inputs.witness)
+		}
+		return yield* Effect.scoped(
+			Effect.flatMap(
+				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
+				(session) => runWrite(session, dbWriteFrame(ctx), change.entry, inputs, change.reads)
+			)
+		)
+	})
+
+/** The change a Db runs: the one compiled for the fill contexts its claims hold a fact of. */
+export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): LoadedChange => {
+	switch (variants.kind) {
+		case "change":
+			return variants.change
+		case "split":
+			return variantOf(ctx, ctx.claims.has(variants.context) ? variants.holding : variants.lacking)
+	}
+}
+
+/**
+ * A loaded member's operations over a Db's context (db.ts CompiledOps), those its program does not allow refused before
+ * any SQL: a read executes and gets; a key gets by its values, read once at the boundary (reader/params.ts
+ * readKeyValues); a paged member also pages; a ChangeSet applies its variant for the Db's claims.
+ */
+export const memberOps = (ctx: ServedDbContext, member: LoadedMember): CompiledOps<unknown> => {
+	const executor = poolExecutor(ctx)
+	switch (member.kind) {
+		case "read":
+			return readOps(executor, member.read)
+		case "key": {
+			const read = readOps(executor, member.read)
+			return {
+				...read,
+				get: (values: ParamMap): Effect.Effect<Option.Option<unknown>, ReadError> => {
+					const bound = readKeyValues(member.fields, values, unreadableArguments())
+					return Result.isFailure(bound) ? Effect.fail(bound.failure) : read.get(bound.success)
+				}
+			}
+		}
+		case "paged":
+			return {
+				...readOps(executor, member.read),
+				page: <Q>(params: ParamMap, request: unknown) =>
+					runPage<Q>(executor, member.read, member.page, params, request)
+			}
+		case "change": {
+			const change = variantOf(ctx, member.variants)
+			return {
+				execute: refusedRead,
+				get: refusedRead,
+				page: refusedRead,
+				apply: (params) => applyChange(ctx, change, params)
+			}
+		}
+	}
+}
+
+/** The record of a Db's workload handles: each member's operations (memberOps), typed, under its name. */
+export const servedHandles = (
+	ctx: ServedDbContext,
+	members: ReadonlyArray<LoadedMember>
+): object => {
+	const handles: Record<string, object> = {}
+	for (const member of members) {
+		handles[member.name] = typedCompiled(memberOps(ctx, member))
+	}
+	return Object.freeze(handles)
+}

@@ -70,11 +70,12 @@ export const noClaims: Claims = Object.freeze({
 })
 
 /**
- * One context, its fields typed, each with its codec under the installation's codes: what its claims are decoded
- * through.
+ * One context: its name, the claim object its facts are read from (none for the payload's top level), and its fields in
+ * code-unit order, each typed, with its codec under the installation's codes: what its claims are decoded through.
  */
 export interface TypedContext {
-	readonly desc: ContextDesc
+	readonly name: string
+	readonly claim: string | undefined
 	readonly fields: ReadonlyArray<{
 		readonly name: string
 		readonly type: ScalarType
@@ -144,7 +145,7 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
  * (`constructor`, `__proto__`) is a member like any other, or absent, never the prototype's.
  */
 const claimObject = (
-	context: ContextDesc,
+	context: Pick<TypedContext, "name" | "claim">,
 	payload: unknown
 ): Result.Result<ReadonlyMap<string, unknown> | undefined, ClaimRefused> =>
 	readHost(new ClaimRefused({ context: context.name, fault: { kind: "notAnObject" } }), () => {
@@ -184,7 +185,7 @@ const contextFact = (
 	context: TypedContext,
 	payload: unknown
 ): Result.Result<Fact | undefined, ClaimRefused> =>
-	Result.flatMap(claimObject(context.desc, payload), (object) => {
+	Result.flatMap(claimObject(context, payload), (object) => {
 		if (object === undefined) {
 			return Result.succeed(undefined)
 		}
@@ -197,7 +198,7 @@ const contextFact = (
 			if (!object.has(field.name)) {
 				return Result.fail(
 					new ClaimRefused({
-						context: context.desc.name,
+						context: context.name,
 						fault: { kind: "missing", field: field.name }
 					})
 				)
@@ -207,7 +208,7 @@ const contextFact = (
 			if (text === undefined || !text.ok) {
 				return Result.fail(
 					new ClaimRefused({
-						context: context.desc.name,
+						context: context.name,
 						fault: { kind: "refused", field: field.name }
 					})
 				)
@@ -233,7 +234,7 @@ export const claimsOf = (
 	const values: Array<ClaimValue> = []
 	for (const context of Arr.sort(
 		contexts,
-		Order.mapInput(Order.String, (c: TypedContext) => c.desc.name)
+		Order.mapInput(Order.String, (c: TypedContext) => c.name)
 	)) {
 		const fact = contextFact(context, payload)
 		if (Result.isFailure(fact)) {
@@ -243,11 +244,11 @@ export const claimsOf = (
 			continue
 		}
 		members.push([
-			context.desc.name,
+			context.name,
 			objectText(Arr.map(fact.success, ({ field, text }) => [field, jsonText(text)] as const))
 		])
 		for (const { field, type, text } of fact.success) {
-			values.push({ context: context.desc.name, field, type, text })
+			values.push({ context: context.name, field, type, text })
 		}
 	}
 	return Result.succeed({
@@ -262,16 +263,29 @@ export const typedContext = (
 	desc: ContextDesc,
 	typeOf: (field: FieldDesc) => ScalarType,
 	codes: Codebook
+): TypedContext =>
+	contextOver(
+		desc,
+		Arr.map(Rec.toEntries(desc.fields), ([name, field]) => ({ name, type: typeOf(field) })),
+		codes
+	)
+
+/**
+ * A context over its typed fields `fields`, put in code-unit order, each with its codec under the codes `codes`: what
+ * the compile types against the base, and a served file holds typed.
+ */
+export const contextOver = (
+	context: Pick<TypedContext, "name" | "claim">,
+	fields: ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>,
+	codes: Codebook
 ): TypedContext => ({
-	desc,
+	name: context.name,
+	claim: context.claim,
 	fields: Arr.map(
 		Arr.sort(
-			Rec.toEntries(desc.fields),
-			Order.mapInput(Order.String, ([name]: readonly [string, FieldDesc]) => name)
+			fields,
+			Order.mapInput(Order.String, (field: { readonly name: string }) => field.name)
 		),
-		([name, field]) => {
-			const type = typeOf(field)
-			return { name, type, codec: scalarCodec(type, codes) }
-		}
+		({ name, type }) => ({ name, type, codec: scalarCodec(type, codes) })
 	)
 })

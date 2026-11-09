@@ -1,9 +1,8 @@
 import { Array as Arr, Record as Rec, Result } from "effect"
-import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import { boundReads } from "#adapter/apply/run.ts"
-import type { RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CompiledPage, PageSource } from "#adapter/page/page.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
@@ -11,8 +10,14 @@ import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { Bound, ReadArtifacts, ReadForm, RowsForm } from "#adapter/reader/reader.ts"
 import { paramCodecs } from "#adapter/reader/relations.ts"
 import { readProgram } from "#adapter/reader/run.ts"
+import type { RoleContext } from "#adapter/served/role.ts"
 import { vectorExpectations } from "#compiler/plan/catalog.ts"
-import { compileWrite, parseChangeSet, type ParsedChangeSet } from "#compiler/plan/change.ts"
+import {
+	compileWrite,
+	parseChangeSet,
+	type ParsedChangeSet,
+	type WriteNames
+} from "#compiler/plan/change.ts"
 import {
 	bindGroups,
 	CompileError,
@@ -26,6 +31,7 @@ import {
 	type QueryDesc,
 	type RowDecoder,
 	type SchemaArtifacts,
+	type SchemaFingerprint,
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
@@ -249,6 +255,16 @@ export const compiledPageTemplate = (
 }
 
 /**
+ * A ChangeSet's program entry as its compile made it: the runtime's entry (apply/compile.ts CompiledChange), the
+ * fingerprint of the schema it was compiled against, the installed names it read, and the value parsed whole.
+ */
+export interface CompiledEntry extends CompiledChange {
+	readonly schema: SchemaFingerprint
+	readonly names: WriteNames
+	readonly change: ParsedChangeSet
+}
+
+/**
  * The parsed ChangeSet of a value, or the refusal of a value that is not one, or of one built over a schema that is no
  * level of the Db's schema (program/schema.ts levelSchema), before any SQL.
  */
@@ -277,7 +293,7 @@ const writeEntry = (
 	role: RoleContext,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
-): Result.Result<WriteEntry, CompileError> =>
+): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
 		({ artifacts, witness }) => {
@@ -298,14 +314,15 @@ const writeEntry = (
 						}
 					)
 				),
-				(program): WriteEntry => ({
+				(program) => ({
 					program,
 					schema: artifacts.fingerprint,
 					names: artifacts.names,
 					violation: witness.classify,
 					readBacks: readBacks(program, artifacts.names.codes),
 					codecs: paramCodecs(program.params, artifacts.names.codes),
-					bind: role.bind
+					bind: role.bind,
+					change
 				})
 			)
 		}
@@ -320,13 +337,8 @@ export const compiledWrite = (
 	role: RoleContext,
 	changes: unknown,
 	claims: ReadonlySet<string>
-): Result.Result<CompiledChange, CompileError> =>
-	Result.flatMap(parsedChange(role, changes), (change) =>
-		Result.map(writeEntry(role, change, claims), (entry): CompiledChange => ({
-			...entry,
-			change
-		}))
-	)
+): Result.Result<CompiledEntry, CompileError> =>
+	Result.flatMap(parsedChange(role, changes), (change) => writeEntry(role, change, claims))
 
 /** The change form of `changes` for `role` under `claims`: a ChangeSet that does not compile is its CompileError. */
 export const compileChangeForm = <R>(

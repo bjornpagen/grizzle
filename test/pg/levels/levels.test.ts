@@ -6,7 +6,7 @@ import { exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -200,10 +200,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 
 						const lowerContext = yield* Layer.build(loginLayer(done, at.authorApp))
 						const upperContext = yield* Layer.build(loginLayer(done, at.app))
-						const author = yield* Db.open(at.authorApp.roles.author, {}).pipe(
+						const author = yield* compiledOpen(at.authorApp.roles.author, {}).pipe(
 							Effect.provideContext(lowerContext)
 						)
-						const learner = yield* Db.open(at.app.roles.learner, {}).pipe(
+						const learner = yield* compiledOpen(at.app.roles.learner, {}).pipe(
 							Effect.provideContext(upperContext)
 						)
 						const containment = defined(

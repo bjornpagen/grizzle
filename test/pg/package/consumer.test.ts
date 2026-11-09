@@ -16,7 +16,7 @@ import {
 	Redacted,
 	String as Str
 } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -177,7 +177,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 										c.note("a read after an earlier write")
 									}
 									const outcome = yield* Effect.gen(function* () {
-										const db = yield* Db.open(own.server.roles.app, {})
+										const db = yield* compiledOpen(own.server.roles.app, {})
 										return yield* db.apply(ChangeSet.empty(App).insert(Note, notes), {})
 									}).pipe(withLayer(loginLayer(installed, own.server)))
 									assert.equal(outcome.kind, "accepted")

@@ -1,5 +1,4 @@
 import { Array as Arr, Effect, Result as EffectResult } from "effect"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
@@ -13,7 +12,7 @@ import {
 	type ReadForm,
 	readHandle
 } from "#adapter/reader/reader.ts"
-import { compiledPageRuntime, compileReadForm } from "#adapter/served/forms.ts"
+import { type CompiledEntry, compiledPageRuntime, compileReadForm } from "#adapter/served/forms.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -237,9 +236,9 @@ export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): Read
  * compiled it against (db/context.ts RoleContext.programArtifacts).
  */
 export const conservativeChange = (
-	entry: CompiledChange,
+	entry: CompiledEntry,
 	role: Pick<DbContext, "programArtifacts">
-): Result.Result<CompiledChange, CompileError> =>
+): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>

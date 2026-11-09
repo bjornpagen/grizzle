@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -131,7 +131,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 						b: names.described(names.lawOf(intoA))
 					}
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
+						const db = yield* compiledOpen(o.server.roles.app, {})
 						return yield* explore(
 							{
 								suite: "pg/write/cycle",

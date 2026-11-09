@@ -1,7 +1,8 @@
 import { Effect, type Option, Result } from "effect"
 import { changeHandle, type ChangeForm } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
-import { type CompiledOps, changeOps, readOps, rowsOps, typedCompiled } from "#adapter/db/db.ts"
+import { changeOps, readOps, rowsOps } from "#adapter/db/db.ts"
+import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import {

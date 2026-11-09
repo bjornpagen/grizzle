@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
@@ -328,7 +329,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										note: notes[f.payload]
 									}
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },

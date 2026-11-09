@@ -1,11 +1,10 @@
 import { Array as Arr, Data, Effect, Option, Record as Rec, Result } from "effect"
-import { theoryRole } from "#adapter/connection/role.ts"
 import { typedContext, type TypedContext } from "#adapter/db/claims.ts"
-import type { RoleContext, RoleInput, SliceArtifacts } from "#adapter/db/context.ts"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { fromEngine, rowOptions } from "#adapter/engine.ts"
 import { compileChangeForm, compileReadForm, compileRowsForm } from "#adapter/served/forms.ts"
-import { installationWitness } from "#adapter/witness/index.ts"
+import { installationWitness } from "#adapter/served/refusals.ts"
+import type { RoleContext, RoleInput, SliceArtifacts } from "#adapter/served/role.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import { type ChangeSetValue, fillContexts } from "#compiler/plan/change.ts"
 import {
@@ -67,6 +66,14 @@ export class WorkloadRefused extends Data.TaggedError("WorkloadRefused")<{
 }
 
 const loc = SourceLoc("login compile", [])
+
+/**
+ * The PostgreSQL role a Db of the role the artifacts were compiled for enters, as the artifacts compiled for it name it
+ * (physical/ddl/names.ts worldNames); undefined for artifacts of reality. Every session of a login's pool logs in as
+ * the login's role, and each of a Db's transactions enters its own role's by its prologue.
+ */
+const theoryRole = (artifacts: SchemaArtifacts): string | undefined =>
+	artifacts.world.kind === "role" ? artifacts.world.names.role : undefined
 
 /** A role's refusal of its own, before any program of it compiled. */
 const roleRefused =

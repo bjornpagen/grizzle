@@ -6,8 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import * as Result from "#compiler/core/result.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
@@ -146,7 +146,7 @@ const opened = Effect.gen(function* () {
 	)
 	const fixture = build(installed.declared)
 	yield* Effect.gen(function* () {
-		const db = yield* Db.open(fixture.server.roles.refresher, {})
+		const db = yield* compiledOpen(fixture.server.roles.refresher, {})
 		yield* db.refresh(fixture.Embeddings)
 	}).pipe(Effect.scoped, withLayer(loginLayer(installed, fixture.server)))
 	return { installed, fixture, table, probe } satisfies Opened
@@ -176,7 +176,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						label: "viewer"
 					})
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.fixture.server.roles.viewer, {})
+						const db = yield* compiledOpen(o.fixture.server.roles.viewer, {})
 						return yield* explore(
 							{
 								suite: "pg/vector/derived",

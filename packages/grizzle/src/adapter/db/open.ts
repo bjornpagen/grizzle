@@ -1,24 +1,23 @@
-import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
+import { openToken } from "#adapter/db/served.ts"
 import { workloadHandles } from "#adapter/db/workload.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { RoleOutsideLayers, TokenError } from "#adapter/errors/failures.ts"
 import { type DbSessions, dbSessions } from "#adapter/pool/registry.ts"
-import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
+import type { DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
 import {
 	type AnyRole,
-	catchCompileError,
 	defect,
 	type LoginRole,
 	loginRoleOf,
 	malformedDescription,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { hostArguments } from "#compiler/plan/read.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 
@@ -70,40 +69,6 @@ const dbClaims = (
 		),
 		(reason) => new OpenError({ reason })
 	)
-}
-
-/**
- * Whether a value is an object that is no list: every property of one reads as some value, which unknown describes,
- * so this claims no more than it checks.
- */
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-	typeof value === "object" && value !== null && !Arr.isArray(value)
-
-/**
- * Db.open's options as a JavaScript caller passes them, read once at the boundary: the token they give, a string, or
- * none. The options are an object whose properties read as data (query/build/host.ts hostArguments), and the token
- * is their own property; no options, null, a list, a value that is no object, one whose reading throws or that holds
- * a getter or a setter, and a token that is no string are each refused at stage schema. The types require the options
- * and type the token, so only a JavaScript caller meets a refusal here.
- */
-export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
-	if (!isRecord(options)) {
-		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
-	}
-	const read = catchCompileError(() => {
-		hostArguments("Db.open", [options])
-	})
-	if (!read.ok) {
-		return Result.fail(new OpenError({ reason: read.error }))
-	}
-	const token: unknown = Rec.has(options, "token") ? options["token"] : undefined
-	if (token === undefined) {
-		return Result.succeed(Option.none())
-	}
-	if (typeof token === "string") {
-		return Result.succeed(Option.some(token))
-	}
-	return Result.fail(refusedOption("Db.open's token: a string, the token the layer's verify reads"))
 }
 
 /** An opened Db and the one context every operation of it reads (context.ts). */
@@ -199,7 +164,12 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 	return { db: makeDb<R, P>(ctx, handles), ctx }
 })
 
-/** Db.open: the Db openDbContext opens. The role is reached through its login, whose layer provides the Effect. */
-export const DbValue: DbConstructor = {
-	open: (role, options) => Effect.map(openDbContext(role, options), (opened) => opened.db)
-}
+/**
+ * Db.open over a layer compiled in-process (pool/registry.ts compiledDbLayer), from a role reached through its login
+ * value: the tests' until they move onto served layers, which the deletion commit removes with it.
+ */
+export const compiledOpen = <R extends AnyRole, P>(
+	role: LoginRole<R, P>,
+	options: OpenOptions<R>
+): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>> =>
+	Effect.map(openDbContext(role, options), (opened) => opened.db)

@@ -3,8 +3,9 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Result as EffectResult, Record as Rec } from "effect"
-import { openToken } from "#adapter/db/open.ts"
+import { isServedRole, openToken } from "#adapter/db/served.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
+import { served } from "#adapter/served/served.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -13,14 +14,7 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import {
-	login,
-	loginRoleOf,
-	role,
-	roleDescOf,
-	wholeEntriesOf,
-	writableNamesOf
-} from "#compiler/schema/world.ts"
+import { login, role, roleDescOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyRole, EntryValue, RoleOptionRecord } from "#compiler/types/schema/world.ts"
@@ -65,10 +59,11 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   typechecks exactly when the engine compiles it for the role;
  * - db.refresh of drawn derived relations typechecks exactly when the engine resolves every one against the role's
  *   refresh list, and succeeds with nothing and fails with ApplyError;
- * - Db.open of a role reached through its login, of the role value itself, or of the schema typechecks exactly when
- *   the engine reads its argument as a role reached through a login (schema/world.ts loginRoleOf);
+ * - Db.open of a role of the login's served workload (served<typeof L>(file, name).roles), of the role reached through
+ *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
+ *   its argument as a served login's role (db/served.ts isServedRole);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
- *   boundary reads them (db/open.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
+ *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
  *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322);
  * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, executed on a
  *   role's Db typechecks exactly when the engine compiles it for the role: a role holding every relation of the base
@@ -109,8 +104,11 @@ const derivedValues: { readonly [D in DerivedName]: AnyDerived } = { TaskTally, 
 const contextNames = ["Org", "Session"] as const
 type ContextName = (typeof contextNames)[number]
 
-/** What Db.open is given: a role reached through its login, the role value itself, or the schema. */
-const openers = ["login role", "role value", "schema"] as const
+/**
+ * What Db.open is given: a role of the login's served workload, the role reached through the login value itself, the
+ * role value itself, or the schema.
+ */
+const openers = ["served role", "login role", "role value", "schema"] as const
 type Opener = (typeof openers)[number]
 
 /** A program over the base: one reading its ordinary relations alone, and one matching the closed relation too. */
@@ -127,6 +125,28 @@ const levelValues: { readonly [L in keyof typeof levelPrograms]: object } = {
 	Work: accountIds,
 	Reports: accountTasks
 }
+
+/** The directive of an opener that is no served login's role: the diagnostic it raises at Db.open's argument. */
+const openerDirective = (opener: Opener): string => {
+	switch (opener) {
+		case "served role":
+			throw new Error("Db.open's boundary refuses a served login's role")
+		case "login role":
+		case "role value":
+		case "schema":
+			return "// @ts-expect-error -- TS2345: Db.open takes a role of a served login"
+	}
+}
+
+/**
+ * The served workload's JSON members served(...) reads, of a case's login: its base, its PostgreSQL role and its
+ * roles' names, as `grizzle generate` writes them; nothing else of it is read before a layer is built.
+ */
+const servedHead = (spec: AccessSpec): object => ({
+	base: spec.level,
+	role: "agreement",
+	roles: Arr.map(spec.roles, (r) => ({ name: r.name }))
+})
 
 /** Db.open's options as a caller may give them: none, null, a token, or a token of another type than text. */
 const optionForms = ["omitted", "null", "a token", "a token of another type"] as const
@@ -411,7 +431,7 @@ interface AccessVerdict {
 	readonly refresh: boolean
 	/** Whether Db.open's first argument is a role reached through its login. */
 	readonly opener: boolean
-	/** Whether Db.open's boundary reads the drawn options (db/open.ts openToken). */
+	/** Whether Db.open's boundary reads the drawn options (db/served.ts openToken). */
 	readonly options: boolean
 	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
 	readonly base: boolean
@@ -551,16 +571,18 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 	const built = login(level, "agreement", values, [])
 	const first = spec.roles[0].name
 	const opened: unknown =
-		spec.opener === "login role"
-			? built.roles[first]
-			: spec.opener === "role value"
-				? values[0]
-				: level
+		spec.opener === "served role"
+			? served(servedHead(spec), "agreement").roles[first]
+			: spec.opener === "login role"
+				? built.roles[first]
+				: spec.opener === "role value"
+					? values[0]
+					: level
 	return {
 		reads,
 		program: program.ok,
 		refresh: EffectResult.isSuccess(refresh),
-		opener: loginRoleOf(opened) !== undefined,
+		opener: isServedRole(opened),
 		options: EffectResult.isSuccess(openToken(optionValues[spec.options].value)),
 		base: compileTemplate(
 			baseValues[spec.base.program],
@@ -728,6 +750,8 @@ const overLines = (
 const openerSource = (spec: AccessSpec, i: number): string => {
 	const first = spec.roles[0].name
 	switch (spec.opener) {
+		case "served role":
+			return `S${i}.roles.${first}`
 		case "login role":
 			return `L${i}.roles.${first}`
 		case "role value":
@@ -749,8 +773,8 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		...(reads
 			? [`// @ts-expect-error -- TS2741: role ${r.name} reads a context, so Db.open needs a token`]
 			: []),
-		`export const o${i}_${r.name} = Db.open(L${i}.roles.${r.name}, {})`,
-		`export const t${i}_${r.name} = Db.open(L${i}.roles.${r.name}, { token: "token" })`,
+		`export const o${i}_${r.name} = Db.open(S${i}.roles.${r.name}, {})`,
+		`export const t${i}_${r.name} = Db.open(S${i}.roles.${r.name}, { token: "token" })`,
 		`export type s${i}_${r.name} = [Expect<Equals<Effect.Services<typeof t${i}_${r.name}>, DbLayer<typeof R${i}_${r.name}>>>, Expect<Equals<Effect.Error<typeof t${i}_${r.name}>, OpenError>>, Expect<Equals<Effect.Success<typeof t${i}_${r.name}>, DbOf<typeof R${i}_${r.name}, unknown>>>]`
 	])
 	const programRole = defined(roleIds[spec.program.role], "the program's role")
@@ -768,21 +792,20 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 	return [
 		...Arr.map(spec.roles, (r) => roleSource(spec, r, i)),
 		`export const L${i} = login(${spec.level}, "l${i}", [${Arr.join(roleIds, ", ")}])`,
+		`export const S${i} = served<typeof L${i}>(file, "l${i}")`,
 		...opens,
 		...(Arr.some(verdict.reads, (x) => x)
 			? [
 					"// @ts-expect-error -- TS2345: a role of the login reads a context, so its layer needs verify"
 				]
 			: []),
-		`export const m${i} = DbLayer.make({ ...destination, login: L${i}, password })`,
-		`export const n${i} = DbLayer.make({ ...destination, login: L${i}, password, verify })`,
+		`export const m${i} = DbLayer.make({ ...destination, login: S${i}, password })`,
+		`export const n${i} = DbLayer.make({ ...destination, login: S${i}, password, verify })`,
 		`export type y${i} = Expect<Equals<typeof n${i}, Layer.Layer<${services}, OpenError>>>`,
-		...(verdict.opener
-			? []
-			: ["// @ts-expect-error -- TS2739: Db.open takes a role reached through its login"]),
+		...(verdict.opener ? [] : [openerDirective(spec.opener)]),
 		`export const w${i} = Db.open(${openerSource(spec, i)}, { token: "token" })`,
 		...(verdict.options ? [] : [optionDirective(spec.options)]),
-		`export const u${i} = Db.open(L${i}.roles.${spec.roles[0].name}${optionValues[spec.options].source})`,
+		`export const u${i} = Db.open(S${i}.roles.${spec.roles[0].name}${optionValues[spec.options].source})`,
 		`export const b${i} = (db: DbOf<typeof ${defined(roleIds[spec.base.role], "the base program's role")}, unknown>) =>`,
 		...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
 		`\tdb.execute(${spec.base.program}, {})`,
@@ -823,7 +846,8 @@ export const accessRequired: Situations<AccessNote> = [
 	"apply refused",
 	"refresh admitted",
 	"refresh refused",
-	"login role admitted",
+	"served role admitted",
+	"login role refused",
 	"role value refused",
 	"schema refused",
 	"options omitted refused",
@@ -876,6 +900,7 @@ export const accessModule = (entries: PreludeAt, seed: number): string => {
 			'declare const destination: Omit<DbConfigShape<typeof L0>, "login" | "password" | "verify" | "attachPool">',
 			"declare const password: Redacted.Redacted",
 			"declare const verify: Verify",
+			"declare const file: unknown",
 			"",
 			...Arr.flatMap(accessCases(seed), blockOf),
 			""

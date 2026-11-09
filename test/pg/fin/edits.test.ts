@@ -27,7 +27,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import {
@@ -191,7 +191,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const f = foldSeatOf(SPEC, seat)
 						const m = SPEC.monoid
 						const body = Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* exhaust(
 								{
 									suite: "fin/edits",
@@ -290,7 +290,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							"span_edits"
 						)
 						const body = Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* explore(
 								{
 									suite: "fin/span-owner-put",

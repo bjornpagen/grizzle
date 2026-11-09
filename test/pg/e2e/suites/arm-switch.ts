@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -237,7 +237,7 @@ export const armSwitchSuite = (): void => {
 								ManualTask: tableState(o.installed, W.ManualTask)
 							})
 							return yield* Effect.gen(function* () {
-								const db = yield* Db.open(o.server.roles.app, {})
+								const db = yield* compiledOpen(o.server.roles.app, {})
 								return yield* exhaust(
 									{
 										box: { kind: "unstated" },

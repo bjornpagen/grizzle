@@ -49,6 +49,7 @@ export {
 	type RequestFault,
 	RoleOutsideLayers,
 	SerializationFailure,
+	ServedLoginRefused,
 	ServerError,
 	SocketFailed,
 	SpanKeyChange,

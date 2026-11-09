@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -226,7 +226,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								Arr.map(owner.members, (x, i) => ({ member: at * 2 + i, g: owner.id, x }))
 							)
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							const empty = ChangeSet.empty(o.schema)
 							const items = query(o.schema).rule((r) => {
 								const given = r.relation("items", { id: Owner.fields.id, cap: Owner.fields.cap })

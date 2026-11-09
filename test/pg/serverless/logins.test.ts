@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
@@ -94,7 +94,7 @@ const worldsOver = (Work: W.WorkNamed<string>) => {
 	const ops = login(Work, "ops", [operator])
 	/** Every account's id, read through a Db of the role, opened for this read alone. */
 	const readerAccounts = Effect.gen(function* () {
-		const db = yield* Db.open(web.roles.reader, {})
+		const db = yield* compiledOpen(web.roles.reader, {})
 		const accounts = query(reader).rule((r) => {
 			const { id, name } = v(reader.relations.Account, "account")
 			return r.match(reader.relations.Account, { id, name }).find({ id })
@@ -104,7 +104,7 @@ const worldsOver = (Work: W.WorkNamed<string>) => {
 		return Arr.map(rows, (row) => row.id)
 	})
 	const auditorAccounts = Effect.gen(function* () {
-		const db = yield* Db.open(web.roles.auditor, {})
+		const db = yield* compiledOpen(web.roles.auditor, {})
 		const accounts = query(auditor).rule((r) => {
 			const { id, name } = v(auditor.relations.Account, "account")
 			return r.match(auditor.relations.Account, { id, name }).find({ id })
@@ -114,7 +114,7 @@ const worldsOver = (Work: W.WorkNamed<string>) => {
 		return Arr.map(rows, (row) => row.id)
 	})
 	const operatorAccounts = Effect.gen(function* () {
-		const db = yield* Db.open(ops.roles.operator, {})
+		const db = yield* compiledOpen(ops.roles.operator, {})
 		const accounts = query(operator).rule((r) => {
 			const { id, name } = v(operator.relations.Account, "account")
 			return r.match(operator.relations.Account, { id, name }).find({ id })

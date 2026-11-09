@@ -49,8 +49,8 @@ import {
  * it, and the one TypeScript program that states every verdict as types, which the type tier checks
  * (test/types/api/workload.test.ts). The engine is the oracle, as every caller meets it: workload() builds the value,
  * the workload compiler plans it as `grizzle generate` does (program/workload/compile.ts), and a workload over a role
- * has each of its reads compiled for the role as DbLayer.make compiles it (adapter/db/workload.ts
- * compileRoleWorkload: a query over the role, a key through its lookup query over the role). A drawn workload
+ * has each of its reads compiled for the role as a login's compile does (adapter/served/login.ts compileRoleWorkload:
+ * a query over the role, a key through its lookup query over the role). A drawn workload
  * typechecks exactly when the engine admits it; an admitted one's type is Workload over its schema and its programs
  * record, each program's own type under its name, exactly as the value keeps them.
  *
@@ -59,6 +59,11 @@ import {
  * of those schemas or Twin, a schema of Work's name and other content, or a value that is no program (a schema). The
  * programs are a record, or, as a planted fault, a list. A refusal stands under its directive: a record's program is
  * refused at its property (TS2322), a list at the argument (TS2345).
+ *
+ * An admitted workload over Work or a role of it, owned by a login over Work holding every role of Work, is also opened
+ * through the login served as its type, `served<typeof L>(file, name)`: Db.open of a served role is exactly the Db the
+ * login's own role types, its workload's handles among it, and a role the login does not hold is no member of the served
+ * login's roles (TS2339).
  *
  * One class of workloads the types accept and the engine refuses is declared (declaredClasses) and drawn with no
  * directive, its refusal asserted by its reason: a program under the empty name, which the record's string keys admit
@@ -95,6 +100,17 @@ const roleSchemas: { readonly [S in SchemaName]: boolean } = {
 	Clerk: true,
 	Other: false
 }
+
+/**
+ * The role of `login(Work, ..., [Writer, Reader, Clerk], { workload: [w] })` a Db opened through the login's served
+ * workload runs a workload over each schema the login holds on: over a role, that role; over the base, a full role.
+ */
+const servedRoles: ReadonlyMap<SchemaName, string> = new Map([
+	["Work", "writer"],
+	["Writer", "writer"],
+	["Reader", "reader"],
+	["Clerk", "clerk"]
+])
 
 type ProgramKind = "query" | "ordered" | "changeSet" | "key" | "noProgram"
 
@@ -174,6 +190,7 @@ export type WorkloadNote =
 	| "over a role"
 	| "over a partial role"
 	| "several programs"
+	| "opened through a served login"
 	| Planted
 
 type Verdict =
@@ -183,6 +200,8 @@ type Verdict =
 interface WorkloadCase {
 	readonly spec: WorkloadSpec
 	readonly verdict: Verdict
+	/** The role a Db opened through the served workload of a login owning the workload runs it on, where one does. */
+	readonly served: string | undefined
 	readonly notes: ReadonlySet<WorkloadNote>
 }
 
@@ -228,7 +247,7 @@ const namedPrograms = (spec: WorkloadSpec): ReadonlyArray<readonly [string, Prog
 		: spec.programs
 
 /**
- * Each read of a workload over a role, compiled for the role as DbLayer.make compiles it: a query or ordered query over
+ * Each read of a workload over a role, compiled for the role as a login's compile does: a query or ordered query over
  * the role, a key through its lookup query over the role. A ChangeSet's writes the workload compiler already holds to
  * the role's write list.
  */
@@ -309,7 +328,11 @@ const caseGen: Gen<WorkloadCase> = (source) => {
 	if (spec.programs.length > 1) {
 		notes.add("several programs")
 	}
-	return { spec, verdict, notes }
+	const served = verdict.kind === "admitted" ? servedRoles.get(spec.schema) : undefined
+	if (served !== undefined) {
+		notes.add("opened through a served login")
+	}
+	return { spec, verdict, served, notes }
 }
 
 /** The programs argument, in the program: a record of the drawn names, or a list. */
@@ -334,11 +357,29 @@ const workloadType = (spec: WorkloadSpec): string =>
 		"; "
 	)} }>`
 
+/**
+ * A login over Work owning an admitted workload, served as its type: a Db opened through the served login's role is
+ * exactly the Db the login's own role types, its workload's handles among it, and a role the login does not hold is no
+ * role of the served login.
+ */
+const servedLines = (role: string, i: number): ReadonlyArray<string> => [
+	`export const l${i} = login(Work, "l${i}", [Writer, Reader, Clerk], { workload: [w${i}] })`,
+	`export const s${i} = served<typeof l${i}>(file, "l${i}")`,
+	`export const o${i} = Db.open(s${i}.roles.${role}, { token: "token" })`,
+	`export type d${i} = Expect<Equals<Effect.Success<typeof o${i}>, OpenedAs<(typeof l${i})["roles"]["${role}"]>>>`,
+	"// @ts-expect-error -- TS2339: a served login holds its login's roles alone",
+	`export const z${i} = s${i}.roles.stranger`
+]
+
 /** One case's statements: its workload, under its refusal's directive, or its type asserted. */
 const blockOf = (c: WorkloadCase, i: number): ReadonlyArray<string> => {
 	const statement = sourceOf(c.spec, i)
 	if (c.verdict.kind === "admitted") {
-		return [statement, `export type t${i} = Expect<Equals<typeof w${i}, ${workloadType(c.spec)}>>`]
+		return [
+			statement,
+			`export type t${i} = Expect<Equals<typeof w${i}, ${workloadType(c.spec)}>>`,
+			...(c.served === undefined ? [] : servedLines(c.served, i))
+		]
 	}
 	switch (c.spec.planted) {
 		case "a program under the empty name":
@@ -374,6 +415,7 @@ export const workloadRequired: Situations<WorkloadNote> = [
 	"over a role",
 	"over a partial role",
 	"several programs",
+	"opened through a served login",
 	"a list of programs",
 	"a program under the empty name"
 ]
@@ -400,19 +442,29 @@ export const workloadEntriesFrom = (entry: (path: string) => string): PreludeAt 
 /** The program over the run's cases: one module, each case a statement and its assertion, its imports what it reads. */
 export const workloadModule = (entries: PreludeAt, seed: number): string => {
 	const body = Arr.join(Arr.flatMap(workloadCases(seed), blockOf), "\n")
-	const read = identifiers(body)
+	const cases = identifiers(body)
+	const declarations = [
+		...(cases.has("Expect")
+			? [
+					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+					"type Expect<T extends true> = T"
+				]
+			: []),
+		...(cases.has("served")
+			? [
+					"type OpenedAs<X> = X extends LoginRole<infer R, infer P> ? DbOf<R, P> : never",
+					"declare const file: unknown"
+				]
+			: [])
+	]
+	const read = identifiers(Arr.join([...declarations, body], "\n"))
 	return Arr.join(
 		[
 			"// Generated by test/support/agreement/workloads.ts: the workload type/engine agreement.",
 			...preludeImports(entries, read),
 			"",
-			...(read.has("Expect")
-				? [
-						"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-						"type Expect<T extends true> = T",
-						""
-					]
-				: []),
+			...declarations,
+			"",
 			body,
 			""
 		],

@@ -2,7 +2,16 @@ import type { Effect, Layer, Redacted } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
-import type { AnyLogin, LoginReadsContext, RolesOf, phantom } from "#compiler/plan/common.ts"
+import type {
+	AnyLogin,
+	AnyRole,
+	Invariant,
+	LoginReadsContext,
+	LoginRole,
+	Phantom,
+	RolesOf,
+	phantom
+} from "#compiler/plan/common.ts"
 
 /**
  * The connection layer. Types only: packages/grizzle/src/adapter implements DbLayer. A platform's credentials (an RDS IAM token, a
@@ -85,7 +94,10 @@ export interface DbConnection {
 export interface PoolBounds {
 	/** The most sessions open at once, leased, idle or being established: an integer from 1. */
 	readonly max: number
-	/** The sessions kept open once opened, however long they stay idle: an integer from 0 to `max`. */
+	/**
+	 * The sessions kept open once opened, however long they stay idle: an integer from 0 to `max`. It opens none ahead:
+	 * a session is opened only when a lease asks for one.
+	 */
 	readonly min: number
 	/**
 	 * How long a session idle above `min` stays open, in milliseconds, an integer from 1 to 2,147,483,647: a platform's
@@ -105,10 +117,52 @@ type VerifyOf<L> =
 	LoginReadsContext<L> extends true ? { readonly verify: Verify } : { readonly verify?: Verify }
 
 /**
- * DbLayer.make's config: a connection for the login L, whose PostgreSQL login role is the one roleNameOf(L) names,
- * fixed for the connection's lifetime, and the snapshot the application knows.
+ * A role of a served login, reached through it by name, `Ledger.roles.member`: what Db.open takes. It names its login's
+ * base and the login by their declared names, and itself by its name in the login, the key its layer is provided under
+ * and the role the layer serves; R, the role, and P, the programs of the login's workloads a Db of it runs, are a
+ * phantom no runtime value holds, so its Db is typed exactly as the login's type states and nothing of the schema is
+ * evaluated. Only served(...) builds one.
  */
-export type DbConfigShape<L> = DbConnection & {
+export interface ServedRole<R, P> extends Phantom<{
+	readonly role: Invariant<R>
+	readonly workload: Invariant<P>
+}> {
+	readonly kind: "servedRole"
+	readonly base: string
+	readonly login: string
+	readonly role: string
+}
+
+/** The roles of a served login of L by name, each reached through it with the programs its Dbs run (LoginRole). */
+export type ServedRoles<L> = L extends { readonly roles: infer Rs }
+	? {
+			readonly [K in keyof Rs]: Rs[K] extends LoginRole<infer R extends AnyRole, infer P>
+				? ServedRole<R, P>
+				: never
+		}
+	: never
+
+/**
+ * A login's served workload, the file `grizzle generate` committed as `migrations/<schema>/served/<login>.json`, held
+ * as served(file, name) was given it, under the login type L it serves: its name, L's, its base's, and its roles, the
+ * tokens Db.open takes. Nothing of it is read beyond its roles' names until DbLayer.make builds the layer over it, and no schema
+ * module is evaluated: L is a type alone. Only served(...) builds one.
+ */
+export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }> {
+	readonly kind: "servedLogin"
+	readonly name: string
+	/** The declared name of the level the login is over, as its file names it: its layer's key, with the name. */
+	readonly base: string
+	readonly roles: ServedRoles<L>
+	/** The file's JSON value, as given; DbLayer.make reads it. */
+	readonly file: unknown
+}
+
+/**
+ * The config of a layer compiled in-process (pool/registry.ts compiledDbLayer): a connection for the login value L and
+ * its snapshot. Only the tests still on that path build one; the deletion commit removes it.
+ */
+export type CompiledDbConfigShape<L> = DbConnection & {
 	readonly login: L
 	/**
 	 * The login's base's committed migrations/<schema>/snapshot.json, as the JSON value an import of it yields: what
@@ -126,14 +180,35 @@ export type DbConfigShape<L> = DbConnection & {
 } & VerifyOf<L>
 
 /**
+ * DbLayer.make's config: a connection for the login L, whose PostgreSQL login role is the one its served file names
+ * (roleNameOf), fixed for the connection's lifetime, and the login's served workload, the one thing the layer reads of
+ * the login.
+ */
+export type DbConfigShape<L> = DbConnection & {
+	readonly login: ServedLogin<L>
+	/** The login's one session pool, which serves every role of the login. */
+	readonly pool: PoolBounds
+	/**
+	 * Called once with each session pool the layer builds, when it is built: the platform's hook for idle connections
+	 * (on Vercel, `attachPool: attachDatabasePool`). Without it, nothing is attached.
+	 */
+	readonly attachPool?: (pool: ConnectionPool) => void
+} & VerifyOf<L>
+
+/**
  * DbLayer.make; packages/grizzle/src/adapter/public/layer.ts implements it. The config is parsed where it is given: one
  * no connection can use (a driver that is no driver, an empty host or one that is a path, a port outside 1 to 65535, an
  * empty CA bundle, no servername, a connect timeout or a pool bound outside its range) fails the layer with
- * OpenError{stage: "config"}.
- * Building the layer compiles every program of the login's workloads, once, for every role it runs on, and checks their
- * access against the snapshot: a snapshot that does not parse, a program that does not compile, or a workload whose
- * access is not the snapshot's fails the layer with OpenError{stage: "schema"}.
+ * OpenError{stage: "config"}, as does a served file of another login than the name served(...) was given.
+ * Building the layer reads the served file once and rebuilds what runs each of its programs (codecs, readers,
+ * decoders, the refusal classifier and the prologue); it compiles nothing and evaluates no schema.
  */
 export interface DbLayerConstructor {
 	make<const L extends AnyLogin>(config: DbConfigShape<L>): Layer.Layer<DbLayerOf<L>, OpenError>
 }
+
+/** served(file, name), building a ServedLogin of L from its committed file and L's name. */
+export type ServedConstructor = <L extends AnyLogin>(
+	file: unknown,
+	name: NoInfer<L["name"]>
+) => ServedLogin<L>

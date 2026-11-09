@@ -25,7 +25,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -124,7 +124,7 @@ const stepsAt = (k: number) =>
 			const [, built] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						DbLayer.make({
+						compiledDbLayer({
 							...offlineConnection,
 							pool: clusterPool,
 							login: server,

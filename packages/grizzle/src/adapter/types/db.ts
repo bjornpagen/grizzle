@@ -1,6 +1,6 @@
 import type { Array as Arr, Effect, Option, Scope } from "effect"
 import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
-import type { DbLayerService } from "#adapter/types/layer.ts"
+import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import type {
 	AnyChangeSet,
 	ChangeSet,
@@ -21,7 +21,6 @@ import type {
 	Invariant,
 	KeyValues,
 	LevelsOf,
-	LoginRole,
 	OnlyParams,
 	Paged,
 	ParamArg,
@@ -67,15 +66,15 @@ export type OpenOptions<R> =
 	ReadsContext<R> extends true ? TokenOptions : TokenOptions | NoTokenOptions
 
 /**
- * Db.open; packages/grizzle/src/adapter/db/open.ts implements it. It contacts nothing: every transaction of the Db it
+ * Db.open; packages/grizzle/src/adapter/db/served.ts implements it. It contacts nothing: every transaction of the Db it
  * yields takes the fence and the snapshot guard in its own round trip, and Db.open refuses only what the host alone can
- * judge. Usage: Db.open(Web.roles.member, { token }), provided by DbLayer.make({ login: Web, snapshot, ... }): the role is
- * reached through its login, whose workloads give the Db its programs (`db.workload`). The requirement DbLayer<R> is
- * provided only by the layer of the login that holds R.
+ * judge. Usage: Db.open(Web.roles.member, { token }), where `Web = served<typeof WebLogin>(file, "web")` and the layer is
+ * DbLayer.make({ login: Web, ... }): the role is reached through its served login, whose workloads give the Db its
+ * programs (`db.workload`). The requirement DbLayer<R> is provided only by the layer of the login that holds R.
  */
 export interface DbConstructor {
 	open<R extends AnyRole, P>(
-		role: LoginRole<R, P>,
+		role: ServedRole<R, P>,
 		options: OpenOptions<R>
 	): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>>
 }

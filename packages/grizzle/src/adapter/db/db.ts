@@ -1,4 +1,4 @@
-import { type Array as Arr, Effect, type Option, type Scope } from "effect"
+import { type Array as Arr, Effect, type Scope } from "effect"
 import {
 	apply,
 	type CompiledChangeValue,
@@ -6,6 +6,7 @@ import {
 	compileFailure
 } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
+import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
 import {
@@ -17,27 +18,23 @@ import {
 } from "#adapter/reader/reader.ts"
 import { refresh } from "#adapter/refresh/index.ts"
 import type {
-	ApplyOutcome,
 	CompilableProgram,
 	Compiled,
 	CompileTarget,
 	DbOf,
 	Plan,
 	ProgramDecoding,
-	QueryResult,
 	WorkloadHandles
 } from "#adapter/types/db.ts"
 import { isChangeSetValue } from "#compiler/plan/change.ts"
 import {
-	builtMark,
 	type CompileError,
-	type CursorError,
 	malformedDescription,
 	type ParamMap,
 	type RowDecoder,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { isOrderedValue, isQueryValue, type Page } from "#compiler/plan/read.ts"
+import { isOrderedValue, isQueryValue } from "#compiler/plan/read.ts"
 
 /**
  * What a JavaScript caller passes as a ChangeSet and is none: the refusal db.apply compiles it to.
@@ -64,18 +61,8 @@ const notItsOperation = (): CompileError =>
 		"an operation of the compiled program: execute, get and page read a query, apply applies a ChangeSet"
 	)
 
-/**
- * A program db.compile compiled, over records A (its rows, or its read-backs), as a JavaScript caller sees it: every
- * operation, those its program does not allow refused with the compile refusal before any SQL.
- */
-export interface CompiledOps<A> {
-	execute(params: ParamMap): Effect.Effect<QueryResult<A>, ReadError>
-	get(params: ParamMap): Effect.Effect<Option.Option<A>, ReadError>
-	page<Q>(params: ParamMap, request: unknown): Effect.Effect<Page<A, Q>, ReadError | CursorError>
-	apply(params: ParamMap): Effect.Effect<ApplyOutcome<A>, ApplyError>
-}
-
 /** A compiled read's operations; it applies nothing. */
+
 export const readOps = <A>(read: CompiledRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
@@ -100,18 +87,6 @@ export const changeOps = <A>(change: CompiledChangeValue<A>): CompiledOps<A> => 
 		page: () => refused,
 		apply: (params) => change.apply(params)
 	}
-}
-
-/** The typed handle of a compiled program X over records A, on a Db of S (types/db Compiled). */
-export const typedCompiled = <S, X, A>(ops: CompiledOps<A>): Compiled<S, X, A> => {
-	const handle: Compiled<S, X, A> = {
-		...builtMark,
-		execute: (params) => ops.execute(params),
-		get: (params) => ops.get(params),
-		page: (params, request) => ops.page<X>(params, request),
-		apply: (params) => ops.apply(params)
-	}
-	return Object.freeze(handle)
 }
 
 /** The decoder of a program db.compile takes: a query's rows, or a ChangeSet's read-backs. */

@@ -32,6 +32,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ClaimRefused,
@@ -39,9 +40,8 @@ import {
 	DbConfigRefused,
 	TokenError
 } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
-import type { DbConfigShape } from "#adapter/types/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import type { CompiledDbConfigShape } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -164,7 +164,7 @@ const shelfSnapshot = snapshotJson(
 
 /** A valid config: every rule parseConnection states holds, the password a Redacted or an Effect yielding one. */
 interface Drawn {
-	readonly config: DbConfigShape<typeof Plain>
+	readonly config: CompiledDbConfigShape<typeof Plain>
 	readonly password: string
 }
 
@@ -656,14 +656,14 @@ describe("DbLayer.make", () => {
 					([d, f], k) =>
 						Effect.gen(function* () {
 							const names = nameText(f.names)
-							const valid = yield* built(DbLayer.make(d.config))
+							const valid = yield* built(compiledDbLayer(d.config))
 							assert.ok(
 								Exit.isSuccess(valid),
 								`a valid config is refused: ${Exit.isFailure(valid) ? Cause.pretty(valid.cause) : ""}`
 							)
 							k.note("valid built")
 							/** The config with the fault injected at its place, the rest of the config as drawn. */
-							const injected: DbConfigShape<typeof Plain> =
+							const injected: CompiledDbConfigShape<typeof Plain> =
 								f.place === "top"
 									? Object.assign({ ...d.config }, f.override)
 									: f.place === "transport"
@@ -679,7 +679,7 @@ describe("DbLayer.make", () => {
 													pool: Object.assign({ ...d.config.pool }, f.override)
 												}
 											)
-							const exit = yield* built(DbLayer.make(injected))
+							const exit = yield* built(compiledDbLayer(injected))
 							assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
 							const error = Cause.squash(exit.cause)
 							assert.ok(
@@ -734,7 +734,10 @@ describe("DbLayer.make", () => {
 					([d, e], k) =>
 						Effect.gen(function* () {
 							const exit = yield* Effect.scoped(
-								Effect.andThen(processEnvironment(processValues(e)), built(DbLayer.make(d.config)))
+								Effect.andThen(
+									processEnvironment(processValues(e)),
+									built(compiledDbLayer(d.config))
+								)
 							)
 							const options = e.variables.PGOPTIONS
 							if (e.variables.PGREPLICATION.kind !== "text") {
@@ -830,7 +833,7 @@ describe("DbLayer.make", () => {
 							const open = memoryEndpoint(closingMaterial, (secure) => {
 								secure.destroy()
 							})
-							const config: DbConfigShape<typeof Claiming> = {
+							const config: CompiledDbConfigShape<typeof Claiming> = {
 								...d.config,
 								login: Claiming,
 								verify,
@@ -840,8 +843,8 @@ describe("DbLayer.make", () => {
 								})
 							}
 							const exit = yield* Effect.exit(
-								Db.open(Claiming.roles.owner, { token: c.token }).pipe(
-									withLayer(DbLayer.make(config)),
+								compiledOpen(Claiming.roles.owner, { token: c.token }).pipe(
+									withLayer(compiledDbLayer(config)),
 									Effect.scoped
 								)
 							)

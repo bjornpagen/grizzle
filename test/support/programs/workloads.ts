@@ -2,8 +2,12 @@
  * The names the workload agreement's generated program reads (test/support/agreement/workloads.ts), its prelude
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
+export type { Effect } from "effect"
+export type { DbOf } from "#adapter/types/db.ts"
 export { workload } from "#compiler/public/workload.ts"
 export type { Workload } from "#compiler/public/workload.ts"
+export { Db, login, served } from "#index.ts"
+export type { LoginRole } from "#compiler/plan/common.ts"
 export {
 	Account,
 	addTask,

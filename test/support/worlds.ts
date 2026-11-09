@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, type Layer, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -115,7 +115,7 @@ export const loginLayerIn = <L extends AnyLogin>(
 	installed: Installed,
 	account: L
 ): Layer.Layer<DbLayerOf<L>, OpenError> =>
-	DbLayer.make({
+	compiledDbLayer({
 		...clusterConnection(installed.cluster, database, installed.as(account).password),
 		pool: clusterPool,
 		login: account,

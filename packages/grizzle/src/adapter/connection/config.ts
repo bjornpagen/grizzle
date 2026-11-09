@@ -14,7 +14,7 @@ import { readHost } from "#adapter/engine.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import { type Limit, published } from "#compiler/plan/common.ts"
-import { hostArguments } from "#compiler/plan/read.ts"
+import { noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
 
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection
@@ -60,6 +60,16 @@ export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
 		const { pool } = plain
 		return Result.map(parsePool(pool, `${where}.pool`), (bounds) => ({ pool: bounds }))
 	}
+}
+
+/**
+ * A served DbConfig's: its served login, pool bounds, pool hook and verify. The parse returns the pool bounds, plain
+ * data parsed with the connection's (parsePool); the served login, the hook and verify are read off the typed config by
+ * the layer (pool/served.ts).
+ */
+export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
+	settings: ["login", "pool", "attachPool", "verify"],
+	parse: loginSettings.parse
 }
 
 /**
@@ -328,25 +338,24 @@ export const parseConnection = <E>(
 	 * off the typed block so an Effect keeps the channels its type states, is recognized by its library's own guard, a
 	 * Redacted of text or an Effect, and kept opaque: the credential stage reveals or runs it. The driver's three
 	 * classes are read off the typed block, once each. Every other setting is plain data, read once as data
-	 * (query/build/host.ts hostArguments), so no read below runs caller code; the transport's `open` is a function of
+	 * (core/host.ts readsAsData), so no read below runs caller code; the transport's `open` is a function of
 	 * it, which the transport's typed value names.
 	 */
-	const read = readHost(
-		`${where} must be an object whose settings read as data: no getter, setter or refusing proxy`,
-		() => {
-			const keys = Rec.keys(value)
-			const password = givenPassword(block.password)
-			const driver = driverOf(block.driver)
-			const plain: Record<string, unknown> = {}
-			for (const key of keys) {
-				if (!ownSettings.has(key)) {
-					plain[key] = value[key]
-				}
+	const unreadable = `${where} must be an object whose settings read as data: no getter, setter or refusing proxy`
+	const read = readHost(unreadable, () => {
+		const keys = Rec.keys(value)
+		const password = givenPassword(block.password)
+		const driver = driverOf(block.driver)
+		const plain: Record<string, unknown> = {}
+		for (const key of keys) {
+			if (!ownSettings.has(key)) {
+				plain[key] = value[key]
 			}
-			hostArguments(where, [plain])
-			return Result.succeed({ keys, plain, password, driver, transport: block.transport })
 		}
-	)
+		return readsAsData([plain], noOpaque)
+			? Result.succeed({ keys, plain, password, driver, transport: block.transport })
+			: Result.fail(unreadable)
+	})
 	if (Result.isFailure(read)) {
 		return Result.fail(read.failure)
 	}

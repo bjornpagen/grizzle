@@ -4,10 +4,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Option } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ReadFailure, TransportFailure } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -104,8 +104,8 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 									 * A pool of one session closed the least while after its release, its password Effect failing
 									 * once the case turns it.
 									 */
-									const opening = Db.open(o.server.roles.app, {})
-									const dbLayer = DbLayer.make({
+									const opening = compiledOpen(o.server.roles.app, {})
+									const dbLayer = compiledDbLayer({
 										...clusterConnection(
 											s.cluster,
 											s.database,

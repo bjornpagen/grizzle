@@ -4,8 +4,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter, Option } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { TransientFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -108,7 +108,7 @@ export const commitSuite = (): void => {
 								 *
 								 * workFacts' notes: t1's as stored, none at t3.
 								 */
-								const db = yield* Db.open(o.server.roles.app, {})
+								const db = yield* compiledOpen(o.server.roles.app, {})
 								return yield* exhaust(
 									{
 										box: { kind: "unstated" },

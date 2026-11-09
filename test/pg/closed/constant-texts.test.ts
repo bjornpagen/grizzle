@@ -16,7 +16,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -532,7 +533,7 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`
 		const fact = (item: Item, id: number) => ({ id, kind: kindOf(item.kind), n: item.n, m: item.m })
 		const expected = yield* Effect.gen(function* () {
-			const db = yield* Db.open(o.server.roles.app, {})
+			const db = yield* compiledOpen(o.server.roles.app, {})
 			const empty = ChangeSet.empty(o.schema)
 			const conds: Array<string> = []
 			const texts: Array<string> = []

@@ -40,7 +40,6 @@ import {
 	query,
 	relation,
 	role,
-	roleNameOf,
 	schema,
 	select,
 	span,
@@ -53,6 +52,7 @@ import {
 	workload,
 	writableNamesOf
 } from "@bjornpagen/grizzle"
+import { roleNameOf, served } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
@@ -550,10 +550,12 @@ export const Web = login(Blog, "web", [AnonBlog, MemberBlog], {
 export const EtlJob = login(Blog, "etl_job", [Etl])
 
 /**
- * README: "Example", "Connecting". The README imports `snapshot` from "./migrations/blog/snapshot.json" with
- * { type: "json" }.
+ * README: "Example", "Connecting". The README imports `webFile` and `etlJobFile` from
+ * "./migrations/blog/served/web.json" and "./migrations/blog/served/etl_job.json" with { type: "json" }, and the logins
+ * as types alone.
  */
-declare const snapshot: { readonly fingerprint: string }
+declare const webFile: unknown
+declare const etlJobFile: unknown
 
 declare const caPem: string
 
@@ -573,10 +575,12 @@ const connection = {
 	connectTimeoutMs: 10_000
 } as const
 
+/** The web login's committed workload, served as its type: the app evaluates no schema module. */
+export const WebServed = served<typeof Web>(webFile, "web")
+
 export const WebLayer = DbLayer.make({
 	...connection,
-	login: Web,
-	snapshot,
+	login: WebServed,
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
@@ -623,10 +627,10 @@ export const GET = (request: Request): Promise<Response> => {
 	const token = bearer(request)
 	const feed = Effect.gen(function* () {
 		if (token === undefined) {
-			const db = yield* Db.open(Web.roles.anon, {})
+			const db = yield* Db.open(WebServed.roles.anon, {})
 			return yield* (yield* db.workload.anonFeed.execute({})).collect
 		}
-		const db = yield* Db.open(Web.roles.member, { token })
+		const db = yield* Db.open(WebServed.roles.member, { token })
 		return yield* (yield* db.workload.memberFeed.execute({})).collect
 	})
 	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
@@ -642,7 +646,7 @@ export const POST = (request: Request): Promise<Response> => {
 			Effect.promise(() => request.json()),
 			Schema.decodeUnknownEffect(Draft)
 		)
-		const db = yield* Db.open(Web.roles.member, { token })
+		const db = yield* Db.open(WebServed.roles.member, { token })
 		const outcome = yield* db.apply(draft(post), {})
 		switch (outcome.kind) {
 			case "accepted":
@@ -659,10 +663,11 @@ export const POST = (request: Request): Promise<Response> => {
 }
 
 /** README: "Example", "The nightly job". */
+export const EtlServed = served<typeof EtlJob>(etlJobFile, "etl_job")
+
 export const EtlLayer = DbLayer.make({
 	...connection,
-	login: EtlJob,
-	snapshot,
+	login: EtlServed,
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
@@ -675,7 +680,7 @@ const etl = ManagedRuntime.make(EtlLayer)
 export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly views: bigint }>) =>
 	etl.runPromise(
 		Effect.gen(function* () {
-			const db = yield* Db.open(EtlJob.roles.etl, {})
+			const db = yield* Db.open(EtlServed.roles.etl, {})
 			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
 		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
 	)
@@ -938,8 +943,7 @@ export default defineConfig({
  * (roleNameOf), failing as a CredentialError. */
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
-	login: EtlJob,
-	snapshot,
+	login: EtlServed,
 	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
 	password: Effect.tryPromise({
 		try: () =>
@@ -947,7 +951,7 @@ export const RdsEtlLayer = DbLayer.make({
 				hostname: "db.internal",
 				port: 5432,
 				region: "us-east-1",
-				username: roleNameOf(EtlJob)
+				username: roleNameOf(EtlServed)
 			}).getAuthToken(),
 		catch: (cause) => new CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))
@@ -1029,15 +1033,15 @@ export type PlaceKeys = Expect<
 export const byKey = staff.get(Post, { id: "00000000-0000-0000-0000-000000000000" })
 export type ByKey = Expect<Equals<Effect.Success<typeof byKey>, Option.Option<Fact<typeof Post>>>>
 
-/** "Db.open(Web.roles.member, ...) does not typecheck without one": MemberBlog's relations read Session and Org. */
+/** "Db.open(WebServed.roles.member, ...) does not typecheck without one": MemberBlog's relations read Session and Org. */
 // @ts-expect-error -- TS2741: MemberBlog reads a context, so Db.open requires a token
-export const memberWithoutToken = Db.open(Web.roles.member, {})
+export const memberWithoutToken = Db.open(WebServed.roles.member, {})
 
-/** "Db.open(Web.roles.anon, ...) needs no token", and the web login's layer serves both of its roles. */
+/** "Db.open(WebServed.roles.anon, ...) needs no token", and the web login's layer serves both of its roles. */
 export const bothRoles = web.runPromise(
 	Effect.gen(function* () {
-		const anon = yield* Db.open(Web.roles.anon, {})
-		const member = yield* Db.open(Web.roles.member, { token: "a verified token" })
+		const anon = yield* Db.open(WebServed.roles.anon, {})
+		const member = yield* Db.open(WebServed.roles.member, { token: "a verified token" })
 		return [anon, member] as const
 	})
 )
@@ -1045,15 +1049,19 @@ export const bothRoles = web.runPromise(
 /** "Each Db shows the programs of its login's workloads for its role": the anonymous Db has no memberFeed. */
 export const anonFeedOnly = web.runPromise(
 	Effect.gen(function* () {
-		const anon = yield* Db.open(Web.roles.anon, {})
+		const anon = yield* Db.open(WebServed.roles.anon, {})
 		// @ts-expect-error -- TS2339: memberFeed is a program over MemberBlog, which an AnonBlog Db does not run
 		return anon.workload.memberFeed
 	})
 )
 
-/** A role is opened only through its login: the role value itself is no LoginRole. */
-// @ts-expect-error -- TS2739: Db.open takes a role reached through its login, Web.roles.member
+/** A role is opened only through its served login: the role value itself is no ServedRole. */
+// @ts-expect-error -- TS2739: Db.open takes a role of a served login, WebServed.roles.member
 export const bareRole = Db.open(MemberBlog, { token: "a verified token" })
+
+/** "a role of the login itself (Web.roles.member) is a type error, since the app holds the login as a type alone". */
+// @ts-expect-error -- TS2739: Db.open takes a role of a served login, WebServed.roles.member
+export const loginsOwnRole = Db.open(Web.roles.member, { token: "a verified token" })
 
 /** "Two programs of one name across a login's workloads are a type error". */
 const twiceReader = role(Blog, "twice_reader", { Post: postIds })
@@ -1087,8 +1095,7 @@ export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(p
 // @ts-expect-error -- TS2345: a role of the web login reads a context, so its layer needs verify
 export const webWithoutVerify = DbLayer.make({
 	...connection,
-	login: Web,
-	snapshot,
+	login: WebServed,
 	password: Redacted.make("secret"),
 	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }
 })
@@ -1098,9 +1105,13 @@ export type OrgKeysHead = Expect<
 	Equals<HeadOf<typeof orgKeys>, { readonly id: Uuid; readonly name: string }>
 >
 
-/** "Db.open(Dashboard.roles.key_admin, ...) does not compile without the token". */
+/** The dashboard login's committed workload, served as its type. */
+declare const dashboardFile: unknown
+const DashboardServed = served<typeof Dashboard>(dashboardFile, "dashboard")
+
+/** "Opening a Db of key_admin through the dashboard's served login doesn't compile without a token". */
 // @ts-expect-error -- TS2741: KeyAdmin reads a context, so Db.open requires a token
-export const keyAdminWithoutToken = Db.open(Dashboard.roles.key_admin, {})
+export const keyAdminWithoutToken = Db.open(DashboardServed.roles.key_admin, {})
 
 export type TopModelsHead = Expect<
 	Equals<

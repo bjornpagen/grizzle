@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Digest } from "effect/crypto"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
@@ -251,7 +251,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									const shelf = 0
 									const kept = Arr.filter(facts, (f) => f.shelf !== shelf)
 									yield* Effect.gen(function* () {
-										const db = yield* Db.open(o.server.roles.app, {})
+										const db = yield* compiledOpen(o.server.roles.app, {})
 										const shelved = yield* db.apply(
 											ChangeSet.empty(o.schema).insert(
 												Shelf,

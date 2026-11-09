@@ -27,7 +27,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { Db } from "#adapter/public/db.ts"
 import { positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -41,6 +40,7 @@ import { isVector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 
+import { compiledOpen } from "#adapter/db/open.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	changeSetOver as ChangeSet,
@@ -687,7 +687,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 							)
 						})
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(world.server.roles.app, {})
+						const db = yield* compiledOpen(world.server.roles.app, {})
 						return yield* explore(
 							{
 								suite: "pg/vector/equality",

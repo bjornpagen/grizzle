@@ -5,14 +5,10 @@ import {
 	type ParsedConnection,
 	parseConnection
 } from "#adapter/connection/config.ts"
-import { startupVariableSet } from "#adapter/connection/environment.ts"
 import { fromEngine, readHost } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import {
-	ConnectionEnvironmentRefused,
-	DbConfigRefused,
-	RoleOutsideLayers
-} from "#adapter/errors/failures.ts"
+import { DbConfigRefused, RoleOutsideLayers } from "#adapter/errors/failures.ts"
+import { loginEnvironment, type TokenCheck } from "#adapter/pool/served.ts"
 import {
 	artifactsUnder,
 	type BuiltLogin,
@@ -24,11 +20,10 @@ import {
 } from "#adapter/served/login.ts"
 import type {
 	ConnectionPool,
-	DbConfigShape,
+	CompiledDbConfigShape,
 	PoolBounds,
 	DbLayerService,
-	DbLayerOf,
-	Verify
+	DbLayerOf
 } from "#adapter/types/layer.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool } from "#adapter/wire/session.ts"
@@ -50,40 +45,12 @@ import {
 import { ledgerStatements, type ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /**
- * The DbLayer service: one login's connection settings, its verify, its snapshot, its workloads compiled, and its one
- * session pool.
+ * The layer compiled in-process: one login value's connection settings, its verify, its snapshot, its workloads
+ * compiled at startup, and its one session pool. Only the tests still on that path build one (compiledDbLayer); every
+ * application layer is a served one (pool/served.ts), and the deletion commit removes this module.
  *
- * DbLayer.make(config) builds this service once per instance, for the login the config names, and computes there,
- * once, what every Db of the login reads: the snapshot, parsed (boundary/snapshot.ts parseSnapshot), and the
- * installation's codes it records (deploy/snapshot/served.ts rosterCodebook), the codes of every closed id and set a Db
- * writes or reads, since a roster's codes are its history and no schema alone determines them; each role's artifacts
- * (program/schema.ts schemaArtifacts), compiled under those codes, which compile every program a Db of the role runs;
- * every program of the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload); the
- * login's own PostgreSQL role; and the login's one session pool. The snapshot is the database's: the layer compiles
- * under what it records and compares nothing with it, and a program's access paths are `grizzle check`'s to compare
- * (program/workload/compile.ts accessDrift). Every session of the pool logs in as the login's
- * role (program/names.ts loginRoleName, the role roleNameOf names), which no Db outlives: each of a Db's transactions
- * enters the Db's own role by its prologue (wire/batch.ts runFramed), two statements run as the login. So one pool
- * serves every role of the login. The pool lives as long as the layer, in its
- * scope, never on globalThis. A snapshot that does not parse, a role or program that does not compile, or a login whose
- * role name the naming door refuses, a role past 63 bytes among them, fails the layer with its CompileError.
- *
- * One key per login. The requirement DbLayer<R> names the role only as a type; Db.open(Web.roles.member) resolves it
- * through the login the role is reached by, whose layer is stored under that login's key, so a program may provide the
- * layers of several logins and each Db.open finds its own. A login whose layer is not provided is
- * OpenError{stage: "role"} (RoleOutsideLayers). Two layers of one login share a key, and the later one wins, as
- * Effect's context does for any service.
- *
- * The config's verify is required exactly when a role of the login reads a context, which the type states and the
- * parse checks for a JavaScript caller (DbConfigRefused): every Db of such a login can then turn a token into claims.
- *
- * How a layer's Dbs turn a token into claims: by its verify, or not at all, for a login whose roles read no context.
+ * The compiled layer's service, provided as DbLayer<R> for each role R of its login: what every Db of the login shares.
  */
-export type TokenCheck =
-	| { readonly kind: "none" }
-	| { readonly kind: "verify"; readonly verify: Verify }
-
-/** The layer's service, provided as DbLayer<R> for each role R of its login: what every Db of the login shares. */
 export interface DbSessions {
 	/** The login the layer was built for. */
 	readonly login: LoginDesc
@@ -160,7 +127,7 @@ const refusedConfig = (detail: string): OpenError =>
  * bounds are plain data, parsed with the connection (connection/config.ts loginSettings).
  */
 const ownSettings = <L extends AnyLogin>(
-	config: DbConfigShape<L>
+	config: CompiledDbConfigShape<L>
 ): Result.Result<Pick<ParsedDbConfig, "login" | "snapshot" | "attachPool" | "token">, string> =>
 	readHost(
 		"DbConfig must be an object whose settings read as data: no getter, setter or refusing proxy",
@@ -208,7 +175,7 @@ const ownSettings = <L extends AnyLogin>(
 
 /** The DbConfig given to DbLayer.make, parsed once (connection/config.ts); a refusal is OpenError{stage: "config"}. */
 const parseDbConfig = <L extends AnyLogin>(
-	config: DbConfigShape<L>
+	config: CompiledDbConfigShape<L>
 ): Result.Result<ParsedDbConfig, OpenError> =>
 	Result.mapError(
 		Result.flatMap(parseConnection(config, "DbConfig", loginSettings), (parsed) =>
@@ -293,25 +260,13 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 })
 
 /**
- * The process environment the layer's sessions would start in, read where pg reads it, which sets no startup variable
- * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
+ * The layer compiled in-process from a login value and its snapshot, the tests' until they move onto served layers
+ * (pool/served.ts), which the deletion commit removes with it: the config parsed once, then the process environment
+ * its sessions would start in (loginEnvironment), then the service built in the layer's scope, stored under its login's
+ * key, which the parse names. Either refusal is OpenError{stage: "config"}.
  */
-const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
-	Effect.sync(() => startupVariableSet("login")),
-	Option.match({
-		onNone: () => Effect.void,
-		onSome: (variable) =>
-			Effect.fail(new OpenError({ reason: new ConnectionEnvironmentRefused({ variable }) }))
-	})
-)
-
-/**
- * The DbLayer of a DbConfig: the config parsed once, then the process environment its sessions would start in
- * (loginEnvironment), then the service built in the layer's scope, stored under its login's key, which the parse names.
- * Either refusal is OpenError{stage: "config"}.
- */
-export const dbSessionsLayer = <const L extends AnyLogin>(
-	config: DbConfigShape<L>
+export const compiledDbLayer = <const L extends AnyLogin>(
+	config: CompiledDbConfigShape<L>
 ): Layer.Layer<DbLayerOf<L>, OpenError> =>
 	Layer.unwrap(
 		Effect.gen(function* () {

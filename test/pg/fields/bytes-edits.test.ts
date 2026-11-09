@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -291,7 +291,7 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 								}
 								const o = yield* installed(Edits, {}, { label: "bytesedits", extensions: [] })
 								yield* Effect.gen(function* () {
-									const db = yield* Db.open(o.server.roles.app, {})
+									const db = yield* compiledOpen(o.server.roles.app, {})
 									if (d.stored.length > 0) {
 										const rows = Arr.map(d.stored, (b, id) => ({ id, body: bodyBytes(b) }))
 										const stage = Arr.flatMap(d.staged, (st, id) =>

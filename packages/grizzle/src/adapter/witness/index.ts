@@ -1,23 +1,8 @@
-import { Array as Arr } from "effect"
 import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
-import { type KeyLaws, keyLaws, type LawsAbove } from "#adapter/witness/keylaw.ts"
-import { entryKey, type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/plan/change.ts"
-import type { CheckedEntry, SchemaArtifacts } from "#compiler/plan/common.ts"
-
-/** The query entries a role's artifacts write through, by their targets: none for reality. */
-const writtenEntries = (
-	artifacts: Pick<SchemaArtifacts, "world">
-): ReadonlyMap<string, CheckedEntry> => {
-	const world = artifacts.world
-	if (world.kind !== "role") {
-		return new Map()
-	}
-	return new Map(
-		Arr.flatMap([...world.checked.world.writes.values()], (e) =>
-			e.kind === "rows" ? [[e.writable.target.name, e.writable] as const] : []
-		)
-	)
-}
+import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
+import { type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/plan/change.ts"
+import type { Codebook } from "#compiler/plan/common.ts"
+import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
  * Witness decoding in the adapter.
@@ -45,42 +30,55 @@ export interface InstallationWitness {
 	readonly classify: ViolationClassifier
 }
 
+/** A query entry's key, from the key values of its target `values`: each head field's, the target field's it writes. */
+const entryKey = <V>(
+	entry: ServedEntryKey,
+	values: Readonly<Record<string, V>>
+): Readonly<Record<string, V>> => {
+	const out: Record<string, V> = {}
+	for (const [head, field] of entry.head) {
+		const value = values[field]
+		if (value !== undefined) {
+			out[head] = value
+		}
+	}
+	return Object.freeze(out)
+}
+
 /**
- * The witness decoding of a compiled installation (see the header). An opened Db's artifacts are compiled from the
- * schema whose snapshot the database holds (adapter/db/open.ts), so their key-law map names the installed constraints.
+ * The witness decoding of an installation from its refusals as data `refusals` (see the header), the laws of the levels
+ * above its own `above`, and the codes it holds `codes`: what a layer builds once per role from its served file, and
+ * the compile from a role's artifacts (adapter/served/refusals.ts installationWitness).
  */
-export const installationWitness = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">,
-	above: LawsAbove
+export const servedWitness = (
+	refusals: ServedRefusals,
+	above: LawsAbove,
+	codes: Codebook
 ): InstallationWitness => {
-	const checked = artifacts.derived.schema
-	const laws = keyLaws({
-		names: artifacts.names,
-		constraintLaws: artifacts.constraintLaws,
-		theoryLaws: artifacts.theoryLaws,
-		relations: [...checked.relations.values()],
-		above
-	})
+	const laws = keyLawsOf(refusals.laws, above, codes)
 	/**
-	 * The WriteProgram's decoder over the whole schema: a refusal's key text decodes through its column's result
+	 * The WriteProgram's decoder over every stored relation: a refusal's key text decodes through its column's result
 	 * codec, exactly as a compiled program reads it. A role names a key of a relation it writes through a query entry
-	 * in the entry's vocabulary (write/frontend/entry.ts entryKey).
+	 * in the entry's vocabulary.
 	 */
 	const base = witnessDecoder({
-		written: [],
-		relations: checked.relations,
-		codes: artifacts.names.codes
+		relations: new Map(
+			Array.from(refusals.relations, ([name, heading]) => [name, { heading }] as const)
+		),
+		codes
 	})
-	const entries = writtenEntries(artifacts)
 	const decoder: KeyDecoder = {
 		fromRefusal: (relation, key) => {
 			const found = base.fromRefusal(relation, key)
 			if (found === undefined) {
 				return undefined
 			}
-			const entry = entries.get(found.relation)
+			const entry = refusals.entries.get(found.relation)
 			return entry === undefined ? found : keyWitness(entry.entry, entryKey(entry, found.values))
 		}
 	}
-	return { laws, classify: violationClassifier(laws, decoder, new Set(checked.relations.keys())) }
+	return {
+		laws,
+		classify: violationClassifier(laws, decoder, new Set(refusals.relations.keys()))
+	}
 }

@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
@@ -85,7 +85,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							const empty = ChangeSet.empty(o.schema)
 							const members = query(o.schema).rule((r) => {
 								const { owner, at, body } = v(Member, "member")

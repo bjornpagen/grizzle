@@ -3,12 +3,11 @@ import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { RowsForm } from "#adapter/reader/reader.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
+import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
-import { generatedFieldLaws } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	defect,
-	identifierOf,
 	levelChain,
 	type LoginDesc,
 	loginRoleName
@@ -19,7 +18,6 @@ import {
 	ledgerStatements,
 	type ServedChange,
 	type ServedContext,
-	type ServedEntryKey,
 	type ServedFile,
 	type ServedMember,
 	type ServedRead,
@@ -97,8 +95,8 @@ const memberOf = (member: WorkloadForm): ServedMember => {
 /** A role's contexts, served: each one's name, claim and typed fields. */
 const contextsOf = (role: LayerRole): ReadonlyArray<ServedContext> =>
 	Arr.map(role.contexts, (c) => ({
-		name: c.desc.name,
-		claim: c.desc.claim,
+		name: c.name,
+		claim: c.claim,
 		fields: Arr.map(c.fields, (f) => ({ name: f.name, type: f.type }))
 	}))
 
@@ -117,51 +115,14 @@ const noRefusals: ServedRefusals = {
 }
 
 /**
- * The classifier of a role that writes, as data (witness/index.ts installationWitness): its levels' PostgreSQL
- * schemas, every installed constraint and law of its installation, each stored relation's table and heading, each
- * roster's domains, each generated field's law, and each query entry the role writes through by its target. A role
- * whose members write nothing classifies nothing (noRefusals).
+ * The classifier of a role that writes, as data, the one its compile classifies by (served/refusals.ts refusalsOf): a
+ * role whose members write nothing classifies nothing (noRefusals).
  */
 const refusalsOf = (role: LayerRole): ServedRefusals => {
 	if (!Arr.some(role.workload, (member) => member.kind === "change")) {
 		return noRefusals
 	}
-	const { names, constraintLaws, theoryLaws, world } = role.artifacts
-	const relations = [...role.artifacts.derived.schema.relations.values()]
-	const entries = new Map<string, ServedEntryKey>()
-	if (world.kind === "role") {
-		for (const written of world.checked.world.writes.values()) {
-			if (written.kind === "rows") {
-				const writable = written.writable
-				entries.set(writable.target.name, {
-					entry: writable.entry,
-					head: new Map(
-						Arr.map([...writable.head], ([head, { field }]) => [head, field.name] as const)
-					)
-				})
-			}
-		}
-	}
-	return {
-		laws: {
-			schemas: Arr.map(names.levels, identifierOf),
-			constraintLaws,
-			theoryLaws,
-			tables: new Map(Arr.map(relations, (r) => [r.name, names.relation(r.name).name] as const)),
-			rosterDomains: Arr.map([...names.codes.rosters.keys()], (roster) => ({
-				roster,
-				code: names.rosterDomain(roster).name,
-				bits: names.bitsDomain(roster).name
-			})),
-			generated: Arr.map(generatedFieldLaws(relations), (g) => ({
-				table: g.relation.ident,
-				column: g.field.column,
-				law: g.law
-			}))
-		},
-		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
-		entries
-	}
+	return servedRefusals(role.artifacts)
 }
 
 /** One role of the login, served: its name, its PostgreSQL role, its contexts, its classifier and its members. */

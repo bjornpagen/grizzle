@@ -15,7 +15,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -239,7 +239,9 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 						)
 						/** ann's Db, opened and used inside the layer of the login that holds her role. */
 						const explored = Effect.gen(function* () {
-							const db = yield* Db.open(desk.roles.holder, { token: tokenOf({ sub: "u_ann" }) })
+							const db = yield* compiledOpen(desk.roles.holder, {
+								token: tokenOf({ sub: "u_ann" })
+							})
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },

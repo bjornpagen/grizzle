@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, uuid } from "#compiler/public/fields.ts"
@@ -240,7 +240,7 @@ export const hostWitnessSuite = (): void => {
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							return yield* explore(
 								{
 									suite: "laws/witness/host",

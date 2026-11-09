@@ -16,7 +16,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, Layer, pipe, Result, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -45,6 +44,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
 const member = (n: number): Uuid =>
@@ -303,7 +303,7 @@ export const witnessSuite = (): void => {
 							return assert.fail("Seats is a checked contract")
 						}
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
+							const db = yield* compiledOpen(o.server.roles.app, {})
 							const writer = yield* s.session({
 								...worldSession(o.installed.world(o.app)),
 								label: "writer"

@@ -9,7 +9,7 @@ import type {
  * packages/grizzle/src/index.ts re-exports it.
  *
  * `Db` is both the value Db.open lives on and the type of an opened database. The types are the public shapes of
- * packages/grizzle/src/adapter/types/db.ts; the value is the adapter's (packages/grizzle/src/adapter/db/open.ts). No driver type appears here.
+ * packages/grizzle/src/adapter/types/db.ts; the value is the adapter's (packages/grizzle/src/adapter/db/served.ts). No driver type appears here.
  *
  * `ApplyOutcome` is both what db.apply answers and the value of its constructors, the adapter's own
  * (packages/grizzle/src/adapter/outcomes), so an application's test builds the exact outcome db.apply answers.
@@ -19,7 +19,7 @@ import type {
  */
 export type { Page, PageCursor, PageEdge, PageInfo, PageRequest } from "#compiler/plan/read.ts"
 
-import { DbValue } from "#adapter/db/open.ts"
+import { DbValue } from "#adapter/db/served.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 
 export type { NoTokenOptions, OpenOptions, TokenOptions } from "#adapter/types/db.ts"

@@ -117,6 +117,7 @@ const constructors: {
 	ReadFailure: Public.ReadFailure,
 	RoleOutsideLayers: Public.RoleOutsideLayers,
 	SerializationFailure: Public.SerializationFailure,
+	ServedLoginRefused: Public.ServedLoginRefused,
 	ServerError: Public.ServerError,
 	SocketFailed: Public.SocketFailed,
 	SpanKeyChange: Public.SpanKeyChange,

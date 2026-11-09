@@ -5,7 +5,7 @@ import { array, element, filter, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -418,7 +418,7 @@ export const everyLawSuite = (): void => {
 											const o = installations[naming]
 											yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
 											const outcome = yield* Effect.gen(function* () {
-												const db = yield* Db.open(o.server.roles.app, {})
+												const db = yield* compiledOpen(o.server.roles.app, {})
 												if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
 													const storing = yield* Effect.result(
 														db.apply(

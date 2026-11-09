@@ -1,20 +1,20 @@
 import { Array as Arr } from "effect"
-import type { InstallNames } from "#compiler/plan/catalog.ts"
-import { generatedFieldLaws, type Law, type TableRelation } from "#compiler/plan/change.ts"
+import type { Law } from "#compiler/plan/change.ts"
 import {
+	type Codebook,
 	type ColumnIdent,
 	type ConstraintLaws,
 	type ConstraintName,
 	type ConstraintOwner,
 	constraintLaw,
+	defect,
 	type DomainName,
-	identifierOf,
 	type LawId,
 	type RelationIdent,
 	type RosterCodec,
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
-import type { DescribedLaw, ServedSnapshot } from "#compiler/plan/serve.ts"
+import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** One column a domain types in a table, with the law that column's use of the domain discharges. */
 type DomainUse = Extract<
@@ -157,22 +157,13 @@ export const lawsAbove = (
 	)
 })
 
-interface KeyLawInput {
-	/** The installation's names: its schema, each relation's table, and each roster's two domains, with the codes the
-	 * installation holds for it. */
-	readonly names: Pick<
-		InstallNames,
-		"levels" | "relation" | "codes" | "rosterDomain" | "bitsDomain"
-	>
-	/** Every installed constraint with its owner and its law, described (physical/install Installation.constraintLaws). */
-	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
-	/** Every law of the theory, described (physical/install Installation.theoryLaws). */
-	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
-	/** The stored relations, whose generated fields a NOT NULL violation names. */
-	readonly relations: ReadonlyArray<TableRelation>
-	/** The laws of the levels above the Db's own. */
-	readonly above: LawsAbove
-}
+/**
+ * The key-law tables of an installation as data (served ServedKeyLaws): its levels' PostgreSQL schemas, every installed
+ * constraint with its owner and laws, every law of the theory under its identity, each stored relation's table, each
+ * roster's two domains, and each generated field's law by its table and column. A served file holds it per role, and
+ * the compile builds it from the role's artifacts (adapter/served/refusals.ts keyLawsData).
+ */
+export type KeyLawsData = ServedKeyLaws
 
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
 const ownedBy = <O>(
@@ -190,10 +181,15 @@ const ownedBy = <O>(
 
 const noUses: ReadonlyArray<DomainUse> = Object.freeze([])
 
-export const keyLaws = (input: KeyLawInput): KeyLaws => {
+/**
+ * The key laws of an installation (KeyLaws) from its tables `data`, the laws of the levels above `above`, and the codes
+ * the installation holds `codes`, which each roster domain carries: the one constructor of KeyLaws, which a layer runs
+ * over a served file's tables and the compile over the tables it draws from a role's artifacts.
+ */
+export const keyLawsOf = (data: KeyLawsData, above: LawsAbove, codes: Codebook): KeyLaws => {
 	const tables = new Map<RelationIdent, Map<ConstraintName, NativeLaws>>()
 	const domains = new Map<DomainName, Map<ConstraintName, NativeLaws>>()
-	for (const c of input.constraintLaws) {
+	for (const c of data.constraintLaws) {
 		switch (c.kind) {
 			case "constraint":
 			case "trigger":
@@ -204,34 +200,29 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 				break
 		}
 	}
-	const rosters = new Map<DomainName, RosterDomain>(
-		Arr.flatMap(
-			[...input.names.codes.rosters.values()],
-			(codec): ReadonlyArray<readonly [DomainName, RosterDomain]> => [
-				[input.names.rosterDomain(codec.roster).name, { carrier: "code", codec }],
-				[input.names.bitsDomain(codec.roster).name, { carrier: "bits", codec }]
-			]
-		)
-	)
-	const generated = new Map(
-		Arr.map(input.relations, (r) => [
-			r.ident,
-			new Map(
-				Arr.map(generatedFieldLaws([r]), (g): readonly [ColumnIdent, Law] => [
-					g.field.column,
-					g.law
-				])
-			)
-		])
-	)
-	const above = input.above
+	const rosters = new Map<DomainName, RosterDomain>()
+	for (const { roster, code, bits } of data.rosterDomains) {
+		const codec = codes.rosters.get(roster)
+		if (codec === undefined) {
+			throw defect(`the installation's codebook holds roster ${roster}, whose domains it names`)
+		}
+		rosters.set(code, { carrier: "code", codec })
+		rosters.set(bits, { carrier: "bits", codec })
+	}
+	const generated = new Map<RelationIdent, Map<ColumnIdent, Law>>()
+	for (const { table, column, law } of data.generated) {
+		const columns = generated.get(table) ?? new Map<ColumnIdent, Law>()
+		columns.set(column, law)
+		generated.set(table, columns)
+	}
 	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
 	const aboveLaw = (id: LawId): NativeLaws | undefined => {
 		const law = above.laws.get(id)
 		return law === undefined ? undefined : { laws: [{ law: id, described: law }], uses: noUses }
 	}
+	const tableOf = data.tables
 	return {
-		schemas: new Set([...Arr.map(input.names.levels, identifierOf), ...above.schemas]),
+		schemas: new Set([...data.schemas, ...above.schemas]),
 		lawsOf: (constraint, owner) => {
 			const own =
 				owner.kind === "table"
@@ -243,13 +234,19 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 			const id = constraintLaw(above.constraints, owner, constraint)
 			return id === undefined ? undefined : aboveLaw(id)
 		},
-		tableOf: (relation) => input.names.relation(relation).name,
+		tableOf: (relation) => {
+			const table = tableOf.get(relation)
+			if (table === undefined) {
+				throw defect(`the installation stores relation ${relation}, which a write statement wrote`)
+			}
+			return table
+		},
 		raised: new Map([
 			...Arr.map([...above.laws], ([id, described]): readonly [ConstraintName, DescribedLaw] => [
 				id,
 				{ law: id, described }
 			]),
-			...Arr.map(input.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
+			...Arr.map(data.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
 		]),
 		rosterDomainOf: (domain) => rosters.get(domain),
 		generatedOf: (table, column) => generated.get(table)?.get(column)

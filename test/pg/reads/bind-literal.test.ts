@@ -5,7 +5,7 @@ import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -142,7 +142,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								rows: ReadonlyArray<{ readonly id: number; readonly score: number }>
 							) => Arr.map(rows, ({ id, score }) => ({ id, score }))
 							yield* Effect.gen(function* () {
-								const db = yield* Db.open(opened.server.roles.app, {})
+								const db = yield* compiledOpen(opened.server.roles.app, {})
 								for (const b of bindings) {
 									const imported = query(s).rule((r) => {
 										const bound = top.bind({ grp: b.grp, lo: b.lo, k: b.k, tag: b.tag })

@@ -2,6 +2,7 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -216,7 +217,10 @@ export interface KeyDecoder {
 /** A witness is converted from the server's answer, so a text naming a relation, a field or a law this installation does
  * not have, or a key value no key holds, is no witness: undefined, which the caller reports as any statement it cannot
  * classify. */
-export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
+export const witnessDecoder = (context: {
+	readonly relations: ReadonlyMap<string, { readonly heading: ReadonlyArray<HeadingColumn> }>
+	readonly codes: Codebook
+}): KeyDecoder => {
 	const convertKey = (
 		relation: string,
 		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>

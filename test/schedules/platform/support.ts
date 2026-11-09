@@ -19,7 +19,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import {
 	type ApplyError,
 	type OpenError,
@@ -102,6 +102,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
 import { regex } from "arkregex"
+import { compiledOpen } from "#adapter/db/open.ts"
 /**
  * The platform's concurrency races: the application's writes of the usage-billing platform, raced by grizzle writers
  * and direct psql writers over one installation, every transaction SERIALIZABLE, every run of the one concurrency
@@ -568,7 +569,7 @@ const openApp = (
 	Effect.gen(function* () {
 		const server = i.rig.worlds.server
 		const context = yield* Layer.build(loginLayer(i.rig.installed, server))
-		const db = yield* Db.open(server.roles.app, {}).pipe(Effect.provideContext(context))
+		const db = yield* compiledOpen(server.roles.app, {}).pipe(Effect.provideContext(context))
 		const first = db.apply(ChangeSet.empty(P.Platform), {})
 		return { db, actor: yield* grizzleActor(name, i.rig.installed.as(server).role, first, beside) }
 	})

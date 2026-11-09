@@ -1,27 +1,19 @@
 import net from "node:net"
-import {
-	Array as Arr,
-	Cause,
-	Data,
-	Effect,
-	Exit,
-	Layer,
-	Record as Rec,
-	Redacted,
-	String as Str
-} from "effect"
+import { Array as Arr, Data, Effect, Record as Rec, Redacted, Result, String as Str } from "effect"
 import pgDriver from "pg"
 import {
 	connectionSettings,
-	loginSettings,
 	poolSettings,
+	servedLoginSettings,
 	transportSettings
 } from "#adapter/connection/config.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { parseServedConfig } from "#adapter/pool/served.ts"
+import { served } from "#adapter/served/served.ts"
 import type { DbConfigShape, Verify } from "#adapter/types/layer.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { queryUses } from "#compiler/schema/walk.ts"
+import { loginDescOf } from "#compiler/schema/world.ts"
 import { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import {
@@ -33,15 +25,15 @@ import {
 } from "#test/support/prelude.ts"
 
 /**
- * The DbConfig agreement: DbLayer.make's config, as its type states it and as its reader reads it
- * (connection/config.ts parseConnection, pool/registry.ts), over every setting the reader's own rosters name and every
- * channel a setting's Effect or function states, and the one TypeScript program that states each verdict as types,
- * which the type tier checks (test/types/api/config.test.ts). The reader is the oracle: DbLayer.make's layer, built,
- * fails with OpenError whose reason is DbConfigRefused exactly where the reader refuses the config, and a config it
- * reads goes on to the layer's later stages, whatever they answer.
+ * The DbConfig agreement: DbLayer.make's config over a served login, as its type states it and as its reader reads it
+ * (connection/config.ts parseConnection, pool/served.ts parseServedConfig), over every setting the reader's own rosters
+ * name and every channel a setting's Effect or function states, and the one TypeScript program that states each verdict
+ * as types, which the type tier checks (test/types/api/config.test.ts). The reader is the oracle: it refuses a config
+ * with DbConfigRefused, and so does the layer once it reads the served file, for a config without the verify a login
+ * whose role reads a context needs (verifyRequired, as the login's roles read their contexts).
  *
  * - The keys of each block's type, the top level, the transport and the pool, are exactly the reader's roster of its
- *   settings (connectionSettings and loginSettings' settings, transportSettings, poolSettings).
+ *   settings (connectionSettings and servedLoginSettings' settings, transportSettings, poolSettings).
  * - Each setting of each roster left out of an otherwise valid config, for a login whose role reads no context and one
  *   whose role reads Session: the types refuse it exactly where the reader does, at the call (TS2345) for a top-level
  *   setting and at its block's property (TS2741) for a nested one; and a key no roster names, in each block, both
@@ -58,6 +50,33 @@ import {
  */
 const logins = { PlainLogin, WebLogin } as const
 type LoginName = keyof typeof logins
+
+/**
+ * Each login served as its type, over the members of its served file served(...) reads: its base, its PostgreSQL role
+ * and its roles' names. The reader reads no more of it.
+ */
+const servedOf = {
+	PlainLogin: served<typeof PlainLogin>(
+		{ base: "Work", role: "plain", roles: [{ name: "reader" }] },
+		"plain"
+	),
+	WebLogin: served<typeof WebLogin>(
+		{ base: "Work", role: "web", roles: [{ name: "member" }] },
+		"web"
+	)
+} as const
+
+/**
+ * Whether the login's layer needs a verify: a role of it reads a context, some query entry of its relations matching
+ * one, as the role its served file holds types its contexts.
+ */
+const verifyRequired = (login: LoginName): boolean =>
+	Arr.some(loginDescOf(logins[login])?.roles ?? [], (role) =>
+		Arr.some(
+			role.relations,
+			(entry) => entry.kind === "world" && queryUses(entry.query).contexts.size > 0
+		)
+	)
 
 const loginNames: Arr.NonEmptyReadonlyArray<LoginName> = ["PlainLogin", "WebLogin"]
 
@@ -79,7 +98,7 @@ const edited = (
 type Block = "top" | "transport" | "pool"
 
 const rosterOf: { readonly [B in Block]: Arr.NonEmptyReadonlyArray<string> } = {
-	top: [...connectionSettings, ...loginSettings.settings],
+	top: [...connectionSettings, ...servedLoginSettings.settings],
 	transport: transportSettings,
 	pool: poolSettings
 }
@@ -153,12 +172,11 @@ const validConfig = (login: LoginName): LoginConfig => {
 		database: "work",
 		password: Redacted.make("secret"),
 		connectTimeoutMs: testConnectTimeout.value,
-		pool,
-		snapshot: { fingerprint: "" }
+		pool
 	}
 	return login === "PlainLogin"
-		? { login, config: { ...connection, login: PlainLogin } }
-		: { login, config: { ...connection, login: WebLogin, verify: verifyToken } }
+		? { login, config: { ...connection, login: servedOf.PlainLogin } }
+		: { login, config: { ...connection, login: servedOf.WebLogin, verify: verifyToken } }
 }
 
 /** The config with `key` of `block` left out, the rest as valid. */
@@ -232,29 +250,15 @@ const channelConfig = (c: ChannelCase): LoginConfig => {
 	})
 }
 
-/** A layer, whatever it provides, built in a scope of its own and closed: its exit. */
-const built = (layer: Layer.Layer<never, OpenError>): Exit.Exit<void, OpenError> =>
-	Effect.runSyncExit(Effect.asVoid(Effect.scoped(Layer.build(layer))))
-
 /**
- * The reader's verdict on a config: DbLayer.make's layer, built in a scope of its own, fails with DbConfigRefused
- * exactly where the reader refuses it. An environment that sets a connection option grizzle refuses fails every config
- * alike, so it fails the run.
+ * The reader's verdict on a config: its parse admits it (pool/served.ts parseServedConfig), and it gives the verify its
+ * login's layer refuses it without (verifyRequired).
  */
 const readerAdmits = (c: LoginConfig): boolean => {
-	const exit =
-		c.login === "PlainLogin" ? built(DbLayer.make(c.config)) : built(DbLayer.make(c.config))
-	if (Exit.isSuccess(exit)) {
-		return true
-	}
-	const error = Cause.squash(exit.cause)
-	if (!(error instanceof OpenError)) {
-		throw new Error(`DbLayer.make fails with no OpenError: ${Cause.pretty(exit.cause)}`)
-	}
-	if (error.reason._tag === "ConnectionEnvironmentRefused") {
-		throw new Error(`the environment refuses every config: ${error.message}`)
-	}
-	return error.reason._tag !== "DbConfigRefused"
+	const parsed =
+		c.login === "PlainLogin" ? parseServedConfig(c.config) : parseServedConfig(c.config)
+	const passed: unknown = c.config.verify
+	return Result.isSuccess(parsed) && (passed !== undefined || !verifyRequired(c.login))
 }
 
 /** One statement of the program, under its directive where the types must refuse it. */
@@ -305,8 +309,7 @@ const settingLines = (
 			["min", "0"],
 			["idleTimeoutMs", "1000"]
 		]),
-		...line("top", "snapshot", "\tsnapshot,"),
-		...line("top", "login", `\tlogin: ${login},`),
+		...line("top", "login", `\tlogin: ${login}Served,`),
 		...(login === "WebLogin" ? line("top", "verify", "\tverify: verifyToken,") : []),
 		...(extra === "top" ? [{ text: "\textra: 1,", block: "top" as const, key: "extra" }] : [])
 	]
@@ -391,7 +394,7 @@ const channelOf = (c: ChannelCase, i: number): Stated => {
 	const refused = !admitted || Arr.isReadonlyArrayNonEmpty(broken)
 	return {
 		lines: [
-			`const k${i} = { ...base, login: ${c.login}, password: ${password}${verify}${driver} } as const`,
+			`const k${i} = { ...base, login: ${c.login}Served, password: ${password}${verify}${driver} } as const`,
 			...(refused
 				? [
 						`// @ts-expect-error -- TS2344: ${Arr.isReadonlyArrayNonEmpty(broken) ? broken[0][0] : "the reader refuses the config"}`
@@ -457,21 +460,23 @@ export const configModule = (entries: PreludeAt): string => {
 			"type Expect<T extends true> = T",
 			"/** Whether DbLayer.make takes the config C for the login L: whether C is assignable to its parameter. */",
 			"type Takes<L, C> = [C] extends [DbConfigShape<L>] ? true : false",
-			"declare const snapshot: { readonly fingerprint: string }",
+			"declare const file: unknown",
+			'const PlainLoginServed = served<typeof PlainLogin>(file, "plain")',
+			'const WebLoginServed = served<typeof WebLogin>(file, "web")',
 			"declare const verifyToken: Verify",
 			"declare const verifyFailing: (token: string) => Effect.Effect<unknown, Error>",
 			"declare const credentialPassword: Effect.Effect<Redacted.Redacted, CredentialError>",
 			"declare const failingPassword: Effect.Effect<Redacted.Redacted, Error>",
 			'declare const servicedPassword: Effect.Effect<Redacted.Redacted, CredentialError, "Vault">',
 			'declare const unpipelined: Omit<typeof pgDriver, "Client"> & { readonly Client: new (config: ClientConfig) => Omit<Client, "pipeline"> }',
-			'const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", connectTimeoutMs: 1000, pool: { max: 1, min: 0, idleTimeoutMs: 1000 }, snapshot } as const',
+			'const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", connectTimeoutMs: 1000, pool: { max: 1, min: 0, idleTimeoutMs: 1000 } } as const',
 			"",
 			`export type k_top = Expect<Equals<keyof DbConfigShape<typeof PlainLogin>, ${union(rosterOf.top)}>>`,
 			`export type k_transport = Expect<Equals<keyof Transport, ${union(rosterOf.transport)}>>`,
 			`export type k_pool = Expect<Equals<keyof PoolBounds, ${union(rosterOf.pool)}>>`,
 			"",
-			"const v_PlainLogin = { ...base, login: PlainLogin, password: credentialPassword } as const",
-			"const v_WebLogin = { ...base, login: WebLogin, password: credentialPassword, verify: verifyToken } as const",
+			"const v_PlainLogin = { ...base, login: PlainLoginServed, password: credentialPassword } as const",
+			"const v_WebLogin = { ...base, login: WebLoginServed, password: credentialPassword, verify: verifyToken } as const",
 			"",
 			...Arr.flatMap([...omissions, ...strangers, ...channels, ...relabelled], (s) => [
 				...s.lines,

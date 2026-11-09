@@ -6,7 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -688,7 +689,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 			}
 		}
 		const result = yield* Effect.gen(function* () {
-			const db = yield* Db.open(o.server.roles.app, {})
+			const db = yield* compiledOpen(o.server.roles.app, {})
 			const empty = ChangeSet.empty(o.schema)
 			const conds: Array<string> = []
 			const selected: Array<number> = []

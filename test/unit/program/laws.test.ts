@@ -15,7 +15,7 @@
  * pattern's payload may stand beside them. On two levels the tables stand above the core, which may restate core
  * statements.
  *
- * The oracle is the installation's own constraint-to-law map (adapter/witness/keylaw.ts keyLaws), the map a refusal is
+ * The oracle is the installation's own constraint-to-law map (adapter/witness/keylaw.ts keyLawsOf), the map a refusal is
  * read through: the laws of every table constraint, unique index and domain constraint the install script creates, read
  * under the table or domain that owns it as PostgreSQL reports a violation; every law a write statement's refusal
  * raises; and the generated law of every column the script creates. Every law it can report is in lawsOf exactly once,
@@ -60,7 +60,8 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { keyLaws, noLevelAbove } from "#adapter/witness/keylaw.ts"
+import { keyLawsData } from "#adapter/served/refusals.ts"
+import { keyLawsOf as keyLawsOver, noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { StatementDesc } from "#compiler/ir/desc.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
@@ -603,15 +604,18 @@ const subjectOf = (
 	})
 }
 
-/** The installation's own constraint-to-law map, as adapter/witness installationWitness builds it. */
+/** The installation's own constraint-to-law map, as adapter/served/refusals.ts installationWitness builds it. */
 const keyLawsOf = (installation: Installation) =>
-	keyLaws({
-		names: installation.names,
-		constraintLaws: installation.constraintLaws,
-		theoryLaws: installation.theoryLaws,
-		relations: [...installation.checked.relations.values()],
-		above: noLevelAbove
-	})
+	keyLawsOver(
+		keyLawsData({
+			names: installation.names,
+			constraintLaws: installation.constraintLaws,
+			theoryLaws: installation.theoryLaws,
+			relations: [...installation.checked.relations.values()]
+		}),
+		noLevelAbove,
+		installation.names.codes
+	)
 
 /**
  * Whether the installation reports the check `law` under `name` on its relation's table, as PostgreSQL reports the
@@ -631,7 +635,7 @@ const reportsCheckAs = (
 
 /**
  * Every law an installed object of `installation` can report, through the installation's own constraint-to-law map
- * (adapter/witness/keylaw.ts keyLaws, as adapter/witness installationWitness builds it): the laws of each table
+ * (adapter/witness/keylaw.ts keyLawsOf, as adapter/served/refusals.ts installationWitness builds it): the laws of each table
  * constraint, unique index and domain constraint the install script creates, read under the table or domain that owns
  * it, as PostgreSQL reports a violation's constraint and owner; every law a write statement's refusal raises; and the
  * generated law of each column the script creates, which a NOT NULL violation reports. Each as often as an object

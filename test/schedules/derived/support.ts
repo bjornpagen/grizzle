@@ -6,8 +6,8 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
+import { compiledOpen } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -335,7 +335,7 @@ const open: Effect.Effect<
 	const f = build(opened.installed.declared)
 	const server = opened.installed.as(f.server).role
 	const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresherDb = yield* Db.open(f.server.roles.refresher, {}).pipe(
+	const refresherDb = yield* compiledOpen(f.server.roles.refresher, {}).pipe(
 		Effect.provideContext(refresherContext)
 	)
 	const first = yield* grizzleActor(
@@ -345,7 +345,7 @@ const open: Effect.Effect<
 		[]
 	)
 	const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresher2Db = yield* Db.open(f.server.roles.refresher2, {}).pipe(
+	const refresher2Db = yield* compiledOpen(f.server.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
 	const refreshers = {

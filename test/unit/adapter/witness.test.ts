@@ -27,7 +27,7 @@ import {
 import { ExecutionFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import { classifyServerError, type FailureOrigin } from "#adapter/outcomes/index.ts"
-import { installationWitness } from "#adapter/witness/index.ts"
+import { installationWitness } from "#adapter/served/refusals.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"

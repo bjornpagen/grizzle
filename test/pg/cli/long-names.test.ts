@@ -17,8 +17,8 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -271,7 +271,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				"schemaNameOf names every role's schema the installation holds, and only those"
 			)
 			const credentials = yield* substrate.login(loginRole)
-			const dbLayer = DbLayer.make({
+			const dbLayer = compiledDbLayer({
 				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 				pool: clusterPool,
 				login: world.login,
@@ -279,7 +279,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				verify: testVerify
 			})
 			for (const r of Rec.values(world.login.roles)) {
-				yield* Effect.scoped(Db.open(r, { token: tokenOf({}) })).pipe(withLayer(dbLayer))
+				yield* Effect.scoped(compiledOpen(r, { token: tokenOf({}) })).pipe(withLayer(dbLayer))
 			}
 		})
 	)

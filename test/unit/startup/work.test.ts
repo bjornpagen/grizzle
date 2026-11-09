@@ -6,7 +6,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -277,7 +277,7 @@ const stepsAt = (size: Size) =>
 			const [, layer] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						DbLayer.make({
+						compiledDbLayer({
 							...offlineConnection,
 							pool: clusterPool,
 							login: server,

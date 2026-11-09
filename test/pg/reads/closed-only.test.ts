@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { compiledOpen } from "#adapter/db/open.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -112,7 +112,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							return r.match(Region, { id }).find({ id })
 						})
 						yield* Effect.gen(function* () {
-							const db = yield* Db.open(opened.server.roles.app, {})
+							const db = yield* compiledOpen(opened.server.roles.app, {})
 							const all = yield* (yield* db.execute(tiers, {})).collect
 							unorderedEqual(
 								Arr.map(all, (row) => row.id),

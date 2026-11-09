@@ -7,8 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
-import { dbSessions } from "#adapter/pool/registry.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
+import { compiledDbLayer, dbSessions } from "#adapter/pool/registry.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -354,7 +353,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							 */
 							const instance = ManagedRuntime.make(
 								Layer.fresh(
-									DbLayer.make({
+									compiledDbLayer({
 										...clusterConnection(
 											s.cluster,
 											s.database,
