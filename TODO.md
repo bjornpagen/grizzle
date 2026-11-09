@@ -7,6 +7,30 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. Main carries the README rewrite and the
 post-beta swarm's fixes for the next release.
 
+### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
+- **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
+  every performance gate passing, both perfect on the exact commit; then the owner's go.
+- **The four shakedown failures at 3cc8fbda**, each lane stopped mid-work for the repin; resume them:
+  - test/pg/write/generated-key "a write meets a key over generated fields…" (GENKEY had a fix and its plant);
+  - test/pg/cli/workflow "3 workflows of the rotating stream…";
+  - test/pg/plans "a retained-PK ordered take deduplicates and sorts nothing…";
+  - test/types/compute: the engine refuses two drawn Compute cases the types admit, likely since str.and's refusal of
+    a match that can never hold.
+- **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
+  after its first commit.
+- **Waste hunt (remove work, never add machinery):**
+  - Building qti-pie's Qti schema value costs about 36 s, a third of it grizzle's construction: ir/shape parse,
+    schema/relation closedRows and admitClosedRelation, core/canonical, protocol rosterHandlesOf. The profile is
+    ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
+  - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
+    0.33 s with native foreign keys), though each probe alone is index lookups.
+- **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
+  probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
+  foreign key into the dropped redundant span UNIQUE.
+- **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, plus a counted family over
+  a live derived relation, and Compute.matches over patterns held as data. #7 (row order for the regex cache) is
+  performance machinery, ruled out.
+
 ### Next
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
   build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
