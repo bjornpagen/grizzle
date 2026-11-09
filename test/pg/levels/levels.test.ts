@@ -193,7 +193,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const placed = yield* one(
 							`SELECT concat_ws(',', to_regclass(${table(lowerSchema, "item")}) IS NOT NULL, to_regclass(${table(upperSchema, "sitting")}) IS NOT NULL, to_regclass(${table(lowerSchema, "sitting")}) IS NULL, to_regclass(${table(upperSchema, "item")}) IS NULL)`
 						)
-						assert.equal(placed, "true,true,true,true", "each table in its own level's schema")
+						assert.equal(placed, "t,t,t,t", "each table in its own level's schema")
 						const across = yield* one(
 							`SELECT count(*) FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${table(upperSchema, "sitting")}::regclass AND confrelid = ${table(lowerSchema, "item")}::regclass AND condeferred`
 						)
@@ -209,7 +209,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const grants = yield* one(
 							`SELECT concat_ws(',', has_table_privilege(${quote(roleNameOf(at.learner))}, ${table(lowerSchema, "item")}, 'SELECT,INSERT,UPDATE,DELETE'), has_table_privilege(${quote(roleNameOf(at.author))}, ${table(upperSchema, "sitting")}, 'SELECT,INSERT,UPDATE,DELETE'))`
 						)
-						assert.equal(grants, "false,false", "no privilege on the other level's table")
+						assert.equal(grants, "f,f", "no privilege on the other level's table")
 
 						/** A lower level of other content at the root's position is no level of the installation. */
 						const other = yield* Effect.exit(
