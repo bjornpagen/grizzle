@@ -5,7 +5,7 @@ import {
 	type RelationSpec
 } from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
-import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
@@ -117,12 +117,13 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 		...c,
 		derived: supply.column(origin)
 	}))
+	const outputTexts = outputs.map((o) => canonicalTextOf(o.target.expr))
 	/**
 	 * A deduplicating statement orders by its output columns, as PostgreSQL requires of SELECT DISTINCT: the one site of
 	 * that fact, which the lowering builds every such statement by and the ORDER BY AST does not carry.
 	 */
 	const orderBy: ReadonlyArray<OrderItem> = ast.orderBy.map((item) => {
-		const output = outputs.find((o) => canonicalEquals(o.target.expr, item.expr, everyProperty))
+		const output = outputs[outputTexts.indexOf(canonicalTextOf(item.expr))]
 		if (output === undefined) {
 			throw defect("an ORDER BY item that is an output column of a deduplicating statement")
 		}
