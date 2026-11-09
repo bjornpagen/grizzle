@@ -15,7 +15,6 @@
 		"./fact": "./src/fact.ts",
 		"./features": "./src/features.ts",
 		"./gen": "./src/gen.ts",
-		"./guard": "./src/guard.ts",
 		"./interleave": "./src/interleave.ts",
 		"./live": "./src/live.ts",
 		"./mutate": "./src/mutate.ts",
