@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { memberOps } from "#adapter/db/handles.ts"
+import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -160,7 +161,13 @@ const itemsAfter = (stored: ReadonlyArray<ItemFact>, facts: CallFacts): Readonly
 /** Whether the rows `stored` are exactly the items `expected`, each once, in any order: no expected item repeats a key. */
 const sameItems = (stored: ReadonlyArray<unknown>, expected: ReadonlyArray<ItemFact>): boolean =>
 	stored.length === expected.length &&
-	Arr.every(expected, (item) => Arr.some(stored, (row) => deepEquals<unknown>(row, item)))
+	Arr.every(expected, (item) =>
+		Arr.some(plainRows(stored), (row) => deepEquals<unknown>(row, item))
+	)
+
+/** Rows as plain records of their fields: a read delivers records of no prototype, which a fact literal is not. */
+const plainRows = (rows: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
+	Arr.map(rows, (row) => (isRecord(row) ? { ...row } : row))
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a served ChangeSet's array members",
@@ -186,11 +193,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									"a member's facts omitted",
 									"the put's and delete's facts swapped"
 								],
-								{ cases: 16, sense: notesOnly }
+								{ cases: 32, sense: notesOnly }
 							),
 							kept: [],
 							/** Each case installs a schema over its stored items and makes one call. */
-							runs: 16,
+							runs: 32,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 4,
@@ -253,15 +260,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 											assert.ok(
 												agrees,
-												`the call of ${Formatter.format(facts)} over ${Formatter.format(stored)}: ${Formatter.format(applied)}`
+												`the call of ${Formatter.format(facts)} over ${Formatter.format(stored)}: ${Formatter.format(applied)}, stored ${Formatter.format(storedItems)} and ${Formatter.format(storedLabels)}`
 											)
 											unorderedEqual(
-												storedItems,
+												plainRows(storedItems),
 												expectedItems,
 												"the stored items are the call's puts over its deletes"
 											)
 											unorderedEqual(
-												storedLabels,
+												plainRows(storedLabels),
 												facts.insert.Label,
 												"the stored labels are the call's inserts"
 											)
