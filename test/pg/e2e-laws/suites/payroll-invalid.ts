@@ -775,7 +775,6 @@ export const payrollInvalidSuite = (): void => {
 						const p = yield* openPayroll
 						yield* accepted(approveRun(p))
 						yield* everyRow("after-approve-run", p, afterApproveRun)
-						/** The pay ChangeSet: the run settles with its Payment. */
 						yield* accepted(
 							p.called(
 								p.w.server.roles.clerk,
