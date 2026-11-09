@@ -1,4 +1,4 @@
-import { fromJson, noRevivers } from "#compiler/core/canonical.ts"
+import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import { type CompileError, within } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -6,10 +6,11 @@ import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { usableSchemas } from "#compiler/deploy/admission/roles.ts"
-import type { ServedSnapshot, SnapshotLevel } from "#compiler/deploy/snapshot/types.ts"
+import type { ServedSnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, emptyCodebook, type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
+import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { CreateExtension, Grant, Revoke, SqlStatement } from "#compiler/sql/ast.ts"
 
 /**
@@ -43,10 +44,18 @@ type RelationJson =
 	| { readonly kind: "closed"; readonly codes: unknown }
 	| { readonly kind: "relation" | "derived" }
 
+/** A level of a snapshot in its JSON form, as the layer reads it: its name and schema, which are names alone, so their
+ * JSON form is their value, and its laws. */
+interface LevelJson {
+	readonly name: string
+	readonly schema: string
+	readonly laws: unknown
+}
+
 /** The members of a snapshot's JSON form the layer reads (ServedSnapshot), as `grizzle generate` writes them. */
 interface ServedJson {
 	readonly fingerprint: SchemaFingerprint
-	readonly levels: unknown
+	readonly levels: ReadonlyArray<LevelJson>
 	readonly constraintToLaw: unknown
 	readonly theory: { readonly relations: Readonly<Record<string, RelationJson>> }
 	readonly manifest: {
@@ -56,23 +65,34 @@ interface ServedJson {
 }
 
 /** A member of a snapshot's JSON form at `path`, its canonical tags revived. */
-const revived = (value: unknown, path: ReadonlyArray<string>): Result.Result<unknown, CompileError> =>
+const revived = (value: unknown, path: Path): Result.Result<unknown, CompileError> =>
 	Result.mapError(fromJson(value, noRevivers), (e) => within(e, path))
 
 /**
- * The snapshot an application's DbLayer serves, from the JSON form an import of snapshot.json yields, trusted as the
- * snapshot `grizzle generate` wrote, whose content is verified where it is drafted, checked and migrated from
- * (readSnapshot): its recorded fingerprint; its levels and constraint-to-law map, their canonical tags revived
- * (`fromJson`); its rosters' codes, revived; and, read off the manifest's extensions, grants and revocations alone,
- * each extension it creates with its schema and the schemas it grants each role USAGE on (roles.ts usableSchemas).
- * Nothing else of it is read: the rest of the manifest, the theory's other relations and its laws, the logins, the
- * workload access and the access paths are generate's, check's and migrate's.
+ * The snapshot an application's DbLayer serves over its level `level` (its base's, the last of the base's own levels),
+ * from the JSON form an import of snapshot.json yields, trusted as the snapshot `grizzle generate` wrote, whose content
+ * is verified where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
+ * schema, and the laws of each level above `level`, their canonical tags revived (`fromJson`); its constraint-to-law
+ * map and its rosters' codes, revived; and, read off the manifest's extensions, grants and revocations alone, each
+ * extension it creates with its schema and the schemas it grants each role USAGE on (roles.ts usableSchemas). Nothing
+ * else of it is read: the laws of `level` and the levels below it, which the layer's own artifacts hold, the rest of the
+ * manifest, the theory's other relations and its laws, the logins, the workload access and the access paths are
+ * generate's, check's and migrate's.
  */
-export const servedSnapshot = (json: unknown): Result.Result<ServedSnapshot, CompileError> => {
+export const servedSnapshot = (
+	json: unknown,
+	level: number
+): Result.Result<ServedSnapshot, CompileError> => {
 	const served = trusted<ServedJson>(json)
-	const levels = revived(served.levels, ["levels"])
-	if (!levels.ok) {
-		return levels
+	const above: Array<{ readonly name: string; readonly laws: ReadonlyArray<DescribedLaw> }> = []
+	for (const [i, l] of served.levels.entries()) {
+		if (i > level) {
+			const laws = revived(l.laws, ["levels", i, "laws"])
+			if (!laws.ok) {
+				return laws
+			}
+			above.push({ name: l.name, laws: trusted<ReadonlyArray<DescribedLaw>>(laws.value) })
+		}
 	}
 	const constraintToLaw = revived(served.constraintToLaw, ["constraintToLaw"])
 	if (!constraintToLaw.ok) {
@@ -94,7 +114,8 @@ export const servedSnapshot = (json: unknown): Result.Result<ServedSnapshot, Com
 	]
 	return Result.ok({
 		fingerprint: served.fingerprint,
-		levels: trusted<ReadonlyArray<SnapshotLevel>>(levels.value),
+		schemas: served.levels.map((l) => l.schema),
+		above,
 		constraintToLaw: trusted<ConstraintLaws>(constraintToLaw.value),
 		codes: rosterCodebook(rosters),
 		installedExtensions: new Map(

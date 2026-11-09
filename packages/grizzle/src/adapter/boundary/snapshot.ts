@@ -50,16 +50,20 @@ const sealedSnapshot = (value: unknown): Result.Result<DeploySnapshot, CompileEr
 }
 
 /** Parses the snapshot DbLayer.make is given, the value JSON.parse or a JSON import of snapshot.json yields, into what
- * the layer and its Dbs read of it (served.ts servedSnapshot): its recorded fingerprint, the one every Db's prologue
- * guards the database's ledger with, trusted as `grizzle generate` wrote it; its levels, constraint-to-law map and
- * rosters' codes, their canonical tags revived; and each role's schemas of USAGE, read off the manifest's grants and
- * revocations. Nothing else of it is read or revived. It is read once at the boundary (readHost), so a getter or a proxy
+ * the layer over its level `level` and its Dbs read of it (served.ts servedSnapshot): its recorded fingerprint, the one
+ * every Db's prologue guards the database's ledger with, trusted as `grizzle generate` wrote it; its levels' schemas, the
+ * laws of the levels above `level`, its constraint-to-law map and its rosters' codes, their canonical tags revived; and
+ * the extensions and each role's schemas of USAGE, read off the manifest's extensions, grants and revocations. Nothing
+ * else of it is read or revived. It is read once at the boundary (readHost), so a getter or a proxy
  * that throws refuses it, and nothing after it reads the caller's value. Whether its content is that fingerprint's is
  * checked where the file is read to draft, check or migrate (readSnapshot), never when an application starts. */
-export const parseSnapshot = (json: unknown): Result.Result<ServedSnapshot, CompileError> =>
+export const parseSnapshot = (
+	json: unknown,
+	level: number
+): Result.Result<ServedSnapshot, CompileError> =>
 	readHost(
 		malformedArtifact("snapshot", [], "a snapshot read as data, as an import of snapshot.json yields it"),
-		() => toResult(servedSnapshot(json))
+		() => toResult(servedSnapshot(json, level))
 	)
 
 /** Reads snapshot.json's text: its JSON parsed and its canonical tags revived (`decode`), then trusted once its

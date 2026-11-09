@@ -36,8 +36,9 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * level over it, which records the key among the upper level's laws. The oracle is the snapshot itself: the text writeSnapshot writes reads back
  * (boundary/snapshot.ts readSnapshot, which refuses a text whose content is not its recorded fingerprint) as a snapshot
  * of the fingerprint written, every level recording the laws written; and what DbLayer.make serves of the file's JSON
- * value (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads back as: its fingerprint,
- * its levels, its constraint-to-law map and its codes.
+ * value over each of its levels (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads
+ * back as: its fingerprint, its levels' schemas, the laws of the levels above the served one, its constraint-to-law map
+ * and its codes.
  */
 const Kind = closed("Kind", ["One", "Two"])
 const R = relation(
@@ -168,17 +169,26 @@ describe("snapshot.json", () => {
 							)
 							const text = succeeded(writeSnapshot(snapshot))
 							const read = succeeded(readSnapshot(text))
-							const served = succeeded(parseSnapshot(snapshotJson(text)))
 							const lawsOf = (levels: typeof snapshot.levels) =>
 								Arr.map(levels, (l) => Arr.map(l.laws, (law) => law.law))
 							const codesOf = (book: ReturnType<typeof codebookOf>) =>
 								Arr.map([...book.rosters.values()], (codec) => [codec.roster, codec.codes])
 							assert.equal(read.fingerprint, snapshot.fingerprint)
 							assert.deepEqual(lawsOf(read.levels), lawsOf(snapshot.levels))
-							assert.equal(served.fingerprint, read.fingerprint)
-							assert.deepEqual(served.levels, read.levels)
-							assert.deepEqual(served.constraintToLaw, read.constraintToLaw)
-							assert.deepEqual(codesOf(served.codes), codesOf(codebookOf(read)))
+							for (const level of read.levels.keys()) {
+								const served = succeeded(parseSnapshot(snapshotJson(text), level))
+								assert.equal(served.fingerprint, read.fingerprint)
+								assert.deepEqual(
+									served.schemas,
+									Arr.map(read.levels, (l) => l.schema)
+								)
+								assert.deepEqual(
+									served.above,
+									Arr.map(read.levels.slice(level + 1), (l) => ({ name: l.name, laws: l.laws }))
+								)
+								assert.deepEqual(served.constraintToLaw, read.constraintToLaw)
+								assert.deepEqual(codesOf(served.codes), codesOf(codebookOf(read)))
+							}
 							k.note(c.placement)
 						})
 				)

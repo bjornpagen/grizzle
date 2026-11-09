@@ -398,16 +398,17 @@ export const loginRoles = (
  * The snapshot the config gives, parsed once: the JSON value an import of snapshot.json yields, read as the generator
  * wrote it, its recorded fingerprint trusted (boundary/snapshot.ts parseSnapshot).
  */
-const layerSnapshot = (given: object): Effect.Effect<ServedSnapshot, OpenError> =>
-	Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) => new OpenError({ reason }))
+const layerSnapshot = (given: object, level: number): Effect.Effect<ServedSnapshot, OpenError> =>
+	Effect.mapError(Effect.fromResult(parseSnapshot(given, level)), (reason) => new OpenError({ reason }))
 
 /** An engine result as the layer's: a refusal is OpenError with the compiler's reason. */
 const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, OpenError> =>
 	Effect.mapError(fromEngine(result), (reason) => new OpenError({ reason }))
 
 /**
- * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed, its codes read; the
- * login's base owned once and the login over it; the base's artifacts compiled once under the codes (artifactsUnder),
+ * Builds the service in the current scope (the layer's) from a parsed config: the login's base owned once; the
+ * snapshot, parsed over the base's level, the last of its own levels, its codes read; the login over the base; the base's
+ * artifacts compiled once under the codes (artifactsUnder),
  * which every role reads, and the laws of the levels above the base's that the snapshot records (witness/keylaw.ts
  * lawsAbove), the base's level the last of its own levels; every role's artifacts and programs over them; the login's
  * role, its pool and the prologue's statements (see the header).
@@ -415,13 +416,13 @@ const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, 
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<DbSessions, OpenError, Scope.Scope> {
-	const snapshot = yield* layerSnapshot(config.snapshot)
-	const codes = snapshot.codes
 	const base = yield* openStage(own(config.login.base.desc))
+	const snapshot = yield* layerSnapshot(config.snapshot, base.levels.length - 1)
+	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
 	const artifacts = yield* openStage(artifactsUnder(owned.base, codes))
-	const above = lawsAbove(snapshot, owned.base.levels.length - 1)
+	const above = lawsAbove(snapshot)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts, above),
 		(reason) => new OpenError({ reason })

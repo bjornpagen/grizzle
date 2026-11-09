@@ -14,7 +14,7 @@ import {
 	type RosterCodec,
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
-import type { DescribedLaw, SnapshotLevel } from "#compiler/plan/migration.ts"
+import type { DescribedLaw, ServedSnapshot } from "#compiler/plan/migration.ts"
 
 /** One column a domain types in a table, with the law that column's use of the domain discharges. */
 type DomainUse = Extract<
@@ -141,18 +141,14 @@ export const noLevelAbove: LawsAbove = {
 	laws: new Map()
 }
 
-/** The laws above level `index` of the installation the snapshot's levels record (`LawsAbove`). */
+/** The laws above the level a layer serves, as the snapshot it serves records them (`LawsAbove`). */
 export const lawsAbove = (
-	snapshot: {
-		readonly levels: ReadonlyArray<SnapshotLevel>
-		readonly constraintToLaw: ConstraintLaws
-	},
-	index: number
+	snapshot: Pick<ServedSnapshot, "schemas" | "above" | "constraintToLaw">
 ): LawsAbove => ({
-	schemas: Arr.map(snapshot.levels, (l) => l.schema),
+	schemas: snapshot.schemas,
 	constraints: snapshot.constraintToLaw,
 	laws: new Map(
-		Arr.flatMap(snapshot.levels.slice(index + 1), (level) =>
+		Arr.flatMap(snapshot.above, (level) =>
 			Arr.map(level.laws, ({ law, described }): readonly [LawId, Law] => [
 				law,
 				{ kind: "above", level: level.name, law: described }
