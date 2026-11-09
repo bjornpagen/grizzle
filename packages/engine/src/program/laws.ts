@@ -7,7 +7,7 @@ import type { StatementDesc } from "#compiler/ir/desc.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws } from "#compiler/physical/ddl/domains.ts"
 import { parseBuiltSchema } from "#compiler/program/schema.ts"
-import { canonicalStatementText, own } from "#compiler/schema/own.ts"
+import { canonicalStatementText, ownBuilt } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
@@ -45,7 +45,7 @@ interface SchemaLaws {
 const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
 	orThrow(
 		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
-			Result.flatMap(own(built.desc), (owned) =>
+			Result.flatMap(ownBuilt(built), (owned) =>
 				compileLaws(owned, everySlice(owned), { kind: "planned" })
 			)
 		)

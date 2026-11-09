@@ -437,7 +437,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 		config.snapshot,
 		levelChain(config.login.base.desc).length - 1
 	)
-	const base = yield* openStage(ownServed(config.login.base.desc, snapshot.levels))
+	const base = yield* openStage(ownServed(config.login.base, snapshot.levels))
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))

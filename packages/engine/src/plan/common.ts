@@ -140,6 +140,7 @@ export {
 export {
 	levelChain,
 	own,
+	ownBuilt,
 	ownBuiltLogin,
 	ownServed,
 	type Owned,

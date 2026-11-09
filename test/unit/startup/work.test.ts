@@ -51,16 +51,17 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * - A schema value's content is encoded once, when schema(...) builds it (schema/levels.ts levelContent, the level's
  *   one digest); roles, workloads and the login over it, and every level check they and every command and layer make,
  *   encode it again never, nor read it again from a description (contentOfDesc).
- * - `grizzle generate`, `grizzle check` and DbLayer.make own the schema once, which reads each statement's text, as
- *   schema(...) did; generate and check hash each level's fingerprint (core/fingerprint.ts schemaLevel), the snapshot's
- *   encoding of it, and the layer hashes none, owning the schema under the fingerprints the snapshot records
- *   (schema/own.ts ownServed); no level check or program they compile reads a description's text (descText). They
- *   compile its basis once and compile the login's programs once, through the one path they share
- *   (adapter/pool/registry.ts loginRoles): generate and check compile the installation's basis (its law model and
- *   closed constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
- *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the programs read
- *   and for the draft, and build the draft's DDL once; the layer compiles its plan's basis from the closed constants'
- *   names the snapshot records (planBasis), packs no cell, plans once and builds no DDL.
+ * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
+ *   the level's content: schema(...) reads none, and `grizzle generate`, `grizzle check` and DbLayer.make own the
+ *   schema once, reading the texts its content carries (schema/own.ts ownBuilt), none again; generate and check hash
+ *   each level's fingerprint (core/fingerprint.ts schemaLevel), the snapshot's encoding of it, and the layer hashes
+ *   none, owning the schema under the fingerprints the snapshot records (schema/own.ts ownServed); no level check or
+ *   program they compile reads a description's text (descText). They compile its basis once and compile the login's
+ *   programs once, through the one path they share (adapter/pool/registry.ts loginRoles): generate and check compile
+ *   the installation's basis (its law model and closed constants, physical/install/plan.ts installBasis), packing every
+ *   closed relation's cells once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the
+ *   artifacts the programs read and for the draft, and build the draft's DDL once; the layer compiles its plan's basis
+ *   from the closed constants' names the snapshot records (planBasis), packs no cell, plans once and builds no DDL.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -429,7 +430,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 									assert.equal(
 										steps[step].descText,
 										steps.schema.descText,
-										`${at}: ${step} reads each statement's text once, as schema(...) does, and no description's text beside`
+										`${at}: ${step} reads no statement's text its statements carry from their build, as schema(...) reads none, and no description's text beside`
 									)
 								}
 							}

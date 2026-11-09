@@ -77,6 +77,7 @@ import { Roster } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
+import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
@@ -933,9 +934,16 @@ class Owner {
 	>()
 	readonly #mutable = new Set<string>()
 
-	constructor(desc: SchemaDesc) {
+	/**
+	 * Each level's statements, root first, as the level writes them, each in canonical form with its canonical text
+	 * (CanonicalStatement): read once where each statement was built or entered.
+	 */
+	readonly #written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>
+
+	constructor(desc: SchemaDesc, written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>) {
 		this.#levels = levelChain(desc)
 		this.#schemaName = desc.name
+		this.#written = written
 	}
 
 	run(fingerprinted: LevelFingerprints): Owned {
@@ -1260,13 +1268,11 @@ class Owner {
 	/** Each statement a level writes, in its canonical form, kept once however many levels state it. */
 	#collectStatements(): void {
 		const seen = new Set<string>()
-		for (const [level, schema] of this.#levels.entries()) {
-			for (const written of schema.statements) {
-				const s = canonicalStatement(written)
-				const text = textOf(s)
+		for (const [level, statements] of this.#written.entries()) {
+			for (const { form, text } of statements) {
 				if (!seen.has(text)) {
 					seen.add(text)
-					this.#statements.push({ desc: s, level, text })
+					this.#statements.push({ desc: form, level, text })
 				}
 			}
 		}
@@ -2015,25 +2021,58 @@ const owners = new WeakMap<object, Owned>()
 export const ownedOf = (input: unknown): Owned | undefined =>
 	typeof input === "object" && input !== null ? owners.get(input) : undefined
 
-/** Owns a schema description: one a schema value's builder recorded, one decoded at a boundary, or an Owned's own. */
+/**
+ * Owns a schema description: one decoded at a boundary, or an Owned's own, each statement put in canonical form here.
+ */
 export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
-	ownWith(desc, hashedLevels)
+	ownWith(
+		desc,
+		mapNonEmpty(levelChain(desc), (level) => level.statements.map(canonicalStatementOf)),
+		hashedLevels
+	)
+
+/** A schema value's built schema: its description and its content (levels.ts SchemaContent), read at its build. */
+interface BuiltLevels {
+	readonly desc: SchemaDesc
+	readonly content: SchemaContent
+}
+
+/** Each level's statements in canonical form as a built schema's content carries them, root first (writtenOf). */
+const writtenOf = (
+	content: SchemaContent
+): NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>> =>
+	content.below === undefined
+		? [content.canonical]
+		: appendNonEmpty(writtenOf(content.below), content.canonical)
 
 /**
- * own(), each level's fingerprint taken from its installation's snapshot (`recorded`, root first) rather than hashed:
- * what DbLayer.make owns its login's base with, serving under the fingerprints `grizzle generate` recorded.
+ * own() of a schema schema(...) or schema.extend built: each level's statements read in the canonical form and text
+ * its level content carries from their build (levels.ts SchemaContent.canonical), none put in canonical form again.
+ */
+export const ownBuilt = (built: BuiltLevels): Result.Result<Owned, CompileError> =>
+	ownWith(built.desc, writtenOf(built.content), hashedLevels)
+
+/**
+ * ownBuilt(), each level's fingerprint taken from its installation's snapshot (`recorded`, root first) rather than
+ * hashed: what DbLayer.make owns its login's base with, serving under the fingerprints `grizzle generate` recorded.
  */
 export const ownServed = (
-	desc: SchemaDesc,
+	built: BuiltLevels,
 	recorded: ReadonlyArray<RecordedLevel>
-): Result.Result<Owned, CompileError> => ownWith(desc, recordedLevels(recorded))
+): Result.Result<Owned, CompileError> =>
+	ownWith(built.desc, writtenOf(built.content), recordedLevels(recorded))
 
+/**
+ * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
+ * each level's fingerprint as `fingerprinted` gives it.
+ */
 const ownWith = (
 	desc: SchemaDesc,
+	written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
 	fingerprinted: LevelFingerprints
 ): Result.Result<Owned, CompileError> =>
 	Result.map(
-		catchRefusal(() => new Owner(desc).run(fingerprinted)),
+		catchRefusal(() => new Owner(desc, written).run(fingerprinted)),
 		(owned) => {
 			owners.set(owned, owned)
 			return owned

@@ -18,7 +18,7 @@ import {
 	declaredAlike,
 	identifierOf,
 	isList,
-	own,
+	ownBuilt,
 	type Owned,
 	type OwnedLogin,
 	parseBuiltSchema,
@@ -185,7 +185,7 @@ const uncompiledSchema = (index: number) => (error: CompileError) =>
  */
 export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
 	Result.flatMap(
-		Result.mapError(toResult(own(schema.built.desc)), uncompiledSchema(schema.index)),
+		Result.mapError(toResult(ownBuilt(schema.built)), uncompiledSchema(schema.index)),
 		(owned) =>
 			Result.map(
 				Result.all(
@@ -195,7 +195,7 @@ export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledS
 								Result.flatMap(
 									l.login.base.content.digest === schema.built.content.digest
 										? Result.succeed(owned)
-										: toResult(own(l.login.base.desc)),
+										: toResult(ownBuilt(l.login.base)),
 									(base) => toResult(ownLoginOver(l.login, base))
 								),
 								(o) => ({ login: l.login, owned: o })
