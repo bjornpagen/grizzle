@@ -15,6 +15,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"
+import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import {
 	identifiers,
@@ -52,18 +53,12 @@ const logins = { PlainLogin, WebLogin } as const
 type LoginName = keyof typeof logins
 
 /**
- * Each login served as its type, over the members of its served file served(...) reads: its base, its PostgreSQL role
- * and its roles' names. The reader reads no more of it.
+ * Each login served as its type, over its real served file, compiled with no database (compiled-served.ts
+ * compiledServedFile): served(...) reads it whole, and the reader reads the login it makes.
  */
 const servedOf = {
-	PlainLogin: served<typeof PlainLogin>(
-		{ base: "Work", role: "plain", roles: [{ name: "reader" }] },
-		"plain"
-	),
-	WebLogin: served<typeof WebLogin>(
-		{ base: "Work", role: "web", roles: [{ name: "member" }] },
-		"web"
-	)
+	PlainLogin: served<typeof PlainLogin>(compiledServedFile(PlainLogin), "plain"),
+	WebLogin: served<typeof WebLogin>(compiledServedFile(WebLogin), "web")
 } as const
 
 /**
