@@ -921,6 +921,24 @@ export const resolveValue = (
 	return elementAt(classes, sketch.cls % classes.length, "the value classes")
 }
 
+/**
+ * The value a sketch names among the classes a comparison parameter of an operand of `type` is bound to: the operand
+ * type's classes that the parameter's type (compareParamType) holds too, so the parameter carries a value of its own
+ * type that the operand may equal. A computed numeric's infinities, which no numeric(p, s) holds, are none of them.
+ */
+export const resolveParamValue = (
+	type: ScalarType,
+	sketch: ValueSketch,
+	edge: boolean
+): TypedLiteral => {
+	const param = compareParamType(type)
+	const classes = Arr.filter(
+		valueClasses(type, edge),
+		(literal) => literalProblem(literal, param) === undefined
+	)
+	return elementAt(classes, sketch.cls % classes.length, "the classes a comparison parameter holds")
+}
+
 /** The stored value a sketch names: its class's value, in the spelling `sketch.sp` picks. */
 export const resolveStored = (type: ScalarType, sketch: ValueSketch, edge: boolean): SpelledValue =>
 	spelledAt(type, resolveValue(type, sketch, edge), sketch.sp)

@@ -145,8 +145,9 @@ export const referenceUnsupported = (what: string): ReferenceUnsupported =>
 
 /**
  * The value a column of `type` holds for `v`: numeric typmod coercion; every other carrier holds the value unchanged,
- * and a declined term's value stays itself. A value the type cannot hold is a defect of the generator, which draws only
- * values that fit.
+ * and a declined term's value stays itself. A value the type cannot hold is a defect, thrown, never a refusal: the
+ * generator draws only values of their types, and a computed value fits its type by its proof, so a harness that
+ * refuses the reference's unsupported cases never passes over it.
  */
 export const coerce = (v: Value, type: ScalarType): Value =>
 	v instanceof Declined ? v : coerceStated(v, type)
@@ -159,7 +160,9 @@ export const coerceStated = (v: CarrierValue, type: ScalarType): CarrierValue =>
 	}
 	const normalized = normalizeNumeric(asDecimal(v), base.typmod)
 	if (!normalized.ok) {
-		throw referenceUnsupported(`a numeric value outside its typmod`)
+		throw new Error(
+			`a value numeric(${base.typmod.precision}, ${base.typmod.scale}) cannot hold (${normalized.error}): a value is drawn of its type, or fits it by its proof`
+		)
 	}
 	return normalized.value
 }

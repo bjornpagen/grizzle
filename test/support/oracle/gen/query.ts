@@ -85,6 +85,7 @@ import {
 	int4,
 	int8,
 	typedLiteralDesc,
+	resolveParamValue,
 	resolveValue,
 	type Spelling,
 	textFlavor,
@@ -1266,9 +1267,8 @@ class QueryResolver {
 
 	/** A compare operand: a parameter when parameters are on and the sketch asks for one, a literal otherwise. */
 	operand(type: ScalarType, value: ValueSketch, asParam: boolean): ScalarExpr {
-		const literal = resolveValue(type, value, this.spelling.edge)
 		if (!(asParam && this.config.params && this.kept(this.swarm, "params"))) {
-			return this.lit(literal, type)
+			return this.lit(resolveValue(type, value, this.spelling.edge), type)
 		}
 		/**
 		 * A parameter is bound as its base type, so it may carry a value outside the column's refinement, which
@@ -1282,7 +1282,10 @@ class QueryResolver {
 			baseOf(type).carrier === "text" &&
 			textFlavor(type) !== "long" &&
 			value.sp % 4 === 3
-		return this.scalarParam(type, outside ? outOfContract : literal)
+		return this.scalarParam(
+			type,
+			outside ? outOfContract : resolveParamValue(type, value, this.spelling.edge)
+		)
 	}
 
 	/** Computed terms (compute.ts) over `heading`, a heading of `node`. */

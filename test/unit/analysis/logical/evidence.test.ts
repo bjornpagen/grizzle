@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, map } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -32,7 +32,6 @@ import {
 	type GenConfig,
 	type QueryCase,
 	type QueryCaseSketch,
-	queryCaseGen,
 	queryCaseSketchGen,
 	resolveQueryCase,
 	soundnessGenConfig
@@ -389,23 +388,23 @@ const sketchedCases = (config: GenConfig): CaseDraw<QueryCaseSketch> => {
 	}
 }
 
-/** The proving shapes over generated cases of the default configuration, each under drawn contexts. */
-const provingCases: CaseDraw<QueryCase> = {
+const defaultSketch = queryCaseSketchGen(defaultGenConfig)
+
+/** A proving case's sketch: its generated case's sketch and the picks among its shapes' variants. */
+type ProvingSketch = readonly [QueryCaseSketch, ReadonlyArray<number>]
+
+/**
+ * The proving shapes over generated cases of the default configuration, each under drawn contexts, sketched so a
+ * failure reports the sketch to keep.
+ */
+const provingCases: CaseDraw<ProvingSketch> = {
 	generator: (source) =>
 		[
-			source.draw(
-				map(
-					(inner) =>
-						[
-							inner.draw(queryCaseGen(defaultGenConfig)),
-							inner.draw(array(pickGen, { min: 1, max: 12 }))
-						] as const,
-					([c, picks]) => provingCase(c, picks)
-				)
-			),
+			[source.draw(defaultSketch), source.draw(array(pickGen, { min: 1, max: 12 }))] as const,
 			source.draw(contextSketchGen)
 		] as const,
-	resolve: constant
+	resolve: ([sketch, picks]) =>
+		map(resolveQueryCase(sketch, defaultGenConfig), (c) => provingCase(c, picks))
 }
 
 /**
@@ -544,6 +543,135 @@ const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], 
 	 * claim, at most one row, is what the case reaches.
 	 */
 	reaches: ["claimed at most one row"]
+}
+
+/**
+ * A case whose schema offers no proving shape, so its own query stands: a filter of a sum over bigint, a computed
+ * numeric, compared with a parameter bound as numeric(161, 40). The sum's values hold the infinities and that type does
+ * not, so the parameter is drawn among the values both hold; drawn among the sum's alone, it was Infinity.
+ */
+const sumParameterOfInfinity: Kept<readonly [ProvingSketch, ContextSketch], EvidenceFeature> = {
+	note: "a parameter compared with a sum was drawn as Infinity, which its numeric(161, 40) cannot hold",
+	sketch: [
+		[
+			{
+				schema: {
+					palette: [6],
+					closed: [],
+					relations: [
+						{
+							columns: [0],
+							pkMask: 0,
+							pure: false,
+							keyMasks: [],
+							mutable: false,
+							fk: { enabled: false, target: 0, typed: false },
+							spanKey: false
+						},
+						{
+							columns: [0, 0, 0],
+							pkMask: 3,
+							pure: false,
+							keyMasks: [],
+							mutable: false,
+							fk: { enabled: true, target: 0, typed: false },
+							spanKey: false
+						}
+					]
+				},
+				facts: [
+					[],
+					[
+						{
+							values: [
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 }
+							],
+							target: 0
+						}
+					],
+					[],
+					[]
+				],
+				root: {
+					tag: "plain",
+					body: {
+						tag: "filter",
+						input: {
+							tag: "filter",
+							input: {
+								tag: "group",
+								input: {
+									tag: "match",
+									occurrences: [
+										{
+											source: { tag: "relation", pick: 1 },
+											columns: [
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+											]
+										}
+									],
+									equalities: [],
+									lateral: undrawn
+								},
+								full: false,
+								boundMask: 1,
+								keyMask: 0,
+								aggs: [{ fn: 15, column: 0 }]
+							},
+							pred: {
+								tag: "compare",
+								column: 0,
+								op: 1,
+								rhs: { tag: "literal", value: { cls: 3, sp: 0 } }
+							}
+						},
+						pred: {
+							tag: "and",
+							args: [
+								{ tag: "compare", column: 0, op: 0, rhs: { tag: "column", pick: 0 } },
+								{
+									tag: "compare",
+									column: 0,
+									op: 0,
+									rhs: { tag: "param", value: { cls: 6, sp: 0 } }
+								}
+							]
+						}
+					},
+					order: undrawn
+				},
+				paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
+				swarm: { filter: 3, project: 1, group: 1, params: 3 },
+				data: { containments: 1, compositeKeys: 1 },
+				rewrite: { stated: 3, follow: 3, equate: 3, rooted: 3, regions: 3, groupFilter: 3 },
+				soundness: {
+					lateral: 3,
+					correlated: 3,
+					"correlated take": 3,
+					shared: 3,
+					window: 3,
+					approximate: 3
+				}
+			},
+			[0]
+		],
+		{ transaction: false, containments: [] }
+	],
+	/** The swarms' thinning decisions: the containment and the composite key dropped, the group kept. */
+	draws: "0.0.2",
+	reaches: ["execution snapshot"]
 }
 
 /**
@@ -694,7 +822,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 				ctx,
 				"unit/analysis/logical/evidence-bare-children",
 				provingCases,
-				[],
+				[sumParameterOfInfinity],
 				["delivered one", "a filter over one row", "an orphaned containment inside a transaction"]
 			)
 	)
