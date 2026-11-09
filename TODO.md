@@ -10,6 +10,20 @@ post-beta swarm's fixes for the next release.
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
+- **Known red tests, real defects no served write of qti-pie or edullm reaches (the owner, 2026-11-09: fixed after the
+  repin, the tests left red until then; neither served file holds a removals statement):**
+  - test/pg/write/fill-order/fill-order.test.ts, TEST_SEED=252072110, the rotating stream (seed 0xb7f6fa7a), case 2:
+    a lawful delete is invariant-rejected. The minimal shape: a member relation in an ordered family and in a counted
+    family, each of a mutable owner, the counted family's owner axis immediate; a delete (or a re-placing put) of a
+    member re-places a later member of its ordered group whose counted group the same statement recounts. PostgreSQL
+    refuses the stratum's family removals statement with 23503 on the counted family's owner axis
+    (`__r_2_fk_o_1_copy_n_1`, Key (o_1, ‹n1›)=(the owner, 2) not present in r_1). The cause, in
+    write/family/removals.ts: the re-placed row is inserted again with the counted family's stored count copy (the
+    scan copies `groups.stored` for a counted family, and a row below its least changed slot keeps its own), while the
+    statement's recount of the owner changes the count; the insert's foreign-key check runs before the recount's
+    cascade reaches it. A sequence's own copy is the kept count where its group is recounted here, so it escapes. The
+    fix, held by ONERTT-WRITE2: a re-inserted row copies each counted family's kept count where the statement recounts
+    its group.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
