@@ -25,7 +25,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { installedCodes, paramTexts, realityWrite, testArtifacts } from "#test/support/compile.ts"
+import { installedCodes, paramValues, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import { QueueKind, Resource } from "#test/support/fixtures/api/queue.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -270,7 +270,10 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							}
 							const program = programs[shape]
 							const statements = flightOf(program, names.codes).statements
-							/** Each placeholder's text from the drawn parameters, a relation's normalized once. */
+							/**
+							 * Each placeholder from the drawn parameters, as its statement binds it, a relation's normalized once: the
+							 * key of Wanted is text, so a relation parameter of keys travels as a binary text[].
+							 */
 							const declared = { params: program.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>
 								st.step.kind === "write" &&
@@ -290,12 +293,12 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 									yield* pinned.query("BEGIN", [])
 									for (const st of statements.slice(0, at)) {
 										if (st.step.kind === "carrier" || st.step.kind === "analyze") {
-											yield* pinned.query(st.form.sql, paramTexts(st.form, hostParams, declared))
+											yield* pinned.query(st.form.sql, paramValues(st.form, hostParams, declared))
 										}
 									}
 									const rows = yield* pinned.queryValues(
 										`EXPLAIN (FORMAT JSON) ${deletion.form.sql}`,
-										paramTexts(deletion.form, hostParams, declared)
+										paramValues(deletion.form, hostParams, declared)
 									)
 									yield* pinned.query("ROLLBACK", [])
 									return succeeded(parsePlanTree(rows[0]?.[0]), "one EXPLAIN plan")
