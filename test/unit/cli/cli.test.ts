@@ -1068,7 +1068,9 @@ const valueOf = (
 	const values = Arr.map(s.schemas, built)
 	const at = (i: number) => defined(values[i], "a configured schema")
 	const connection = (): MigrationConnectionConfig =>
-		s.broken ? { ...offlineOwner, transport: { ...offlineOwner.transport, port: 70000 } } : offlineOwner
+		s.broken
+			? { ...offlineOwner, transport: { ...offlineOwner.transport, port: 70000 } }
+			: offlineOwner
 	const schemas = Arr.map(values, (v) => v.schema)
 	const logins = Arr.map(s.logins, (i) => at(i).server)
 	const config = defineConfig({

@@ -39,11 +39,12 @@ export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 )
 
 /** The configuration's connection function threw, a refusal that quotes nothing it threw, which may hold a credential. */
-const connectionThrew = cliError(
-	new ConnectionRefused({
-		detail: "connection threw: it must return where grizzle migrate and grizzle drift connect"
-	})
-)
+const connectionThrew = (): CliError =>
+	cliError(
+		new ConnectionRefused({
+			detail: "connection threw: it must return where grizzle migrate and grizzle drift connect"
+		})
+	)
 
 /**
  * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, called once here, the one place
@@ -54,7 +55,5 @@ export const migrationConnection = (
 ): Effect.Effect<MigrationConnection, CliError> =>
 	Effect.andThen(
 		ownerEnvironment,
-		Effect.fromResult(
-			readHost(connectionThrew, () => resolveConnection(config.connection()))
-		)
+		Effect.fromResult(readHost(connectionThrew(), () => resolveConnection(config.connection())))
 	)
