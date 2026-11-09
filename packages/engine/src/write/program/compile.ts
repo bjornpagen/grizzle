@@ -145,6 +145,8 @@ import {
 	type WriteStep,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
+import type { Binding } from "#compiler/write/program/binding.ts"
+import { decideBinding } from "#compiler/write/program/decide.ts"
 import { type OutcomeContext, writtenOutcome } from "#compiler/write/program/outcome.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
@@ -196,6 +198,8 @@ export interface CompiledWrite extends WriteProgram {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly slots: ReadonlyArray<SlotGroup>
 	readonly outcomeContext: OutcomeContext
+	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
+	readonly binding: Binding
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -1470,7 +1474,8 @@ const compile = (
 		placements: family.placements,
 		params: frontend.params,
 		slots: frontend.slots,
-		outcomeContext
+		outcomeContext,
+		binding: decideBinding(frontend)
 	}
 	return program
 }

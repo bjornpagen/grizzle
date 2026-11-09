@@ -17,9 +17,9 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillPosition } from "#compiler/ir/fill.ts"
-import type { FamilyId, LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
-import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -111,7 +111,7 @@ import {
 } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, MemberSlot, SlotGroup } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
-import { isCarried, type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
+import { isCarried, type Proposal } from "#compiler/write/insert/statement.ts"
 import {
 	type MemberFacts,
 	type NormalizedSlot,
@@ -124,7 +124,9 @@ import {
 	sentForm,
 	type WriteArtifact
 } from "#compiler/write/program/artifact.ts"
+import type { FreshStratum, JudgedRelation, OwnedColumn } from "#compiler/write/program/binding.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
+import { ownerSlots } from "#compiler/write/program/decide.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
 import {
 	type FilledColumn,
@@ -310,7 +312,7 @@ export const bindWrite = (
 	program: CompiledWrite,
 	inputs: BindInputs
 ): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
-	const { frontend, edits: programEdits } = program
+	const { frontend, edits: programEdits, binding } = program
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
 	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
@@ -508,43 +510,17 @@ export const bindWrite = (
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const factsAt = (slot: ParamId | undefined): ReadonlyArray<Fact> =>
 		slot === undefined ? [] : factsOf(slot).facts
-	/** The counted family whose count or end `column` of `relation`, its owner, is, with that field. */
-	const ownedColumn = (
-		relation: RelationInfo,
-		column: ColumnKey
-	): { readonly family: Family; readonly field: LawField } | undefined => {
-		for (const family of frontend.laws.families) {
-			if (family.owner.name !== relation.name || isSequence(family)) {
-				continue
-			}
-			for (const field of [family.count, ...endColumns(family)]) {
-				if (fieldKey(field.name) === column) {
-					return { family, field }
-				}
-			}
-		}
-		return undefined
-	}
-	/** An owner's count or end of `family` while the family is empty: the count 0, each end at its start. */
-	const emptyOf = (family: Family, field: LawField): FilledColumn => {
-		if (field.name === family.count.name) {
-			return { kind: "filled", value: 0n }
-		}
-		switch (field.writing.kind) {
-			case "accumulated":
-				return {
+	/** How `relation`'s stated rows are judged, which the binding decided when the write compiled. */
+	const judgedOf = (relation: string): JudgedRelation =>
+		defined(binding.judged.get(relation), `the judged relation ${relation}, a written one`)
+	/** An owner's count or end while its family is empty: the count 0, each end at its start. */
+	const emptyOf = (owned: OwnedColumn): FilledColumn =>
+		owned.kind === "count"
+			? { kind: "filled", value: 0n }
+			: {
 					kind: "filled",
-					value: literalHost(carrierSpecOf(field.type, frontend.codes), field.writing.start)
+					value: literalHost(carrierSpecOf(owned.type, frontend.codes), owned.start)
 				}
-			case "caller":
-			case "drawn":
-			case "serial":
-			case "generated":
-				throw defect(
-					`the end ${family.owner.name}.${field.name} of a counted family, an accumulated field`
-				)
-		}
-	}
 	/**
 	 * What the stratum's reads found at the key of `relation`'s row `columns`, `key` its key's texts: `stored`, a row
 	 * they found; `fresh`, none, the owner of a group a counted family of it recounts, which its read looked up
@@ -612,7 +588,7 @@ export const bindWrite = (
 			kind: found === "unread" && proposal === "unstored" ? "ifFresh" : "known",
 			stated,
 			filled: (column) => {
-				const owned = ownedColumn(relation, column)
+				const owned = judgedOf(relation.name).owned.get(column)
 				const recount =
 					owned === undefined
 						? undefined
@@ -622,7 +598,9 @@ export const bindWrite = (
 				if (owned !== undefined && recount !== undefined) {
 					return {
 						kind: "filled",
-						value: recountValues(owned.family, recount).get(owned.field.name)
+						value: recountValues(owned.family, recount).get(
+							owned.kind === "count" ? owned.family.count.name : owned.name
+						)
 					}
 				}
 				const held = at === undefined ? undefined : rowOf(at.rows, relation.name, key)
@@ -636,24 +614,13 @@ export const bindWrite = (
 					if (source === "drawn" && columns.has(column)) {
 						return { kind: "filled", value: columns.get(column) }
 					}
-					return empty ? emptyOf(owned.family, owned.field) : unfilled
+					return empty ? emptyOf(owned) : unfilled
 				}
 				return source === "walk" && columns.has(column)
 					? { kind: "filled", value: columns.get(column) }
 					: unfilled
 			}
 		}
-	}
-	/** Which facts of a slot of `stratum` the statement that writes them proposes: its action's INSERT's, by the
-	 * relation and serial class it inserts (insert/statement.ts proposalOf); every one for any other, a put's, a
-	 * deletion's, or a family member's, which its family's statements write. */
-	const proposalAt = (stratum: StratumAt, slot: ParamId): Proposal => {
-		for (const action of frontend.ir.strata[stratum]?.actions ?? []) {
-			if (action.source.kind !== "described" && action.source.slot === slot) {
-				return action.op === "insert" ? proposalOf(action.info.relation, action.serial) : "every"
-			}
-		}
-		return "every"
 	}
 	/**
 	 * The rows the ChangeSet states as `fill` fills them (witness.ts StatedRows): a slot's facts, an owner slot's as its
@@ -675,9 +642,12 @@ export const bindWrite = (
 			const facts = (drawn ?? factsOf(slot.slot)).facts
 			const source: ColumnsSource =
 				input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
-			const layout = rowLayout(relation, frontend.laws.families)
+			const layout = judgedOf(relation.name).layout
 			const op = input.kind === "single" ? input.act.op : "insert"
-			const proposal = proposalAt(group.stratum, slot.slot)
+			const proposal = defined(
+				binding.proposals.get(slot.slot),
+				`the proposal of member slot ${slot.slot}`
+			)
 			return facts.map((fact) => {
 				const columns = new Map(
 					Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const)
@@ -873,7 +843,7 @@ export const bindWrite = (
 			const keyed = family.owner.keyNames.some((k) =>
 				k.fields.some((f) => drawnFields.includes(f.name))
 			)
-			const slots = keyed ? [] : ownerSlots(stratum, family.owner.name)
+			const slots = keyed ? [] : ownerSlots(frontend, stratum, family.owner.name)
 			const kept = new TupleMap<Owner, Recount>()
 			for (const [group, recount] of write.recounts) {
 				kept.set(group, recount)
@@ -952,19 +922,6 @@ export const bindWrite = (
 		)
 		return { identity: row.identity, key: row.key, values: rowValues, fact }
 	}
-	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
-	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
-	const ownerSlots = (stratum: StratumAt, relation: string): ReadonlyArray<ParamId> =>
-		frontend.slots
-			.filter((g) => g.stratum === stratum && g.relation.name === relation)
-			.flatMap((g) =>
-				g.inputs.flatMap((input) =>
-					(input.kind === "single" && input.act.op !== "delete" && input.starts.length > 0) ||
-					input.kind === "nested"
-						? [input.slot.slot]
-						: []
-				)
-			)
 	/**
 	 * A generated field with no value a stratum's plan filled a row by (write/family/fold.ts GeneratedNull) as its
 	 * write's refusal: the field's law, witnessed by the first row the ChangeSet states of its relation at `stratum`
@@ -1018,7 +975,7 @@ export const bindWrite = (
 		const strata = [
 			...new Set([
 				...frontend.nested.flatMap((n) =>
-					familyWrittenInFlight(frontend, n.stratum) ? [] : [n.stratum]
+					binding.fresh.some((f) => f.stratum === n.stratum) ? [] : [n.stratum]
 				),
 				...edits.map((e) => e.program.edit.stratum),
 				...refills.map((r) => r.program.stratum)
@@ -1491,12 +1448,7 @@ export const bindWrite = (
 	const normalNestedRows = (stratum: StratumAt, relation: string): ReadonlyArray<NestedRow> => [
 		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
 	]
-	const freshlyCounted = freshOwners(
-		frontend,
-		(slot) => factsOf(slot),
-		ownerSlots,
-		normalNestedRows
-	)
+	const freshlyCounted = freshOwners(frontend, binding.fresh, factsOf, normalNestedRows)
 	if (!freshlyCounted.ok) {
 		const refusal = freshlyCounted.error
 		if (refusal._tag === "EncodingFailure") {
@@ -1593,13 +1545,6 @@ interface FreshGeneratedNull extends GeneratedNull {
 	readonly stratum: StratumAt
 }
 
-/** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
- * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
-const familyWrittenInFlight = (frontend: CompiledWrite["frontend"], stratum: StratumAt): boolean =>
-	defined(frontend.ir.strata[stratum], "a stratum").family.some(
-		({ node }) => node.kind === "additions" || node.kind === "removals"
-	)
-
 /** What a fresh fill leaves (`freshOwners`): each owner slot's facts and, by stratum and relation, each nested owner's
  * rows, every one with the counts and ends of its counted families as its stratum's appends to it draw them. */
 interface FreshCounts {
@@ -1608,34 +1553,24 @@ interface FreshCounts {
 }
 
 /**
- * Each owner a stratum written in the flight (`familyWrittenInFlight`) inserts, every row's counts and ends drawn on the
- * host by the filler from the stratum's own appended members naming it, its member slots' facts and its nested rows
- * (write/family/fold.ts filler): an owner it inserts is fresh, so those are its every member, and the filler reads no
- * stored row. Its own insert carries them, so every CHECK over them and every member's axes meet its final values:
+ * Each owner a stratum whose family statements run in the call's flight inserts (binding.ts FreshStratum), every row's
+ * counts and ends drawn on the host by the filler from the stratum's own appended members naming it, its member slots'
+ * facts and its nested rows (write/family/fold.ts filler): an owner it inserts is fresh, so those are its every member,
+ * and the filler reads no stored row. Its own insert carries them, so every CHECK over them and every member's axes meet its final values:
  * an owner slot's facts, filled as the ChangeSet's own rows, and a nested owner's rows, filled where the walk stands
  * them (nesting.ts NestedLayout position), whose other columns the walk filled.
  */
 const freshOwners = (
 	frontend: CompiledWrite["frontend"],
+	fresh: ReadonlyArray<FreshStratum>,
 	factsOf: (slot: ParamId) => NormalizedSlot,
-	ownerSlots: (stratum: StratumAt, relation: string) => ReadonlyArray<ParamId>,
 	nestedOf: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
 ): Result.Result<FreshCounts, EncodingFailure | FreshGeneratedNull> => {
 	const slotsOut = new Map<ParamId, NormalizedSlot>()
 	const nestedOut = new Map<StratumAt, Map<string, ReadonlyArray<NestedRow>>>()
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const fill = filler(frontend.laws.theory.fill, frontend.codes, frontend.evaluate)
-	for (const [s] of strataAt(frontend.ir.strata)) {
-		if (!familyWrittenInFlight(frontend, s)) {
-			continue
-		}
-		const appended = frontend.edits.flatMap((e) =>
-			e.stratum === s
-				? [e.inserts, e.puts].flatMap((slot) =>
-						slot === undefined ? [] : [{ relation: e.relation.name, slot }]
-					)
-				: []
-		)
+	for (const { stratum: s, appended, counted: reached, owners } of fresh) {
 		/** A relation's appended members' values: its slots' facts', then its nested rows'. */
 		const membersOf = (relation: string): ReadonlyArray<ReadonlyMap<ColumnKey, unknown>> => [
 			...appended.flatMap((a) =>
@@ -1643,14 +1578,7 @@ const freshOwners = (
 			),
 			...nestedOf(s, relation).map((row) => row.values)
 		]
-		/** Where the stratum's nested writes stand the rows of `relation`, none where they fill none. */
-		const nestedAt = (relation: string): FillPosition | undefined =>
-			frontend.nested
-				.flatMap((n) => (n.stratum === s ? [n.nesting.layouts.get(relation)] : []))
-				.find((at) => at !== undefined)?.position
-		const counted = frontend.laws.families.filter(
-			(f) => !isSequence(f) && membersOf(f.member.name).length > 0
-		)
+		const counted = reached.filter((f) => membersOf(f.member.name).length > 0)
 		/** Each counted family's appended members' values, by the group they name. */
 		const byGroup = new Map(
 			counted.map((f) => {
@@ -1693,11 +1621,7 @@ const freshOwners = (
 					? Result.err({ ...refusal, stratum: s })
 					: Result.err(refusal)
 			}
-			/** The owner's slots whose facts it may insert: a sequence's member is only ever inserted nested, where the walk
-			 * stands it, so its slots' facts name stored rows, whose counts and ends no statement takes from them. */
-			const inserting = frontend.laws.families.some((f) => isSequence(f) && f.member.name === owner)
-				? []
-				: ownerSlots(s, owner)
+			const { inserting, nested } = defined(owners.get(owner), `the fresh owner ${owner}`)
 			for (const slot of inserting) {
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
@@ -1725,11 +1649,10 @@ const freshOwners = (
 					)
 				)
 			}
-			const position = nestedAt(owner)
-			if (position !== undefined) {
+			if (nested.kind === "at") {
 				const rows: Array<NestedRow> = []
 				for (const row of nestedOf(s, owner)) {
-					const filled = filledOf(row.values, position)
+					const filled = filledOf(row.values, nested.position)
 					if (!filled.ok) {
 						return refused(filled.error.stop)
 					}
