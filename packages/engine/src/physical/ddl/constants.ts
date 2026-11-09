@@ -111,7 +111,8 @@ type CodeSpace =
 			readonly field: LawField
 			/** The field's distinct values, in canonical text order, a value's code its position. */
 			readonly values: ReadonlyArray<TypedLiteral>
-			readonly codes: ReadonlyMap<string, number>
+			/** Each value's canonical text (laws/model/names.ts literalKey), in code order. */
+			readonly keys: ReadonlyArray<string>
 	  }
 
 /**
@@ -121,14 +122,6 @@ type CodeSpace =
  */
 const radixOf = (space: CodeSpace): number =>
 	space.kind === "roster" ? space.codec.size : Math.max(1, space.values.length)
-
-/** A literal's code in its coordinate's space: a live handle's code, or a value's position in its dictionary. */
-const codeIn = (space: CodeSpace, literal: TypedLiteral): number => {
-	if (space.kind === "roster") {
-		return handleCode(space.codec, literal)
-	}
-	return defined(space.codes.get(literalKey(literal)), "a value is in its field's dictionary")
-}
 
 /** A closed id's code: its handle's in the roster's codes. */
 const handleCode = (codec: RosterCodec, literal: TypedLiteral): number => {
@@ -147,22 +140,40 @@ const codecOfField = (codes: Codebook, field: LawField): RosterCodec => {
 	return defined(codes.rosters.get(roster.closed), "the codebook holds every roster")
 }
 
-/** The code space of a payload field over `values`, the field's values in its relation's rows. */
-const payloadSpace = (
+/** A payload field's code space over its values, and each value's code in it, in the values' order. */
+interface PayloadColumn {
+	readonly space: CodeSpace
+	readonly codes: ReadonlyArray<number>
+}
+
+/**
+ * The payload column of a field over `values`, the field's values in its relation's rows: a closed id's codes in its
+ * roster, or an open field's dictionary of its distinct values and each value's position in it, each value's canonical
+ * text read once.
+ */
+const payloadColumn = (
 	codes: Codebook,
 	field: LawField,
 	values: ReadonlyArray<TypedLiteral>
-): CodeSpace => {
+): PayloadColumn => {
 	if (baseOf(field.type).carrier === "code") {
-		return { kind: "roster", field, codec: codecOfField(codes, field) }
+		const codec = codecOfField(codes, field)
+		return {
+			space: { kind: "roster", field, codec },
+			codes: values.map((value) => handleCode(codec, value))
+		}
 	}
-	const distinct = new Map(values.map((v) => [literalKey(v), v] as const))
-	const ordered = [...distinct].toSorted(([a], [b]) => compareText(a, b))
+	const keyed = values.map((value) => [literalKey(value), value] as const)
+	const ordered = [...new Map(keyed)].toSorted(([a], [b]) => compareText(a, b))
+	const positions = new Map(ordered.map(([key], code) => [key, code] as const))
 	return {
-		kind: "dictionary",
-		field,
-		values: ordered.map(([, v]) => v),
-		codes: new Map(ordered.map(([key], code) => [key, code] as const))
+		space: {
+			kind: "dictionary",
+			field,
+			values: ordered.map(([, value]) => value),
+			keys: ordered.map(([key]) => key)
+		},
+		codes: keyed.map(([key]) => defined(positions.get(key), "a value is in its field's dictionary"))
 	}
 }
 
@@ -244,7 +255,7 @@ const plannedDictionary = (
 	named: identity.closedConstant(
 		constantDigest(
 			"closed-constant",
-			{ dictionary: typeLabel(baseOf(space.field.type)), values: space.values.map(literalKey) },
+			{ dictionary: typeLabel(baseOf(space.field.type)), values: space.keys },
 			everyProperty
 		)
 	),
@@ -541,13 +552,14 @@ const plannedRelation = (
 ): PlannedRelation => {
 	const planned = plannedKey(codes, relation, key, what)
 	const fields = keyFieldsOf(planned)
-	const payload = payloadFields.map((f, i) =>
-		payloadSpace(
+	const columns = payloadFields.map((f, i) =>
+		payloadColumn(
 			codes,
 			f,
 			rows.map((row) => defined(row.payload[i], "a payload value per payload field"))
 		)
 	)
+	const payload = columns.map((column) => column.space)
 	const tuples = rows.map((row, r): Tuple => {
 		const keyCodes = mapNonEmpty(fields, (f, i) =>
 			handleCode(f.codec, defined(row.key[i], "a key value per key field"))
@@ -557,9 +569,7 @@ const plannedRelation = (
 		}
 		return {
 			key: keyCodes,
-			payload: payload.map((space, i) =>
-				codeIn(space, defined(row.payload[i], "a payload value per payload field"))
-			)
+			payload: columns.map((column) => defined(column.codes[r], "a payload code per row"))
 		}
 	})
 	const cells = plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what)
