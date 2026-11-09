@@ -1118,6 +1118,9 @@ const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
  *   `g`, and a counted family of R3, an immutable relation, whose sum steps R3's copy of the first family's end. R1's put
  *   refills the first family, whose refill changes the end the second's members copy, a refill of an immutable
  *   relation's rows, refused at R1's put beside a put of R0, which every order of the ChangeSet's writes puts first.
+ * - `chained refill`: the second-order refusal's families over a mutable R3: the first family's refill changes the end
+ *   the second's members copy, a value that reads what a refill itself changes, which grizzle does not refill in turn,
+ *   refused at R1's put beside a put of R0.
  *
  * The value is a predecessor copy, a last copy, along a tree's owner axis a node's copy of its parent's, or, after a
  * put, a sum fold stepping the copy, which the member row's own CHECK judges.
@@ -1131,6 +1134,7 @@ type StalePath =
 	| "re-placed owner"
 	| "put beneath a fixed owner"
 	| "second-order refusal"
+	| "chained refill"
 
 interface StaleShape {
 	readonly path: StalePath
@@ -1148,7 +1152,8 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 			"edit through a copy",
 			"re-placed owner",
 			"put beneath a fixed owner",
-			"second-order refusal"
+			"second-order refusal",
+			"chained refill"
 		] as const)
 	),
 	reader: source.draw(element(["predecessor", "last", "owner", "step"] as const)),
@@ -1161,10 +1166,15 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 	const relation = { generated: true, mutable: true }
 	const relations: FillSpec["relations"] = [relation, relation, relation]
-	if (shape.path === "second-order refusal") {
+	if (shape.path === "second-order refusal" || shape.path === "chained refill") {
 		return shape.reader === "step" && (shape.source === "caller" || shape.source === "generated")
 			? {
-					relations: [relation, relation, relation, { ...relation, mutable: false }],
+					relations: [
+						relation,
+						relation,
+						relation,
+						{ ...relation, mutable: shape.path === "chained refill" }
+					],
 					families: [
 						{ kind: "ordered", owner: 1, member: 2, fold: "sum" },
 						{ kind: "counted", owner: 1, member: 3, fold: "sum" }
@@ -1526,8 +1536,8 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-stale",
 						generator: staleShapeGen,
 						literal: Formatter.format,
-						limit: 192,
-						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a put of an immutable owner's member whose immutable counted members copy its v, which re-places nothing; a refill's refill of an immutable relation's rows, its write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
+						limit: 216,
+						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a put of an immutable owner's member whose immutable counted members copy its v, which re-places nothing; a refill's refill of an immutable relation's rows, and of a mutable one's, which reads what the first refill changes, each write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
 						oracle: {
 							kind: "second-implementation",
 							name: "the reference's refills (families/fill.ts writesVerdict, refillsOf)"
