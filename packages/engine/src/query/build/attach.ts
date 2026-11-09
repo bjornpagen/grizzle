@@ -12,12 +12,12 @@ import {
 	type RowDecoder,
 	someChild
 } from "#compiler/core/decoder.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { AttachDesc } from "#compiler/ir/desc.ts"
 import { type Heading, hasName, headingField } from "#compiler/query/build/heading.ts"
 import {
 	type AttachScope,
-	buildLoc,
 	isObjectRecord,
 	newAttachScope,
 	requireLevel,
@@ -264,7 +264,7 @@ export const runAttach = <V>(
 	label: string,
 	over: Level
 ): { readonly desc: AttachDesc; readonly child: V } => {
-	const loc = buildLoc(label, [name])
+	const loc = captureLoc(label, [name])
 	const scope = newAttachScope()
 	const child = withAttach(scope, () => run(scope))
 	const state = queryState(child)

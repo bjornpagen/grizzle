@@ -10,7 +10,7 @@ import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -31,7 +31,7 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
-import { buildLoc, isCallback } from "#compiler/query/build/scope.ts"
+import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { isLevelOver, type Level } from "#compiler/schema/level.ts"
 import { isPlainRecord, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
@@ -809,7 +809,7 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
 	const label = `ChangeSet.${op}`
 	const name = memberRelation(relation, state.over, label)
-	const member = memberState(state, op, name, buildLoc(`${op} ${name}`, []), facts, label)
+	const member = memberState(state, op, name, captureLoc(`${op} ${name}`, []), facts, label)
 	const scope = scopeWith(state, member)
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
@@ -845,7 +845,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 		const name = memberRelationNamed(key, state.over, label)
 		return scopeWith(
 			at,
-			memberState(state, "insert", name, buildLoc(`insert ${name}`, []), facts, label)
+			memberState(state, "insert", name, captureLoc(`insert ${name}`, []), facts, label)
 		)
 	}, state)
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
@@ -889,7 +889,7 @@ const addRead = <
 	const query = publicDesc(built, label)
 	const immediate: RowDecoder<IHead> = q.immediate
 	const params = queryParamNames(query)
-	const loc = labeledChildLoc(buildLoc(label, [name]), "query", `read ${name}`)
+	const loc = labeledChildLoc(captureLoc(label, [name]), "query", `read ${name}`)
 	const scope = release(state, params)
 	return make(
 		state.over,

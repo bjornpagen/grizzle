@@ -105,13 +105,10 @@ export const constantDigest = <D extends ConstantDomain>(
 ): ConstantDigest<D> => nominal<string, ConstantDigest<D>>()(ownedDigest(domain, value, options))
 
 /**
- * The fixed-shape entry points below hash content that carries SourceLocs under "loc" (the descs of ir/desc.ts). A
- * SourceLoc is presentation, excluded from semantic identity, so every one of them omits it.
+ * A schema's fingerprint: its canonical content, without the SourceLocs its descs carry under "loc" (ir/desc.ts), which
+ * are presentation, excluded from semantic identity.
  */
-const identity = withoutSourceLocs
-
-/** A schema's fingerprint: its canonical content. */
 export const schemaFingerprint = (input: {
 	readonly content: unknown
 }): Result.Result<SchemaFingerprint, CompileError> =>
-	Result.map(digest("schema", { content: input.content }, identity), SchemaFingerprint)
+	Result.map(digest("schema", { content: input.content }, withoutSourceLocs), SchemaFingerprint)

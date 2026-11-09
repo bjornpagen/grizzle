@@ -157,7 +157,7 @@ const seedDecision = (
  *    states with C = p.P are exactly those of S(seed(q)) for the parents q with q.P = p.P.
  * 3. The base reads no parent column but the correlated ones, P, so base(q) = base(p) when q.P = p.P, and the
  *    seeded seed for p, base(p) restricted to C = p.P, is what the pipelined filter keeps of base(p)'s states.
- * 4. C's canonical cell text is the parent's key's (codec/scalar.ts cellText): C equals P natively, and equal values
+ * 4. C's canonical cell text is the parent's key's (codec/read.ts cellText): C equals P natively, and equal values
  *    have one cell text, so C, delivered as the parent key, stitches as the parent's own key and the stitch by key is
  *    the pipelined one. The rows are distinct: the full
  *    state is delivered and the recursive UNION deduplicates it, so no DISTINCT is needed, and a

@@ -1,12 +1,11 @@
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { constantColumn } from "#compiler/core/decoder.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
 import { spanCarrierOf, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
-import { buildLoc } from "#compiler/query/build/scope.ts"
 import { type AggregateName, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { computeCore, scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -530,7 +529,7 @@ export const pack = <T, S extends SqlTag>(
 const aggregateHead = (fn: AggregateName, arg: unknown): HeadDesc => {
 	const label = `r.${fn}`
 	if (fn === "count") {
-		const overload = aggregateOverload({ name: "count" }, buildLoc(label, []))
+		const overload = aggregateOverload({ name: "count" }, captureLoc(label, []))
 		if (!overload.ok) {
 			throw overload.error
 		}
@@ -541,7 +540,7 @@ const aggregateHead = (fn: AggregateName, arg: unknown): HeadDesc => {
 	if (x.typing.kind === "untyped") {
 		return { desc: { kind: "aggregate", fn, arg: x.expr }, typing: untyped }
 	}
-	const overload = aggregateOverload({ name: fn, arg: x.typing.type }, buildLoc(label, []))
+	const overload = aggregateOverload({ name: fn, arg: x.typing.type }, captureLoc(label, []))
 	if (!overload.ok) {
 		throw overload.error
 	}

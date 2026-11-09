@@ -1,7 +1,7 @@
 import { oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
-import { childLoc } from "#compiler/core/loc.ts"
+import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
@@ -34,7 +34,6 @@ import {
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { type RuleRun, runRule } from "#compiler/query/build/rule.ts"
 import {
-	buildLoc,
 	isCallback,
 	isObjectRecord,
 	mintSite,
@@ -330,7 +329,7 @@ export const queryOf = <
 		rule: (rule) => {
 			const label = "Query.rule"
 			hostArguments(label, [rule])
-			const loc = buildLoc(label, [])
+			const loc = captureLoc(label, [])
 			const arm = runRule(schema, rule, "rule", undefined)
 			const h = unionHeading([heading, arm.state.heading])
 			const c = unionCarriers(carriers, arm.finished.heading)
@@ -385,7 +384,7 @@ export const queryOf = <
 			hostArguments("Query.named", [name])
 			const n = requireName(name, "Query.named", "a diagnostic name")
 			return next(
-				{ kind: "named", input: stage, name: n, loc: buildLoc("Query.named", [n]) },
+				{ kind: "named", input: stage, name: n, loc: captureLoc("Query.named", [n]) },
 				pending,
 				heading,
 				state.carriers,
@@ -435,7 +434,7 @@ const approximateStage = (
 		)
 	}
 	const take = positiveInteger(spec["take"], label, "take, the requested result bound")
-	return { kind: "approx", input: stage, by, take, loc: buildLoc(label, [by]) }
+	return { kind: "approx", input: stage, by, take, loc: captureLoc(label, [by]) }
 }
 
 const positiveInteger = (value: unknown, label: string, what: string): number => {
@@ -481,7 +480,7 @@ const orderStage = (
 		seen.add(name)
 		out.push({ column: name, dir })
 	}
-	return { kind: "order", input: stage, order: out, loc: buildLoc(label, []) }
+	return { kind: "order", input: stage, order: out, loc: captureLoc(label, []) }
 }
 
 /** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>. */
@@ -512,7 +511,7 @@ export const orderedOf = <
 			return queryOf(
 				makeState(
 					state.schema,
-					{ kind: "take", input: stage, take: takeOf(k), loc: buildLoc("Ordered.take", []) },
+					{ kind: "take", input: stage, take: takeOf(k), loc: captureLoc("Ordered.take", []) },
 					state.pending,
 					state.heading,
 					state.carriers
@@ -598,7 +597,7 @@ const boundSource = (value: unknown): OpenBound | undefined => {
 		(ownedKind(value) !== undefined || (isObjectRecord(value) && value["kind"] === "relation"))
 	if (registered !== undefined || queryState(value) !== undefined || isRelation) {
 		throw unsupported(
-			buildLoc("Query.bind", []),
+			captureLoc("Query.bind", []),
 			"bindRelationParameter: a relation parameter of an imported query is bound to a relation parameter of the importing rule, r.relation(name, heading); a query or relation source has no binding form in the Description"
 		)
 	}
@@ -661,7 +660,7 @@ const builderOf = <S>(info: SchemaInfo): QueryBuilder<S> => {
 		/** A query of one arm: its carriers, heading group and decoders the arm's. */
 		rule: (rule) => {
 			hostArguments("query.rule", [rule])
-			const loc = buildLoc("query.rule", [])
+			const loc = captureLoc("query.rule", [])
 			const arm = runRule(info, rule, "rule", undefined)
 			const group = armGroup(arm)
 			return queryOf(
@@ -707,7 +706,7 @@ const recursive = <S, const Row extends Record<string, FieldBase>>(
 ): QueryState<Row> => {
 	const n = requireName(name, "query.recursive", "a recursive relation name")
 	const label = `recursive ${n}`
-	const loc = buildLoc(label, [n])
+	const loc = captureLoc(label, [n])
 	if (
 		!isPlainRecord(spec) ||
 		Object.keys(spec).some((k) => k !== "row" && k !== "base" && k !== "rec")
@@ -809,7 +808,7 @@ const variablesOf = (
 		)
 	}
 	const info = sourceInfo(source, "v", site.schema.env)
-	const loc = buildLoc(`v(${info.label}, ${JSON.stringify(name)})`, [])
+	const loc = captureLoc(`v(${info.label}, ${JSON.stringify(name)})`, [])
 	const scope: VarScope = { name, loc }
 	const origin = info.origin
 	return {

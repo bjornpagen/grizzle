@@ -1,5 +1,5 @@
 import { CompileError } from "#compiler/core/errors.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
+import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import type { RuleDesc, VarDesc } from "#compiler/ir/desc.ts"
@@ -30,7 +30,6 @@ import {
 } from "#compiler/query/build/heading.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import {
-	buildLoc,
 	isCallback,
 	newRuleContext,
 	noOrigin,
@@ -128,7 +127,7 @@ export const runRule = <S, F>(
 		throw malformed(label, "a rule callback, (r) => r.match(...).find({ ... })")
 	}
 	const ctx = newRuleContext(schema, selfToken)
-	const loc = buildLoc(label, [])
+	const loc = captureLoc(label, [])
 	const r = ruleValue<S, unknown, "no match", NoFacts, never>(ctx, [], [], loc)
 	const finished = withRule(ctx, () => callback(r))
 	const state = finishedState(finished)
@@ -400,7 +399,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			const match: OpenMatch = {
 				source: info.desc,
 				bindings: bindingsDesc(bindings, info.heading, label),
-				loc: buildLoc(label, [])
+				loc: captureLoc(label, [])
 			}
 			return ruleValue(ctx, [...matches, match], where, loc)
 		},

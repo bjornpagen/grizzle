@@ -617,7 +617,7 @@ export type Attach<R extends RefKinds> = NodeCommon<R> & {
 	/** Parent heading columns equated with child heading columns. */
 	readonly correlation: ReadonlyArray<{ readonly parent: string; readonly child: string }>
 	/**
-	 * The delivered type the template's analysis judges (logical/annotate.ts judgedAttachments), under the context it
+	 * The delivered type the template's analysis judges (logical/annotate.ts LogicalAnalysis judged), under the context it
 	 * runs in: what the reader delivers, as TypeScript types it. It is the analysis's, kept apart from `delivered`, the
 	 * lowering's claim, which may be wider, and out of the DAG's digest (dag.ts digestedFields), since no SQL reads it.
 	 * The checker states its own claim, an array, until the analysis judges it.

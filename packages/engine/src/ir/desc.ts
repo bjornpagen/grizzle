@@ -986,7 +986,7 @@ export type SchemaDesc<L = Located> = L & {
 	readonly name: string
 	readonly relations: ReadonlyArray<SchemaRelationOf<L>>
 	readonly statements: ReadonlyArray<StatementDesc<L>>
-	/** schema.extend: the base schema, under the same name. */
+	/** schema.extend: the level this one builds on, under its own name. */
 	readonly extends: SchemaDesc<L> | undefined
 }
 

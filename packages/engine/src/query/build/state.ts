@@ -380,18 +380,18 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 			label: stage.kind === "named" ? stage.name : "query"
 		}
 	}
-	const live = derivedDraftOf(value)
-	if (live?.storage === "live") {
+	const derived = derivedDraftOf(value)
+	if (derived?.storage === "live") {
 		return {
-			desc: { kind: "query", query: live.query, bind: {} },
+			desc: { kind: "query", query: derived.query, bind: {} },
 			heading: derivedHeading(value, env, label),
 			carriers: derivedCarriers(value),
 			origin: noOrigin,
 			scope: anywhere,
-			label: live.name
+			label: derived.name
 		}
 	}
-	const draft = derivedDraftOf(value) ?? worldDraftOf(value)
+	const draft = derived ?? worldDraftOf(value)
 	if (draft !== undefined) {
 		return {
 			desc: { kind: "relation", name: draft.name },
