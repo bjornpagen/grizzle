@@ -3,7 +3,12 @@ import { type InstallationWitness, servedWitness } from "#adapter/witness/index.
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import type { InstallNames } from "#compiler/plan/catalog.ts"
 import { generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
-import { type CheckedEntry, identifierOf, type SchemaArtifacts } from "#compiler/plan/common.ts"
+import {
+	type CheckedEntry,
+	identifierOf,
+	type Raisable,
+	type SchemaArtifacts
+} from "#compiler/plan/common.ts"
 import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
@@ -70,19 +75,20 @@ const entryKeyOf = (entry: CheckedEntry): ServedEntryKey => ({
 })
 
 /**
- * The refusals of a role's artifacts as data (served ServedRefusals): the key-law tables of its installation, each
- * stored relation's heading, which a refusal's key text decodes through, and the query entries the role writes through.
+ * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
+ * (program/schema.ts raisableOf): the key-law tables of those constraints and laws, each of those stored relations'
+ * heading, which a refusal's key text decodes through, and the query entries the role writes through.
  */
 export const refusalsOf = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
+	artifacts: Pick<SchemaArtifacts, "names" | "world">,
+	raisable: Raisable
 ): ServedRefusals => {
-	const checked = artifacts.derived.schema
-	const relations = [...checked.relations.values()]
+	const relations = raisable.relations
 	return {
 		laws: keyLawsData({
 			names: artifacts.names,
-			constraintLaws: artifacts.constraintLaws,
-			theoryLaws: artifacts.theoryLaws,
+			constraintLaws: raisable.constraintLaws,
+			theoryLaws: raisable.theoryLaws,
 			relations
 		}),
 		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
@@ -95,11 +101,22 @@ export const refusalsOf = (
 	}
 }
 
+/** Every refusal a compiled installation's artifacts state, drawn as data (refusalsOf), cut to none. */
+export const installationRefusals = (
+	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
+): ServedRefusals =>
+	refusalsOf(artifacts, {
+		constraintLaws: artifacts.constraintLaws,
+		theoryLaws: artifacts.theoryLaws,
+		relations: [...artifacts.derived.schema.relations.values()]
+	})
+
 /**
- * The witness decoding of a compiled installation: its refusals drawn as data (refusalsOf), rebuilt as a layer
- * rebuilds a served file's (witness/index.ts servedWitness), under the laws of the levels above `above`.
+ * The witness decoding of a compiled installation: its every refusal drawn as data (installationRefusals), rebuilt as a
+ * layer rebuilds a served file's (witness/index.ts servedWitness), under the laws of the levels above `above`.
  */
 export const installationWitness = (
 	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">,
 	above: LawsAbove
-): InstallationWitness => servedWitness(refusalsOf(artifacts), above, artifacts.names.codes)
+): InstallationWitness =>
+	servedWitness(installationRefusals(artifacts), above, artifacts.names.codes)

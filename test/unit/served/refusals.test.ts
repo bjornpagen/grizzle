@@ -1,8 +1,8 @@
 /**
  * A served file's refusals read back as the compile's, so a layer classifies a violation exactly as its compile does:
- * a role's refusals drawn from its artifacts (adapter/served/refusals.ts refusalsOf), written by servedText and read by
- * servedFile from the JSON value an import of the file yields, rebuild a classifier (witness/index.ts servedWitness)
- * whose every key-law table answers as the one built from the refusals before they were written.
+ * a role's refusals drawn from its artifacts (adapter/served/refusals.ts installationRefusals), written by servedText
+ * and read by servedFile from the JSON value an import of the file yields, rebuild a classifier (witness/index.ts
+ * servedWitness) whose every key-law table answers as the one built from the refusals before they were written.
  *
  * Over generated public schemas (test/support/oracle/public), each one's artifacts compiled as the runtime's compile
  * compiles them:
@@ -21,7 +21,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { refusalsOf } from "#adapter/served/refusals.ts"
+import { installationRefusals } from "#adapter/served/refusals.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -78,7 +78,7 @@ const roundTrip = (c: ProgramCase, note: (feature: Feature) => void): void => {
 	const value = buildSchema(c.schema).schema
 	const artifacts = ok(testArtifacts(value, testCompile), "the schema's artifacts", c)
 	const codes = artifacts.names.codes
-	const refusals = refusalsOf(artifacts)
+	const refusals = installationRefusals(artifacts)
 	const file = fileOf(
 		refusals,
 		new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const))

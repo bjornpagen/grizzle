@@ -3,7 +3,7 @@ import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { type OpenError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { servedSessions } from "#adapter/pool/served.ts"
-import { servedEntry, type ServedRefusal } from "#adapter/served/compile.ts"
+import { type ServedRefusal, snapshotServedEntry } from "#adapter/served/compile.ts"
 import { explainMember as explainLoaded, type MemberCall } from "#adapter/served/explain.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { OpenOptions, Plan } from "#adapter/types/db.ts"
@@ -30,8 +30,8 @@ const atLogin = (error: ServedRefusal["error"]): ServedRefusal => ({
 /**
  * compileServed(login, snapshot, workloads): the served file of `login` with `workloads` in place of its own, compiled in
  * process by the one compile `grizzle generate` commits and `grizzle check` holds the committed file to
- * (adapter/served/compile.ts servedEntry), under `snapshot`, the JSON value of the snapshot.json the file is committed
- * beside, as an import of it yields it. The result is the file's JSON value, as an import of the committed
+ * (adapter/served/compile.ts snapshotServedEntry), under `snapshot`, the JSON value of the snapshot.json the file is
+ * committed beside, as an import of it yields it. The result is the file's JSON value, as an import of the committed
  * `served/<login>.json` yields it: what served(file, name) and DbLayer.make take.
  *
  * It is an application's test's way to a program the login's committed workload does not hold: compile it into a served
@@ -53,7 +53,10 @@ export const compileServed = (
 		}
 		const base = yield* Effect.mapError(fromEngine(ownBuilt(built.base)), atLogin)
 		const owned = yield* Effect.mapError(fromEngine(ownLoginOver(built, base)), atLogin)
-		const entry = yield* servedEntry({ login: { ...built, workload: workloads }, owned }, snapshot)
+		const entry = yield* snapshotServedEntry(
+			{ login: { ...built, workload: workloads }, owned },
+			snapshot
+		)
 		return trustedJson<unknown>(entry.text)
 	})
 

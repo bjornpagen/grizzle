@@ -12,7 +12,9 @@ import {
 	levelChain,
 	type LoginDesc,
 	loginRoleName,
-	servedSession
+	raisableOf,
+	servedSession,
+	writesOf
 } from "#compiler/plan/common.ts"
 import { servedMembers, servedRosters, type UnservedMember } from "#compiler/plan/migration.ts"
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
@@ -144,15 +146,29 @@ const noRefusals: ServedRefusals = {
 	entries: new Map()
 }
 
+/** The relations every variant of a ChangeSet's compile writes (write/frontend/compile.ts WriteFrontend.written). */
+const variantsWritten = (variants: ChangeVariants): ReadonlyArray<string> =>
+	variants.kind === "form"
+		? Arr.map(variants.form.entry.compiled.frontend.written, (r) => r.name)
+		: [...variantsWritten(variants.holding), ...variantsWritten(variants.lacking)]
+
 /**
- * The classifier of a role that writes, as data, the one its compile classifies by (served/refusals.ts refusalsOf): a
- * role whose members write nothing classifies nothing (noRefusals).
+ * The classifier of a role that writes, as data (served/refusals.ts refusalsOf), cut to what its members' writes can
+ * raise (program/schema.ts raisableOf): of every relation its compiled writes write and every relation those writes
+ * change besides them, a family's owner and members (schema/reach.ts writesOf). A role whose members write nothing
+ * classifies nothing (noRefusals).
  */
 const refusalsOf = (role: LayerRole): ServedRefusals => {
-	if (!Arr.some(role.workload, (member) => member.kind === "change")) {
+	const written = Arr.flatMap(role.workload, (member) =>
+		member.kind === "change" ? variantsWritten(member.variants) : []
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(written)) {
 		return noRefusals
 	}
-	return servedRefusals(role.artifacts)
+	return servedRefusals(
+		role.artifacts,
+		raisableOf(role.artifacts, writesOf(role.artifacts.owned, written))
+	)
 }
 
 /** One role of the login, served: its name, its PostgreSQL role, its contexts, its classifier and its members. */

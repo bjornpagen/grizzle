@@ -60,6 +60,23 @@ const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
 	return out
 }
 
+/**
+ * The relations a write of the ordinary relations `written` changes: they, closed under what a write of one writes of
+ * another (`coupled`), a family member's count, ends and accumulators on its owner and an owner's copies its members'
+ * owner axis cascades by ON UPDATE CASCADE, however long the chain. No other foreign key cascades, so no write changes
+ * any other relation: what a slice's writes are, and what a login's compiled writes can raise a law of.
+ */
+export const writesOf = (base: Owned, written: Iterable<string>): ReadonlySet<string> => {
+	const writes = coupled(base)
+	const out = new Set(written)
+	for (const relation of out) {
+		for (const other of writes.get(relation) ?? []) {
+			out.add(other)
+		}
+	}
+	return out
+}
+
 /** A program a slice serves, by its Description, with the role it is compiled for. */
 export interface RoleProgram {
 	readonly role: OwnedRole
@@ -123,13 +140,8 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 			}
 		}
 	}
-	const writes = coupled(base)
-	for (const relation of written) {
-		for (const other of writes.get(relation) ?? []) {
-			written.add(other)
-		}
-	}
-	for (const relation of written) {
+	const writes = writesOf(base, written)
+	for (const relation of writes) {
 		named.add(relation)
 	}
 	for (const relation of named) {
@@ -138,7 +150,7 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 			named.add(read)
 		}
 	}
-	return slice({ writes: written, names: named })
+	return slice({ writes, names: named })
 }
 
 /** Whether `outer` serves every compile `inner` does: it writes every relation `inner` writes and names every relation

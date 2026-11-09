@@ -23,7 +23,12 @@
  *   refusal raises, described there as the whole model describes it; each program's query, compiled through its role
  *   as db.read compiles it in either context, and each program's ChangeSet, compiled through its role as db.apply
  *   compiles it, compiling over the slice exactly when it does over the whole schema, to the same statements and
- *   certificates.
+ *   certificates;
+ * - what a served file's refusals keep (program/schema.ts raisableOf over the whole schema's artifacts, of every relation
+ *   the compiled ChangeSets write and the relations those writes change, schema/reach.ts writesOf, which are the draw's
+ *   writes): every constraint, rule trigger and law it keeps the slice's model holds, and every one the slice's model
+ *   holds that it drops is on no written relation, no foreign key into one, types no written column, or reads no
+ *   written relation, so a write of the login raises nothing the file lacks.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
@@ -66,6 +71,7 @@ import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program
 import {
 	baseArtifacts,
 	parseSchemaInput,
+	raisableOf,
 	roleArtifacts,
 	type SchemaArtifacts,
 	type SchemaInput
@@ -78,7 +84,7 @@ import {
 	ownLogin,
 	rostersOf
 } from "#compiler/schema/own.ts"
-import { everySlice, sliceOf } from "#compiler/schema/reach.ts"
+import { everySlice, sliceOf, writesOf } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -1245,6 +1251,8 @@ describe("a compile's law model", () => {
 						}
 
 						const schema = succeeded(parseSchemaInput(owned.desc), "the base as a schema input")
+						const compiledWrites: Array<CompiledWrite> = []
+						const refusedWrites: Array<string> = []
 						for (const u of c.uses) {
 							const program = programOf(c, u)
 							const role = defined(roles.get(roleName(u.role)), "the use's role")
@@ -1299,6 +1307,81 @@ describe("a compile's law model", () => {
 									"the ChangeSet's statements and certificates, as over the whole schema"
 								)
 								k.note("a ChangeSet compiled over the slice")
+								compiledWrites.push(overWhole.value)
+							} else {
+								refusedWrites.push(Formatter.format(u))
+							}
+						}
+
+						if (refusedWrites.length === 0) {
+							const changed = writesOf(
+								owned,
+								Arr.flatMap(compiledWrites, (w) => Arr.map(w.frontend.written, (r) => r.name))
+							)
+							if (Arr.isReadonlyArrayNonEmpty(compiledWrites)) {
+								yield* agree(
+									[
+										["the relations the draw's programs write", [...writes]],
+										["the relations the compiled writes change", [...changed]]
+									],
+									set(structuralHash, exact)
+								)
+							}
+							const narrowed = raisableOf(wholeArtifacts, changed)
+							const constraintOf = (e: {
+								readonly kind: string
+								readonly owner: string
+								readonly name: string
+							}) => `${e.kind} ${e.owner} ${e.name}`
+							const held = new Set(Arr.map(sliced.constraintLaws, constraintOf))
+							for (const e of narrowed.constraintLaws) {
+								assert.ok(
+									held.has(constraintOf(e)),
+									`${constraintOf(e)}, which the served refusals keep, is the slice model's`
+								)
+							}
+							const kept = new Set(Arr.map(narrowed.constraintLaws, constraintOf))
+							for (const e of sliced.constraintLaws) {
+								if (kept.has(constraintOf(e))) {
+									continue
+								}
+								switch (e.kind) {
+									case "constraint":
+									case "trigger":
+										assert.ok(
+											!written(e.owner) && !intoWrites.has(`${e.owner} ${e.name}`),
+											`${constraintOf(e)}, which the served refusals drop, is on no relation a write changes and no foreign key into one`
+										)
+										break
+									case "domainConstraint":
+										assert.ok(
+											e.uses.length > 0 && !Arr.some(e.uses, (u) => written(u.table)),
+											`${constraintOf(e)}, which the served refusals drop, types no column a write writes`
+										)
+										break
+								}
+							}
+							const slicedLaws = new Set(Arr.map(sliced.theoryLaws, (l) => l.law))
+							const keptLaws = new Set(Arr.map(narrowed.theoryLaws, (l) => l.law))
+							for (const l of narrowed.theoryLaws) {
+								assert.ok(
+									slicedLaws.has(l.law),
+									`${l.law}, which the served refusals keep, is the slice model's`
+								)
+							}
+							for (const law of model.theory.laws) {
+								if (!keptLaws.has(law.id)) {
+									assert.ok(
+										!Arr.some(law.reads, (r) => writes.has(r)),
+										`${law.id}, which the served refusals drop, reads no relation a write changes`
+									)
+								}
+							}
+							for (const r of narrowed.relations) {
+								assert.ok(
+									writes.has(r.name),
+									`${r.name}, whose heading the served refusals keep, is written`
+								)
 							}
 						}
 

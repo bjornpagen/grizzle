@@ -1,23 +1,30 @@
 import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
-	artifactsUnder,
+	artifactsOver,
 	type BuiltLogin,
 	type LayerRole,
 	loginRoles,
-	type WorkloadRefused,
-	workloadSlice
+	type WorkloadRefused
 } from "#adapter/served/login.ts"
 import { servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type CompileError,
+	Engine,
 	levelChain,
 	type LoginDesc,
-	type OwnedLogin
+	type OwnedLogin,
+	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
 import { servedText, type UnservedMember } from "#compiler/plan/migration.ts"
-import { type ServedFile, type ServedSnapshot, servedSnapshot } from "#compiler/plan/serve.ts"
+import {
+	everySlice,
+	planBasis,
+	type ServedFile,
+	type ServedSnapshot,
+	servedSnapshot
+} from "#compiler/plan/serve.ts"
 
 /** A login of a configured schema, as generate and check compile it: its value, and the login owned over its base. */
 export interface ServedInput {
@@ -26,9 +33,8 @@ export interface ServedInput {
 }
 
 /**
- * Where the compile of a login's workload refused: the login itself (the snapshot it compiles under, its slice, or its
- * base's artifacts over it), one of its roles (the role's artifacts, contexts or PostgreSQL role), or one program of a
- * role.
+ * Where the compile of a login's workload refused: the login itself (the snapshot it compiles under, or its served
+ * file), one of its roles (the role's artifacts, contexts or PostgreSQL role), or one program of a role.
  */
 export type WorkloadPlace =
 	| { readonly kind: "login" }
@@ -75,25 +81,25 @@ const atRole = (refused: WorkloadRefused): ServedRefusal => ({
  *
  * `login` compiles under `snapshot`, the JSON value of the snapshot.json it is committed beside, as an import of the
  * file yields it, read as DbLayer.make read it (deploy/snapshot/served.ts servedSnapshot) over the login's base's level,
- * the last of its own levels: its recorded codes, its derived facts and the laws of the levels above the login's base.
- * Its workloads' slice (workloadSlice) is planned under them (artifactsUnder) and every role of the login compiled over
- * it (loginRoles), every program of the login's workloads that runs on the role compiled once. generate and check both
- * compile from the snapshot.json text the draft lays out, so the drafted snapshot and the committed one are one input,
- * and a login compiles to one served file.
+ * the last of its own levels: its recorded codes and the laws of the levels above the login's base. Every role of the
+ * login compiles over `artifacts`, the installation's own, compiled under those codes over every relation
+ * (program/schema.ts baseArtifacts, the one law model generate compiles), every program of the login's workloads that
+ * runs on the role once: a program compiles over the whole installation's artifacts exactly as over its slice's, so no
+ * law model is compiled for the login. A role's refusals are cut to what its programs' writes can raise
+ * (served/project.ts).
+ * generate and check both compile from the snapshot.json text the draft lays out, so the drafted snapshot and the
+ * committed one are one input, and a login compiles to one served file.
  */
 const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
-	snapshot: unknown
+	snapshot: unknown,
+	artifacts: SchemaArtifacts
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
 	)
-	const slice = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
-	const layer = yield* Effect.mapError(
-		fromEngine(artifactsUnder(login.owned.base, served.codes, served.derived, slice)),
-		atLogin
-	)
+	const layer = { slice: everySlice(login.owned.base), artifacts, over: () => Engine.ok(artifacts) }
 	const roles = yield* Effect.mapError(
 		loginRoles(login.login, login.owned, layer, lawsAbove(served)),
 		atRole
@@ -112,13 +118,49 @@ export interface ServedEntry {
 	readonly text: string
 }
 
-/** The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it (compileServed). */
+/**
+ * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over the
+ * installation's artifacts `artifacts` (compileServed).
+ */
 export const servedEntry = Effect.fn("servedEntry")(function* (
 	login: ServedInput,
-	snapshot: unknown
+	snapshot: unknown,
+	artifacts: SchemaArtifacts
 ): Effect.fn.Return<ServedEntry, ServedRefusal> {
-	const compiled = yield* compileServed(login, snapshot)
+	const compiled = yield* compileServed(login, snapshot, artifacts)
 	const file = yield* Effect.mapError(Effect.fromResult(servedFileOf(compiled)), atLogin)
 	const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
 	return { login: compiled.login.name, file, text }
+})
+
+/**
+ * The served file of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
+ * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains and its
+ * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, then the file over
+ * them (servedEntry): what a login over a level below its configured schema's compiles over in generate and check
+ * (cli/generate.ts servedFiles), and an application's test's compile (adapter/public/compile.ts compileServed).
+ */
+export const snapshotServedEntry = Effect.fn("snapshotServedEntry")(function* (
+	login: ServedInput,
+	snapshot: unknown
+): Effect.fn.Return<ServedEntry, ServedRefusal> {
+	const served = yield* Effect.mapError(
+		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
+		atLogin
+	)
+	const base = login.owned.base
+	const derived = served.derived
+	const artifacts = yield* Effect.mapError(
+		fromEngine(
+			Engine.flatMap(
+				planBasis(base, served.codes, everySlice(base), derived.closed, derived.textDomains, {
+					kind: "recorded",
+					cycles: derived.fkCycles
+				}),
+				artifactsOver
+			)
+		),
+		atLogin
+	)
+	return yield* servedEntry(login, snapshot, artifacts)
 })

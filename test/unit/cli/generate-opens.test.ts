@@ -154,7 +154,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 										noDeclarations
 									),
 									(draft) =>
-										Effect.as(servedFiles(compiledSchema, draft.snapshotFiles), draft.snapshotFiles)
+										Effect.as(
+											servedFiles(compiledSchema, draft.snapshotFiles, draft.served),
+											draft.snapshotFiles
+										)
 								)
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))

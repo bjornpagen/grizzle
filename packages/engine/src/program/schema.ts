@@ -14,6 +14,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
+import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
@@ -389,6 +390,63 @@ export const roleArtifacts = (
 		world: { kind: "role", role, checked: read.value.checked, names: names.value }
 	}
 	return Result.ok(artifacts)
+}
+
+/**
+ * What the writes of a role can raise of its artifacts, `written` every relation they change (schema/reach.ts
+ * writesOf): each table constraint and rule trigger on a written relation, which a write there breaks; each foreign
+ * key or PERIOD foreign key into one, which a delete or a key's update there meets; each domain constraint with its uses
+ * on the written relations' columns, which a value written there breaks, and each one no stored column uses, which a
+ * context or a parameter of its type reads; each law of the theory reading a written relation, which a write
+ * statement's refusal raises; and the written relations, whose generated fields a NOT NULL names and whose keys a
+ * refusal's DETAIL decodes. A write of `written` meets no other constraint and raises no other law: no foreign key
+ * cascades beyond what writesOf closes over, and a rule's trigger fires only on its own table.
+ */
+export interface Raisable {
+	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
+	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
+	readonly relations: ReadonlyArray<RelationInfo>
+}
+
+/** The constraint `name` of `owner`, by both: one installed object. */
+const constraintKey = (owner: string, name: string): string => `${owner}\u0000${name}`
+
+/** What writes changing `written` can raise of `artifacts` (`Raisable`). */
+export const raisableOf = (
+	artifacts: Pick<SchemaArtifacts, "constraintLaws" | "theoryLaws" | "laws" | "derived">,
+	written: ReadonlySet<string>
+): Raisable => {
+	const relations = [...artifacts.derived.schema.relations.values()].filter((r) =>
+		written.has(r.name)
+	)
+	const tables = new Set<string>(relations.map((r) => r.ident))
+	const into = new Set(
+		artifacts.laws.natives.flatMap((n) =>
+			n.namespace === "constraint" &&
+			(n.object.kind === "ForeignKey" || n.object.kind === "PeriodForeignKey") &&
+			written.has(n.object.target.name)
+				? [constraintKey(n.owner, identifierOf(n.named))]
+				: []
+		)
+	)
+	const raised = new Set(
+		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
+	)
+	return {
+		constraintLaws: artifacts.constraintLaws.flatMap((c): ReadonlyArray<ConstraintLaw> => {
+			switch (c.kind) {
+				case "constraint":
+				case "trigger":
+					return tables.has(c.owner) || into.has(constraintKey(c.owner, c.name)) ? [c] : []
+				case "domainConstraint": {
+					const uses = c.uses.filter((u) => tables.has(u.table))
+					return uses.length > 0 || c.uses.length === 0 ? [{ ...c, uses }] : []
+				}
+			}
+		}),
+		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
+		relations
+	}
 }
 
 /** The evidence catalog of a schema: its laws' constraints and its views' unique indexes. */

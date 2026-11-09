@@ -10,7 +10,7 @@ import {
 	Result
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { type ServedEntry, servedEntry } from "#adapter/served/compile.ts"
+import { type ServedEntry, servedEntry, snapshotServedEntry } from "#adapter/served/compile.ts"
 import { artifactsOver } from "#adapter/served/login.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
@@ -41,8 +41,9 @@ import { rosterRenames } from "#cli/renames.ts"
 import {
 	type CompileError,
 	draftCodebook,
-	Engine,
 	rostersOf,
+	sameLevel,
+	type SchemaArtifacts,
 	trustedJson
 } from "#compiler/plan/common.ts"
 import {
@@ -238,6 +239,15 @@ type SchemaDraft = (
 }
 
 /**
+ * What every login of a schema's served file compiles over: the installation's artifacts, compiled under the draft's
+ * codes over every relation, which its workloads' access paths are planned against too (draftInput); none for a schema
+ * with no login, which compiles no served file.
+ */
+export type ServedBasis =
+	| { readonly kind: "noLogin" }
+	| { readonly kind: "logins"; readonly artifacts: SchemaArtifacts }
+
+/**
  * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
  * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
  * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
@@ -254,7 +264,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
-): Effect.fn.Return<DraftInput, CliError> {
+): Effect.fn.Return<{ readonly input: DraftInput; readonly served: ServedBasis }, CliError> {
 	const { configured, owned, logins } = schema
 	const rosters = rostersOf(owned)
 	const renames = yield* Effect.mapError(
@@ -287,20 +297,25 @@ const draftInput = Effect.fn("draftInput")(function* (
 	 * the names the installation drafted below gives it, so the index requests name its vector schema. A schema
 	 * without a login plans nothing.
 	 */
-	const planned = Arr.isReadonlyArrayNonEmpty(logins)
-		? yield* Effect.mapError(
-				fromEngine(
-					Engine.flatMap(artifactsOver(basis), (artifacts) =>
+	const served: ServedBasis = Arr.isReadonlyArrayNonEmpty(logins)
+		? {
+				kind: "logins",
+				artifacts: yield* Effect.mapError(fromEngine(artifactsOver(basis)), refusedAt("workload"))
+			}
+		: { kind: "noLogin" }
+	const planned =
+		served.kind === "logins"
+			? yield* Effect.mapError(
+					fromEngine(
 						compileWorkload(
 							Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
 							configured.built,
-							{ artifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
+							{ artifacts: served.artifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
 						)
-					)
-				),
-				refusedAt("workload")
-			)
-		: undefined
+					),
+					refusedAt("workload")
+				)
+			: undefined
 	const options = completeInstallOptions(
 		owned,
 		installationsOf(owned),
@@ -313,14 +328,17 @@ const draftInput = Effect.fn("draftInput")(function* (
 		refusedAt("schema")
 	)
 	return {
-		previous,
-		installation,
-		workload:
-			planned === undefined
-				? noWorkload
-				: { access: planned.access, accessPaths: planned.requests },
-		abandoned,
-		declared
+		input: {
+			previous,
+			installation,
+			workload:
+				planned === undefined
+					? noWorkload
+					: { access: planned.access, accessPaths: planned.requests },
+			abandoned,
+			declared
+		},
+		served
 	}
 })
 
@@ -334,13 +352,16 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
-): Effect.fn.Return<MigrationDraft & { readonly installation: Installation }, CliError> {
-	const input = yield* draftInput(schema, previous, abandoned, declared)
+): Effect.fn.Return<
+	MigrationDraft & { readonly installation: Installation; readonly served: ServedBasis },
+	CliError
+> {
+	const { input, served } = yield* draftInput(schema, previous, abandoned, declared)
 	const draft = yield* Effect.mapError(
 		fromEngine(draftMigration(input)),
 		draftRefused(schema.configured.declared, "draft")
 	)
-	return { ...draft, installation: input.installation }
+	return { ...draft, installation: input.installation, served }
 })
 
 /**
@@ -354,35 +375,47 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 	timestamp: string,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
-): Effect.fn.Return<GenerateResult, CliError> {
-	const input = yield* draftInput(schema, previous, abandoned, declared)
-	return yield* Effect.mapError(
+): Effect.fn.Return<GenerateResult & { readonly served: ServedBasis }, CliError> {
+	const { input, served } = yield* draftInput(schema, previous, abandoned, declared)
+	const generated = yield* Effect.mapError(
 		fromEngine(generateMigration({ ...input, naming, timestamp })),
 		draftRefused(schema.configured.declared, "draft")
 	)
+	return { ...generated, served }
 })
 
 /**
  * Each login's served file, in configured order: its workload compiled under the snapshot.json text `files` lays out,
- * the draft's, as DbLayer.make read it (adapter/served/compile.ts servedEntry). generate writes them beside the snapshot
- * and check holds the committed ones to them, so both compile every login once, from the one text. A login whose
- * workload does not compile is ServedRefused, at the login, its role or its program.
+ * the draft's (adapter/served/compile.ts servedEntry), a login over the schema's own level over the installation's
+ * artifacts `served` holds, the draft's own, and one over a level below, whose ownership is its own (cli/config.ts
+ * compileSchema), over that level's artifacts as the snapshot records it (snapshotServedEntry). generate writes them
+ * beside the snapshot and check holds the committed ones to them, so both compile every login once, from the one text.
+ * A login whose workload does not compile is ServedRefused, at the login, its role or its program.
  */
 export const servedFiles = Effect.fn("servedFiles")(function* (
 	schema: CompiledSchema,
-	files: SnapshotFiles
+	files: SnapshotFiles,
+	served: ServedBasis
 ): Effect.fn.Return<ReadonlyArray<ServedEntry>, CliError> {
+	if (served.kind === "noLogin") {
+		return []
+	}
 	const snapshot = trustedJson<unknown>(files.snapshot)
+	const artifacts = served.artifacts
 	return yield* Effect.forEach(schema.logins, (login) =>
-		Effect.mapError(servedEntry(login, snapshot), (refusal) =>
-			cliError(
-				new ServedRefused({
-					schema: schema.configured.declared,
-					login: login.login.desc.name,
-					place: refusal.place,
-					error: refusal.error
-				})
-			)
+		Effect.mapError(
+			sameLevel(login.login.base.content, schema.configured.built.content)
+				? servedEntry(login, snapshot, artifacts)
+				: snapshotServedEntry(login, snapshot),
+			(refusal) =>
+				cliError(
+					new ServedRefused({
+						schema: schema.configured.declared,
+						login: login.login.desc.name,
+						place: refusal.place,
+						error: refusal.error
+					})
+				)
 		)
 	)
 })
@@ -433,7 +466,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
 		options.declared
 	)
-	const files = yield* servedFiles(compiled, generated.snapshotFiles)
+	const files = yield* servedFiles(compiled, generated.snapshotFiles, generated.served)
 	const served = servedWrites(files, tree.served)
 	if (generated.change === "none") {
 		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
