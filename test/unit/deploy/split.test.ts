@@ -17,9 +17,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { splitStatements, statementTokens, writtenAs } from "#compiler/deploy/render/markers.ts"
+import {
+	splitStatements,
+	type StatementToken,
+	statementTokens,
+	writtenAs
+} from "#compiler/deploy/render/markers.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 const splitFeatures = [
@@ -611,9 +616,12 @@ type TokenKind = "word" | "string" | "other"
 /** The words a draft holds and a planted edit swaps in: none the placeholder, each its own in any case. */
 const draftWords: Arr.NonEmptyReadonlyArray<string> = ["SELECT", "x", "col$1", "_t9", "función"]
 
-const draftTokenGen: Gen<DraftToken> = weighted([
-	[3, map(element(draftWords), (text): DraftToken => ({ kind: "token", text, is: "word" }))],
-	[2, map(stringGen, (text): DraftToken => ({ kind: "token", text, is: "string" }))],
+/** A drafted token that is no placeholder. */
+type ScannedToken = Extract<DraftToken, { readonly kind: "token" }>
+
+const scannedTokenGen: Gen<ScannedToken> = weighted([
+	[3, map(element(draftWords), (text): ScannedToken => ({ kind: "token", text, is: "word" }))],
+	[2, map(stringGen, (text): ScannedToken => ({ kind: "token", text, is: "string" }))],
 	[
 		2,
 		map(
@@ -622,10 +630,16 @@ const draftTokenGen: Gen<DraftToken> = weighted([
 				[1, paramGen],
 				[1, operatorGen]
 			]),
-			(text): DraftToken => ({ kind: "token", text, is: "other" })
+			(text): ScannedToken => ({ kind: "token", text, is: "other" })
 		)
-	],
-	[2, constant<DraftToken>({ kind: "hole" })]
+	]
+])
+
+const hole: DraftToken = { kind: "hole" }
+
+const draftTokenGen: Gen<DraftToken> = weighted<DraftToken>([
+	[7, scannedTokenGen],
+	[2, constant(hole)]
 ])
 
 /** What a reviewer fills a placeholder with: a value, its parentheses and brackets balanced. */
@@ -638,7 +652,8 @@ interface Draft {
 	readonly edited: number
 }
 
-const draftGen: Gen<Draft> = (source) => {
+/** A draft of drawn tokens, a fill for each, and any of its tokens edited. */
+const anyDraftGen: Gen<Draft> = (source) => {
 	const drafted = nonEmpty(
 		source.draw(array(draftTokenGen, { min: 1, max: 6 })),
 		"a draft's tokens"
@@ -650,8 +665,42 @@ const draftGen: Gen<Draft> = (source) => {
 	}
 }
 
+/**
+ * A draft whose edited token stands between two placeholders, the second filled by that token and a value after it:
+ * bare, so the placeholders absorb the edit, the first taking its own fill and the edited token and the second the
+ * value; or in parentheses, which only runs whose parentheses do not balance would absorb it across.
+ */
+const absorbingDraftGen: Gen<Draft> = (source) => {
+	const before = source.draw(array(draftTokenGen, { min: 0, max: 2 }))
+	const editedToken = source.draw(scannedTokenGen)
+	const parenthesized = source.draw(boolean)
+	const drafted = nonEmpty(
+		[...before, hole, editedToken, hole, ...source.draw(array(draftTokenGen, { min: 0, max: 1 }))],
+		"a draft's tokens"
+	)
+	const absorbing = before.length + 2
+	return {
+		tokens: drafted,
+		fills: Arr.map(
+			source.draw(array(fillGen, { min: drafted.length, max: drafted.length })),
+			(fill, i) =>
+				i !== absorbing
+					? fill
+					: parenthesized
+						? `(${editedToken.text} ${fill})`
+						: `${editedToken.text} ${fill}`
+		),
+		edited: before.length + 1
+	}
+}
+
+const draftGen: Gen<Draft> = weighted([
+	[3, anyDraftGen],
+	[1, absorbingDraftGen]
+])
+
 /** Another token in place of a drafted one: a word for another word, a string for another string, a word otherwise. */
-const editOf = (token: Extract<DraftToken, { readonly kind: "token" }>): string => {
+const editOf = (token: ScannedToken): string => {
 	switch (token.is) {
 		case "word":
 			return Str.toUpperCase(token.text) === "SELECT" ? "x" : "SELECT"
@@ -662,12 +711,113 @@ const editOf = (token: Extract<DraftToken, { readonly kind: "token" }>): string 
 	}
 }
 
+/** A drafted statement's token as the second implementation reads it: the placeholder token a hole, any other itself. */
+type Slot = { readonly kind: "hole" } | { readonly kind: "token"; readonly token: StatementToken }
+
+const placeholderUpper = Str.toUpperCase(placeholderToken)
+
+const slotOf = (t: StatementToken): Slot =>
+	t.kind === "word" && t.upper === placeholderUpper ? { kind: "hole" } : { kind: "token", token: t }
+
+/** What a token does to the parentheses and brackets open: opens one, closes one, or neither. */
+const nesting = (t: StatementToken): number => {
+	if (t.kind !== "punct") {
+		return 0
+	}
+	switch (t.text) {
+		case "(":
+		case "[":
+			return 1
+		case ")":
+		case "]":
+			return -1
+		default:
+			return 0
+	}
+}
+
+/** The offsets a nonempty run of `written` from `at` a hole takes can end at. */
+type RunEnds = (written: ReadonlyArray<StatementToken>, at: number) => ReadonlyArray<number>
+
+/** Runs whose parentheses and brackets never close more than they opened and are all closed at their end. */
+const balancedRunEnds: RunEnds = (written, at) => {
+	const ends: Array<number> = []
+	let depth = 0
+	for (const [n, t] of written.slice(at).entries()) {
+		depth += nesting(t)
+		if (depth < 0) {
+			return ends
+		}
+		if (depth === 0) {
+			ends.push(at + n + 1)
+		}
+	}
+	return ends
+}
+
+/** Runs of any tokens. */
+const anyRunEnds: RunEnds = (written, at) => Arr.map(written.slice(at), (_, n) => at + n + 1)
+
+/** The offsets a slot read from `at` can end at: a token slot past the same token, a hole past each run it takes. */
+const slotEnds = (
+	slot: Slot,
+	written: ReadonlyArray<StatementToken>,
+	at: number,
+	runEnds: RunEnds
+): ReadonlyArray<number> => {
+	switch (slot.kind) {
+		case "token":
+			return deepEquals(written[at], slot.token) ? [at + 1] : []
+		case "hole":
+			return runEnds(written, at)
+	}
+}
+
+/**
+ * Whether some filling of a draft's holes, each by a run `runEnds` admits, is the written statement: the offsets each
+ * prefix of the draft's slots can end at in the written tokens, carried forward slot by slot from the start, reach the
+ * end.
+ */
+const fillable = (
+	slots: ReadonlyArray<Slot>,
+	written: ReadonlyArray<StatementToken>,
+	runEnds: RunEnds
+): boolean => {
+	let ends: ReadonlySet<number> = new Set([0])
+	for (const slot of slots) {
+		ends = new Set(
+			Arr.flatMap(Arr.fromIterable(ends), (at) => slotEnds(slot, written, at, runEnds))
+		)
+	}
+	return ends.has(written.length)
+}
+
 type WrittenFeature =
 	| "a placeholder filled"
 	| "a word edited"
 	| "a string edited"
 	| "another token edited"
 	| "a string kept"
+	| "an edit the placeholders absorb"
+	| "an edit only unbalanced runs absorb"
+
+const keptDrafts: ReadonlyArray<Kept<Draft, WrittenFeature>> = [
+	{
+		note: "an edited token the placeholders around it absorb: 1 x 1 f(a) fills them with 1 x, f and (a)",
+		sketch: {
+			tokens: [
+				{ kind: "hole" },
+				{ kind: "token", text: "1", is: "other" },
+				{ kind: "hole" },
+				{ kind: "hole" }
+			],
+			fills: ["1", "1", "1", "f(a)"],
+			edited: 1
+		},
+		draws: "",
+		reaches: ["an edit the placeholders absorb"]
+	}
+]
 
 describe("a reviewed statement read against its draft", () => {
 	it.effect(
@@ -678,8 +828,8 @@ describe("a reviewed statement read against its draft", () => {
 				explore(
 					{
 						oracle: {
-							kind: "specification",
-							name: "a draft with each placeholder filled is written as drafted, and one with a token outside a placeholder changed is not"
+							kind: "second-implementation",
+							name: "a draft with each placeholder filled is written as drafted, and one with a token outside a placeholder changed exactly when the offsets each prefix of its slots can end at reach the end"
 						},
 						suite: "unit/deploy/written-as",
 						draw: drawn(draftGen),
@@ -690,11 +840,13 @@ describe("a reviewed statement read against its draft", () => {
 								"a word edited",
 								"a string edited",
 								"another token edited",
-								"a string kept"
+								"a string kept",
+								"an edit the placeholders absorb",
+								"an edit only unbalanced runs absorb"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
-						kept: [],
+						kept: keptDrafts,
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -736,10 +888,19 @@ describe("a reviewed statement read against its draft", () => {
 							if (edited === undefined || edited.kind === "hole") {
 								return
 							}
-							assert.ok(
-								!writtenAs(drafted, written(Option.some(d.edited))),
+							const edit = written(Option.some(d.edited))
+							const slots = Arr.map(drafted, slotOf)
+							const absorbed = fillable(slots, edit, balancedRunEnds)
+							assert.equal(
+								writtenAs(drafted, edit),
+								absorbed,
 								`the draft with ${edited.text} edited`
 							)
+							if (absorbed) {
+								c.note("an edit the placeholders absorb")
+							} else if (fillable(slots, edit, anyRunEnds)) {
+								c.note("an edit only unbalanced runs absorb")
+							}
 							c.note(
 								edited.is === "word"
 									? "a word edited"
