@@ -402,21 +402,13 @@ const actionSlotFacts = (
 	stratum: StratumAt,
 	slot: ParamId
 ): ReadonlyArray<StatedFact> => {
-	for (const group of frontend.slots) {
-		if (group.stratum !== stratum) {
-			continue
-		}
-		for (const input of group.inputs) {
-			for (const member of inputSlots(input)) {
-				if (member.slot === slot) {
-					return input.kind === "single" && input.act.op === "delete"
-						? []
-						: slotFacts(frontend, stated, group, input, member, group.relation)
-				}
-			}
-		}
+	const at = frontend.slotsById.get(slot)
+	if (at === undefined || at.group.stratum !== stratum) {
+		throw defect(`the slot group of the member slot ${slot} an action of stratum ${stratum} reads`)
 	}
-	throw defect(`the slot group of the member slot ${slot} an action of stratum ${stratum} reads`)
+	return at.input.kind === "single" && at.input.act.op === "delete"
+		? []
+		: slotFacts(frontend, stated, at.group, at.input, at.slot, at.group.relation)
 }
 
 /**

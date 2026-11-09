@@ -100,7 +100,6 @@ import {
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	compileChangeSet,
-	inputSlots,
 	type MemberSlot,
 	type SlotGroup,
 	type StratumEdit,
@@ -321,12 +320,7 @@ const familyDrawn = (
 
 /** The member slot `slot` names among the front end's slot groups: every edit's slot is one of them. */
 const memberSlotOf = (frontend: WriteFrontend, slot: ParamId): MemberSlot =>
-	defined(
-		frontend.slots
-			.flatMap((group) => group.inputs.flatMap((input) => inputSlots(input)))
-			.find((m) => m.slot === slot),
-		`the member slot ${slot}, an edit's`
-	)
+	defined(frontend.slotsById.get(slot), `the member slot ${slot}, an edit's`).slot
 
 /** The relations a family placement reads and writes, which orders it against the artifact's other statements. */
 const placementRelations = (placement: FamilyPlacement): ReadonlyArray<string> =>

@@ -423,6 +423,13 @@ export interface WriteQueries {
 	readonly ir: FrontendIR
 }
 
+/** A member slot with the slot group and the enumerated input it belongs to (WriteFrontend `slotsById`). */
+export interface SlotAt {
+	readonly group: SlotGroup
+	readonly input: EnumeratedInput
+	readonly slot: MemberSlot
+}
+
 export interface WriteFrontend extends WriteQueries {
 	/** The same queries over the write DAG the optimized artifact lowers: ir.dag with every take correlated through bind
 	 * stated with its correlation explicit, analyzed in the same transaction context, every node under its own label. */
@@ -443,6 +450,8 @@ export interface WriteFrontend extends WriteQueries {
 	readonly bindings: ReadonlyArray<string>
 	/** The enumerated slots, by stratum and relation in code point order. */
 	readonly slots: ReadonlyArray<SlotGroup>
+	/** Every member slot of `slots` by its parameter, with the slot group and the input it belongs to. */
+	readonly slotsById: ReadonlyMap<ParamId, SlotAt>
 	/** Each stratum's nested writes, by stratum and relation: the families each reaches, whose statements follow the
 	 * stratum's own. */
 	readonly nested: ReadonlyArray<NestedWrite>
@@ -2472,6 +2481,15 @@ const compile = (
 		params: Object.freeze(userParams),
 		bindings: Object.freeze([...desc.bindings]),
 		slots: Object.freeze(slots),
+		slotsById: new Map(
+			slots.flatMap((group) =>
+				group.inputs.flatMap((input) =>
+					inputSlots(input).map(
+						(slot) => [slot.slot, Object.freeze({ group, input, slot })] as const
+					)
+				)
+			)
+		),
 		nested: Object.freeze(nestedWrites),
 		edits: stratumEdits,
 		refills: Object.freeze(stratumRefills),
