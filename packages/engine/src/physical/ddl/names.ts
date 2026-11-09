@@ -343,6 +343,12 @@ const installedOf = (
 	}
 }
 
+/** A roster the owned schema declares, by name, with its domain's identity, which ownership minted. */
+const rosterOf = (owned: Owned, roster: string) => {
+	const r = relationOf(owned, roster)
+	return r.kind === "closed" ? r : missing(`physical: ${roster} is no roster of the owned schema`)
+}
+
 /** A roster's codes in the installation's codebook, which holds every roster the schema declares. */
 const rosterCodec = (codes: Codebook, roster: DeclaredName): RosterCodec =>
 	codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
@@ -370,23 +376,27 @@ export const installNames = (input: NamesInput): InstallNames => {
 	const levelOf = (relation: string): Identity<"schema"> =>
 		levels[relationOf(owned, relation).level] ??
 		missing(`physical: no installed level for ${relation}`)
-	/** Each contract's domain's digest, once: an inner contract's is read while an outer one's is spelled. */
-	const digests = new Map<DeclaredName, DomainDigest>()
+	/**
+	 * Each contract's domain, minted once from its definition's digest: an inner contract's is read while an outer one's
+	 * is spelled.
+	 */
+	const domains = new Map<DeclaredName, Identity<"contractDomain">>()
 	const contractNamed = (contract: DeclaredName): Identity<"contractDomain"> => {
-		const known = digests.get(contract)
+		const known = domains.get(contract)
 		if (known !== undefined) {
-			return identity.contractDomain(known)
+			return known
 		}
 		const source =
 			input.contracts.get(contract) ?? missing(`physical: no domain for contract ${contract}`)
-		const digest = input.define(names, contract, source)
-		digests.set(contract, digest)
-		return identity.contractDomain(digest)
+		const named = identity.contractDomain(input.define(names, contract, source))
+		domains.set(contract, named)
+		return named
 	}
-	const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined => {
-		const digest = input.textDomains.get(regex.key)
-		return digest === undefined ? undefined : identity.textDomain(digest)
-	}
+	/** Each structural text domain, minted once from its definition's digest. */
+	const texts = new Map(
+		Array.from(input.textDomains, ([key, digest]) => [key, identity.textDomain(digest)] as const)
+	)
+	const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined => texts.get(regex.key)
 	const names: InstallNames = {
 		installation,
 		schema,
@@ -412,7 +422,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		},
 		rosterDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
-			name: identifierOf(identity.rosterDomain(roster))
+			name: identifierOf(rosterOf(owned, roster).named)
 		}),
 		bitsDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
