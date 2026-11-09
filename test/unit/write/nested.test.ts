@@ -20,12 +20,13 @@ import {
 	schema,
 	tree
 } from "#compiler/public/schema.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { inputSlotsOf } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn, testArtifacts, testCompile } from "#test/support/compile.ts"

@@ -18,6 +18,7 @@ import { contractOf } from "#compiler/ir/scalar.ts"
 import { Bits, Money, pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
@@ -30,7 +31,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Bin,

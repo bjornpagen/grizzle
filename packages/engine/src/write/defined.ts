@@ -49,10 +49,3 @@ export const groupBy = <A, K>(
 /** The one member of a list of exactly one, undefined for any other length. */
 export const only = <T extends object>(list: ReadonlyArray<T>): T | undefined =>
 	list.length === 1 ? list[0] : undefined
-
-/** A host value a relation parameter can be read from: an object whose Symbol.iterator is a method. */
-export const isIterable = (value: unknown): value is Iterable<unknown> =>
-	typeof value === "object" &&
-	value !== null &&
-	Symbol.iterator in value &&
-	typeof value[Symbol.iterator] === "function"

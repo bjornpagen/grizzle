@@ -44,10 +44,11 @@ export {
 	type GeneratedRejection,
 	type Raw,
 	type RunnableWrite,
-	runnableWrite
-} from "#compiler/write/program/bind.ts"
+	servedRunnable
+} from "#compiler/runtime/write/bind.ts"
+export { runnableWrite } from "#compiler/write/program/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-export type { ExecutionPart } from "#compiler/write/program/staged.ts"
+export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
 export {
 	type FlightStatement,
 	type FlightWrite,

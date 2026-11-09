@@ -34,11 +34,7 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { Transport } from "#compiler/runtime/write/transport.ts"
-import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { plainType } from "#compiler/scalar/native.ts"
-import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import type { MemberCell } from "#compiler/write/family/draw.ts"
+import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import {
 	type Execution,
 	executionsOf,
@@ -47,7 +43,11 @@ import {
 	type NestedPlaceholder,
 	type NestedRowBound,
 	type StagedStatement
-} from "#compiler/write/program/staged.ts"
+} from "#compiler/runtime/write/staged.ts"
+import type { Transport } from "#compiler/runtime/write/transport.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
+import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"

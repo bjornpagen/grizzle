@@ -4,7 +4,7 @@ import { compareCodePoints } from "#compiler/core/text.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
-import type { MemberCell } from "#compiler/write/family/draw.ts"
+import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import type { RowLayout } from "#compiler/write/family/statements.ts"
 
 /**

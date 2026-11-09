@@ -8,13 +8,15 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { legacyFlights, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite, type CompiledWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
+import { servedWrite } from "#compiler/write/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -46,7 +48,7 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   placeholder texts, or refuse alike, so nothing the slice leaves out is one the write reads.
  * - **A served write binds without its front end as the planner binds it with it**: a write a served file holds
  *   (write/program/served.ts servedWrite), bound from its flight alone, sends what the read-flight planner over its
- *   compiled front end sends, or refuses alike (write/program/bind.ts RunnableWrite).
+ *   compiled front end sends, or refuses alike (runtime/write/bind.ts RunnableWrite).
  */
 
 /** The situations a drawn write reaches. */
@@ -166,12 +168,12 @@ const property = (case_: BindingCase, note: (s: BindingSituation) => void): Effe
 			sent(wideWrite.flight, bindWrite(wideWrite, inputs)),
 			"the write binds by its slice as by the whole fill order"
 		)
-		if (write.kind === "flight") {
+		if (servedWrite(program).ok) {
 			assert.deepEqual(
 				sent(write.flight, bindWrite(write, inputs)),
 				sent(
 					write.flight,
-					bindWrite({ kind: "legacy", flight: write.flight, compiled: program }, inputs)
+					bindWrite({ flight: write.flight, flights: legacyFlights(program) }, inputs)
 				),
 				"a served write binds in its one flight as the read-flight planner binds it"
 			)

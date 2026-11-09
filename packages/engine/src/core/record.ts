@@ -16,6 +16,13 @@ export const hasProperties = (value: unknown): value is Readonly<Record<string, 
 
 export const isList = (value: unknown): value is ReadonlyArray<unknown> => Array.isArray(value)
 
+/** A host value a relation parameter can be read from: an object whose Symbol.iterator is a method. */
+export const isIterable = (value: unknown): value is Iterable<unknown> =>
+	typeof value === "object" &&
+	value !== null &&
+	Symbol.iterator in value &&
+	typeof value[Symbol.iterator] === "function"
+
 /** A plain record: a non-null object that is no list, whose prototype is Object's or none, as a caller's record is read
  * at the boundary. */
 export const isPlainRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {

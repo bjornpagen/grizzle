@@ -29,6 +29,7 @@ import {
 	type NestedAddition,
 	type SplitFamily
 } from "#compiler/runtime/write/addition.ts"
+import type { MemberKey, Row } from "#compiler/runtime/write/draw.ts"
 import {
 	type ColumnKey,
 	fieldKey,
@@ -42,7 +43,6 @@ import {
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
-import type { MemberKey, Row } from "#compiler/write/family/draw.ts"
 
 /** A row layout's column as binding reads it (`RowColumn`): its key, its type, and what it is, a field by its name or a law
  * column by its identifier. A RowColumn is one. */

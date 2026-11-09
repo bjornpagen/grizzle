@@ -21,6 +21,7 @@ import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { AddedTag, RemovedTag } from "#compiler/runtime/write/net.ts"
+import type { Staged } from "#compiler/runtime/write/staged.ts"
 import {
 	byStratum,
 	type CarrierCasts,
@@ -38,12 +39,7 @@ import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement } from "#compiler/write/program/single.ts"
-import {
-	carriersOf,
-	nestedColumnOf,
-	type Staged,
-	stagedOf
-} from "#compiler/write/program/staged.ts"
+import { carriersOf, nestedColumnOf, stagedOf } from "#compiler/write/program/staged.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 
 /** The tags of the facts a write statement's rows make present and absent, by its result: an insert's

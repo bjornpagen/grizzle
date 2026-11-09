@@ -30,6 +30,7 @@ import type {
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import type { MemberKey } from "#compiler/runtime/write/draw.ts"
 import { literalHost } from "#compiler/runtime/write/fill.ts"
 import {
 	nestedConflict,
@@ -55,7 +56,6 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
-import type { MemberKey } from "#compiler/write/family/draw.ts"
 import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
 
 type Fact = { readonly [field: string]: unknown }

@@ -29,12 +29,13 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"

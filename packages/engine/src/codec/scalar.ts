@@ -155,7 +155,7 @@ export const admittedParam = (spec: CarrierSpec, value: unknown): ParamText =>
 	parameterText(spec, admitted(spec, value))
 
 /**
- * A column's cell of a value `spec` already admitted, as a family write's transport carries it (write/family/draw.ts
+ * A column's cell of a value `spec` already admitted, as a family write's transport carries it (runtime/write/draw.ts
  * MemberCell): a bytes value itself, which its column's binary array carries (codec/bytea.ts), and any other its
  * parameter text.
  */

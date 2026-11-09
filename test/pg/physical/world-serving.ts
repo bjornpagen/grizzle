@@ -61,6 +61,7 @@ import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -74,7 +75,7 @@ import {
 } from "#compiler/sql/print.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	type IndexFacts,

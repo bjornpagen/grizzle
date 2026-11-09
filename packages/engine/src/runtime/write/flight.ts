@@ -24,9 +24,9 @@ import {
 	type WrittenHeading,
 	writtenOutcome
 } from "#compiler/runtime/write/outcome.ts"
+import type { Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { Staged } from "#compiler/write/program/staged.ts"
 
 /** A form of a write statement as an execution sends it: its text, and what fills each placeholder, $n by
  * `params[n - 1]`. */

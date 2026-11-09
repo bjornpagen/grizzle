@@ -11,7 +11,7 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import { type ArrayMember, loadWrite, memberFactsOf } from "#compiler/plan/change.ts"
+import { type ArrayMember, loadWrite, memberFactsOf, servedRunnable } from "#compiler/plan/change.ts"
 import {
 	type BindContext,
 	bindGroups,
@@ -216,7 +216,7 @@ const loadChange = (
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
 	const entry: WriteEntry = {
-		program: { kind: "flight", flight: loadWrite(program, codes) },
+		program: servedRunnable(loadWrite(program, codes)),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes),

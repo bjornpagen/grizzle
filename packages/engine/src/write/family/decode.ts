@@ -13,20 +13,22 @@ import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import type { MemberKey, Owner } from "#compiler/runtime/write/draw.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
-import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
-	drawnAt,
-	type EditTarget,
 	type FillContext,
 	groupOf,
 	groupOfOwner,
 	keyOf,
+	type Values
+} from "#compiler/runtime/write/keys.ts"
+import {
+	drawnAt,
+	type EditTarget,
 	membersByGroup,
 	type StoredFamily,
 	type StoredGroup,
-	type StoredMember,
-	type Values
+	type StoredMember
 } from "#compiler/write/family/edit.ts"
 import type { ChainShape, ReadShape, RowLayout } from "#compiler/write/family/statements.ts"
 

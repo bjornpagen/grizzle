@@ -12,6 +12,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { nestedRows, type NestedSet, nestedSet } from "#compiler/runtime/write/nesting.ts"
 import {
@@ -22,7 +23,7 @@ import {
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
