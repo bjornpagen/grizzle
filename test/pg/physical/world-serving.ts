@@ -31,7 +31,9 @@
  *   the owner taking on the role in its own transaction, since the role can drop no index;
  * - a read through the entry's view: as the role, T's middle row asked for by its key through the role's view of the
  *   entry, as a workload program over the role reads it, judged as the policy row: the view's filter is the entry's
- *   membership, so a key's equality pushed past it reads T by its key, and the filter's call is bounded as above;
+ *   membership, so a key's equality pushed past it reads T by its key, and the filter's call is bounded as above. The
+ *   view's columns are the entry's head, so the read names each field of T's key the head carries by its head field
+ *   (ViewKeyField), and a field the rule fixes by a claim or a literal not at all, which the view's filter fixes;
  * - a precheck: as the role, the statement grizzle's write compiler builds to judge an insert of one fact into a
  *   witness's entry (write/entry/precheck.ts buildEntryCheck), bound as db.apply binds it, reading no more than its
  *   own scans and the bound of each world function's call at the fact's values (callBound): the filter function, then
@@ -176,6 +178,7 @@ export type WorldServingFeature =
 	| "a policy row calling the filter function"
 	| "a policy row of a membership reading no other relation"
 	| "a read through a narrowed entry's view calling the filter function"
+	| "a read through a view whose rule fixes a field of T's key"
 	| "a precheck calling the filter function"
 	| "a drawn entry's filter function"
 	| "a world function's scan read through another planned index than one serving it alone"
@@ -474,12 +477,26 @@ interface WorldFunction {
  */
 type ProbeKind = "key" | "declared key" | "unique"
 
-/** A writable query entry of an installed role and the world functions it installs. */
+/**
+ * A field of T's key the entry's head carries: T's field, and the head field the entry's view names it by. A field of
+ * T's key outside the head, which the rule fixes by a claim or a literal, is no column of the view: every row the view
+ * holds already holds its value.
+ */
+interface ViewKeyField {
+	readonly field: string
+	readonly head: string
+}
+
+/**
+ * A writable query entry of an installed role and the world functions it installs, with the fields of T's key its view
+ * carries (ViewKeyField).
+ */
 interface WorldEntry {
 	readonly label: string
 	readonly role: BuiltRole
 	readonly entry: string
 	readonly target: RelationSpec
+	readonly viewKey: ReadonlyArray<ViewKeyField>
 	readonly filter: Option.Option<WorldFunction>
 	readonly probes: ReadonlyArray<{ readonly kind: ProbeKind; readonly fn: WorldFunction }>
 	readonly witness: Option.Option<LinkWitness>
@@ -541,12 +558,16 @@ const worldEntries = (
 			const uniques = relationUniques(
 				defined(installation.laws.relations.get(target.name), `the laws of ${target.name}`)
 			)
+			const heads = [...w.writable.head]
 			return [
 				{
 					label,
 					role: value,
 					entry: w.name,
 					target,
+					viewKey: Arr.flatMap(target.key, (field): ReadonlyArray<ViewKeyField> =>
+						Arr.flatMap(heads, ([head, h]) => (h.field === field ? [{ field, head }] : []))
+					),
 					filter:
 						filter.kind === "query" && filter.readsOther
 							? Option.some(
@@ -1072,13 +1093,16 @@ const viewRow = (
 	Effect.gen(function* () {
 		const target = entry.target
 		const names = roleNamesOf(cx.installed, entry.role)
+		const conditions = Arr.map(
+			entry.viewKey,
+			(k, at) => `${names.column(entry.entry, k.head)} = $${at + 1}`
+		)
 		const statement: Statement = {
 			label: `${entry.label}'s read through its view`,
-			sql: `SELECT 1 FROM ${names.view(entry.entry)} WHERE ${Arr.join(
-				Arr.map(target.key, (f, at) => `${names.column(entry.entry, f)} = $${at + 1}`),
-				" AND "
-			)}`,
-			params: Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`)),
+			sql: `SELECT 1 FROM ${names.view(entry.entry)}${
+				Arr.isReadonlyArrayNonEmpty(conditions) ? ` WHERE ${Arr.join(conditions, " AND ")}` : ""
+			}`,
+			params: Arr.map(entry.viewKey, (k) => defined(row[k.field], `${target.name}.${k.field}`)),
 			before: [],
 			as: { kind: "role", role: cx.installed.world(entry.role).role }
 		}
@@ -1486,6 +1510,9 @@ export const judgeCase = (
 			appendAll(problems, viewed.problems)
 			if (Option.isSome(entry.filter)) {
 				note("a read through a narrowed entry's view calling the filter function")
+			}
+			if (entry.viewKey.length < entry.target.key.length) {
+				note("a read through a view whose rule fixes a field of T's key")
 			}
 			for (const fact of Option.toArray(args.fact)) {
 				const calls = Arr.reduce(

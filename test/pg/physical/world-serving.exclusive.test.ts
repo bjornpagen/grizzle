@@ -35,7 +35,9 @@
  * functions that PostgreSQL plans at their calls, a role session's first, each reading the index ends of the join of
  * OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
  * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
- * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims).
+ * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims); and an entry
+ * over Share whose rule fixes user by the session's subject, its head doc alone, whose view a read by key names by doc
+ * alone (world-serving.ts ViewKeyField).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -243,6 +245,64 @@ const kept: ReadonlyArray<Kept<WorldCase, WorldServingFeature>> = [
 		reaches: [
 			"a read through a narrowed entry's view calling the filter function",
 			"a world function's scan read through another planned index than one serving it alone"
+		]
+	},
+	{
+		note: "an entry over Share whose rule fixes user by the session's subject and whose head is doc alone: its view holds no column user, and a read by key through it names doc",
+		sketch: {
+			install: {
+				base: docsBase,
+				roles: [
+					{
+						name: "alpha",
+						entries: {
+							Doc: { kind: "whole", relation: "Doc" },
+							OrgDocs: { kind: "whole", relation: "OrgDocs" },
+							View0: {
+								kind: "query",
+								rules: [
+									{
+										matches: [
+											{
+												source: { kind: "ordinary", name: "Share" },
+												fields: {
+													doc: { kind: "var", name: "v_doc" },
+													user: { kind: "var", name: "c_Session_sub" }
+												}
+											},
+											{
+												source: { kind: "context", name: "Session" },
+												fields: { sub: { kind: "var", name: "c_Session_sub" } }
+											}
+										],
+										negations: [],
+										comparisons: [],
+										head: { doc: { kind: "var", name: "v_doc" } }
+									}
+								]
+							},
+							Share: { kind: "whole", relation: "Share" }
+						},
+						write: ["Doc", "View0"],
+						refresh: []
+					}
+				],
+				logins: [{ name: "web", roles: ["alpha"] }]
+			},
+			witnesses: [
+				{
+					target: "Doc",
+					source: "OrgDocs",
+					link: { from: "org", to: "org" },
+					second: { kind: "none" },
+					negated: false
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a policy row of a membership reading no other relation",
+			"a read through a view whose rule fixes a field of T's key"
 		]
 	}
 ]
