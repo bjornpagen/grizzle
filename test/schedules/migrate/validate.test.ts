@@ -73,13 +73,13 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
+	type ColumnTextDomain,
 	installationNamesOf,
 	lawIdOf,
 	lawNamesOf,
 	type Names,
 	namesOf,
-	parsedSchemaName,
-	type TextDomainNames
+	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftCodes, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -362,7 +362,7 @@ const deskColumns = (names: Names) => `${names.column(Desk, "id")}, ${names.colu
 
 /** A refusal by a domain's CHECK as a cast to the domain judges a value: the domain and its constraint, at 23514. */
 const domainCheck =
-	(domain: TextDomainNames) =>
+	(domain: ColumnTextDomain) =>
 	(server: ServerReport): boolean =>
 		server.by === "server" &&
 		server.error.sqlstate === "23514" &&

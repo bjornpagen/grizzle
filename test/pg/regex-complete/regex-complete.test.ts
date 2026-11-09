@@ -62,9 +62,9 @@ import {
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import {
+	type ColumnTextDomain,
 	installationNamesOf,
-	parsedSchemaName,
-	type TextDomainNames
+	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
@@ -278,7 +278,7 @@ const declared = (template: OracleTemplate): Declared => ({
 })
 
 /** The text domain Article's slug field uses, with its constraint and its law, as the installation names them. */
-const slugDomain = (installation: Installation): TextDomainNames =>
+const slugDomain = (installation: Installation): ColumnTextDomain =>
 	installationNamesOf(installation).textDomain({ name: "Article" }, "slug")
 
 /** The Note contract domain's CHECK, as the installation names it. */

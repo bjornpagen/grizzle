@@ -252,7 +252,8 @@ export type ContractNames =
 	  }
 	| { readonly kind: "brand"; readonly domain: DomainName; readonly law: LawId }
 
-export interface TextDomainNames {
+/** The text refinement domain that types a column, and the CHECK constraint that holds the column's values to it. */
+export interface ColumnTextDomain {
 	readonly domain: DomainName
 	readonly constraint: ConstraintName
 }
@@ -298,7 +299,7 @@ export interface Names extends LawNames {
 	 * The text refinement domain that types a column: a stored field, a closed relation's payload, or a derived view
 	 * column (R12's "undeclared" view column included).
 	 */
-	readonly textDomain: (relation: NamedRelation, field: string) => TextDomainNames
+	readonly textDomain: (relation: NamedRelation, field: string) => ColumnTextDomain
 	/**
 	 * A stored field's pattern law, by the naming door's rule (identity.patternLaw) over the text domain that types its
 	 * column, never read back from the installation's constraint records, which a test holds to it.
