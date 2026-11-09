@@ -844,18 +844,18 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	}
 	const read: {
 		readonly operand: { readonly real: OpenExpr; readonly ph: ExprDesc }
-		readonly test: GuardTest
+		readonly guardTest: GuardTest
 	} = Pattern.is(pattern)
 		? {
 				operand: call.operand(pattern.source, s.type, "literal"),
-				test: { kind: "refines", guard: { kind: "matches", pattern: pattern.source } }
+				guardTest: { kind: "refines", guard: { kind: "matches", pattern: pattern.source } }
 			}
-		: { operand: call.operand(pattern, s.type, "term"), test: { kind: "tests" } }
+		: { operand: call.operand(pattern, s.type, "term"), guardTest: { kind: "tests" } }
 	const real: OpenExpr = { kind: "compute", fn: "matches", args: [s.real, read.operand.real] }
 	call.finishPredicate(real, { kind: "compute", fn: "matches", args: [s.ph, read.operand.ph] })
 	return {
 		expr: real,
-		guardTest: read.test,
+		guardTest: read.guardTest,
 		subject,
 		real: s.real,
 		type: s.type,
