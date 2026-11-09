@@ -852,10 +852,10 @@ const lawChecks = (
 	relation: WitnessTable,
 	codes: Codebook
 ): ReadonlyArray<LawCheck> =>
-	relation.checks.map((check): LawCheck => ({
-		name: check.name,
-		laws: check.laws,
-		verdict: verdictOf(judge, relation, check.test, codes)
+	relation.checks.map(({ name, laws, test }): LawCheck => ({
+		name,
+		laws,
+		verdict: verdictOf(judge, relation, test, codes)
 	}))
 
 /** How a law CHECK of `relation`'s table judges one of its stated rows (`CheckTest`). */

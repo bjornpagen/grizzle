@@ -694,14 +694,14 @@ const witnessEvaluation = (
 ): Evaluation => {
 	const exprs = tables.flatMap((t) => [
 		...t.fields.flatMap((f) => (f.writing.kind === "generated" ? [f.writing.expr] : [])),
-		...t.checks.flatMap((c) =>
-			c.test.kind === "row" ? [c.test.predicate] : c.test.kind === "closed" ? c.test.guard : []
+		...t.checks.flatMap(({ test }) =>
+			test.kind === "row" ? [test.predicate] : test.kind === "closed" ? test.guard : []
 		)
 	])
 	return evaluationOver(frontend, exprs, [
 		...tables.flatMap((t) => t.fields.flatMap((f) => typePatterns(f.type))),
 		...tables.flatMap((t) =>
-			t.checks.flatMap((c) => (c.test.kind === "endpoint" ? typePatterns(c.test.level) : []))
+			t.checks.flatMap(({ test }) => (test.kind === "endpoint" ? typePatterns(test.level) : []))
 		)
 	])
 }
