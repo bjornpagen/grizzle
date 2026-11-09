@@ -62,7 +62,7 @@ const lawRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 
 /** The closed relations a statement's predicates and selections apply, and an alternatives' roster. */
 const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
-	const sides = (...scopes: ReadonlyArray<SideScope>): ReadonlyArray<string> =>
+	const sides = (scopes: ReadonlyArray<SideScope>): ReadonlyArray<string> =>
 		scopes.flatMap((scope) => selectionReads(scope.selection))
 	switch (s.kind) {
 		case "mutable":
@@ -70,16 +70,16 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 		case "check":
 			return closedReadNames(s.predicate)
 		case "key":
-			return sides(s.side)
+			return sides([s.side])
 		case "contained":
-			return sides(s.left, s.right)
+			return sides([s.left, s.right])
 		case "family":
 		case "tree":
-			return sides(s.member)
+			return sides([s.member])
 		case "fold":
-			return sides(s.step, s.end)
+			return sides([s.step, s.end])
 		case "alternatives":
-			return [s.roster, ...sides(s.parent, ...s.arms.map((a) => a.arm))]
+			return [s.roster, ...sides([s.parent, ...s.arms.map((a) => a.arm)])]
 	}
 }
 
