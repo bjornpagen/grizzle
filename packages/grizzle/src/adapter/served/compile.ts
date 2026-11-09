@@ -45,7 +45,7 @@ export interface ServedRefusal {
  * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, and every
  * role of it with its programs, in the login's order.
  */
-export interface CompiledServed {
+interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
@@ -75,7 +75,7 @@ const atRole = (refused: WorkloadRefused): ServedRefusal => ({
  * compile from the snapshot.json text the draft lays out, so the drafted snapshot and the committed one are one input,
  * and a login compiles to one served file.
  */
-export const compileServed = Effect.fn("compileServed")(function* (
+const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
