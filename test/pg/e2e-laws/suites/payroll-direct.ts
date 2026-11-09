@@ -220,23 +220,23 @@ const toAfterReverse = (p: Payroll) =>
 			[
 				approver,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = ${stage("approved")} WHERE "id" = '${run1}'`,
-					`INSERT INTO ${t("approval")} ("run", "approver", "at") VALUES ('${run1}', '${ada}', ${tApproved})`
+					`UPDATE ${t("PayRun")} SET "stage" = ${stage("approved")} WHERE "id" = '${run1}'`,
+					`INSERT INTO ${t("Approval")} ("run", "approver", "at") VALUES ('${run1}', '${ada}', ${tApproved})`
 				]
 			],
 			[
 				clerk,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = ${stage("paid")} WHERE "id" = '${run1}'`,
-					`INSERT INTO ${t("payment")} ("run", "settled") VALUES ('${run1}', ${tSettled})`
+					`UPDATE ${t("PayRun")} SET "stage" = ${stage("paid")} WHERE "id" = '${run1}'`,
+					`INSERT INTO ${t("Payment")} ("run", "settled") VALUES ('${run1}', ${tSettled})`
 				]
 			],
 			[
 				clerk,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = ${stage("voided")} WHERE "id" = '${run1}'`,
-					`DELETE FROM ${t("payment")} WHERE "run" = '${run1}'`,
-					`INSERT INTO ${t("voiding")} ("run", "reason") VALUES ('${run1}', 'bank returned the batch')`
+					`UPDATE ${t("PayRun")} SET "stage" = ${stage("voided")} WHERE "id" = '${run1}'`,
+					`DELETE FROM ${t("Payment")} WHERE "run" = '${run1}'`,
+					`INSERT INTO ${t("Voiding")} ("run", "reason") VALUES ('${run1}', 'bank returned the batch')`
 				]
 			]
 		]

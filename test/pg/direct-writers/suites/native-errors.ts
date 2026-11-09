@@ -371,7 +371,7 @@ export const nativeErrorsSuite = (): void =>
 								Effect.map(f.psql(r), (psql) => [r, psql] as const)
 							)
 							const writers = new Map(opened)
-							const view = f.t(identifierOf(identity.view(parsedName("AccountEntries"))))
+							const view = f.t("AccountEntries")
 							const column = (field: DerivedColumn): string =>
 								quoteIdent(identifierOf(identity.column(parsedName(field))))
 							const filter = (where: Option.Option<number>): string =>

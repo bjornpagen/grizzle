@@ -18,7 +18,7 @@ import {
 	type UnderOwnNames,
 	schema
 } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
@@ -56,8 +56,11 @@ export interface Fixture {
 	readonly installed: Installed
 	/** The PostgreSQL schema, quoted. */
 	readonly q: string
-	/** A table of the installation, schema-qualified and quoted. */
-	readonly t: (table: string) => string
+	/**
+	 * A relation's table or view by its declared name, as the installation places it: in the schema of the level that
+	 * declares it, schema-qualified and quoted.
+	 */
+	readonly t: (relation: string) => string
 	/** A schema value of the fixture (the installed one or a level below it) rebuilt under the installed name. */
 	readonly rebuilt: <
 		const N extends string,
@@ -150,7 +153,7 @@ export const openFixture = (
 		const fx: Fixture = {
 			installed: done,
 			q,
-			t: (table) => `${q}.${quoteIdent(table)}`,
+			t: (relation) => printObjectName(done.installation.names.relation(relation)),
 			rebuilt: <
 				const N extends string,
 				R extends Record<string, AnyRelation | AnyClosed>,

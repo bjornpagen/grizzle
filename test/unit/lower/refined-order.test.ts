@@ -17,7 +17,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Expr, OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { allocatedLevels, lowerAligned } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -55,7 +55,7 @@ const owned = owning(Refined)
 const installation = succeeded(
 	compileInstallation(owned, {
 		...installOptions(owned, "grizzle_dev"),
-		levels: [identity.schema(parsedSchemaName("refined_order"))]
+		levels: allocatedLevels(identity.schema(parsedSchemaName("refined_order")), owned.levels)
 	})
 )
 const catalog = installedCatalog(installation)

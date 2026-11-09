@@ -297,6 +297,8 @@ export const rosterDomainSql = (installed: Judged, roster: string): string =>
  */
 interface Table {
 	readonly quoted: string
+	/** The schema of the level that installs the relation, which its table or view and their indexes stand in. */
+	readonly schema: string
 	readonly name: string
 	readonly spans: ReadonlySet<string>
 	readonly few: ReadonlySet<string>
@@ -352,6 +354,7 @@ const tableOf = (installed: Judged, relation: string) =>
 		const rows = yield* countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
 		return {
 			quoted,
+			schema: q.schema,
 			name: q.name,
 			spans: holding("span"),
 			few: new Set([...holding("few"), ...closedIdColumns(installed, relation)]),
@@ -366,11 +369,7 @@ const tableOf = (installed: Judged, relation: string) =>
 	})
 
 /** Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table. */
-const indexFacts = (
-	installed: Judged,
-	indexes: ReadonlyArray<PlannedIndex>,
-	tableFor: (relation: string) => Table
-) =>
+const indexFacts = (indexes: ReadonlyArray<PlannedIndex>, tableFor: (relation: string) => Table) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const facts = new Map<string, IndexFacts>()
@@ -382,13 +381,13 @@ const indexFacts = (
 						"FROM pg_catalog.pg_class AS c " +
 						"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_index AS x ON x.indexrelid = c.oid " +
 						"WHERE n.nspname = $1::text AND c.relname = $2::text",
-					[installed.schema, i.index.name]
+					[table.schema, i.index.name]
 				),
 				textsOf
 			)
 			const pages = row?.[0]
 			if (pages === undefined) {
-				return assert.fail(`no index ${i.index.name} in ${installed.schema}`)
+				return assert.fail(`no index ${i.index.name} in ${table.schema}`)
 			}
 			facts.set(i.index.name, {
 				method: i.method,
@@ -412,7 +411,7 @@ export const plannedFacts = (
 			const table = yield* tableOf(installed, r)
 			tables.set(r, table)
 		}
-		return yield* indexFacts(installed, indexes, (relation) => {
+		return yield* indexFacts(indexes, (relation) => {
 			const t = tables.get(relation)
 			return t ?? assert.fail(`no table read for ${relation}`)
 		})
@@ -984,7 +983,7 @@ export const judgeServing = (
 		if (judged.length < indexes.length) {
 			note("a relation its key bounds below the load, not judged")
 		}
-		const facts = yield* indexFacts(installed, judged, tableFor)
+		const facts = yield* indexFacts(judged, tableFor)
 		const probes = new Map<IndexRequest, Probe>()
 		for (const i of judged) {
 			for (const r of i.requests) {
