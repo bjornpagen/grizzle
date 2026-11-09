@@ -5,7 +5,8 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 /**
  * The growing-schema ChangeSet program, one type test of write inference at scale. It writes one TypeScript program
  * over the public barrels with `relations` relations, each with a contract column, and for each relation a ChangeSet
- * with a read-back applied through Db, beside the queries it writes from. The query shapes at scale are the
+ * with a read-back applied through the handle of a workload over the full role Writer that serves it alone, each call
+ * giving its insert's facts, beside the queries it writes from. The query shapes at scale are the
  * growing-schema query program's (test/types/query/budget/generate.ts); this one holds what it lacks.
  *
  * The program asserts what is inferred at the first relation and at the last, so it fails at any size where inference
@@ -41,7 +42,9 @@ export const change${i} = ChangeSet.empty(S)
 		const { id } = v(d.added(R${i}), "addedR${i}")
 		return r.match(d.added(R${i}), { id }).find({ id })
 	}))
-export const run${i} = db.apply(change${i}, {})
+export const w${i} = workload(Writer, { change: change${i} })
+export const run${i} = (db: DbOf<typeof Writer, typeof w${i}.programs>) =>
+	db.workload.change.apply({ R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: Cents(2n), label: "abd", kind: "B", qty: 2 }] }, {})
 `
 }
 
@@ -90,8 +93,8 @@ export type Head${i} = Expect<
 export type Keys${i} = Expect<Equals<KeysOf<typeof S, typeof R${i}>, ${i % 5 === 0 ? 'readonly ["id"] | readonly ["label"]' : 'readonly ["id"]'}>>
 export type Amount${i} = Expect<Equals<Fact<typeof R${i}>["amount"], bigint & Brand.Brand<"Cents">>>
 export type ChangeWrites${i} = Expect<Equals<WritesOf<typeof change${i}>, "R${i}">>
-// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only relations its role's write list names
-export const readerApply${i} = reader.apply(change${i}, {})
+// @ts-expect-error -- TS2322: a ChangeSet of a workload over a role writes only relations its role's write list names
+export const readerWork${i} = workload(Reader, { change: change${i} })
 // @ts-expect-error -- TS2345 refusal: the query's head is not a fact of the relation
 export const wrongMember${i} = ChangeSet.empty(S).insert(R${owner}, owned${i})
 `
@@ -134,8 +137,6 @@ ${statements(relations)}
 /** A full reader and a full writer of every relation, which every program over S runs on. */
 export const Reader = role(S, "reader", wholeEntriesOf(S))
 export const Writer = role(S, "writer", wholeEntriesOf(S), { write: writableNamesOf(S) })
-declare const db: DbOf<typeof Writer, unknown>
-declare const reader: DbOf<typeof Reader, unknown>
 ${blocks}${checked}`
 	)
 }

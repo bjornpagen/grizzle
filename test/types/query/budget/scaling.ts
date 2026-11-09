@@ -11,11 +11,12 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  *
  * - `rules` queries, each a rule over relation i (round the relations) with a filter, an attachment of the relation
  *   before it keyed by the parent's field, delivered as the one child where the containment chain proves it, and a read
- *   of it through a Db of the Reader;
+ *   of it through the handle of a workload over the Reader that serves it alone;
  * - one ChangeSet of `members` members in one stratum, round the relations: inserts, or inserts, deletes and puts in turn,
  *   each put of a mutable relation, so a chain's every call is checked against the stratum the call before it made; or
  *   one insertAll of the first `members` relations, each key checked as its insert is;
- * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through a Db of Ctx.
+ * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through the handle of a
+ *   workload over Ctx that serves it alone.
  *
  * One dimension grows the schema with its rules and members, as an application grows: a call whose cost grows with the
  * schema it is over, rather than with what it reads, makes that dimension quadratic.
@@ -105,7 +106,8 @@ const ruleBlock = (q: number, relations: number): string => {
 	const { label } = v(R${prev}, "o")
 	return r.match(R${prev}, { id: p.parent, label }).find({ label })
 }), ${i > 0 ? '"one"' : '"option"'})
-export const read${q} = (db: DbOf<typeof Reader, unknown>) => db.execute(owned${q}, {})
+export const w${q} = workload(Reader, { owned: owned${q} })
+export const read${q} = (db: DbOf<typeof Reader, typeof w${q}.programs>) => db.workload.owned.execute({})
 `
 }
 
@@ -173,7 +175,8 @@ ${Arr.join(
 )}
 ])
 export const Reader = role(S, "reader", wholeEntriesOf(S))
-export const readAll = (db: DbOf<typeof Reader, unknown>) => db.get(R0, { id: "00000000-0000-4000-8000-000000000001" })
+export const keyed = workload(Reader, { key: R0 })
+export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.get({ id: "00000000-0000-4000-8000-000000000001" })
 ${Arr.join(
 	Arr.map(indices(shape.rules), (q) => ruleBlock(q, shape.relations)),
 	""
@@ -196,7 +199,8 @@ ${members(shape)}
 ${Arr.join(
 	Arr.map(
 		indices(shape.contexts),
-		(j) => `export const runC${j} = (db: DbOf<typeof Ctx, unknown>) => db.execute(inC${j}, {})\n`
+		(j) =>
+			`export const wC${j} = workload(Ctx, { run: inC${j} })\nexport const runC${j} = (db: DbOf<typeof Ctx, typeof wC${j}.programs>) => db.workload.run.execute({})\n`
 	),
 	""
 )}`

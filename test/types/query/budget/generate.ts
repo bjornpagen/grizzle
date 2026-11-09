@@ -7,12 +7,13 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  * public facade (the query, schema, fields and text barrels) with `relations` relations, and for each relation the
  * shapes the seven statement readers see: candidate keys, containments, a closed roster, mutability, a
  * parameterized query with an attachment, a keyed lookup, a lookup fixed by a filter, a grouped aggregate, a two-arm
- * union ordered by its common fields, a bound import, and reads through Db.
+ * union ordered by its common fields, a bound import, and reads through the handles of a workload over the full role
+ * Reader, one workload per relation.
  *
  * The program asserts what is inferred at the first relation and at the last, so it fails at any size where inference
  * widens rather than only where it stops typechecking: exact parameters, heads, evidence and retained
  * keys, and refusals that must keep firing, each with a `@ts-expect-error -- TSnnnn` directive the harness checks.
- * Reads are typed inside a function the program never calls.
+ * Reads are typed inside a function the program never calls, on a Db typed by its relation's workload's programs.
  */
 export const largestQuerySize = 200
 
@@ -62,13 +63,21 @@ export const owned${i} = query(S).rule((r) => {
 	const { label } = v(R${(i + relations - 1) % relations}, "r${(i + relations - 1) % relations}")
 	return r.match(R${(i + relations - 1) % relations}, { id: p.parent, label }).find({ label })
 }), ${i > 0 ? '"one"' : '"option"'}).attach("handle", (p) => query(S).rule((r) => r.match(Kind, { id: p.kind }).find({ handle: p.kind })), "one")
-export const reads${i} = (db: DbOf<typeof Reader, unknown>) => [
-	db.get(byId${i}, { id: "00000000-0000-4000-8000-000000000001" }),
-	db.get(byFilter${i}, { id: "00000000-0000-4000-8000-000000000001" }),
-	db.get(R${i}, { id: "00000000-0000-4000-8000-000000000001" }),
-	db.execute(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
-	db.execute(arms${i}, {}),
-	db.execute(total${i}.orderBy(["kind", "asc"]).take(1), {})
+export const w${i} = workload(Reader, {
+	byId: byId${i},
+	byFilter: byFilter${i},
+	key: R${i},
+	byParent: byParent${i},
+	arms: arms${i},
+	top: total${i}.orderBy(["kind", "asc"]).take(1)
+})
+export const reads${i} = (db: DbOf<typeof Reader, typeof w${i}.programs>) => [
+	db.workload.byId.get({ id: "00000000-0000-4000-8000-000000000001" }),
+	db.workload.byFilter.get({ id: "00000000-0000-4000-8000-000000000001" }),
+	db.workload.key.get({ id: "00000000-0000-4000-8000-000000000001" }),
+	db.workload.byParent.execute({ parent: "00000000-0000-4000-8000-000000000002" }),
+	db.workload.arms.execute({}),
+	db.workload.top.execute({})
 ] as const
 `
 }
@@ -147,11 +156,11 @@ export type Owned${i} = Expect<
 		}
 	>
 >
-export const refusals${i} = (db: DbOf<typeof Reader, unknown>) => [
+export const refusals${i} = (db: DbOf<typeof Reader, typeof w${i}.programs>) => [
 	// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
-	db.get(byParent${i}, { parent: "00000000-0000-4000-8000-000000000002" }),
+	db.workload.byParent.get({ parent: "00000000-0000-4000-8000-000000000002" }),
 	// @ts-expect-error -- TS2322: the parameters are the ones the query's uses inferred
-	db.execute(byParent${i}, { parent: 1 }),
+	db.workload.byParent.execute({ parent: 1 }),
 	// @ts-expect-error -- TS2322: label is not common to every arm
 	arms${i}.take(1).orderBy(["label", "asc"])
 ]

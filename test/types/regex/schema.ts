@@ -173,7 +173,8 @@ const relationQueries = (r: number, count: number): string => {
 	return r.match(R${r}, { id, ${names} }).where(r.eq(f0, r.param("p", R${r}.fields.f0))).find({ id, ${names} })
 })
 export const params${r}: ParamArg<ParamsOf<typeof byF${r}>> = { p: ${literal(regexPattern(r * fieldsPerRelation).member)} }
-export const run${r} = db.execute(byF${r}, params${r})
+export const w${r} = workload(Reader, { byF: byF${r} })
+export const run${r} = (db: DbOf<typeof Reader, typeof w${r}.programs>) => db.workload.byF.execute(params${r})
 `
 }
 
@@ -286,7 +287,6 @@ ${declarations}
 ${rels}
 export const S = schema("Patterns", { ${names} }, [])
 export const Reader = role(S, "reader", wholeEntriesOf(S))
-declare const db: DbOf<typeof Reader, unknown>
 ${queries}
 ${checks}
 ${Arr.join(refusals(patterns, relations), "")}`

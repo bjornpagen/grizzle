@@ -54,3 +54,4 @@ export {
 export type { Fact, KeysOf } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"
 export type { WritesOf } from "#compiler/types/changeset/changeset.ts"
+export { workload } from "#compiler/public/workload.ts"
