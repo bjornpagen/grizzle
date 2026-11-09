@@ -26,8 +26,7 @@ import {
 } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import { printableIntervals } from "#compiler/scalar/regex/are.ts"
-import type { CharSet } from "#compiler/scalar/regex/charset.ts"
+import { printableIntervals, type SetNode } from "#compiler/scalar/regex/are.ts"
 import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -131,11 +130,11 @@ const walkDepth = (nfa: RawNfa, reversed: boolean): number => {
 	return deepest
 }
 
-/** The sets of a pattern's IR, each as its bracket expression prints it. */
-const printedSets = (ir: LiveNode): ReadonlyArray<CharSet> => {
+/** The set nodes of a pattern's IR, each set as its bracket expression prints it. */
+const printedSets = (ir: LiveNode): ReadonlyArray<SetNode> => {
 	const nodes = new Map<RegexNode, true>()
 	folded(nodes, ir, () => true)
-	return Arr.flatMap([...nodes.keys()], (node) => (node.kind === "set" ? [node.set] : []))
+	return Arr.flatMap([...nodes.keys()], (node) => (node.kind === "set" ? [node] : []))
 }
 
 /** A 32-bit mix of a number (splitmix32's finalizer), so each set's mark is a word of its own. */
@@ -154,7 +153,7 @@ const mixed = (n: number): number => {
 const sweptColors = (
 	ir: LiveNode
 ): { readonly count: number; readonly spans: ReadonlyArray<number> } => {
-	const sets = Arr.map(printedSets(ir), printableIntervals)
+	const sets = Arr.map(printedSets(ir), (node) => printableIntervals(node.set))
 	const events = new Map<number, [number, number]>([[0, [0, 0]]])
 	const flip = (at: number, set: number): void => {
 		const [a, b] = events.get(at) ?? [0, 0]
@@ -247,9 +246,9 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 							c.note("a pattern")
 							const swept = sweptColors(ir)
 							assert.equal(colors.count, swept.count, `${label}: its colors`)
-							for (const [i, set] of printedSets(ir).entries()) {
+							for (const [i, node] of printedSets(ir).entries()) {
 								assert.equal(
-									colors.spanned(set),
+									colors.spanned(node),
 									defined(swept.spans[i], `the sweep's set ${i}`),
 									`${label}: the colors of set ${i}`
 								)

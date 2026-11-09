@@ -15,9 +15,10 @@ import {
 	type ArePiece,
 	branchesOf,
 	piecesOf,
-	printableIntervals
+	printableIntervals,
+	type SetNode
 } from "#compiler/scalar/regex/are.ts"
-import { type CharSet, domain, type Interval } from "#compiler/scalar/regex/charset.ts"
+import { domain, type Interval } from "#compiler/scalar/regex/charset.ts"
 import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { partitionOf } from "#compiler/scalar/regex/partition.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
@@ -31,10 +32,13 @@ const characters: ReadonlyArray<Interval> = Object.freeze([
 const boundsOf = (intervals: ReadonlyArray<Interval>): ReadonlyArray<number> =>
 	intervals.flatMap(([lo, hi]) => [lo, hi])
 
-/** The colors of a pattern: how many, and how many each set its IR holds spans, read by that set. */
+/**
+ * The colors of a pattern: how many, and how many each set node of its IR spans, read by the node, as the IR's folds
+ * table each analysis by its nodes (ir.ts folded).
+ */
 export interface Colors {
 	readonly count: number
-	readonly spanned: (set: CharSet) => number
+	readonly spanned: (node: SetNode) => number
 }
 
 /**
@@ -47,8 +51,8 @@ export const colorsOf = (ir: LiveNode): Colors => {
 	folded(nodes, ir, () => true)
 	const keys = new TupleMap<ReadonlyArray<number>, number>()
 	const printed: Array<ReadonlyArray<Interval>> = []
-	/** Each set the IR holds, by the position of its printed intervals among the distinct ones. */
-	const positions = new Map<CharSet, number>()
+	/** Each set node of the IR, by the position of its set's printed intervals among the distinct ones. */
+	const positions = new Map<RegexNode, number>()
 	for (const node of nodes.keys()) {
 		if (node.kind !== "set") {
 			continue
@@ -58,19 +62,19 @@ export const colorsOf = (ir: LiveNode): Colors => {
 		const known = keys.get(bounds)
 		if (known === undefined) {
 			keys.set(bounds, printed.length)
-			positions.set(node.set, printed.length)
+			positions.set(node, printed.length)
 			printed.push(intervals)
 		} else {
-			positions.set(node.set, known)
+			positions.set(node, known)
 		}
 	}
 	const partition = partitionOf(printed, characters)
 	return {
 		count: partition.atomCount,
-		spanned: (set) => {
-			const position = positions.get(set)
+		spanned: (node) => {
+			const position = positions.get(node)
 			if (position === undefined) {
-				throw defect("a set the pattern's IR holds, which colorsOf partitioned")
+				throw defect("a set node of the pattern's IR, which colorsOf partitioned")
 			}
 			return entry(partition.setAtoms, position).length
 		}
@@ -186,7 +190,7 @@ export const rawSize = (ir: LiveNode, colors: Colors): Fragment => {
 	const atomFragment = (atom: AreAtom, of: (node: LiveNode) => Run): Fragment => {
 		switch (atom.kind) {
 			case "set":
-				return { states: 0, arcs: colors.spanned(atom.set), depth: 1 }
+				return { states: 0, arcs: colors.spanned(atom.node), depth: 1 }
 			case "anchor":
 				return { states: 0, arcs: anchorArcs, depth: 1 }
 			case "group":
@@ -335,7 +339,7 @@ export const rawNfa = (ir: LiveNode, colors: Colors): RawNfa => {
 				const { from, to, atom } = task
 				switch (atom.kind) {
 					case "set":
-						add(from, { kind: "set", to, weight: colors.spanned(atom.set) })
+						add(from, { kind: "set", to, weight: colors.spanned(atom.node) })
 						break
 					case "anchor":
 						add(from, { kind: "anchor", anchor: atom.anchor, to })

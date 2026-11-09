@@ -73,12 +73,15 @@ const areSet = (set: CharSet): string => {
 /** An anchor of an ARE: `\A`, the value's start, or `\Z`, its end. */
 export type AreAnchor = "start" | "end"
 
+/** A set node of the IR: a class of code points it matches one of. */
+export type SetNode = Extract<LiveNode, { readonly kind: "set" }>
+
 /**
- * An atom of an ARE as PostgreSQL's parser reads it (regcomp.c parseqatom): a set, which prints as a character or a
- * bracket expression, an anchor, or a non-capturing group of branches, each branch a node read as one (piecesOf).
+ * An atom of an ARE as PostgreSQL's parser reads it (regcomp.c parseqatom): a set node, whose set prints as a character
+ * or a bracket expression, an anchor, or a non-capturing group of branches, each branch a node read as one (piecesOf).
  */
 export type AreAtom =
-	| { readonly kind: "set"; readonly set: CharSet }
+	| { readonly kind: "set"; readonly node: SetNode }
 	| { readonly kind: "anchor"; readonly anchor: AreAnchor }
 	| { readonly kind: "group"; readonly branches: ReadonlyArray<LiveNode> }
 
@@ -104,9 +107,7 @@ export const branchesOf = (node: LiveNode): ReadonlyArray<LiveNode> =>
 
 /** The atom a node is read as where a quantifier applies to it: a set as itself, anything else as a group. */
 const atomOf = (node: LiveNode): AreAtom =>
-	node.kind === "set"
-		? { kind: "set", set: node.set }
-		: { kind: "group", branches: branchesOf(node) }
+	node.kind === "set" ? { kind: "set", node } : { kind: "group", branches: branchesOf(node) }
 
 const once = (atom: AreAtom): ArePiece => ({ atom, min: 1, max: 1 })
 
@@ -119,7 +120,7 @@ export const piecesOf = (node: LiveNode): ReadonlyArray<ArePiece> => {
 		case "empty":
 			return []
 		case "set":
-			return [once({ kind: "set", set: node.set })]
+			return [once({ kind: "set", node })]
 		case "start":
 		case "end":
 			return [once({ kind: "anchor", anchor: node.kind })]
@@ -155,7 +156,7 @@ const printed = (node: LiveNode, of: (child: LiveNode) => string): string => {
 	const atomText = (atom: AreAtom): string => {
 		switch (atom.kind) {
 			case "set":
-				return areSet(atom.set)
+				return areSet(atom.node.set)
 			case "anchor":
 				return atom.anchor === "start" ? "\\A" : "\\Z"
 			case "group":
