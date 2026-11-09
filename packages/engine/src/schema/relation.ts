@@ -24,6 +24,7 @@ import {
 	type QueryDesc,
 	type RelationDesc,
 	recordAdmitted,
+	relationOver,
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
@@ -319,27 +320,17 @@ const writtenDecls = (
 	return out
 }
 
-/** A relation's Description decoded, or the refusal of what its arguments described. */
+/**
+ * A relation's Description over its fields' declarations, decoded where each descriptor was registered, or the
+ * refusal of what its arguments described (ir/desc.ts relationOver).
+ */
 const ordinaryDesc = (
 	label: string,
 	relationName: string,
 	fields: Readonly<Record<string, FieldDecl>>,
 	primaryKey: unknown
-): OrdinaryRelationDesc => {
-	const desc = orThrow(
-		decodeDesc("relation", {
-			kind: "relation",
-			name: relationName,
-			fields,
-			primaryKey,
-			loc: builderLoc(label, [relationName])
-		})
-	)
-	if (desc.kind !== "relation") {
-		throw malformed(label, "a relation description of an ordinary relation")
-	}
-	return desc
-}
+): OrdinaryRelationDesc =>
+	orThrow(relationOver(relationName, fields, primaryKey, builderLoc(label, [relationName])))
 
 /**
  * The admission core of relation(...): a JavaScript caller's arguments checked and described, the one path a relation's
@@ -353,7 +344,7 @@ export const admitRelation = (
 ): OrdinaryRelationDesc => {
 	const label = `relation ${typeof name === "string" ? name : "?"}`
 	/**
-	 * The rules of the description (ir/desc.ts relationDescShape) are decodeDesc's: storable names, a field at least,
+	 * The rules of the description (ir/desc.ts relationDescShape) are relationOver's: storable names, a field at least,
 	 * and a nonempty primary key over the relation's own fields. The builder checks only what it reads before then: the
 	 * name its location is built from, its arity, and the descriptors, which only a builder made.
 	 */

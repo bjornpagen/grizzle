@@ -1841,11 +1841,17 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 /** The integer types a sequence draws: smallint, integer and bigint. */
 const serialTypes: ReadonlyArray<PgScalarName> = ["smallint", "integer", "bigint"]
 
+/** Whether a field's declaration is no serial or a serial of an integer type, which its sequence draws. */
+const serialDrawn = (d: FieldDecl): boolean =>
+	d.writing.kind !== "serial" || (d.type.kind === "pg" && serialTypes.includes(d.type.type))
+
+const serialCapability = "a serial field of smallint, integer or bigint, which its sequence draws"
+
 /** A serial field is of an integer type, which its sequence draws. */
 const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
 	S.struct({ type: fieldDescShape, writing: writingShape }),
-	(d) => d.writing.kind !== "serial" || (d.type.kind === "pg" && serialTypes.includes(d.type.type)),
-	"a serial field of smallint, integer or bigint, which its sequence draws"
+	serialDrawn,
+	serialCapability
 )
 
 /**
@@ -1957,6 +1963,13 @@ const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
 	})
 
 /** A relation description's shape, a closed relation's decoded as written, its rows not admitted. */
+const atLeastOneField = "a relation with at least one field"
+
+const primaryKeyShape = S.nonEmptyUniqueStrings("primary key fields")
+
+const keyOverOwnFields =
+	"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
+
 const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 	S.tagged("kind", {
 		relation: S.located(
@@ -1967,14 +1980,14 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 						fields: S.refine(
 							S.recordShape(fieldDeclShape, name),
 							(f) => Object.keys(f).length > 0,
-							"a relation with at least one field"
+							atLeastOneField
 						),
-						primaryKey: S.nonEmptyUniqueStrings("primary key fields")
+						primaryKey: primaryKeyShape
 					},
 					loc
 				),
 				(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
-				"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
+				keyOverOwnFields
 			)
 		),
 		closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
@@ -2275,6 +2288,58 @@ const subjects: Readonly<Record<DescKind, string>> = {
  */
 export const builtNode = <N extends Located>(node: N): N =>
 	Object.freeze({ ...node, loc: S.keptLoc(node.loc) })
+
+/**
+ * An ordinary relation's Description over its declared name and its fields' declarations, each a registered
+ * descriptor's decoded type and its writing: the relation's own parts, its fields' names and its caller's primary key,
+ * held as a decode of the whole relation holds them, with its refusals at its paths (each field name a declared name,
+ * a serial field of an integer type, a field at least, a primary key of distinct names of its own key-writing fields),
+ * and the declarations as they are.
+ */
+export const relationOver = (
+	relationName: string,
+	fields: Readonly<Record<string, FieldDecl>>,
+	primaryKey: unknown,
+	at: SourceLoc
+): Result.Result<Extract<RelationDesc, { readonly kind: "relation" }>, CompileError> =>
+	Result.map(
+		S.decodeWith(
+			S.refine(
+				S.struct({
+					fields: S.refine(
+						S.recordShape(
+							S.refine(S.boolean, (drawn) => drawn, serialCapability),
+							name
+						),
+						(f) => Object.keys(f).length > 0,
+						atLeastOneField
+					),
+					primaryKey: primaryKeyShape
+				}),
+				(r) => r.primaryKey.every((f) => keyWriting(fields[f])),
+				keyOverOwnFields
+			),
+			{
+				fields: Object.fromEntries(
+					Object.entries(fields).map(([field, decl]) => [field, serialDrawn(decl)] as const)
+				),
+				primaryKey
+			},
+			subjects.relation
+		),
+		(parts) =>
+			builtNode({
+				kind: "relation",
+				name: relationName,
+				fields: Object.freeze(
+					Object.fromEntries(
+						Object.entries(fields).map(([field, decl]) => [field, Object.freeze(decl)] as const)
+					)
+				),
+				primaryKey: parts.primaryKey,
+				loc: at
+			})
+	)
 
 /**
  * A schema level's Description over parts already decoded: its relations, each closed relation admitted, and its
