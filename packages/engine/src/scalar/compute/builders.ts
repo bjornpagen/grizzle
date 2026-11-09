@@ -105,21 +105,40 @@ const sqlTags: ReadonlySet<string> = new Set<string>(Object.values(carrierSql))
 const isSqlTag = (value: unknown): value is SqlTag =>
 	typeof value === "string" && sqlTags.has(value)
 
-/** A column a descriptor carries, admitted by its kind and its members' kinds. */
+/** A column's conversion as data (core/decoder.ts CellConversion): a carrier's name, a vector's with its dimensions. */
+const isConversionLike = (value: unknown): boolean =>
+	hasProperties(value) &&
+	typeof value["carrier"] === "string" &&
+	(value["carrier"] !== "vector" || Number.isSafeInteger(value["dimensions"]))
+
+/**
+ * A column a descriptor carries (core/decoder.ts Column), admitted by its kind and its members' kinds: a conversion's,
+ * a closed id's over a roster with its handles, a set's over a roster, a text's, a bytes', or a constant's values with
+ * their conversion.
+ */
 const isColumnLike = (value: unknown): value is TermCarrier["column"] => {
 	if (!hasProperties(value)) {
 		return false
 	}
 	switch (value["kind"]) {
 		case "convert":
-			return typeof value["convert"] === "function"
-		case "handle":
-			return isList(value["handles"]) && value["handles"].length > 0
+			return isConversionLike(value["conversion"])
+		case "code":
+			return (
+				typeof value["roster"] === "string" &&
+				isList(value["handles"]) &&
+				value["handles"].length > 0
+			)
+		case "bits":
+			return typeof value["roster"] === "string"
+		case "text":
+		case "bytes":
+			return true
 		case "constant":
 			return (
 				isList(value["values"]) &&
 				value["values"].length > 0 &&
-				typeof value["convert"] === "function"
+				isConversionLike(value["conversion"])
 			)
 		default:
 			return false
