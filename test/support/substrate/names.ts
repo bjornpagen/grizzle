@@ -7,11 +7,18 @@ import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 const word = regex("^[a-z]+(?:_[a-z]+)*$")
 
 /**
- * An allocated schema name: a label word, then the allocating pid, the allocation's number and 32 random bits, each in
- * decimal, the random bits zero-padded to ten digits. Its digit runs are segments of their own, so the name is its own
- * conversion at the naming door (core/identity.ts) and its own installed schema, and every login's and role's
- * PostgreSQL role and each role's schema the door mints under it is `<name>__<name>`; the label holds no digit, so the
- * first digit run is the pid, whatever follows the allocation.
+ * The segment every allocated schema name leads with, the substrate's own, as `gz_` leads the names of its databases.
+ * No label leads an allocation, so none starts with `pg_`, which the naming door refuses in a schema's name
+ * (core/identity.ts parseSchemaName), whatever word a test labels it with.
+ */
+const allocationLead = "gz"
+
+/**
+ * An allocated schema name: the lead (allocationLead), a label word, then the allocating pid, the allocation's number
+ * and 32 random bits, each in decimal, the random bits zero-padded to ten digits. Its digit runs are segments of their
+ * own, so the name is its own conversion at the naming door (core/identity.ts) and its own installed schema, and every
+ * login's and role's PostgreSQL role and each role's schema the door mints under it is `<name>__<name>`; the lead and
+ * the label hold no digit, so the first digit run is the pid, whatever follows the allocation.
  */
 const allocation = regex("^[a-z]+(?:_[a-z]+)*_([0-9]+)_[0-9]+_[0-9]{10}(?:_|$)")
 
@@ -27,7 +34,7 @@ export const randomHex = (bytes: number): string =>
 	Hex.encode(crypto.getRandomValues(new Uint8Array(bytes)))
 
 /**
- * `gzs_<pid>_<n>_<random>`: the pid and the allocation's number, which its substrate counts, separate allocations
+ * `gz_gzs_<pid>_<n>_<random>`: the pid and the allocation's number, which its substrate counts, separate allocations
  * within this machine, and the 32 random bits separate processes whose pids were reused after a crash that skipped the
  * finalizers. The label of a schema a test names by no label of its own.
  */
@@ -39,13 +46,14 @@ export const defaultSchemaLabel = "gzs"
  * Roles are cluster-wide and several test processes share one cluster, so every pg or schedules test allocates a
  * unique schema name, the declared name its fixture is installed under, and every role the installation or the test
  * creates starts with rolePrefix(name). `allocationNumber` is the allocation's number, which its substrate counts, so
- * no two allocations of one substrate share a name.
+ * no two allocations of one substrate share a name. Every name it makes is one the naming door admits for a schema:
+ * the word rule admits the label, the lead keeps it off `pg_`, and assertIdentifier holds it within maxIdentifierBytes.
  */
 export const uniqueSchemaName = (label: string, allocationNumber: number): string => {
 	if (!word.test(label)) {
 		throw new Error(`schema label ${Formatter.format(label)} is not a lowercase letter word`)
 	}
-	const name = `${label}_${process.pid}_${allocationNumber}_${random32()}`
+	const name = `${allocationLead}_${label}_${process.pid}_${allocationNumber}_${random32()}`
 	assertIdentifier(name)
 	return name
 }

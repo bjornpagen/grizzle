@@ -35,7 +35,7 @@ import { parseVerboseError } from "#test/support/substrate/psql.ts"
  * The database-free parts of the native PG test substrate, each against a model:
  *
  * - Names. A schema label and a role name are lowercase ASCII letter words joined by single underscores; an allocated
- *   schema name is `<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
+ *   schema name is `gz_<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
  *   schema minted under it starts with its prefix, so the global setup reads the allocating process off any of them
  *   and sweeps a dead one's; no name past maxIdentifierBytes is ever made, so PostgreSQL never cuts one. The oracle is
  *   the generator's own words, each drawn whole or with a fault planted, and the byte count of the name they spell.
@@ -252,7 +252,20 @@ describe("substrate names", () => {
 							],
 							{ cases: 600, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "a label pg: its allocation is a schema name the naming door admits, which pg_ never leads",
+								sketch: {
+									label: { text: "pg", fault: Option.none() },
+									allocation: 0,
+									role: { text: "a", fault: Option.none() },
+									unallocated: "a_1_3",
+									identifier: { text: Str.repeat(62)("a"), fault: Option.none() }
+								},
+								draws: "",
+								reaches: ["allocated", "a role named"]
+							}
+						],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -283,7 +296,7 @@ describe("substrate names", () => {
 							)
 							c.note("no allocation")
 							const bytes = Buffer.byteLength(
-								`${label.text}_${process.pid}_${allocation}_0000000000`
+								`gz_${label.text}_${process.pid}_${allocation}_0000000000`
 							)
 							const fits = bytes <= maxIdentifierBytes.value
 							const made = Result.try(() => uniqueSchemaName(label.text, allocation))
