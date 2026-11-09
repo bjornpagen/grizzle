@@ -2002,8 +2002,8 @@ const compile = (
 		const removing = by(["put", "delete"])
 		/** Each refilled member's starts: every way's, all of one kind, a put's or an edit's of one relation the stratum
 		 * puts or deletes, or none where its ways mix them, which the family planner refills on the host. */
-		const startsOf = (refills: ReadonlyArray<PlainRefill>) => {
-			const starts = refills.flatMap((r) => r.ways.map((way) => way.root))
+		const startsOf = (member: ReadonlyArray<PlainRefill>) => {
+			const starts = member.flatMap((r) => r.ways.map((way) => way.root))
 			const [first, ...rest] = starts
 			if (first === undefined) {
 				return undefined
@@ -2019,7 +2019,9 @@ const compile = (
 				: undefined
 		}
 		const starts = new Map(
-			[...refilled].map(([member, refills]) => [member, startsOf(refills)] as const)
+			[...refilled].map(
+				([member, refilledFamilies]) => [member, startsOf(refilledFamilies)] as const
+			)
 		)
 		if ([...starts.values()].some((x) => x === undefined)) {
 			return undefined
