@@ -164,11 +164,11 @@ export interface NativeViolation {
 	readonly laws: NonEmptyReadonlyArray<LawId>
 	readonly timing: Deferral
 	/** A key's duplicates: each pair of its table's rows it holds equal, by their places among the state's rows. */
-	readonly duplicates: ReadonlyArray<Duplicate>
+	readonly duplicates: ReadonlyArray<NativeDuplicate>
 }
 
 /** Two rows of a relation a key holds equal, by their places among the state's rows of it, the first earlier. */
-export interface Duplicate {
+export interface NativeDuplicate {
 	readonly relation: string
 	readonly first: number
 	readonly second: number
@@ -641,7 +641,7 @@ const generatedRows = (
 /** What a state does to a constraint: it holds, or the state breaks it, with a key's duplicates. */
 type Checked =
 	| { readonly kind: "holds" }
-	| { readonly kind: "broken"; readonly duplicates: ReadonlyArray<Duplicate> }
+	| { readonly kind: "broken"; readonly duplicates: ReadonlyArray<NativeDuplicate> }
 
 const holds: Checked = { kind: "holds" }
 const brokenIf = (broken: boolean): Checked => (broken ? { kind: "broken", duplicates: [] } : holds)
@@ -651,7 +651,7 @@ const pairsOf = (
 	relation: string,
 	rows: ReadonlyArray<Generated>,
 	same: (a: Generated, b: Generated) => boolean
-): ReadonlyArray<Duplicate> =>
+): ReadonlyArray<NativeDuplicate> =>
 	Arr.flatMap(rows, (b, second) =>
 		Arr.flatMap(rows.slice(0, second), (a, first) =>
 			same(a, b) ? [{ relation, first, second }] : []

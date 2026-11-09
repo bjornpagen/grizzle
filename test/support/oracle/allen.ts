@@ -231,14 +231,14 @@ const atomTruth = (a: HalfOpen, b: HalfOpen): number => {
 }
 
 /** A range literal with explicit bound forms, '[' or '(' then lower, upper, then ']' or ')'. */
-export interface Spelling {
+export interface RangeSpelling {
 	readonly lowerInc: boolean
 	readonly lo: bigint
 	readonly hi: bigint
 	readonly upperInc: boolean
 }
 
-export const spellingText = (s: Spelling): string =>
+export const spellingText = (s: RangeSpelling): string =>
 	`${s.lowerInc ? "[" : "("}${s.lo},${s.hi}${s.upperInc ? "]" : ")"}`
 
 /** What PostgreSQL makes of a literal: the stored span, the empty range, or the SQLSTATE it raises. */
@@ -252,7 +252,7 @@ export type Canonical =
  * int4range_canonical / int8range_canonical then make the lower bound inclusive and the upper exclusive, raising
  * 22003 when the adjustment leaves the type, and serialize again, which can yield the empty range.
  */
-export const canonicalize = (type: RangeType, s: Spelling): Canonical => {
+export const canonicalize = (type: RangeType, s: RangeSpelling): Canonical => {
 	const { min, max } = rangeLimits[type]
 	if (s.lo < min || s.lo > max || s.hi < min || s.hi > max) {
 		return { kind: "error", sqlstate: "22003" }
@@ -287,9 +287,9 @@ export const canonicalize = (type: RangeType, s: Spelling): Canonical => {
  * The spellings of one span besides its canonical '[a,b)': '[a,b-1]', '(a-1,b-1]' and '(a-1,b)', each where it is a
  * valid literal of the type.
  */
-const alternateSpellings = (type: RangeType, span: HalfOpen): ReadonlyArray<Spelling> => {
+const alternateSpellings = (type: RangeType, span: HalfOpen): ReadonlyArray<RangeSpelling> => {
 	const { min } = rangeLimits[type]
-	const out: Array<Spelling> = [
+	const out: Array<RangeSpelling> = [
 		{ lowerInc: true, lo: span.lo, hi: span.hi, upperInc: false },
 		{ lowerInc: true, lo: span.lo, hi: span.hi - 1n, upperInc: true }
 	]
@@ -347,7 +347,7 @@ export const compareSpans = (a: HalfOpen, b: HalfOpen): -1 | 0 | 1 =>
  * The spellings the universe is read from: every span of the window and the type's limits (and, for int8range, the
  * int4 limits too, which are ordinary int8 values) in each of its spellings.
  */
-export const universeSpellings = (type: RangeType): ReadonlyArray<Spelling> => {
+export const universeSpellings = (type: RangeType): ReadonlyArray<RangeSpelling> => {
 	const spans = [
 		...windowSpans(),
 		...limitSpans("int4range"),
@@ -373,9 +373,9 @@ export const universe = (type: RangeType): ReadonlyArray<HalfOpen> => {
  * Literals around the window, valid or not, for checking the host's canonicalization against PostgreSQL's: every
  * bound form over a pair of endpoints in [-4, 9], and the limit spellings that overflow or empty.
  */
-export const canonicalizationSurvey = (type: RangeType): ReadonlyArray<Spelling> => {
+export const canonicalizationSurvey = (type: RangeType): ReadonlyArray<RangeSpelling> => {
 	const { min, max } = rangeLimits[type]
-	const out: Array<Spelling> = []
+	const out: Array<RangeSpelling> = []
 	const forms = [
 		[true, false],
 		[true, true],
