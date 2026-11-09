@@ -5,6 +5,7 @@ import {
 	canonicalFormat,
 	type EncodeOptions,
 	encode,
+	encodeOver,
 	everyProperty,
 	type Json,
 	omitSourceLocs,
@@ -2461,6 +2462,16 @@ const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 /** The canonical identity text: the canonical serialization without source locations. */
 export const descText = (desc: unknown): Result.Result<string, CompileError> =>
 	encode(desc, identityOptions)
+
+/**
+ * The canonical identity text of `desc`, a plain record each of whose members `written` holds has the identity text it
+ * maps the member to: descText's, those members written from their texts rather than encoded again (core/canonical.ts
+ * encodeOver).
+ */
+export const descTextOver = (
+	desc: unknown,
+	written: ReadonlyMap<string, string>
+): Result.Result<string, CompileError> => encodeOver(desc, identityOptions, written)
 
 declare const contentDigestBrand: unique symbol
 

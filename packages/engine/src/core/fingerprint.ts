@@ -135,10 +135,13 @@ export const schemaLevel = (
 	Result.flatMap(
 		below === undefined
 			? encode(level, withoutSourceLocs)
-			: encodeOver(level, withoutSourceLocs, "extends", below.text),
+			: encodeOver(level, withoutSourceLocs, new Map([["extends", below.text]])),
 		(text) =>
-			Result.map(encodeOver({ content: level }, withoutSourceLocs, "content", text), (content) => ({
-				text: mintLevelText(text),
-				fingerprint: SchemaFingerprint(sha256Hex(`${canonicalFormat}\nschema\n${content}`))
-			}))
+			Result.map(
+				encodeOver({ content: level }, withoutSourceLocs, new Map([["content", text]])),
+				(content) => ({
+					text: mintLevelText(text),
+					fingerprint: SchemaFingerprint(sha256Hex(`${canonicalFormat}\nschema\n${content}`))
+				})
+			)
 	)

@@ -681,24 +681,28 @@ export const encode = (
 ): Result.Result<string, CompileError> => encodeWalk(value, options)
 
 /**
- * The canonical text under `options` of `record`, a plain record whose member `member` has the canonical text `text`
- * under the same options: `encode`'s text of it, with that member written from `text` rather than encoded again. A
- * record that is no plain record is refused as `encode` refuses it. What `options` omits below the member does not
- * read the member's path, so the member's text at the root is its text inside the record.
+ * The canonical text under `options` of `record`, a plain record each of whose members `written` holds has the
+ * canonical text it maps the member to under the same options: `encode`'s text of it, with those members written from
+ * their texts rather than encoded again. A record that is no plain record is refused as `encode` refuses it. What
+ * `options` omits below a member does not read the member's path, so a member's text at the root is its text inside
+ * the record.
  */
 export const encodeOver = (
 	record: unknown,
 	options: EncodeOptions,
-	member: string,
-	text: string
+	written: ReadonlyMap<string, string>
 ): Result.Result<string, CompileError> =>
 	catchRefusal(() => {
 		const sink = new TextSink()
-		new Walk(options, sink).over(record, new Map([[member, text]]), (written) =>
-			sink.written(written)
-		)
+		new Walk(options, sink).over(record, written, (text) => sink.written(text))
 		return sink.text()
 	})
+
+/**
+ * The canonical text of an array whose items have the canonical texts `items`, in order: what `encode` writes of it,
+ * for a text assembled from its parts' (encodeOver).
+ */
+export const arrayText = (items: ReadonlyArray<string>): string => `[${items.join(",")}]`
 
 /** The canonical text's opening bracket of an array. */
 const arrayOpen: unique symbol = Symbol("[")

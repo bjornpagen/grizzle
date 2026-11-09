@@ -33,6 +33,7 @@ import {
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import {
+	arrayText,
 	type Canonicalizable,
 	type CanonicalToken,
 	canonicalEquals,
@@ -371,16 +372,32 @@ describe("the canonical text", () => {
 						assert.deepEqual(succeeded(toJson(permuted, everyProperty)), form)
 						assert.equal(succeeded(encode(permuted, everyProperty)), rfc8785(form))
 						assert.equal(succeeded(writeCanonicalJson(form)), rfc8785(form))
+						if (isList(permuted)) {
+							assert.equal(
+								arrayText(Arr.map(permuted, (item) => succeeded(encode(item, everyProperty)))),
+								rfc8785(form),
+								"the text of the list written from its items' own"
+							)
+						}
 						if (isRecord(permuted) && !(permuted instanceof Exact) && !isList(permuted)) {
-							for (const [k, child] of Rec.toEntries(permuted)) {
+							const texts = new Map(
+								Arr.map(
+									Rec.toEntries(permuted),
+									([k, child]) => [k, succeeded(encode(child, everyProperty))] as const
+								)
+							)
+							for (const [k, text] of texts) {
 								assert.equal(
-									succeeded(
-										encodeOver(permuted, everyProperty, k, succeeded(encode(child, everyProperty)))
-									),
+									succeeded(encodeOver(permuted, everyProperty, new Map([[k, text]]))),
 									rfc8785(form),
 									`the text with member ${k} written from its own`
 								)
 							}
+							assert.equal(
+								succeeded(encodeOver(permuted, everyProperty, texts)),
+								rfc8785(form),
+								"the text with every member written from its own"
+							)
 						}
 					})
 			)
