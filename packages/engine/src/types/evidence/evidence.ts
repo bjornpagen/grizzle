@@ -557,34 +557,18 @@ type NamedValues<St, K> = St extends Fixed<K & string, infer V> ? Named<V> : nev
 
 /**
  * The evidence of a union of an arm or union of evidence Ev1 and heading H1 with an arm of evidence Ev2 and heading H2,
- * as the engine reads a union (logical/props.ts unionProps): a field both fix to one value is fixed in the union, so
- * when every field is, the union is at most one row per binding; and a key of each, joined with the fields the engine
- * keeps of those the two fix to different literals (Kept), which tell their rows apart, is a key of the union. Arms of
- * different headings, whose rows are of several heading groups, are evidence unknown: so is a union whose earlier arms
- * are, read by each record of H1.
+ * as the engine reads a union (logical/props.ts unionProps): a field every arm fixes to one value is fixed in the
+ * union, so the fields the arms do not all fix alike are a key of it, the empty one, at most one row per binding, where
+ * every field is fixed; and a key of each arm, joined with the separators the engine keeps (Kept), which tell every two
+ * arms' rows apart, is a key of the union. The union reads every arm at once, as the engine does, so it carries its
+ * arms (UnionArm). Arms of different headings, whose rows are of several heading groups, are evidence unknown: so is a
+ * union whose earlier arms are, read by each record of H1.
  */
 export type UnionEvidence<Ev1, Ev2, H1, H2> = false extends (
 	H1 extends unknown ? (H2 extends unknown ? SameValue<keyof H1, keyof H2> : never) : never
 )
 	? Evidence.Unknown
-	: UnionWithTold<
-			ValuesOf<Ev1>,
-			ValuesOf<Ev2>,
-			keyof H2 & string,
-			KeyMembers<Ev1>,
-			KeyMembers<Ev2>,
-			Ev1,
-			Told<Ev1, Separators<ValuesOf<Ev1>, ValuesOf<Ev2>>>
-		>
-type UnionWithTold<V1, V2, F extends string, K1, K2, Ev1, T> = UnionOf<
-	V1,
-	V2,
-	F,
-	K1,
-	K2,
-	T,
-	Kept<Ev1, T>
->
+	: UnionOf<ValuesOf<Ev1>, ValuesOf<Ev2>, keyof H2 & string, UnionArmsOf<Ev1, Ev2>>
 type ValuesOf<Ev> = Ev extends { readonly values: infer V } ? V : object
 /** An evidence's keys, each a KeyOver, none where they are unknown. */
 type KeyMembers<Ev> = Ev extends { readonly keys: infer K }
@@ -595,46 +579,122 @@ type KeyMembers<Ev> = Ev extends { readonly keys: infer K }
 			: never
 	: never
 
-type UnionOf<V1, V2, F extends string, K1, K2, T, Sep> = UnionWith<
+/** One arm of a union, as the union reads every arm at once: the values it fixes its fields to, and its keys. */
+interface UnionArm<out V, out K> {
+	readonly values: V
+	readonly keys: K
+}
+type ArmOf<Ev> = UnionArm<ValuesOf<Ev>, KeyMembers<Ev>>
+
+/** The arms of a union of Ev1, an arm or a union, with the arm Ev2, in order. */
+type UnionArmsOf<Ev1, Ev2> = Ev1 extends { readonly arms: infer A extends ReadonlyArray<unknown> }
+	? readonly [...A, ArmOf<Ev2>]
+	: readonly [ArmOf<Ev1>, ArmOf<Ev2>]
+
+type UnionOf<V1, V2, F extends string, Arms extends ReadonlyArray<unknown>> = UnionWith<
 	Alike<V1, V2>,
 	F,
-	| ([Exclude<F, keyof Alike<V1, V2>>] extends [never] ? KeyOver<never> : never)
-	| TellApart<K1, K2, Sep>,
-	T
+	KeyOver<Exclude<F, keyof Alike<V1, V2>>> | KeysBeside<Arms, Kept<Arms>>,
+	Arms
 >
 
 /**
- * The union's keys: its whole heading, the empty key when every field is fixed alike, and the keys told apart; and the
- * fields that tell every two of its arms apart (Told), false where some two are told apart by none, which a further arm
- * reads.
+ * The union's keys: its whole heading; the fields its arms do not all fix alike, since a union is a set whose rows agree
+ * on the rest, the empty key where every field is; and the keys told apart. And its arms, which a further arm reads.
  */
-type UnionWith<A, F extends string, Keys, T> = {
+type UnionWith<A, F extends string, Keys, Arms> = {
 	readonly keys: [Keys] extends [never]
 		? readonly [KeyOver<F>]
 		: readonly [KeyOver<F>, ...ReadonlyArray<Keys>]
 	readonly card: [Exclude<F, keyof A>] extends [never] ? "atMostOne" : "many"
-	readonly toldApart: [T] extends [never] ? false : T
+	readonly arms: Arms
 } & ValuesPart<A>
 
-/**
- * The fields that tell every two arms of a union apart, Sep those that tell its last arm from the earlier ones: Sep, of
- * two arms; with the earlier arms' own, of more; none where some two are told apart by none.
- */
-type Told<Ev1, Sep> = [Sep] extends [never]
-	? never
-	: Ev1 extends { readonly toldApart: infer Earlier }
-		? [Earlier] extends [false]
-			? never
-			: (Earlier & string) | Sep
-		: Sep
+/** The fields both fix to one value, a name they share, with every name they share. */
+type Alike<V1, V2> = {
+	readonly [
+		K in keyof V1 & keyof V2 as [Extract<V1[K], V2[K]>] extends [never] ? never : K
+	]: Extract<V1[K], V2[K]>
+}
+type SameValue<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+
+/** The one literal an arm's values fix field K to: none where they fix it to no literal or to two, which no row holds. */
+type LiteralAt<V, K> = K extends keyof V
+	? IsSingle<Extract<V[K], Literal>> extends true
+		? Extract<V[K], Literal>
+		: never
+	: never
+
+/** The fields an arm's values fix to one literal each. */
+type LiteralFields<V> = {
+	[K in keyof V]-?: [LiteralAt<V, K>] extends [never] ? never : K
+}[keyof V] &
+	string
+
+/** The separators of a union: the fields every arm fixes to one literal, as the engine reads them. */
+type SeparatorsOf<Arms> = Arms extends readonly [infer A, ...infer Rest]
+	? A extends UnionArm<infer V, unknown>
+		? LiteralFields<V> & SeparatorsOf<Rest>
+		: never
+	: string
+
+/** The positions of a union's arms. */
+type Positions<Arms> = keyof Arms & `${number}`
+
+/** Every ordered pair of two arms, `i:j`. */
+type PairsOf<Arms> = {
+	[I in Positions<Arms>]: {
+		[J in Positions<Arms>]: I extends J ? never : `${I}:${J}`
+	}[Positions<Arms>]
+}[Positions<Arms>]
+
+/** The separators the literals of two arms differ at, each a column telling their rows apart. */
+type Telling<
+	Arms,
+	P,
+	S extends string
+> = P extends `${infer I extends keyof Arms & string}:${infer J extends keyof Arms & string}`
+	? Arms[I] extends UnionArm<infer VI, unknown>
+		? Arms[J] extends UnionArm<infer VJ, unknown>
+			? { [C in S]: SameValue<LiteralAt<VI, C>, LiteralAt<VJ, C>> extends true ? never : C }[S]
+			: never
+		: never
+	: never
+
+/** Each pair of arms with the separators telling it apart. */
+type PairTable<Arms, S extends string> = { readonly [P in PairsOf<Arms>]: Telling<Arms, P, S> }
 
 /**
- * The fields a union's told-apart keys hold beside its arms' keys, of those that tell its arms apart (Told): of two
- * arms, the first in code unit order, a heading's order, the one the engine keeps (logical/props.ts unionProps, which
- * keeps the separators first in heading order); of more, all of them, among which lie the ones the engine keeps, since
- * a type cannot run its search over every two arms.
+ * The separators the engine keeps (logical/props.ts unionProps): of the separators in heading order, code unit order,
+ * each dropped from the end while the rest still tell every two arms apart. That keeps a separator exactly where some
+ * pair's first separator it is, and no separator kept after it tells that pair apart, so it runs once over the
+ * separators from the last, by each pair's first (FirstName): none where some two arms no separator tells apart.
  */
-type Kept<Ev1, T> = Ev1 extends { readonly toldApart: unknown } ? T : FirstName<T & string>
+type Kept<Arms> = KeptOver<PairTable<Arms, SeparatorsOf<Arms>>, PairsOf<Arms>, SeparatorsOf<Arms>>
+type KeptOver<Table, Pairs extends keyof Table, S extends string> = [
+	{ [P in Pairs]: [Table[P]] extends [never] ? P : never }[Pairs]
+] extends [never]
+	? KeptFrom<
+			Descending<S, "", readonly []>,
+			{ readonly [P in Pairs as FirstName<Table[P] & string>]: P },
+			{ readonly [P in Pairs as Table[P] & string]: P },
+			never,
+			never
+		>
+	: never
+
+/**
+ * The separators kept, Names from the last: one is kept where a pair whose first separator it is is not yet told apart
+ * by a kept one, and keeping it tells apart every pair it separates.
+ */
+type KeptFrom<Names, ByFirst, BySeparator, Told, Chosen> = Names extends readonly [
+	infer N extends string,
+	...infer Rest
+]
+	? [Exclude<ByFirst[N & keyof ByFirst], Told>] extends [never]
+		? KeptFrom<Rest, ByFirst, BySeparator, Told, Chosen>
+		: KeptFrom<Rest, ByFirst, BySeparator, Told | BySeparator[N & keyof BySeparator], Chosen | N>
+	: Chosen
 
 /**
  * The first of the declared names U in code unit order (core/order.ts compareStrings): the names beginning with the
@@ -652,38 +712,57 @@ type FirstFrom<U extends string, Order extends string> = Order extends `${infer 
 		: `${C}${FirstName<U extends `${C}${infer Tail}` ? Tail : never>}`
 	: never
 
-/** The fields both fix to one value, a name they share, with every name they share. */
-type Alike<V1, V2> = {
-	readonly [
-		K in keyof V1 & keyof V2 as [Extract<V1[K], V2[K]>] extends [never] ? never : K
-	]: Extract<V1[K], V2[K]>
-}
-type SameValue<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 /**
- * The fields each fixes to one literal, the two different: an arm whose names hold two literals at a field holds no row,
- * and tells nothing apart there.
+ * The declared names U, the last in code unit order first: by their first characters from the last, each group's longer
+ * names before the one character alone, each name behind the prefix P its walk came down by. A walk of their
+ * characters, linear in the names' length.
  */
-type Separators<V1, V2> = {
-	[K in keyof V1 & keyof V2]-?: IsSingle<Extract<V1[K], Literal>> extends true
-		? IsSingle<Extract<V2[K], Literal>> extends true
-			? SameValue<Extract<V1[K], Literal>, Extract<V2[K], Literal>> extends true
-				? never
-				: K
+type Descending<
+	U extends string,
+	P extends string,
+	Done extends ReadonlyArray<string>
+> = DescendingFrom<U, "zyxwvutsrqponmlkjihgfedcba_ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210", Done, P>
+type DescendingFrom<
+	U extends string,
+	Order extends string,
+	Done extends ReadonlyArray<string>,
+	P extends string
+> = [U] extends [never]
+	? Done
+	: Order extends `${infer C}${infer Rest}`
+		? Descending<
+				Exclude<U extends `${C}${infer Tail}` ? Tail : never, "">,
+				`${P}${C}`,
+				Done
+			> extends infer Longer extends ReadonlyArray<string>
+			? DescendingFrom<
+					Exclude<U, `${C}${string}`>,
+					Rest,
+					C extends U ? readonly [...Longer, `${P}${C}`] : Longer,
+					P
+				>
 			: never
-		: never
-}[keyof V1 & keyof V2]
+		: Done
 
-/**
- * Each key of one with each key of the other and the kept separators Sep: a key of both whose rows the separators tell
- * apart.
- */
-type TellApart<K1, K2, Sep> = [Sep] extends [never]
+/** One key of each arm, together, with the kept separators T: a key of the union, every such combination. */
+type KeysBeside<Arms, T> = [T] extends [never]
 	? never
-	: K1 extends ReadonlyArray<infer A>
-		? K2 extends ReadonlyArray<infer B>
-			? KeyOver<(A & string) | (B & string) | (Sep & string)>
+	: CrossOf<Arms> extends infer C
+		? C extends readonly [infer F]
+			? KeyOver<(F & string) | (T & string)>
 			: never
 		: never
+type CrossOf<Arms> = Arms extends readonly [infer A, ...infer Rest]
+	? A extends UnionArm<unknown, infer K>
+		? K extends ReadonlyArray<infer F>
+			? CrossOf<Rest> extends infer R
+				? R extends readonly [infer G]
+					? readonly [F | G]
+					: never
+				: never
+			: never
+		: never
+	: readonly [never]
 
 /** A wrapped key as the key over its fields. */
 type KeyOf<K> = K extends readonly [infer F] ? KeyOver<F & string> : never

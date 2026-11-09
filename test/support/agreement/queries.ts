@@ -315,6 +315,7 @@ export type AgreementNote =
 	| "a keyed get of a closed relation"
 	| "a keyed get of a roster"
 	| "a union lookup pinned by one of several separators"
+	| "a union of three rules looked up and pinned"
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -2002,15 +2003,20 @@ const headOver = (
 }
 
 /** A union's second arm: the first's, with its parameters renamed and, under a discriminant, each arm told apart. */
-const secondArm = (arm: RuleSpec): RuleSpec => ({ ...arm, ...renamed(arm) })
+/** A twin of an arm, its parameters, row list and stages named with the suffix `b` or `c`, as the union's second or third. */
+const twinArm = (arm: RuleSpec, suffix: "b" | "c"): RuleSpec => ({
+	...arm,
+	...renamed(arm, suffix)
+})
 
 const renamed = (
-	arm: RuleSpec
+	arm: RuleSpec,
+	suffix: "b" | "c"
 ): Pick<RuleSpec, "matches" | "filters" | "flagged" | "head" | "rows" | "owned" | "stages"> => {
 	const term = (t: Term): Term => {
 		switch (t.kind) {
 			case "param":
-				return { ...t, name: `${t.name}b` }
+				return { ...t, name: `${t.name}${suffix}` }
 			case "arith":
 				return { ...t, a: term(t.a), b: term(t.b) }
 			case "neg":
@@ -2071,12 +2077,71 @@ const renamed = (
 					? { kind: "either", ifTrue: pred(arm.flagged.ifTrue), ifFalse: pred(arm.flagged.ifFalse) }
 					: { kind: "spread", p: pred(arm.flagged.p) },
 		head: Arr.map(arm.head, ([n, h]) => [n, head(h)] as const),
-		rows: arm.rows === undefined ? undefined : { ...arm.rows, name: `${arm.rows.name}b` },
+		rows: arm.rows === undefined ? undefined : { ...arm.rows, name: `${arm.rows.name}${suffix}` },
 		owned: Arr.map(arm.owned, (o) =>
 			o.kind === "bound" ? { kind: "bound", owner: term(o.owner) } : o
 		),
-		stages: Arr.map(arm.stages, (o) => (o.kind === "param" ? { ...o, name: `${o.name}b` } : o))
+		stages: Arr.map(arm.stages, (o) =>
+			o.kind === "param" ? { ...o, name: `${o.name}${suffix}` } : o
+		)
 	}
+}
+
+/**
+ * The fields a union of constants holds, each of one kind in every rule, drawn as one of their nonempty sets: their
+ * code unit order, b, d, h0, is no order they are drawn or written in.
+ */
+const constantFieldSets: Arr.NonEmptyReadonlyArray<
+	Arr.NonEmptyReadonlyArray<readonly [string, "text" | "handle"]>
+> = [
+	[["d", "text"]],
+	[["h0", "handle"]],
+	[["b", "text"]],
+	[
+		["d", "text"],
+		["h0", "handle"]
+	],
+	[
+		["d", "text"],
+		["b", "text"]
+	],
+	[
+		["h0", "handle"],
+		["b", "text"]
+	],
+	[
+		["d", "text"],
+		["h0", "handle"],
+		["b", "text"]
+	]
+]
+
+/** Item's key field, which a rule of a union of constants matches Item by. */
+const itemId: Var = { field: Arr.headNonEmpty(fieldsOf.Item), copy: 0 }
+
+/**
+ * A union of two or three rules over Item whose heads hold only constants, each drawn of three values of its field's
+ * kind: every rule is at most one fact, so the union's keys are the separators the engine keeps among its fields
+ * (logical/props.ts unionProps), told apart over every two rules at once, three values letting one field tell three
+ * rules apart where another tells only some of them.
+ */
+const constantUnion = (d: Drawing): Arr.NonEmptyReadonlyArray<RuleSpec> => {
+	const fields = d.from(constantFieldSets)
+	const arm = (): RuleSpec => ({
+		matches: [{ rel: "Item", copy: 0, bindings: [["id", { kind: "var", v: itemId }]] }],
+		filters: [],
+		flagged: undefined,
+		head: Arr.map(fields, ([name, kind]): readonly [string, HeadTerm] =>
+			kind === "text"
+				? [name, { kind: "literal", value: d.from(["x", "y", "z"]) }]
+				: [name, { kind: "term", t: { kind: "handle", value: d.from([0, 1, 2]) } }]
+		),
+		rows: undefined,
+		owned: [],
+		stages: [],
+		spellings: []
+	})
+	return d.from([2, 3]) === 2 ? [arm(), arm()] : [arm(), arm(), arm()]
 }
 
 const discriminated = (arm: RuleSpec, value: HeadTerm): RuleSpec => ({
@@ -2084,30 +2149,37 @@ const discriminated = (arm: RuleSpec, value: HeadTerm): RuleSpec => ({
 	head: [...arm.head, ["d", value]]
 })
 
-/**
- * A union's two discriminants of Tone: the first arm's a handle, the second arm's a handle or its member's JavaScript
- * value, which the first arm's closed id types.
- */
-const handleDiscriminants = (d: Drawing): readonly [HeadTerm, HeadTerm] => [
-	{ kind: "term", t: { kind: "handle", value: 0 } },
+/** A discriminant of Tone after a union's first: Tone's member `value`, as a handle or as its JavaScript value. */
+const laterHandle = (d: Drawing, value: number): HeadTerm =>
 	d.from([0, 1]) === 0
-		? { kind: "term", t: { kind: "handle", value: 1 } }
-		: { kind: "literal", value: toneOf(1) }
+		? { kind: "term", t: { kind: "handle", value } }
+		: { kind: "literal", value: toneOf(value) }
+
+/**
+ * A union's discriminants of Tone, one per arm: the first arm's a handle, each later arm's a handle or its member's
+ * JavaScript value, which the first arm's closed id types.
+ */
+const handleDiscriminants = (d: Drawing, three: boolean): Arr.NonEmptyReadonlyArray<HeadTerm> => [
+	{ kind: "term", t: { kind: "handle", value: 0 } },
+	laterHandle(d, 1),
+	...(three ? [laterHandle(d, 2)] : [])
 ]
 
-/** A union's two discriminants as JavaScript values. */
-const literalDiscriminants: readonly [HeadTerm, HeadTerm] = [
+/** A union's discriminants as JavaScript values, one per arm. */
+const literalDiscriminants = (three: boolean): Arr.NonEmptyReadonlyArray<HeadTerm> => [
 	{ kind: "literal", value: "a" },
-	{ kind: "literal", value: "b" }
+	{ kind: "literal", value: "b" },
+	...(three ? [{ kind: "literal", value: "c" } as const] : [])
 ]
 
 /**
- * The query a drawing draws: a rule, a union of it with its renamed twin or with a rule of its own heading, and a take
- * that closes it. A handle discriminant is drawn first, so a case that keeps it is a discriminated union whatever the
- * union's own gates draw. A pinned self-join is no union's arm, so its get is proved whatever the rest of the case
- * draws. A union of two headings is discriminated, its second arm's fields named apart from the first's, but where the
- * case plants unionTypes, which names them as the first's. A faulted case's query is one rule, so its fault stands
- * once, but for unionTypes, whose fault is its second arm.
+ * The query a drawing draws: a rule, a union of it with its renamed twin, two twins or a rule of its own heading, or in
+ * its place a union of constants (constantUnion), a quarter of a plain case's draws; and a take that closes it. A
+ * handle discriminant is drawn first, so a case that keeps it is a discriminated union whatever the union's own gates
+ * draw. A pinned self-join is no union's arm, so its get is proved whatever the rest of the case draws. A union of two
+ * headings is discriminated, its second arm's fields named apart from the first's, but where the case plants
+ * unionTypes, which names them as the first's. A faulted case's query is one rule, so its fault stands once, but for
+ * unionTypes, whose fault is its second arm.
  */
 const drawQuery = (d: Drawing): QuerySpec => {
 	const search =
@@ -2116,27 +2188,34 @@ const drawQuery = (d: Drawing): QuerySpec => {
 		(d.fault === "clean" && d.keep("nearest"))
 	const { rule: first, pinned } = drawRule(d, "h", "rows", search)
 	const plain = d.fault === "clean" && !pinned && !search
-	const handled = plain && d.keep("handleDiscriminant")
+	const constants = plain && d.from([0, 1, 2, 3]) === 0
+	const handled = plain && !constants && d.keep("handleDiscriminant")
 	if (handled) {
 		d.note("union")
 		d.note("discriminant")
 	}
-	const heterogeneous = d.fault === "unionTypes" || (plain && d.keep("heterogeneous"))
-	const union = handled || heterogeneous || (plain && d.keep("union"))
+	const heterogeneous = d.fault === "unionTypes" || (plain && !constants && d.keep("heterogeneous"))
+	const union = handled || heterogeneous || (plain && !constants && d.keep("union"))
+	const three = union && !heterogeneous && d.from([0, 1]) === 1
 	const tagged = handled
-		? handleDiscriminants(d)
+		? handleDiscriminants(d, three)
 		: heterogeneous || (union && d.keep("discriminant"))
-			? literalDiscriminants
+			? literalDiscriminants(three)
 			: undefined
 	const second = (): RuleSpec =>
 		heterogeneous
 			? drawRule(d, d.fault === "unionTypes" ? "h" : "g", "rowsb", false).rule
-			: secondArm(first)
-	const arms: Arr.NonEmptyReadonlyArray<RuleSpec> = union
-		? tagged !== undefined
-			? [discriminated(first, tagged[0]), discriminated(second(), tagged[1])]
+			: twinArm(first, "b")
+	const rules: Arr.NonEmptyReadonlyArray<RuleSpec> = union
+		? three
+			? [first, second(), twinArm(first, "c")]
 			: [first, second()]
 		: [first]
+	const arms = constants
+		? constantUnion(d)
+		: tagged === undefined
+			? rules
+			: Arr.map(rules, (rule, i) => discriminated(rule, Arr.getUnsafe(tagged, i)))
 	const hiding = d.fault === "orderHidden"
 	const take = hiding
 		? 1
@@ -3649,11 +3728,11 @@ interface AgreementCase {
 }
 
 /**
- * A lookup of an admitted union of one heading by one field both its rules fix to a constant, a separator where the two
+ * A lookup of an admitted union of one heading by one field all its rules fix to a constant, a separator where the
  * constants differ: the field, the first rule's constant as the program writes it, and the engine's card of the query
- * matching the union with that field bound to it. A union is keyed by its rules' keys beside the separator the engine
- * keeps, the first in heading order, so a lookup by that one is pinned where the rules are and a lookup by any other
- * is not, which the types must state alike.
+ * matching the union with that field bound to it. A union is keyed by its rules' keys beside the separators the engine
+ * keeps, so a lookup by those is pinned where the rules are and a lookup by any other is not, which the types must
+ * state alike.
  */
 interface Lookup {
 	readonly field: string
@@ -3712,14 +3791,13 @@ const constantOf = (h: HeadTerm): Option.Option<unknown> => {
 }
 
 /**
- * The lookups of an admitted union of two rules of one heading, no parameter, no flag, take or search: one per field
- * both rules fix to a constant, a box over them, each compiled by the engine. Every other query has none.
+ * The lookups of an admitted union of rules of one heading, no parameter, no flag, take or search: one per field every
+ * rule fixes to a constant, a box over them, each compiled by the engine. Every other query has none.
  */
 const lookupsOf = (spec: QuerySpec, params: string): ReadonlyArray<Lookup> => {
-	const [first, second] = spec.arms
+	const [first, ...later] = spec.arms
 	if (
-		second === undefined ||
-		spec.arms.length !== 2 ||
+		!Arr.isReadonlyArrayNonEmpty(later) ||
 		params !== "unknown" ||
 		spec.take !== undefined ||
 		spec.nearest !== undefined ||
@@ -3728,16 +3806,27 @@ const lookupsOf = (spec: QuerySpec, params: string): ReadonlyArray<Lookup> => {
 		return []
 	}
 	const names = Arr.map(first.head, ([n]) => n)
-	const other = new Map(second.head)
-	if (names.length !== second.head.length || !Arr.every(names, (n) => other.has(n))) {
+	const others = Arr.map(later, (arm) => new Map(arm.head))
+	if (
+		!Arr.every(
+			later,
+			(arm) =>
+				arm.head.length === names.length && Arr.every(arm.head, ([n]) => Arr.contains(names, n))
+		)
+	) {
 		return []
 	}
 	const rendering = new Rendering(spec.fault)
 	const union = built(spec)
 	return Arr.flatMap(first.head, ([field, h]) => {
-		const there = other.get(field)
 		const value = constantOf(h)
-		if (there === undefined || Option.isNone(value) || Option.isNone(constantOf(there))) {
+		if (
+			Option.isNone(value) ||
+			!Arr.every(others, (other) => {
+				const there = other.get(field)
+				return there !== undefined && Option.isSome(constantOf(there))
+			})
+		) {
 			return []
 		}
 		const lookup = queryOver(schemaValue(spec)).rule((r: RuleValue) => {
@@ -3835,6 +3924,9 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	const lookups = verdict.kind === "admitted" ? lookupsOf(spec, verdict.proved.params) : []
 	if (Arr.some(lookups, (l) => l.card !== "many") && Arr.some(lookups, (l) => l.card === "many")) {
 		notes.add("a union lookup pinned by one of several separators")
+	}
+	if (spec.arms.length > 2 && Arr.some(lookups, (l) => l.card !== "many")) {
+		notes.add("a union of three rules looked up and pinned")
 	}
 	return { spec, lines, source, verdict, keyed, lookups, notes }
 }
@@ -4091,6 +4183,24 @@ const keptCases: ReadonlyArray<KeptCase> = [
 		population: "clean",
 		tape: "1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1",
 		reaches: ["allen", "get proved", "a span parameter opposite r.allen"]
+	},
+	{
+		note: "a union of three rules of constants, h0 low throughout and b y, x, x, two rules alike: the engine keys it by b, the fields its rules do not all fix alike, where the types, which required every two rules told apart, keyed it by its whole heading (TEST_SEED=1635200356)",
+		population: "clean",
+		tape: "13.2.6.2.6.c.3.2.1.d.6.c.1.7.h.a.6.6.8.g.8.9.f.4.2.3.3.2.b.h.f.f.9.3.a.2.4.f.9.1.f.0.6.h.g.a.a.0.9.6.a.9.c.0.6.5.e.a.9.g.2.6.h.f.h.1.0.2.1.1.0.0.4.1.0.0.0.6.4.0.3.0.0.0.1.1.3.3.0.1.0.0.1.1.2.2.1.4.3.2.1.0.0.1.1.1.1.0.2.2.4.0.0.1.0.1.2.t.1.1.9.c.1.3.1.4.0.0.a.2.2.2.0.2.2.0.0.5.1.0.1.0.0.0.0.0.1.2.1.6.3",
+		reaches: [
+			"a union of three rules looked up and pinned",
+			"a union lookup pinned by one of several separators"
+		]
+	},
+	{
+		note: "a union of three rules of constants, d z, y, x and b x, z, z: the engine keeps d alone, which tells all three apart, and drops b, the first separator of two pairs that d tells apart too, so the union is keyed by d, not by b and d",
+		population: "clean",
+		tape: "c.0.a.9.1.h.7.1.7.d.g.8.c.g.2.a.1.5.b.4.a.3.b.4.8.1.b.f.4.3.d.7.b.7.e.6.3.5.g.b.0.f.e.5.e.a.3.7.3.a.5.a.0.1.e.0.3.3.0.d.7.9.b.7.f.0.0.1.2.2.3.3.0.4.1.2.0.1.2.0.2.0.0.0.5.2",
+		reaches: [
+			"a union of three rules looked up and pinned",
+			"a union lookup pinned by one of several separators"
+		]
 	}
 ]
 

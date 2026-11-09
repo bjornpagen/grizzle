@@ -94,6 +94,7 @@ const required: Situations<AgreementNote> = [
 	"a keyed get of a closed relation",
 	"a keyed get of a roster",
 	"a union lookup pinned by one of several separators",
+	"a union of three rules looked up and pinned",
 	...agreementPairs
 ]
 
