@@ -1698,9 +1698,13 @@ export class Normalizer {
 		)
 	}
 
-	/** Refuses a drawn or accumulated field no statement names, or two do: called once every statement is normalized. */
-	finish(): void {
-		this.#namings.refuseMisnamed(this.env.relations.values())
+	/**
+	 * Refuses a drawn or accumulated field of a relation of `filled` no statement names, or two do: called once every
+	 * statement is normalized, over the relations whose every family, tree and fold the normalized statements hold
+	 * (analysis/closure.ts Closure.filled).
+	 */
+	finish(filled: ReadonlySet<string>): void {
+		this.#namings.refuseMisnamed([...this.env.relations.values()].filter((r) => filled.has(r.name)))
 	}
 
 	/**

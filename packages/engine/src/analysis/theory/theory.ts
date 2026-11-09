@@ -553,7 +553,7 @@ class Builder {
 			)
 			normalizer.contract(contract, index, uses, contract.loc)
 		}
-		normalizer.finish()
+		normalizer.finish(this.checked.closure.filled)
 		return normalizer
 	}
 

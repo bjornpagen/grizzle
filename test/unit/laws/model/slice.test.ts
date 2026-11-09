@@ -19,9 +19,10 @@
  *   rules that read a written relation, and the written relations with their keys and unique objects;
  * - what the slice compiles: the natives of its named relations and the foreign keys into them in the whole model's
  *   order, names, laws and descriptions; every constraint a write of the slice can raise naming the whole model's laws
- *   in the witness; each program's query, compiled through its role as db.read compiles it in either context, and
- *   each program's ChangeSet, compiled through its role as db.apply compiles it, compiling over the slice exactly when
- *   it does over the whole schema, to the same statements, certificates and requirements.
+ *   in the witness, and every law over a written relation, which a write statement's refusal raises, described there
+ *   as the whole model describes it; each program's query, compiled through its role as db.read compiles it in either
+ *   context, and each program's ChangeSet, compiled through its role as db.apply compiles it, compiling over the slice
+ *   exactly when it does over the whole schema, to the same statements, certificates and requirements.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
@@ -1186,6 +1187,19 @@ describe("a compile's law model", () => {
 									break
 								}
 							}
+						}
+
+						const wholeRaised = installationWitness(wholeArtifacts, noLevelAbove).laws.raised
+						for (const law of whole.theory.laws) {
+							if (!Arr.some(law.reads, (r) => writes.has(r))) {
+								continue
+							}
+							const raised = witness.raised.get(law.id)
+							assert.ok(
+								raised !== undefined &&
+									canonicalEquals(raised, wholeRaised.get(law.id), labelFree),
+								`the law ${law.id} over a written relation, which a write statement of the slice refuses, raised as the whole model describes it`
+							)
 						}
 
 						const schema = succeeded(parseSchemaInput(owned.desc), "the base as a schema input")

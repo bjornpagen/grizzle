@@ -12,25 +12,35 @@ interface IndexedStatement {
 	readonly index: number
 }
 
-/** A closure's two parts, before closure.ts mints them as one (`Closure`). */
+/** A closure's three parts, before closure.ts mints them as one (`Closure`). */
 interface ClosureParts {
 	readonly relations: ReadonlySet<string>
 	readonly statements: ReadonlyArray<IndexedStatement>
+	readonly filled: ReadonlySet<string>
 }
 
 /**
  * The part of an owned schema a compile over a slice (schema/reach.ts Slice) reads: the relations its checked schema
  * holds and the statements its theory normalizes. No other relation or statement of the schema is in it.
  *
- * `relations` holds the slice's names; every relation a law reading one of them reads, a foreign key's target, a
- * family's owner and members, a rule's sides; every relation a family, a tree or a fold couples with one of them, to a
- * fixpoint, so each of its relations' drawn and accumulated fields is named and filled as in the whole schema; each
- * derived relation's reads; and the closed relations its ordinary relations' generated fields and its statements'
- * predicates and selections apply. `statements` holds, in the schema's order and each at its index, every statement
- * whose laws read only relations of `relations`: each law whose reads meet the slice's names, and every law the
- * recognizer finds beside one, a target's keys and the family a containment rides, as the whole schema states them.
+ * `statements` holds, in the schema's order and each at its index, every statement whose laws read a name of the
+ * slice, the laws its model plans (laws/model/model.ts plannedLaws), and the statements the normalizer and the
+ * recognizer read beside them, as the whole schema states them: every key over a relation of the closure, a
+ * containment's target's keys, projected or declared, and the declared key a generated UNIQUE implies; the families,
+ * trees and folds of each planned family's component, the families coupled with it through a shared relation, to a
+ * fixpoint, whose refills decide its axes' deferral (theory/refill.ts refillDeferral); and every containment between
+ * the member and the owner of one of those families or trees, which may ride its axes. Any other statement states laws
+ * between relations no compile over the slice names, writes or plans a law over, so nothing over the slice reads them.
  *
- * The closure of everySlice is the whole schema: an installation's compile reads every relation and statement.
+ * `relations` holds the slice's names, every relation a planned statement reads, a foreign key's target or source, a
+ * family's owner and members, a rule's sides, every relation of a planned family's component, each derived relation's
+ * reads, and the closed relations its ordinary relations' generated fields and its statements' predicates and
+ * selections apply. `filled` holds those of them no family, tree or fold the closure leaves out reads: the relations
+ * whose drawn and accumulated fields its statements name as the whole schema does, which normalization holds to be
+ * named once (theory/laws.ts Normalizer.finish).
+ *
+ * The closure of everySlice is the whole schema, every relation filled: an installation's compile reads every relation
+ * and statement.
  */
 export type Closure = ClosureParts & { readonly [closureBrand]: true }
 
@@ -83,14 +93,6 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 	}
 }
 
-/**
- * Whether a statement's laws are read beside the laws they meet: a key's by a containment into it and by the unique
- * objects it implies, a family's, a tree's and a fold's by the containments riding it, its fill and its namings, and a
- * containment's by the family it rides. A row check's law is read by no other law, nor a mutable statement, which
- * states none.
- */
-const supports = (s: OwnedStatement): boolean => s.kind !== "check" && s.kind !== "mutable"
-
 /** Whether a statement couples its relations: a family's, a tree's or a fold's, which name and fill their fields. */
 const couples = (s: OwnedStatement): boolean =>
 	s.kind === "family" || s.kind === "tree" || s.kind === "fold"
@@ -142,40 +144,67 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 		index,
 		reads: expanded(lawRelations(statement))
 	}))
-	for (const name of slice.names) {
-		add(name)
-	}
-	for (const s of statements) {
-		if (s.reads.some((r) => slice.names.has(r))) {
-			for (const r of s.reads) {
-				add(r)
-			}
-		}
-	}
+	const planned = (s: { readonly reads: ReadonlyArray<string> }): boolean =>
+		s.reads.some((r) => slice.names.has(r))
 	const coupling = statements.filter((s) => couples(s.statement))
+	const component = new Set(coupling.filter(planned).flatMap((s) => s.reads))
 	for (let grown = true; grown;) {
 		grown = false
 		for (const s of coupling) {
-			if (s.reads.some((r) => relations.has(r)) && s.reads.some((r) => !relations.has(r))) {
+			if (s.reads.some((r) => component.has(r)) && s.reads.some((r) => !component.has(r))) {
 				for (const r of s.reads) {
-					add(r)
+					component.add(r)
 				}
 				grown = true
 			}
 		}
 	}
+	const inComponent = (s: { readonly reads: ReadonlyArray<string> }): boolean =>
+		s.reads.every((r) => component.has(r))
+	const axes = coupling.flatMap((s) =>
+		s.statement.kind !== "fold" && inComponent(s) ? [new Set(s.reads)] : []
+	)
+	for (const name of slice.names) {
+		add(name)
+	}
+	for (const s of statements) {
+		if (planned(s)) {
+			for (const r of s.reads) {
+				add(r)
+			}
+		}
+	}
+	for (const r of component) {
+		add(r)
+	}
+	const readBeside = (s: (typeof statements)[number]): boolean => {
+		switch (s.statement.kind) {
+			case "key":
+				return true
+			case "family":
+			case "tree":
+			case "fold":
+				return inComponent(s)
+			case "contained":
+			case "alternatives":
+				return axes.some((axis) => s.reads.every((r) => axis.has(r)))
+			case "check":
+			case "mutable":
+				return false
+		}
+	}
 	const kept = statements.filter(
-		(s) =>
-			s.reads.every((r) => relations.has(r)) &&
-			(s.reads.some((r) => slice.names.has(r)) || supports(s.statement))
+		(s) => s.reads.every((r) => relations.has(r)) && (planned(s) || readBeside(s))
 	)
 	for (const s of kept) {
 		for (const r of appliedRelations(s.statement)) {
 			add(r)
 		}
 	}
+	const unfilled = new Set(coupling.flatMap((s) => (inComponent(s) ? [] : s.reads)))
 	return closure({
 		relations,
-		statements: kept.map((s) => ({ statement: s.statement, index: s.index }))
+		statements: kept.map((s) => ({ statement: s.statement, index: s.index })),
+		filled: new Set([...relations].filter((r) => !unfilled.has(r)))
 	})
 }
