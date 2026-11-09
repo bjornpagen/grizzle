@@ -1,3 +1,4 @@
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -18,6 +19,7 @@ import {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 
 export const QueueKind = closed("Kind", ["render", "transcode"])
@@ -118,7 +120,9 @@ export type QueueNamed<N extends string> = Schema<
 
 /**
  * Queue's worlds over the schema they are given: the worker claims and settles, the enqueuer adds work, the operator
- * keeps the seats; full roles all, in one login.
+ * keeps the seats; full roles all, in one login. The login's workload holds the worker's writes: the empty ChangeSet a
+ * worker's first call applies, the claim and the settlement, each reading its parameters through the installed
+ * queries (installedQueueQueries).
  */
 export const queueWorlds = (installed: QueueNamed<string>) => {
 	const worker = role(installed, "worker", wholeEntriesOf(installed), {
@@ -128,11 +132,26 @@ export const queueWorlds = (installed: QueueNamed<string>) => {
 		write: ["Work", "Wanted"]
 	})
 	const operator = role(installed, "operator", wholeEntriesOf(installed), { write: ["Seat"] })
+	const m = installedQueueQueries(installed)
 	return {
 		worker,
 		enqueuer,
 		operator,
-		server: login(installed, "server", [worker, enqueuer, operator])
+		server: login(installed, "server", [worker, enqueuer, operator], {
+			workload: [
+				workload(worker, {
+					noop: ChangeSet.empty(installed),
+					claim: ChangeSet.empty(installed)
+						.put(QueueWork, m.claimWorkPut)
+						.delete(Wanted, m.claimWantedDelete)
+						.put(Leased, m.claimLeasedPut),
+					settle: ChangeSet.empty(installed)
+						.delete(Leased, m.settleLeasedDelete)
+						.insert(Done, m.settleDoneInsert)
+						.put(QueueWork, m.settleWorkPut)
+				})
+			]
+		})
 	}
 }
 
