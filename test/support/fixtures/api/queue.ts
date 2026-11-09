@@ -13,6 +13,7 @@ import {
 	role,
 	type Schema,
 	schema,
+	type Statement,
 	type StatementsByName,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
@@ -66,8 +67,8 @@ export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatN
 
 /**
  * The work queue as facts, in public-API form: the Queue schema built by the real schema constructors, and the claim's
- * and the settlement's queries built by the real query builder through the typed facade. Each query is checked into the
- * IR test/support/fixtures/ir/queue.ts states for it.
+ * and the settlement's queries built by the real query builder through the typed facade, over Queue or any schema of
+ * its relations (queueQueries).
  *
  * The queue example gives the closed relations and contracts minimally, and states claimable, freeSeat and pick only in
  * prose; the rules below write them out as that prose says, in the form the IR fixture states: each arm matches Work
@@ -135,245 +136,304 @@ export const queueWorlds = (installed: QueueNamed<string>) => {
 	}
 }
 
-/** Wanted and due, or leased on this resource and expired, from the holder's key `from`, wrapping around. */
-export const claimable = query(Queue)
-	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
-		const { due, attempts } = v(Wanted, "wanted")
-		return r
-			.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
-			.match(Wanted, { key, due, attempts })
-			.where(
-				r.eq(kind, r.param("kind", QueueWork.fields.kind)),
-				r.eq(slot, r.param("slot", Slot)),
-				r.le(due, r.param("now", Instant)),
-				r.ge(key, r.param("from", Digest))
-			)
-			.find({
-				key,
-				kind,
-				slot,
-				standing: Standing.handle("wanted"),
-				epoch,
-				enqueued,
-				wrap: 0,
-				due,
-				attempts
-			})
-	})
-	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
-		const { due, attempts } = v(Wanted, "wanted")
-		return r
-			.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
-			.match(Wanted, { key, due, attempts })
-			.where(
-				r.eq(kind, r.param("kind", QueueWork.fields.kind)),
-				r.eq(slot, r.param("slot", Slot)),
-				r.le(due, r.param("now", Instant)),
-				r.lt(key, r.param("from", Digest))
-			)
-			.find({
-				key,
-				kind,
-				slot,
-				standing: Standing.handle("wanted"),
-				epoch,
-				enqueued,
-				wrap: 1,
-				due,
-				attempts
-			})
-	})
-	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
-		const { seat, expires } = v(Leased, "leased")
-		return r
-			.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
-			.match(Leased, { key, resource: r.param("resource", Leased.fields.resource), seat, expires })
-			.where(
-				r.eq(kind, r.param("kind", QueueWork.fields.kind)),
-				r.eq(slot, r.param("slot", Slot)),
-				r.lt(expires, r.param("now", Instant)),
-				r.ge(key, r.param("from", Digest))
-			)
-			.find({
-				key,
-				kind,
-				slot,
-				standing: Standing.handle("leased"),
-				epoch,
-				enqueued,
-				wrap: 0,
-				seat,
-				expires
-			})
-	})
-	.rule((r) => {
-		const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
-		const { seat, expires } = v(Leased, "leased")
-		return r
-			.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
-			.match(Leased, { key, resource: r.param("resource", Leased.fields.resource), seat, expires })
-			.where(
-				r.eq(kind, r.param("kind", QueueWork.fields.kind)),
-				r.eq(slot, r.param("slot", Slot)),
-				r.lt(expires, r.param("now", Instant)),
-				r.lt(key, r.param("from", Digest))
-			)
-			.find({
-				key,
-				kind,
-				slot,
-				standing: Standing.handle("leased"),
-				epoch,
-				enqueued,
-				wrap: 1,
-				seat,
-				expires
-			})
-	})
-	.orderBy(["wrap", "asc"], ["key", "asc"])
-	.take(1)
-
-/** A free seat of the resource from `fromSeat`, wrapping around. */
-export const freeSeat = query(Queue)
-	.rule((r) => {
-		const { resource, seat } = v(Seat, "seat")
-		return r
-			.match(Seat, { resource, seat })
-			.where(
-				r.eq(resource, r.param("resource", Seat.fields.resource)),
-				r.ge(seat, r.param("fromSeat", SeatNo)),
-				r.not(Leased, { resource, seat })
-			)
-			.find({ seat, wrap: 0 })
-	})
-	.rule((r) => {
-		const { resource, seat } = v(Seat, "seat")
-		return r
-			.match(Seat, { resource, seat })
-			.where(
-				r.eq(resource, r.param("resource", Seat.fields.resource)),
-				r.lt(seat, r.param("fromSeat", SeatNo)),
-				r.not(Leased, { resource, seat })
-			)
-			.find({ seat, wrap: 1 })
-	})
-	.orderBy(["wrap", "asc"], ["seat", "asc"])
-	.take(1)
+/** A schema of Queue's relations under any name and with any statements: Queue, Queue installed, or a variant. */
+export type QueueShaped<St extends ReadonlyArray<Statement>> = Schema<
+	string,
+	(typeof Queue)["relations"],
+	St
+>
 
 /**
- * Wanted work takes the free seat; an expired lease keeps its own seat. claimable and freeSeat have
- * parameters, so each is imported through bind, with the claim's own parameters of the same names.
+ * The claim's and the settlement's queries over `s`, rule for rule: a ChangeSet's member queries must be written over a
+ * level of its schema, so each installation of Queue, under its own name, and each variant of its statements builds
+ * them over its own schema value. The settlement's Done insertion is not among them: its `outcome` parameter takes the
+ * closed type it meets, which TypeScript resolves only over a concrete schema (settleDoneInsert, installedQueueQueries).
  */
-export const pick = query(Queue)
-	.rule((r) => {
-		const items = claimable.bind({
+export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped<St>) => {
+	/** Wanted and due, or leased on this resource and expired, from the holder's key `from`, wrapping around. */
+	const claimable = query(s)
+		.rule((r) => {
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { due, attempts } = v(Wanted, "wanted")
+			return r
+				.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
+				.match(Wanted, { key, due, attempts })
+				.where(
+					r.eq(kind, r.param("kind", QueueWork.fields.kind)),
+					r.eq(slot, r.param("slot", Slot)),
+					r.le(due, r.param("now", Instant)),
+					r.ge(key, r.param("from", Digest))
+				)
+				.find({
+					key,
+					kind,
+					slot,
+					standing: Standing.handle("wanted"),
+					epoch,
+					enqueued,
+					wrap: 0,
+					due,
+					attempts
+				})
+		})
+		.rule((r) => {
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { due, attempts } = v(Wanted, "wanted")
+			return r
+				.match(QueueWork, { key, kind, slot, standing: "wanted", epoch, enqueued })
+				.match(Wanted, { key, due, attempts })
+				.where(
+					r.eq(kind, r.param("kind", QueueWork.fields.kind)),
+					r.eq(slot, r.param("slot", Slot)),
+					r.le(due, r.param("now", Instant)),
+					r.lt(key, r.param("from", Digest))
+				)
+				.find({
+					key,
+					kind,
+					slot,
+					standing: Standing.handle("wanted"),
+					epoch,
+					enqueued,
+					wrap: 1,
+					due,
+					attempts
+				})
+		})
+		.rule((r) => {
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { seat, expires } = v(Leased, "leased")
+			return r
+				.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
+				.match(Leased, {
+					key,
+					resource: r.param("resource", Leased.fields.resource),
+					seat,
+					expires
+				})
+				.where(
+					r.eq(kind, r.param("kind", QueueWork.fields.kind)),
+					r.eq(slot, r.param("slot", Slot)),
+					r.lt(expires, r.param("now", Instant)),
+					r.ge(key, r.param("from", Digest))
+				)
+				.find({
+					key,
+					kind,
+					slot,
+					standing: Standing.handle("leased"),
+					epoch,
+					enqueued,
+					wrap: 0,
+					seat,
+					expires
+				})
+		})
+		.rule((r) => {
+			const { key, kind, slot, epoch, enqueued } = v(QueueWork, "queueWork")
+			const { seat, expires } = v(Leased, "leased")
+			return r
+				.match(QueueWork, { key, kind, slot, standing: "leased", epoch, enqueued })
+				.match(Leased, {
+					key,
+					resource: r.param("resource", Leased.fields.resource),
+					seat,
+					expires
+				})
+				.where(
+					r.eq(kind, r.param("kind", QueueWork.fields.kind)),
+					r.eq(slot, r.param("slot", Slot)),
+					r.lt(expires, r.param("now", Instant)),
+					r.lt(key, r.param("from", Digest))
+				)
+				.find({
+					key,
+					kind,
+					slot,
+					standing: Standing.handle("leased"),
+					epoch,
+					enqueued,
+					wrap: 1,
+					seat,
+					expires
+				})
+		})
+		.orderBy(["wrap", "asc"], ["key", "asc"])
+		.take(1)
+
+	/** A free seat of the resource from `fromSeat`, wrapping around. */
+	const freeSeat = query(s)
+		.rule((r) => {
+			const { resource, seat } = v(Seat, "seat")
+			return r
+				.match(Seat, { resource, seat })
+				.where(
+					r.eq(resource, r.param("resource", Seat.fields.resource)),
+					r.ge(seat, r.param("fromSeat", SeatNo)),
+					r.not(Leased, { resource, seat })
+				)
+				.find({ seat, wrap: 0 })
+		})
+		.rule((r) => {
+			const { resource, seat } = v(Seat, "seat")
+			return r
+				.match(Seat, { resource, seat })
+				.where(
+					r.eq(resource, r.param("resource", Seat.fields.resource)),
+					r.lt(seat, r.param("fromSeat", SeatNo)),
+					r.not(Leased, { resource, seat })
+				)
+				.find({ seat, wrap: 1 })
+		})
+		.orderBy(["wrap", "asc"], ["seat", "asc"])
+		.take(1)
+
+	/**
+	 * Wanted work takes the free seat; an expired lease keeps its own seat. claimable and freeSeat have
+	 * parameters, so each is imported through bind, with the claim's own parameters of the same names.
+	 */
+	const pick = query(s)
+		.rule((r) => {
+			const items = claimable.bind({
+				kind: r.param("kind", QueueWork.fields.kind),
+				slot: r.param("slot", Slot),
+				now: r.param("now", Instant),
+				from: r.param("from", Digest),
+				resource: r.param("resource", Leased.fields.resource)
+			})
+			const seats = freeSeat.bind({
+				resource: r.param("resource", Leased.fields.resource),
+				fromSeat: r.param("fromSeat", SeatNo)
+			})
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(seats, "seats")
+			return r
+				.match(items, { standing: "wanted", key, kind, slot, epoch, enqueued })
+				.match(seats, { seat })
+				.find({ key, kind, slot, epoch, enqueued, seat })
+		})
+		.rule((r) => {
+			const items = claimable.bind({
+				kind: r.param("kind", QueueWork.fields.kind),
+				slot: r.param("slot", Slot),
+				now: r.param("now", Instant),
+				from: r.param("from", Digest),
+				resource: r.param("resource", Leased.fields.resource)
+			})
+			const { key, kind, slot, epoch, enqueued } = v(items, "items")
+			const { seat } = v(Leased, "leased")
+			return r
+				.match(items, { standing: "leased", key, kind, slot, epoch, enqueued })
+				.match(Leased, { key, seat })
+				.find({ key, kind, slot, epoch, enqueued, seat })
+		})
+
+	/** The claim's members, each over pick bound with the claim's parameters of the same names. */
+	const claimWorkPut = query(s).rule((r) => {
+		const picked = pick.bind({
 			kind: r.param("kind", QueueWork.fields.kind),
 			slot: r.param("slot", Slot),
 			now: r.param("now", Instant),
 			from: r.param("from", Digest),
-			resource: r.param("resource", Leased.fields.resource)
-		})
-		const seats = freeSeat.bind({
 			resource: r.param("resource", Leased.fields.resource),
 			fromSeat: r.param("fromSeat", SeatNo)
 		})
-		const { key, kind, slot, epoch, enqueued } = v(items, "items")
-		const { seat } = v(seats, "seats")
-		return r
-			.match(items, { standing: "wanted", key, kind, slot, epoch, enqueued })
-			.match(seats, { seat })
-			.find({ key, kind, slot, epoch, enqueued, seat })
+		const p = v(picked, "picked")
+		return r.match(picked, p).find({
+			key: p.key,
+			kind: p.kind,
+			slot: p.slot,
+			standing: "leased",
+			epoch: Compute.when(
+				Compute.within(p.epoch, 0n, epochBound),
+				(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
+				p.epoch
+			),
+			enqueued: p.enqueued
+		})
 	})
-	.rule((r) => {
-		const items = claimable.bind({
+
+	const claimWantedDelete = query(s).rule((r) => {
+		const picked = pick.bind({
 			kind: r.param("kind", QueueWork.fields.kind),
 			slot: r.param("slot", Slot),
 			now: r.param("now", Instant),
 			from: r.param("from", Digest),
-			resource: r.param("resource", Leased.fields.resource)
+			resource: r.param("resource", Leased.fields.resource),
+			fromSeat: r.param("fromSeat", SeatNo)
 		})
-		const { key, kind, slot, epoch, enqueued } = v(items, "items")
-		const { seat } = v(Leased, "leased")
+		const { key } = v(picked, "picked")
+		const { due, attempts } = v(Wanted, "wanted")
 		return r
-			.match(items, { standing: "leased", key, kind, slot, epoch, enqueued })
-			.match(Leased, { key, seat })
-			.find({ key, kind, slot, epoch, enqueued, seat })
+			.match(picked, { key })
+			.match(Wanted, { key, due, attempts })
+			.find({ key, due, attempts })
 	})
 
-/** The claim's members, each over pick bound with the claim's parameters of the same names. */
-export const claimWorkPut = query(Queue).rule((r) => {
-	const picked = pick.bind({
-		kind: r.param("kind", QueueWork.fields.kind),
-		slot: r.param("slot", Slot),
-		now: r.param("now", Instant),
-		from: r.param("from", Digest),
-		resource: r.param("resource", Leased.fields.resource),
-		fromSeat: r.param("fromSeat", SeatNo)
+	const claimLeasedPut = query(s).rule((r) => {
+		const picked = pick.bind({
+			kind: r.param("kind", QueueWork.fields.kind),
+			slot: r.param("slot", Slot),
+			now: r.param("now", Instant),
+			from: r.param("from", Digest),
+			resource: r.param("resource", Leased.fields.resource),
+			fromSeat: r.param("fromSeat", SeatNo)
+		})
+		const { key, epoch, seat } = v(picked, "picked")
+		return r.match(picked, { key, epoch, seat }).find({
+			key,
+			resource: r.param("resource", Leased.fields.resource),
+			seat,
+			epoch: Compute.when(
+				Compute.within(epoch, 0n, epochBound),
+				(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
+				epoch
+			),
+			/** The host computes the expiry and passes it as one Instant. */
+			expires: r.param("expires", Leased.fields.expires)
+		})
 	})
-	const p = v(picked, "picked")
-	return r.match(picked, p).find({
-		key: p.key,
-		kind: p.kind,
-		slot: p.slot,
-		standing: "leased",
-		epoch: Compute.when(
-			Compute.within(p.epoch, 0n, epochBound),
-			(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
-			p.epoch
-		),
-		enqueued: p.enqueued
-	})
-})
 
-export const claimWantedDelete = query(Queue).rule((r) => {
-	const picked = pick.bind({
-		kind: r.param("kind", QueueWork.fields.kind),
-		slot: r.param("slot", Slot),
-		now: r.param("now", Instant),
-		from: r.param("from", Digest),
-		resource: r.param("resource", Leased.fields.resource),
-		fromSeat: r.param("fromSeat", SeatNo)
+	/** The settlement's members, parameters { key, epoch, outcome }: each described from the live lease. */
+	const settleLeasedDelete = query(s).rule((r) => {
+		const { key, resource, seat, epoch, expires } = v(Leased, "leased")
+		return r
+			.match(Leased, { key, resource, seat, epoch, expires })
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.find({ key, resource, seat, epoch, expires })
 	})
-	const { key } = v(picked, "picked")
-	const { due, attempts } = v(Wanted, "wanted")
-	return r.match(picked, { key }).match(Wanted, { key, due, attempts }).find({ key, due, attempts })
-})
 
-export const claimLeasedPut = query(Queue).rule((r) => {
-	const picked = pick.bind({
-		kind: r.param("kind", QueueWork.fields.kind),
-		slot: r.param("slot", Slot),
-		now: r.param("now", Instant),
-		from: r.param("from", Digest),
-		resource: r.param("resource", Leased.fields.resource),
-		fromSeat: r.param("fromSeat", SeatNo)
+	const settleWorkPut = query(s).rule((r) => {
+		const { key, resource, seat, epoch, expires } = v(Leased, "leased")
+		const { kind, slot, enqueued } = v(QueueWork, "queueWork")
+		return r
+			.match(Leased, { key, resource, seat, epoch, expires })
+			.match(QueueWork, { key, kind, slot, epoch, enqueued })
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.find({ key, kind, slot, standing: "done", epoch, enqueued })
 	})
-	const { key, epoch, seat } = v(picked, "picked")
-	return r.match(picked, { key, epoch, seat }).find({
-		key,
-		resource: r.param("resource", Leased.fields.resource),
-		seat,
-		epoch: Compute.when(
-			Compute.within(epoch, 0n, epochBound),
-			(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
-			epoch
-		),
-		/** The host computes the expiry and passes it as one Instant. */
-		expires: r.param("expires", Leased.fields.expires)
-	})
-})
+	return {
+		claimable,
+		freeSeat,
+		pick,
+		claimWorkPut,
+		claimWantedDelete,
+		claimLeasedPut,
+		settleLeasedDelete,
+		settleWorkPut
+	} as const
+}
 
-/** The settlement's members, parameters { key, epoch, outcome }: each described from the live lease. */
-export const settleLeasedDelete = query(Queue).rule((r) => {
-	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
-	return r
-		.match(Leased, { key, resource, seat, epoch, expires })
-		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
-		.find({ key, resource, seat, epoch, expires })
-})
+export const {
+	claimable,
+	freeSeat,
+	pick,
+	claimWorkPut,
+	claimWantedDelete,
+	claimLeasedPut,
+	settleLeasedDelete,
+	settleWorkPut
+} = queueQueries(Queue)
 
 export const settleDoneInsert = query(Queue).rule((r) => {
 	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
@@ -383,12 +443,14 @@ export const settleDoneInsert = query(Queue).rule((r) => {
 		.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
 })
 
-export const settleWorkPut = query(Queue).rule((r) => {
-	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
-	const { kind, slot, enqueued } = v(QueueWork, "queueWork")
-	return r
-		.match(Leased, { key, resource, seat, epoch, expires })
-		.match(QueueWork, { key, kind, slot, epoch, enqueued })
-		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
-		.find({ key, kind, slot, standing: "done", epoch, enqueued })
+/** The claim's and the settlement's queries over an installation of Queue, the settlement's Done insertion among them. */
+export const installedQueueQueries = (s: QueueNamed<string>) => ({
+	...queueQueries(s),
+	settleDoneInsert: query(s).rule((r) => {
+		const { key, resource, seat, epoch, expires } = v(Leased, "leased")
+		return r
+			.match(Leased, { key, resource, seat, epoch, expires })
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
+	})
 })

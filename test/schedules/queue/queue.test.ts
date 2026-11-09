@@ -34,7 +34,6 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { type QueueInstalled, queueQueries } from "#test/pg/e2e-laws/queue-queries.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
@@ -54,16 +53,16 @@ import {
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const claimOf = (s: QueueInstalled) => {
-	const m = queueQueries(s)
+const claimOf = (s: Q.QueueNamed<string>) => {
+	const m = Q.installedQueueQueries(s)
 	return ChangeSet.empty(s)
 		.put(Q.QueueWork, m.claimWorkPut)
 		.delete(Q.Wanted, m.claimWantedDelete)
 		.put(Q.Leased, m.claimLeasedPut)
 }
 
-const settleOf = (s: QueueInstalled) => {
-	const m = queueQueries(s)
+const settleOf = (s: Q.QueueNamed<string>) => {
+	const m = Q.installedQueueQueries(s)
 	return ChangeSet.empty(s)
 		.delete(Q.Leased, m.settleLeasedDelete)
 		.insert(Q.Done, m.settleDoneInsert)
