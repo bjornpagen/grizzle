@@ -2,7 +2,6 @@ import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
-import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
@@ -14,15 +13,12 @@ export interface InstallContribution {
 	readonly statisticsRequests: ReadonlyArray<StatisticsRequest>
 	/** The derived relations whose materialized views it installs. */
 	readonly derivedRelations: ReadonlyArray<string>
-	/** The constraints it installs, each with the law a violation of it reports. */
-	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 }
 
 export const noContribution: InstallContribution = {
 	indexRequests: [],
 	statisticsRequests: [],
-	derivedRelations: [],
-	constraintLaws: []
+	derivedRelations: []
 }
 
 /** What another package installs, plugged into an installation: the materialized views of derived relations, the

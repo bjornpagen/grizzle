@@ -64,13 +64,12 @@ export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { installationsOf } from "#compiler/schema/own.ts"
 export { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
+export { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
 export {
 	type DescribedLaw,
-	type Installation,
-	installationOver,
-	installBasis,
-	type InstallBasis
-} from "#compiler/physical/install/compile.ts"
+	type InstallBasis,
+	installBasis
+} from "#compiler/physical/install/plan.ts"
 export {
 	accessDrift,
 	accessDriftText,

@@ -33,12 +33,12 @@ import {
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
 import {
-	type Installation,
+	freshPlanSettings,
 	type InstallBasis,
-	installationOver,
 	installBasis,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+	type InstallPlan,
+	planInstallation
+} from "#compiler/physical/install/plan.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { contentOfDesc, isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
@@ -53,9 +53,9 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  *
  * The names are the installation's own (physical/ddl/names.ts InstallNames): relations, columns, roster domains and
  * codes, closed constants, contract domains and the structural `__text_` domains, under the PostgreSQL schema the
- * installation targets, so the queries address exactly the objects a migration installs. They are derived from the
- * fresh-install compiler, which is pure, given the installation's codes; the owner it names never appears in query
- * SQL. The evidence catalog resolves every declared key and containment to its
+ * installation targets, so the queries address exactly the objects a migration installs. They are read from the
+ * fresh installation's plan (physical/install/plan.ts planInstallation), which is pure, given the installation's codes,
+ * and builds no DDL. The evidence catalog resolves every declared key and containment to its
  * installed constraint (catalog.ts).
  *
  * A schema is reality, a schema(...) value, or a role, a role(...) value: a role's artifacts are its base's, read through
@@ -82,13 +82,13 @@ export interface SchemaArtifacts {
 	 */
 	readonly views: ReadonlyArray<CatalogKey>
 	/** Every installed constraint with its owner and the law a violation reports, described (physical/install
-	 * Installation). */
+	 * InstallPlan). */
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 	/** Each owner's installed constraint names to the law a violation reports. */
 	readonly constraintToLaw: ConstraintLaws
-	/** Every law of the theory with its description (physical/install Installation). */
-	readonly theoryLaws: Installation["theoryLaws"]
-	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install Installation). */
+	/** Every law of the theory with its description (physical/install InstallPlan). */
+	readonly theoryLaws: InstallPlan["theoryLaws"]
+	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install InstallPlan). */
 	readonly described: ReadonlyMap<LawId, Law>
 }
 
@@ -212,9 +212,6 @@ export const parseBuiltSchema = (
 	return Result.ok(Object.freeze(built))
 }
 
-/** The owner the pure installer is given to derive the names. Ownership never enters a query's SQL. */
-const namingOwner = "grizzle_owner"
-
 /**
  * How a value built over `carried` relates to `named`, the schema it is compiled against: one of its levels (reality
  * over a level of itself by content, schema/levels.ts isLevelOf, the one level check; a role over itself; a full role
@@ -297,30 +294,30 @@ export const schemaArtifacts = (
 }
 
 /**
- * The artifacts of an owned schema under the target identifiers, its installation compiled over its basis (the law model
- * and the closed constants under the installation's codes, physical/install/compile.ts installBasis): what the
- * artifacts of every role over it read through their views (roleArtifacts). Their holder (the layer, generate) computes
- * them once for a schema and hands them to every role and every compilation over the schema; generate installs its
- * draft over the same basis.
+ * The artifacts of an owned schema under the target identifiers, read from the plan of its fresh installation over its
+ * basis (the law model and the closed constants under the installation's codes, physical/install/plan.ts installBasis,
+ * planInstallation), which builds no DDL: what the artifacts of every role over it read through their views
+ * (roleArtifacts). Their holder (the layer, generate) computes them once for a schema and hands them to every role and
+ * every compilation over the schema; generate installs its draft over the same basis.
  */
 export const baseArtifacts = (basis: InstallBasis): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.map(
-		installationOver(basis, installOptions(basis.owned, namingOwner)),
-		(installation): SchemaArtifacts => {
-			const derived = derivedAnalysis(installation.checked)
+		planInstallation(basis, freshPlanSettings(basis.owned), []),
+		(plan): SchemaArtifacts => {
+			const derived = derivedAnalysis(plan.checked)
 			return {
-				owned: installation.owned,
-				fingerprint: installation.owned.fingerprint,
-				names: installation.names,
-				reads: installation.names,
+				owned: plan.owned,
+				fingerprint: plan.owned.fingerprint,
+				names: plan.names,
+				reads: plan.names,
 				world: reality,
-				laws: installation.laws,
+				laws: plan.laws,
 				derived,
 				views: derivedKeyConstraints(derived),
-				constraintLaws: installation.constraintLaws,
-				constraintToLaw: installation.constraintToLaw,
-				theoryLaws: installation.theoryLaws,
-				described: installation.described
+				constraintLaws: plan.constraintLaws,
+				constraintToLaw: plan.constraintToLaw,
+				theoryLaws: plan.theoryLaws,
+				described: plan.described
 			}
 		}
 	)

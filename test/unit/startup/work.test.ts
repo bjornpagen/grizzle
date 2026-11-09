@@ -54,9 +54,10 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * - `grizzle generate`, `grizzle check` and DbLayer.make own the schema once, which reads each statement's text, as
  *   schema(...) did, and writes its fingerprint, the snapshot's encoding of it; no level check or program they compile
  *   reads a description's text (descText). They compile its basis once (its law model and
- *   closed constants, physical/install/compile.ts installBasis) and compile the login's programs once, through the one
- *   path they share (adapter/pool/registry.ts loginRoles): generate and check install twice over the one basis, the
- *   artifacts the programs read and the draft, and the layer once.
+ *   closed constants, physical/install/plan.ts installBasis) and compile the login's programs once, through the one
+ *   path they share (adapter/pool/registry.ts loginRoles): generate and check plan the installation twice over the one
+ *   basis, for the artifacts the programs read and for the draft, and build the draft's DDL once; the layer plans it
+ *   once and builds no DDL.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -85,7 +86,8 @@ const sites = {
 	contentOfDesc: { file: "packages/engine/src/schema/levels.ts", name: "contentOfDesc" },
 	own: { file: "packages/engine/src/schema/own.ts", name: "own" },
 	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
-	installBasis: { file: "packages/engine/src/physical/install/compile.ts", name: "installBasis" },
+	installBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "installBasis" },
+	plan: { file: "packages/engine/src/physical/install/plan.ts", name: "planInstallation" },
 	installation: {
 		file: "packages/engine/src/physical/install/compile.ts",
 		name: "installationOver"
@@ -296,7 +298,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 1,
 		compileLaws: 1,
 		installBasis: 1,
-		installation: 2,
+		plan: 2,
+		installation: 1,
 		loginRoles: 1
 	},
 	check: {
@@ -305,7 +308,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 1,
 		compileLaws: 1,
 		installBasis: 1,
-		installation: 2,
+		plan: 2,
+		installation: 1,
 		loginRoles: 1
 	},
 	migrate: {
@@ -314,6 +318,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 0,
 		compileLaws: 0,
 		installBasis: 0,
+		plan: 0,
 		installation: 0,
 		loginRoles: 0,
 		descText: 0,
@@ -325,6 +330,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 0,
 		compileLaws: 0,
 		installBasis: 0,
+		plan: 0,
 		installation: 0,
 		loginRoles: 0,
 		descText: 0,
@@ -336,7 +342,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 1,
 		compileLaws: 1,
 		installBasis: 1,
-		installation: 1,
+		plan: 1,
+		installation: 0,
 		loginRoles: 1
 	}
 }

@@ -1,16 +1,14 @@
 import { contractLaw } from "#compiler/analysis/theory/description.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import {
 	type DeclaredName,
 	type Identity,
-	identity,
-	type SpanCheck
+	identifierOf,
+	identity
 } from "#compiler/core/identity.ts"
 import { type ConstraintName, ExprId, type LawId, NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import {
 	builtExpr,
@@ -22,7 +20,7 @@ import {
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import type { TheoryRelation } from "#compiler/ir/law.ts"
+import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import {
 	baseOf,
@@ -32,36 +30,25 @@ import {
 	spanCarrierOf,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
+import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
-import {
-	type InstallContribution,
-	type InstallExtension,
-	noContribution
-} from "#compiler/physical/install/extension.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, TableConstraint } from "#compiler/sql/ast.ts"
 import { and, binary, call, cast, eq, lit, not, tableCol, types } from "#compiler/sql/build.ts"
 
-/** One CHECK of one span column, with the reasons its physical object carries: its shape, its fixed width, or an
- * endpoint CHECK, which substitutes the predicate of a contract along the endpoint's chain. */
+/** One CHECK of one span column, with its name and the reasons its physical object carries: its shape, its fixed width,
+ * or an endpoint CHECK, which substitutes the predicate of a contract along the endpoint's chain and stands after that
+ * contract's domain. */
 type SpanConstraint = {
 	readonly relation: StoredRelation
-	readonly field: string
 	readonly named: Identity<"spanCheck">
 	readonly constraint: TableConstraint & { readonly kind: "check"; readonly name: ConstraintName }
 	readonly reasons: ReadonlyArray<PhysicalReason>
 } & (
 	| { readonly kind: "shape" | "width" }
-	| {
-			readonly kind: "endpoint"
-			readonly contract: DeclaredName
-			/** The laws a violation reports: the contract's own. */
-			readonly laws: ReadonlyArray<LawId>
-	  }
+	| { readonly kind: "endpoint"; readonly contract: DeclaredName }
 )
 
 type StoredRelation = Extract<TheoryRelation, { readonly kind: "relation" }>
@@ -220,122 +207,140 @@ const spanEndpointPredicate = (
 }
 
 /** The laws of a contract: those its domain's native object enforces. */
-const contractLaws = (b: InstallBuilder, contract: DeclaredName): ReadonlyArray<LawId> =>
-	b.natives.flatMap(({ object }) =>
+const contractLaws = (model: LawModel, contract: DeclaredName): ReadonlyArray<LawId> =>
+	model.natives.flatMap(({ object }) =>
 		object.kind === "Domain" && object.name === contract ? object.lawIds : []
 	)
 
-/** One of a span column's CHECKs, its name minted at the naming door. */
-const spanCheck = (
-	b: InstallBuilder,
-	relation: string,
-	field: string,
-	check: SpanCheck,
-	predicate: Expr
-): Pick<SpanConstraint, "named" | "constraint"> => {
-	const named = identity.spanCheck(relation, field, check)
-	return { named, constraint: { kind: "check", name: b.name(named), predicate } }
+/** An endpoint CHECK of a span column: the contract along the endpoint's chain whose predicate it substitutes, its name
+ * minted at the naming door, and the laws a violation reports, the contract's own. */
+interface SpanEndpoint {
+	readonly contract: PredicatedContract
+	readonly named: Identity<"spanCheck">
+	readonly laws: ReadonlyArray<LawId>
 }
 
-/** The span CHECKs of one stored relation, in field order: per span column its shape, its width, then one endpoint
- * CHECK per contract with a predicate. Throws a Refusal, which the installer's boundary turns into a failure. */
-const spanColumnConstraints = (
-	b: InstallBuilder,
-	r: StoredRelation
-): ReadonlyArray<SpanConstraint> => {
-	const relation = r.name
-	const out: Array<SpanConstraint> = []
-	for (const c of r.fields) {
-		const info = spanColumnInfo(c.type)
-		if (info === undefined) {
-			continue
-		}
-		const column = b.names.column(relation, c.name)
-		const label = `${relation}.${c.name}`
-		out.push({
-			relation: r,
-			field: c.name,
-			kind: "shape",
-			...spanCheck(
-				b,
-				relation,
-				c.name,
-				{ kind: "shape" },
-				spanShapePredicate(column, info.carrier)
-			),
-			reasons: [enforcement(`span shape of ${label}: nonempty, bounded and half-open`)]
-		})
-		if (info.width !== undefined) {
-			out.push({
-				relation: r,
-				field: c.name,
-				kind: "width",
-				...spanCheck(
-					b,
-					relation,
-					c.name,
-					{ kind: "width" },
-					spanWidthPredicate(column, info.width, info.carrier)
-				),
-				reasons: [enforcement(`span width ${info.width} of ${label}`)]
-			})
-		}
-		for (const contract of endpointContracts(info.endpoint)) {
-			const laws = contractLaws(b, contract.name)
-			out.push({
-				relation: r,
-				field: c.name,
-				kind: "endpoint",
-				contract: contract.name,
-				...spanCheck(
-					b,
-					relation,
-					c.name,
-					{ kind: "endpoint", contract: contract.name },
-					spanEndpointPredicate(b, relation, c.name, c.type, contract, info.carrier)
-				),
-				laws,
-				reasons:
-					laws.length > 0
-						? lawReasons(laws)
-						: [enforcement(`span endpoints of ${label} in contract ${contract.name}`)]
-			})
-		}
-	}
-	return out
+/** A span column of a stored relation: its field, its span information, and one endpoint CHECK per contract with a
+ * predicate along its endpoint's chain, outermost first. */
+export interface SpanColumn {
+	readonly relation: StoredRelation
+	readonly field: LawField
+	readonly info: SpanColumnInfo
+	readonly endpoints: ReadonlyArray<SpanEndpoint>
 }
 
-/** Every stored relation's span CHECKs, in relation name order. */
-const spanConstraints = (b: InstallBuilder): ReadonlyArray<SpanConstraint> =>
-	Object.values(b.model.theory.relations)
+/** Every stored relation's span columns, in relation name order, then field order. */
+export const spanColumns = (model: LawModel): ReadonlyArray<SpanColumn> =>
+	Object.values(model.theory.relations)
 		.flatMap((r) => (r.kind === "relation" ? [r] : []))
 		.toSorted((x, y) => compareStrings(x.name, y.name))
-		.flatMap((r) => spanColumnConstraints(b, r))
+		.flatMap((relation) =>
+			relation.fields.flatMap((field): ReadonlyArray<SpanColumn> => {
+				const info = spanColumnInfo(field.type)
+				return info === undefined
+					? []
+					: [
+							{
+								relation,
+								field,
+								info,
+								endpoints: endpointContracts(info.endpoint).map((contract) => ({
+									contract,
+									named: identity.spanCheck(relation.name, field.name, {
+										kind: "endpoint",
+										contract: contract.name
+									}),
+									laws: contractLaws(model, contract.name)
+								}))
+							}
+						]
+			})
+		)
 
-/** Each span CHECK with the law a violation reports, for the constraint-to-law map: an endpoint CHECK reports its
- * contract's law, described as the contract, because the library evaluates no contract predicate; the shape and width
- * CHECKs report none, because a span value's codec refuses an empty, unbounded or reversed span and one whose width
- * differs from the column's fixed width before any SQL is sent (`admitSpan`), and grizzle's own span producers never
- * make one. */
-const spanConstraintLaws = (
-	constraints: ReadonlyArray<SpanConstraint>
+/** Each span endpoint CHECK with the law a violation reports, for the constraint-to-law map: an endpoint CHECK reports
+ * its contract's law, described as the contract, because the library evaluates no contract predicate; the shape and
+ * width CHECKs report none, because a span value's codec refuses an empty, unbounded or reversed span and one whose
+ * width differs from the column's fixed width before any SQL is sent (`admitSpan`), and grizzle's own span producers
+ * never make one. */
+export const spanConstraintLaws = (
+	columns: ReadonlyArray<SpanColumn>
 ): ReadonlyArray<ConstraintLaw> =>
-	constraints.flatMap((c): ReadonlyArray<ConstraintLaw> => {
-		if (c.kind !== "endpoint") {
-			return []
-		}
-		const [law] = c.laws
-		return law === undefined
+	columns.flatMap((c) =>
+		c.endpoints.flatMap((e): ReadonlyArray<ConstraintLaw> => {
+			const [law] = e.laws
+			return law === undefined
+				? []
+				: [
+						{
+							kind: "constraint",
+							name: identifierOf(e.named),
+							owner: c.relation.ident,
+							laws: [{ law, described: contractLaw(e.contract.name) }]
+						}
+					]
+		})
+	)
+
+/** One of a span column's CHECKs, its name kept for the installation's census. */
+const spanCheck = (
+	b: InstallBuilder,
+	named: Identity<"spanCheck">,
+	predicate: Expr
+): Pick<SpanConstraint, "named" | "constraint"> => ({
+	named,
+	constraint: { kind: "check", name: b.name(named), predicate }
+})
+
+/** The CHECKs of one span column: its shape, its width, then its endpoint CHECKs. Throws a Refusal, which the
+ * installer's boundary turns into a failure. */
+const spanColumnConstraints = (b: InstallBuilder, c: SpanColumn): ReadonlyArray<SpanConstraint> => {
+	const relation = c.relation.name
+	const field = c.field.name
+	const column = b.names.column(relation, field)
+	const label = `${relation}.${field}`
+	const shape: SpanConstraint = {
+		relation: c.relation,
+		kind: "shape",
+		...spanCheck(
+			b,
+			identity.spanCheck(relation, field, { kind: "shape" }),
+			spanShapePredicate(column, c.info.carrier)
+		),
+		reasons: [enforcement(`span shape of ${label}: nonempty, bounded and half-open`)]
+	}
+	const width = c.info.width
+	return [
+		shape,
+		...(width === undefined
 			? []
 			: [
 					{
-						kind: "constraint",
-						name: c.constraint.name,
-						owner: c.relation.ident,
-						laws: [{ law, described: contractLaw(c.contract) }]
-					}
-				]
-	})
+						relation: c.relation,
+						kind: "width",
+						...spanCheck(
+							b,
+							identity.spanCheck(relation, field, { kind: "width" }),
+							spanWidthPredicate(column, width, c.info.carrier)
+						),
+						reasons: [enforcement(`span width ${width} of ${label}`)]
+					} as const
+				]),
+		...c.endpoints.map((e): SpanConstraint => ({
+			relation: c.relation,
+			kind: "endpoint",
+			contract: e.contract.name,
+			...spanCheck(
+				b,
+				e.named,
+				spanEndpointPredicate(b, relation, field, c.field.type, e.contract, c.info.carrier)
+			),
+			reasons:
+				e.laws.length > 0
+					? lawReasons(e.laws)
+					: [enforcement(`span endpoints of ${label} in contract ${e.contract.name}`)]
+		}))
+	]
+}
 
 /** The span CHECKs as physical objects: each an `ALTER TABLE ... ADD CONSTRAINT ... CHECK` in Structure after its
  * table, and an endpoint CHECK after its contract's domain when the installation has one, so the installation reads as
@@ -368,7 +373,7 @@ const addSpanChecks = (b: InstallBuilder, constraints: ReadonlyArray<SpanConstra
 	}
 }
 
-/** Span storage: the CHECKs every span column carries, as the installer's built-in contribution.
+/** Span storage: the CHECKs every span column of the plan's (`spanColumns`) carries, as physical objects.
  *
  * A span is one base range column, int4range over an integer endpoint, int8range over a bigint one and daterange over a
  * date, NOT NULL like every column. The table never stores two public endpoint columns. Beside the column, every writer meets these native
@@ -390,14 +395,11 @@ const addSpanChecks = (b: InstallBuilder, constraints: ReadonlyArray<SpanConstra
  * and the domain CHECK are one native expression tree over different operands.
  *
  * Every name is minted at the naming door from the CHECK's identity (identity.spanCheck). The CHECKs are their
- * own physical objects in Structure, after their table. `compileInstallation` runs this extension before any caller
- * extension, so no installation path can leave them out. */
-export const spanStorage: InstallExtension = {
-	contribute: (b): Result.Result<InstallContribution, CompileError> =>
-		catchRefusal(() => {
-			const constraints = spanConstraints(b)
-			addSpanChecks(b, constraints)
-			return { ...noContribution, constraintLaws: spanConstraintLaws(constraints) }
-		}),
-	textDomainUses: noTextDomainUses
+ * own physical objects in Structure, after their table. Every installation adds them before any caller extension runs
+ * (physical/install/compile.ts installationOver), so no installation path can leave them out. */
+export const addSpanStorage = (b: InstallBuilder, columns: ReadonlyArray<SpanColumn>): void => {
+	addSpanChecks(
+		b,
+		columns.flatMap((c) => spanColumnConstraints(b, c))
+	)
 }

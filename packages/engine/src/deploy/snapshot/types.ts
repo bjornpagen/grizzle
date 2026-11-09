@@ -6,7 +6,7 @@ import type {
 	Snapshot,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
-import type { DescribedLaw } from "#compiler/physical/install/compile.ts"
+import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
 /** The snapshot file of one declared schema, relative to the migrations directory. */

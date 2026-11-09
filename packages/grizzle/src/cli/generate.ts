@@ -191,7 +191,7 @@ type SchemaDraft = (
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
  * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
  * The schema's basis is compiled once: the artifacts the programs read and the installation the draft installs share
- * one law model and one plan of the closed constants (physical/install/compile.ts installBasis), and every login and
+ * one law model and one plan of the closed constants (physical/install/plan.ts installBasis), and every login and
  * role reads the one artifacts.
  */
 const draftInput = Effect.fn("draftInput")(function* (
