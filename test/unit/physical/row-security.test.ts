@@ -10,6 +10,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, login, relation, schema } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
@@ -170,7 +171,13 @@ const installationOf = (p: Point): Installation => {
 	return succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, logins, [], firstCodebook(rostersOf(owned)))
+			completeInstallOptions(
+				owned,
+				installationsOf(owned),
+				logins,
+				[],
+				firstCodebook(rostersOf(owned))
+			)
 		)
 	)
 }

@@ -13,6 +13,7 @@ import { login } from "#compiler/program/workload/login.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { materializedDerived, relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
@@ -147,7 +148,7 @@ const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 	)
 	const Base = schema("Base", { R }, [], [])
 	const D = materializedDerived("D", definitionOf(Base, R, fields, s.derived), [])
-	const S = schema.extend(Base, { D }, [], [])
+	const S = schema.extend(Base, "S", { D }, [], [])
 	const reader = role(
 		S,
 		"reader",
@@ -161,7 +162,7 @@ const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 			owned,
 			completeInstallOptions(
 				owned,
-				owned.installation,
+				installationsOf(owned),
 				[succeeded(ownLogin(app))],
 				[],
 				firstCodebook(rostersOf(owned))

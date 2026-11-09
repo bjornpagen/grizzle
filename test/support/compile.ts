@@ -127,7 +127,7 @@ export const testArtifacts = (
 	Result.flatMap(parseSchemaInput(schema), (input) =>
 		Result.flatMap(codebookFor(input, naming.codes), (codes) =>
 			schemaArtifacts(input, {
-				installation: naming.installation,
+				levels: naming.installation === undefined ? undefined : [naming.installation],
 				vectorSchema: naming.vectorSchema,
 				codes
 			})

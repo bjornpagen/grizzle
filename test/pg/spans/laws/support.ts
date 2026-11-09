@@ -52,7 +52,7 @@ export const installSpans = (
 		const owned = owning(desc)
 		const compiled = compileInstallation(owned, {
 			...installOptions(owned, substrate.owner.role),
-			installation: identity.schema(parsedSchemaName(schema)),
+			levels: [identity.schema(parsedSchemaName(schema))],
 			logins: [oracleOwnedLogin(owned.desc)]
 		})
 		if (!compiled.ok) {

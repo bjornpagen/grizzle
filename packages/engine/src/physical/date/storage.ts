@@ -75,7 +75,7 @@ export const addDateRanges = (b: InstallBuilder, ranges: ReadonlyArray<DateRange
 				kind: "check",
 				ident: {
 					kind: "constraint",
-					schema: b.settings.installation,
+					schema: b.names.levelOf(r.relation),
 					relation: b.names.relationNamed(r.relation),
 					name: r.named
 				},

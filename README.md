@@ -244,14 +244,15 @@ export const Subscription = relation(
 )
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
-export const Billing = schema.extend(Blog, { Plan, PlanLimits, Subscription }, [
+export const Billing = schema.extend(Blog, "Billing", { Plan, PlanLimits, Subscription }, [
 	contained(on(Post, "org"), on(Subscription, "org")),
 	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
 ])
 ```
 
-`schema.extend` builds on `Blog`: all of its relations and rules, three relations more and two rules more. `natural` is
-a count, a `bigint` that is never negative.
+`schema.extend` builds a level named `Billing` on `Blog`: all of its relations and rules, three relations more and two
+rules more. A level installs its relations in a PostgreSQL schema of its own, `billing` beside `blog`, and one
+installation holds them both ([Levels](#levels)). `natural` is a count, a `bigint` that is never negative.
 
 - **`contained(on(Post, "org"), on(Subscription, "org"))`**: an organization posts only once it has a subscription. A
   containment's target is a key, here `Subscription`'s primary key.
@@ -267,9 +268,9 @@ CREATE FUNCTION "blog"."__constant_votvjyxb73"() RETURNS bigint[]
 LANGUAGE sql IMMUTABLE PARALLEL SAFE
 RETURN '{"1","50"}'::bigint[];
 
-CREATE TABLE "blog"."subscription" (
+CREATE TABLE "billing"."subscription" (
   "org" "blog"."__text_t2hbrv4zer" NOT NULL,
-  "plan" "blog"."plan" NOT NULL,
+  "plan" "billing"."plan" NOT NULL,
   "seats" "blog"."__domain_gfw43vigph" NOT NULL,
   CONSTRAINT "__subscription_pk_ji5ktre5v6" PRIMARY KEY ("org"),
   CONSTRAINT "within_plan" CHECK (("seats" <= ("blog"."__constant_votvjyxb73"())[NULLIF("pg_catalog"."substring"("blog"."__constant_ab5qkascpx"(), "plan" * 2 + 1, 2)::integer, 0) - 1 + 1]) IS TRUE)
@@ -1027,7 +1028,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
-- **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` adds it to a schema, and a role's `refresh` list names what the role may refresh.
+- **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
 - **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts and prepares them on each connection, and `grizzle generate` derives the indexes they need.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
@@ -1055,7 +1056,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, { ModelSpend }, [])
+export const Reporting = schema.extend(Usage, "Reporting", { ModelSpend }, [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -1104,10 +1105,10 @@ export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpen
 ```sql
 CREATE INDEX "__call_ix_workspace_at_id_txjpwdbrfr" ON "usage"."call" USING btree ("workspace", "at", "id" DESC);
 
-CREATE MATERIALIZED VIEW "usage"."model_spend" ("model", "workspace", "calls", "spend") AS … WITH NO DATA;
-CREATE UNIQUE INDEX "__model_spend_key_model_workspace_p5jkdouxat" ON "usage"."model_spend" USING btree ("model", "workspace");
+CREATE MATERIALIZED VIEW "reporting"."model_spend" ("model", "workspace", "calls", "spend") AS … WITH NO DATA;
+CREATE UNIQUE INDEX "__model_spend_key_model_workspace_p5jkdouxat" ON "reporting"."model_spend" USING btree ("model", "workspace");
 
-GRANT MAINTAIN ON TABLE "usage"."model_spend" TO "usage__analyst";
+GRANT MAINTAIN ON TABLE "reporting"."model_spend" TO "reporting__analyst";
 ```
 
 Change `callLog` so that it needs another index, and `grizzle check`, and `DbLayer.make` at startup, refuse until you run `grizzle generate` again.
@@ -1835,7 +1836,7 @@ export const Place = relation(
 /** The places whose holder has not been called yet. */
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(BoxOffice, { Place }, [
+export const Waitlist = schema.extend(BoxOffice, "Waitlist", { Place }, [
 	contained(on(Place, "show"), on(Show, "id")),
 	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
 	key(on(waiting, "show", "holder"))
@@ -1914,7 +1915,7 @@ export const TypedHref = derived(
 /** The typed hrefs of items. */
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(Content, { TypedHref }, [
+export const ContentPackage = schema.extend(Content, "ContentPackage", { TypedHref }, [
 	check("ItemsInside", TypedHref, (t) =>
 		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
 	),
@@ -2099,7 +2100,9 @@ Roles:
   rosters, the closed relations and the derived tables. Their types are exactly these, so `wholeEntriesOf` never
   holds a closed relation and `writableNamesOf` never names a table `write` refuses. A role that holds every table
   whole, such as `role(Blog, "staff", wholeEntriesOf(Blog))`, also runs every query and ChangeSet over the schema
-  itself, such as `postPage`.
+  itself, such as `postPage`. So does a role over a higher level for each level below it whose every table, and every
+  table below it, it holds whole: a role over `Ledger` holding `wholeEntriesOf(Qti)` runs every query over `Qti`
+  ([Levels](#levels)).
 - **`RoleRefused`**, when you build the role, names the rule it breaks: a whole entry under another name than its
   table's, or not the schema's own; a query entry over a role or over any schema but the role's and those it extends,
   reading a table the schema lacks, or with parameters, nested results, vector search or an `orderBy` without `take`;
@@ -2421,7 +2424,8 @@ export const purge = ChangeSet.empty(Blog)
 
 ## Derived tables
 
-`derived(name, query)` names a query as a relation of the schema; add it with `schema.extend`. It stores nothing:
+`derived(name, query)` names a query as a relation of the schema; declare it in a level over the schema its query reads,
+with `schema.extend` ([Levels](#levels)). It stores nothing:
 every query that matches it, and every rule over it ([Rules over queries](#rules-over-queries)), reads its definition,
 and a role reads it through the tables its definition reads, never as a whole entry. The query takes no parameter,
 matches no context, has at least one field, and its rules share one set of columns.
@@ -2439,6 +2443,67 @@ error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` firs
 definition, never the view.
 
 ## Migrations
+## Levels
+
+A schema builds on another under its own name: `schema.extend(base, name, relations, statements)` is a level over
+`base`, with every relation and rule of it and of the levels below it, and relations and rules of its own. Each level is
+declared once, by its own name, which no level below it takes, and there is no other way to extend a schema.
+
+```ts
+/** The QTI content model, maintained on its own. */
+export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
+export const Qti = schema("Qti", { Item }, [])
+
+/** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
+export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, item: uuid }, ["id"])
+export const Ledger = schema.extend(Qti, "Ledger", { Sitting }, [
+	contained(on(Sitting, "item"), on(Item, "id"))
+])
+
+/** The signed-in child's own sittings; an insert fills `child` from the token. */
+export const mySittings = query(Ledger).rule((r) => {
+	const { id, child, item } = v(Sitting, "sitting")
+	return r.match(Sitting, { id, child, item }).match(Session, { sub: child }).find({ id, item })
+})
+
+export const Learner = role(
+	Ledger,
+	"learner",
+	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
+	{ write: ["MySitting"] }
+)
+export const LedgerApp = login(Ledger, "app", [Learner])
+export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
+export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
+```
+
+- **Each level is a PostgreSQL schema.** `schemaNameOf(Qti)` is `qti` and `schemaNameOf(Ledger)` is `ledger`: a level's
+  tables, materialized views, identity sequences and rosters' domains live in its own schema. A login or role is named
+  by the level it is over, `roleNameOf(LedgerApp)` is `ledger__app` and `roleNameOf(AuthorApp)` is `qti__author_app`.
+  The root's schema also holds what belongs to the whole installation: the migrations ledger, the contract and text
+  domains, the constants and grizzle's functions. Every reference across schemas is qualified.
+- **One installation.** The config lists `Ledger`, its top level, and both levels install together: one migrations
+  directory, `migrations/qti/`, named by the root, one `snapshot.json` recording each level and one ledger. A migration
+  spans every level, so a change of `Qti` that a view or foreign key of `Ledger` reads drops and recreates it in one
+  transaction, and a rename of a `Qti` table or field reaches `Ledger`'s foreign keys and views in place. A level added
+  on top later is the next migration of the same installation. A relation moved to another level is a new table there:
+  `--drop` the old one, as for any stored relation.
+- **A level reaches the levels below it only where their writes need nothing of it.** A containment between stored
+  relations may have one side below, both sides fields with no selection, no `pred` and no span, into a key the target
+  relation declares: a deferred foreign key, judged at COMMIT, such as `ledger.sitting` into `qti.item`. A rule over a
+  query may read the levels below through its derived relation, as deferred triggers on their tables. Anything else
+  stated at `Ledger` over a `Qti` relation (a key, a check, `mutable`, a family, tree or fold, a selected side) is
+  `LevelRefused` when the schema is built: a process over `Qti` holds none of `Ledger`'s code, so no law of `Ledger`
+  may change how a `Qti` write is compiled or drawn.
+- **Read-only is the worlds model.** `Learner` holds `Qti`'s tables whole and writes only its own sittings: it reads `Qti`
+  through views in its own schema, owned by the migration role, and holds no privilege on a `Qti` table. Since it
+  holds every `Qti` table whole, every query over `Qti` runs on it, through those views.
+- **Every level is served.** `DbLayer.make` takes a login over any level of the installation and the installation's
+  snapshot: a process built from `Qti` alone, such as `AuthorApp`'s, is checked against `Qti`'s level of the snapshot
+  and compiles nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
+  `Sitting` holds, the outcome is `invariant-rejected` with the law `{ kind: "above", level: "Ledger", law }`, which
+  names the level and the law as that level states it.
+
 
 `grizzle.config.ts`, whose default export is `defineConfig({ ... })`, and which every command names as its argument:
 
@@ -2475,9 +2540,11 @@ export default defineConfig({
 
 Every setting is required, and nothing else is configurable:
 
-- **`schemas`**: the declared schemas, at least one.
-- **`logins`**: every login, and through them every role and workload. A login over a schema not listed is refused;
-  a login not listed is not installed, nor are its roles.
+- **`schemas`**: the installations, at least one, each listed by its top level, which installs every level below it.
+  Two listed schemas over one root, one a level of the other among them, are refused.
+- **`logins`**: every login, and through them every role and workload, each over a level of a listed schema. A login
+  over a schema no listed one holds is refused; a login not listed is not installed, nor are its roles. Login and role
+  names are unique across an installation.
 - **`migrations`**: the directory, absolute or relative to the config file's directory.
 - **`connection`**: where `migrate` and `drift` connect, as the role that owns the schemas; no other command reads it.
   Its password is a `Redacted` or an Effect evaluated for each connection attempt.
@@ -2510,8 +2577,9 @@ markers, run `grizzle check grizzle.config.ts`, commit, and run `grizzle migrate
 deploy.
 
 - **Drafted from a snapshot, never from a live database.** `generate` compares your schemas, their roles and logins,
-  and every login's workloads with the committed `migrations/<schema>/snapshot.json`, and writes the new snapshot and
-  a folder `migrations/<schema>/<timestamp>_<name>/` of numbered SQL files and a `meta.json`.
+  and every login's workloads with the committed `migrations/<root>/snapshot.json`, and writes the new snapshot and
+  a folder `migrations/<root>/<timestamp>_<name>/` of numbered SQL files and a `meta.json`, `<root>` the PostgreSQL
+  schema of the installation's root level.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
   caller writes: by a cast, or by the expression you write at a `-- grizzle: placeholder` marker, which also asks for

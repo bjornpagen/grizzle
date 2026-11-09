@@ -109,7 +109,7 @@ const versionOf = (name: string, k: Knobs) => {
 			return r.match(Doc, { id, words }).find({ id, words })
 		})
 	)
-	const ext = schema.extend(base, { Busy }, [])
+	const ext = schema.extend(base, `${name}_1`, { Busy }, [])
 	const mine = () => {
 		switch (k.mine) {
 			case "owned":
@@ -397,7 +397,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 							const last = defined(built[built.length - 1], "the last version")
 							yield* withDbClaims(m, last.login.roles.editor, { sub: "u_ann" }, () => Effect.void)
 							yield* withDb(m, last.login.roles.viewer, () => Effect.void)
-							const read = yield* readCatalog(substrate.admin, m.schema)
+							const read = yield* readCatalog(substrate.admin, [m.schema])
 							assert.ok(read.kind === "present", `the migrated schema ${m.schema} is absent`)
 							assert.deepEqual(
 								checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),

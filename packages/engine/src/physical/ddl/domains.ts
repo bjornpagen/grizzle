@@ -296,7 +296,7 @@ export const addTextDomains = (
 			name: b.name(domain.named),
 			constraint: b.name(domain.check)
 		})
-		b.addType("domain", domain.named, { ddl: [ddl], reasons }, [b.schemaNode])
+		b.addType("domain", b.names.installation, domain.named, { ddl: [ddl], reasons }, [b.schemaNode])
 		return [ddl.name]
 	})
 
@@ -360,7 +360,7 @@ const addContractDomain = (
 		constraint: contract.check.kind === "unchecked" ? "" : b.name(identity.domainCheck(named))
 	})
 	const baseNode = b.typeNode(ddl.base)
-	b.addType("domain", named, { ddl: [ddl], reasons }, [
+	b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [
 		b.schemaNode,
 		...(baseNode === undefined ? [] : [baseNode]),
 		...(isVectorRef(b, ddl.base) ? [b.provider("vector")] : [])

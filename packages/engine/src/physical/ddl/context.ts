@@ -6,11 +6,13 @@ import {
 	compareIdentities,
 	type DeclaredName,
 	type Identity,
+	identifierOf,
 	identity
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -45,9 +47,13 @@ export interface InstallSettings {
 	 * default-privilege resets name. Undefined for a migration: the migration identity is
 	 * whoever connects, so the schema is created without AUTHORIZATION and the resets name no role. */
 	readonly owner: string | undefined
-	/** The identity of the PostgreSQL schema the objects are created in, which every role installed beside it embeds
-	 * (roles are cluster-wide): the declared schema's (Owned.installation), or a test's unique one. */
-	readonly installation: Identity<"schema">
+	/**
+	 * The identity of each level's PostgreSQL schema, root first, index for index with Owned.levels: the declared levels'
+	 * own (Owned.levels' installations), or a test's unique ones. Each role and login installed over a level embeds its
+	 * level's (roles are cluster-wide), and the root's holds what is the installation's own (physical/ddl/names.ts
+	 * InstallNames).
+	 */
+	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	/** The schema the vector extension lives in (vector_ext on the local cluster). */
 	readonly vectorSchema: string
 	/** The schema btree_gist is created in when a span key or a GiST index has a scalar component, if the database has
@@ -139,7 +145,7 @@ type Evaluated =
 export interface EvaluationRoots {
 	readonly statements: ReadonlyArray<SqlStatement>
 	readonly predicates: ReadonlyArray<Expr>
-	readonly domains: ReadonlyArray<string>
+	readonly domains: ReadonlyArray<{ readonly schema: string; readonly name: string }>
 	readonly constants: ReadonlyArray<string>
 }
 
@@ -182,6 +188,13 @@ const widenedRelation = (
 	return undefined
 }
 
+/** A domain's key among the installation's: its schema and its identifier, which no identifier holds a NUL of. */
+const typeKey = (schema: string, name: string): string => `${schema}\u0000${name}`
+
+/** The key of the domain `name` among the installation's (`typeKey`). */
+export const domainKey = (name: { readonly schema: string; readonly name: string }): string =>
+	typeKey(name.schema, name.name)
+
 /** What every DDL generator of one installation shares: the owned schema, its law model, the installed names, the
  * obligation graph the objects go into, and the identities the installation names its own objects by (`name`).
  *
@@ -202,8 +215,10 @@ export class InstallBuilder {
 	readonly settings: InstallSettings
 	/** Every native object of the law model, by kind. */
 	readonly natives: ReadonlyArray<NamedNative>
-	/** The installed schema, which every object of it is created after. */
+	/** The root's schema, which every object of the installation's own is created after. */
 	readonly schemaNode: Node<"setup">
+	/** Each level's schema, root first, by level index: every object of a level's relations is created after its own. */
+	readonly levelNodes: NonEmptyReadonlyArray<Node<"setup">>
 	/** The refusal function every write statement that can refuse and every context source calls. */
 	readonly refusal: Node<"setup">
 	/** The guard function every table's isolation trigger calls. */
@@ -212,6 +227,7 @@ export class InstallBuilder {
 	readonly snapshotGuard: Node<"setup">
 	readonly #named: Array<Identity<IdentityKind>> = []
 	readonly #providers = new Map<Capability, Node<"setup">>()
+	/** Each domain the installation creates, by its schema and identifier (`typeKey`). */
 	readonly #types = new Map<string, Node<"setup">>()
 	/** Each constant by identifier: its identity, its object and the constants its body calls. */
 	readonly #constants = new Map<
@@ -230,6 +246,8 @@ export class InstallBuilder {
 	readonly #lawColumns: ReadonlyMap<string, ReadonlyMap<string, TargetField>>
 	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
+	/** The identifiers of the levels' schemas, where every table of the installation is. */
+	readonly #levelSchemas: ReadonlySet<string>
 
 	constructor(input: {
 		readonly owned: Owned
@@ -245,23 +263,26 @@ export class InstallBuilder {
 		this.settings = input.settings
 		this.natives = input.model.natives
 		this.#lawColumns = lawColumnFields(input.model.natives)
-		const installation = input.settings.installation
-		this.schemaNode = this.add(
-			{
-				kind: "schema",
-				ident: { kind: "schema", name: installation },
-				ddl: [
-					{
-						kind: "createSchema",
-						name: this.name(installation),
-						authorization: input.settings.owner
-					}
-				],
-				reasons: [enforcement(`schema ${input.owned.name}`)],
-				phase: "setup"
-			},
-			[]
-		)
+		this.#levelSchemas = new Set(input.names.levels.map(identifierOf))
+		const levelNode = (installation: Identity<"schema">, index: number): Node<"setup"> =>
+			this.add(
+				{
+					kind: "schema",
+					ident: { kind: "schema", name: installation },
+					ddl: [
+						{
+							kind: "createSchema",
+							name: this.name(installation),
+							authorization: input.settings.owner
+						}
+					],
+					reasons: [enforcement(`schema ${input.owned.levels[index]?.name ?? input.owned.name}`)],
+					phase: "setup"
+				},
+				[]
+			)
+		this.levelNodes = mapNonEmpty(input.settings.levels, levelNode)
+		this.schemaNode = headNonEmpty(this.levelNodes)
 		this.name(identity.refusal())
 		this.refusal = this.add(
 			{
@@ -303,9 +324,22 @@ export class InstallBuilder {
 		return [...this.#named]
 	}
 
-	/** The graph identity of an object `name` names in the installed schema. */
+	/** The graph identity of an object `name` names in the root's schema. */
 	qualified(kind: QualifiedKind, name: Identity<IdentityKind>): NodeIdent {
-		return { kind, schema: this.settings.installation, name }
+		return { kind, schema: this.names.installation, name }
+	}
+
+	/** The graph identity of an object `name` names in the schema of the level that declares `relation`. */
+	qualifiedOf(kind: QualifiedKind, relation: string, name: Identity<IdentityKind>): NodeIdent {
+		return { kind, schema: this.names.levelOf(relation), name }
+	}
+
+	/** The schema object of the level that declares `relation`, which every object of the relation is created after. */
+	levelNode(relation: string): Node<"setup"> {
+		return (
+			this.levelNodes[this.names.levels.indexOf(this.names.levelOf(relation))] ??
+			missing(`physical: no installed level for ${relation}`)
+		)
 	}
 
 	/**
@@ -320,7 +354,7 @@ export class InstallBuilder {
 		for (const statement of spec.ddl) {
 			this.#countColumns(statement)
 			const table = evaluatedTable(statement)
-			if (table !== undefined && table.schema === this.schema) {
+			if (table !== undefined && this.#levelSchemas.has(table.schema)) {
 				const known = this.#evaluatedOn.get(table.name)
 				if (known === undefined) {
 					this.#evaluatedOn.set(table.name, [statement])
@@ -383,10 +417,11 @@ export class InstallBuilder {
 		this.#columns.set(table, needed)
 	}
 
-	/** Adds a domain of the installed schema, which a column, a cast or a declaration names by its identifier
-	 * (`typeNode`). */
+	/** Adds a domain of the installation in `schema`, the root's or a level's, which a column, a cast or a declaration
+	 * names by its schema and identifier (`typeNode`). */
 	addType(
 		kind: "domain",
+		schema: Identity<"schema">,
 		name: Identity<IdentityKind>,
 		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
 		after: ReadonlyArray<Node<"setup">>
@@ -394,14 +429,14 @@ export class InstallBuilder {
 		const node = this.add(
 			{
 				kind,
-				ident: this.qualified(kind, name),
+				ident: { kind, schema, name },
 				ddl: spec.ddl,
 				reasons: spec.reasons,
 				phase: "setup"
 			},
 			after
 		)
-		this.#types.set(name.identifier, node)
+		this.#types.set(typeKey(schema.identifier, name.identifier), node)
 		return node
 	}
 
@@ -502,8 +537,8 @@ export class InstallBuilder {
 				return fn
 			},
 			typeRef: (type) => {
-				if (type.kind === "named" && type.schema === this.schema) {
-					reach({ kind: "domain", identifier: type.name })
+				if (type.kind === "named") {
+					reach({ kind: "domain", identifier: typeKey(type.schema, type.name) })
 				}
 				return type
 			}
@@ -511,8 +546,8 @@ export class InstallBuilder {
 		for (const identifier of roots.constants) {
 			reach({ kind: "constant", identifier })
 		}
-		for (const identifier of roots.domains) {
-			reach({ kind: "domain", identifier })
+		for (const domain of roots.domains) {
+			reach({ kind: "domain", identifier: domainKey(domain) })
 		}
 		for (const predicate of roots.predicates) {
 			transformExpr(predicate, hooks)
@@ -548,7 +583,7 @@ export class InstallBuilder {
 
 	/** The domain the installation creates under `name`; none for another type. */
 	typeNamed(name: { readonly schema: string; readonly name: string }): Node<"setup"> | undefined {
-		return name.schema === this.schema ? this.#types.get(name.name) : undefined
+		return this.#types.get(typeKey(name.schema, name.name))
 	}
 
 	/** The domain of the contract `contract`; none when the installation creates none for it. */

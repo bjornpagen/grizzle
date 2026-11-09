@@ -277,6 +277,8 @@ interface CatalogDefaultAcl {
 
 export interface Catalog {
 	readonly schema: string
+	/** The installation's level schemas, the root's, `schema`, first. */
+	readonly levels: ReadonlyArray<string>
 	readonly owner: string
 	readonly schemaGrants: ReadonlyArray<CatalogGrant>
 	readonly tables: ReadonlyArray<CatalogTable>
@@ -327,15 +329,16 @@ const collationText = (oid: string) =>
  * it (recordDependencyOnExpr): a CHECK's, a view rule's or a SQL-standard body's calls, by name.
  */
 const callsOf = (classid: string, objid: string) =>
-	`(SELECT COALESCE(json_agg(DISTINCT dp.proname::text), '[]'::json) FROM pg_catalog.pg_depend dd JOIN pg_catalog.pg_proc dp ON dp.oid = dd.refobjid JOIN pg_catalog.pg_namespace dn ON dn.oid = dp.pronamespace WHERE dd.classid = ${classid} AND dd.objid = ${objid} AND dd.refclassid = 'pg_catalog.pg_proc'::regclass AND dd.objid <> dd.refobjid AND dn.nspname = $1::text)`
+	`(SELECT COALESCE(json_agg(DISTINCT dp.proname::text), '[]'::json) FROM pg_catalog.pg_depend dd JOIN pg_catalog.pg_proc dp ON dp.oid = dd.refobjid JOIN pg_catalog.pg_namespace dn ON dn.oid = dp.pronamespace WHERE dd.classid = ${classid} AND dd.objid = ${objid} AND dd.refclassid = 'pg_catalog.pg_proc'::regclass AND dd.objid <> dd.refobjid AND dn.nspname = ANY($1::text[]))`
 
 /**
- * The queries of one installed schema, `$1`. The naming door mints every login, role and role schema under it
- * `<schema>__<name>` (core/identity.ts), and no converted declared name holds `__`, so `$1 || '__'` is the prefix the
- * installation's own roles and role schemas start with, and no other installation's.
+ * The queries of one installation's level schemas, `$1` (text[], its root's first). The naming door mints every login,
+ * role and role schema of a level under it, `<level>__<name>` (core/identity.ts), and no converted declared name holds
+ * `__`, so a level's name and `__` is the prefix the installation's own roles and role schemas start with, and no other
+ * installation's.
  */
 const queries = {
-	schema: `SELECT COALESCE((SELECT json_build_object('kind', 'present', 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text, 'grants', ${grants("n.nspacl", "n", "n.nspowner")}) FROM pg_catalog.pg_namespace n WHERE n.nspname = $1::text), json_build_object('kind', 'absent'))::text`,
+	schema: `SELECT COALESCE((SELECT json_build_object('kind', 'present', 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text, 'grants', ${grants("n.nspacl", "n", "n.nspowner")}) FROM pg_catalog.pg_namespace n WHERE n.nspname = ($1::text[])[1]), json_build_object('kind', 'absent'))::text`,
 	tables: `SELECT COALESCE(json_agg(json_build_object(
 		'name', c.relname::text, 'kind', c.relkind::text, 'owner', pg_catalog.pg_get_userbyid(c.relowner)::text,
 		'rowSecurity', c.relrowsecurity, 'forceRowSecurity', c.relforcerowsecurity,
@@ -364,7 +367,7 @@ const queries = {
 		WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attacl IS NOT NULL)
 	) ORDER BY c.relname), '[]'::json)::text
 	FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-	WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p', 'v', 'm', 'f')`,
+	WHERE n.nspname = ANY($1::text[]) AND c.relkind IN ('r', 'p', 'v', 'm', 'f')`,
 	indexes: `SELECT COALESCE(json_agg(json_build_object(
 		'name', ic.relname::text, 'table', tc.relname::text, 'unique', i.indisunique, 'method', am.amname::text,
 		'columns', (SELECT COALESCE(json_agg(COALESCE(a.attname::text, '') ORDER BY u.ord), '[]'::json) FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS u(attnum, ord) LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum),
@@ -374,21 +377,21 @@ const queries = {
 	) ORDER BY ic.relname), '[]'::json)::text
 	FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid
 	JOIN pg_catalog.pg_am am ON am.oid = ic.relam JOIN pg_catalog.pg_namespace n ON n.oid = ic.relnamespace
-	WHERE n.nspname = $1::text`,
-	enumLabels: `SELECT count(*)::text FROM pg_catalog.pg_enum e JOIN pg_catalog.pg_type t ON t.oid = e.enumtypid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1::text`,
+	WHERE n.nspname = ANY($1::text[])`,
+	enumLabels: `SELECT count(*)::text FROM pg_catalog.pg_enum e JOIN pg_catalog.pg_type t ON t.oid = e.enumtypid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = ANY($1::text[])`,
 	domains: `SELECT COALESCE(json_agg(json_build_object(
 		'name', t.typname::text, 'base', ${typeJson("t.typbasetype", "t.typtypmod")}, 'notNull', t.typnotnull,
 		'collation', ${collationText("t.typcollation")},
 		'constraints', (SELECT COALESCE(json_agg(json_build_object('name', k.conname::text, 'definition', pg_catalog.pg_get_constraintdef(k.oid), 'validated', k.convalidated, 'calls', ${callsOf("'pg_catalog.pg_constraint'::regclass", "k.oid")}) ORDER BY k.conname), '[]'::json) FROM pg_catalog.pg_constraint k WHERE k.contypid = t.oid AND k.contype = 'c'),
 		'grants', ${grants("t.typacl", "T", "t.typowner")}
 	) ORDER BY t.typname), '[]'::json)::text
-	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1::text AND t.typtype = 'd'`,
+	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = ANY($1::text[]) AND t.typtype = 'd'`,
 	sequences: `SELECT COALESCE(json_agg(json_build_object(
 		'name', c.relname::text,
 		'ownedBy', COALESCE((SELECT tc.relname::text || '.' || a.attname::text FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_class tc ON tc.oid = d.refobjid JOIN pg_catalog.pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid WHERE d.objid = c.oid AND d.classid = 'pg_catalog.pg_class'::regclass AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.deptype IN ('a', 'i')), ''),
 		'grants', ${grants("c.relacl", "s", "c.relowner")}
 	) ORDER BY c.relname), '[]'::json)::text
-	FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind = 'S'`,
+	FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ANY($1::text[]) AND c.relkind = 'S'`,
 	functions: `SELECT COALESCE(json_agg(json_build_object(
 		'name', p.proname::text, 'args', pg_catalog.pg_get_function_identity_arguments(p.oid),
 		'owner', pg_catalog.pg_get_userbyid(p.proowner)::text, 'securityDefiner', p.prosecdef,
@@ -396,14 +399,14 @@ const queries = {
 		'grants', ${grants("p.proacl", "f", "p.proowner")}, 'definition', pg_catalog.pg_get_functiondef(p.oid),
 		'calls', ${callsOf("'pg_catalog.pg_proc'::regclass", "p.oid")}
 	) ORDER BY p.proname), '[]'::json)::text
-	FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = $1::text`,
+	FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = ANY($1::text[])`,
 	triggers: `SELECT COALESCE(json_agg(json_build_object(
 		'table', c.relname::text, 'name', g.tgname::text, 'internal', g.tgisinternal, 'enabled', g.tgenabled::text,
 		'function', p.proname::text, 'type', g.tgtype, 'constraint', g.tgconstraint <> 0, 'deferrable', g.tgdeferrable, 'deferred', g.tginitdeferred,
 		'definition', pg_catalog.pg_get_triggerdef(g.oid)
 	) ORDER BY c.relname, g.tgname), '[]'::json)::text
 	FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-	JOIN pg_catalog.pg_proc p ON p.oid = g.tgfoid WHERE n.nspname = $1::text`,
+	JOIN pg_catalog.pg_proc p ON p.oid = g.tgfoid WHERE n.nspname = ANY($1::text[])`,
 	statistics: `SELECT COALESCE(json_agg(json_build_object(
 		'name', s.stxname::text, 'table', c.relname::text,
 		'columns', (SELECT COALESCE(json_agg(a.attname::text ORDER BY a.attname::text COLLATE "C"), '[]'::json) FROM unnest(s.stxkeys::int2[]) AS k(attnum) JOIN pg_catalog.pg_attribute a ON a.attrelid = s.stxrelid AND a.attnum = k.attnum),
@@ -416,24 +419,24 @@ const queries = {
 			'FROM', pg_catalog.quote_ident(n.nspname::text) || '.' || pg_catalog.quote_ident(c.relname::text))
 	) ORDER BY s.stxname), '[]'::json)::text
 	FROM pg_catalog.pg_statistic_ext s JOIN pg_catalog.pg_class c ON c.oid = s.stxrelid JOIN pg_catalog.pg_namespace n ON n.oid = s.stxnamespace
-	WHERE n.nspname = $1::text`,
+	WHERE n.nspname = ANY($1::text[])`,
 	policies: `SELECT COALESCE(json_agg(json_build_object(
 		'table', c.relname::text, 'name', pol.polname::text, 'command', pol.polcmd::text, 'permissive', pol.polpermissive,
 		'roles', (SELECT COALESCE(json_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(r)::text END ORDER BY CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(r)::text END), '[]'::json) FROM unnest(pol.polroles) AS r),
 		'using', pg_catalog.pg_get_expr(pol.polqual, pol.polrelid),
 		'check', pg_catalog.pg_get_expr(pol.polwithcheck, pol.polrelid)
 	) ORDER BY c.relname, pol.polname), '[]'::json)::text
-	FROM pg_catalog.pg_policy pol JOIN pg_catalog.pg_class c ON c.oid = pol.polrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1::text`,
+	FROM pg_catalog.pg_policy pol JOIN pg_catalog.pg_class c ON c.oid = pol.polrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ANY($1::text[])`,
 	roles: `SELECT COALESCE(json_agg(json_build_object(
 		'name', r.rolname::text, 'login', r.rolcanlogin, 'inherit', r.rolinherit, 'superuser', r.rolsuper, 'createRole', r.rolcreaterole,
 		'createDb', r.rolcreatedb, 'replication', r.rolreplication, 'bypassRls', r.rolbypassrls,
 		'config', (SELECT COALESCE(json_agg(x ORDER BY x), '[]'::json) FROM pg_catalog.pg_db_role_setting s, unnest(s.setconfig) AS x WHERE s.setrole = r.oid AND s.setdatabase = 0),
 		'databaseConfig', (SELECT COALESCE(json_agg(x ORDER BY x), '[]'::json) FROM pg_catalog.pg_db_role_setting s, unnest(s.setconfig) AS x WHERE s.setrole = r.oid AND s.setdatabase = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database())),
 		'memberOf', (SELECT COALESCE(json_agg(json_build_object('role', x.role, 'inherit', x.inherit, 'set', x.set, 'admin', x.admin) ORDER BY x.role COLLATE "C"), '[]'::json) FROM (SELECT g.rolname::text AS role, bool_or(m.inherit_option) AS inherit, bool_or(m.set_option) AS set, bool_or(m.admin_option) AS admin FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles g ON g.oid = m.roleid WHERE m.member = r.oid GROUP BY g.rolname) AS x),
-		'members', (SELECT COALESCE(json_agg(json_build_object('role', x.role, 'inherit', x.inherit, 'set', x.set, 'admin', x.admin) ORDER BY x.role COLLATE "C"), '[]'::json) FROM (SELECT u.rolname::text AS role, bool_or(m.inherit_option) AS inherit, bool_or(m.set_option) AS set, bool_or(m.admin_option) AS admin FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles u ON u.oid = m.member WHERE m.roleid = r.oid AND m.member IS DISTINCT FROM (SELECT n.nspowner FROM pg_catalog.pg_namespace AS n WHERE n.nspname = $1::text) GROUP BY u.rolname) AS x),
+		'members', (SELECT COALESCE(json_agg(json_build_object('role', x.role, 'inherit', x.inherit, 'set', x.set, 'admin', x.admin) ORDER BY x.role COLLATE "C"), '[]'::json) FROM (SELECT u.rolname::text AS role, bool_or(m.inherit_option) AS inherit, bool_or(m.set_option) AS set, bool_or(m.admin_option) AS admin FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles u ON u.oid = m.member WHERE m.roleid = r.oid AND m.member IS DISTINCT FROM (SELECT n.nspowner FROM pg_catalog.pg_namespace AS n WHERE n.nspname = ($1::text[])[1]) GROUP BY u.rolname) AS x),
 		'inherits', (WITH RECURSIVE h(oid) AS (SELECT m.roleid FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid AND m.inherit_option UNION SELECT m.roleid FROM pg_catalog.pg_auth_members m JOIN h ON m.member = h.oid WHERE m.inherit_option) SELECT COALESCE(json_agg(pg_catalog.pg_get_userbyid(h.oid)::text ORDER BY pg_catalog.pg_get_userbyid(h.oid)::text COLLATE "C"), '[]'::json) FROM h WHERE h.oid <> r.oid)
 	) ORDER BY r.rolname), '[]'::json)::text
-	FROM pg_catalog.pg_roles r WHERE starts_with(r.rolname::text, $1::text || '__')`,
+	FROM pg_catalog.pg_roles r WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__'))`,
 	worlds: `SELECT COALESCE(json_agg(json_build_object(
 		'name', n.nspname::text, 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text,
 		'grants', ${grants("n.nspacl", "n", "n.nspowner")},
@@ -441,25 +444,25 @@ const queries = {
 			'name', c.relname::text, 'kind', c.relkind::text, 'owner', pg_catalog.pg_get_userbyid(c.relowner)::text,
 			'options', COALESCE(to_json(c.reloptions), '[]'::json), 'grants', ${grants("c.relacl", "r", "c.relowner")},
 			'columns', (SELECT COALESCE(json_agg(json_build_object('name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped),
-			'calls', (SELECT COALESCE(json_agg(DISTINCT p.proname::text), '[]'::json) FROM pg_catalog.pg_rewrite w JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace WHERE w.ev_class = c.oid AND pn.nspname = $1::text)
+			'calls', (SELECT COALESCE(json_agg(DISTINCT p.proname::text), '[]'::json) FROM pg_catalog.pg_rewrite w JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace WHERE w.ev_class = c.oid AND pn.nspname = ANY($1::text[]))
 		) ORDER BY c.relname), '[]'::json) FROM pg_catalog.pg_class c WHERE c.relnamespace = n.oid),
 		'functions', (SELECT COALESCE(json_agg(p.proname::text ORDER BY p.proname), '[]'::json) FROM pg_catalog.pg_proc p WHERE p.pronamespace = n.oid),
 		'types', (SELECT COALESCE(json_agg(t.typname::text ORDER BY t.typname), '[]'::json) FROM pg_catalog.pg_type t WHERE t.typnamespace = n.oid AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class k WHERE k.oid = t.typrelid AND k.relkind <> 'c')) AND t.typtype <> 'b')
 	) ORDER BY n.nspname), '[]'::json)::text
-	FROM pg_catalog.pg_namespace n WHERE starts_with(n.nspname::text, $1::text || '__')`,
+	FROM pg_catalog.pg_namespace n WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(n.nspname::text, l.s || '__'))`,
 	foreignGrants: `SELECT COALESCE(json_agg(json_build_object('schema', n.nspname::text, 'grantee', r.rolname::text, 'privilege', a.privilege_type) ORDER BY n.nspname, r.rolname, a.privilege_type), '[]'::json)::text
 	FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) AS a
 	JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
-	WHERE starts_with(r.rolname::text, $1::text || '__') AND n.nspname <> $1::text AND NOT starts_with(n.nspname::text, $1::text || '__')`,
+	WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__')) AND NOT (n.nspname = ANY($1::text[])) AND NOT EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(n.nspname::text, l.s || '__'))`,
 	defaultAcls: `SELECT COALESCE(json_agg(json_build_object(
 		'role', pg_catalog.pg_get_userbyid(d.defaclrole)::text, 'schema', n.nspname::text, 'objectType', d.defaclobjtype::text,
 		'grants', (SELECT COALESCE(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee)::text END, 'privilege', a.privilege_type) ORDER BY 1, a.privilege_type), '[]'::json) FROM pg_catalog.aclexplode(d.defaclacl) AS a)
 	) ORDER BY pg_catalog.pg_get_userbyid(d.defaclrole)::text, COALESCE(n.nspname::text, ''), d.defaclobjtype), '[]'::json)::text
 	FROM pg_catalog.pg_default_acl d LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
-	WHERE d.defaclnamespace = 0 OR n.nspname = $1::text`,
+	WHERE d.defaclnamespace = 0 OR n.nspname = ANY($1::text[])`,
 	otherTypes: `SELECT COALESCE(json_agg(t.typname::text ORDER BY t.typname), '[]'::json)::text
 	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-	WHERE n.nspname = $1::text AND t.typtype NOT IN ('e', 'd') AND t.typtype <> 'b'
+	WHERE n.nspname = ANY($1::text[]) AND t.typtype NOT IN ('e', 'd') AND t.typtype <> 'b'
 	AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid AND c.relkind <> 'c'))`,
 	/**
 	 * The database's settings, whatever the schema: $1 is read only so the query takes the parameter every query takes.
@@ -467,7 +470,7 @@ const queries = {
 	databaseSettings: `SELECT COALESCE(json_agg(x ORDER BY x), '[]'::json)::text
 	FROM pg_catalog.pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) AS x
 	WHERE s.setrole = 0 AND s.setdatabase = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database())
-	AND $1::text IS NOT NULL`
+	AND $1::text[] IS NOT NULL`
 } as const
 
 /** A catalog record as its JSON document spells it: what may be none is PostgreSQL's NULL there, an Option here. */
@@ -581,7 +584,7 @@ type SchemaHead =
  */
 export type CatalogStatement<E> = (
 	sql: string,
-	params: ReadonlyArray<string>
+	params: ReadonlyArray<ReadonlyArray<string>>
 ) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
 
 /**
@@ -589,9 +592,9 @@ export type CatalogStatement<E> = (
  * is an aggregate or a COALESCE of a scalar subquery.
  */
 const documentText =
-	<E>(run: CatalogStatement<E>, schema: string) =>
+	<E>(run: CatalogStatement<E>, schemas: Arr.NonEmptyReadonlyArray<string>) =>
 	(sql: string): Effect.Effect<string, E> =>
-		Effect.flatMap(run(sql, [schema]), (rows) => {
+		Effect.flatMap(run(sql, [schemas]), (rows) => {
 			const text = rows[0]?.[0]
 			return typeof text === "string"
 				? Effect.succeed(text)
@@ -610,10 +613,11 @@ const documentText =
  */
 export const readCatalogWith = <E>(
 	run: CatalogStatement<E>,
-	schema: string
+	schemas: Arr.NonEmptyReadonlyArray<string>
 ): Effect.Effect<InstalledCatalog, E> =>
 	Effect.gen(function* () {
-		const read = documentText(run, schema)
+		const schema = schemas[0]
+		const read = documentText(run, schemas)
 		const headText = yield* read(queries.schema)
 		const head = trustedJson<SchemaHead>(headText)
 		if (head.kind === "absent") {
@@ -640,6 +644,7 @@ export const readCatalogWith = <E>(
 			kind: "present",
 			catalog: {
 				schema,
+				levels: schemas,
 				owner: head.owner,
 				schemaGrants: head.grants,
 				tables: Arr.map(trustedJson<ReadonlyArray<TableDocument>>(texts.tables), tableOf),
@@ -673,9 +678,10 @@ export const readCatalogWith = <E>(
 		}
 	})
 
-/** The catalog of `schema` as `connection` (the owner) sees it, or the schema's absence. */
+/** The catalog of an installation's level schemas `schemas`, its root's first, as `connection` (the owner) sees it, or
+ * the root schema's absence. */
 export const readCatalog = (
 	connection: PgConnection,
-	schema: string
+	schemas: Arr.NonEmptyReadonlyArray<string>
 ): Effect.Effect<InstalledCatalog, SqlError> =>
-	readCatalogWith((sql, params) => connection.queryValues(sql, params), schema)
+	readCatalogWith((sql, params) => connection.queryValues(sql, params), schemas)

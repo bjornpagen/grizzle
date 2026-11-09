@@ -18,6 +18,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
@@ -230,7 +231,7 @@ const installationOf = (desc: unknown, codes: Codebook): Installation => {
 	}
 	const installed = compileInstallation(
 		owned,
-		completeInstallOptions(owned, owned.installation, [login.value], [], codes)
+		completeInstallOptions(owned, installationsOf(owned), [login.value], [], codes)
 	)
 	if (!installed.ok) {
 		throw failure("the installer", installed.error)
@@ -258,7 +259,7 @@ type Lowered = ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string
 const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const artifacts = Result.flatMap(parseSchemaInput(schemaDesc(c.schema)), (schema) =>
 		schemaArtifacts(schema, {
-			installation: identity.schema(parsedSchemaName("audit")),
+			levels: [identity.schema(parsedSchemaName("audit"))],
 			vectorSchema: undefined,
 			codes: schemaCodes(c.schema)
 		})

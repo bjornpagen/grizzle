@@ -8,6 +8,7 @@ import { Array as Arr, Effect, Exit, Formatter, Layer, Record as Rec, Result } f
 import { fromEngine } from "#adapter/engine.ts"
 import { artifactsUnder, loginRoles } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
@@ -151,7 +152,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							const compiled = yield* Effect.result(
 								Effect.flatMap(
 									fromEngine(artifactsUnder(compiledSchema.owned, codes)),
-									(artifacts) => loginRoles(compiledLogin.login, compiledLogin.owned, artifacts)
+									(artifacts) =>
+										loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove)
 								)
 							)
 							assert.equal(

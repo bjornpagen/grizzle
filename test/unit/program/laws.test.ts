@@ -57,7 +57,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { keyLaws } from "#adapter/witness/keylaw.ts"
+import { keyLaws, noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { StatementDesc } from "#compiler/ir/desc.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
@@ -589,7 +589,12 @@ const subjectOf = (
 	return Option.match(above, {
 		onNone: () => declared,
 		onSome: (level) =>
-			schema.extend(declared, Rec.fromEntries(order(level.relations)), order(level.statements))
+			schema.extend(
+				declared,
+				"LawsAbove",
+				Rec.fromEntries(order(level.relations)),
+				order(level.statements)
+			)
 	})
 }
 
@@ -606,9 +611,10 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 		names: installation.names,
 		constraintLaws: installation.constraintLaws,
 		theoryLaws: installation.theoryLaws,
-		relations: [...installation.checked.relations.values()]
+		relations: [...installation.checked.relations.values()],
+		above: noLevelAbove
 	})
-	const installed = (name: ObjectName): boolean => name.schema === map.schema
+	const installed = (name: ObjectName): boolean => map.schemas.has(name.schema)
 	const native = (owner: ConstraintOwner, constraint: string): ReadonlyArray<Law> => {
 		const found = map.lawsOf(admittedIdentifier(constraint), owner)
 		return found === undefined
@@ -771,10 +777,10 @@ const lawKinds = {
 	contract: "a contract law",
 	pattern: "a pattern law",
 	generated: "a generated law"
-} as const satisfies { readonly [K in Law["kind"]]: `a ${K} law` }
+} as const satisfies { readonly [K in Exclude<Law["kind"], "above">]: `a ${K} law` }
 
 type LawsFeature =
-	| (typeof lawKinds)[Law["kind"]]
+	| (typeof lawKinds)[Exclude<Law["kind"], "above">]
 	| "a pattern grizzle erases"
 	| "one domain over two fields"
 	| "one domain spelled two ways"
@@ -881,7 +887,13 @@ describe("lawsOf", () => {
 									Arr.some(reported, (r) => sameLaw(law, r)),
 									`the installation can report lawsOf's ${law.kind} law at ${String(i)}: ${Formatter.format(law)}`
 								)
-								k.note(lawKinds[law.kind])
+								if (law.kind === "above") {
+									assert.fail(
+										`lawsOf lists no law of a level above its schema: ${Formatter.format(law)}`
+									)
+								} else {
+									k.note(lawKinds[law.kind])
+								}
 							}
 							for (const law of reported) {
 								assert.ok(

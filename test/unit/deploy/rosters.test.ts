@@ -38,6 +38,7 @@ import { draftCodebook, firstCodebook, noRenames, reorderRefusal } from "#compil
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -689,7 +690,7 @@ const drafting = (
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, [], [], codes.value)
+			completeInstallOptions(owned, installationsOf(owned), [], [], codes.value)
 		)
 	)
 	const draft = draftMigration({
@@ -716,7 +717,7 @@ const freshOfDeclaration = (d: Declaration): DeploySnapshot => {
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, [], [], firstCodebook(rostersOf(owned)))
+			completeInstallOptions(owned, installationsOf(owned), [], [], firstCodebook(rostersOf(owned)))
 		)
 	)
 	const draft = draftMigration({

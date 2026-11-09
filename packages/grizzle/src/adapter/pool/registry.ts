@@ -8,7 +8,7 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import { registeredSnapshot, servesSchema } from "#adapter/admission/snapshots.ts"
+import { registeredSnapshot, servedLevel } from "#adapter/admission/snapshots.ts"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	loginSettings,
@@ -39,6 +39,7 @@ import type {
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool, serverStatement } from "#adapter/wire/session.ts"
 import { installationWitness } from "#adapter/witness/index.ts"
+import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type AnyLogin,
 	type AnyWorkload,
@@ -327,7 +328,7 @@ export const artifactsUnder = (
 
 /** The artifacts of a base over its basis (physical/install/compile.ts installBasis), under its own installation. */
 export const artifactsOver = (basis: InstallBasis): Engine.Result<SchemaArtifacts, CompileError> =>
-	baseArtifacts(basis, { installation: undefined, vectorSchema: undefined })
+	baseArtifacts(basis, { levels: undefined, vectorSchema: undefined })
 
 /** A built login owned over its base's Owned, which login(...) held each of its roles to. */
 export const ownLoginOver = (
@@ -345,7 +346,8 @@ const layerRole = Effect.fn("layerRole")(function* (
 	owned: OwnedLogin,
 	base: SchemaArtifacts,
 	workload: ReadonlyArray<AnyWorkload>,
-	bind: BindContext
+	bind: BindContext,
+	above: LawsAbove
 ): Effect.fn.Return<LayerRole, CompileError> {
 	const input = yield* fromEngine(parseSchemaInput(value))
 	const ownedRole =
@@ -371,7 +373,7 @@ const layerRole = Effect.fn("layerRole")(function* (
 		role: input.desc,
 		artifacts,
 		compile: (query, request) => templateFor(query, input, artifacts, request),
-		witness: installationWitness(artifacts),
+		witness: installationWitness(artifacts, above),
 		bind
 	}
 	const contexts = yield* fromEngine(typedContexts(artifacts))
@@ -392,10 +394,13 @@ const layerRole = Effect.fn("layerRole")(function* (
 export const loginRoles = (
 	login: BuiltLogin,
 	owned: OwnedLogin,
-	base: SchemaArtifacts
+	base: SchemaArtifacts,
+	above: LawsAbove
 ): Effect.Effect<ReadonlyArray<LayerRole>, CompileError> => {
 	const bind: BindContext = { options: rowOptions, names: codeNames(base.names.codes) }
-	return Effect.forEach(login.roles, (value) => layerRole(value, owned, base, login.workload, bind))
+	return Effect.forEach(login.roles, (value) =>
+		layerRole(value, owned, base, login.workload, bind, above)
+	)
 }
 
 /**
@@ -428,13 +433,11 @@ const startupCheck = Effect.fn("startupCheck")(function* (
 	codes: Codebook,
 	login: BuiltLogin,
 	owned: OwnedLogin
-): Effect.fn.Return<SchemaArtifacts, OpenError> {
+): Effect.fn.Return<{ readonly artifacts: SchemaArtifacts; readonly above: LawsAbove }, OpenError> {
 	const ungenerated = (fault: WorkloadUngenerated["fault"]) =>
 		new OpenError({ reason: new WorkloadUngenerated({ login: owned.name, fault }) })
-	if (
-		!servesSchema(snapshot, owned.base) ||
-		unservedRoster(codes, rostersOf(owned.base)) !== undefined
-	) {
+	const level = servedLevel(snapshot, owned.base)
+	if (Option.isNone(level) || unservedRoster(codes, rostersOf(owned.base)) !== undefined) {
 		return yield* ungenerated({ kind: "schema", schema: owned.base.name })
 	}
 	const artifacts = yield* openStage(artifactsUnder(owned.base, codes))
@@ -443,7 +446,7 @@ const startupCheck = Effect.fn("startupCheck")(function* (
 	if (drift !== undefined) {
 		return yield* ungenerated({ kind: "program", sentence: accessDriftText(owned.name, drift) })
 	}
-	return artifacts
+	return { artifacts, above: lawsAbove(snapshot, level.value) }
 })
 
 /** An engine result as the layer's: a refusal is OpenError with the compiler's reason. */
@@ -464,9 +467,9 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const base = yield* openStage(own(config.login.base.desc))
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
-	const artifacts = yield* startupCheck(snapshot, codes, config.login, owned)
+	const { artifacts, above } = yield* startupCheck(snapshot, codes, config.login, owned)
 	const roles = yield* Effect.mapError(
-		loginRoles(config.login, owned, artifacts),
+		loginRoles(config.login, owned, artifacts, above),
 		(reason) => new OpenError({ reason })
 	)
 	if (!Arr.isReadonlyArrayNonEmpty(roles)) {

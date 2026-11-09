@@ -607,15 +607,20 @@ export const dailySpendDefinition = query(Platform).rule((r) => {
 })
 const DailySpend = derived.materialized("DailySpend", dailySpendDefinition)
 
-export const Billing = schema.extend(Platform, { DailySpend }, [])
+/** Billing's declared name, a string as the rebuilt one's is, so a program over either is a program over the other. */
+const billingName: string = "Billing"
+
+export const Billing = schema.extend(Platform, billingName, { DailySpend }, [])
 
 /**
- * The platform and its Billing extension rebuilt under another name, as a test installs them, with Billing's world: a
- * full role writing every stored relation and refreshing DailySpend, in its login.
+ * The platform and its Billing extension rebuilt under another name, as a test installs them, Billing under the
+ * allocation's name for it (oracle/install/real.ts levelNameAt), with Billing's world: a full role writing every
+ * stored relation and refreshing DailySpend, in its login.
  */
 export const platformAt = (name: string) => {
 	const base = platformOf(name)
-	const extended = schema.extend(base, { DailySpend }, [])
+	const extendedName: string = `${name}_1`
+	const extended = schema.extend(base, extendedName, { DailySpend }, [])
 	const billing = role(extended, "billing", wholeEntriesOf(extended), {
 		write: writableNamesOf(extended),
 		refresh: ["DailySpend"]

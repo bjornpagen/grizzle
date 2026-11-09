@@ -1114,7 +1114,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 	const object = b.add(
 		{
 			kind: "index",
-			ident: b.qualified("index", named),
+			ident: b.qualifiedOf("index", request.relation, named),
 			ddl: [ddl],
 			reasons: [reasonOf(request)],
 			phase: "indexes"

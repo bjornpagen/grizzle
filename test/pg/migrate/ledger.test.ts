@@ -274,7 +274,7 @@ const observe = (r: System) =>
 			rows,
 			"the ledger's rows read strictly as the runner reads them"
 		)
-		return { ledger, catalog: yield* readCatalog(substrate.admin, r.schema) }
+		return { ledger, catalog: yield* readCatalog(substrate.admin, [r.schema]) }
 	})
 
 /** Runs an apply the model says is refused before any statement runs: refused at `stage`, the ledger and the catalog
@@ -1063,7 +1063,7 @@ const realOf = (
 					)
 				)
 				assert.equal(e.stage, "record", e.message)
-				const catalog = yield* readCatalog(substrate.admin, r.schema)
+				const catalog = yield* readCatalog(substrate.admin, [r.schema])
 				assert.equal(catalog.kind, "absent", "the schema the first file created rolled back")
 				const observed = yield* observe(r)
 				expectLedger(r, model, observed.ledger)

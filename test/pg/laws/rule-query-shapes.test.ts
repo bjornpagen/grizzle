@@ -122,7 +122,7 @@ const shapes = (name: string) => {
 			return r.match(Item, { id, k }).where(r.not(ItemKey, { k })).find({ id })
 		})
 	)
-	return schema.extend(Base, { TypedHref, TitledObject, HeldSetter, Unmatched }, [
+	return schema.extend(Base, `${name}_1`, { TypedHref, TitledObject, HeldSetter, Unmatched }, [
 		check("DocumentEntry", TypedHref, (t) =>
 			t.not(t.and(t.eq(t.type, ITEM), t.eq(t.internal, false)))
 		),
@@ -186,6 +186,7 @@ const ruleOf = (law: Law): Rule | undefined => {
 		case "contract":
 		case "coverage":
 		case "family":
+		case "above":
 		case "fold":
 		case "generated":
 		case "key":

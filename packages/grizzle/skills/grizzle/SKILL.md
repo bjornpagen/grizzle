@@ -54,9 +54,16 @@ export default defineConfig({
 
 - Every key is required, and nothing else is configurable: an unknown key is refused.
 - Always `export default defineConfig({ ... })`. A plain object is refused.
-- Every role is in exactly one login. The config refuses a login over a schema `schemas` doesn't list (or over another
-  version of it), and two logins or roles of one schema whose names convert alike. A login missing from `logins` is
-  not installed, nor are its roles, so `Db.open` refuses them: their PostgreSQL roles don't exist.
+- `schemas` lists each installation once, by its top level: `schema.extend(Qti, "Ledger", ...)` listed as `[Ledger]`
+  installs `Qti` and `Ledger` together, each level in its own PostgreSQL schema, under one migrations directory named
+  by the root, `migrations/qti/`. Listing `Qti` beside `Ledger`, or two schemas over one root, is refused.
+- Every role is in exactly one login. A login may be over any level of a listed installation (`login(Qti, ...)` beside
+  `login(Ledger, ...)`). The config refuses a login over a schema no listed installation holds (or over another
+  version of it), and two logins or roles of one installation whose names convert alike. A login missing from `logins`
+  is not installed, nor are its roles, so `Db.open` refuses them: their PostgreSQL roles don't exist.
+- A level reaches the levels below it only by a containment of plain fields into a key, or through a rule over a
+  query; any other law over a lower relation is `LevelRefused` when the schema is built. A process over a lower level
+  opens the installation's snapshot, and a refusal by a law above it is `{ kind: "above", level, law }`.
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets and relation keys. Two programs of one name across a login's
@@ -118,12 +125,14 @@ Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rena
 or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
 `<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
 change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
-when the config lists several schemas; there it is required with `--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1
+when the config lists several installations, each by its top level's name; there it is required with `--custom`,
+`--rename` or `--drop`. Exit codes: 0 ok, 1
 refused, 2 usage error, 130 interrupted.
 
 ## Reading a draft
 
-`migrations/<schema>/<UTC timestamp>_<name>/` holds `NN-<phase>.sql` files and `meta.json`. Each file is one
+`migrations/<root>/<UTC timestamp>_<name>/` holds `NN-<phase>.sql` files and `meta.json`, `<root>` the PostgreSQL schema
+of the installation's root level; one migration spans every level. Each file is one
 transaction, so a migration is several small files, in order. A migration is plain ordered SQL: what the schema no
 longer has is dropped in the same migration, as declared, and a declared rename or a type change happens in place. A
 breaking change may briefly break older application instances that are still running.

@@ -14,6 +14,7 @@ import {
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -398,7 +399,7 @@ const installationOf = (scaledAt: Scaled): Effect.Effect<Installation> => {
 						owned,
 						completeInstallOptions(
 							owned,
-							owned.installation,
+							installationsOf(owned),
 							[login],
 							[],
 							firstCodebook(rostersOf(owned))
@@ -416,7 +417,7 @@ const installationOf = (scaledAt: Scaled): Effect.Effect<Installation> => {
 					)
 					const options = completeInstallOptions(
 						owned,
-						owned.installation,
+						installationsOf(owned),
 						logins,
 						[],
 						firstCodebook(rostersOf(owned))

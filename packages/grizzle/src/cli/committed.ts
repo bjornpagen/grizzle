@@ -37,7 +37,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	tree: SchemaTree
 ): Effect.fn.Return<DeploySnapshot, CliError> {
 	if (Option.isNone(tree.snapshotText)) {
-		return emptySnapshot({ schemaName: schema.declared, schema: schema.ident })
+		return emptySnapshot({ schemaName: schema.root, schema: schema.ident })
 	}
 	const read = readSnapshot(tree.snapshotText.value)
 	if (Result.isFailure(read)) {
@@ -50,7 +50,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 		)
 	}
 	const snapshot = read.success
-	if (snapshot.schema !== schema.ident || snapshot.schemaName !== schema.declared) {
+	if (snapshot.schema !== schema.ident || snapshot.schemaName !== schema.root) {
 		return yield* cliError(
 			new SnapshotForeign({
 				schema: schema.declared,

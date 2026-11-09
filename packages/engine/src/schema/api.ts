@@ -275,28 +275,33 @@ const rootSchema = <
 	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
- * Adds relations, including derived relations over the base, and statements, under the same name, each relation
- * under its own name. A derived definition must be a query over the base or a lower level. Query is invariant in its
- * schema, so a query over this extension, which would read its own level, is no query over any level below it. Its
- * statements are the base's, then its own, held by name over the base's relations and its own.
+ * schema.extend(base, name, relations, statements): a level of its own name over `base`, with relations, derived
+ * relations over the base among them, each under its own name, and statements. Its relations install in a PostgreSQL
+ * schema of its own, beside the base's, in one installation with every level below it. A derived definition must be a
+ * query over the base or a lower level. Query is invariant in its schema, so a query over this level, which would read
+ * its own relations, is no query over any level below it. Its statements are the base's, then its own, held by name
+ * over the base's relations and its own.
  */
 const extend = <
 	Base extends AnySchema,
+	const Name extends string,
 	const Relations extends Record<string, AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>>>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },
+	name: Name,
 	relations: Relations & UnderOwnNames<Relations>,
 	statements: Statements &
 		StatementsWithin<Statements, Base["relations"] & Relations> &
 		StatementsReadBack<Statements, Base["relations"] & Relations>,
 	...extra: ReadonlyArray<never>
 ): Schema<
-	Base["name"],
+	Name,
 	Base["relations"] & Relations,
 	StatementsByName<Statements, Base["relations"] & Relations>,
 	Base
-> => schemaBuilder.extend<Base, Relations, Statements>(base, relations, statements, extra)
+> =>
+	schemaBuilder.extend<Base, Name, Relations, Statements>(base, name, relations, statements, extra)
 
 export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })

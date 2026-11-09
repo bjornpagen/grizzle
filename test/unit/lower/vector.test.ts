@@ -74,7 +74,7 @@ const ownedSearch = owning(Search)
 const installation = succeeded(
 	compileInstallation(ownedSearch, {
 		...installOptions(ownedSearch, "grizzle_dev"),
-		installation: identity.schema(parsedSchemaName("search"))
+		levels: [identity.schema(parsedSchemaName("search"))]
 	})
 )
 /** The installation's own catalog (laws/model/catalog.ts), as compileQuery reads it before admission. */

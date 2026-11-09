@@ -69,7 +69,7 @@ const driftBase = (name: string) => {
 			return r.match(Doc, { id, org }).find({ org, docs: r.count() })
 		})
 	)
-	return schema.extend(base, { DocCount }, [])
+	return schema.extend(base, `${name}_1`, { DocCount }, [])
 }
 
 /**
@@ -133,7 +133,7 @@ const drifted = (schema: string, statements: ReadonlyArray<string>) =>
 					for (const sql of statements) {
 						yield* pinned.query(sql, [])
 					}
-					const read = yield* readCatalog(pinned, schema)
+					const read = yield* readCatalog(pinned, [schema])
 					if (read.kind === "absent") {
 						return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
 					}

@@ -80,7 +80,7 @@ const historyOf = (
 			compileInstallation(owned, {
 				...completeInstallOptions(
 					owned,
-					identity.schema(parsedSchemaName(schema)),
+					[identity.schema(parsedSchemaName(schema))],
 					[fixtureLogin(desc)],
 					[],
 					succeeded(draftCodes(desc, previous, noDeclarations))

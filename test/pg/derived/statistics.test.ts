@@ -87,7 +87,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 				.find({ id, region, kind })
 		})
 	)
-	const value = schema.extend(base, { Totals, Placed }, [])
+	const value = schema.extend(base, `${name}_1`, { Totals, Placed }, [])
 	/** Its worlds, in one login: the writer of the base relations, a reader of every relation, and the refresher. */
 	const writer = role(value, "writer", { Account, Task }, { write: ["Account", "Task"] })
 	const reader = role(value, "reader", { Kind, Account, Task, Totals, Placed })

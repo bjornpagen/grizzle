@@ -49,13 +49,13 @@ const Listed = derived.materialized(
 		return r.match(Article, { id, slug, title }).find({ id, slug, title })
 	})
 )
-const Refined = schema.extend(Stored, { Listed }, [])
+const Refined = schema.extend(Stored, "Refined", { Listed }, [])
 
 const owned = owning(Refined)
 const installation = succeeded(
 	compileInstallation(owned, {
 		...installOptions(owned, "grizzle_dev"),
-		installation: identity.schema(parsedSchemaName("refined_order"))
+		levels: [identity.schema(parsedSchemaName("refined_order"))]
 	})
 )
 const catalog = installedCatalog(installation)

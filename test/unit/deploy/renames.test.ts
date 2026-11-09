@@ -31,6 +31,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { login, relation as relationValue, role, schema } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -444,7 +445,7 @@ const draft = (
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, subject.logins, [], codes.value)
+			completeInstallOptions(owned, installationsOf(owned), subject.logins, [], codes.value)
 		)
 	)
 	const drafted = draftMigration({

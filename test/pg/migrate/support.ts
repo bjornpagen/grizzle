@@ -213,7 +213,13 @@ export const checkedAdmission = (
 	Option.some((_session: MigrationSession, snapshot: DeploySnapshot) =>
 		Effect.gen(function* () {
 			const installed = yield* Effect.orDie(
-				readCatalogWith((sql, params) => harness.queryValues(sql, params), snapshot.schema)
+				readCatalogWith((sql, params) => harness.queryValues(sql, params), [
+					snapshot.schema,
+					...Arr.filter(
+						Arr.map(snapshot.levels, (l) => l.schema),
+						(s) => s !== snapshot.schema
+					)
+				])
 			)
 			assert.ok(installed.kind === "present", `the applied schema ${snapshot.schema} is absent`)
 			return Arr.map(
@@ -366,7 +372,7 @@ type ComparableCatalog = WithRest<{
  * role's view is named by its relation's declared name alone, the same under any schema, so it is no such name.
  */
 export const installationAbstraction = (installation: Installation): ((text: string) => string) => {
-	const at = installation.settings.installation
+	const at = installation.names.installation
 	const hashed = new Map<string, string>()
 	for (const i of installation.identities) {
 		if (i.form === "hashed" && Str.includes(at.canonical)(i.canonical)) {
@@ -481,7 +487,7 @@ const comparable = (
 const presentCatalog = (schema: string) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const installed = yield* readCatalog(substrate.admin, schema)
+		const installed = yield* readCatalog(substrate.admin, [schema])
 		if (installed.kind === "absent") {
 			return yield* Effect.die(new Error(`the schema ${installed.schema} is absent`))
 		}
@@ -545,7 +551,7 @@ const installationOf = (
 		compileInstallation(owned, {
 			...completeInstallOptions(
 				owned,
-				identity.schema(parsedSchemaName(schema)),
+				[identity.schema(parsedSchemaName(schema))],
 				logins,
 				extensionsOf(version),
 				succeeded(draftCodes(version.desc, previous, declared))

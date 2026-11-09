@@ -349,7 +349,7 @@ const addSpanChecks = (b: InstallBuilder, constraints: ReadonlyArray<SpanConstra
 				kind: "check",
 				ident: {
 					kind: "constraint",
-					schema: b.settings.installation,
+					schema: b.names.levelOf(c.relation.name),
 					relation: b.names.relationNamed(c.relation.name),
 					name: c.named
 				},

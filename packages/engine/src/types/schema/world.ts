@@ -259,14 +259,19 @@ export type EntryContexts<Rs> = {
 }[keyof Rs]
 
 /**
- * Whether a role holds every relation of its base whole, under its own name: then the base is among its levels. A
- * closed relation is no entry (its rows are constants every role reads, D3), so a role holds every relation but those.
- * The base's record holds each relation under its own name too (UnderOwnNames), so each is read against the role's
- * entry of its key alone.
+ * The highest level of a role's base it holds whole, every relation of that level and of every level below it under its
+ * own name: then that level, and every level below it, is among the role's levels; never when it holds not every
+ * relation of the base's root whole. A closed relation is no entry (its rows are constants every role reads, D3), so a
+ * role holds every relation but those. A level's record holds each relation under its own name too (UnderOwnNames), so
+ * each is read against the role's entry of its key alone. The walk is as deep as the extension chain.
  */
 type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] extends [never]
 	? Base
-	: never
+	: Base extends Phantom<{ readonly extends: infer Below }>
+		? [Below] extends [never]
+			? never
+			: FullBaseOf<Below, Relations>
+		: never
 
 /** The keys of a base's record whose relation the role does not hold whole under that key, closed relations aside. */
 type UnheldOf<BaseRelations, Relations> = {

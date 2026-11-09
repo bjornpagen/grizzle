@@ -25,7 +25,7 @@ import type { InstallationManifest } from "#compiler/ir/products.ts"
 import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
-import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
+import { domainKey, type InstallBuilder, type TargetField } from "#compiler/physical/ddl/context.ts"
 import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
@@ -63,17 +63,17 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
-		use.domains.set(name.name, b.typeNamed(name))
+		use.domains.set(domainKey(name), b.typeNamed(name))
 		useType(b, contract.base, use)
 		return
 	}
 	if (t.carrier === "code") {
 		const name = b.names.rosterDomain(t.roster.closed)
-		use.domains.set(name.name, b.typeNamed(name))
+		use.domains.set(domainKey(name), b.typeNamed(name))
 	}
 	if (t.carrier === "bits") {
 		const name = b.names.bitsDomain(t.roster.closed)
-		use.domains.set(name.name, b.typeNamed(name))
+		use.domains.set(domainKey(name), b.typeNamed(name))
 	}
 	const span = spanOf(t)
 	if (span !== undefined) {
@@ -83,7 +83,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	if (regex !== undefined) {
 		const name = b.names.textDomain(regex)
 		if (name !== undefined) {
-			use.domains.set(name.name, b.typeNamed(name))
+			use.domains.set(domainKey(name), b.typeNamed(name))
 		}
 	}
 }
@@ -182,13 +182,13 @@ const viewObjects = (
 	const viewObject = b.add(
 		{
 			kind: "materializedView",
-			ident: b.qualified("materializedView", b.names.relationNamed(name)),
+			ident: b.qualifiedOf("materializedView", name, b.names.relationNamed(name)),
 			ddl: [create, revoke],
 			reasons: [enforcement(`derived relation ${name}`)],
 			phase: "structure"
 		},
 		[
-			b.schemaNode,
+			b.levelNode(name),
 			...a.reads.flatMap((read) => {
 				const from = b.readObject(read)
 				return from === undefined ? [] : [from]
@@ -218,7 +218,7 @@ const viewObjects = (
 		const object = b.add(
 			{
 				kind: "uniqueIndex",
-				ident: b.qualified("index", named),
+				ident: b.qualifiedOf("index", name, named),
 				ddl: [statement],
 				reasons: [
 					{ kind: "proof", premises: premiseLaws(b.model.theory, analysis, k.proof.premises) }

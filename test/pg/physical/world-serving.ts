@@ -523,7 +523,7 @@ const worldEntries = (
 	const entries = Arr.flatMap(spec.roles, (r): ReadonlyArray<WorldEntry> => {
 		const value = defined(built.roles[r.name], `the built role ${r.name}`)
 		const owned = succeeded(ownRole(defined(roleDescOf(value), `role ${r.name}`)))
-		const names = worldNames(owned, installation.names.installation)
+		const names = worldNames(owned, installation.names)
 		return Arr.flatMap([...owned.writes.values()], (w): ReadonlyArray<WorldEntry> => {
 			if (w.kind !== "rows") {
 				return []
@@ -915,7 +915,7 @@ const precheck = (
 		const artifacts = succeeded(
 			Engine.flatMap(parseSchemaInput(entry.role), (input) =>
 				schemaArtifacts(input, {
-					installation: cx.installed.installation.names.installation,
+					levels: cx.installed.installation.names.levels,
 					vectorSchema: undefined,
 					codes: cx.installed.installation.names.codes
 				})

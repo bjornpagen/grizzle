@@ -56,6 +56,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, relation, role, schema } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
@@ -1158,7 +1159,13 @@ const oracleDraft = (
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, logins, [workloadExtension(plan)], codes)
+			completeInstallOptions(
+				owned,
+				installationsOf(owned),
+				logins,
+				[workloadExtension(plan)],
+				codes
+			)
 		)
 	)
 	return succeeded(

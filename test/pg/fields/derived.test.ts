@@ -774,7 +774,7 @@ const installationOf = (
 		compileInstallation(owned, {
 			...completeInstallOptions(
 				owned,
-				identity.schema(parsedSchemaName(declared)),
+				[identity.schema(parsedSchemaName(declared))],
 				logins,
 				workloadOf(version).extensions,
 				codes

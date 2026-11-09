@@ -17,6 +17,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -147,7 +148,7 @@ const draft = (previous: DeploySnapshot, m: Model, declared: Declarations): Migr
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, [], [], codes.value)
+			completeInstallOptions(owned, installationsOf(owned), [], [], codes.value)
 		)
 	)
 	const drafted = succeeded(

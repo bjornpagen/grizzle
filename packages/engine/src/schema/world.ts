@@ -76,21 +76,55 @@ export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(va
 /**
  * A role as a level (write/changeset/levels.ts), read once, when role(...) builds the role: its Description; its
  * identity, the content digest of that Description beside its base's name and content (levels.ts SchemaContent), so
- * two roles are one level exactly when their identities are equal; its base's content; whether it is full, holding
- * every relation of every level of its base whole under its own name but the closed and live derived relations, which
- * no role holds and every role reads (desc.ts heldRelation), as ownership reads it (own.ts OwnedRole); every relation of every level of its base by name
- * (levelRelations); and its entries by name.
+ * two roles are one level exactly when their identities are equal; its base's content; the highest level of its base
+ * it holds whole, every relation of that level and below it under its own name but the closed and live derived
+ * relations, which no role holds and every role reads (desc.ts heldRelation); every relation of every level of its base
+ * by name (levelRelations); and its entries by name.
  */
 export interface RoleLevel {
 	readonly desc: RoleDesc
 	readonly identity: ContentDigest
 	readonly base: SchemaContent
-	readonly full: boolean
+	/**
+	 * The highest level of its base the role holds whole, every relation of that level and of every level below it under
+	 * its own name but the closed and live derived relations: programs over that level and every level below it run on
+	 * the role. Its base itself for a full role; none for a role that holds not every relation of its base's root whole.
+	 */
+	readonly whole: SchemaContent | undefined
 	readonly relations: ReadonlyMap<string, RelationDesc>
 	readonly entries: ReadonlyMap<string, RoleEntryDesc>
 }
 
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
+
+/**
+ * The highest level of `content`, a base's levels, every relation of which and of every level below it a role holding
+ * `whole` holds whole under its own name, but the relations no role holds (desc.ts heldRelation); none when the root
+ * is not held so. `relations` is every relation of every level of the base, by name.
+ */
+const wholeLevel = (
+	content: SchemaContent,
+	relations: ReadonlyMap<string, RelationDesc>,
+	whole: ReadonlySet<string>
+): SchemaContent | undefined => {
+	const held = (level: SchemaContent | undefined): boolean => {
+		for (let at = level; at !== undefined; at = at.below) {
+			for (const name of at.relations.keys()) {
+				const r = relations.get(name)
+				if (r !== undefined && heldRelation(r) && !whole.has(name)) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	for (let at: SchemaContent | undefined = content; at !== undefined; at = at.below) {
+		if (held(at)) {
+			return at
+		}
+	}
+	return undefined
+}
 
 /** What a world relation value records: its name and definition, as its role's query entry. */
 export interface WorldDraft {
@@ -417,7 +451,7 @@ export const admitRole = (
 			base: [baseDesc.name, baseEntry.content.digest]
 		}),
 		base: baseEntry.content,
-		full: [...below].every(([n, r]) => !heldRelation(r) || whole.has(n)),
+		whole: wholeLevel(baseEntry.content, below, whole),
 		relations: below,
 		entries: new Map(desc.relations.map((e) => [e.name, e]))
 	})

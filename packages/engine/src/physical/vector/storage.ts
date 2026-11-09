@@ -97,7 +97,7 @@ export const addVectorNorms = (b: InstallBuilder, norms: ReadonlyArray<VectorNor
 				kind: "check",
 				ident: {
 					kind: "constraint",
-					schema: b.settings.installation,
+					schema: b.names.levelOf(n.relation),
 					relation: b.names.relationNamed(n.relation),
 					name: n.named
 				},

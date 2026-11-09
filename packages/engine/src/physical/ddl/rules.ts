@@ -194,7 +194,7 @@ const addRuleTable = (
 			kind: "lawTrigger",
 			ident: {
 				kind: "trigger",
-				schema: b.settings.installation,
+				schema: b.names.levelOf(relation.name),
 				relation: b.names.relationNamed(relation.name),
 				name: rule.named
 			},

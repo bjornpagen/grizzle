@@ -15,7 +15,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { Identifier, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
+import { headNonEmpty, isNonEmpty, mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
@@ -80,7 +80,7 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { spanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
-import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
+import { installationsOf, type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -101,7 +101,7 @@ export interface InstallOptions extends InstallSettings {
  * of codes states them over these. */
 export const installOptions = (owned: Owned, owner: string | undefined): InstallOptions => ({
 	owner,
-	installation: owned.installation,
+	levels: installationsOf(owned),
 	vectorSchema: "vector_ext",
 	extensionSchema: "public",
 	logins: [],
@@ -245,7 +245,7 @@ const admittedSettings = (
 	const at = SourceLoc(`installation of schema ${owned.name}`, [])
 	const settings: InstallSettings = {
 		owner: options.owner,
-		installation: options.installation,
+		levels: options.levels,
 		vectorSchema: options.vectorSchema,
 		extensionSchema: options.extensionSchema,
 		logins: options.logins
@@ -264,21 +264,34 @@ const admittedSettings = (
 			)
 		}
 	}
-	if (settings.extensionSchema === identifierOf(settings.installation)) {
+	if (settings.levels.length !== owned.levels.length) {
 		return Result.err(
 			malformedDescription(
 				at,
-				"an extension schema outside the installed schema, which outlives it"
+				`a PostgreSQL schema for each of the ${owned.levels.length} levels of ${owned.name}; ${settings.levels.length} are given`
 			)
 		)
 	}
-	const roles = new DeclaredNamespace(`schema ${owned.name}'s login and role`)
+	if (settings.levels.some((l) => identifierOf(l) === settings.extensionSchema)) {
+		return Result.err(
+			malformedDescription(
+				at,
+				"an extension schema outside the installed schemas, which outlives them"
+			)
+		)
+	}
+	const roles = new DeclaredNamespace(`the installation ${owned.name}'s login and role`)
 	for (const login of settings.logins) {
-		if (login.base.fingerprint !== owned.fingerprint || login.base.name !== owned.name) {
+		const level = owned.levels[login.base.levels.length - 1]
+		if (
+			level === undefined ||
+			level.fingerprint !== login.base.fingerprint ||
+			level.name !== login.base.name
+		) {
 			return Result.err(
 				malformedDescription(
 					login.loc,
-					`a login over the installed schema ${owned.name}; login ${login.name} is over ${login.base.name}`
+					`a login over a level of the installed schema ${owned.name}; login ${login.name} is over ${login.base.name}`
 				)
 			)
 		}
@@ -475,7 +488,7 @@ export const installationOver = (
 			const logins = settings.logins.map((login): CheckedLogin => ({
 				login,
 				roles: login.roles.map((role) => {
-					const read = checkedRole(checked, settings.installation, role)
+					const read = checkedRole(checked, settings.levels, role)
 					if (!read.ok) {
 						throw new Refusal(read.error)
 					}
@@ -500,13 +513,13 @@ export const installationOver = (
 			const contracts = contractSources(model, claimContracts.value)
 			const names = installNames({
 				owned,
-				installation: settings.installation,
+				levels: settings.levels,
 				vectorSchema: settings.vectorSchema,
 				textDomains: new Map(textPlans.map((p) => [p.key, p.domain.digest] as const)),
 				contracts,
 				define: contractDigest,
 				codes,
-				closed: closedConstants(identifierOf(settings.installation), closed),
+				closed: closedConstants(identifierOf(headNonEmpty(settings.levels)), closed),
 				selectionKeys: selectionKeysOf(model.natives)
 			})
 			const b = new InstallBuilder({ owned, checked, model, names, settings })

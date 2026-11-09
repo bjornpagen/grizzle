@@ -230,6 +230,7 @@ const levelRelations = (desc: SchemaDesc): Map<string, RelationDesc> => {
 
 const admitExtend = (
 	base: unknown,
+	name: unknown,
 	relations: unknown,
 	statements: unknown,
 	extra: ReadonlyArray<unknown>
@@ -239,9 +240,10 @@ const admitExtend = (
 		throw malformed("schema.extend", "a base schema built by schema(...) or schema.extend")
 	}
 	const baseDesc = baseEntry.desc
-	const label = `schema.extend ${baseDesc.name}`
+	const label = `schema.extend ${baseDesc.name} ${typeof name === "string" ? name : "?"}`
+	const levelName = requireName(name, label, "a schema name")
 	if (extra.length > 0) {
-		throw malformed(label, "schema.extend(base, relations, statements): three arguments")
+		throw malformed(label, "schema.extend(base, name, relations, statements): four arguments")
 	}
 	if (!isPlainRecord(relations)) {
 		throw malformed(label, "a record of relations, closed and derived relations")
@@ -285,11 +287,11 @@ const admitExtend = (
 	const stmts = statementList(statementValues(statements, label), label)
 	const desc = orThrow(
 		decodeDesc("schema", {
-			name: baseDesc.name,
+			name: levelName,
 			relations: descs,
 			statements: stmts,
 			extends: baseDesc,
-			loc: builderLoc(label, [baseDesc.name, "extend"])
+			loc: builderLoc(label, [levelName])
 		})
 	)
 	/** A derived relation's description is the level's own, digested as the decode holds it. */
@@ -303,25 +305,27 @@ const admitExtend = (
 }
 
 /**
- * Adds relations, derived relations among them, and statements to `base`, under its name; the value holds the base's
- * relations and statements before its own, its own read back whole as the root's are, and the base it extends.
+ * A level named `name` over `base`: relations, derived relations among them, and statements; the value holds the
+ * base's relations and statements before its own, its own read back whole as the root's are, and the base it extends.
  */
 const extend = <
 	Base extends AnySchema,
+	const Name extends string,
 	const Relations extends Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },
+	name: Name,
 	relations: Relations,
 	statements: Statements & StatementsReadBack<Statements, Base["relations"] & Relations>,
 	extra: ReadonlyArray<unknown>
 ): Schema<
-	Base["name"],
+	Name,
 	Base["relations"] & Relations,
 	StatementsByName<Statements, Base["relations"] & Relations>,
 	Base
 > => {
-	const admitted = admitExtend(base, relations, statements, extra)
+	const admitted = admitExtend(base, name, relations, statements, extra)
 	const below: StatementsBelow<Base> = base.statements
 	const added: StatementsReadBack<Statements, Base["relations"] & Relations> = statements
 	const all: readonly [
@@ -333,7 +337,7 @@ const extend = <
 		{
 			...builtMark,
 			kind: "schema",
-			name: base.name,
+			name,
 			relations: frozenCopy({ ...base.relations, ...relations }),
 			statements: all,
 			extends: base
@@ -348,9 +352,10 @@ const extend = <
  * schema and schema.extend.
  *
  * `schema(name, relations, statements)` records relations and closed relations, each under its own name, and the
- * statements, which the type captures as a tuple. `schema.extend(base, relations,
- * statements)` adds relations, derived relations among them, and statements under the base's name: the extension is
- * one installation in one PostgreSQL schema, and its Description records the base under `extends`.
+ * statements, which the type captures as a tuple. `schema.extend(base, name, relations, statements)` is a level of its
+ * own over `base`: relations, derived relations among them, and statements, under its own name, which places its
+ * relations in a PostgreSQL schema of their own; its Description records the base under `extends`. A level and every
+ * level below it are one installation (schema/own.ts).
  *
  * A derived relation is declared only in an extension, and its definition reads only the levels below it: every
  * relation it names must be a relation of the base or a lower level, never one of its own level, so a dependency

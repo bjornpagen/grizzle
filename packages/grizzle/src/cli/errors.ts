@@ -293,7 +293,7 @@ export class SchemaEntryRefused extends Data.TaggedError("SchemaEntryRefused")<{
 			case "uncompiled":
 				return `${at} does not compile: ${fault.error.message}`
 			case "shared":
-				return `${at} (${fault.name}) and ${fault.other} are both installed in PostgreSQL schema ${fault.ident}; each declared schema has its own schema, snapshot and ledger`
+				return `${at} (${fault.name}) and ${fault.other} are both installed over the root schema ${fault.ident}; an installation is listed once, by its top level, which installs every level below it in one migrations directory, snapshot and ledger`
 		}
 	}
 }

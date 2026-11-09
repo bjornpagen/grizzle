@@ -520,7 +520,12 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
  * The worked example with one relation more: a schema whose content differs from the installed Work, so a query built
  * over it is no level of the Db's schema, whatever either is named.
  */
-const Newer = schema.extend(W.Work, { Label: relation("Label", { task: uuid }, ["task"]) }, [])
+const Newer = schema.extend(
+	W.Work,
+	"Newer",
+	{ Label: relation("Label", { task: uuid }, ["task"]) },
+	[]
+)
 
 /** A read of Work's tasks by account built over Newer: stale for a Db over Work. */
 const staleRead = query(Newer).rule((r) => {

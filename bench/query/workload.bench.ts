@@ -203,7 +203,7 @@ export default defineGate({
 					withWorkload(
 						{
 							...installOptions(owned, s.owner.role),
-							installation: identity.schema(parsedSchemaName(fx.installed.declared))
+							levels: [identity.schema(parsedSchemaName(fx.installed.declared))]
 						},
 						planned.value
 					)

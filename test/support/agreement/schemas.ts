@@ -1086,6 +1086,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnfillableField":
 		case "UnwritableRelation":
 		case "ForeignLevel":
+		case "LevelRefused":
 			return reason._tag
 	}
 }
@@ -2736,7 +2737,7 @@ const envOf = (base: Base): Env => {
 	const level =
 		counts === undefined
 			? schemaValue
-			: schema.extend(schemaValue, { [counts.name]: counts }, [], [])
+			: schema.extend(schemaValue, "Level", { [counts.name]: counts }, [], [])
 	const wholes = { ...Rec.fromEntries([...rosters]), ...Rec.fromEntries([...relations]) }
 	const entries = counts === undefined ? wholes : { ...wholes, [counts.name]: counts }
 	const described = new Map(
@@ -3482,7 +3483,13 @@ const mutableProbe = (d: Drawing, base: Base): Probe => {
 					return compiling(() => probeSchema(env, [mutableBuilder(got(env.rosters, target.name))]))
 				case "derived":
 					return compiling(() =>
-						schema.extend(env.schema, derivedRecord(env), [mutableBuilder(derivedOf(env))], [])
+						schema.extend(
+							env.schema,
+							"Level",
+							derivedRecord(env),
+							[mutableBuilder(derivedOf(env))],
+							[]
+						)
 					)
 			}
 		}
@@ -3587,7 +3594,7 @@ const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
 				)
 				return counts === undefined
 					? probeSchema(env, [statement])
-					: schema.extend(p, { [counts.name]: counts }, [statement], [])
+					: schema.extend(p, "Level", { [counts.name]: counts }, [statement], [])
 			})
 	}
 }
@@ -3855,7 +3862,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "overLevels":
 				return {
 					head: [],
-					line: `export const ${own} = Sc.schema.extend(${ids("Level")}, { Over: ${over(ids)} }, [])`,
+					line: `export const ${own} = Sc.schema.extend(${ids("Level")}, "Over", { Over: ${over(ids)} }, [])`,
 					tail: [
 						`export type ${own}_levels = Expect<Equals<Sc.LevelsOf<typeof ${own}>, typeof ${own} | typeof ${ids("Level")} | typeof ${ids("S")}>>`
 					]
@@ -3892,7 +3899,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
 						fact(projectionValue(env)),
-						`export const ${level} = Sc.schema.extend(${ids("S")}, { Probe: ${own} }, [])`,
+						`export const ${level} = Sc.schema.extend(${ids("S")}, "ProbeLevel", { Probe: ${own} }, [])`,
 						`export type ${own}_keys = Expect<Equals<Sc.KeysOf<typeof ${level}, typeof ${own}>, ${projectionKeys(env)}>>`
 					]
 				}
@@ -3904,7 +3911,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [
 						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
 					],
-					line: `export const ${own} = Sc.schema.extend(${ids("S")}, { Probe: ${rel} }, [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
+					line: `export const ${own} = Sc.schema.extend(${ids("S")}, "Ruled", { Probe: ${rel} }, [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
 				}
 			}
@@ -3913,7 +3920,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [],
 					line: `export const ${own} = Sc.derived.materialized("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
-						`export const ${own}_level = Sc.schema.extend(${ids("Level")}, { Skip: ${own} }, [])`,
+						`export const ${own}_level = Sc.schema.extend(${ids("Level")}, "Skipping", { Skip: ${own} }, [])`,
 						`export type ${own}_levels = Expect<Equals<Sc.LevelsOf<typeof ${own}_level>, typeof ${own}_level | typeof ${ids("Level")} | typeof ${ids("S")}>>`
 					]
 				}
@@ -3928,7 +3935,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					`Sc.derived.materialized("Probe", ${definitionSource(spec, base, ids, ids("S"), true)})`
 				)
 			case "derivedAtOwnLevel":
-				return oneLine(`Sc.schema.extend(${ids("S")}, { Over: ${over(ids)} }, [])`)
+				return oneLine(`Sc.schema.extend(${ids("S")}, "Over", { Over: ${over(ids)} }, [])`)
 			case "derivedInRoot":
 				return oneLine(`Sc.schema("Root", { ${spec.name}: ${ids(spec.name)} }, [])`)
 			case "keyOverDerived":
@@ -4029,6 +4036,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			catchCompileError(() =>
 				schema.extend(
 					env.schema,
+					"ProbeLevel",
 					{ Probe: materializedDerived("Probe", projectionValue(env), []) },
 					[],
 					[]
@@ -4062,17 +4070,23 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const judge = (env: Env): Verdict => {
 		const counts = derivedOf(env)
 		const extended = (statement: Statement) =>
-			compiling(() => schema.extend(env.schema, derivedRecord(env), [statement], []))
+			compiling(() => schema.extend(env.schema, "Level", derivedRecord(env), [statement], []))
 		const probing = (definition: () => QueryValue) =>
 			compiling(() =>
-				schema.extend(env.schema, { Probe: materializedDerived("Probe", definition(), []) }, [], [])
+				schema.extend(
+					env.schema,
+					"ProbeLevel",
+					{ Probe: materializedDerived("Probe", definition(), []) },
+					[],
+					[]
+				)
 			)
 		switch (fault) {
 			case undefined:
 				switch (valid) {
 					case "overLevels":
 						return compiling(() =>
-							schema.extend(env.level, { Over: overValue(env, env.level) }, [], [])
+							schema.extend(env.level, "Over", { Over: overValue(env, env.level) }, [], [])
 						)
 					case "boundImport":
 						return probing(() => boundImportValue(env))
@@ -4084,6 +4098,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 						return compiling(() =>
 							schema.extend(
 								env.level,
+								"Skipping",
 								{ Skip: materializedDerived("Skip", projectionValue(env), []) },
 								[],
 								[]
@@ -4096,6 +4111,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 						return compiling(() =>
 							schema.extend(
 								env.schema,
+								"Ruled",
 								{ Probe: rel },
 								[
 									keyBuilder(onBuilder(rel, [spec.by])),
@@ -4117,7 +4133,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				)
 			case "derivedAtOwnLevel":
 				return building(() =>
-					schema.extend(env.schema, { Over: overValue(env, env.level) }, [], [])
+					schema.extend(env.schema, "Over", { Over: overValue(env, env.level) }, [], [])
 				)
 			case "derivedInRoot":
 				return building(() => admitSchema("Root", { [spec.name]: counts }, [], []))
@@ -4207,7 +4223,7 @@ const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 		refused: "sideOverDerived",
 		text,
 		judge: (env) =>
-			compiling(() => schema.extend(env.schema, derivedRecord(env), [statement(env)], []))
+			compiling(() => schema.extend(env.schema, "Level", derivedRecord(env), [statement(env)], []))
 	}
 }
 
@@ -5334,7 +5350,7 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 					] as const,
 					[
 						"Level",
-						`Sc.schema.extend(${ids("S")}, { ${base.derived.name}: ${ids(base.derived.name)} }, [])`
+						`Sc.schema.extend(${ids("S")}, "Level", { ${base.derived.name}: ${ids(base.derived.name)} }, [])`
 					] as const
 				]),
 		...Arr.map(base.roles, (r) => {

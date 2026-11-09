@@ -757,8 +757,8 @@ export const attributeDifferences = (
 }
 
 /**
- * Row security of the tables $2 of the installed schema $1: each table that exists, whether row security is enabled
- * and whether it is forced.
+ * Row security of the tables $2 of the installation's level schemas $1 (text[]): each table that exists, whether row
+ * security is enabled and whether it is forced.
  */
 interface TableSecurity {
 	readonly table: string
@@ -784,7 +784,7 @@ export const rowSecurityQuery: CatalogQuery<TableSecurity> = {
 			],
 			[classesInSchemas],
 			C.and([
-				C.eq(namespaces.col("nspname"), C.param(1, "text")),
+				C.any(C.asText(namespaces.col("nspname")), C.arrayParam(1, "text")),
 				C.any(classes.col("relname"), C.arrayParam(2, "text"))
 			])
 		)
@@ -820,7 +820,8 @@ export const rowSecurityDifferences = (
 
 const policies = C.from("pg_policy", "p")
 
-/** The policies naming the role $1 on the tables of the installed schema $2, each by its table and name. */
+/** The policies naming the role $1 on the tables of the installation's level schemas $2 (text[]), each by its table and
+ * name. */
 export const policiesQuery: CatalogQuery<ExpectedPolicy> = {
 	sql: emitCatalog(
 		C.query(
@@ -833,7 +834,7 @@ export const policiesQuery: CatalogQuery<ExpectedPolicy> = {
 				)
 			],
 			C.and([
-				C.eq(namespaces.col("nspname"), C.param(2, "text")),
+				C.any(C.asText(namespaces.col("nspname")), C.arrayParam(2, "text")),
 				C.any(C.roleOid(C.param(1, "text")), policies.col("polroles"))
 			])
 		)

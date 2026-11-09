@@ -107,7 +107,7 @@ const TaskIds = materializedDerived(
 	}),
 	[]
 )
-const Reports = schema.extend(Work, { TaskIds }, [], [])
+const Reports = schema.extend(Work, "Reports", { TaskIds }, [], [])
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
@@ -323,7 +323,7 @@ describe("the owned product", () => {
 									}),
 									[]
 								)
-								return schema.extend(root, { TaskIds: Ids }, [], [])
+								return schema.extend(root, "Above", { TaskIds: Ids }, [], [])
 							}
 							if (s.extended) {
 								c.note("an extension")
@@ -433,6 +433,7 @@ describe("conflicting declarations", () => {
 										return ownValue(
 											schema.extend(
 												Work,
+												"Above",
 												{ Task: s.agree ? Task : relation("Task", { id: uuid }, ["id"], []) },
 												[],
 												[]
@@ -816,7 +817,7 @@ describe("statements over a derived relation", () => {
 									? [onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"])]
 									: [onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"])]
 								const extended = (statement: Statement) =>
-									ownValue(schema.extend(Work, { TaskIds }, [statement], []))
+									ownValue(schema.extend(Work, "Above", { TaskIds }, [statement], []))
 								switch (law.kind) {
 									case "check":
 										verdict(
@@ -1024,6 +1025,7 @@ describe("scope and structure", () => {
 										return ownValue(
 											schema.extend(
 												Work,
+												"Above",
 												{},
 												[checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))],
 												[]

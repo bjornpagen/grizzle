@@ -354,7 +354,7 @@ const realizeWith = (
 					installation: identity.schema(parsedSchemaName(installed.declared))
 				}
 				const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
-				yield* Effect.orDie(Effect.fromResult(registerSnapshot(built.base, snapshot)))
+				yield* Effect.orDie(Effect.fromResult(registerSnapshot(snapshot)))
 				/** Each login's layer, given the version's snapshot, built in the realization's scope. */
 				const layers: Record<string, Context.Context<DbLayerOf<BuiltLogin>>> = {}
 				for (const l of spec.logins) {
@@ -1446,7 +1446,7 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 		switch (fn.kind) {
 			case "filter": {
 				const owned = yield* ownedOf(v, fn.role)
-				const world = worldNames(owned, v.installation.names.installation)
+				const world = worldNames(owned, v.installation.names)
 				const name = world.filterFunction(fn.entry, [])
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
@@ -1457,7 +1457,7 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 				}
 				const probe = probeOf(v.spec.base, role, fn)
 				const owned = yield* ownedOf(v, fn.role)
-				const world = worldNames(owned, v.installation.names.installation)
+				const world = worldNames(owned, v.installation.names)
 				/**
 				 * A probe the installation defines, by its key (the model's notion, writes.ts probeOf); one it defines none
 				 * of (an entry it writes through no query entry, a key its target lacks) as a probe over no key, which no

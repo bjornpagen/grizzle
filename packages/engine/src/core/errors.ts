@@ -357,6 +357,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `ForeignLevel`: a rule over `over`, a schema or a role, matches a query or a bound import of one written over
  *   `written`, which is none of `over`'s levels: a query reads what its own schema declares, so a rule reads a query only
  *   over a level of its schema, whatever relations the two share.
+ * - `LevelRefused`: `statement`, stated at the level `level`, reaches `relation`, a relation of the level `below` under
+ *   it, other than as one side of a containment of fields into a key, its other side a relation of a higher level, or
+ *   through a rule over a query: a process over a lower level holds none of the levels above it, so no law above may
+ *   change how its writes are compiled, drawn or checked statement by statement.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
  * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
  *   `limit` bytes.
@@ -467,6 +471,14 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly written: string
 			readonly over: string
+	  }
+	| {
+			readonly _tag: "LevelRefused"
+			readonly at: SourceLoc
+			readonly statement: string
+			readonly level: string
+			readonly relation: string
+			readonly below: string
 	  }
 	| {
 			readonly _tag: "GeneratedRefused"
@@ -671,6 +683,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return derivedRefusalText(reason.cause)
 		case "ForeignLevel":
 			return `a query over a level of ${reason.over}; it is written over ${reason.written}, which is none of its levels`
+		case "LevelRefused":
+			return `${reason.statement}, stated at level ${reason.level}, reaches ${reason.relation} only as one side of a containment of fields into a key, the other side its own, or through a rule over a query: ${reason.relation} is a relation of ${reason.below}, a level below it, whose writes no law above may change`
 		case "GeneratedRefused":
 			return `generated field ${reason.relation}.${reason.field}: ${generatedRuleText(reason.rule)}`
 		case "RoleRefused":

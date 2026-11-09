@@ -12,7 +12,7 @@ export const writeNamesOf = (schemaValue: unknown, schema: string): WriteNames =
 	return succeeded(
 		compileInstallation(owned, {
 			...installOptions(owned, "owner"),
-			installation: identity.schema(parsedSchemaName(schema))
+			levels: [identity.schema(parsedSchemaName(schema))]
 		})
 	).names
 }

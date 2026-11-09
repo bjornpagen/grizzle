@@ -112,7 +112,7 @@ export const installed = (
 		const owned = owning(desc)
 		const compiled = compileInstallation(owned, {
 			...installOptions(owned, substrate.owner.role),
-			installation: identity.schema(parsedSchemaName(schema)),
+			levels: [identity.schema(parsedSchemaName(schema))],
 			logins
 		})
 		if (!compiled.ok) {
@@ -120,7 +120,7 @@ export const installed = (
 		}
 		const installation: Installation = compiled.value
 		yield* transaction(substrate.admin, installationSql(installation))
-		const read = yield* readCatalog(substrate.admin, schema)
+		const read = yield* readCatalog(substrate.admin, [schema])
 		if (read.kind === "absent") {
 			return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
 		}

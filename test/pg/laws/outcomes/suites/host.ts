@@ -167,6 +167,7 @@ const brokenOf = (law: Law): Broken | undefined => {
 		case "coverage":
 		case "family":
 		case "tree":
+		case "above":
 		case "fold":
 			return undefined
 	}

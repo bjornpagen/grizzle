@@ -262,7 +262,7 @@ export const roleExpectation = (
 		statements.flatMap((s) =>
 			s.kind === "alterTable" &&
 			s.actions.some((a) => a.kind === "enableRowSecurity") &&
-			s.table.schema === schema
+			schemas.includes(s.table.schema)
 				? [s.table.name]
 				: []
 		)

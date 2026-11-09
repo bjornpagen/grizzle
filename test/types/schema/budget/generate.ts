@@ -100,9 +100,9 @@ export type GeneratedAddition = Expect<Equals<keyof Addition<typeof R2>, "id" | 
 /** The refusals that must keep firing at scale. */
 export const Stray = relation("Stray", { id: uuid, parent: uuid, label: Label }, ["id"])
 // @ts-expect-error -- TS2345 refusal: a statement names a relation no level of the schema declares
-export const undeclared = schema.extend(S, {}, [contained(on(Stray, "parent"), on(R${last}, "id"))])
+export const undeclared = schema.extend(S, "Undeclared", {}, [contained(on(Stray, "parent"), on(R${last}, "id"))])
 // @ts-expect-error -- TS2322 refusal: a schema holds each relation under its own name
-export const aliased = schema.extend(S, { Strays: Stray }, [])
+export const aliased = schema.extend(S, "Aliased", { Strays: Stray }, [])
 // @ts-expect-error -- TS2322 refusal: a whole entry is a relation of the base under its own name
 export const strayEntry = role(S, "stray", { R0, Stray })
 `

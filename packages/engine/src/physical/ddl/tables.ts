@@ -125,7 +125,7 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 		.toSorted((x, y) => compareStrings(x.relation.name, y.relation.name))
 		.map(({ relation: r, primaryKey }): PlannedTable => {
 			const name = r.name
-			const after: Array<Node<"setup">> = [b.schemaNode]
+			const after: Array<Node<"setup">> = [b.levelNode(name)]
 			const columns = mapNonEmpty(r.fields, (c): ColumnDef => {
 				const { type, collation } = columnType(b.names, c.type)
 				appendAll(after, typeNodes(b, c.type))
@@ -430,7 +430,7 @@ const constraintIdent = (
 	named: Identity<IdentityKind>
 ): NodeIdent => ({
 	kind: "constraint",
-	schema: b.settings.installation,
+	schema: b.names.levelOf(relation),
 	relation: b.names.relationNamed(relation),
 	name: named
 })
@@ -524,7 +524,7 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 			t.relation,
 			{
 				kind: "table",
-				ident: b.qualified("table", t.named),
+				ident: b.qualifiedOf("table", t.relation, t.named),
 				ddl,
 				reasons: [enforcement(`relation ${t.relation}`)],
 				phase: "structure"
@@ -913,7 +913,7 @@ const addNatives = (
 				kind: "lawColumn",
 				ident: {
 					kind: "column",
-					schema: b.settings.installation,
+					schema: b.names.levelOf(o.relation.name),
 					relation: b.names.relationNamed(o.relation.name),
 					name: n.named
 				},

@@ -294,7 +294,7 @@ export const violationClassifier =
 		 * The reported table or data type names an object of the installation only when the reported schema is the
 		 * installation's.
 		 */
-		const owner = reportedOwner(failure, laws.schema)
+		const owner = reportedOwner(failure, laws.schemas)
 		if (failure.sqlstate === sqlstates.checkViolation && owner?.kind === "domain") {
 			const roster = laws.rosterDomainOf(owner.name)
 			if (roster !== undefined) {
@@ -308,7 +308,7 @@ export const violationClassifier =
 		if (constraint === undefined) {
 			return undefined
 		}
-		if (failure.schema !== undefined && failure.schema !== laws.schema) {
+		if (failure.schema !== undefined && !laws.schemas.has(failure.schema)) {
 			return undefined
 		}
 		if (failure.sqlstate === sqlstates.integrityConstraintViolation) {

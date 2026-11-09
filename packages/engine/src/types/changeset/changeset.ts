@@ -1067,6 +1067,10 @@ export type Refused =
  *   refuses as a whole: no refusal tells which pattern a value missed;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
+ * - `above`: a law of `level`, a level above the schema a Db is over, as that level states it (`law`): a Db over a lower
+ *   level holds none of the code of the levels above it, so a refusal by one of their laws, a foreign key into its
+ *   relations or a rule over a query reading them, names the level that states it. Every other law an outcome over a
+ *   schema S names is one of `lawsOf(S)`.
  */
 export type Law =
 	| {
@@ -1105,3 +1109,4 @@ export type Law =
 			readonly patterns: Patterns
 	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
+	| { readonly kind: "above"; readonly level: string; readonly law: Law }

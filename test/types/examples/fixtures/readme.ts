@@ -143,7 +143,7 @@ export const Subscription = relation(
 )
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
-export const Billing = schema.extend(Blog, { Plan, PlanLimits, Subscription }, [
+export const Billing = schema.extend(Blog, "Billing", { Plan, PlanLimits, Subscription }, [
 	contained(on(Post, "org"), on(Subscription, "org")),
 	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
 ])
@@ -423,7 +423,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, { ModelSpend }, [])
+export const Reporting = schema.extend(Usage, "Reporting", { ModelSpend }, [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -716,7 +716,7 @@ export const Place = relation(
 /** The places whose holder has not been called yet. */
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(BoxOffice, { Place }, [
+export const Waitlist = schema.extend(BoxOffice, "Waitlist", { Place }, [
 	contained(on(Place, "show"), on(Show, "id")),
 	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
 	key(on(waiting, "show", "holder"))
@@ -766,7 +766,7 @@ export const TypedHref = derived(
 /** The typed hrefs of items. */
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(Content, { TypedHref }, [
+export const ContentPackage = schema.extend(Content, "ContentPackage", { TypedHref }, [
 	check("ItemsInside", TypedHref, (t) =>
 		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
 	),
@@ -878,6 +878,33 @@ export const purge = ChangeSet.empty(Blog)
 			return r.match(delta.removed(Comment), { id }).find({ comments: r.count() })
 		})
 	)
+
+/** README: "Levels". */
+/** The QTI content model, maintained on its own. */
+export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
+export const Qti = schema("Qti", { Item }, [])
+
+/** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
+export const Sitting = relation("Sitting", { id: uuid, child: ClerkUser, item: uuid }, ["id"])
+export const Ledger = schema.extend(Qti, "Ledger", { Sitting }, [
+	contained(on(Sitting, "item"), on(Item, "id"))
+])
+
+/** The signed-in child's own sittings; an insert fills `child` from the token. */
+export const mySittings = query(Ledger).rule((r) => {
+	const { id, child, item } = v(Sitting, "sitting")
+	return r.match(Sitting, { id, child, item }).match(Session, { sub: child }).find({ id, item })
+})
+
+export const Learner = role(
+	Ledger,
+	"learner",
+	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
+	{ write: ["MySitting"] }
+)
+export const LedgerApp = login(Ledger, "app", [Learner])
+export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
+export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 
 /**
  * README: "Migrations", the block of grizzle.config.ts. Its imports of net, CredentialError, defineConfig, Config,

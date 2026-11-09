@@ -337,11 +337,11 @@ export const migrated = (options: MigrateOptions) =>
 			steps.push({ version, plan, snapshot: g.snapshot })
 			previous = fromSnapshot(g.snapshot)
 		}
-		const { version, plan, snapshot } = Arr.lastNonEmpty(
+		const { plan, snapshot } = Arr.lastNonEmpty(
 			nonEmpty(steps, "a migrated schema has its first version")
 		)
 		if (options.register) {
-			succeeded(registerSnapshot(version.schema, snapshot))
+			succeeded(registerSnapshot(snapshot))
 		}
 		const history = nonEmpty(folders, "a migrated schema has its first migration")
 		const installed = yield* installedOf({

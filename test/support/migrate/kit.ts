@@ -28,6 +28,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type TestCodes, firstCodes, installedCodes } from "#test/support/compile.ts"
@@ -68,7 +69,7 @@ export const asDrafted: CompileOver = {
 export const compile = (desc: DeploySubject, over: CompileOver): Installation => {
 	const owned = owning(desc)
 	const installation =
-		over.schema.kind === "declared" ? owned.installation : over.schema.installation
+		over.schema.kind === "declared" ? installationsOf(owned) : ([over.schema.installation] as const)
 	const codes = over.codes.kind === "installed" ? over.codes.codes : firstCodebook(rostersOf(owned))
 	return succeeded(
 		compileInstallation(owned, {

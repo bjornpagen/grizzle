@@ -22,6 +22,7 @@ import {
 	type Owned,
 	type OwnedLogin,
 	parseBuiltSchema,
+	type SchemaDesc,
 	parseDeclaredName,
 	schemaInstallation,
 	SourceLoc
@@ -40,13 +41,13 @@ import {
  *
  *     export default defineConfig({ schemas: [Work], logins: [Web], migrations: "migrations", connection })
  *
- * - `schemas`: the declared schema values to migrate, at least one, each a schema(...) or schema.extend(...) value
- *   (its outermost level). Each lives in its own PostgreSQL schema, which names its directory `<migrations>/<schema>/`
- *   holding its snapshot.json and its folders; two declared schemas of
- *   one PostgreSQL schema are refused.
- * - `logins`: the login(...) values whose roles the migrations install, each over a configured schema (its base's
- *   content digest is the configured schema's), every login and role of one schema under a name of its own, a login
- *   over a schema the configuration does not list refused. A role is installed exactly with its login. Each login's
+ * - `schemas`: the installations to migrate, at least one, each listed by its top level, a schema(...) or
+ *   schema.extend(...) value: an installation is every level of it, each in its own PostgreSQL schema, and its root's
+ *   PostgreSQL schema names its directory `<migrations>/<root>/` holding its snapshot.json and its folders. Two listed
+ *   schemas over one root, one a level of the other among them, are refused.
+ * - `logins`: the login(...) values whose roles the migrations install, each over a level of a configured schema (its
+ *   base's content digest is that level's), every login and role of one installation under a name of its own, a login
+ *   over a schema no configured installation holds refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
  * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
@@ -66,14 +67,16 @@ export interface ConfiguredLogin {
 }
 
 /**
- * A configured schema as every command reads it, nothing compiled: its index in `schemas`, the schema value, its
- * declared name, the identifier of its PostgreSQL schema, `<migrations>/<ident>`, and the logins over it, in configured
- * order. A command that applies committed SQL (migrate, drift, names) reads only this.
+ * A configured installation as every command reads it, nothing compiled: its index in `schemas`, its top level's value,
+ * that level's declared name, its root's declared name and the identifier of its root's PostgreSQL schema,
+ * `<migrations>/<ident>`, and the logins over its levels, in configured order. A command that applies committed SQL (migrate, drift, names) reads only this.
  */
 export interface ConfiguredSchema {
 	readonly index: number
 	readonly built: BuiltSchema
 	readonly declared: string
+	/** The declared name of the installation's root, which, with its PostgreSQL schema, names its snapshot. */
+	readonly root: string
 	readonly ident: string
 	readonly directory: string
 	readonly logins: ReadonlyArray<ConfiguredLogin>
@@ -112,6 +115,21 @@ export interface ResolvedConfig {
 	/** The configuration's connection as given, checked only by `grizzle migrate` and `grizzle drift` (connection.ts). */
 	readonly connection: MigrationConnectionConfig
 }
+
+/** The root of a description's levels, the one schema(...) built. */
+const rootOf = (desc: SchemaDesc): SchemaDesc =>
+	desc.extends === undefined ? desc : rootOf(desc.extends)
+
+/** Each level of a built schema, its declared name and its content's digest, the schema itself first: a schema's
+ * content records the level below it as its description does (schema/levels.ts SchemaContent). */
+const levelsOf = (
+	built: Pick<BuiltSchema, "desc" | "content">
+): ReadonlyArray<{ readonly name: string; readonly digest: string }> => [
+	{ name: built.desc.name, digest: built.content.digest },
+	...(built.desc.extends === undefined || built.content.below === undefined
+		? []
+		: levelsOf({ desc: built.desc.extends, content: built.content.below }))
+]
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Arr.isArray(v)
@@ -161,9 +179,9 @@ const uncompiledSchema = (index: number) => (error: CompileError) =>
 	cliError(new SchemaEntryRefused({ index, fault: { kind: "uncompiled", error } }))
 
 /**
- * A configured schema compiled, for generate and check: the schema owned, once, and each of its logins owned over that
- * Owned, which login(...) held each login's roles to; a schema or login that does not compile is its configuration
- * entry's refusal.
+ * A configured installation compiled, for generate and check: its top level owned, once, and each of its logins owned
+ * over the Owned of the level it is over, the top's itself or a lower level's owned alone, which login(...) held each
+ * login's roles to; a schema or login that does not compile is its configuration entry's refusal.
  */
 export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
 	Result.flatMap(
@@ -173,10 +191,15 @@ export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledS
 				Result.all(
 					Arr.map(schema.logins, (l) =>
 						Result.mapError(
-							Result.map(toResult(ownLoginOver(l.login, owned)), (o) => ({
-								login: l.login,
-								owned: o
-							})),
+							Result.map(
+								Result.flatMap(
+									l.login.base.content.digest === schema.built.content.digest
+										? Result.succeed(owned)
+										: toResult(own(l.login.base.desc)),
+									(base) => toResult(ownLoginOver(l.login, base))
+								),
+								(o) => ({ login: l.login, owned: o })
+							),
 							(error) =>
 								cliError(
 									new LoginEntryRefused({ index: l.index, fault: { kind: "uncompiled", error } })
@@ -230,8 +253,9 @@ const resolveConfigWith = (
 			return Result.fail(built.failure)
 		}
 		const desc = built.success.desc
+		const root = rootOf(desc)
 		const installation = Result.mapError(
-			toResult(schemaInstallation(desc.name, desc.loc)),
+			toResult(schemaInstallation(root.name, root.loc)),
 			uncompiledSchema(i)
 		)
 		if (Result.isFailure(installation)) {
@@ -253,6 +277,7 @@ const resolveConfigWith = (
 			index: i,
 			built: built.success,
 			declared: desc.name,
+			root: root.name,
 			ident,
 			logins: [],
 			directory: path.join(migrations, ident)
@@ -269,16 +294,23 @@ const resolveConfigWith = (
 			return Result.fail(refuseLogin({ kind: "notBuilt" }))
 		}
 		const login = read.desc
-		const listed = Arr.findFirst(schemas, (c) => c.declared === login.base.name)
+		const listed = Arr.findFirst(schemas, (c) =>
+			Arr.some(levelsOf(c.built), (l) => l.name === login.base.name)
+		)
 		if (Option.isNone(listed)) {
 			return Result.fail(
 				refuseLogin({ kind: "unlisted", login: login.name, schema: login.base.name })
 			)
 		}
 		const entry = listed.value
-		if (read.base.content.digest !== entry.built.content.digest) {
+		if (
+			!Arr.some(
+				levelsOf(entry.built),
+				(l) => l.name === login.base.name && l.digest === read.base.content.digest
+			)
+		) {
 			return Result.fail(
-				refuseLogin({ kind: "otherVersion", login: login.name, schema: entry.declared })
+				refuseLogin({ kind: "otherVersion", login: login.name, schema: login.base.name })
 			)
 		}
 		/** Logins and roles are PostgreSQL roles of one namespace per schema (`<schema>__<name>`): no two names alike

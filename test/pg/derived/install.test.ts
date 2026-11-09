@@ -447,7 +447,7 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 			)
 		})
 	})
-	return schema.extend(Base, { D: runtimeDerived("D", definition, []) }, [])
+	return schema.extend(Base, "Derived", { D: runtimeDerived("D", definition, []) }, [])
 }
 
 type DescriptorFeature =
@@ -590,7 +590,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									})
 								})
 								const Literals = runtimeDerived("Literals", literals, [])
-								const Ext = schema.extend(C, { Literals }, [])
+								const Ext = schema.extend(C, "Ext", { Literals }, [])
 								const viewer = role(Ext, "viewer", { Literals })
 								const refresher = role(
 									Ext,
@@ -680,7 +680,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					})
 					const OwnedTasks = derived.materialized("OwnedTasks", ownedTasks)
 					/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
-					const Written = schema.extend(W.Work, { OwnedTasks }, [])
+					const Written = schema.extend(W.Work, "Written", { OwnedTasks }, [])
 					const installed = yield* install(Written, {
 						ambient: ordinarySession,
 						extensions: [],

@@ -177,7 +177,7 @@ const checkedProgramIr = (
 	const world = reads.world
 	const writeWorld = catchRefusal((): WriteWorld =>
 		world.kind === "role"
-			? { kind: "role", names: worldNames(world.role, reads.artifacts.names.installation) }
+			? { kind: "role", names: worldNames(world.role, reads.artifacts.names) }
 			: { kind: "reality" }
 	)
 	if (!writeWorld.ok) {

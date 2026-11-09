@@ -902,6 +902,7 @@ const levelStates = (level: ScalarType, law: Law): boolean => {
 		case "tree":
 		case "fold":
 		case "generated":
+		case "above":
 			return false
 	}
 }

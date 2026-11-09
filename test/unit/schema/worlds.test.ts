@@ -101,7 +101,7 @@ const Counts = derived.materialized(
 		return r.match(Post, { id, author }).find({ author, posts: r.count() })
 	})
 )
-const Reports = schema.extend(Blog, { Counts }, [])
+const Reports = schema.extend(Blog, "Reports", { Counts }, [])
 const Stray = relation("Stray", { id: uuid }, ["id"])
 const Other = schema("Other", { Kind, Post, Stray }, [])
 

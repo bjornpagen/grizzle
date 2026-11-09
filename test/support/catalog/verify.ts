@@ -651,7 +651,7 @@ const tableWriters = (j: Judging, tables: ReadonlyArray<string>): ReadonlySet<st
 const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
 	const bases = new Map<string, string>(
 		Arr.flatMap(j.catalog.domains, (d) =>
-			d.base.schema === j.catalog.schema ? [[d.name, d.base.name] as const] : []
+			j.catalog.levels.includes(d.base.schema) ? [[d.name, d.base.name] as const] : []
 		)
 	)
 	const restsOn = (name: string): boolean =>
@@ -661,7 +661,7 @@ const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
 			onSome: restsOn
 		})
 	return Arr.flatMap(j.catalog.tables, (t) =>
-		Arr.some(t.columns, (c) => c.type.schema === j.catalog.schema && restsOn(c.type.name))
+		Arr.some(t.columns, (c) => j.catalog.levels.includes(c.type.schema) && restsOn(c.type.name))
 			? [t.name]
 			: []
 	)

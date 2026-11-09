@@ -1489,6 +1489,7 @@ describe("derived relation keys", () => {
 										checkedIn(
 											runtimeSchema.extend(
 												j.base.schema,
+												"Level5",
 												{ D: runtimeDerived("D", j.definition, []) },
 												[],
 												[]
@@ -1572,7 +1573,7 @@ describe("derived relation keys", () => {
 							const p = aimedProduct(drawnProduct, c)
 							const minimal = productMinimal(p)
 							const view = runtimeDerived("D", p.definition, [])
-							const level = runtimeSchema.extend(p.base.schema, { D: view }, [], [])
+							const level = runtimeSchema.extend(p.base.schema, "Level1", { D: view }, [], [])
 							const above = aboveOf(p, minimal, view, level)
 							const analysis = succeeded(
 								Result.map(
@@ -1581,6 +1582,7 @@ describe("derived relation keys", () => {
 											? level
 											: runtimeSchema.extend(
 													level,
+													"Level6",
 													{ E: runtimeDerived("E", above.definition, []) },
 													[],
 													[]
@@ -1653,7 +1655,13 @@ describe("derived relation keys", () => {
 							const { base, definition } = storableOf(c)
 							const analyzed = Result.map(
 								checkedIn(
-									runtimeSchema.extend(base, { D: runtimeDerived("D", definition, []) }, [], [])
+									runtimeSchema.extend(
+										base,
+										"Level2",
+										{ D: runtimeDerived("D", definition, []) },
+										[],
+										[]
+									)
 								),
 								derivedAnalysis
 							)
@@ -1733,7 +1741,7 @@ describe("derived relation keys", () => {
 								}),
 								[]
 							)
-							const level = runtimeSchema.extend(keyedBase, { D: view }, [], [])
+							const level = runtimeSchema.extend(keyedBase, "Level3", { D: view }, [], [])
 							const above = runtimeDerived(
 								"E",
 								queryOver(level).rule((r: RuleValue) => {
@@ -1745,7 +1753,7 @@ describe("derived relation keys", () => {
 							)
 							const analysis = succeeded(
 								Result.map(
-									checkedIn(runtimeSchema.extend(level, { E: above }, [], [])),
+									checkedIn(runtimeSchema.extend(level, "Level4", { E: above }, [], [])),
 									derivedAnalysis
 								)
 							)

@@ -41,7 +41,7 @@ const counts = (relation: string, added: bigint, deleted: bigint, put: bigint) =
 const levels = (name: string) => {
 	const Base = schema(name, W.Work.relations, W.Work.statements)
 	const Label = relation("Label", { task: uuid }, ["task"])
-	const Extended = schema.extend(Base, { Label }, [])
+	const Extended = schema.extend(Base, `${name}_1`, { Label }, [])
 	/**
 	 * The app: a full role over Extended writing Work's stored relations but Account, so a write of Account is outside
 	 * its write list, in its login.
@@ -180,6 +180,7 @@ export const applySuite = () => {
 							const sibling = schema(done.schema, W.Work.relations, [])
 							const extension = schema.extend(
 								s0,
+								"Extended",
 								{ Extra: relation("Extra", { id: uuid }, ["id"]) },
 								[]
 							)

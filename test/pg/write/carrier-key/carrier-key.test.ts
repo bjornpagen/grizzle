@@ -48,7 +48,7 @@ const owned = owning(Keyed)
 const names = succeeded(
 	compileInstallation(owned, {
 		...installOptions(owned, "owner"),
-		installation: identity.schema(parsedSchemaName("carrier_key"))
+		levels: [identity.schema(parsedSchemaName("carrier_key"))]
 	})
 ).names
 const artifacts = succeeded(testArtifacts(Keyed, testCompile))

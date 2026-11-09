@@ -40,6 +40,7 @@ import { closedId, uuid } from "#compiler/public/fields.ts"
 import { closed, login, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
@@ -166,7 +167,7 @@ const installationOf = (r: Resolved): Installation => {
 			owned,
 			completeInstallOptions(
 				owned,
-				owned.installation,
+				installationsOf(owned),
 				[succeeded(ownLogin(defined(loginDescOf(desk), "a login built by login(...)")))],
 				[],
 				firstCodebook(rostersOf(owned))

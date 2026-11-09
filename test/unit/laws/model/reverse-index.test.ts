@@ -21,6 +21,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
@@ -75,7 +76,7 @@ describe("a containment's reverse index", () => {
 									owned,
 									completeInstallOptions(
 										owned,
-										owned.installation,
+										installationsOf(owned),
 										[],
 										[],
 										firstCodebook(rostersOf(owned))

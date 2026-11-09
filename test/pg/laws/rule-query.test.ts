@@ -120,7 +120,7 @@ const ruleQuery = (name: string) => {
 			return r.match(R, { k, a: lo }).match(R, { k, a: hi }).where(r.lt(lo, hi)).find({ k, lo, hi })
 		})
 	)
-	return schema.extend(Base, { J2, J3, Semi, Self, Lonely }, [
+	return schema.extend(Base, `${name}_1`, { J2, J3, Semi, Self, Lonely }, [
 		contained(on(J2, "a", "b"), on(T, "a", "b")),
 		contained(on(W, "k"), on(J3, "k")),
 		key(on(J2, "k", "a")),
@@ -181,6 +181,7 @@ const ruleOf = (law: Law): Rule | undefined => {
 		case "contract":
 		case "coverage":
 		case "family":
+		case "above":
 		case "fold":
 		case "generated":
 		case "pattern":

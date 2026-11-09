@@ -58,7 +58,7 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
 		return owned
 	}
 	const artifacts = schemaArtifacts(source.value.schema, {
-		installation: undefined,
+		levels: undefined,
 		vectorSchema: undefined,
 		codes: firstCodebook(rostersOf(owned.value))
 	})

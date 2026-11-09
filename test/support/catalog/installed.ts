@@ -1,5 +1,7 @@
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
@@ -273,7 +275,11 @@ export const installedScope = (
 				)
 			)
 			/** Each query entry's view, by the naming door. */
-			const theory = roleIdentity(installation.settings.installation, parsedName(r.name), r.loc)
+			const theory = roleIdentity(
+				defined(installation.names.levels[r.base.levels.length - 1], `the level of role ${r.name}`),
+				parsedName(r.name),
+				r.loc
+			)
 			const barrierViews = Arr.flatMap(Rec.values(r.relations), (e) =>
 				e.kind === "world" ? [`${installedRole.schema}.${identifierOf(roleView(theory, e))}`] : []
 			)
@@ -646,7 +652,7 @@ export const checkInstallation = (installed: Installed): Effect.Effect<void, nev
 			substrate.database,
 			"the installed-catalog checker reads the substrate's own database"
 		)
-		const read = yield* Effect.orDie(readCatalog(substrate.admin, installed.schema))
+		const read = yield* Effect.orDie(readCatalog(substrate.admin, mapNonEmpty(installed.installation.names.levels, identifierOf)))
 		assert.ok(read.kind === "present", `the installed schema ${installed.schema} is absent`)
 		assert.deepEqual(
 			checkInstalled(read.catalog, installedScope(installed.installation, installed.snapshot)),

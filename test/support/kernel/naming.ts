@@ -13,6 +13,7 @@ import {
 	parseSchemaName,
 	type SchemaName
 } from "#compiler/core/identity.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 
 import type {
 	ColumnIdent,
@@ -831,7 +832,7 @@ export const installationWith = (
 	logins: ReadonlyArray<OwnedLogin>
 ): Installation => {
 	const owned = lawNamesOf(subject).model.owned
-	const under = at.kind === "declared" ? owned.installation : at.installation
+	const under = at.kind === "declared" ? installationsOf(owned) : ([at.installation] as const)
 	const installation = compileInstallation(
 		owned,
 		completeInstallOptions(owned, under, logins, [], codes)
@@ -1080,7 +1081,7 @@ export const roleNamesOf = (installed: Installed, role: AnyRole): RoleNames => {
 	}
 	const owned = ownedRole.value
 	const read = roleReadNames(installed.installation.names, owned)
-	const world = worldNames(owned, installed.installation.names.installation)
+	const world = worldNames(owned, installed.installation.names)
 	return {
 		view: (relation) => qualified(read.relation(relation)),
 		column: (relation, field) => quoteIdent(read.column(relation, field)),

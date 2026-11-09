@@ -473,6 +473,7 @@ interface SchemaTaking {
 	login(base: unknown, name: string, roles: readonly [AnyRole], options: readonly []): unknown
 	extend(
 		base: unknown,
+		name: string,
 		relations: Readonly<Record<string, never>>,
 		statements: readonly [],
 		extra: readonly []
@@ -501,7 +502,7 @@ const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): 
 			case "login":
 				return schemaTaking.login(base, "over", [role(level, "taken", { Account })], [])
 			case "schema.extend":
-				return schemaTaking.extend(base, {}, [], [])
+				return schemaTaking.extend(base, "Over", {}, [], [])
 			case "wholeEntriesOf":
 				return schemaTaking.wholeEntriesOf(base)
 			case "writableNamesOf":
@@ -683,7 +684,7 @@ const overLines = (
 			case "login":
 				return `login(${base}, "b${i}", [role(${spec.level}, "c${i}", { Account })])`
 			case "schema.extend":
-				return `schema.extend(${base}, {}, [])`
+				return `schema.extend(${base}, "Over", {}, [])`
 			case "wholeEntriesOf":
 				return `wholeEntriesOf(${base})`
 			case "writableNamesOf":

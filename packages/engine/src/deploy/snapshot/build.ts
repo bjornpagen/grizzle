@@ -1,3 +1,4 @@
+import { lawDescription } from "#compiler/analysis/theory/description.ts"
 import {
 	catchRefusal,
 	type EncodeOptions,
@@ -10,13 +11,19 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
-import { type DeclaredName, declaredAlike, parseDeclaredName } from "#compiler/core/identity.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import {
+	type DeclaredName,
+	declaredAlike,
+	identifierOf,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
+import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -32,6 +39,7 @@ import type {
 	SnapshotContent,
 	SnapshotField,
 	SnapshotLaw,
+	SnapshotLevel,
 	SnapshotRelation,
 	SnapshotTheory,
 	SnapshotWriting
@@ -60,10 +68,13 @@ import {
 } from "#compiler/ir/products.ts"
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
+import { compileLaws } from "#compiler/laws/model/model.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
+import { levelChain, own } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -103,6 +114,7 @@ export const emptySnapshot = (input: {
 	fingerprint: emptyFingerprint(input.schema),
 	schemaName: input.schemaName,
 	schema: input.schema,
+	levels: [],
 	theory: { schema: emptyFingerprint(input.schema), relations: {}, laws: {} },
 	manifest: { objects: [], edges: [], roleDefaults: [], publicRevokes: [], comments: [] },
 	constraintToLaw: { tables: {}, domains: {} },
@@ -465,6 +477,47 @@ interface TargetInput {
 	readonly workload: DraftWorkload
 }
 
+/**
+ * The installation's levels as the snapshot records them (SnapshotLevel), root first: each level's name, schema and
+ * fingerprint, and the laws its theory states that the theory of the level below it does not, each described as an
+ * outcome names it. A lower level's theory is its law model's, compiled from the level as it is owned alone; the top's
+ * is the installation's own.
+ */
+const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
+	const owned = installation.owned
+	const chain = levelChain(owned.desc)
+	const top = chain.length - 1
+	const stated = new Set<LawId>()
+	return owned.levels.map((level, i): SnapshotLevel => {
+		const desc = chain[i]
+		const theory =
+			i === top || desc === undefined
+				? installation.laws.theory
+				: unwrapCompiled(Result.flatMap(own(desc), compileLaws)).theory
+		const laws: Array<{ readonly id: LawId; readonly law: Law }> = []
+		for (const law of theory.laws) {
+			if (!stated.has(law.id)) {
+				stated.add(law.id)
+				laws.push({ id: law.id, law: lawDescription(law) })
+			}
+		}
+		return {
+			name: level.name,
+			schema: identifierOf(defined(installation.names.levels[i], "a level's schema")),
+			fingerprint: level.fingerprint,
+			laws: laws.toSorted((a, b) => compareStrings(a.id, b.id))
+		}
+	})
+}
+
+/** A compiled value, or its refusal thrown, which targetState returns. */
+const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
+	if (!result.ok) {
+		throw new Refusal(result.error)
+	}
+	return result.value
+}
+
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * migrations ledger's objects added to its manifest: the ledger table and its SERIALIZABLE guard trigger in Setup,
  * after the guard's function, and every login's SELECT on it in Publish. */
@@ -496,8 +549,9 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			{ from: ledger.ident, to: guard.ident }
 		]
 		return {
-			schemaName: installation.owned.name,
+			schemaName: headNonEmpty(installation.owned.levels).name,
 			schema,
+			levels: levelsOf(installation),
 			theory: theoryOf(installation),
 			manifest: { ...installation.manifest, objects, edges },
 			constraintToLaw: {
@@ -549,6 +603,7 @@ type FormOf<S> =
 	| boolean
 	| bigint
 	| S
+	| Law
 	| ReadonlyArray<FormOf<S>>
 	| { readonly [key: string]: FormOf<S> }
 
@@ -690,6 +745,12 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 const contentForm = <S>(c: SnapshotContent, statement: Statement<S>): RecordOf<S> => ({
 	schemaName: c.schemaName,
 	schema: c.schema,
+	levels: c.levels.map((l): SnapshotForm => ({
+		name: l.name,
+		schema: l.schema,
+		fingerprint: l.fingerprint,
+		laws: l.laws.map((l): SnapshotForm => ({ id: l.id, law: l.law }))
+	})),
 	theory: theoryForm(c.theory),
 	manifest: manifestForm(c.manifest, statement),
 	constraintToLaw: c.constraintToLaw,

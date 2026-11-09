@@ -68,7 +68,7 @@ const memberContexts: ReadonlyArray<TypedContext> = (() => {
 		throw new Error("the member role did not parse as a role")
 	}
 	const artifacts = schemaArtifacts(input.value, {
-		installation: undefined,
+		levels: undefined,
 		vectorSchema: undefined,
 		codes: firstCodebook(rostersOf(owning(role)))
 	})

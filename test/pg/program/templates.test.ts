@@ -236,7 +236,7 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 		const owned = owning(Work)
 		const installation = compileInstallation(owned, {
 			...installOptions(owned, s.owner.role),
-			installation: identity.schema(parsedSchemaName(schema))
+			levels: [identity.schema(parsedSchemaName(schema))]
 		})
 		if (!installation.ok) {
 			return yield* Effect.die(new Error(installation.error.message))

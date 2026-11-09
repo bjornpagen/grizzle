@@ -67,7 +67,7 @@ const installed = (owned: Owned, login: AnyLogin, at: Identity<"schema">): Insta
 	return succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, at, logins, [], firstCodebook(rostersOf(owned)))
+			completeInstallOptions(owned, [at], logins, [], firstCodebook(rostersOf(owned)))
 		)
 	)
 }

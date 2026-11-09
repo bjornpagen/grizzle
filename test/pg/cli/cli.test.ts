@@ -310,7 +310,7 @@ const configurations = (ctx: TestContext) =>
 								assert.equal(refused.stage, "owner")
 							}
 							for (const name of names) {
-								const catalog = yield* readCatalog(substrate.admin, name)
+								const catalog = yield* readCatalog(substrate.admin, [name])
 								assert.ok(catalog.kind === "present", `the schema ${name} exists`)
 								assert.deepEqual(catalog.catalog.tables, [], `nothing ran in ${name}`)
 							}

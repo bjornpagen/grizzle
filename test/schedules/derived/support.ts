@@ -96,7 +96,7 @@ const build = (name: string) => {
 			return r.match(Sitting, { id, student }).find({ student, total: r.count() })
 		})
 	)
-	const Level1 = schema.extend(Edu, { StudentWeekly, StudentTotal }, [])
+	const Level1 = schema.extend(Edu, `${name}_1`, { StudentWeekly, StudentTotal }, [])
 	const WeekBusy = derived.materialized(
 		"WeekBusy",
 		query(Level1).rule((r) => {
@@ -104,7 +104,7 @@ const build = (name: string) => {
 			return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 		})
 	)
-	const Reports = schema.extend(Level1, { WeekBusy }, [])
+	const Reports = schema.extend(Level1, `${name}_2`, { WeekBusy }, [])
 	const refresh = derivedNames
 	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), { refresh })
 	const refresher2 = role(Reports, "refresher2", wholeEntriesOf(Reports), { refresh })

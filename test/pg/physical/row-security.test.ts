@@ -319,7 +319,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 											const installed = identifierOf(identity.schema(parsedSchemaName(b.declared)))
 											const read = yield* readCatalogWith(
 												(sql, params) => owner.values(sql, params),
-												installed
+												[installed]
 											)
 											assert.ok(
 												read.kind === "present",
@@ -364,7 +364,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 								yield* m.reapply
 								yield* withDb(m, last.login.roles.clerk, () => Effect.void)
 								yield* withDb(m, last.login.roles.keeper, () => Effect.void)
-								const read = yield* readCatalog(substrate.admin, m.schema)
+								const read = yield* readCatalog(substrate.admin, [m.schema])
 								assert.ok(read.kind === "present", `the migrated schema ${m.schema} is absent`)
 								assert.deepEqual(
 									checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),

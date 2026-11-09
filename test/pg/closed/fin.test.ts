@@ -634,7 +634,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							const owned = succeeded(ownedInput(built.base))
 							const compiled = succeeded(
 								compileInstallation(owned, {
-									...completeInstallOptions(owned, installation, [], [], codes),
+									...completeInstallOptions(owned, [installation], [], [], codes),
 									owner: s.owner.role
 								})
 							)

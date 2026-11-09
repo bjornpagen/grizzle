@@ -10,7 +10,6 @@ import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { indices } from "#compiler/core/array.ts"
-import { identity } from "#compiler/core/identity.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -22,6 +21,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import {
@@ -45,7 +45,7 @@ import * as spansApi from "#test/support/fixtures/api/spans.ts"
 import * as workApi from "#test/support/fixtures/api/work.ts"
 import { installMigrated, runsInstallScript } from "#test/support/install-migrate.ts"
 import { rebuild } from "#test/support/installed.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	draftCodes,
@@ -55,6 +55,7 @@ import {
 	generate
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
+import { allocatedDesc } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
@@ -117,12 +118,9 @@ const versionOf = (
 
 const noLogins = (): ReadonlyArray<AnyLogin> => []
 
-/** The description with every level declared under `name`, so the declared schema is the installed one. */
-const renamed = (desc: SchemaDesc, name: string): SchemaDesc => ({
-	...desc,
-	name,
-	...(desc.extends === undefined ? {} : { extends: renamed(desc.extends, name) })
-})
+/** The description with every level declared under its allocated name (oracle/install/real.ts allocatedDesc), so the
+ * declared schema is the installed one. */
+const renamed = (desc: SchemaDesc, name: string): SchemaDesc => allocatedDesc(desc, name)
 
 /** The fixture families, by name. */
 type HistoryLabel =
@@ -243,7 +241,7 @@ const compiledAt = (
 	)
 	return succeeded(
 		compileInstallation(owned, {
-			...completeInstallOptions(owned, identity.schema(parsedSchemaName(name)), logins, [], codes),
+			...completeInstallOptions(owned, installationsOf(owned), logins, [], codes),
 			owner
 		})
 	)

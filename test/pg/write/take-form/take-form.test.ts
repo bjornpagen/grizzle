@@ -107,7 +107,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const reality = realityWrite(
 							succeeded(
 								testArtifacts(S, {
-									installation: o.installed.installation.settings.installation,
+									installation: o.installed.installation.names.installation,
 									vectorSchema: undefined,
 									codes: installedCodes(names.codes)
 								})

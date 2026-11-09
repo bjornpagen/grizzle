@@ -19,7 +19,8 @@ import {
 	privilegesQuery,
 	roleDifferences,
 	type SettingDifference,
-	settingsQuery
+	settingsQuery,
+	textArray
 } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
@@ -946,7 +947,10 @@ export const driftFlight = (snapshot: DeploySnapshot): Result.Result<DriftFlight
 			privileges: flight.query(privilegesQuery, privilegesParams(r)),
 			memberships: flight.query(membershipsQuery, [textParam(r.role)]),
 			members: flight.query(membersQuery, [textParam(r.role), textParam(schema)]),
-			policies: flight.query(policiesQuery, [textParam(r.role), textParam(schema)])
+			policies: flight.query(policiesQuery, [
+				textParam(r.role),
+				textArray(Arr.map(snapshot.levels, (l) => l.schema))
+			])
 		}))
 		return {
 			replay: replayed,

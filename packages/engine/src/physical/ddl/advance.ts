@@ -153,7 +153,7 @@ export const addAdvanceFunctions = (b: InstallBuilder): AdvanceFunctions => {
 				b.add(
 					{
 						kind: "advanceFunction",
-						ident: b.qualified("function", named),
+						ident: b.qualifiedOf("function", relation, named),
 						ddl: advanceFunctionDdl(name, b.names.sequence(relation, field.name)),
 						reasons: [enforcement(`the identity sequence of ${relation}.${field.name}`)],
 						phase: "structure"

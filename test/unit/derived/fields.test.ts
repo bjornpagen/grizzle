@@ -324,7 +324,9 @@ describe("derived field inference", () => {
 								})
 							})
 							const analyzed = Result.map(
-								checkedIn(runtimeSchema.extend(L, { T: runtimeDerived("T", q, []) }, [], [])),
+								checkedIn(
+									runtimeSchema.extend(L, "Level1", { T: runtimeDerived("T", q, []) }, [], [])
+								),
 								derivedAnalysis
 							)
 							const owned = checking(L).owned

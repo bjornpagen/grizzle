@@ -961,10 +961,13 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 					}
 				]
 			}
-			const domainNode = b.addType("domain", domainNamed, { ddl: [create], reasons: why }, [
-				b.schemaNode,
-				namesNode
-			])
+			const domainNode = b.addType(
+				"domain",
+				b.names.levelOf(roster),
+				domainNamed,
+				{ ddl: [create], reasons: why },
+				[b.levelNode(roster), namesNode]
+			)
 			return {
 				roster,
 				names: { name: names, node: namesNode },
@@ -1012,6 +1015,7 @@ const addBits = (
 	const value: Expr = { kind: "domainValue" }
 	const domainNode = b.addType(
 		"domain",
+		b.names.levelOf(roster),
 		domainNamed,
 		{
 			ddl: [
@@ -1030,7 +1034,7 @@ const addBits = (
 			],
 			reasons: why
 		},
-		[b.schemaNode, liveNode]
+		[b.levelNode(roster), liveNode]
 	)
 	return { live: { name: live, node: liveNode }, domain: { name: domain, node: domainNode } }
 }

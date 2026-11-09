@@ -75,8 +75,8 @@ const factVersion = (name: string, rule: Rule) => {
 		})
 	)
 	return rule === "none"
-		? schema.extend(Base, { J2 }, [])
-		: schema.extend(Base, { J2 }, [
+		? schema.extend(Base, `${name}_1`, { J2 }, [])
+		: schema.extend(Base, `${name}_1`, { J2 }, [
 				rule === "every"
 					? contained(on(J2, "a", "b"), on(T, "a", "b"))
 					: contained(
@@ -102,8 +102,8 @@ const movedVersion = (name: string, rule: Rule) => {
 		})
 	)
 	return rule === "none"
-		? schema.extend(Base, { J2 }, [])
-		: schema.extend(Base, { J2 }, [
+		? schema.extend(Base, `${name}_1`, { J2 }, [])
+		: schema.extend(Base, `${name}_1`, { J2 }, [
 				rule === "every"
 					? contained(on(J2, "a", "b"), on(T, "a", "b"))
 					: contained(

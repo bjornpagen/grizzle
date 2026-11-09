@@ -27,6 +27,7 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -83,7 +84,7 @@ describe("the EXECUTE grants of a role", () => {
 								owned,
 								completeInstallOptions(
 									owned,
-									owned.installation,
+									installationsOf(owned),
 									[own.ok ? own.value : assert.fail(own.error.message)],
 									[],
 									firstCodebook(rostersOf(owned))

@@ -10,6 +10,7 @@ import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -103,9 +104,9 @@ export type ArtifactsWorld =
 	  }
 
 interface SchemaArtifactOptions {
-	/** The identity of the PostgreSQL schema the installation targets, or undefined for the declared schema's own
-	 * (Owned.installation). */
-	readonly installation: Identity<"schema"> | undefined
+	/** The identity of each level's PostgreSQL schema the installation targets, root first, or undefined for the
+	 * declared levels' own (Owned.levels). */
+	readonly levels: NonEmptyReadonlyArray<Identity<"schema">> | undefined
 	/** The schema the vector extension lives in, or undefined for the installer's. */
 	readonly vectorSchema: string | undefined
 	/**
@@ -244,7 +245,8 @@ const levelOf = (carried: SchemaInput, named: SchemaInput): Level => {
 	if (!isLevelOf(carried.content, named.level.base)) {
 		return none
 	}
-	return named.level.full
+	const whole = named.level.whole
+	return whole !== undefined && isLevelOf(carried.content, whole)
 		? level
 		: { kind: "outsideRole", role: named.desc.name, base: named.desc.base.name }
 }
@@ -315,7 +317,7 @@ export const baseArtifacts = (
 	Result.map(
 		installationOver(basis, {
 			...installOptions(basis.owned, namingOwner),
-			...(options.installation === undefined ? {} : { installation: options.installation }),
+			...(options.levels === undefined ? {} : { levels: options.levels }),
 			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema })
 		}),
 		(installation): SchemaArtifacts => {
@@ -373,11 +375,11 @@ export const roleArtifacts = (
 	role: OwnedRole,
 	base: SchemaArtifacts
 ): Result.Result<SchemaArtifacts, CompileError> => {
-	const read = checkedRole(base.derived.schema, base.names.installation, role)
+	const read = checkedRole(base.derived.schema, base.names.levels, role)
 	if (!read.ok) {
 		return read
 	}
-	const names = catchCompileError(() => worldNames(role, base.names.installation))
+	const names = catchCompileError(() => worldNames(role, base.names))
 	if (!names.ok) {
 		return names
 	}

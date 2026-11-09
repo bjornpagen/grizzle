@@ -47,6 +47,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { decodeDesc, type FieldDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, FunctionName, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -175,7 +176,7 @@ const installationOf = (owned: Owned, codes: Codebook): Installation => {
 	return succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, [login], [], codes)
+			completeInstallOptions(owned, installationsOf(owned), [login], [], codes)
 		)
 	)
 }

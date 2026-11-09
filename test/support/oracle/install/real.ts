@@ -3,9 +3,14 @@ import { fromEngine } from "#adapter/engine.ts"
 import { type CompileError, isCompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
-import { decodeDesc, type LoginDesc } from "#compiler/ir/desc.ts"
+import {
+	decodeDesc,
+	type LoginDesc,
+	type SchemaDesc as EngineSchemaDesc
+} from "#compiler/ir/desc.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -19,7 +24,14 @@ import { columnType, domainBase } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { fullRoleDesc, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
+import {
+	fullRoleDesc,
+	installationsOf,
+	type OwnedLogin,
+	own,
+	ownLogin,
+	rostersOf
+} from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -47,8 +59,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 interface RealPlanOptions {
 	/**
-	 * The schema identity to install under, whose identifier is the PostgreSQL schema; tests pass a unique name's
-	 * (the substrate's allocation), because roles are cluster-wide.
+	 * The allocation to install under, the substrate's unique name, because roles are cluster-wide: every level is
+	 * installed declared under its allocated name (allocatedLevelName), the root's PostgreSQL schema the allocation's
+	 * identifier.
 	 */
 	readonly installation: Identity<"schema">
 	/** The migration identity, which owns the schema. */
@@ -104,19 +117,51 @@ export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	return login.value
 }
 
-/** A login value or a LoginDesc, owned; anything else is refused as the installer would refuse it. */
-const ownedLogin = (input: unknown): OwnedLogin => {
-	const desc = loginDescOf(input)
-	const decoded = desc === undefined ? decodeDesc("login", input) : Result.ok(desc)
-	const owned = Result.flatMap(decoded, ownLogin)
-	if (!owned.ok) {
-		throw owned.error
-	}
-	return owned.value
+/**
+ * The declared name the level at `depth` of a schema takes under the allocation `allocated`, the substrate's unique name
+ * for one installation, the root at depth 0: the root's is the allocation itself, and each level above it is the
+ * allocation and its depth, so every level's PostgreSQL schema, and every role over it, is the allocation's alone. A test
+ * that rebuilds a level to open it rebuilds it under this name.
+ */
+export const levelNameAt = (allocated: string, depth: number): string =>
+	depth === 0 ? allocated : `${allocated}_${depth}`
+
+/** A description with every level declared under its allocated name (levelNameAt). */
+export const allocatedDesc = (desc: EngineSchemaDesc, allocated: string): EngineSchemaDesc => {
+	const below = desc.extends === undefined ? undefined : allocatedDesc(desc.extends, allocated)
+	const depth = below === undefined ? 0 : depthOf(below) + 1
+	return below === undefined
+		? { ...desc, name: levelNameAt(allocated, depth) }
+		: { ...desc, name: levelNameAt(allocated, depth), extends: below }
 }
 
+/** The depth of a description's top level, its root's 0. */
+const depthOf = (desc: EngineSchemaDesc): number =>
+	desc.extends === undefined ? 0 : depthOf(desc.extends) + 1
+
+/** A login value or a LoginDesc, owned with its base and its roles' read through `as`; anything else is refused as the
+ * installer would refuse it. */
+const ownedLogin =
+	(as: (desc: EngineSchemaDesc) => EngineSchemaDesc) =>
+	(input: unknown): OwnedLogin => {
+		const desc = loginDescOf(input)
+		const decoded = desc === undefined ? decodeDesc("login", input) : Result.ok(desc)
+		const owned = Result.flatMap(decoded, (d) =>
+			ownLogin({
+				...d,
+				base: as(d.base),
+				roles: mapNonEmpty(d.roles, (r) => ({ ...r, base: as(r.base) }))
+			})
+		)
+		if (!owned.ok) {
+			throw owned.error
+		}
+		return owned.value
+	}
+
 /** The oracle's one login over `desc` (oracleLogin), owned, as compileInstallation takes it. */
-export const oracleOwnedLogin = (desc: SchemaDesc): OwnedLogin => ownedLogin(oracleLogin(desc))
+export const oracleOwnedLogin = (desc: SchemaDesc): OwnedLogin =>
+	ownedLogin((d) => d)(oracleLogin(desc))
 
 const refuse = (location: string, capability: string): CompileError =>
 	malformedDescription(SourceLoc(location, []), capability)
@@ -167,12 +212,20 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 	if (!ownership.ok) {
 		throw ownership.error
 	}
-	const declared = ownership.value
+	const allocated = identifierOf(options.installation)
+	const renamed = own(allocatedDesc(ownership.value.desc, allocated))
+	if (!renamed.ok) {
+		throw renamed.error
+	}
+	const declared = renamed.value
 	const compiled = compileInstallation(declared, {
 		...completeInstallOptions(
 			declared,
-			options.installation,
-			Arr.map(options.logins, ownedLogin),
+			installationsOf(declared),
+			Arr.map(
+				options.logins,
+				ownedLogin((d) => allocatedDesc(d, allocated))
+			),
 			options.extensions,
 			options.codes
 		),

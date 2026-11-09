@@ -40,6 +40,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
@@ -349,7 +350,7 @@ describe("the law model's planned B-tree indexes", () => {
 										owned.value,
 										completeInstallOptions(
 											owned.value,
-											owned.value.installation,
+											installationsOf(owned.value),
 											[],
 											[],
 											firstCodebook(rostersOf(owned.value))

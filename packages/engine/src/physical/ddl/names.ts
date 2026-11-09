@@ -12,6 +12,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
@@ -51,12 +52,24 @@ export const installationTypes = (installation: Identity<"schema">): TypeSchema 
 export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)
 
 export interface InstallNames extends PhysicalNames {
-	/** The identity of the PostgreSQL schema every object is created in, which every role installed beside it embeds. */
+	/**
+	 * The identity of the root's PostgreSQL schema, which holds what is the installation's own, every level's alike:
+	 * its migrations ledger, its refusal, isolation and snapshot functions, its constants, its contract and text domains
+	 * and its rules' functions.
+	 */
 	readonly installation: Identity<"schema">
-	/** The PostgreSQL schema every object is created in, the installation's identifier. */
+	/** The root's PostgreSQL schema, the installation's identifier. */
 	readonly schema: string
-	/** The same schema as the schema of the types it holds, its domains. */
+	/** The root's schema as the schema of the types it holds, the contract and text domains. */
 	readonly types: TypeSchema
+	/**
+	 * The identity of each level's PostgreSQL schema, root first, as Owned.levels lists the levels: a level's schema
+	 * holds its relations' tables, materialized views, identity sequences and advance functions, and its rosters'
+	 * domains. A role's or a login's PostgreSQL role embeds its own level's.
+	 */
+	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
+	/** The identity of the PostgreSQL schema of the level that declares a relation, a roster among them. */
+	readonly levelOf: (relation: string) => Identity<"schema">
 	/** The identity sequence of a serial field. */
 	readonly sequence: (relation: string, field: string) => ObjectName
 	/** A serial field's advance function, which takes the bigint to advance past. */
@@ -131,7 +144,8 @@ export const selectionKeysOf = (
 
 interface NamesInput {
 	readonly owned: Owned
-	readonly installation: Identity<"schema">
+	/** Each level's PostgreSQL schema, root first, index for index with Owned.levels. */
+	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	readonly vectorSchema: string
 	/** Each pattern the installation gives a structural text domain, by its canonical key, with its domain's
 	 * definition's digest. */
@@ -226,12 +240,25 @@ export interface WorldNames {
 	) => FunctionName
 }
 
-/** The names of a role, installed under `installation`. A theory role that does not fit 63 bytes with the installation's
- * name is refused as MalformedDescription, thrown as a Refusal; an installation, which names every one first, has
- * refused it already. */
-export const worldNames = (role: OwnedRole, installation: Identity<"schema">): WorldNames => {
-	const theory = roleIdentity(installation, role.name, role.loc)
-	const schema = identifierOf(installation)
+/**
+ * The PostgreSQL schema of the level a role or a login is over, its base, among an installation's `levels`: a base's
+ * levels are the installation's lowest ones, so its own is the installation's level at its count. Its PostgreSQL role
+ * embeds that schema's name.
+ */
+export const levelIn = (
+	levels: NonEmptyReadonlyArray<Identity<"schema">>,
+	base: Owned
+): Identity<"schema"> =>
+	levels[base.levels.length - 1] ??
+	missing(`physical: schema ${base.name} is no level of the installation`)
+
+/** The names of a role, installed in the installation `names` names: its theory role embeds its level's schema, and its
+ * filter functions and probes live in the root's, as every function of the installation does. A theory role that does
+ * not fit 63 bytes with its level's name is refused as MalformedDescription, thrown as a Refusal; an installation, which
+ * names every one first, has refused it already. */
+export const worldNames = (role: OwnedRole, names: InstallNames): WorldNames => {
+	const theory = roleIdentity(levelIn(names.levels, role.base), role.name, role.loc)
+	const schema = names.schema
 	const roleSchema = identifierOf(identity.roleSchema(theory))
 	return {
 		role: identifierOf(theory),
@@ -270,7 +297,7 @@ export const worldNames = (role: OwnedRole, installation: Identity<"schema">): W
  * columns its table's (or its materialized view's) and a query entry's its definition's head fields, each a field's
  * column; domains, constants and the vector extension stay the base's. */
 export const roleReadNames = (names: InstallNames, role: OwnedRole): PhysicalNames => {
-	const world = worldNames(role, names.installation)
+	const world = worldNames(role, names)
 	return {
 		...names,
 		relation: world.view,
@@ -336,9 +363,13 @@ const rosterCodec = (codes: Codebook, roster: DeclaredName): RosterCodec =>
  * roster's bits domain, a span by int4range or int8range, a vector by the extension's vector(N), and every other scalar
  * by the native type of its name. The base type, which drops every refinement but a set's, is the lowering's. */
 export const installNames = (input: NamesInput): InstallNames => {
-	const { owned, installation } = input
+	const { owned, levels } = input
+	const installation = levels[0]
 	const schema = identifierOf(installation)
 	const types = installationTypes(installation)
+	const levelOf = (relation: string): Identity<"schema"> =>
+		levels[relationOf(owned, relation).level] ??
+		missing(`physical: no installed level for ${relation}`)
 	/** Each contract's domain's digest, once: an inner contract's is read while an outer one's is spelled. */
 	const digests = new Map<DeclaredName, DomainDigest>()
 	const contractNamed = (contract: DeclaredName): Identity<"contractDomain"> => {
@@ -360,9 +391,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 		installation,
 		schema,
 		types,
+		levels,
+		levelOf,
 		vectorSchema: vectorTypes(input.vectorSchema),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
-		relation: (relation) => ({ schema, name: installedOf(owned, relation).ident }),
+		relation: (relation) => ({
+			schema: identifierOf(levelOf(relation)),
+			name: installedOf(owned, relation).ident
+		}),
 		column: (relation, field) => {
 			const r = relationOf(owned, relation)
 			if (r.kind === "derived") {
@@ -375,11 +411,11 @@ export const installNames = (input: NamesInput): InstallNames => {
 			return f.column
 		},
 		rosterDomain: (roster) => ({
-			schema: types,
+			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(identity.rosterDomain(roster))
 		}),
 		bitsDomain: (roster) => ({
-			schema: types,
+			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(identity.bitsDomain(roster, rosterCodec(input.codes, roster).width))
 		}),
 		codes: input.codes,
@@ -399,13 +435,16 @@ export const installNames = (input: NamesInput): InstallNames => {
 			if (sequence === undefined) {
 				missing(`physical: ${relation}.${field} has no identity sequence`)
 			}
-			return { schema, name: identifierOf(sequence) }
+			return { schema: identifierOf(levelOf(relation)), name: identifierOf(sequence) }
 		},
 		advance: (relation, field) => {
 			if (relationOf(owned, relation).fields[field]?.sequence === undefined) {
 				missing(`physical: ${relation}.${field} has no identity sequence`)
 			}
-			return { schema, name: identifierOf(identity.advance(relation, field)) }
+			return {
+				schema: identifierOf(levelOf(relation)),
+				name: identifierOf(identity.advance(relation, field))
+			}
 		},
 		primaryKey: (relation) => {
 			const key = relationOf(owned, relation).keys.find((k) => k.primary)

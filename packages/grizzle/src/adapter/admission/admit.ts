@@ -34,7 +34,7 @@ import {
 	settingsQuery,
 	textArray
 } from "#adapter/admission/roles.ts"
-import { servesSchema } from "#adapter/admission/snapshots.ts"
+import { servedLevel } from "#adapter/admission/snapshots.ts"
 import type { ClaimValue } from "#adapter/db/claims.ts"
 import { toResult } from "#adapter/engine.ts"
 import { OpenError, serializableRefusal } from "#adapter/errors/execution.ts"
@@ -457,6 +457,8 @@ export const admit = Effect.fn("admit")(function* (
 		)
 	}
 	const role = artifacts.world.names.role
+	/** The installation's level schemas, every level's the snapshot records, whose tables a role's policies are on. */
+	const levelSchemas = Arr.map(snapshot.levels, (l) => l.schema)
 	const ledger = yield* fromResult(toResult(ledgerStatements(schema)))
 	const statements = yield* fromResult(toResult(manifestStatements(snapshot)))
 	const loginExpected = roleExpectation(statements, schema, login)
@@ -479,7 +481,7 @@ export const admit = Effect.fn("admit")(function* (
 		memberships: { sql: membershipsQuery.sql, params: [textParam(login)] },
 		roleSettings: { sql: settingsQuery.sql, params: [textParam(role)] },
 		rolePrivileges: { sql: privilegesQuery.sql, params: privilegesParams(roleExpected) },
-		policies: { sql: policiesQuery.sql, params: [textParam(role), textParam(schema)] },
+		policies: { sql: policiesQuery.sql, params: [textParam(role), textArray(levelSchemas)] },
 		loginAttributes: { sql: attributesQuery.sql, params: [textParam(login)] },
 		loginMembers: { sql: membersQuery.sql, params: [textParam(login), textParam(schema)] },
 		roleAttributes: { sql: attributesQuery.sql, params: [textParam(role)] },
@@ -487,7 +489,7 @@ export const admit = Effect.fn("admit")(function* (
 		roleMembers: { sql: membersQuery.sql, params: [textParam(role), textParam(schema)] },
 		rowSecurity: {
 			sql: rowSecurityQuery.sql,
-			params: [textParam(schema), textArray(roleExpected.secured)]
+			params: [textArray(levelSchemas), textArray(roleExpected.secured)]
 		}
 	}
 	const flight: ReadonlyArray<BatchStatement> = [
@@ -522,12 +524,9 @@ export const admit = Effect.fn("admit")(function* (
 	const fenced = yield* fromResult(fenceMismatch(schema, snapshot, flown.framed))
 	const before: Array<AdmissionMismatch> = [...serverMismatches(server, expectation)]
 	/** A snapshot of another schema, or a ledger the fence refuses: the database does not hold this snapshot. */
-	const wrong = snapshotMismatch(snapshot, {
-		fingerprint: servesSchema(snapshot, artifacts.owned)
-			? snapshot.theory.schema
-			: artifacts.fingerprint,
-		schema
-	})
+	const wrong = Option.isSome(servedLevel(snapshot, artifacts.owned))
+		? snapshotMismatch(snapshot, { schema })
+		: `a snapshot of an installation of the application's schema ${artifacts.fingerprint}`
 	if (wrong !== undefined) {
 		before.push({
 			stage: "ledger",

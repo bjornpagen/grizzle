@@ -11,6 +11,7 @@ import {
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { artifactsOver, loginRoles } from "#adapter/pool/registry.ts"
+import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
 import { committedSnapshot, continuedChain } from "#cli/committed.ts"
@@ -46,6 +47,7 @@ import {
 	type GenerateResult,
 	type Installation,
 	installationOver,
+	installationsOf,
 	installBasis,
 	isEmptySnapshot,
 	lossText,
@@ -247,14 +249,14 @@ const draftInput = Effect.fn("draftInput")(function* (
 	if (planned !== undefined) {
 		for (const login of logins) {
 			yield* Effect.mapError(
-				loginRoles(login.login, login.owned, planned.artifacts),
+				loginRoles(login.login, login.owned, planned.artifacts, noLevelAbove),
 				refusedAt("workload")
 			)
 		}
 	}
 	const options = completeInstallOptions(
 		owned,
-		owned.installation,
+		installationsOf(owned),
 		Arr.map(logins, (l) => l.owned),
 		planned === undefined ? [] : [workloadExtension(planned.plan)],
 		codes

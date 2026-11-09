@@ -108,7 +108,9 @@ export {
 	type RoleDesc,
 	type SchemaDesc
 } from "#compiler/ir/desc.ts"
+export { constraintLaw } from "#compiler/ir/products.ts"
 export type {
+	ConstraintLaws,
 	ConstraintOwner,
 	Encoder,
 	LiteralBound,

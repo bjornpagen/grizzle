@@ -23,11 +23,19 @@ import {
 	type ConstraintName,
 	FieldId,
 	type IdentityKind,
-	type RelationIdent
+	type RelationIdent,
+	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -218,8 +226,13 @@ export interface OwnedContract {
  */
 export interface Owned extends OwnedSchema {
 	readonly name: string
-	/** The identity at the naming door of the schema's installation under its declared name. */
-	readonly installation: Identity<"schema">
+	/**
+	 * Each level of the schema, root first and the schema itself last: its declared name, the identity at the naming door
+	 * of the PostgreSQL schema its relations install in, and its own fingerprint, the owned fingerprint of the schema
+	 * whose top it is. An owned relation's `level` indexes it. The root's schema also holds what is the installation's
+	 * own, every level's alike: its migrations ledger, its functions and its contract and text domains.
+	 */
+	readonly levels: NonEmptyReadonlyArray<OwnedLevel>
 	readonly relations: Readonly<Record<string, OwnedRelation>>
 	/**
 	 * Every statement of every level, deduplicated, in canonical order, each at its location in the decoded description.
@@ -233,6 +246,14 @@ export interface Owned extends OwnedSchema {
 	readonly contracts: Readonly<Record<string, OwnedContract>>
 	/** Every field of every relation and closed relation, sorted. */
 	readonly fieldIds: ReadonlyArray<FieldId>
+}
+
+/** One level of an owned schema (Owned.levels). */
+export interface OwnedLevel {
+	readonly name: string
+	readonly installation: Identity<"schema">
+	readonly fingerprint: SchemaFingerprint
+	readonly loc: SourceLoc
 }
 
 /** A statement's side beside the terms it pairs: its relation and its selection. */
@@ -302,7 +323,7 @@ const ownedView = (name: DeclaredName, storage: DerivedStorage): OwnedView => {
 }
 
 export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKind>> => [
-	owned.installation,
+	...owned.levels.map((l) => l.installation),
 	...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [
 		...installedIdentity(r),
 		...Object.values(r.fields).flatMap((f) =>
@@ -778,11 +799,67 @@ export const schemaInstallation = (
 			)
 }
 
+/** Whether a field is a span, through any depth of contracts: a containment pairing one is a coverage law. */
+const spanned = (desc: FieldDesc | undefined): boolean =>
+	desc?.kind === "span" || (desc?.kind === "contract" && spanned(desc.base))
+
+/**
+ * Whether a side of an ordinary relation reads every fact by fields of no span: the side a foreign key's columns are,
+ * which needs no column, no unique index and no CHECK of its own.
+ */
+const plainSide = (side: SideDesc, entry: RelationEntry): boolean => {
+	const fields = candidateKeyFields(side)
+	const desc = entry.desc
+	return (
+		fields !== undefined &&
+		desc.kind === "relation" &&
+		!fields.some((f) => spanned(desc.fields[f]?.type))
+	)
+}
+
+/**
+ * The levels of a canonical description, root first: each level's installation, minted from its declared name, and its
+ * fingerprint, the digest of the canonical description it tops, which owning that level alone computes. Two levels
+ * whose names convert to one PostgreSQL schema are IdentifierCollision.
+ */
+const ownedLevels = (canonical: SchemaDesc): NonEmptyReadonlyArray<OwnedLevel> => {
+	const schemas = new Map<string, SchemaDesc>()
+	return mapNonEmpty(levelChain(canonical), (level): OwnedLevel => {
+		const installation = unwrap(schemaInstallation(level.name, level.loc))
+		const ident = identifierOf(installation)
+		const prior = schemas.get(ident)
+		if (prior !== undefined) {
+			failWith({
+				_tag: "IdentifierCollision",
+				at: level.loc,
+				other: prior.loc,
+				identifier: ident,
+				what: "the installation's schema",
+				declaration: `schema ${level.name}`,
+				otherDeclaration: `schema ${prior.name}`
+			})
+		}
+		schemas.set(ident, level)
+		return {
+			name: level.name,
+			installation,
+			fingerprint: unwrap(schemaFingerprint({ content: level })),
+			loc: level.loc
+		}
+	})
+}
+
+/** The PostgreSQL schemas an owned schema's levels install in under their declared names, root first. */
+export const installationsOf = (owned: Owned): NonEmptyReadonlyArray<Identity<"schema">> =>
+	mapNonEmpty(owned.levels, (l) => l.installation)
+
+/** A description's levels, root first and `desc` last. */
+export const levelChain = (desc: SchemaDesc): NonEmptyReadonlyArray<SchemaDesc> =>
+	desc.extends === undefined ? [desc] : appendNonEmpty(levelChain(desc.extends), desc)
+
 class Owner {
 	readonly #schemaName: string
-	/** The location of the schema the levels end in, the outermost. */
-	readonly #loc: SourceLoc
-	readonly #levels: ReadonlyArray<SchemaDesc>
+	readonly #levels: NonEmptyReadonlyArray<SchemaDesc>
 	readonly #relations = new Map<string, RelationEntry>()
 	readonly #statements: Array<StatementEntry> = []
 	/** Each ordinary relation's namespace of row checks, filled as its check statements are owned. */
@@ -794,38 +871,24 @@ class Owner {
 	readonly #mutable = new Set<string>()
 
 	constructor(desc: SchemaDesc) {
-		const levels: Array<SchemaDesc> = []
-		for (let level: SchemaDesc | undefined = desc; level !== undefined; level = level.extends) {
-			levels.unshift(level)
-		}
-		this.#levels = levels
+		this.#levels = levelChain(desc)
 		this.#schemaName = desc.name
-		this.#loc = desc.loc
 	}
 
 	run(): Owned {
-		for (const level of this.#levels) {
-			if (level.name !== this.#schemaName) {
-				fail(
-					"MalformedDescription",
-					level.loc,
-					`an extension under its base's name ${this.#schemaName}, not ${level.name}`
-				)
-			}
-		}
 		this.#collectRelations()
 		this.#checkDerived()
 		this.#collectFields()
 		this.#collectStatements()
-		const statements = this.#statements.map((s) => ({
-			text: s.text,
-			statement: this.#checkStatement(s)
-		}))
-		const installation = unwrap(schemaInstallation(this.#schemaName, this.#loc))
+		const statements = this.#statements.map((s) => {
+			this.#checkLevels(s)
+			return { text: s.text, statement: this.#checkStatement(s) }
+		})
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
 		const contracts = this.#ownContracts()
 		const canonical = this.#canonicalDesc()
-		const fingerprint = unwrap(schemaFingerprint({ content: canonical }))
+		const levels = ownedLevels(canonical)
+		const fingerprint = lastNonEmpty(levels).fingerprint
 		const fieldIds = Object.values(relations)
 			.flatMap((r) => Object.values(r.fields).map((f) => f.id))
 			.toSorted()
@@ -834,7 +897,7 @@ class Owner {
 			desc: canonical,
 			fingerprint,
 			name: this.#schemaName,
-			installation,
+			levels,
 			relations,
 			statements: ordered.map((s) => s.statement),
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
@@ -1391,6 +1454,113 @@ class Owner {
 			case "closedHas":
 				return
 		}
+	}
+
+	/**
+	 * A statement reaches an ordinary relation of a level below its own only where no write of that level changes: as
+	 * one side of a containment between stored relations whose sides are fields, unselected and of no span, its target
+	 * on the target relation's primary key or on a key declared at that relation's level or below, which PostgreSQL holds
+	 * as a deferred foreign key judged at COMMIT; or in a rule over a query, a containment one of whose sides is a
+	 * derived relation, or a key or a check over one, whose deferred triggers PostgreSQL runs at COMMIT. A process over
+	 * the lower level holds none of the levels above it and compiles its writes alone, so every other reach is
+	 * LevelRefused: a key, a check, mutable, a family, tree, fold or alternatives over a lower relation, and a
+	 * containment with both sides on lower relations, or reaching one by a selected, pred or span side, or into no key.
+	 * A roster's, a closed relation's and a derived relation's rows no write changes.
+	 */
+	#checkLevels(s: StatementEntry): void {
+		const lower = (relation: string): RelationEntry | undefined => {
+			const entry = this.#relations.get(relation)
+			return entry?.desc.kind === "relation" && entry.level < s.level ? entry : undefined
+		}
+		const refuse = (relation: string, entry: RelationEntry): never =>
+			failWith({
+				_tag: "LevelRefused",
+				at: s.desc.loc,
+				statement: statementLabel(s.desc),
+				level: this.#levelName(s.level),
+				relation,
+				below: this.#levelName(entry.level)
+			})
+		const reach = (relations: ReadonlyArray<string>): void => {
+			for (const relation of relations) {
+				const entry = lower(relation)
+				if (entry !== undefined) {
+					refuse(relation, entry)
+				}
+			}
+		}
+		const d = s.desc
+		const derived = (relation: string): boolean =>
+			this.#relations.get(relation)?.desc.kind === "derived"
+		switch (d.kind) {
+			case "contained": {
+				if (derived(d.left.relation) || derived(d.right.relation)) {
+					return
+				}
+				const source = lower(d.left.relation)
+				const target = lower(d.right.relation)
+				if (source !== undefined) {
+					const keyed = this.#relation(d.right.relation, s.desc.loc, statementLabel(s.desc))
+					if (target !== undefined || !plainSide(d.left, source) || !this.#keyOf(d.right, keyed)) {
+						refuse(d.left.relation, source)
+					}
+					return
+				}
+				if (target !== undefined && !this.#keyOf(d.right, target)) {
+					refuse(d.right.relation, target)
+				}
+				return
+			}
+			case "key":
+				return reach([d.side.relation])
+			case "mutable":
+			case "check":
+				return reach([d.relation])
+			case "family":
+			case "tree":
+				return reach([d.member.relation, d.slots.owner])
+			case "fold":
+				return reach([d.family.owner, d.step.relation, d.end.relation])
+			case "alternatives":
+				return reach([d.parent.relation, ...d.arms.map((a) => a.arm.relation)])
+		}
+	}
+
+	/** The declared name of the level at `index`. */
+	#levelName(index: number): string {
+		const level = this.#levels[index]
+		if (level === undefined) {
+			throw defect(`ownership's level ${index} is one of the schema's levels`)
+		}
+		return level.name
+	}
+
+	/**
+	 * Whether `side` reads every fact of `entry`'s ordinary relation by fields of no span, which are its primary key or a
+	 * candidate key a key statement of its level or below declares.
+	 */
+	#keyOf(side: SideDesc, entry: RelationEntry): boolean {
+		const fields = candidateKeyFields(side)
+		const desc = entry.desc
+		if (fields === undefined || desc.kind !== "relation" || !plainSide(side, entry)) {
+			return false
+		}
+		const same = (key: ReadonlyArray<string>): boolean =>
+			key.length === fields.length && key.every((f) => fields.includes(f))
+		return (
+			same(desc.primaryKey) ||
+			this.#statements.some((k) => {
+				if (
+					k.desc.kind !== "key" ||
+					k.desc.side.relation !== side.relation ||
+					k.level > entry.level
+				) {
+					return false
+				}
+				const declared = candidateKeyFields(k.desc.side)
+				return declared !== undefined && same(declared)
+			})
+		)
 	}
 
 	/** The statement as ownership admits it (OwnedStatement). */

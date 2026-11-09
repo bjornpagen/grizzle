@@ -1379,7 +1379,7 @@ const owned = owning(Algebra)
 const names: WriteNames = succeeded(
 	compileInstallation(owned, {
 		...installOptions(owned, "owner"),
-		installation: identity.schema(parsedSchemaName("algebra"))
+		levels: [identity.schema(parsedSchemaName("algebra"))]
 	})
 ).names
 const artifacts = succeeded(testArtifacts(Algebra, testCompile))

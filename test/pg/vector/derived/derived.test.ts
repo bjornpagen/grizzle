@@ -58,7 +58,7 @@ const build = (name: string) => {
 				.find({ document, account, value })
 		})
 	)
-	const Reports = schema.extend(Core, { Embeddings }, [])
+	const Reports = schema.extend(Core, `${name}_1`, { Embeddings }, [])
 	const viewer = role(Reports, "viewer", { Embeddings })
 	const refresher = role(Reports, "refresher", { Embeddings }, { refresh: ["Embeddings"] })
 	const server = login(Reports, "server", [viewer, refresher])

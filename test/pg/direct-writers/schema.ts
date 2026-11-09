@@ -46,7 +46,7 @@ const AccountEntries = derived.materialized(
  * Its worlds, in the login `desk`: `writer` holds every base relation whole and writes them; `auditor` reads the
  * derived relation.
  */
-export const DeskReports = schema.extend(Desk, { AccountEntries }, [])
+export const DeskReports = schema.extend(Desk, "DeskReports", { AccountEntries }, [])
 
 export const writer = role(
 	DeskReports,

@@ -151,7 +151,7 @@ const writeSteps = (
 	const reality = realityWrite(
 		succeeded(
 			testArtifacts(Pairs, {
-				installation: installed.installation.settings.installation,
+				installation: installed.installation.names.installation,
 				vectorSchema: undefined,
 				codes: installedCodes(installed.names.codes)
 			})

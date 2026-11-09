@@ -469,7 +469,7 @@ const property = (
 			? refusalOf(
 					compileInstallation(owning(value), {
 						...installOptions(owning(value), "owner"),
-						installation: identity.schema(parsedSchemaName("fill"))
+						levels: [identity.schema(parsedSchemaName("fill"))]
 					})
 				)
 			: undefined

@@ -959,7 +959,7 @@ const closedRowsStep = (sys: System, p: ClosedRows, before: Model, note: (f: Fea
 		note("closed rows refused by their law")
 		const built = builtOf(sys.m.declared, proposed, liveOf(proposed.tier))
 		const { g, folder } = yield* draftNext(sys, built, kept, noDeclarations)
-		const catalogBefore = yield* readCatalog(substrate.admin, sys.m.schema)
+		const catalogBefore = yield* readCatalog(substrate.admin, [sys.m.schema])
 		const attempted = yield* failureOf(applyWith(sys, [folder], g.snapshot))
 		const failure = defined(attempted, "closed rows that break the law fail the migration")
 		const server = serverOf(failure)
@@ -971,7 +971,7 @@ const closedRowsStep = (sys: System, p: ClosedRows, before: Model, note: (f: Fea
 			},
 			"the migration's violation query names the law"
 		)
-		const catalogAfter = yield* readCatalog(substrate.admin, sys.m.schema)
+		const catalogAfter = yield* readCatalog(substrate.admin, [sys.m.schema])
 		assert.deepEqual(
 			catalogAfter,
 			catalogBefore,

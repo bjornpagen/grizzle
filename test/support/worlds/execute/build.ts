@@ -485,7 +485,7 @@ export const buildBase = (
 		)
 		const derivedValues: Record<string, AnyDerived> = {}
 		let base: AnySchema = root
-		for (const d of spec.derived) {
+		for (const [depth, d] of spec.derived.entries()) {
 			const level = base
 			const definition = yield* definitionOf(
 				spec,
@@ -499,7 +499,7 @@ export const buildBase = (
 			)
 			derivedValues[d.name] = value
 			base = yield* attempt(`derived ${d.name}`, () =>
-				schema.extend(level, { [d.name]: value }, [])
+				schema.extend(level, `${name}_${depth + 1}`, { [d.name]: value }, [])
 			)
 		}
 		return { base, relations, closed: rosters, derived: derivedValues, contexts, laws }

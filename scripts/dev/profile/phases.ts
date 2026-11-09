@@ -212,7 +212,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	timed(`${f.label} laws`, () => ok(compileLaws(owned), "laws"))
 	/** A fresh installation's codes: every roster's handles in declared order. */
 	const codes = firstCodebook(rostersOf(owned))
-	const base = { ...completeInstallOptions(owned, installedAt, [], [], codes), owner }
+	const base = { ...completeInstallOptions(owned, [installedAt], [], [], codes), owner }
 	const programsGiven = f.programs
 	const plan =
 		programsGiven === undefined
@@ -261,7 +261,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const checked = ok(checkedSchema(owned), "checked")
 	/** The keys of every view a write program's members and read-backs read, as the schema's artifacts know them. */
 	const artifacts = ok(
-		schemaArtifacts(input, { installation: installedAt, vectorSchema: undefined, codes }),
+		schemaArtifacts(input, { levels: [installedAt], vectorSchema: undefined, codes }),
 		"artifacts"
 	)
 	const writes = timed(`${f.label} writes`, () =>

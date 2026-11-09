@@ -581,6 +581,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 		case "coverage":
 		case "family":
 		case "tree":
+		case "above":
 		case "fold":
 		case "contract":
 		case "pattern":

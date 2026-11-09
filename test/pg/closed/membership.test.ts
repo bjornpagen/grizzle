@@ -348,7 +348,7 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 							const owned = succeeded(ownedInput(built.base))
 							const compiled = succeeded(
 								compileInstallation(owned, {
-									...completeInstallOptions(owned, installation, [], [], codes),
+									...completeInstallOptions(owned, [installation], [], [], codes),
 									owner: s.owner.role
 								})
 							)

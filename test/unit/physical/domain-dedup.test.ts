@@ -29,6 +29,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { decodeDesc, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -108,7 +109,7 @@ const installationOf = (p: Pair): Installation => {
 			owned,
 			completeInstallOptions(
 				owned,
-				owned.installation,
+				installationsOf(owned),
 				[login],
 				[],
 				firstCodebook(rostersOf(owned))

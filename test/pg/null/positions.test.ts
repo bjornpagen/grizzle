@@ -567,6 +567,7 @@ const lawName = (law: Law): string => {
 		case "coverage":
 		case "family":
 		case "tree":
+		case "above":
 		case "fold":
 		case "contract":
 		case "pattern":

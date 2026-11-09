@@ -19,6 +19,7 @@ import {
 	relation as relationOf,
 	schema
 } from "#compiler/public/schema.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
@@ -335,7 +336,7 @@ describe("a carried set's key", () => {
 					Effect.sync(() => {
 						const codes = live + holes
 						const compiled = compileInstallation(owned, {
-							...completeInstallOptions(owned, owned.installation, [], [], codesWith(holes)),
+							...completeInstallOptions(owned, installationsOf(owned), [], [], codesWith(holes)),
 							owner: "owner"
 						})
 						const bytes = entryOf(codes)

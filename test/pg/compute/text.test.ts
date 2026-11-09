@@ -390,7 +390,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 			const owned = owning(s.value)
 			const real = compileInstallation(owned, {
 				...installOptions(owned, substrate.owner.role),
-				installation: identity.schema(parsedSchemaName(schemaName))
+				levels: [identity.schema(parsedSchemaName(schemaName))]
 			})
 			if (!real.ok) {
 				return yield* Effect.die(new Error(`real compile ${real.error.message}`))

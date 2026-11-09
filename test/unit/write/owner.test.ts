@@ -140,7 +140,7 @@ const owned = owning(Books)
 const names: WriteNames = succeeded(
 	compileInstallation(owned, {
 		...installOptions(owned, "owner"),
-		installation: identity.schema(parsedSchemaName("books"))
+		levels: [identity.schema(parsedSchemaName("books"))]
 	})
 ).names
 const artifacts = succeeded(testArtifacts(Books, testCompile))

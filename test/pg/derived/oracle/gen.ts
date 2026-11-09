@@ -883,6 +883,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		appendAll(derivedRelations, declared)
 		current = schema.extend(
 			current,
+			`${options.name}_${li + 1}`,
 			Rec.fromEntries(Arr.map(declared, (d) => [d.name, d.value])),
 			[],
 			[]

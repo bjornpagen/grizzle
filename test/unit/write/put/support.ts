@@ -113,7 +113,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop) => {
 	const names: WriteNames = succeeded(
 		compileInstallation(owned, {
 			...installOptions(owned, "owner"),
-			installation: identity.schema(parsedSchemaName("shop"))
+			levels: [identity.schema(parsedSchemaName("shop"))]
 		})
 	).names
 	const artifacts = succeeded(testArtifacts(s, testCompile))

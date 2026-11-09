@@ -151,7 +151,7 @@ const installedCatalog = <A>(
 			for (const statement of sql) {
 				yield* pinned.query(statement, [])
 			}
-			const installed = yield* readCatalog(pinned, schema)
+			const installed = yield* readCatalog(pinned, [schema])
 			if (installed.kind === "absent") {
 				return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
 			}
@@ -357,7 +357,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								const worlds = fixtureWorlds(desc)
 								const real = compileInstallation(owned, {
 									...installOptions(owned, substrate.owner.role),
-									installation: identity.schema(parsedSchemaName(schema)),
+									levels: [identity.schema(parsedSchemaName(schema))],
 									logins: [worlds.login]
 								})
 								if (!real.ok) {

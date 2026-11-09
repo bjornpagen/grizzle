@@ -194,7 +194,7 @@ const installationOf = Effect.gen(function* () {
 	const owned = owning(parsed)
 	const real = compileInstallation(owned, {
 		...installOptions(owned, substrate.owner.role),
-		installation: identity.schema(parsedSchemaName(schemaName))
+		levels: [identity.schema(parsedSchemaName(schemaName))]
 	})
 	return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
 })

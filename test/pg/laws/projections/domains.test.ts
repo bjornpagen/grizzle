@@ -399,7 +399,7 @@ const installationOf = Effect.gen(function* () {
 	const owned = owning(Slots)
 	const real = compileInstallation(owned, {
 		...installOptions(owned, substrate.owner.role),
-		installation: identity.schema(parsedSchemaName(schemaName))
+		levels: [identity.schema(parsedSchemaName(schemaName))]
 	})
 	if (!real.ok) {
 		return yield* Effect.die(new Error(`the natural schema did not compile: ${real.error.message}`))

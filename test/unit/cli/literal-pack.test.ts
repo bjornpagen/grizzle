@@ -17,6 +17,7 @@ import {
 	String as Str
 } from "effect"
 import { refusalText } from "#cli/refusals.ts"
+import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -215,7 +216,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 										now(0)
 									)
 									assert.equal(drafted.code, 0, drafted.stderr)
-									const schemaDir = `migrations/${owned.installation.identifier}`
+									const schemaDir = `migrations/${headNonEmpty(owned.levels).installation.identifier}`
 									const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									const folder = `${schemaDir}/${defined(
 										Arr.filter(entries, (n) => n !== snapshotFileName)[0],

@@ -234,7 +234,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
 			}
 			const text = yield* fs.readFileString(`${dir}/migrations/${allocated}/snapshot.json`)
-			const catalog = yield* readCatalog(substrate.admin, allocated)
+			const catalog = yield* readCatalog(substrate.admin, [allocated])
 			assert.equal(catalog.kind, "present", `the schema is installed as ${allocated}`)
 			const loginRole = roleNameOf(world.login)
 			const roles = Arr.map(world.roles, roleNameOf)

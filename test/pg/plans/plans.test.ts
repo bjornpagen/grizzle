@@ -358,7 +358,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const owned = owning(Plans)
 		const installation = compileInstallation(owned, {
 			...installOptions(owned, s.owner.role),
-			installation: identity.schema(parsedSchemaName(schema))
+			levels: [identity.schema(parsedSchemaName(schema))]
 		})
 		if (!installation.ok) {
 			return yield* Effect.die(new Error(installation.error.message))

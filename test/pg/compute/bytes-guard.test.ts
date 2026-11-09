@@ -231,7 +231,7 @@ layer(Substrate.layer)("a guard of a text's bytes on PostgreSQL 19", (it) => {
 									const compiled = Result.flatMap(ownedInput(value), (owned) =>
 										compileInstallation(owned, {
 											...installOptions(owned, substrate.owner.role),
-											installation: identity.schema(parsedSchemaName(schemaName))
+											levels: [identity.schema(parsedSchemaName(schemaName))]
 										})
 									)
 									if (!admitted(c)) {

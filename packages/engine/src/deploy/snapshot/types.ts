@@ -1,4 +1,4 @@
-import type { ColumnIdent, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type {
 	ConstraintLaws,
@@ -7,6 +7,7 @@ import type {
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The snapshot file of one declared schema, relative to the migrations directory. */
 export const snapshotFileName = "snapshot.json"
@@ -83,6 +84,21 @@ export interface SnapshotTheory {
 	readonly laws: Readonly<Record<string, SnapshotLaw>>
 }
 
+/**
+ * A level of the installation as the snapshot records it, root first: its declared name, the PostgreSQL schema its
+ * relations live in, its own fingerprint, the owned fingerprint of the schema it tops, by which a login over it is
+ * served (DbLayer.make admits a login over any level the snapshot records), and each law it states that the levels
+ * below it do not, by its law identity, as an outcome names it. A Db over a lower level holds none of a higher level's
+ * code, so it reports a refusal by one of these as the law `above` names (types/changeset Law); the root states none
+ * above anything, and records the laws of its own alike.
+ */
+export interface SnapshotLevel {
+	readonly name: string
+	readonly schema: string
+	readonly fingerprint: SchemaFingerprint
+	readonly laws: ReadonlyArray<{ readonly id: LawId; readonly law: Law }>
+}
+
 /** A login of an installation as the snapshot records it, under its declared name: its PostgreSQL role, whose name
  * the naming door derives from the installation's and the login's (core/identity.ts identity.login). A declared rename
  * of the login (deploy/diff/plan.ts Declarations) renames this role in place, so the record names one role across it. */
@@ -108,9 +124,14 @@ export interface SnapshotLogin {
  * target of each migration and what admission compares. */
 export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	readonly fingerprint: SchemaFingerprint
-	/** The declared schema name, and the PostgreSQL schema it is installed in. */
+	/**
+	 * The installation's root's declared name and PostgreSQL schema, which name the installation: its migrations
+	 * directory, its ledger's schema and its empty snapshot's fingerprint, whatever levels stand above the root.
+	 */
 	readonly schemaName: string
 	readonly schema: string
+	/** The installed levels, root first; none before the first migration. */
+	readonly levels: ReadonlyArray<SnapshotLevel>
 	readonly theory: SnapshotTheory
 	readonly manifest: InstallationManifest<SqlStatement>
 	readonly constraintToLaw: ConstraintLaws

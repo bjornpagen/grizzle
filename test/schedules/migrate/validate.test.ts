@@ -199,7 +199,7 @@ const withWorld = (
 		compileInstallation(owned, {
 			...completeInstallOptions(
 				owned,
-				identity.schema(parsedSchemaName(schemaIdent)),
+				[identity.schema(parsedSchemaName(schemaIdent))],
 				[server],
 				[],
 				codes
@@ -235,7 +235,7 @@ const refusedBy =
 		if (server.by !== "server" || server.error.constraint === undefined) {
 			return misses(shown, `expected the apply refused by ${fk.refusing}, by the server`)
 		}
-		const owner = reportedOwner(server.error, fk.schema)
+		const owner = reportedOwner(server.error, new Set([fk.schema]))
 		return server.error.sqlstate === sqlstates.foreignKeyViolation &&
 			owner !== undefined &&
 			constraintLaw(fk.laws, owner, server.error.constraint) === fk.refusing
@@ -645,7 +645,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 										if (server.by !== "server" || server.error.constraint === undefined) {
 											return false
 										}
-										const owner = reportedOwner(server.error, names.schema)
+										const owner = reportedOwner(server.error, new Set([names.schema]))
 										return (
 											owner !== undefined &&
 											constraintLaw(tightenedLaws, owner, server.error.constraint) === id

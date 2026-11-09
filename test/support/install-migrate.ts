@@ -133,16 +133,6 @@ export interface Installed {
 const installTimestamp = "20261013000000"
 const installName = "install"
 
-/**
- * The description with every level declared under `name` (an extension is declared under its base's name): the schema
- * a test rebuilds under the allocated name.
- */
-const renamed = (desc: SchemaDesc, name: string): SchemaDesc => ({
-	...desc,
-	name,
-	extends: desc.extends === undefined ? undefined : renamed(desc.extends, name)
-})
-
 /** The plan of the complete installation under `installation` (oracle/install/real.ts), with the caller's logins and
  * extensions, and a fresh installation's codes, as the first migration from an empty directory drafts them. */
 const completePlan = (
@@ -475,7 +465,7 @@ export const installMigrated = (
 		const owner = yield* ambientOwner(options.ambient, installedSchemas(installation))
 		yield* applyFolders(owner, substrate.database, g.snapshot, [folder])
 		yield* expectFreshCatalog(desc, installation, folder, options)
-		yield* Effect.fromResult(registerSnapshot(renamed(installation.owned.desc, name), g.snapshot))
+		yield* Effect.fromResult(registerSnapshot(g.snapshot))
 		const installed = yield* installedOf({
 			plan,
 			declared: name,

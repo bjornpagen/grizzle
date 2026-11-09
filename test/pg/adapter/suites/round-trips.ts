@@ -76,7 +76,7 @@ const derivedFixture = (name: string) => {
 			return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
 		})
 	)
-	const Reports = schema.extend(Edu, { StudentWeekly }, [])
+	const Reports = schema.extend(Edu, `${name}_1`, { StudentWeekly }, [])
 	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), {
 		refresh: ["StudentWeekly"]
 	})

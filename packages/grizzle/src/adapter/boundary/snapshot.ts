@@ -4,6 +4,7 @@ import {
 	type CompileError,
 	decode,
 	fromJson,
+	isList,
 	isRecord,
 	malformedArtifact,
 	noRevivers,
@@ -21,6 +22,15 @@ import { type DeploySnapshot, snapshotFingerprint } from "#compiler/plan/migrati
 const sealedSnapshot = (value: unknown): Result.Result<DeploySnapshot, CompileError> => {
 	if (!isRecord(value)) {
 		return Result.fail(malformedArtifact("snapshot", [], "a snapshot object"))
+	}
+	if (!isList(value["levels"])) {
+		return Result.fail(
+			malformedArtifact(
+				"snapshot",
+				["levels"],
+				"a snapshot recording its installation's levels, which a grizzle before levels did not write: draft the installation's migrations again"
+			)
+		)
 	}
 	return Result.flatMap(toResult(snapshotFingerprint(value)), (computed) =>
 		computed === value["fingerprint"]

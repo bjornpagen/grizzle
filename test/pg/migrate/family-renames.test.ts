@@ -581,7 +581,7 @@ const compiledAt = (
 	const owned = owning(desc)
 	return succeeded(
 		compileInstallation(owned, {
-			...completeInstallOptions(owned, identity.schema(parsedSchemaName(name)), [], [], codes),
+			...completeInstallOptions(owned, [identity.schema(parsedSchemaName(name))], [], [], codes),
 			owner
 		})
 	)

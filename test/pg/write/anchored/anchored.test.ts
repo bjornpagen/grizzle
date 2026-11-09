@@ -145,7 +145,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 				const reality = realityWrite(
 					succeeded(
 						testArtifacts(S, {
-							installation: o.installation.settings.installation,
+							installation: o.installation.names.installation,
 							vectorSchema: undefined,
 							codes: installedCodes(names.codes)
 						})

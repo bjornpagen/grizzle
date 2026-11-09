@@ -2107,9 +2107,10 @@ describe("schema and schema.extend", () => {
 											case "a read of its own level":
 												record["OwnLevel"] = materializedDerived(
 													"OwnLevel",
-													idsOf(schema.extend(current, { [first.name]: first.value }, [], []), [
-														first.value
-													]),
+													idsOf(
+														schema.extend(current, "Probe", { [first.name]: first.value }, [], []),
+														[first.value]
+													),
 													[]
 												)
 												break
@@ -2132,7 +2133,7 @@ describe("schema and schema.extend", () => {
 												break
 										}
 									}
-									current = schema.extend(current, record, [], [])
+									current = schema.extend(current, `Level${chain.length}`, record, [], [])
 									chain.push(current)
 									appendAll(below, declared)
 								}

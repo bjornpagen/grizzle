@@ -1,6 +1,6 @@
 import { Array as Arr } from "effect"
 import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
-import { type KeyLaws, keyLaws } from "#adapter/witness/keylaw.ts"
+import { type KeyLaws, keyLaws, type LawsAbove } from "#adapter/witness/keylaw.ts"
 import { entryKey, type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/plan/change.ts"
 import type { CheckedEntry, SchemaArtifacts } from "#compiler/plan/common.ts"
 
@@ -50,14 +50,16 @@ export interface InstallationWitness {
  * schema whose snapshot the database holds (adapter/db/open.ts), so their key-law map names the installed constraints.
  */
 export const installationWitness = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
+	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">,
+	above: LawsAbove
 ): InstallationWitness => {
 	const checked = artifacts.derived.schema
 	const laws = keyLaws({
 		names: artifacts.names,
 		constraintLaws: artifacts.constraintLaws,
 		theoryLaws: artifacts.theoryLaws,
-		relations: [...checked.relations.values()]
+		relations: [...checked.relations.values()],
+		above
 	})
 	/**
 	 * The WriteProgram's decoder over the whole schema: a refusal's key text decodes through its column's result

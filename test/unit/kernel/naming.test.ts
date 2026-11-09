@@ -308,7 +308,7 @@ const subjectOf = (c: NamingCase): { readonly base: AnySchema; readonly subject:
 					},
 					[]
 				)
-	return { base, subject: c.extended ? schema.extend(base, {}, []) : base }
+	return { base, subject: c.extended ? schema.extend(base, "Above", {}, []) : base }
 }
 
 /**

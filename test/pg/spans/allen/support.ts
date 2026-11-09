@@ -46,7 +46,7 @@ const compileSpans = (
 	return succeeded(
 		compileInstallation(owned, {
 			...installOptions(owned, owner),
-			installation: identity.schema(parsedSchemaName(schema)),
+			levels: [identity.schema(parsedSchemaName(schema))],
 			extensions: options.extensions,
 			logins: [oracleOwnedLogin(owned.desc)]
 		}),

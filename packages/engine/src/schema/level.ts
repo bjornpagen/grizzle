@@ -6,9 +6,9 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 
 /** What a query or a ChangeSet is written over, as a level: a schema value with its levels and its content, or a role
- * value over its base, with its level as role(...) read it once (`RoleLevel`). A role's levels are itself and, for a
- * full role, which holds every relation of its base whole under its own name, every level of its base: programs over
- * the base run on it unchanged. */
+ * value over its base, with its level as role(...) read it once (`RoleLevel`). A role's levels are itself and every
+ * level of its base it holds whole, with every relation of the levels below it, under its own name (RoleLevel.whole):
+ * programs over such a level run on it unchanged, a full role's base's among them. */
 export type Level =
 	| {
 			readonly kind: "schema"
@@ -30,7 +30,7 @@ export const isLevelOver = (lower: Level, higher: Level): boolean => {
 	if (lower.kind === "role") {
 		return lower.identity === higher.identity
 	}
-	return higher.full && isLevelOf(lower.content, higher.base)
+	return higher.whole !== undefined && isLevelOf(lower.content, higher.whole)
 }
 
 /** The level of a built value: a schema built by schema(...) or schema.extend(...), or a role built by role(...);

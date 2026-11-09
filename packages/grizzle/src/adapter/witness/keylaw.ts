@@ -1,16 +1,20 @@
 import { Array as Arr } from "effect"
 import type { InstallNames } from "#compiler/plan/catalog.ts"
 import { generatedFieldLaws, type Law, type TableRelation } from "#compiler/plan/change.ts"
-import type {
-	ColumnIdent,
-	ConstraintName,
-	ConstraintOwner,
-	DomainName,
-	RelationIdent,
-	RosterCodec,
-	SchemaArtifacts
+import {
+	type ColumnIdent,
+	type ConstraintLaws,
+	type ConstraintName,
+	type ConstraintOwner,
+	constraintLaw,
+	type DomainName,
+	identifierOf,
+	type LawId,
+	type RelationIdent,
+	type RosterCodec,
+	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
-import type { DescribedLaw } from "#compiler/plan/migration.ts"
+import type { DescribedLaw, SnapshotLevel } from "#compiler/plan/migration.ts"
 
 /** One column a domain types in a table, with the law that column's use of the domain discharges. */
 type DomainUse = Extract<
@@ -26,15 +30,16 @@ interface ReportedNames {
 }
 
 /**
- * The owner a violation reports in `schema`, as the constraint table keys it: the table of a table constraint or a
- * unique index, or the data type of a domain constraint, its domain. None when the violation reports another schema, or
- * neither a table nor a data type.
+ * The owner a violation reports in one of the installation's level schemas `schemas`, as the constraint table keys it:
+ * the table of a table constraint or a unique index, or the data type of a domain constraint, its domain. None when the
+ * violation reports another schema, or neither a table nor a data type. Every relation and domain of an installation is
+ * named apart across its levels (schema/own.ts), so an owner's name is one object of the installation.
  */
 export const reportedOwner = (
 	failure: ReportedNames,
-	schema: string
+	schemas: ReadonlySet<string>
 ): ConstraintOwner | undefined => {
-	if (failure.schema !== schema) {
+	if (failure.schema === undefined || !schemas.has(failure.schema)) {
 		return undefined
 	}
 	if (failure.table !== undefined) {
@@ -72,8 +77,8 @@ export const reportedOwner = (
  * from every law's.
  */
 export interface KeyLaws {
-	/** The PostgreSQL schema the installation lives in: a native violation's reported schema must be it. */
-	readonly schema: string
+	/** The PostgreSQL schemas the installation's levels live in: a native violation's reported schema must be one. */
+	readonly schemas: ReadonlySet<string>
 	/** The laws a reported constraint's violation can report, under the reported owner. */
 	readonly lawsOf: (constraint: ConstraintName, owner: ConstraintOwner) => NativeLaws | undefined
 	/** The table a stored relation of the installation is, by its declared name: what a write statement writes. */
@@ -111,12 +116,57 @@ export interface RosterDomain {
 	readonly codec: RosterCodec
 }
 
+/**
+ * What a Db over one level of an installation knows of the levels above its own, from the installation's snapshot,
+ * which records each level (deploy/snapshot/types.ts SnapshotLevel): every level's PostgreSQL schema; every constraint of
+ * the installation under its owner, with the law it reports (Snapshot.constraintToLaw); and each law a level above its
+ * own states, by its identity, as `above` names it (types/changeset Law). A Db over a lower level holds none of the code
+ * above it, so a refusal by one of those laws, a foreign key into its relations or a rule over a query reading them, is
+ * read here and named by the level that states it.
+ */
+export interface LawsAbove {
+	readonly schemas: ReadonlyArray<string>
+	readonly constraints: ConstraintLaws
+	readonly laws: ReadonlyMap<LawId, Law>
+}
+
+/**
+ * No level above: the laws above a Db over the top level of its installation, whose own artifacts hold every law and
+ * level schema of the installation, and above a role `grizzle generate` and `grizzle check` compile only to admit its
+ * programs, which never classify a violation.
+ */
+export const noLevelAbove: LawsAbove = {
+	schemas: [],
+	constraints: { tables: {}, domains: {} },
+	laws: new Map()
+}
+
+/** The laws above level `index` of the installation the snapshot's levels record (`LawsAbove`). */
+export const lawsAbove = (
+	snapshot: {
+		readonly levels: ReadonlyArray<SnapshotLevel>
+		readonly constraintToLaw: ConstraintLaws
+	},
+	index: number
+): LawsAbove => ({
+	schemas: Arr.map(snapshot.levels, (l) => l.schema),
+	constraints: snapshot.constraintToLaw,
+	laws: new Map(
+		Arr.flatMap(snapshot.levels.slice(index + 1), (level) =>
+			Arr.map(level.laws, ({ id, law }): readonly [LawId, Law] => [
+				id,
+				{ kind: "above", level: level.name, law }
+			])
+		)
+	)
+})
+
 interface KeyLawInput {
 	/** The installation's names: its schema, each relation's table, and each roster's two domains, with the codes the
 	 * installation holds for it. */
 	readonly names: Pick<
 		InstallNames,
-		"schema" | "relation" | "codes" | "rosterDomain" | "bitsDomain"
+		"levels" | "relation" | "codes" | "rosterDomain" | "bitsDomain"
 	>
 	/** Every installed constraint with its owner and its law, described (physical/install Installation.constraintLaws). */
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
@@ -124,6 +174,8 @@ interface KeyLawInput {
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	/** The stored relations, whose generated fields a NOT NULL violation names. */
 	readonly relations: ReadonlyArray<TableRelation>
+	/** The laws of the levels above the Db's own. */
+	readonly above: LawsAbove
 }
 
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
@@ -176,16 +228,33 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 			)
 		])
 	)
+	const above = input.above
+	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
+	const aboveLaw = (id: LawId): NativeLaws | undefined => {
+		const law = above.laws.get(id)
+		return law === undefined ? undefined : { laws: [{ law: id, described: law }], uses: noUses }
+	}
 	return {
-		schema: input.names.schema,
-		lawsOf: (constraint, owner) =>
-			owner.kind === "table"
-				? tables.get(owner.name)?.get(constraint)
-				: domains.get(owner.name)?.get(constraint),
+		schemas: new Set([...Arr.map(input.names.levels, identifierOf), ...above.schemas]),
+		lawsOf: (constraint, owner) => {
+			const own =
+				owner.kind === "table"
+					? tables.get(owner.name)?.get(constraint)
+					: domains.get(owner.name)?.get(constraint)
+			if (own !== undefined) {
+				return own
+			}
+			const id = constraintLaw(above.constraints, owner, constraint)
+			return id === undefined ? undefined : aboveLaw(id)
+		},
 		tableOf: (relation) => input.names.relation(relation).name,
-		raised: new Map(
-			Arr.map(input.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
-		),
+		raised: new Map([
+			...Arr.map([...above.laws], ([id, described]): readonly [ConstraintName, DescribedLaw] => [
+				id,
+				{ law: id, described }
+			]),
+			...Arr.map(input.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
+		]),
 		rosterDomainOf: (domain) => rosters.get(domain),
 		generatedOf: (table, column) => generated.get(table)?.get(column)
 	}

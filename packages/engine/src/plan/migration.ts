@@ -54,9 +54,14 @@ export {
 	rosterFates,
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
-export { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+export {
+	type DeploySnapshot,
+	type SnapshotLevel,
+	snapshotFileName
+} from "#compiler/deploy/snapshot/types.ts"
 export { workloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
+export { installationsOf } from "#compiler/schema/own.ts"
 export { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 export {

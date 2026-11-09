@@ -57,6 +57,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
@@ -337,7 +338,7 @@ const compiled = (mutability: Mutability, writers: ReadonlyArray<Writer>) => {
 		owned,
 		completeInstallOptions(
 			owned,
-			owned.installation,
+			installationsOf(owned),
 			Arr.map(logins, (l) => {
 				const own = ownLogin(defined(loginDescOf(l), "a login built by login(...)"))
 				return own.ok ? own.value : assert.fail(own.error.message)

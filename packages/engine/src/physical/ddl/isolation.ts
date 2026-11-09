@@ -184,7 +184,7 @@ export const addIsolationTrigger = (
 			kind: "isolationTrigger",
 			ident: {
 				kind: "trigger",
-				schema: b.settings.installation,
+				schema: b.names.levelOf(relation),
 				relation: b.names.relationNamed(relation),
 				name: identity.isolationTrigger()
 			},

@@ -67,7 +67,7 @@ export const AccountNames = derived.materialized(
 		return r.match(Account, { id, name }).find({ id, name })
 	})
 )
-export const Reports = schema.extend(Work, { TaskTally, AccountNames }, [])
+export const Reports = schema.extend(Work, "Reports", { TaskTally, AccountNames }, [])
 
 export const Org = context("Org", { id: uuid }, { claim: "o" })
 export const Session = context("Session", { sub: str.regex("^[a-z]{1,32}$") })

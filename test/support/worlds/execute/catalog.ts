@@ -460,7 +460,7 @@ const policyOf = (
 ): Effect.Effect<Option.Option<CreatePolicy>> =>
 	Effect.gen(function* () {
 		const owned = yield* catalog.owned(role)
-		const theory = worldNames(owned, catalog.installation.names.installation).role
+		const theory = worldNames(owned, catalog.installation.names).role
 		const target = Option.map(Option.fromNullishOr(owned.writes.get(entry)), (e) =>
 			e.kind === "whole" ? e.relation.name : e.writable.target
 		)
@@ -485,9 +485,7 @@ const viewOf = (
 ): Effect.Effect<Option.Option<CreateView>> =>
 	Effect.gen(function* () {
 		const owned = yield* catalog.owned(role)
-		const view = yield* Effect.sync(() =>
-			worldNames(owned, catalog.installation.names.installation).view(entry)
-		)
+		const view = yield* Effect.sync(() => worldNames(owned, catalog.installation.names).view(entry))
 		return Arr.findFirst(
 			catalog.installation.statements,
 			(s): s is CreateView =>

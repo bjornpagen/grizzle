@@ -1,6 +1,6 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -141,7 +141,7 @@ export const planStatistics = (
 		const name = b.name(named)
 		const ddl: CreateStatistics = {
 			kind: "createStatistics",
-			name: { schema: b.schema, name },
+			name: { schema: identifierOf(b.names.levelOf(r.relation)), name },
 			statistics: r.kinds,
 			columns: [
 				b.names.column(r.relation, first),
@@ -154,7 +154,7 @@ export const planStatistics = (
 		b.add(
 			{
 				kind: "statistics",
-				ident: b.qualified("statistics", named),
+				ident: b.qualifiedOf("statistics", r.relation, named),
 				ddl: [ddl],
 				reasons,
 				phase: "indexes"

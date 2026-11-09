@@ -410,7 +410,7 @@ const install = () =>
 		const installation: Installation = ok(
 			compileInstallation(owned, {
 				...installOptions(owned, s.owner.role),
-				installation: identity.schema(parsedSchemaName(name)),
+				levels: [identity.schema(parsedSchemaName(name))],
 				logins: [oracleOwnedLogin(owned.desc)]
 			}),
 			"install"

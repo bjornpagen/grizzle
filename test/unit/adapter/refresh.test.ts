@@ -197,7 +197,7 @@ const built = (c: TargetsCase) => {
 				declared.push({ name: `D${n}`, n, level: index + 1, position, value })
 			}
 		}
-		base = schema.extend(base, record, [])
+		base = schema.extend(base, `Level${index + 1}`, record, [])
 	}
 	const refreshed = Arr.filter(declared, (_, i) => c.refresh[i] === true)
 	const refresher = admitRole(
@@ -594,13 +594,13 @@ const Totals = query(Edu).rule((r) => {
 })
 const B = derived.materialized("B", Weekly)
 const A = derived.materialized("A", Totals)
-const Level1 = schema.extend(Edu, { B, A }, [])
+const Level1 = schema.extend(Edu, "Level1", { B, A }, [])
 const Busy = query(Level1).rule((r) => {
 	const { student, week } = v(B, "b")
 	return r.match(B, { student, week }).find({ week, students: r.count() })
 })
 const C = derived.materialized("C", Busy)
-const Reports = schema.extend(Level1, { C }, [])
+const Reports = schema.extend(Level1, "Reports", { C }, [])
 const Refresher = role(Reports, "refresher", Reports.relations, { refresh: ["A", "B", "C"] })
 const reports = succeeded(testArtifacts(Reports, testCompile))
 const reportsNames = installationNamesOf(installationOf(Reports, atDeclaredName))

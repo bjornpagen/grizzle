@@ -50,10 +50,16 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
-import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import { domainKey, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
-import { loginIdentity, missing, roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
+import {
+	levelIn,
+	loginIdentity,
+	missing,
+	roleIdentity,
+	roleView
+} from "#compiler/physical/ddl/names.ts"
 import {
 	derivedReading,
 	type LoweredDefinition,
@@ -212,7 +218,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
-		use.domains.set(name.name, {
+		use.domains.set(domainKey(name), {
 			name,
 			identity: b.names.contractNamed(contract.name),
 			node: b.typeNamed(name)
@@ -222,7 +228,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	}
 	if (t.carrier === "code") {
 		const name = b.names.rosterDomain(t.roster.closed)
-		use.domains.set(name.name, {
+		use.domains.set(domainKey(name), {
 			name,
 			identity: identity.rosterDomain(t.roster.closed),
 			node: b.typeNamed(name)
@@ -234,7 +240,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 			b.names.codes.rosters.get(t.roster.closed),
 			"the codebook holds every roster"
 		)
-		use.domains.set(name.name, {
+		use.domains.set(domainKey(name), {
 			name,
 			identity: identity.bitsDomain(t.roster.closed, codec.width),
 			node: b.typeNamed(name)
@@ -252,7 +258,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		const name = b.names.textDomain(regex)
 		const named = b.names.textNamed(regex)
 		if (name !== undefined && named !== undefined) {
-			use.domains.set(name.name, { name, identity: named, node: b.typeNamed(name) })
+			use.domains.set(domainKey(name), { name, identity: named, node: b.typeNamed(name) })
 		}
 	}
 }
@@ -375,11 +381,11 @@ export interface CheckedLogin {
  * checked schema over the base. */
 export const checkedRole = (
 	base: CheckedSchema,
-	installation: Identity<"schema">,
+	levels: NonEmptyReadonlyArray<Identity<"schema">>,
 	role: OwnedRole
 ): Result.Result<CheckedRole, CompileError> =>
 	Result.flatMap(
-		catchCompileError(() => roleIdentity(installation, role.name, role.loc)),
+		catchCompileError(() => roleIdentity(levelIn(levels, role.base), role.name, role.loc)),
 		(theory) => Result.map(checkedRoleOver(role, base), (checked) => ({ theory, checked }))
 	)
 
@@ -1175,7 +1181,7 @@ const roleExecutes = (
 	b.evaluated({
 		statements: [...written.flatMap((relation) => b.evaluatedOn(relation)), ...views],
 		predicates: policies.flatMap((m) => (m.kind === "narrowed" ? [m.filter] : [])),
-		domains: [...use.domains.keys()],
+		domains: [...use.domains.values()].map((u) => u.name),
 		constants: Object.values(b.owned.relations).flatMap((r) =>
 			r.kind === "closedRelation" ? b.names.closed(r.name).functions.map((f) => f.name) : []
 		)
@@ -1230,7 +1236,14 @@ const addRole = (
 
 	const use = emptyUse()
 	const grants: Array<SqlStatement> = []
-	const after: Array<Node<DeployPhase>> = [roleObject, b.schemaNode, schemaObject]
+	/** The schemas of the role's base's levels, the root's first: its tables, rosters' domains and the installation's
+	 * own objects, whichever its statements name, live in them. */
+	const levels = b.names.levels.slice(0, role.base.levels.length)
+	const after: Array<Node<DeployPhase>> = [
+		roleObject,
+		...b.levelNodes.slice(0, role.base.levels.length),
+		schemaObject
+	]
 	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: theory }]
 	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
 		kind: "grant",
@@ -1358,7 +1371,10 @@ const addRole = (
 	}
 
 	const privileges: Array<SqlStatement> = [
-		grant(["USAGE"], { kind: "SCHEMA", names: [b.schema, schema] })
+		grant(["USAGE"], {
+			kind: "SCHEMA",
+			names: appendNonEmpty<string>(levels.map(identifierOf), schema)
+		})
 	]
 	if (use.vector) {
 		privileges.push(grant(["USAGE"], { kind: "SCHEMA", names: [b.settings.vectorSchema] }))
@@ -1421,7 +1437,7 @@ const addLogin = (
 	readonly writers: RoleOutcome["writers"]
 	readonly views: ReadonlyArray<ObjectName>
 } => {
-	const named = loginIdentity(b.settings.installation, login.name, login.loc)
+	const named = loginIdentity(levelIn(b.names.levels, login.base), login.name, login.loc)
 	const role = b.name(named)
 	const why = [enforcement(`login ${login.name}`)]
 	const roleObject = b.add(
@@ -1494,7 +1510,7 @@ const addPolicy = (b: InstallBuilder, w: Writer): Node<"publish"> => {
 			kind: "policy",
 			ident: {
 				kind: "policy",
-				schema: b.settings.installation,
+				schema: b.names.levelOf(w.relation),
 				relation: b.names.relationNamed(w.relation),
 				name: named
 			},
@@ -1522,7 +1538,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
 		b.add(
 			{
 				kind: "rowSecurity",
-				ident: b.qualified("rowSecurity", b.names.relationNamed(relation)),
+				ident: b.qualifiedOf("rowSecurity", relation, b.names.relationNamed(relation)),
 				ddl: [
 					{
 						kind: "alterTable",
@@ -1686,8 +1702,8 @@ export interface Revocable {
 	readonly domains: ReadonlyArray<ObjectName>
 }
 
-/** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: the base schema
- * and every role's schema, every table and role view, every identity sequence and domain. */
+/** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: every level's
+ * schema and every role's schema, every table and role view, every identity sequence and domain. */
 const publicRevokes = (
 	b: InstallBuilder,
 	objects: Revocable & {
@@ -1700,7 +1716,10 @@ const publicRevokes = (
 		{
 			kind: "revoke",
 			privileges: ["ALL"],
-			on: { kind: "SCHEMA", names: [b.schema, ...objects.schemas] },
+			on: {
+				kind: "SCHEMA",
+				names: extendNonEmpty(mapNonEmpty(b.names.levels, identifierOf), objects.schemas)
+			},
 			from
 		}
 	]
@@ -1728,15 +1747,17 @@ const publicRevokes = (
 	/** A migration's resets are the current role's, the migration identity's; a fresh-install script a superuser runs
 	 * names the owner (InstallSettings.owner). */
 	const forRole = b.settings.owner
-	for (const on of ["TABLES", "SEQUENCES"] as const) {
-		out.push({
-			kind: "alterDefaultPrivileges",
-			forRole,
-			inSchema: b.schema,
-			privileges: ["ALL"],
-			on,
-			from
-		})
+	for (const level of b.names.levels) {
+		for (const on of ["TABLES", "SEQUENCES"] as const) {
+			out.push({
+				kind: "alterDefaultPrivileges",
+				forRole,
+				inSchema: identifierOf(level),
+				privileges: ["ALL"],
+				on,
+				from
+			})
+		}
 	}
 	for (const on of ["FUNCTIONS", "TYPES"] as const) {
 		out.push({

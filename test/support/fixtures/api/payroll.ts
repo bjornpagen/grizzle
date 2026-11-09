@@ -406,7 +406,7 @@ const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
 
 export const runTotals = runTotalsOver(Payroll)
 const RunTotal = derived.materialized("RunTotal", runTotals)
-export const Reporting = schema.extend(Payroll, { RunTotal }, [])
+export const Reporting = schema.extend(Payroll, "Reporting", { RunTotal }, [])
 
 /**
  * Reporting and its worlds over the Payroll they are given (the declared one, or the one an installation rebuilds under
@@ -416,6 +416,7 @@ export const Reporting = schema.extend(Payroll, { RunTotal }, [])
 export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	const reporting = schema.extend(
 		installed,
+		`${installed.name}_1`,
 		{ RunTotal: derived.materialized("RunTotal", runTotalsOver(installed)) },
 		[]
 	)

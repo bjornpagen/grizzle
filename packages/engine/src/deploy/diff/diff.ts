@@ -183,7 +183,6 @@ type Dropped =
 	| Exclude<
 			PhysicalKind,
 			| "databaseDefault"
-			| "schema"
 			| "extension"
 			| "validation"
 			| "privileges"
@@ -201,7 +200,7 @@ type Dropped =
  * columns and columns, the tables over the domains they use, the domains over the constants their CHECKs read, and the
  * constants last, which RESTRICT refuses to drop while anything still reads one. Within a kind, each step keeps its own
  * order: publish.removed the reverse install order, so a materialized view goes before the lower one it reads, a table
- * before one it references and a constant before the one its body reads. */
+ * before one it references and a constant before the one its body reads; and a level's schema after everything in it. */
 const dropOrder: { readonly [K in Dropped]: number } = {
 	policy: 0,
 	view: 1,
@@ -227,7 +226,8 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	column: 13,
 	table: 14,
 	domain: 15,
-	constant: 16
+	constant: 16,
+	schema: 17
 }
 
 /** SET CONSTRAINTS ALL IMMEDIATE, before a backfill's UPDATEs: an UPDATE of rows the migration's own transaction wrote
@@ -413,6 +413,8 @@ const roleSettings = (list: ReadonlyArray<SqlStatement>) => {
 class Differ {
 	readonly input: DiffInput
 	readonly schema: string
+	/** The PostgreSQL schemas of the installation's levels, the previous's and the target's, the root's among them. */
+	readonly levelSchemas: ReadonlySet<string>
 	readonly steps: Array<Step> = []
 	readonly prev: ReadonlyMap<string, ManifestObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
@@ -481,7 +483,12 @@ class Differ {
 			input.target.manifest,
 			rosterConstantsOf(input.target.schema, keptRosters(input.installation.names.codes))
 		)
-		this.reads = installedReads(input.previous, this.schema)
+		this.levelSchemas = new Set([
+			input.target.schema,
+			...input.target.levels.map((l) => l.schema),
+			...input.previous.levels.map((l) => l.schema)
+		])
+		this.reads = installedReads(input.previous, this.levelSchemas)
 		this.keptTables = this.keptTablesOf()
 		this.sequences = sequenceFatesOf(this.keptTables.values())
 		const replacedBy = this.takenByReplacement()
@@ -1268,7 +1275,11 @@ class Differ {
 		}
 		const [create, ...rest] = o.ddl
 		const abandoned = this.input.abandoned
-		if (create === undefined || !isNonEmpty(abandoned)) {
+		if (
+			create === undefined ||
+			!isNonEmpty(abandoned) ||
+			o.ident !== namedIdent("schema", this.schema)
+		) {
 			this.sql("setup", o.ddl)
 			return
 		}
@@ -1408,7 +1419,9 @@ class Differ {
 			}
 			const before = this.prev.get(o.ident)
 			const changed = before === undefined || !same(before.ddl, o.ddl)
-			const recast = [...qualifiedNames(o.ddl, this.schema)].some((k) => this.reconstrained.has(k))
+			const recast = [...qualifiedNames(o.ddl, this.levelSchemas)].some((k) =>
+				this.reconstrained.has(k)
+			)
 			if (changed || recast) {
 				this.sql("publish", o.ddl)
 			}
@@ -1996,12 +2009,19 @@ class Differ {
 		}
 		switch (v.kind) {
 			case "schema":
+				if (o.ident === namedIdent("schema", this.schema)) {
+					throw new Refusal(
+						unsupported(SourceLoc(`object ${o.ident}`, []), "removing the installed schema")
+					)
+				}
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "SCHEMA", name: schemaOf(o), ifExists: false })
+				)
+				return
 			case "ledger":
 				throw new Refusal(
-					unsupported(
-						SourceLoc(`object ${o.ident}`, []),
-						"removing the installed schema or its ledger"
-					)
+					unsupported(SourceLoc(`object ${o.ident}`, []), "removing the installed schema's ledger")
 				)
 			case "extension":
 			case "privileges":
@@ -2801,6 +2821,15 @@ const dropObject = (
 	return { kind: "drop", object, name, ifExists: false }
 }
 
+/** The PostgreSQL schema a schema object creates, its manifest identity's name. */
+const schemaOf = (o: ManifestObject): string => {
+	const ident = parseIdent(o.ident)
+	if (ident.kind !== "schema") {
+		throw defect(`the schema object ${o.ident} is named as a schema`)
+	}
+	return ident.name
+}
+
 /** A constant's signature: its name and its parameters' types, none for a packed constant, which takes none. */
 const constantName = (c: CreateConstant | PackConstant): FunctionName =>
 	c.kind === "createConstant"
@@ -2811,8 +2840,9 @@ const constantName = (c: CreateConstant | PackConstant): FunctionName =>
 const relationKey = (v: Installed & { readonly kind: "table" | "materializedView" }): string =>
 	nameKey(v.kind === "table" ? v.create.table : v.create.name)
 
-/** The keys of every name qualified by `schema` that a value holds: relations, types, sequences and functions. */
-const qualifiedNames = (value: unknown, schema: string): ReadonlySet<string> => {
+/** The keys of every name qualified by one of the installation's level schemas `schemas` that a value holds:
+ * relations, types, sequences and functions. */
+const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlySet<string> => {
 	const out = new Set<string>()
 	const walk = (v: unknown): void => {
 		if (isList(v)) {
@@ -2825,7 +2855,8 @@ const qualifiedNames = (value: unknown, schema: string): ReadonlySet<string> => 
 			return
 		}
 		const r: { readonly [key: string]: unknown } = v
-		if (r["schema"] === schema && typeof r["name"] === "string") {
+		const schema = r["schema"]
+		if (typeof schema === "string" && schemas.has(schema) && typeof r["name"] === "string") {
 			out.add(`${schema}.${r["name"]}`)
 		}
 		for (const child of Object.values(r)) {
@@ -2842,7 +2873,7 @@ const qualifiedNames = (value: unknown, schema: string): ReadonlySet<string> => 
  * relation keys are ever looked up. */
 const installedReads = (
 	previous: DeploySnapshot,
-	schema: string
+	schemas: ReadonlySet<string>
 ): ReadonlyMap<string, ReadonlySet<string>> => {
 	const out = new Map<string, Set<string>>()
 	const add = (view: string, relation: string): void => {
@@ -2872,7 +2903,7 @@ const installedReads = (
 		if (!out.has(view)) {
 			out.set(view, new Set())
 		}
-		for (const name of qualifiedNames(v.create.query, schema)) {
+		for (const name of qualifiedNames(v.create.query, schemas)) {
 			add(view, name)
 		}
 	}

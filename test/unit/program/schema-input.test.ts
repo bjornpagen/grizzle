@@ -256,7 +256,12 @@ describe("the artifacts of a schema", () => {
 								c.note("names of its own")
 							}
 							const owned = ownedOf(s)
-							const options = { ...naming, codes: firstCodebook(rostersOf(owned)) }
+							const options = {
+								levels:
+									naming.installation === undefined ? undefined : ([naming.installation] as const),
+								vectorSchema: naming.vectorSchema,
+								codes: firstCodebook(rostersOf(owned))
+							}
 							const artifactsOf = (arm: Arm) =>
 								succeeded(
 									Result.flatMap(parseSchemaInput(inputOf(s, arm)), (input) =>
@@ -287,10 +292,7 @@ describe("the artifacts of a schema", () => {
 								`${s.label} through ${first}: artifacts of another Owned`
 							)
 							const declared = installOptions(owned, undefined)
-							assert.equal(
-								a.names.schema,
-								(naming.installation ?? declared.installation).identifier
-							)
+							assert.equal(a.names.schema, (naming.installation ?? declared.levels[0]).identifier)
 							assert.equal<string>(
 								a.names.vectorSchema,
 								naming.vectorSchema ?? declared.vectorSchema

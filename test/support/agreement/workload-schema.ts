@@ -38,7 +38,7 @@ export const Tally = derived.materialized(
 		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 	})
 )
-export const Reports = schema.extend(Work, { Tally }, [])
+export const Reports = schema.extend(Work, "Reports", { Tally }, [])
 export const Thing = relation("Thing", { id: uuid }, ["id"])
 export const Other = schema("Other", { Thing }, [])
 const Twin = schema("Work", { Account }, [])
