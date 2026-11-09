@@ -68,7 +68,7 @@ export const AccountNames = derived.materialized(
 	})
 )
 /** An account's tasks, live: PostgreSQL stores none of its rows, so no role holds it and a role reads it through Task. */
-export const AccountTasks = derived(
+const AccountTasks = derived(
 	"AccountTasks",
 	query(Work).rule((r) => {
 		const { id, account } = v(Task, "task")
