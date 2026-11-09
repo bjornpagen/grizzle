@@ -244,6 +244,16 @@ const eq = (left: ExprDesc, right: ExprDesc): ExprDesc => ({
 	right
 })
 
+/** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
+const isBare = (e: ExprDesc): boolean => e.kind === "literal" && e.type === undefined
+
+/**
+ * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
+ * may be a JavaScript literal, so every equality a rule's queries hold a binding by is built here.
+ */
+const equal = (left: ExprDesc, right: ExprDesc): ExprDesc =>
+	isBare(left) ? eq(right, left) : eq(left, right)
+
 const varRef = (id: string): ExprDesc => ({ kind: "var", var: id })
 
 /** An arm still being flattened: no match yet is the arm of a rule that matched only derived relations so far. */
@@ -375,10 +385,10 @@ class Flattener {
 				)
 			}
 			const h = mapLeaves(head, leaves)
-			if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var)) {
+			if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var) && !isBare(e)) {
 				replaced.set(h.var, e)
 			} else {
-				extra.push(eq(e, h))
+				extra.push(equal(e, h))
 			}
 		}
 		return {
@@ -768,7 +778,7 @@ const pinnedTo = (
 ): ReadonlyArray<ExprDesc> =>
 	Object.entries(n.bindings).map(([field, e]) => {
 		params.set(paramName(record, field), { record, field })
-		return eq(e, paramOf(record, fieldOf(field)))
+		return equal(e, paramOf(record, fieldOf(field)))
 	})
 
 /** The field of the touched relation named `name`, refused where it has none. */
@@ -810,7 +820,7 @@ export const newProbes = (
 				if (bound === undefined) {
 					bindings[f.name] = paramOf("NEW", f)
 				} else {
-					pinned.push(eq(bound, paramOf("NEW", f)))
+					pinned.push(equal(bound, paramOf("NEW", f)))
 				}
 			}
 			const restricted: SideArm = {
@@ -948,7 +958,7 @@ const lostProbe = (
 		if (e.kind === "var" && !byKept.has(e.var) && !replaced.has(e.var)) {
 			replaced.set(e.var, old)
 		} else {
-			pinned.push(eq(e, old))
+			pinned.push(equal(e, old))
 		}
 	}
 	const free = new Set([...boundVars(relaxed)].filter((id) => !byKept.has(id) && !replaced.has(id)))
