@@ -6,9 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { identifierOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { fresh, openPayroll, type Payroll } from "#test/pg/e2e-laws/payroll.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	acme,
 	ada,
@@ -84,8 +85,9 @@ const valueOf = (variables: Readonly<Record<string, string>>, token: string): st
 }
 
 /**
- * The statement as psql would run it after interpolating `:'name'` and `:name`, over the installed schema: a row names
- * the declared schema `payroll` bare or, where the naming door qualified a name, quoted.
+ * The statement as psql would run it after interpolating `:'name'` and `:name`, over the installed schemas: a row names
+ * the declared root schema `payroll` bare or, where the naming door qualified a name, quoted, and the Reporting level's
+ * `reporting`, where RunTotal's view stands.
  */
 const spell = (p: Payroll, sql: string): string => {
 	const variables = variablesOf(p)
@@ -95,10 +97,18 @@ const spell = (p: Payroll, sql: string): string => {
 		),
 		""
 	)
+	const [root, reporting] = Arr.map(p.f.installed.installation.names.levels, (l) =>
+		quoteIdent(identifierOf(l))
+	)
 	return Str.replaceAll(
-		"payroll.",
-		`${p.f.q}.`
-	)(Str.replaceAll(`${quoteIdent("payroll")}.`, `${p.f.q}.`)(interpolated))
+		"reporting.",
+		`${defined(reporting, "the Reporting level's schema")}.`
+	)(
+		Str.replaceAll(
+			"payroll.",
+			`${root}.`
+		)(Str.replaceAll(`${quoteIdent("payroll")}.`, `${root}.`)(interpolated))
+	)
 }
 
 interface Failed {

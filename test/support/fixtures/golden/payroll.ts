@@ -328,7 +328,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		precondition: { kind: "none" },
 		role: "clerk",
 		name: "a clerk inserts into a derived relation",
-		sql: ["INSERT INTO payroll.run_total (run, lines, gross, net) VALUES (:'run1', 1, 0, 0)"],
+		sql: ["INSERT INTO reporting.run_total (run, lines, gross, net) VALUES (:'run1', 1, 0, 0)"],
 		outcome: { kind: "refused", sqlstate: "42501", at: "statement" }
 	},
 	{
