@@ -101,12 +101,14 @@ export type Part = string | ReadonlyArray<Part> | Identity<IdentityKind>
 /** How a kind spells its identifier: readable, or hashed (`__<stem>_<digest>`). */
 export type Form = "readable" | "hashed"
 
-/** An identity, minted by its kind's constructor below: the parts that define it, its canonical encoding, stem, display,
- * the form its kind renders in, and its identifier. */
+/** An identity, minted by its kind's constructor below: the parts that define it, its canonical encoding, its stem's
+ * segments and the stem they join to, display, the form its kind renders in, and its identifier. */
 export interface Identity<K extends IdentityKind> {
 	readonly kind: K
 	readonly parts: ReadonlyArray<Part>
 	readonly canonical: string
+	/** The stem's segments, as cut to the stem's budget: what an identity named for this one extends its stem by. */
+	readonly segments: ReadonlyArray<string>
 	readonly stem: string
 	readonly display: string
 	readonly form: Form
@@ -192,9 +194,12 @@ const nameSegments = (name: string): ReadonlyArray<string> => {
 	return segments.map((s) => s.toLowerCase())
 }
 
+/** The conversion of segments a name or a stem split into: joined by single underscores. */
+const joined = (segments: ReadonlyArray<string>): string => segments.join("_")
+
 /** The conversion of a name: its segments, lowercased, joined by single underscores. A declared name's is its readable
  * identifier. */
-export const conversionOf = (name: string): string => nameSegments(name).join("_")
+export const conversionOf = (name: string): string => joined(nameSegments(name))
 
 declare const declaredNameBrand: unique symbol
 declare const schemaNameBrand: unique symbol
@@ -237,18 +242,28 @@ export const parseNameCharacters = (name: string): Result.Result<string, string>
 	return Result.ok(name)
 }
 
+/** A declared name parsed, with its conversion, read once as the name is parsed. */
+interface ParsedName {
+	readonly name: DeclaredName
+	readonly conversion: string
+}
+
+/** A name parsed by the declared-name rule (`parseDeclaredName`), with its conversion, or the reason it breaks the rule. */
+const parsedName = (name: string): Result.Result<ParsedName, string> =>
+	Result.flatMap(parseNameCharacters(name), (named): Result.Result<ParsedName, string> => {
+		const conversion = conversionOf(named)
+		return utf8Length(conversion) > maxIdentifierBytes.value
+			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes.value} bytes`)
+			: Result.ok({ name: declaredNameOf(named), conversion })
+	})
+
 /**
  * The rule a declared name keeps: its characters' (parseNameCharacters), and a conversion (its segments, lowercased,
  * joined by single underscores) within maxIdentifierBytes. Two declared names of one namespace whose conversions agree are one
  * name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or the reason it breaks the rule.
  */
 export const parseDeclaredName = (name: string): Result.Result<DeclaredName, string> =>
-	Result.flatMap(parseNameCharacters(name), (named): Result.Result<DeclaredName, string> => {
-		const conversion = conversionOf(named)
-		return utf8Length(conversion) > maxIdentifierBytes.value
-			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes.value} bytes`)
-			: Result.ok(declaredNameOf(named))
-	})
+	Result.map(parsedName(name), (parsed) => parsed.name)
 
 /**
  * The rule a schema's declared name keeps: `parseDeclaredName`'s, and a conversion not starting with `pg_`, which
@@ -257,14 +272,15 @@ export const parseDeclaredName = (name: string): Result.Result<DeclaredName, str
  * rule.
  */
 export const parseSchemaName = (name: string): Result.Result<SchemaName, string> =>
-	Result.flatMap(parseDeclaredName(name), (declared): Result.Result<SchemaName, string> => {
-		const conversion = conversionOf(declared)
-		return conversion.startsWith("pg_")
-			? Result.err(
-					`a name whose conversion ${conversion} does not start with pg_, which PostgreSQL reserves`
-				)
-			: Result.ok(schemaName(declared))
-	})
+	Result.flatMap(
+		parsedName(name),
+		({ name: declared, conversion }): Result.Result<SchemaName, string> =>
+			conversion.startsWith("pg_")
+				? Result.err(
+						`a name whose conversion ${conversion} does not start with pg_, which PostgreSQL reserves`
+					)
+				: Result.ok(schemaName(declared))
+	)
 
 /** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
  * (TaskNote, Task_Note and task_note). */
@@ -292,16 +308,16 @@ export class DeclaredNamespace {
 	 * whose conversion an earlier declaration took, the same name declared twice included.
 	 */
 	declare(name: string, kind: string, loc: SourceLoc): Result.Result<DeclaredName, CompileError> {
-		const declared = parseDeclaredName(name)
-		if (!declared.ok) {
+		const parsed = parsedName(name)
+		if (!parsed.ok) {
 			return Result.err(
 				malformedDescription(
 					loc,
-					`the declared ${kind} name ${JSON.stringify(name)} as ${declared.error}`
+					`the declared ${kind} name ${JSON.stringify(name)} as ${parsed.error}`
 				)
 			)
 		}
-		const conversion = conversionOf(declared.value)
+		const { conversion } = parsed.value
 		const declaration = `${kind} ${name}`
 		const prior = this.#taken.get(conversion)
 		if (prior !== undefined) {
@@ -318,24 +334,31 @@ export class DeclaredNamespace {
 			)
 		}
 		this.#taken.set(conversion, { declaration, loc })
-		return declared
+		return Result.ok(parsed.value.name)
 	}
 }
 
-/** The stem of an identity: its texts' segments joined by single underscores, cut at the last segment boundary within
- * the budget (at the budget itself when one segment is longer), led by the kind's word unless a letter leads. */
-const stemOf = (kind: IdentityKind, texts: ReadonlyArray<string>): string => {
-	const segments = texts.flatMap(nameSegments)
+/**
+ * The segments of an identity's stem: the segments of its names and words, led by the kind's words unless a letter
+ * leads, up to the last whose join by single underscores fits the budget (the first cut to the budget itself when it is
+ * longer). A segment is ASCII letters or digits (nameSegments), one byte a character.
+ */
+const stemSegments = (
+	kind: IdentityKind,
+	segments: ReadonlyArray<string>
+): ReadonlyArray<string> => {
 	const led = isLower(segments[0]?.charAt(0) ?? "")
 		? segments
 		: [...nameSegments(kind), ...segments]
-	let stem = ""
+	const stem: Array<string> = []
+	let bytes = 0
 	for (const segment of led) {
-		const next = stem === "" ? segment : `${stem}_${segment}`
-		if (utf8Length(next) > stemBudget.value) {
-			return stem === "" ? segment.slice(0, stemBudget.value) : stem
+		const next = stem.length === 0 ? segment.length : bytes + 1 + segment.length
+		if (next > stemBudget.value) {
+			return stem.length === 0 ? [segment.slice(0, stemBudget.value)] : stem
 		}
-		stem = next
+		stem.push(segment)
+		bytes = next
 	}
 	return stem
 }
@@ -343,8 +366,11 @@ const stemOf = (kind: IdentityKind, texts: ReadonlyArray<string>): string => {
 const brand = <K extends IdentityKind>(text: string): Identifier<K> =>
 	nominal<string, Identifier<K>>()(text)
 
-/** The one minter of an identifier: an identity of `kind` over `parts`, stemmed from `stem`, shown as `display`, and
- * spelled as its kind renders. */
+/**
+ * The one minter of an identifier: an identity of `kind` over `parts`, stemmed from `stem`, the segments of the names and
+ * words that stem it, each name split once by its constructor (a nested identity's are its own `segments`), shown as
+ * `display`, and spelled as its kind renders.
+ */
 const mint = <K extends IdentityKind>(
 	kind: K,
 	parts: ReadonlyArray<Part>,
@@ -353,11 +379,13 @@ const mint = <K extends IdentityKind>(
 	rendering: Rendering
 ): Identity<K> => {
 	const canonical = `${kind}(${parts.map(encodePart).join("")})`
-	const stemText = stemOf(kind, stem)
+	const segments = stemSegments(kind, stem)
+	const stemText = joined(segments)
 	return Object.freeze({
 		kind,
 		parts,
 		canonical,
+		segments,
 		stem: stemText,
 		display,
 		form: rendering.form,
@@ -597,8 +625,9 @@ export interface LawStatement {
 	readonly display: string
 }
 
-/** A key column's stem: a field's name, or a law column's own stem. */
-const columnStem = (c: KeyColumnName): string => (typeof c === "string" ? c : c.stem)
+/** A key column's stem segments: a field's name's, or a law column's own. */
+const columnSegments = (c: KeyColumnName): ReadonlyArray<string> =>
+	typeof c === "string" ? nameSegments(c) : c.segments
 
 /** A key column's display: a field's name, or a law column's own display. */
 const columnDisplay = (c: KeyColumnName): string => (typeof c === "string" ? c : c.display)
@@ -668,20 +697,32 @@ const decodedSuffix = "_name"
 export const decodedColumnFits = (field: DeclaredName): boolean =>
 	utf8Length(`${conversionOf(field)}${decodedSuffix}`) <= maxIdentifierBytes.value
 
+/**
+ * An identity of a kind readable as one declared name's conversion, stemmed from that name: the name split once, its
+ * segments the stem and joined the identifier.
+ */
+const readableAs = <K extends IdentityKind>(
+	kind: K,
+	name: DeclaredName,
+	display: string
+): Identity<K> => {
+	const segments = nameSegments(name)
+	return mint(kind, [name], segments, display, readable(joined(segments)))
+}
+
 /** One constructor per kind: nothing else mints an identity. */
 export const identity = Object.freeze({
 	/** A schema, by its declared name, or the unique name a test installs a schema under, either parsed. */
-	schema: (name: SchemaName): Identity<"schema"> =>
-		mint("schema", [name], [name], `schema ${name}`, readable(conversionOf(name))),
+	schema: (name: SchemaName): Identity<"schema"> => readableAs("schema", name, `schema ${name}`),
 	/** A stored relation's table. */
 	table: (relation: DeclaredName): Identity<"table"> =>
-		mint("table", [relation], [relation], `relation ${relation}`, readable(conversionOf(relation))),
+		readableAs("table", relation, `relation ${relation}`),
 	/**
 	 * A roster's domain over smallint, its codes' range proof: its one CHECK admits exactly the roster's live codes, so
 	 * every closed id it types is one, and every digit a closed relation's constant is indexed by is in range.
 	 */
 	rosterDomain: (roster: DeclaredName): Identity<"rosterDomain"> =>
-		mint("rosterDomain", [roster], [roster], `roster ${roster}`, readable(conversionOf(roster))),
+		readableAs("rosterDomain", roster, `roster ${roster}`),
 	/**
 	 * A roster's names constant, named by its roster and the digest of its names in code order: a changed constant is a
 	 * new function, never one replaced in place.
@@ -693,7 +734,7 @@ export const identity = Object.freeze({
 		mint(
 			"rosterConstant",
 			[roster, digest],
-			[roster, "names"],
+			[...nameSegments(roster), "names"],
 			`names of roster ${roster} (${digest})`,
 			hashed
 		),
@@ -709,7 +750,7 @@ export const identity = Object.freeze({
 		mint(
 			"rosterLive",
 			[roster, digest],
-			[roster, "live"],
+			[...nameSegments(roster), "live"],
 			`live codes of roster ${roster} (${digest})`,
 			hashed
 		),
@@ -722,7 +763,7 @@ export const identity = Object.freeze({
 		mint(
 			"bitsDomain",
 			[roster, `${width}`],
-			[roster, "bits", `${width}`],
+			[...nameSegments(roster), "bits", ...nameSegments(`${width}`)],
 			`sets over roster ${roster} of ${width} bits`,
 			hashed
 		),
@@ -734,29 +775,25 @@ export const identity = Object.freeze({
 		mint("closedConstant", [digest], ["constant"], `closed constant ${digest}`, hashed),
 	/** A derived relation's materialized view. */
 	view: (relation: DeclaredName): Identity<"view"> =>
-		mint(
-			"view",
-			[relation],
-			[relation],
-			`derived relation ${relation}`,
-			readable(conversionOf(relation))
-		),
+		readableAs("view", relation, `derived relation ${relation}`),
 	/** A field's column, in whatever table or view holds it: its name alone, so renaming a relation renames no column. */
 	column: (field: DeclaredName): Identity<"column"> =>
-		mint("column", [field], [field], `field ${field}`, readable(conversionOf(field))),
+		readableAs("column", field, `field ${field}`),
 	/**
 	 * A role view's decoded column beside a closed-id field's, `<field>_name`, the handle its code names. It is readable
 	 * in its view's column namespace exactly when no other field of the relation converts to it, which ownership
 	 * refuses, and fits maxIdentifierBytes exactly when the field's conversion leaves room for its suffix.
 	 */
-	decodedColumn: (field: DeclaredName): Identity<"decodedColumn"> =>
-		mint(
+	decodedColumn: (field: DeclaredName): Identity<"decodedColumn"> => {
+		const segments = nameSegments(field)
+		return mint(
 			"decodedColumn",
 			[field],
-			[field, "name"],
+			[...segments, "name"],
 			`decoded name of field ${field}`,
-			readable(`${conversionOf(field)}${decodedSuffix}`)
-		),
+			readable(`${joined(segments)}${decodedSuffix}`)
+		)
+	},
 	/** A law column (`LawColumnStatement`). */
 	lawColumn: (column: LawColumnStatement): Identity<"lawColumn"> => {
 		switch (column.kind) {
@@ -764,7 +801,7 @@ export const identity = Object.freeze({
 				return mint(
 					"lawColumn",
 					["constant", column.target, column.field, column.value.part],
-					["tag", column.field, column.value.stem],
+					["tag", ...nameSegments(column.field), ...nameSegments(column.value.stem)],
 					`tag ${column.target}.${column.field} = ${column.value.display}`,
 					hashed
 				)
@@ -774,7 +811,7 @@ export const identity = Object.freeze({
 				return mint(
 					"lawColumn",
 					["term", [term.kind, term.field], selection],
-					term.kind === "pred" ? ["pred", term.field] : [term.field],
+					term.kind === "pred" ? ["pred", ...nameSegments(term.field)] : nameSegments(term.field),
 					`${spelled}${selection.length === 0 ? "" : ` where ${selection.join(" and ")}`}`,
 					hashed
 				)
@@ -786,7 +823,10 @@ export const identity = Object.freeze({
 				return mint(
 					"lawColumn",
 					[column.kind, column.family],
-					[column.kind === "parentStart" ? "parent_start" : column.kind, column.count],
+					[
+						...(column.kind === "parentStart" ? ["parent", "start"] : [column.kind]),
+						...nameSegments(column.count)
+					],
 					`${drawnWords[column.kind]} of the family ${column.owner}.${column.count}`,
 					hashed
 				)
@@ -795,7 +835,7 @@ export const identity = Object.freeze({
 				return mint(
 					"lawColumn",
 					[column.kind, column.family, column.fold, `${column.plane}`],
-					[column.kind, column.count, `${column.plane}`],
+					[column.kind, ...nameSegments(column.count), `${column.plane}`],
 					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
 					hashed
 				)
@@ -814,7 +854,7 @@ export const identity = Object.freeze({
 		mint(
 			"sequence",
 			[relation, field],
-			[relation, field, "seq"],
+			[...nameSegments(relation), ...nameSegments(field), "seq"],
 			`identity sequence of ${relation}.${field}`,
 			hashed
 		),
@@ -822,7 +862,7 @@ export const identity = Object.freeze({
 		mint(
 			"advance",
 			[relation, field],
-			["advance", relation, field],
+			["advance", ...nameSegments(relation), ...nameSegments(field)],
 			`advance function of ${relation}.${field}`,
 			hashed
 		),
@@ -831,31 +871,39 @@ export const identity = Object.freeze({
 	 * to other fields replaces it under its name, the one order PostgreSQL admits (a table holds at most one: 42P16).
 	 */
 	primaryKey: (relation: string): Identity<"primaryKey"> =>
-		mint("primaryKey", [relation], [relation, "pk"], `primary key of ${relation}`, hashed),
+		mint(
+			"primaryKey",
+			[relation],
+			[...nameSegments(relation), "pk"],
+			`primary key of ${relation}`,
+			hashed
+		),
 	/** A candidate key or a generated unique, a span key's span field among its fields. */
 	key: (relation: string, fields: ReadonlyArray<KeyColumnName>): Identity<"key"> =>
 		mint(
 			"key",
 			[relation, fields],
-			[relation, "key", ...fields.map(columnStem)],
+			[...nameSegments(relation), "key", ...fields.flatMap(columnSegments)],
 			`key ${fieldsOf(relation, fields)}`,
 			hashed
 		),
 	/** A declared row check, by its declared name, in its table's constraint namespace. */
-	check: (relation: string, name: DeclaredName): Identity<"check"> =>
-		mint(
+	check: (relation: string, name: DeclaredName): Identity<"check"> => {
+		const segments = nameSegments(name)
+		return mint(
 			"check",
 			[relation, name],
-			[relation, "check", name],
+			[...nameSegments(relation), "check", ...segments],
 			`check ${name} of ${relation}`,
-			readable(conversionOf(name))
-		),
+			readable(joined(segments))
+		)
+	},
 	/** The CHECK a law lowers to on a table: a closed law's, or a family's. */
 	generatedCheck: (relation: string, law: Identity<"law">): Identity<"generatedCheck"> =>
 		mint(
 			"generatedCheck",
 			[relation, law],
-			[relation, "check", law.stem],
+			[...nameSegments(relation), "check", ...law.segments],
 			`check of ${relation} for law ${law.display}`,
 			hashed
 		),
@@ -864,9 +912,11 @@ export const identity = Object.freeze({
 			"spanCheck",
 			[relation, field, check.kind === "endpoint" ? ["endpoint", check.contract] : check.kind],
 			[
-				relation,
-				field,
-				check.kind === "endpoint" ? check.contract : check.kind === "shape" ? "span" : "width"
+				...nameSegments(relation),
+				...nameSegments(field),
+				...(check.kind === "endpoint"
+					? nameSegments(check.contract)
+					: [check.kind === "shape" ? "span" : "width"])
 			],
 			`span ${check.kind === "endpoint" ? `endpoint ${check.contract}` : check.kind} check of ${relation}.${field}`,
 			hashed
@@ -875,7 +925,7 @@ export const identity = Object.freeze({
 		mint(
 			"normCheck",
 			[relation, field],
-			[relation, "norm", field],
+			[...nameSegments(relation), "norm", ...nameSegments(field)],
 			`cosine norm check of ${relation}.${field}`,
 			hashed
 		),
@@ -884,7 +934,7 @@ export const identity = Object.freeze({
 		mint(
 			"dateCheck",
 			[relation, field],
-			[relation, "range", field],
+			[...nameSegments(relation), "range", ...nameSegments(field)],
 			`date range check of ${relation}.${field}`,
 			hashed
 		),
@@ -895,7 +945,7 @@ export const identity = Object.freeze({
 		mint(
 			"domainCheck",
 			[domain],
-			[domain.stem, "check"],
+			[...domain.segments, "check"],
 			`check of ${domain.display}`,
 			readable("check")
 		),
@@ -903,7 +953,7 @@ export const identity = Object.freeze({
 		mint(
 			"foreignKey",
 			[from.relation, from.fields, to.relation, to.fields, period ? "period" : "scalar"],
-			[from.relation, "fk", ...from.fields.map(columnStem)],
+			[...nameSegments(from.relation), "fk", ...from.fields.flatMap(columnSegments)],
 			`${period ? "PERIOD " : ""}foreign key ${sideDisplay(from)} to ${sideDisplay(to)}`,
 			hashed
 		),
@@ -919,7 +969,7 @@ export const identity = Object.freeze({
 		mint(
 			"accessIndex",
 			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), []],
-			[relation, "ix", ...keys.map((k) => k.field)],
+			[...nameSegments(relation), "ix", ...keys.flatMap((k) => nameSegments(k.field))],
 			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})`,
 			hashed
 		),
@@ -927,7 +977,7 @@ export const identity = Object.freeze({
 		mint(
 			"statistics",
 			[relation, fields],
-			[relation, "stats", ...fields],
+			[...nameSegments(relation), "stats", ...fields.flatMap(nameSegments)],
 			`statistics ${fieldsOf(relation, fields)}`,
 			hashed
 		),
@@ -936,13 +986,13 @@ export const identity = Object.freeze({
 		mint(
 			"derivedKey",
 			[view, fields],
-			[view, "key", ...fields],
+			[...nameSegments(view), "key", ...fields.flatMap(nameSegments)],
 			`key ${fieldsOf(view, fields)}`,
 			hashed
 		),
 	/** A law of the theory, as analysis/theory/theory.ts states it. */
 	law: (law: LawStatement): Identity<"law"> =>
-		mint("law", law.parts, law.stem, law.display, hashed),
+		mint("law", law.parts, law.stem.flatMap(nameSegments), law.display, hashed),
 	/** The law of one stored field's text refinement, checked by its structural text domain's CHECK, which every field
 	 * of one pattern shares: one law per field, so the field names it. */
 	patternLaw: (
@@ -953,46 +1003,58 @@ export const identity = Object.freeze({
 		mint(
 			"patternLaw",
 			[domain, relation, field],
-			[relation, "pattern", field],
+			[...nameSegments(relation), "pattern", ...nameSegments(field)],
 			`pattern law of ${relation}.${field} under ${domain.display}`,
 			hashed
 		),
 	/** A login's PostgreSQL role, `<schema>__<login>`: roles are cluster-wide, so its installation is part of it. */
-	login: (installation: Identity<"schema">, name: DeclaredName): Identity<"login"> =>
-		mint(
+	login: (installation: Identity<"schema">, name: DeclaredName): Identity<"login"> => {
+		const segments = nameSegments(name)
+		return mint(
 			"login",
 			[installation, name],
-			[installation.stem, name],
+			[...installation.segments, ...segments],
 			`login ${name} of ${installation.display}`,
-			readable(`${installation.identifier}__${conversionOf(name)}`)
-		),
+			readable(`${installation.identifier}__${joined(segments)}`)
+		)
+	},
 	/** A role's PostgreSQL role, its theory role, `<schema>__<role>`. */
-	role: (installation: Identity<"schema">, name: DeclaredName): Identity<"role"> =>
-		mint(
+	role: (installation: Identity<"schema">, name: DeclaredName): Identity<"role"> => {
+		const segments = nameSegments(name)
+		return mint(
 			"role",
 			[installation, name],
-			[installation.stem, name],
+			[...installation.segments, ...segments],
 			`role ${name} of ${installation.display}`,
-			readable(`${installation.identifier}__${conversionOf(name)}`)
-		),
+			readable(`${installation.identifier}__${joined(segments)}`)
+		)
+	},
 	/** A role's own schema of views, its role's name. */
 	roleSchema: (role: Identity<"role">): Identity<"roleSchema"> =>
-		mint("roleSchema", [role], [role.stem], `schema of ${role.display}`, readable(role.identifier)),
-	/** A role relation's view in its role's schema, by the relation's declared name. */
-	roleView: (role: Identity<"role">, entry: DeclaredName): Identity<"roleView"> =>
 		mint(
+			"roleSchema",
+			[role],
+			role.segments,
+			`schema of ${role.display}`,
+			readable(role.identifier)
+		),
+	/** A role relation's view in its role's schema, by the relation's declared name. */
+	roleView: (role: Identity<"role">, entry: DeclaredName): Identity<"roleView"> => {
+		const segments = nameSegments(entry)
+		return mint(
 			"roleView",
 			[role, entry],
-			[entry],
+			segments,
 			`view ${entry} of ${role.display}`,
-			readable(conversionOf(entry))
-		),
+			readable(joined(segments))
+		)
+	},
 	/** A writable entry's filter function. */
 	filter: (role: Identity<"role">, entry: string): Identity<"filter"> =>
 		mint(
 			"filter",
 			[role, entry],
-			[role.stem, entry, "filter"],
+			[...role.segments, ...nameSegments(entry), "filter"],
 			`filter function of ${entry} of ${role.display}`,
 			hashed
 		),
@@ -1005,7 +1067,7 @@ export const identity = Object.freeze({
 		mint(
 			"keyProbe",
 			[role, entry, key],
-			[role.stem, entry, "key", ...key],
+			[...role.segments, ...nameSegments(entry), "key", ...key.flatMap(nameSegments)],
 			`key probe (${key.join(", ")}) of ${entry} of ${role.display}`,
 			hashed
 		),
@@ -1015,7 +1077,7 @@ export const identity = Object.freeze({
 		mint(
 			"uniqueProbe",
 			[role, entry, object],
-			[role.stem, entry, "unique"],
+			[...role.segments, ...nameSegments(entry), "unique"],
 			`unique probe of ${object} of ${entry} of ${role.display}`,
 			hashed
 		),
@@ -1025,7 +1087,7 @@ export const identity = Object.freeze({
 		mint(
 			"policy",
 			[role, relation],
-			[role.stem],
+			role.segments,
 			`policy of ${role.display} on ${relation}`,
 			readable(role.identifier)
 		),
@@ -1036,14 +1098,16 @@ export const identity = Object.freeze({
 	ledgerKey: (): Identity<"ledgerKey"> =>
 		mint("ledgerKey", [], ["ledger", "pk"], "the migrations ledger's key", readable("__ledger_pk")),
 	/** One of the migrations ledger's CHECKs, by the column it bounds. */
-	ledgerCheck: (column: string): Identity<"ledgerCheck"> =>
-		mint(
+	ledgerCheck: (column: string): Identity<"ledgerCheck"> => {
+		const segments = nameSegments(column)
+		return mint(
 			"ledgerCheck",
 			[column],
-			["ledger", column, "check"],
+			["ledger", ...segments, "check"],
 			`the migrations ledger's check of ${column}`,
-			readable(`__ledger_${conversionOf(column)}_check`)
-		),
+			readable(`__ledger_${joined(segments)}_check`)
+		)
+	},
 	isolationGuard: (): Identity<"isolationGuard"> =>
 		mint(
 			"isolationGuard",
@@ -1075,7 +1139,7 @@ export const identity = Object.freeze({
 	 * which PostgreSQL scopes to each table's triggers and constraints.
 	 */
 	lawTrigger: (law: Identity<"law">): Identity<"lawTrigger"> =>
-		mint("lawTrigger", [law], ["rule", law.stem], `trigger of rule ${law.display}`, hashed),
+		mint("lawTrigger", [law], ["rule", ...law.segments], `trigger of rule ${law.display}`, hashed),
 	/**
 	 * The function a rule over a query's trigger on `relation`'s table runs, which reads the relations `reads`: its body
 	 * names their tables in PL/pgSQL text, which a rename of a table never reaches, so a rename of one of them names
@@ -1089,13 +1153,14 @@ export const identity = Object.freeze({
 		mint(
 			"lawFunction",
 			[relation, law, ...reads],
-			["rule", relation, law.stem],
+			["rule", ...nameSegments(relation), ...law.segments],
 			`function of rule ${law.display} on ${relation}`,
 			hashed
 		),
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>
-		mint("aside", [of], ["aside", of], `${of} set aside`, hashed),
+		mint("aside", [of], ["aside", ...nameSegments(of)], `${of} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
-	swap: (of: string): Identity<"swap"> => mint("swap", [of], ["next", of], `the next ${of}`, hashed)
+	swap: (of: string): Identity<"swap"> =>
+		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed)
 })
