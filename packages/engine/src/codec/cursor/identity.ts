@@ -3,6 +3,7 @@ import type { Path } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 
@@ -31,7 +32,7 @@ export const cursorDigestBytes = 16
  */
 export interface CursorComparator<T extends ScalarType = ScalarType> {
 	readonly field: string
-	readonly direction: "asc" | "desc"
+	readonly direction: Direction
 	readonly type: T
 }
 

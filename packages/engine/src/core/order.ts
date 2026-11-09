@@ -4,6 +4,13 @@
  */
 export type Comparator<A> = (a: A, b: A) => number
 
+/** The directions an order reads a key in: ascending, then descending. */
+export const directions = ["asc", "desc"] as const
+export type Direction = (typeof directions)[number]
+
+/** The other direction: a key read backwards. */
+export const opposite = (direction: Direction): Direction => (direction === "asc" ? "desc" : "asc")
+
 /** Strings by UTF-16 code unit. */
 export const compareStrings: Comparator<string> = (a, b) => (a === b ? 0 : a < b ? -1 : 1)
 

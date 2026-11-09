@@ -1,5 +1,6 @@
 import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { type Direction, opposite } from "#compiler/core/order.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
 import { type ColumnRef, type OpId, type ScalarExpr, sortedOps } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
@@ -71,7 +72,7 @@ interface TakeShape {
 	readonly compared: ReadonlyArray<{
 		readonly q: string
 		readonly parent: ColumnRef
-		readonly dir: "asc" | "desc"
+		readonly dir: Direction
 	}>
 	readonly inclusive: boolean
 	/** Q's own restrictions: constants and conditions that read no parent value. */
@@ -81,8 +82,6 @@ interface TakeShape {
 	readonly order: ReadonlyArray<OrderKeyOf>
 	readonly comparisons: ReadonlyArray<OpId>
 }
-
-const reverse = (d: "asc" | "desc"): "asc" | "desc" => (d === "asc" ? "desc" : "asc")
 
 const sameRef = (a: ColumnRef, b: ColumnRef): boolean => a.node === b.node && a.name === b.name
 
@@ -273,7 +272,7 @@ const opsOf = (e: ScalarExpr): ReadonlyArray<OpId> => {
 /** Whether the take's order begins with the compared fields, each reversed: the first row past the parent. */
 const nearestPast = (t: TakeShape): boolean =>
 	t.compared.length <= t.order.length &&
-	t.compared.every((c, i) => t.order[i]?.column === c.q && t.order[i].dir === reverse(c.dir))
+	t.compared.every((c, i) => t.order[i]?.column === c.q && t.order[i].dir === opposite(c.dir))
 
 /** The parent's side: where its values come from, and the relation of its rows. */
 interface ParentSide {
@@ -887,7 +886,7 @@ const asOfPass = (
 	/** Within an equal prefix the row the take selects comes last: the rest of the take's order, reversed. */
 	const rest = t.order
 		.slice(t.compared.length)
-		.map((o) => ({ column: o.column, dir: reverse(o.dir) }))
+		.map((o) => ({ column: o.column, dir: opposite(o.dir) }))
 	const ranked = windowChain(
 		cx,
 		qf,

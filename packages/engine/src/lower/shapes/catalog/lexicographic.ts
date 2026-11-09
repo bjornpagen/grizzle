@@ -1,4 +1,5 @@
 import { firstIndex } from "#compiler/core/array.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -41,7 +42,7 @@ const isCmp = (fn: string): fn is Cmp =>
 
 interface LexOrder {
 	/** The pairs in priority order with their directions: under "asc" b precedes a when b < a. */
-	readonly order: ReadonlyArray<Pair & { readonly dir: "asc" | "desc" }>
+	readonly order: ReadonlyArray<Pair & { readonly dir: Direction }>
 	readonly inclusive: boolean
 }
 
@@ -366,10 +367,10 @@ export const lexicographicOrder = (pred: ScalarExpr, classify: Classify): LexOrd
 		return undefined
 	}
 	const diagrams = new Diagrams()
-	const order: Array<Pair & { dir: "asc" | "desc" }> = []
+	const order: Array<Pair & { dir: Direction }> = []
 	let remaining: ReadonlyArray<number> = [...pairs.keys()]
 	/** The direction pair `c` decides the predicate in whenever its fields differ, given the pairs tied so far. */
-	const decision = (current: Diagram, c: number): "asc" | "desc" | undefined => {
+	const decision = (current: Diagram, c: number): Direction | undefined => {
 		const below = diagrams.restrict(current, c, -1)
 		const above = diagrams.restrict(current, c, 1)
 		if (below.kind !== "leaf" || above.kind !== "leaf" || below.value === above.value) {
@@ -379,7 +380,7 @@ export const lexicographicOrder = (pred: ScalarExpr, classify: Classify): LexOrd
 	}
 	const decide = (
 		current: Diagram
-	): { readonly index: number; readonly dir: "asc" | "desc" } | undefined => {
+	): { readonly index: number; readonly dir: Direction } | undefined => {
 		for (const c of remaining) {
 			const dir = decision(current, c)
 			if (dir !== undefined) {

@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record } from "effect"
+import { type Direction, directions, opposite } from "#compiler/core/order.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -31,14 +32,12 @@ import { owning } from "#test/support/policy.ts"
  * - serves each program's ordered request from the index of its class, as its vector or its exact reverse.
  *
  * Oracle: the classes, computed from the drawn vectors by reversal alone. */
-type Dir = "asc" | "desc"
 /** A direction vector over the order's three columns, a, b and id, in that order. */
-type Vector = readonly [Dir, Dir, Dir]
+type Vector = readonly [Direction, Direction, Direction]
 
 const T = relation("T", { id: uuid, g: uuid, a: pg.integer, b: pg.integer }, ["id"])
 const Dirs = schema("Dirs", { T }, [])
 
-const opposite = (d: Dir): Dir => (d === "asc" ? "desc" : "asc")
 const reversed = (vector: Vector): Vector => [
 	opposite(vector[0]),
 	opposite(vector[1]),
@@ -46,7 +45,7 @@ const reversed = (vector: Vector): Vector => [
 ]
 /** The class's canonical vector: the first key ascends. */
 const canonical = (vector: Vector): Vector => (vector[0] === "asc" ? vector : reversed(vector))
-const text = (vector: ReadonlyArray<Dir>): string => Arr.join(vector, " ")
+const text = (vector: ReadonlyArray<Direction>): string => Arr.join(vector, " ")
 
 /** The program ordering T by `vector`, behind an equality on g when `prefixed`. */
 const program = (vector: Vector, prefixed: boolean) =>
@@ -58,7 +57,7 @@ const program = (vector: Vector, prefixed: boolean) =>
 		})
 		.orderBy(["a", vector[0]], ["b", vector[1]], ["id", vector[2]])
 
-const dirGen = element<Dir>(["asc", "desc"])
+const dirGen = element(directions)
 const vectorGen: Gen<Vector> = (source) =>
 	[source.draw(dirGen), source.draw(dirGen), source.draw(dirGen)] as const
 /** A family of vectors, each drawn or the exact reverse of an earlier one, and whether every program is prefixed. */

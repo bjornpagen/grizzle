@@ -5,6 +5,7 @@ import { array, element, int, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Order, String as Str } from "effect"
+import { type Direction, directions, opposite } from "#compiler/core/order.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import {
 	anchoredSeek,
@@ -38,7 +39,7 @@ import { isList } from "#test/support/list.ts"
  */
 
 /** The seek keys of `dirs`: integer key i reads column r.ki against placeholder $(i + 1). */
-const keysOf = (dirs: ReadonlyArray<"asc" | "desc">): ReadonlyArray<SeekKey> =>
+const keysOf = (dirs: ReadonlyArray<Direction>): ReadonlyArray<SeekKey> =>
 	Arr.map(dirs, (direction, i) => ({
 		direction,
 		type: plainType("int4"),
@@ -166,7 +167,7 @@ const lexicographic = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): numb
 
 /** The declared order: lexicographic with each key's direction. */
 const declared =
-	(dirs: ReadonlyArray<"asc" | "desc">): Order.Order<ReadonlyArray<number>> =>
+	(dirs: ReadonlyArray<Direction>): Order.Order<ReadonlyArray<number>> =>
 	(a, b) => {
 		for (let i = 0; i < dirs.length; i++) {
 			if (a[i] !== b[i]) {
@@ -180,7 +181,7 @@ const declared =
 const tuples = (m: number): ReadonlyArray<ReadonlyArray<number>> =>
 	m === 0 ? [[]] : Arr.flatMap(tuples(m - 1), (t) => Arr.map([0, 1, 2], (v) => [...t, v]))
 
-const directionSets = (m: number): ReadonlyArray<ReadonlyArray<"asc" | "desc">> =>
+const directionSets = (m: number): ReadonlyArray<ReadonlyArray<Direction>> =>
 	m === 0
 		? [[]]
 		: Arr.flatMap(directionSets(m - 1), (d) => [
@@ -262,11 +263,9 @@ describe("the seek predicate", () => {
 	)
 })
 
-const flip = (d: "asc" | "desc"): "asc" | "desc" => (d === "asc" ? "desc" : "asc")
-
 /** Whether some tuple of `d` holds the predicate the compiler emits for `seek` against `bound`. */
 const anyOn = (
-	dirs: ReadonlyArray<"asc" | "desc">,
+	dirs: ReadonlyArray<Direction>,
 	d: ReadonlyArray<ReadonlyArray<number>>,
 	seek: Seek,
 	bound: ReadonlyArray<number>
@@ -286,9 +285,7 @@ describe("variants and probes", () => {
 					draw: drawn((source) =>
 						source.draw(
 							((m) => (source) => ({
-								dirs: source.draw(
-									array(element(["asc" as const, "desc" as const]), { min: m, max: m })
-								),
+								dirs: source.draw(array(element(directions), { min: m, max: m })),
 								d: source.draw(
 									uniqueArray(
 										array(int(0, 3), { min: m, max: m }),
@@ -358,7 +355,7 @@ describe("variants and probes", () => {
 					{
 						oracle: { kind: "unstated" },
 						suite: "unit/page/reverse",
-						draw: drawn(array(element(["asc" as const, "desc" as const]), { min: 1, max: 4 })),
+						draw: drawn(array(element(directions), { min: 1, max: 4 })),
 						literal: Formatter.format,
 						coverage: noCoverage,
 						kept: [],
@@ -376,14 +373,14 @@ describe("variants and probes", () => {
 							assert.deepEqual(
 								reversedOrder(items),
 								Arr.map(dirs, (d, i) =>
-									flip(d) === "asc" ? asc(col("r", `c${i}`)) : desc(col("r", `c${i}`))
+									opposite(d) === "asc" ? asc(col("r", `c${i}`)) : desc(col("r", `c${i}`))
 								)
 							)
 							const order: CompletedOrder = {
 								keys: Arr.map(dirs, (dir, i) => ({ column: `c${i}`, dir }))
 							}
 							assert.deepEqual(reversedCompletedOrder(order), {
-								keys: Arr.map(dirs, (dir, i) => ({ column: `c${i}`, dir: flip(dir) }))
+								keys: Arr.map(dirs, (dir, i) => ({ column: `c${i}`, dir: opposite(dir) }))
 							})
 							assert.deepEqual(reversedCompletedOrder(reversedCompletedOrder(order)), order)
 						})

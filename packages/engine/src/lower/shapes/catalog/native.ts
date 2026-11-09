@@ -1,6 +1,7 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { FrameBound, NodeOf, RelKind, RelNode, WindowFrame } from "#compiler/ir/rel.ts"
 import {
@@ -71,7 +72,7 @@ const windowReads = (w: NodeOf<"Window">): ReadonlySet<string> => {
 
 /** The ORDER BY items of `keys`, columns of the input `map` reads (valid DAG). */
 const orderItems = (
-	keys: ReadonlyArray<{ readonly column: string; readonly dir: "asc" | "desc" }>,
+	keys: ReadonlyArray<{ readonly column: string; readonly dir: Direction }>,
 	map: ColumnMap
 ) =>
 	keys.map((k): OrderItem => {

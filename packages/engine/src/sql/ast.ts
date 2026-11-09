@@ -1,3 +1,4 @@
+import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 
@@ -1248,7 +1249,7 @@ export interface CreateIndex {
 	readonly unique: boolean
 	/** Outside a transaction block only. */
 	readonly concurrently: boolean
-	readonly method: "btree" | "gist" | "hnsw" | "hash"
+	readonly method: IndexMethod
 	readonly keys: NonEmptyReadonlyArray<IndexKey>
 	readonly include: ReadonlyArray<string>
 	readonly where: Expr | undefined

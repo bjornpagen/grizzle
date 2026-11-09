@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
+import type { Direction } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -630,7 +631,7 @@ const deliveryArg = (delivery: StatedDelivery): unknown =>
 
 const orderArgs = (
 	order: Arr.NonEmptyReadonlyArray<OrderKey>
-): ReadonlyArray<readonly [string, "asc" | "desc"]> =>
+): ReadonlyArray<readonly [string, Direction]> =>
 	Arr.map(order, (k) => [k.column.name, k.dir] as const)
 
 /**

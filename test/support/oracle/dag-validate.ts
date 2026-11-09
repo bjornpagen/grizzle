@@ -14,6 +14,7 @@ import {
 } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { directions } from "#compiler/core/order.ts"
 import { assembledDag, relNode, toTable } from "#compiler/ir/dag.ts"
 import {
 	constraintKinds,
@@ -1816,7 +1817,7 @@ const nodeMetaShape: S.Shape<NodeMeta> = S.struct({
 
 const orderShape: S.Shape<CompletedOrder> = S.struct({
 	keys: S.uniqueArray(
-		S.struct({ column: S.nonEmptyString, dir: S.literalsShape(["asc", "desc"]) }),
+		S.struct({ column: S.nonEmptyString, dir: S.literalsShape(directions) }),
 		(k) => k.column,
 		"order columns"
 	)

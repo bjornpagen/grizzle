@@ -10,6 +10,7 @@ import {
 } from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { directions } from "#compiler/core/order.ts"
 import { projection } from "#test/support/laws/model.ts"
 import {
 	inDomain,
@@ -124,7 +125,7 @@ const orderGen =
 		knownNonEmpty(
 			Arr.map(source.draw(shuffled(heading, { min: 1, max: heading.length })), (f): OrderKey => ({
 				field: f.name,
-				direction: source.draw(element(["asc", "desc"] as const))
+				direction: source.draw(element(directions))
 			})),
 			"a page's order"
 		)

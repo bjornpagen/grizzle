@@ -1,5 +1,6 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { AllenMask } from "#compiler/allen/mask.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType, type StorageCarrier } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -460,7 +461,7 @@ export const isAggregate = <P>(rule: Rule<P>): boolean =>
 
 export interface OrderKey {
 	readonly column: Column
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
 
 /**

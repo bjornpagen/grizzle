@@ -1,3 +1,4 @@
+import type { Direction } from "#compiler/core/order.ts"
 import type { CompletedOrder, Heading } from "#compiler/ir/rel.ts"
 import { type ColumnMap, columnIn } from "#compiler/lower/conservative/context.ts"
 import type { OrderItem } from "#compiler/sql/ast.ts"
@@ -25,7 +26,7 @@ export const orderItemsOf = (
 ): ReadonlyArray<OrderItem> => {
 	const used = new Set<string>(options.fixed)
 	const items: Array<OrderItem> = []
-	const push = (column: string, dir: "asc" | "desc"): void => {
+	const push = (column: string, dir: Direction): void => {
 		if (used.has(column)) {
 			return
 		}

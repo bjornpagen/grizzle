@@ -11,6 +11,7 @@ import {
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import type {
 	AuthoredExprDesc,
 	QueryDesc,
@@ -71,7 +72,7 @@ export interface Arm {
 
 export interface OrderColumn {
 	readonly column: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
 
 /** A binding of the importing match: a column to a fresh variable, or a literal column to a constant. */
@@ -499,9 +500,7 @@ const unionDesc = (c: UnionCase): QueryDesc => ({
 	stage: { kind: "rules", arms: Arr.map(c.arms, (a) => armRule(c.schema, a)) }
 })
 
-const orderOf = (
-	order: ReadonlyArray<OrderColumn>
-): ReadonlyArray<readonly [string, "asc" | "desc"]> =>
+const orderOf = (order: ReadonlyArray<OrderColumn>): ReadonlyArray<readonly [string, Direction]> =>
 	Arr.map(order, (o) => [o.column, o.dir] as const)
 
 /** The case's query: the union read by its consumer. */
@@ -605,7 +604,7 @@ const orderGen =
 	(source) => {
 		const column = (name: string): OrderColumn => ({
 			column: name,
-			dir: source.draw(element(["asc", "desc"] as const))
+			dir: source.draw(element(directions))
 		})
 		const [first, ...rest] = source.draw(shuffled(columns, { min: 1, max: columns.length }))
 		return [column(first ?? columns[0]), ...Arr.map(rest, column)]

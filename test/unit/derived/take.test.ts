@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import type { Direction } from "#compiler/core/order.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -103,7 +104,7 @@ const featuresOf = (owner: Owner, d: DefinitionSketch): ReadonlyArray<TakeFeatur
 ]
 
 /** One key of an orderBy: a head column and its direction. */
-type OrderArgument = readonly [string, "asc" | "desc"]
+type OrderArgument = readonly [string, Direction]
 
 /** The definition a sketch states over R, its rules over the schema `over`; a count's column is `n`. */
 const definitionOf = (

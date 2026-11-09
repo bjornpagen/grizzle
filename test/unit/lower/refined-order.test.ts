@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -65,7 +66,6 @@ type Shape =
 	| "the tag alone"
 	| "the title and the tag, by the tag"
 	| "the title and the tag, by both"
-type Direction = "asc" | "desc"
 
 /**
  * Each listed article's slug, a derived relation's column, alone or with its title, deduplicated and ordered as drawn.
@@ -162,7 +162,7 @@ describe("a refined output the delivery casts", () => {
 								"the title and the tag, by both"
 							] as const)
 						),
-						direction: source.draw(element(["asc", "desc"] as const))
+						direction: source.draw(element(directions))
 					}),
 					literal: Formatter.format,
 					limit: 12,

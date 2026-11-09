@@ -2,6 +2,7 @@ import type { WildKind } from "@grizzle/testing/lsw"
 import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
@@ -600,7 +601,7 @@ export type CatalogPerturbation =
 /** One key of an order a read asks for: a field of the relation read, ascending or descending. */
 export interface OrderKey {
 	readonly field: string
-	readonly direction: "asc" | "desc"
+	readonly direction: Direction
 }
 
 /** Where a paged read starts: at the first page, then each after it, or at the last, then each before it. */

@@ -1,4 +1,5 @@
 import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { type Direction, opposite } from "#compiler/core/order.ts"
 import type { PageFill, SizeFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -121,7 +122,7 @@ export const probeSeek = (kind: ProbeKind): Seek => {
  */
 export interface PageComparator {
 	readonly field: string
-	readonly direction: "asc" | "desc"
+	readonly direction: Direction
 	readonly type: ScalarType
 }
 
@@ -266,7 +267,7 @@ export const anchoredSlots = (
  * it compares that column against.
  */
 export interface SeekKey {
-	readonly direction: "asc" | "desc"
+	readonly direction: Direction
 	readonly type: ScalarType
 	readonly column: Expr
 	readonly boundary: Expr
@@ -281,7 +282,7 @@ const isRowSeek = (keys: ReadonlyArray<SeekKey>): boolean =>
 	keys.every((k) => k.direction === keys[0]?.direction && !isVectorType(k.type))
 
 /** The operator by which a key on `side` of its boundary value compares, strictly or inclusively. */
-const operator = (direction: "asc" | "desc", seek: Seek): ">" | "<" | ">=" | "<=" => {
+const operator = (direction: Direction, seek: Seek): ">" | "<" | ">=" | "<=" => {
 	const greater = (direction === "asc") === (seek.side === "follows")
 	return greater ? (seek.inclusive ? ">=" : ">") : seek.inclusive ? "<=" : "<"
 }
@@ -332,5 +333,5 @@ export const reversedOrder = (items: ReadonlyArray<OrderItem>): ReadonlyArray<Or
  * reads.
  */
 export const reversedCompletedOrder = (order: CompletedOrder): CompletedOrder => ({
-	keys: order.keys.map((k) => ({ column: k.column, dir: k.dir === "asc" ? "desc" : "asc" }))
+	keys: order.keys.map((k) => ({ column: k.column, dir: opposite(k.dir) }))
 })

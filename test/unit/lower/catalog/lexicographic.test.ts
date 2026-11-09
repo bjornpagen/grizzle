@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import { builtExpr, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lexicographicOrder } from "#compiler/lower/shapes/catalog/lexicographic.ts"
@@ -123,7 +124,7 @@ interface Order {
 	readonly order: ReadonlyArray<{
 		readonly b: string
 		readonly a: string
-		readonly dir: "asc" | "desc"
+		readonly dir: Direction
 	}>
 	readonly inclusive: boolean
 }
@@ -310,7 +311,7 @@ const classify = (ref: { readonly name: string }) =>
 
 /** The nested spelling of a lexicographic order over `pairs`, each with its direction, strict or inclusive. */
 const nested = (
-	pairs: ReadonlyArray<{ readonly pair: number; readonly dir: "asc" | "desc" }>,
+	pairs: ReadonlyArray<{ readonly pair: number; readonly dir: Direction }>,
 	inclusive: boolean
 ): Tree => {
 	const [first, ...rest] = pairs
@@ -375,7 +376,7 @@ const spellingGen =
 	(source) => {
 		const order = Arr.filter(Arr.range(0, pairs - 1), () => source.draw(boolean))
 		return nested(
-			Arr.map(order, (pair) => ({ pair, dir: source.draw(element(["asc", "desc"] as const)) })),
+			Arr.map(order, (pair) => ({ pair, dir: source.draw(element(directions)) })),
 			source.draw(boolean)
 		)
 	}
@@ -546,7 +547,7 @@ describe("the lexicographic recognizer", () => {
 							return {
 								order: Arr.map(Arr.range(0, pairs - 1), (pair) => ({
 									pair,
-									dir: source.draw(element(["asc", "desc"] as const))
+									dir: source.draw(element(directions))
 								})),
 								inclusive: source.draw(boolean)
 							}

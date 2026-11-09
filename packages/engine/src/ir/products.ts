@@ -1,4 +1,5 @@
 import type { EncodingFailure } from "#compiler/core/errors.ts"
+import type { IndexMethod } from "#compiler/core/identity.ts"
 import type {
 	DomainName,
 	ExprId,
@@ -7,6 +8,7 @@ import type {
 	RelationIdent,
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { OutputText, Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -368,8 +370,11 @@ export type AccessUse = (typeof accessUses)[number]
 
 export interface AccessKey {
 	readonly field: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
+
+/** The access methods a workload's access path asks for: every one but hash, which no access path's probe needs. */
+type WorkloadIndexMethod = Exclude<IndexMethod, "hash">
 
 /**
  * What a workload program's predicates, joins, seeks and approximate retrievals ask of an index.
@@ -386,7 +391,7 @@ export interface AccessPath {
 	 * only where it installs the view.
 	 */
 	readonly derived: boolean
-	readonly method: "btree" | "gist" | "hnsw"
+	readonly method: WorkloadIndexMethod
 	readonly keys: ReadonlyArray<AccessKey>
 	readonly use: AccessUse
 }
@@ -434,10 +439,10 @@ export interface AccessIndexRequest {
 	readonly relation: string
 	readonly keys: ReadonlyArray<{
 		readonly expr: ExprId | string
-		readonly dir: "asc" | "desc"
+		readonly dir: Direction
 		readonly opclass: IndexOpclass
 	}>
-	readonly method: "btree" | "gist" | "hnsw"
+	readonly method: WorkloadIndexMethod
 	readonly role: "access"
 	readonly use: AccessUse
 }
@@ -517,7 +522,7 @@ export interface PhysicalObject<Ddl = unknown> {
  */
 interface StoredRequestKey {
 	readonly expr: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 	readonly opclass: string | undefined
 }
 

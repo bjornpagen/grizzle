@@ -7,6 +7,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { type PhysicalNames } from "#compiler/ir/physical.ts"
@@ -222,8 +223,6 @@ describe("the kind table", () => {
 	)
 })
 
-type Direction = "asc" | "desc"
-
 /** What reads the union of automatic tasks (kind, account, amount) and manual ones (kind, account), told apart by kind. */
 type Consumer =
 	| { readonly kind: "delivered" }
@@ -327,7 +326,7 @@ const heterogeneousRead = (consumer: Consumer): LogicalQuery => {
 	}
 }
 
-const directions = element<Direction>(["asc", "desc"])
+const directionGen = element(directions)
 const consumers = oneOf<Consumer>([
 	element<Consumer>([
 		{ kind: "delivered" },
@@ -338,11 +337,11 @@ const consumers = oneOf<Consumer>([
 		{ kind: "attached" }
 	]),
 	map(
-		(source) => [source.draw(directions), source.draw(element([1n, 2n]))] as const,
+		(source) => [source.draw(directionGen), source.draw(element([1n, 2n]))] as const,
 		([take, k]): Consumer => ({ kind: "bounded", take, k })
 	),
 	map(
-		(source) => [source.draw(directions), source.draw(directions)] as const,
+		(source) => [source.draw(directionGen), source.draw(directionGen)] as const,
 		([take, delivery]): Consumer => ({
 			kind: "bounded and reordered",
 			take,

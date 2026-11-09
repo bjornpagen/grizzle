@@ -1,7 +1,7 @@
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identity, type IndexMethod } from "#compiler/core/identity.ts"
 import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -21,7 +21,9 @@ import {
 	compareNumbers,
 	compareStrings,
 	flip,
-	mapInput
+	mapInput,
+	type Direction,
+	opposite
 } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { defaultOpclass, type IndexOpclass, type NativeColumn } from "#compiler/ir/law.ts"
@@ -55,7 +57,7 @@ import { columnKey } from "#compiler/sql/build.ts"
 export interface IndexKey {
 	/** The column the key holds, by its arm: a field, or a law column. */
 	readonly column: IndexColumn
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 	readonly opclass: IndexOpclass
 }
 
@@ -76,9 +78,6 @@ const sameColumn = (a: IndexColumn, b: IndexColumn): boolean =>
 		? b.kind === "field" && a.field === b.field
 		: b.kind === "law" && a.column === b.column
 
-/** An index's access method. */
-type Method = "btree" | "gist" | "hnsw" | "hash"
-
 /** What a column holds, by its field's type: a GiST index names btree_gist's class for a scalar, whose equality operator
  * serves a B-tree equality probe, and the range type's own for a span. */
 type Holds = "scalar" | "span"
@@ -89,7 +88,7 @@ const holdsOf = (type: ScalarType): Holds => (spanCarrierOf(type) === undefined 
  * holds at most one row per key. */
 export interface KeyedIndex {
 	readonly relation: string
-	readonly method: Method
+	readonly method: IndexMethod
 	readonly keys: ReadonlyArray<IndexKey>
 	readonly unique: boolean
 }
@@ -158,7 +157,7 @@ interface Columns {
 
 /** The access methods of the indexes that may hold a placement, in preference order: an index created for it takes the
  * first. */
-type Methods = NonEmptyReadonlyArray<Method>
+type Methods = NonEmptyReadonlyArray<IndexMethod>
 
 /** A run of columns that lead an index together, in any order among themselves. */
 type Block = NonEmptyReadonlyArray<IndexKey>
@@ -402,7 +401,7 @@ interface Planned {
 }
 
 /** The access method of the index a planned request creates. */
-const ownMethod = (planned: Planned): Method => planned.placements.own.methods[0]
+const ownMethod = (planned: Planned): IndexMethod => planned.placements.own.methods[0]
 
 /** Whether an index's relation, access method and keys serve a planned request (see `planIndexes`): it holds one of the
  * request's placements, as an index of a method that placement admits. */
@@ -900,8 +899,6 @@ const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Draft => {
 	const rank = rankIn(planned.keys)
 	return reads.reduce((draft, q) => refined(draft, q, rank) ?? draft, draftOf(planned))
 }
-
-const opposite = (dir: "asc" | "desc"): "asc" | "desc" => (dir === "asc" ? "desc" : "asc")
 
 /** A request's keys canonical under reversal: reversed when the first descends, so the first ascends. */
 const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>

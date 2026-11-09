@@ -44,6 +44,7 @@ import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 
+import { type Direction, directions } from "#compiler/core/order.ts"
 import { armBoundedUnion, mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
@@ -291,8 +292,6 @@ type Handle = (typeof roster)[number]
 /** A decoded row of the groups, readable by column as the merge reads it. */
 type ScoredRow = { readonly score: number; readonly kind: Handle; readonly id: number }
 
-type Direction = "asc" | "desc"
-
 /** An ordering in a key's direction: as it is ascending, reversed descending. */
 const directed = (d: Direction, o: Ordering.Ordering): Ordering.Ordering =>
 	d === "asc" ? o : Ordering.reverse(o)
@@ -326,7 +325,7 @@ interface MergeCase {
 	readonly take: { readonly kind: "every row" } | { readonly kind: "first"; readonly k: number }
 }
 
-const direction = element<Direction>(["asc", "desc"])
+const direction = element(directions)
 const mergeCaseGen: Gen<MergeCase> = (source) => {
 	const manualFirst = source.draw(boolean)
 	const automatic = source.draw(array(scoreGen, { min: 0, max: 5 }))

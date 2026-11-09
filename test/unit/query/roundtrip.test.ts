@@ -20,6 +20,7 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { decodeDesc, descText, type QueryDesc } from "#compiler/ir/desc.ts"
@@ -110,13 +111,13 @@ type Op =
 	| {
 			readonly op: "take"
 			readonly k: number
-			readonly dir: "asc" | "desc"
+			readonly dir: Direction
 			readonly param: boolean
 	  }
 	| { readonly op: "import" }
 
 /** The chain may end ordered: an Ordered is no Query, so the ending is drawn apart from the ops and applied last. */
-type Ending = { readonly kind: "set" } | { readonly kind: "ordered"; readonly dir: "asc" | "desc" }
+type Ending = { readonly kind: "set" } | { readonly kind: "ordered"; readonly dir: Direction }
 
 /** A schema's generated queries: the arms drawn over it, how each builds a rule, a key to order by, and a child. */
 interface Grammar<A> {
@@ -136,7 +137,7 @@ const opGen = (armCount: number): Gen<Op> =>
 		(source) => ({
 			op: "take",
 			k: source.draw(int(1, 5)),
-			dir: source.draw(element(["asc", "desc"] as const)),
+			dir: source.draw(element(directions)),
 			param: source.draw(boolean)
 		}),
 		constant({ op: "import" })

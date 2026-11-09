@@ -11,6 +11,7 @@ import type {
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { EvidenceContext, Premise } from "#compiler/ir/evidence.ts"
 import type { CatalogOpId, ScalarExpr, TableExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { KeyProof, ViewKey } from "#compiler/ir/keys.ts"
@@ -101,7 +102,7 @@ export const conservativeMeta: MetaSpec = Object.freeze({
 
 export interface OrderKey {
 	readonly column: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
 
 /**

@@ -1,7 +1,8 @@
-import type { DeclaredName, Identity } from "#compiler/core/identity.ts"
+import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -273,10 +274,10 @@ export interface LawIndexRequest {
 	readonly relation: string
 	readonly keys: NonEmptyReadonlyArray<{
 		readonly column: NativeColumn
-		readonly dir: "asc" | "desc"
+		readonly dir: Direction
 		readonly opclass: IndexOpclass
 	}>
-	readonly method: "btree" | "gist" | "hnsw" | "hash"
+	readonly method: IndexMethod
 	readonly role: "lawMaintenance"
 	readonly use: string
 	readonly justification: { readonly kind: "law"; readonly law: LawId }

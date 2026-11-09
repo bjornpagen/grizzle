@@ -8,6 +8,7 @@ import { Array as Arr, Effect, Equal, Formatter, Order, Result, String as Str } 
 import type { TestContext } from "vitest"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -466,15 +467,13 @@ const intentsGen = array(intentGen, { min: 1, max: 6 })
 /** A request's keys: the columns the sketch names, each once, in its order. */
 const keysFor = (
 	keys: Arr.NonEmptyReadonlyArray<KeySketch<string>>
-): Arr.NonEmptyReadonlyArray<{ readonly field: string; readonly dir: "asc" | "desc" }> => {
+): Arr.NonEmptyReadonlyArray<{ readonly field: string; readonly dir: Direction }> => {
 	const key = (k: KeySketch<string>) => ({
 		field: k.column,
 		dir: k.desc ? ("desc" as const) : ("asc" as const)
 	})
 	const [first, ...rest] = keys
-	const out: Arr.NonEmptyArray<{ readonly field: string; readonly dir: "asc" | "desc" }> = [
-		key(first)
-	]
+	const out: Arr.NonEmptyArray<{ readonly field: string; readonly dir: Direction }> = [key(first)]
 	for (const k of rest) {
 		const next = key(k)
 		if (Arr.every(out, (o) => o.field !== next.field)) {

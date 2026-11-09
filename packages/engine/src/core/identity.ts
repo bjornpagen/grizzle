@@ -4,7 +4,7 @@ import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type Comparator, compareStrings } from "#compiler/core/order.ts"
+import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
 
@@ -574,10 +574,13 @@ export interface KeySide {
 	readonly fields: ReadonlyArray<KeyColumnName>
 }
 
+/** The access methods of an index grizzle installs: B-tree, GiST, pgvector's HNSW and hash. */
+export type IndexMethod = "btree" | "gist" | "hnsw" | "hash"
+
 /** One key of an access index: its field, direction and operator class. */
 interface IndexKey {
 	readonly field: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 	readonly opclass: "default" | "vectorCosine"
 }
 
@@ -910,7 +913,7 @@ export const identity = Object.freeze({
 	 */
 	accessIndex: (
 		relation: string,
-		method: "btree" | "gist" | "hnsw" | "hash",
+		method: IndexMethod,
 		keys: ReadonlyArray<IndexKey>
 	): Identity<"accessIndex"> =>
 		mint(

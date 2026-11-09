@@ -20,7 +20,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { isValidText } from "#compiler/core/text.ts"
@@ -562,7 +562,7 @@ export type RuleDesc<L = Located, R extends Refs = Spelled> = L & {
 
 export interface OrderDesc {
 	readonly column: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
 
 export type TakeDesc<R extends Refs = Spelled> =
@@ -1673,7 +1673,7 @@ const ruleDescShape: S.Shape<RuleDesc> = S.lazy("a rule", () =>
 
 const orderDescShape: S.Shape<OrderDesc> = S.struct({
 	column: name,
-	dir: S.literalsShape(["asc", "desc"])
+	dir: S.literalsShape(directions)
 })
 
 const takeDescShape: S.Shape<TakeDesc> = S.tagged("kind", {

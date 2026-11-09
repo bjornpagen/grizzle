@@ -52,6 +52,7 @@ import {
 } from "#compiler/codec/cursor/layout.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
+import { opposite } from "#compiler/core/order.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
@@ -790,9 +791,7 @@ const subject = (
 	const maxBytes = 2 * tokenOf(spec).length
 	const [first, ...rest] = spec.comparators
 	const flipped: Comparators =
-		first === undefined
-			? []
-			: [{ ...first, direction: first.direction === "asc" ? "desc" : "asc" }, ...rest]
+		first === undefined ? [] : [{ ...first, direction: opposite(first.direction) }, ...rest]
 	return {
 		codec: succeeded(cursorCodec(spec, maxBytes, cursorCodes)),
 		maxBytes,

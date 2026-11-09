@@ -1,5 +1,6 @@
 import type { Option, Stream } from "effect"
 import type { Delivered, Delivery, FieldHost, RowDecoder } from "#compiler/core/decoder.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { Requires } from "#compiler/types/compute/scalar.ts"
 import type {
@@ -487,7 +488,7 @@ export interface Query<
 	): BoundSource<S, Head, BindParams<B>, Hc, Cx, Ev, BindReads<B>>
 	/** An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment. */
 	orderBy(
-		...order: ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, "asc" | "desc"]>
+		...order: ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>
 	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>
 	/**
 	 * A search over one rule's projection, its source as the checker reads it (SearchSource), ranked by a distance of its

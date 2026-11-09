@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { cursorCodecTypes } from "#test/unit/cursor/support.ts"
 
 import { regex } from "arkregex"
+import { directions, opposite } from "#compiler/core/order.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 /**
  * The identity a cursor is bound to: the sensitivity of the comparator, query and generation digests to exactly what
@@ -127,7 +128,7 @@ const rewritten = (
 				? put({ ...c, type: cursorCodecTypes.title })
 				: undefined
 		case "a direction":
-			return put({ ...c, direction: c.direction === "asc" ? "desc" : "asc" })
+			return put({ ...c, direction: opposite(c.direction) })
 		case "a field name":
 			return put({ ...c, field: `${c.field}_renamed` })
 		case "two comparators swapped": {
@@ -157,7 +158,7 @@ describe("the comparator digest", () => {
 							uniqueArray(
 								(source) => ({
 									field: source.draw(element(["a", "b", "c", "d"])),
-									direction: source.draw(element(["asc" as const, "desc" as const])),
+									direction: source.draw(element(directions)),
 									type: source.draw(element(comparatorPool))
 								}),
 								(c) => c.field,

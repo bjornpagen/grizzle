@@ -1,5 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
@@ -32,7 +33,7 @@ export const lexicographic = (
 	fields: ReadonlyArray<{
 		readonly t: ExprDesc
 		readonly s: ExprDesc
-		readonly dir: "asc" | "desc"
+		readonly dir: Direction
 	}>,
 	inclusive: boolean
 ): ExprDesc => {
@@ -55,7 +56,7 @@ export const lexicographic = (
  * <= (s.day, s.id) under `dirs`.
  */
 export interface SelfMatchOptions {
-	readonly dirs: readonly ["asc" | "desc", "asc" | "desc"]
+	readonly dirs: readonly [Direction, Direction]
 	readonly inclusive: boolean
 	readonly extra: ReadonlyArray<ExprDesc>
 	/**
@@ -129,7 +130,7 @@ export const selfMatch = (
 	)
 }
 
-export const ordinal = (dirs: readonly ["asc" | "desc", "asc" | "desc"]): QueryDesc =>
+export const ordinal = (dirs: readonly [Direction, Direction]): QueryDesc =>
 	selfMatch({ ordinal: D.count() }, { ...plainSelfMatch, dirs })
 
 export const running = (options: SelfMatchOptions): QueryDesc =>
@@ -729,7 +730,7 @@ export interface ModeOptions {
 /** The mode itself: the one most frequent day over every sitting. */
 export const plainMode: ModeOptions = { k: 1, count: "all" }
 
-export const modeOfDays = (tiebreak: "asc" | "desc", options: ModeOptions): QueryDesc => {
+export const modeOfDays = (tiebreak: Direction, options: ModeOptions): QueryDesc => {
 	const counts = D.take(
 		D.orderBy(
 			D.queryDesc(

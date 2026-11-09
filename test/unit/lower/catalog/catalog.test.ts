@@ -16,6 +16,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { VarId } from "#compiler/core/ids.ts"
+import { type Direction, directions, opposite } from "#compiler/core/order.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
@@ -108,8 +109,7 @@ const sql = (q: LogicalQuery, r: CatalogResult<Rooted>): ReadonlyArray<string> =
 const v = D.varRef
 const s = (f: string) => D.ref("Sitting", f)
 
-type Dir = "asc" | "desc"
-const dirs = element<Dir>(["asc", "desc"])
+const dirs = element(directions)
 
 /**
  * The spellings of "t before s" over (day, id) under per-field directions, inclusive or strict: the nested expansion,
@@ -126,7 +126,7 @@ type Spelling =
 interface Field {
 	readonly t: ExprDesc
 	readonly s: ExprDesc
-	readonly dir: Dir
+	readonly dir: Direction
 }
 
 /**
@@ -156,7 +156,7 @@ const follows = (f: Field, orEqual: boolean): ExprDesc =>
 
 const spelled = (
 	spelling: Spelling,
-	[day, id]: readonly [Dir, Dir],
+	[day, id]: readonly [Direction, Direction],
 	inclusive: boolean
 ): ExprDesc => {
 	const first: Field = { t: v("t.day"), s: s("day"), dir: day }
@@ -588,15 +588,15 @@ type Neighbor =
 	| { readonly kind: "bound as-of"; readonly mode: "le" | "lt" | "ge" }
 	| { readonly kind: "attached as-of"; readonly mode: "le" | "lt" | "ge" }
 
-const directions = element<"next" | "previous">(["next", "previous"])
+const neighborSides = element<"next" | "previous">(["next", "previous"])
 const modes = element<"le" | "lt" | "ge">(["le", "lt", "ge"])
 
 const neighbors = oneOf<Neighbor>([
-	map(directions, (direction): Neighbor => ({ kind: "bound neighbor", direction })),
+	map(neighborSides, (direction): Neighbor => ({ kind: "bound neighbor", direction })),
 	map(
 		(source) =>
 			[
-				source.draw(directions),
+				source.draw(neighborSides),
 				source.draw(element<"sittings" | "pointed">(["sittings", "pointed"]))
 			] as const,
 		([direction, parents]): Neighbor => ({ kind: "attached neighbor", direction, parents })
@@ -727,7 +727,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 										order: {
 											keys: Arr.map(n.order.keys, (k) => ({
 												...k,
-												dir: k.dir === "asc" ? "desc" : "asc"
+												dir: opposite(k.dir)
 											}))
 										}
 									})

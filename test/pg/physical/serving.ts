@@ -6,6 +6,7 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 
+import type { Direction } from "#compiler/core/order.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
@@ -164,7 +165,7 @@ export type RequestSpec =
 			readonly use: AccessUse
 			readonly keys: Arr.NonEmptyReadonlyArray<{
 				readonly field: string
-				readonly dir: "asc" | "desc"
+				readonly dir: Direction
 			}>
 	  }
 	| {
@@ -203,7 +204,7 @@ const requestKeys = (
 	request: IndexRequest
 ): ReadonlyArray<{
 	readonly field: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 	readonly opclass: LawKey["opclass"]
 }> =>
 	request.role === "lawMaintenance"
@@ -289,7 +290,7 @@ export interface PlannedShape {
 	readonly index: string
 	readonly origin: PlannedIndex["index"]["kind"]
 	readonly method: string
-	readonly keys: ReadonlyArray<{ readonly field: string; readonly dir: "asc" | "desc" }>
+	readonly keys: ReadonlyArray<{ readonly field: string; readonly dir: Direction }>
 	readonly uses: ReadonlyArray<string>
 }
 

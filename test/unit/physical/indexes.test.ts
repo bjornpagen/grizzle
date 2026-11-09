@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import { type AccessUse, type IndexRequest } from "#compiler/ir/products.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
@@ -275,7 +276,7 @@ const engineGen: Gen<EngineSketch> = (source) => ({
 /** The keys of a request on a relation's columns, by their positions in `columns`, each ascending or descending. */
 const keysOf = (
 	relation: (typeof relations)[number],
-	keys: ReadonlyArray<readonly [number, "asc" | "desc"]>
+	keys: ReadonlyArray<readonly [number, Direction]>
 ): RequestSketch["keys"] =>
 	Arr.map(keys, ([i, dir]) => ({
 		column: defined(defined(columns[relation])[i], `column ${i} of ${relation}`),
@@ -284,7 +285,7 @@ const keysOf = (
 
 /** A program's B-tree request on Event's columns, of one access use. */
 const eventAccessRequest = (
-	keys: ReadonlyArray<readonly [number, "asc" | "desc"]>,
+	keys: ReadonlyArray<readonly [number, Direction]>,
 	use: (typeof accessUses)[number]
 ): RequestSketch => ({
 	relation: "Event",

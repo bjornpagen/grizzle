@@ -44,6 +44,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Formatter } from "effect"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type CompletedOrder,
@@ -173,7 +174,7 @@ interface Sketch {
 		| { readonly kind: "attach"; readonly parents: Parents; readonly child: Child }
 		| { readonly kind: "input"; readonly ids: ReadonlyArray<number> }
 	readonly k: number
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 	readonly accounts: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 	readonly entries: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 }
@@ -203,7 +204,7 @@ const formGen: Gen<Sketch["form"]> = weighted<Sketch["form"]>([
 const sketchGen: Gen<Sketch> = (source) => ({
 	form: source.draw(formGen),
 	k: source.draw(intGen(1, 3)),
-	dir: source.draw(element(["asc", "desc"] as const)),
+	dir: source.draw(element(directions)),
 	accounts: source.draw(accountsGen),
 	entries: source.draw(
 		rowsGen([0, 11], [[0, 6], [0, 2], ...Arr.map(wideColumns, () => [0, 2] as const)], 9)
@@ -294,7 +295,7 @@ const parentsOf = (
 const entriesOf = (
 	q: Q,
 	child: Child,
-	dir: "asc" | "desc"
+	dir: Direction
 ): { readonly node: RelNode; readonly order: CompletedOrder } => {
 	const byValue: CompletedOrder = {
 		keys: [

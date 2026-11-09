@@ -9,6 +9,7 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import type { KeyClasses } from "#compiler/ir/keys.ts"
 import {
@@ -183,7 +184,7 @@ interface CaseDraw {
 	readonly discriminant:
 		| { readonly kind: "none" }
 		| { readonly kind: "column"; readonly index: number }
-	readonly user: ReadonlyArray<{ readonly column: number; readonly dir: "asc" | "desc" }>
+	readonly user: ReadonlyArray<{ readonly column: number; readonly dir: Direction }>
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 }
 
@@ -202,7 +203,7 @@ const caseDrawGen: Gen<CaseDraw> = (source) => ({
 		array(
 			(key) => ({
 				column: key.draw(int(0, 4)),
-				dir: key.draw(element<"asc" | "desc">(["asc", "desc"]))
+				dir: key.draw(element(directions))
 			}),
 			{ min: 0, max: 3 }
 		)

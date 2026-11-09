@@ -5,6 +5,7 @@ import { element, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
+import { directions } from "#compiler/core/order.ts"
 import { refused } from "#test/support/assert.ts"
 import { testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -20,7 +21,7 @@ describe("the page compiler", () => {
 					suite: "unit/page/bounded-union",
 					draw: drawn((source) => ({
 						take: source.draw(int(1, 50)),
-						direction: source.draw(element(["asc" as const, "desc" as const]))
+						direction: source.draw(element(directions))
 					})),
 					literal: Formatter.format,
 					coverage: noCoverage,

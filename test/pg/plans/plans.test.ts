@@ -17,6 +17,7 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { type Direction, directions } from "#compiler/core/order.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -85,8 +86,6 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /** The relations keyed by one id the plan fixture fills past a page: a take over their key reads it in key order. */
 type Keyed = "Posting" | "Item" | "Account"
 
-type Direction = "asc" | "desc"
-
 /** The first `k` facts of a keyed relation by id, in `direction`: a take over the retained primary key. */
 const firstBy = (relation: Keyed, direction: Direction, k: number): unknown => {
 	switch (relation) {
@@ -126,7 +125,7 @@ interface TakeCase {
 
 const takeCaseGen: Gen<TakeCase> = (source) => ({
 	relation: source.draw(element<Keyed>(["Posting", "Item", "Account"])),
-	direction: source.draw(element<Direction>(["asc", "desc"])),
+	direction: source.draw(element(directions)),
 	k: source.draw(int(1, 50))
 })
 
@@ -511,7 +510,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							draw: drawn(
 								(source) =>
 									[
-										source.draw(element<Direction>(["asc", "desc"])),
+										source.draw(element(directions)),
 										source.draw(int(1, sizes.entriesPerAccount + 2))
 									] as const
 							),
@@ -520,7 +519,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								kind: "specification",
 								name: "R20: a take per delivered parent over unbounded parents is one scan of its relation"
 							},
-							coverage: required<Direction>(["asc", "desc"], { cases: 8, sense: notesOnly }),
+							coverage: required<Direction>(directions, { cases: 8, sense: notesOnly }),
 							kept: [],
 							runs: 6,
 							shrink: completeShrink,

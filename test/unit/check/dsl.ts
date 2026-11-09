@@ -7,6 +7,7 @@ import type {
 	ScaledComputeFn
 } from "#compiler/ir/desc.ts"
 
+import type { Direction } from "#compiler/core/order.ts"
 import type {
 	BindingsDesc,
 	AuthoredExprDesc as ExprDesc,
@@ -146,7 +147,7 @@ const wrap = (q: QueryDesc, stage: (input: QueryStageDesc) => QueryStageDesc): Q
 
 export const orderBy = (
 	q: QueryDesc,
-	...order: ReadonlyArray<readonly [string, "asc" | "desc"]>
+	...order: ReadonlyArray<readonly [string, Direction]>
 ): QueryDesc =>
 	wrap(q, (input) => ({
 		kind: "order",

@@ -1,6 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import type { Direction } from "#compiler/core/order.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
 import type { Grounds } from "#compiler/ir/evidence.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -43,7 +44,7 @@ import { lexicographicOrder } from "#compiler/lower/shapes/catalog/lexicographic
 
 export interface OrderKeyOf {
 	readonly column: string
-	readonly dir: "asc" | "desc"
+	readonly dir: Direction
 }
 
 /** A recognized inclusive self-match fold: everything a target needs, in source columns. */
