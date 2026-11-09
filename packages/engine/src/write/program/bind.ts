@@ -165,8 +165,8 @@ export interface BoundWrite {
 	/** The form of a statement of an artifact this application sends (`sentForm`). */
 	readonly form: (statement: ArtifactStatement) => SentForm
 	/**
-	 * The placeholder values of that form, each a text or a bytes value's binary form: none reads another statement's
-	 * rows. A relation input's arrays are written once per statement, by the encoder its placeholders share.
+	 * The placeholder values of that form, each a text or a bytes or text column's binary array: none reads another
+	 * statement's rows. A relation input's arrays are written once per statement, by the encoder its placeholders share.
 	 */
 	readonly values: (
 		statement: ArtifactStatement

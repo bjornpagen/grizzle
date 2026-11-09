@@ -26,12 +26,12 @@ export const paramText = nominal<string, ParamText>()
 export const paramBinary = nominal<Uint8Array<ArrayBuffer>, ParamBinary>()
 
 /**
- * A placeholder's value as its text, for a test whose statements hold no bytes column's member array, the one binary
- * parameter (codec/bytea.ts): a binary one there is the test's own error, and throws.
+ * A placeholder's value as its text, for a test that reads a parameter its statement sends as text: one its statement
+ * sends in binary (core/wire.ts Param) has no text, so reading one is the test's own error, and throws.
  */
 export const textOfParam = (param: Param): ParamText => {
 	if (typeof param !== "string") {
-		throw new Error("a binary parameter where the test's statements hold no bytes column")
+		throw new Error("a binary parameter where the test reads a parameter's text")
 	}
 	return param
 }

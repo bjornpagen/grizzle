@@ -7,12 +7,12 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
-import { textsOfParams } from "#test/support/wire.ts"
 
 /**
  * A page as the runtime delivers it, trusted at its documented shape: the runtime readers type it unknown, since their
@@ -303,8 +303,8 @@ export interface Counts {
 	flights: number
 	/** Statements sent through the page's session. */
 	statements: number
-	/** Every statement text and its parameters, in order. */
-	readonly sent: Array<{ readonly sql: string; readonly params: ReadonlyArray<string> }>
+	/** Every statement text and its parameters as sent, a text or a binary value each (core/wire.ts Param), in order. */
+	readonly sent: Array<{ readonly sql: string; readonly params: ReadonlyArray<Param> }>
 }
 
 /** An executor that counts the reads, flights and statements a page sends through `inner`. */
@@ -323,7 +323,7 @@ export const countingExecutor = (
 					counts.statements++
 					counts.sent.push({
 						sql: statement.sql,
-						params: textsOfParams(statement.params)
+						params: statement.params
 					})
 				}
 				return inner.run(flight)

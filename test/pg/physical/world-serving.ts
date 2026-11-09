@@ -58,6 +58,7 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import { worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { ownRole } from "#compiler/schema/own.ts"
@@ -96,7 +97,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { spread } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import { textsOfParams } from "#test/support/wire.ts"
+import { paramText } from "#test/support/wire.ts"
 import { type Built, type BuiltRole, buildInstall } from "#test/support/worlds/execute/build.ts"
 import { carrierOf, valueOfText } from "#test/support/worlds/execute/host.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
@@ -754,11 +755,11 @@ const analyzed = { serialize: { kind: "off" }, wal: false } as const
 const explained = (
 	run: (
 		sql: string,
-		params: ReadonlyArray<string>
+		params: ReadonlyArray<Param>
 	) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>,
 	label: string,
 	sql: string,
-	params: ReadonlyArray<string>
+	params: ReadonlyArray<Param>
 ): Effect.Effect<Explained, SqlError> =>
 	Effect.gen(function* () {
 		const explain = explainStatementWith(sql, analyzed)
@@ -771,12 +772,12 @@ const explained = (
 	})
 
 /** The settings every judged statement runs under, as the serving judge plans its probes, and the case's claims. */
-const judgedSettings = (cx: Judging): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => [
+const judgedSettings = (cx: Judging): ReadonlyArray<readonly [string, ReadonlyArray<Param>]> => [
 	["SET LOCAL enable_seqscan = off", []],
 	["SET LOCAL enable_bitmapscan = off", []],
 	[
 		`SELECT pg_catalog.set_config(${quoteString(claimsSettingName)}::text, $1::text, true)`,
-		[cx.claims]
+		[paramText(cx.claims)]
 	]
 ]
 
@@ -839,19 +840,20 @@ interface Call {
 	readonly row: Row
 }
 
-/** A call's arguments: the row's values of the fields the function takes, in its order. */
-const argsOf = (fn: WorldFunction, row: Row): ReadonlyArray<string> =>
-	Arr.map(fn.params, (f) => defined(row[f.name], `${fn.label}'s argument ${f.name}`))
+/** A call's arguments: the row's values of the fields the function takes, in its order, each sent as its text. */
+const argsOf = (fn: WorldFunction, row: Row): ReadonlyArray<Param> =>
+	Arr.map(fn.params, (f) => paramText(defined(row[f.name], `${fn.label}'s argument ${f.name}`)))
 
 /**
  * A statement the judgment runs: what the report calls it, its SQL and parameters, the statements it needs first (a
- * precheck's carriers and their ANALYZE), and whom it runs as: the owner, or a world's role.
+ * precheck's carriers and their ANALYZE), and whom it runs as: the owner, or a world's role. Each parameter is sent as
+ * its statement binds it, a text or a binary value (core/wire.ts Param), each in the format its value states.
  */
 interface Statement {
 	readonly label: string
 	readonly sql: string
-	readonly params: ReadonlyArray<string>
-	readonly before: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+	readonly params: ReadonlyArray<Param>
+	readonly before: ReadonlyArray<readonly [string, ReadonlyArray<Param>]>
 	readonly as: { readonly kind: "owner" } | { readonly kind: "role"; readonly role: string }
 }
 
@@ -872,7 +874,7 @@ const resolveClaims = (
 ) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const run = (sql: string, values: ReadonlyArray<string>) => admin.queryValues(sql, values)
+		const run = (sql: string, values: ReadonlyArray<Param>) => admin.queryValues(sql, values)
 		const judged = { schema: cx.installed.schema, installation: cx.installed.installation }
 		const problems: Array<string> = []
 		for (const u of unclaimed) {
@@ -1024,7 +1026,7 @@ const asRole = <A>(
 	body: (
 		run: (
 			sql: string,
-			params: ReadonlyArray<string>
+			params: ReadonlyArray<Param>
 		) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>
 	) => Effect.Effect<A, SqlError>
 ): Effect.Effect<A, SqlError, Substrate | Scope.Scope> =>
@@ -1076,7 +1078,7 @@ const policyRow = (
 				Arr.map(target.key, (f, at) => `${columnSql(cx, target.name, f)} = $${at + 1}`),
 				" AND "
 			)}`,
-			params: Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`)),
+			params: Arr.map(target.key, (f) => paramText(defined(row[f], `${target.name}.${f}`))),
 			before: [],
 			as: { kind: "role", role: cx.installed.world(entry.role).role }
 		}
@@ -1119,7 +1121,9 @@ const viewRow = (
 			sql: `SELECT 1 FROM ${names.view(entry.entry)}${
 				Arr.isReadonlyArrayNonEmpty(conditions) ? ` WHERE ${Arr.join(conditions, " AND ")}` : ""
 			}`,
-			params: Arr.map(entry.viewKey, (k) => defined(row[k.field], `${target.name}.${k.field}`)),
+			params: Arr.map(entry.viewKey, (k) =>
+				paramText(defined(row[k.field], `${target.name}.${k.field}`))
+			),
 			before: [],
 			as: { kind: "role", role: cx.installed.world(entry.role).role }
 		}
@@ -1207,10 +1211,10 @@ const precheck = (
 		const judged: Statement = {
 			label,
 			sql: bound.form(statement).sql,
-			params: textsOfParams(succeeded(bound.values(statement))),
+			params: succeeded(bound.values(statement)),
 			before: Arr.map(before, (st) =>
 				st.step.kind === "carrier" || st.step.kind === "analyze"
-					? ([bound.form(st).sql, textsOfParams(succeeded(bound.values(st)))] as const)
+					? ([bound.form(st).sql, succeeded(bound.values(st))] as const)
 					: assert.fail(`${label}: a ${st.step.kind} statement before the check`)
 			),
 			as: { kind: "role", role: cx.installed.world(entry.role).role }

@@ -66,8 +66,8 @@ export type ArrayTexts = ReadonlyArray<ParamText>
 /**
  * A relation input's column whose array no placeholder can carry, so the input is refused before any SQL is sent, which
  * the shell raises as InputTooLarge: a text array literal longer than the longest string the host builds, `limit`
- * UTF-16 code units (core/limits.ts maxStringLength), or a bytes column's binary array longer than the longest message
- * PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes; codec/bytea.ts). `input` names the relation
+ * UTF-16 code units (core/limits.ts maxStringLength), or a bytes or text column's binary array longer than the longest
+ * message PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes; codec/bytea.ts). `input` names the relation
  * parameter or the written relation, `column` its field.
  */
 export interface LiteralBound {

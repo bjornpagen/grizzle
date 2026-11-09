@@ -3,8 +3,9 @@
  *
  * - `ParamText` is what grizzle sends: a parameter's text, which PostgreSQL's input function of the parameter's type
  *   reads. Only an encoder writes one (codec/scalar.ts, and codec/recordset.ts for an array of them), and only the wire
- *   sends one; nothing in grizzle reads one back. A bytes column's array is sent in binary instead, a `ParamBinary`
- *   (codec/bytea.ts), which PostgreSQL's receive function reads.
+ *   sends one; nothing in grizzle reads one back. A bytes or text column's array is sent in binary instead, a
+ *   `ParamBinary` (codec/bytea.ts), which PostgreSQL's receive function reads: the column's type chooses it, never the
+ *   array's size.
  * - `OutputText` is what PostgreSQL sends back: a result cell's text, its type's output function's. Only the wire
  *   receives one (packages/grizzle/src/adapter/wire/session.ts), and only a reader reads one (codec/read.ts). No
  *   column's text is a bytes value's: a bytes column travels in chunks, which its statement's delivery assembles into
@@ -23,12 +24,13 @@ export type ParamText = string & { readonly [paramTextBrand]: true }
 declare const paramBinaryBrand: unique symbol
 
 /**
- * A parameter's binary value, as an encoder writes it for PostgreSQL's receive function: a bytes column's bytea[] in
- * the array binary format (codec/bytea.ts), which the driver sends with format code 1, since it is a Uint8Array.
+ * A parameter's binary value, as an encoder writes it for PostgreSQL's receive function, in the array binary format
+ * (codec/bytea.ts): a bytes column's bytea[], or a text column's text[] of its values' UTF-8 bytes, chosen by the
+ * column's type. The driver sends it with format code 1, since it is a Uint8Array.
  */
 export type ParamBinary = Uint8Array<ArrayBuffer> & { readonly [paramBinaryBrand]: true }
 
-/** What one placeholder carries: its text, or a bytes column's binary array. */
+/** What one placeholder carries: its text, or a bytes or text column's binary array. */
 export type Param = ParamText | ParamBinary
 
 /** A result cell's text, as PostgreSQL's output function writes it. */

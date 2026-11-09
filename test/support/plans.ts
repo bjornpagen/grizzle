@@ -3,6 +3,7 @@ import type { DbContext } from "#adapter/db/context.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { countingExecutor, untyped } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -198,10 +199,10 @@ export interface PlanJudge {
 	readonly planned: ReadonlySet<string>
 }
 
-/** One statement as the runtime sent it. */
+/** One statement as the runtime sent it, each parameter a text or a binary value (core/wire.ts Param). */
 interface Sent {
 	readonly sql: string
-	readonly params: ReadonlyArray<string>
+	readonly params: ReadonlyArray<Param>
 }
 
 const explained = (admin: PgConnection, name: string, st: Sent) =>
