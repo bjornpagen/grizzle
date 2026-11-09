@@ -252,7 +252,7 @@ export const buildDisplacingDelete = (
  * region's head is not read: the deleted facts are the target's own rows.
  *
  *   WITH "r1" AS (DELETE FROM "q"."wanted" AS "r0"
- *                 USING (SELECT "r2"."c1", ... FROM "__carrier_<d>_1" AS "r2") AS "r3"("c4", ...)
+ *                 USING (SELECT "r2"."c1", ... FROM "__carrier_1" AS "r2") AS "r3"("c4", ...)
  *                 WHERE "r0"."key" = "r3"."c6"
  *                 RETURNING "r0"."key" AS "c1", ...)
  *   SELECT "r1"."c1"::text AS "c1", ... FROM "r1"

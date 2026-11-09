@@ -10,11 +10,15 @@ import {
 	type SerialClass
 } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
-import { type WriteCarrier, CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
+import { type WriteCarrier, CarrierSupply } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
-import { type FamilyAt, type FamilyNode, familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
+import {
+	type FamilyAt,
+	type FamilyNode,
+	familyNodeRelations
+} from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import {
 	type InputProof,
@@ -663,7 +667,7 @@ export const planWrite = (
 	evidence: PlanEvidence
 ): WritePlan => {
 	const ir = frontend.ir
-	const supply = new CarrierSupply(typesDigest)
+	const supply = new CarrierSupply()
 	const deltas = planDeltas(ir, frontend.deltas, supply)
 	const steps: Array<PlanStep> = []
 	for (const carriers of deltas.carriers.values()) {

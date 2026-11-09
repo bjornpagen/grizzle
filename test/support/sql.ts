@@ -33,13 +33,7 @@ import {
 	inSet,
 	pack
 } from "#compiler/sql/constants.ts"
-import {
-	type CarrierName,
-	carrierDigestHex,
-	carrierPrefix,
-	carrierSeparator,
-	isDecimal
-} from "#compiler/sql/naming.ts"
+import { type CarrierName, carrierPrefix, isDecimal } from "#compiler/sql/naming.ts"
 import {
 	printExpr,
 	printObjectName,
@@ -58,33 +52,12 @@ export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSele
 const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
 	gt(cellCode(constant, index, width), lit.int(0, types.integer))
 
-const isLowerHex = (text: string): boolean => {
-	for (const ch of text) {
-		if (!((ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f"))) {
-			return false
-		}
-	}
-	return true
-}
-
-/**
- * Whether a value spells a carrier (sql/naming.ts carrierName): a types digest of carrierDigestHex lowercase hex
- * digits, then an ordinal from 1 with no leading zero, a safe integer.
- */
+/** Whether a value spells a carrier (sql/naming.ts carrierName): an ordinal from 1 with no leading zero, a safe integer. */
 export const isCarrierName = (u: unknown): u is CarrierName => {
 	if (typeof u !== "string" || !Str.startsWith(carrierPrefix)(u)) {
 		return false
 	}
-	const digest = Str.slice(carrierPrefix.length, carrierPrefix.length + carrierDigestHex.value)(u)
-	const rest = Str.slice(carrierPrefix.length + carrierDigestHex.value)(u)
-	if (
-		digest.length !== carrierDigestHex.value ||
-		!isLowerHex(digest) ||
-		!Str.startsWith(carrierSeparator)(rest)
-	) {
-		return false
-	}
-	const ordinal = Str.slice(carrierSeparator.length)(rest)
+	const ordinal = Str.slice(carrierPrefix.length)(u)
 	return isDecimal(ordinal) && ordinal !== "0" && Number.isSafeInteger(Number(ordinal))
 }
 

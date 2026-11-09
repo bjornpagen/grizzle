@@ -1,7 +1,6 @@
 import { exact, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	admittedIdentifier,
@@ -69,25 +68,16 @@ import type {
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
-import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
-import { typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { ownedInput } from "#test/support/policy.ts"
-
-/**
- * The `ordinal`-th carrier, from 1, of the unit relation's column types, which are none: named through the door as a
- * write program names it (write/carriers CarrierSupply).
- */
-export const unitCarrier = (ordinal: number): CarrierName =>
-	carrierName(typesDigest(canonicalTextOf([])), ordinal)
 
 /**
  * What a test names production identifiers of: a public schema value or a desc fixture, as the schema boundary

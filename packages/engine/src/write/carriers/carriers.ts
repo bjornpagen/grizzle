@@ -1,10 +1,9 @@
-import { canonicalFormat, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { resourceBound, unsupported } from "#compiler/core/errors.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { resourceBound } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
@@ -31,12 +30,7 @@ import {
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import {
-	carrierDigestHex,
-	type CarrierName,
-	carrierName,
-	emptyNameMap
-} from "#compiler/sql/naming.ts"
+import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import {
 	type AnalyzeResult,
@@ -65,20 +59,16 @@ export interface CarrierColumn extends HeadingColumn {
  * schema-qualified, it drops at COMMIT, and every column is NOT NULL; a carrier of a relation's facts is keyed by the
  * relation's primary key (`relationCarrier`):
  *
- *   CREATE TEMPORARY TABLE "__carrier_<d>_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
+ *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
  *     ON COMMIT DROP
- *   INSERT INTO "__carrier_<d>_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
- *   CREATE TEMPORARY TABLE "__carrier_<d>_<k>" ("c1" uuid NOT NULL, "c2" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,
+ *   INSERT INTO "__carrier_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
+ *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,
  *     PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE) ON COMMIT DROP
  *
- * Carriers are named `__carrier_<d>_<k>` and their columns c1 to cn. The name is a pair: d, a digest of its heading's
- * column types (typesDigest), and k, the carrier's ordinal among the program's carriers of those types, so a program
- * holds as many carriers of one column-type class as it makes. A session parses each named statement text once and
- * PostgreSQL refuses a cached plan whose result type changed (0A000), so a statement text must mean one result type
- * wherever it is sent: two programs that read or write "__carrier_<d>_<k>" by equal text read carriers of equal column
- * types. A count per program alone would let one text address carriers of different types, which a session meets as a
- * stale statement on a correct write. A column is
- * typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
+ * Carriers are named `__carrier_<k>`, k the carrier's ordinal among its program's carriers from 1, and their columns
+ * c1 to cn. A carrier drops at its transaction's COMMIT and every statement runs as PostgreSQL's unnamed statement,
+ * which no session keeps, so a name tells apart only the carriers of one program (sql/naming.ts CarrierName). A column
+ * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
  * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
  * member writes nothing, so its carrier is typed as the deletion compares it instead: each field's base type with its
@@ -87,7 +77,7 @@ export interface CarrierColumn extends HeadingColumn {
  * A carrier is filled only by INSERT ... SELECT: from a described member, from a stored relation (the conservative
  * realization's state snapshot), or from the difference of two such relations (a delta by state comparison). A carrier
  * of no column, which PostgreSQL holds, is the unit relation's: filled by
- * `INSERT INTO "__carrier_<d>_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
+ * `INSERT INTO "__carrier_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
  * the unit marker. */
 export interface WriteCarrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
@@ -115,60 +105,13 @@ export type CarrierRow =
 export const carrierRow = (carrier: WriteCarrier): CarrierRow =>
 	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
 
-/** The canonical text of a heading's column types, what a carrier's digest stands for. Only the types count: a carrier's
- * columns are named c1 to cn whatever its fields are called, so two headings of equal types give a statement equal
- * result types. */
-const typesText = (heading: Heading): string => {
-	const text = encode(
-		heading.map((c) => c.type),
-		everyProperty
-	)
-	if (!text.ok) {
-		throw new Refusal(text.error)
-	}
-	return text.value
-}
-
-/** The digest a carrier's name holds for the column types whose canonical text is `types`: the leading
- * carrierDigestHex hex digits of SHA-256 over them, domain-separated as every fingerprint is (core/fingerprint.ts). */
-export const typesDigest = (types: string): string =>
-	sha256Hex(`${canonicalFormat}\ncarrier column types\n${types}`).slice(0, carrierDigestHex.value)
-
-/** The column types one digest stands for in a program, and how many carriers of them the program holds. */
-interface TypesClass {
-	readonly types: string
-	readonly count: number
-}
-
-/** The carriers of one program, each named by its column types' digest and its ordinal among the program's carriers of
- * those types (see `WriteCarrier`). A digest stands for one column-type class in the program: two classes that `digest`
- * gives one digest are refused, so no name is shared between different column types. */
+/** The carriers of one program, each named by its ordinal among them (see `WriteCarrier`). */
 export class CarrierSupply {
-	readonly #digest: (types: string) => string
-	readonly #classes = new Map<string, TypesClass>()
 	readonly #all: Array<WriteCarrier> = []
-
-	/** A supply naming carriers by `digest`: typesDigest, or a test's stand-in. */
-	constructor(digest: (types: string) => string) {
-		this.#digest = digest
-	}
 
 	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
 	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): WriteCarrier {
-		const types = typesText(heading)
-		const digest = this.#digest(types)
-		const known = this.#classes.get(digest)
-		if (known !== undefined && known.types !== types) {
-			throw new Refusal(
-				unsupported(
-					SourceLoc("write lowering", ["carriers"]),
-					`carriers of distinct column types under distinct digests; two of this program's share the digest ${digest}`
-				)
-			)
-		}
-		const ordinal = (known?.count ?? 0) + 1
-		this.#classes.set(digest, { types, count: ordinal })
-		const name = carrierName(digest, ordinal)
+		const name = carrierName(this.#all.length + 1)
 		const columns = Object.freeze(
 			heading.map((c, i): CarrierColumn =>
 				Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
@@ -261,7 +204,7 @@ export const buildCreateCarrier = (
 		skipWhenEmpty: undefined
 	}))
 
-/** ANALYZE pg_temp.__carrier_<d>_<k>, ... of carriers the program created and filled, so each later statement that joins
+/** ANALYZE pg_temp.__carrier_<k>, ... of carriers the program created and filled, so each later statement that joins
  * one against a stored relation plans with its exact row count instead of PostgreSQL's ten-page guess for a relation
  * never analyzed (placement in). A carrier is the session's own,
  * so the lock it takes is uncontended, and the statement reads no stored relation. */

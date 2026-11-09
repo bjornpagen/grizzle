@@ -1,9 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { derived } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -74,52 +72,20 @@ export const isDecimal = (text: string): boolean => {
 /** What every carrier's name starts with. */
 export const carrierPrefix = "__carrier_"
 
-/** What parts a carrier's types digest from its ordinal. */
-export const carrierSeparator = "_"
-
 /**
- * The decimal digits of the longest ordinal a carrier's name holds: Number.MAX_SAFE_INTEGER's decimal length. An
- * ordinal counts the carriers of one column-type class that one program holds, each an object the program keeps, so
- * the count stays a safe integer, which this many decimal digits write.
- *
- * @formatConstant a carrier's ordinal: a safe integer, in decimal
- */
-const ordinalDigits = String(Number.MAX_SAFE_INTEGER).length
-
-/**
- * The hex digits of a carrier's types digest: the leading digits of SHA-256 over its column types' canonical text.
- * Collision arithmetic: n distinct column-type lists in one process share a digest with probability at most
- * n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one never meet, since a carrier lives in
- * one transaction and every statement runs unnamed, and one program that holds both is refused at compile time
- * (write/carriers CarrierSupply).
- */
-export const carrierDigestHex = derived({
-	owner: "grizzle's carrier names (sql/naming.ts carrierName)",
-	unit: "hex digits",
-	scope: "the types digest of one carrier's name",
-	from: [maxIdentifierBytes],
-	derivation:
-		"maxIdentifierBytes less the lengths of carrierPrefix, carrierSeparator and the longest ordinal (ordinalDigits): the widest digest a name with the longest ordinal still fits in PostgreSQL's identifier, which would truncate a longer one",
-	compute: ([identifier]) =>
-		identifier.value - carrierPrefix.length - carrierSeparator.length - ordinalDigits
-})
-
-/**
- * __carrier_<digest>_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
- * TEMPORARY TABLE and ANALYZE take. Only carrierName spells one. The digest names the carrier's column types and the
- * ordinal its place among the program's carriers of those types (write/carriers), so equal statement text addresses
- * carriers of equal column types in every program, and no count of carriers runs out of names.
+ * __carrier_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE TEMPORARY
+ * TABLE and ANALYZE take. Only carrierName spells one. The ordinal is the carrier's place among its program's carriers,
+ * from 1: a carrier drops at its transaction's COMMIT, and every statement runs as PostgreSQL's unnamed statement, which
+ * no session keeps, so a name tells apart only the carriers of one program. A safe integer's decimal digits after the
+ * prefix are within PostgreSQL's identifier.
  */
 export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
-/**
- * The `ordinal`-th carrier, from 1, of the column types whose digest is `digest` (carrierDigestHex lowercase hex
- * digits, write/carriers typesDigest).
- */
-export const carrierName = (digest: string, ordinal: number): CarrierName =>
-	CarrierName(`${carrierPrefix}${digest}${carrierSeparator}${ordinal}`)
+/** The `ordinal`-th carrier of a program, from 1. */
+export const carrierName = (ordinal: number): CarrierName =>
+	CarrierName(`${carrierPrefix}${ordinal}`)
 
 /**
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays

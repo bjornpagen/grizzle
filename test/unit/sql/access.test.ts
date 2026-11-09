@@ -6,15 +6,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { objectName, types } from "#compiler/sql/build.ts"
 import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
-import { unitCarrier } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isCarrierName } from "#test/support/sql.ts"
 
@@ -93,7 +91,7 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 								case "a carrier created": {
 									const a = relationAccess({
 										kind: "createCarrier",
-										name: unitCarrier(sketch.n),
+										name: carrierName(sketch.n),
 										primaryKey: ["c1"],
 										columns: [
 											{
@@ -105,12 +103,12 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 										]
 									})
 									unorderedEqual([...a.reads], [])
-									unorderedEqual([...a.writes], [unitCarrier(sketch.n)])
+									unorderedEqual([...a.writes], [carrierName(sketch.n)])
 									assert.equal(a.stored, false)
 									return
 								}
 								case "carriers analyzed": {
-									const names = Arr.map(sketch.ns, unitCarrier)
+									const names = Arr.map(sketch.ns, carrierName)
 									const a = relationAccess({ kind: "analyze", carriers: names })
 									unorderedEqual([...a.reads], names)
 									unorderedEqual([...a.writes], names)
@@ -135,28 +133,24 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 
 /**
  * The ANALYZE statement names carriers only: a name read from outside (a persisted snapshot) is a carrier exactly when
- * it spells carrierName(digest, n) for a types digest and some n from 1, whatever else a snapshot file can hold, and no
- * rewrite of schema-qualified names touches one.
+ * it spells carrierName(n) for some n from 1, whatever else a snapshot file can hold, and no rewrite of schema-qualified
+ * names touches one.
  */
-const digest = typesDigest("[]")
 const nearMisses = [
-	`__carrier_${digest}_0`,
-	`__carrier_${digest}_01`,
-	`__carrier_${digest}_`,
-	`__carrier_${digest}_x`,
-	`__carrier_${digest}_-1`,
-	`__carrier_${digest}_1 `,
-	` __carrier_${digest}_1`,
-	`__Carrier_${digest}_1`,
-	`__carrier_${digest}_1.0`,
-	`__carrier_${digest}_${2 ** 53}`,
-	`__carrier_${Str.toUpperCase(digest)}_1`,
-	`__carrier_${Str.slice(1)(digest)}_1`,
-	`__carrier_${digest}0_1`,
-	`__carrier_${digest}1`,
-	`carrier_${digest}_1`,
-	"__carrier_1",
+	"__carrier_0",
+	"__carrier_01",
 	"__carrier_",
+	"__carrier_x",
+	"__carrier_-1",
+	"__carrier_+1",
+	"__carrier_1 ",
+	" __carrier_1",
+	"__Carrier_1",
+	"__carrier_1.0",
+	"__carrier_1e3",
+	`__carrier_${2 ** 53}`,
+	"__carrier__1",
+	"carrier_1",
 	"task",
 	""
 ] as const
@@ -165,13 +159,7 @@ type AnalyzeFeature = "live" | "near miss" | "json"
 
 /** A name an ANALYZE may be handed, and whether it is a carrier's. */
 const namedGen: Gen<readonly [unknown, boolean]> = oneOf<readonly [unknown, boolean]>([
-	(source): readonly [unknown, boolean] => [
-		carrierName(
-			typesDigest(String(source.draw(int(0, 0x7fff_ffff)))),
-			source.draw(int(1, 0x7fff_ffff))
-		),
-		true
-	],
+	(source): readonly [unknown, boolean] => [carrierName(source.draw(int(1, 0x7fff_ffff))), true],
 	map(element(nearMisses), (name): readonly [unknown, boolean] => [name, false]),
 	map(json(3), (value): readonly [unknown, boolean] => [value, false])
 ])

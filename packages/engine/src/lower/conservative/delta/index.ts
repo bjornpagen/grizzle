@@ -11,7 +11,7 @@ import { col, target, unitTargets } from "#compiler/sql/build.ts"
 /**
  * Delta: a read-back's netted delta.added(R) or delta.removed(R).
  *
- *   SELECT DISTINCT r2.c4, r2.c5 FROM __carrier_<d>_1 AS r2
+ *   SELECT DISTINCT r2.c4, r2.c5 FROM __carrier_1 AS r2
  *
  * A delta is the write program's, computed by comparing the states before and after the change in the conservative
  * realization: the write compiler hands the lowering the transaction-scoped carrier that holds it, whose columns are
