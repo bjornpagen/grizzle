@@ -25,10 +25,11 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { migrated, type Version, withDb, withDbClaims } from "#test/support/installed.ts"
+import { migrated, type Version } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -395,8 +396,8 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 							}
 							yield* m.reapply
 							const last = defined(built[built.length - 1], "the last version")
-							yield* withDbClaims(m, last.login.roles.editor, { sub: "u_ann" }, () => Effect.void)
-							yield* withDb(m, last.login.roles.viewer, () => Effect.void)
+							yield* withServedDb(m, last.login.roles.editor, { sub: "u_ann" }, () => Effect.void)
+							yield* withServedDb(m, last.login.roles.viewer, {}, () => Effect.void)
 							const read = yield* readCatalog(
 								substrate.admin,
 								mapNonEmpty(m.installation.names.levels, identifierOf)

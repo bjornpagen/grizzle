@@ -18,10 +18,11 @@ import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { assert, assertVariant, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
-import { migrated, type Version, withDb } from "#test/support/installed.ts"
+import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -350,8 +351,8 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 									unorderedEqual(at.policies, want.policies, `the policies at ${i}`)
 								}
 								yield* m.reapply
-								yield* withDb(m, last.login.roles.clerk, () => Effect.void)
-								yield* withDb(m, last.login.roles.keeper, () => Effect.void)
+								yield* withServedDb(m, last.login.roles.clerk, {}, () => Effect.void)
+								yield* withServedDb(m, last.login.roles.keeper, {}, () => Effect.void)
 								const read = yield* readCatalog(substrate.admin, [m.schema])
 								assert.ok(read.kind === "present", `the migrated schema ${m.schema} is absent`)
 								assert.deepEqual(
@@ -367,9 +368,10 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 									)
 								}
 								for (const who of roleNames) {
-									yield* withDb(
+									yield* withServedDb(
 										m,
 										who === "clerk" ? last.login.roles.clerk : last.login.roles.keeper,
+										{},
 										() => Effect.void
 									)
 								}

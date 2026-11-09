@@ -23,11 +23,12 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { migrated, noObservation, withDb } from "#test/support/installed.ts"
+import { migrated, noObservation } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
 
@@ -341,7 +342,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 								const admitted = Effect.gen(function* () {
 									const reapplied = yield* m.reapply
 									assert.deepEqual(reapplied.applied, [])
-									yield* withDb(m, b.server.roles.reader, () => Effect.void)
+									yield* withServedDb(m, b.server.roles.reader, {}, () => Effect.void)
 								})
 								yield* admitted
 								const views = Arr.filter(before, ([, , , kind]) => kind === "m")
@@ -359,7 +360,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 									return assert.fail("migrate apply admits the dropped statistics")
 								}
 								assert.equal(applied.failure.stage, "drift")
-								yield* withDb(m, b.server.roles.reader, () => Effect.void)
+								yield* withServedDb(m, b.server.roles.reader, {}, () => Effect.void)
 								yield* m.sql(definition)
 								yield* admitted
 							})

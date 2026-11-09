@@ -1,16 +1,10 @@
 import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
-import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
-import type { QueryResultValue } from "#adapter/reader/reader.ts"
 import type { CompiledDbConfigShape, DbLayerOf } from "#adapter/types/layer.ts"
-import type { Json } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -22,7 +16,6 @@ import {
 	type AnyClosed,
 	type AnyLogin,
 	type AnyRelation,
-	type AnyRole,
 	type AnySchema,
 	type Schema,
 	type Statement,
@@ -36,7 +29,6 @@ import {
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -54,11 +46,9 @@ import {
 import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
-import { compileRuntime, dbReader } from "#test/support/runtime-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { dropRole, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer, testVerify, tokenOf } from "#test/support/worlds.ts"
+import { testVerify } from "#test/support/worlds.ts"
 
 /**
  * One version of a migrated schema: its schema value, built under the allocated name, and the logins over it whose
@@ -262,7 +252,7 @@ const schemaNameOf = (options: MigrateOptions) =>
 	})
 
 /**
- * Installing a fixture as a deployment does, and opening a Db over it.
+ * Installing a fixture as a deployment does.
  *
  * A fixture is installed the way a deployment installs it: its schema value is rebuilt under a unique name (roles are
  * cluster-wide) or a reserved word, its first migration is generated from the
@@ -271,8 +261,8 @@ const schemaNameOf = (options: MigrateOptions) =>
  * snapshot is the one the application knows. Every generated folder is reviewed first by the one reviewer
  * (test/support/migrate/review.ts), every candidate rename kept or chosen as the caller says and every placeholder
  * given the caller's value, so no later version runs a placeholder raw. Each version states its
- * logins, whose worlds its migration installs and whose workloads it plans. Db.open then admits the database as one of
- * their roles, through its login's DbLayer, given the snapshot.
+ * logins, whose worlds its migration installs and whose workloads it plans. A Db of one of their roles opens through
+ * its login's served file, compiled under the snapshot the history reached (test/support/served-db.ts withServedDb).
  *
  * Installs the schema through its generated migrations, as described in the header.
  */
@@ -358,52 +348,3 @@ export const migrated = (options: MigrateOptions) =>
 		}
 		return result
 	})
-
-/**
- * The operations of an opened Db these tests use, over a schema value known only at run time: the runtime the Db runs
- * (test/support/runtime-db.ts), which types every program `unknown`.
- */
-interface OpenedDb {
-	readonly execute: (query: unknown, params: unknown) => Effect.Effect<QueryResultValue, ReadError>
-	readonly compile: (
-		program: unknown
-	) => Effect.Effect<CompiledOps<unknown>, CompileError, Scope.Scope>
-}
-
-/**
- * Db.open of `role`, a role reached through its login, through the runtime Db.open runs
- * (packages/grizzle/src/adapter/db/open.ts), with the operations of OpenedDb.
- */
-const openDb = (
-	role: AnyLoginRole,
-	token: string
-): Effect.Effect<OpenedDb, OpenError, DbLayer<AnyRole>> =>
-	Effect.map(openDbContext(role, { token }), ({ ctx }) => {
-		const reader = dbReader(ctx)
-		return {
-			execute: (query, params) => reader.execute(query, params),
-			compile: (program) => compileRuntime(ctx, program)
-		}
-	})
-
-/**
- * Opens the migrated schema as `role`, a role reached through its login, with a token whose payload is `payload`,
- * through its login's layer, which holds the snapshot the migrations reached, and runs `body` with the Db, inside the
- * layer's scope.
- */
-export const withDbClaims = <A, E>(
-	m: Installed,
-	role: AnyLoginRole,
-	payload: Json,
-	body: (db: OpenedDb) => Effect.Effect<A, E, Scope.Scope>
-): Effect.Effect<A, E | OpenError | SqlError, Scope.Scope> =>
-	Effect.scoped(Effect.flatMap(openDb(role, tokenOf(payload)), body)).pipe(
-		withLayer(loginLayer(m, role.login))
-	)
-
-/** Opens the migrated schema as `role` with a token that holds no claims, and runs `body` with the Db. */
-export const withDb = <A, E>(
-	m: Installed,
-	role: AnyLoginRole,
-	body: (db: OpenedDb) => Effect.Effect<A, E, Scope.Scope>
-): Effect.Effect<A, E | OpenError | SqlError, Scope.Scope> => withDbClaims(m, role, {}, body)
