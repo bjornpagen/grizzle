@@ -26,6 +26,18 @@
  * law follows every statement's, by contract name; and the same schema declared in another order of its relations and
  * statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the primary keys, the
  * pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration each fail it.
+ *
+ * lawsByStatement(schema) looks up exactly the laws each statement states. The oracle is the naming door and the
+ * installation: each owned statement a statement value is (a mirrors' two containments), owned alone over the schema's
+ * levels and matched among the schema's owned statements by identity text, and every law of the installation's theory
+ * that holds one, as the installation describes the law its objects report. Every statement of the schema, and every
+ * statement of its twin built again in another order, gives exactly those laws, in lawsOf's order, each one the
+ * installation can report, a key restating a span primary key the primary key's law it shares; every law lawsOf lists
+ * is some statement's, a primary key's, a contract's, a pattern's or a generated field's, and every statement's law is
+ * one lawsOf lists. A statement of another drawn schema gives the laws the installation's theory holds for it when this
+ * schema states it, and is refused as MalformedDescription when it does not, as is a copy of a statement no builder
+ * made. Planted in a scratch copy, a mirrors giving only its first containment, and a key restating a primary key given
+ * a key law of its own instead of the primary key's, each fail it.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -47,6 +59,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
+import type { StatementDesc } from "#compiler/ir/desc.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
@@ -55,6 +68,7 @@ import {
 	type AnyRelation,
 	type AnySchema,
 	closed,
+	lawsByStatement,
 	lawsOf,
 	type RowScalars,
 	schema,
@@ -65,11 +79,13 @@ import {
 	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
+	expansionDescOf,
 	keyBuilder,
 	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
-	selectBuilder
+	selectBuilder,
+	statementDescOf
 } from "#compiler/schema/statements.ts"
 import { type ColumnDef, type ObjectName, tableConstraints } from "#compiler/sql/ast.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -77,9 +93,14 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
 import { relationName } from "#test/support/families/fill.ts"
-import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
+import {
+	identityText,
+	installationNamesOf,
+	installationOf,
+	ownedStatementText
+} from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { bareContract } from "#test/unit/schema/support.ts"
 
@@ -152,7 +173,8 @@ interface Reorder {
 	readonly reversed: boolean
 }
 
-interface LawsCase {
+/** A drawn schema: its family core, its tables, their statements, its levels and another order of its declarations. */
+interface SchemaCase {
 	readonly core: SwarmSpec
 	readonly tables: ReadonlyArray<TableCase>
 	readonly statements: ReadonlyArray<StatementCase>
@@ -160,6 +182,11 @@ interface LawsCase {
 	readonly payload: Option.Option<Spelled>
 	readonly levels: Levels
 	readonly reorder: Reorder
+}
+
+/** A drawn schema beside another drawn apart from it, whose statements the first may state or not. */
+interface LawsCase extends SchemaCase {
+	readonly other: SchemaCase
 }
 
 const partGen: Gen<Part> = (source) => ({
@@ -337,7 +364,7 @@ const statementGens = (
 	)
 }
 
-const caseGen: Gen<LawsCase> = (source) => {
+const schemaCaseGen: Gen<SchemaCase> = (source) => {
 	const core = source.draw(swarmSpecGen(source.draw(featuresGen), false))
 	const palette = nonEmpty(source.draw(array(patternGen, { min: 1, max: 3 })), "the palette")
 	const names = source.draw(
@@ -376,6 +403,11 @@ const caseGen: Gen<LawsCase> = (source) => {
 		reorder: { by: source.draw(int(0, 64)), reversed: source.draw(boolean) }
 	}
 }
+
+const caseGen: Gen<LawsCase> = (source) => ({
+	...source.draw(schemaCaseGen),
+	other: source.draw(schemaCaseGen)
+})
 
 const textOf = (pattern: Spelled): FieldBase =>
 	pattern.flags === "u" ? regexField(pattern.source, ["u"]) : regexField(pattern.source, ["su"])
@@ -453,7 +485,9 @@ interface Level {
 }
 
 /** The case's levels: the core's, and the tables' beside it or above it. */
-const levelsOf = (c: LawsCase): { readonly base: Level; readonly above: Option.Option<Level> } => {
+const levelsOf = (
+	c: SchemaCase
+): { readonly base: Level; readonly above: Option.Option<Level> } => {
 	const core = buildSwarm(c.core).rename("Laws")
 	const values = Arr.map(c.tables, tableOf)
 	const valueAt = (i: number): BuiltRelation => defined(values[i], `the table ${String(i)}`)
@@ -547,7 +581,7 @@ const reordered = <A>(items: ReadonlyArray<A>, r: Reorder): ReadonlyArray<A> => 
 
 /** The case's schema, each level's relations and statements in the order `order` puts them. */
 const subjectOf = (
-	c: LawsCase,
+	c: SchemaCase,
 	order: <A>(items: ReadonlyArray<A>) => ReadonlyArray<A>
 ): AnySchema => {
 	const { base, above } = levelsOf(c)
@@ -688,6 +722,42 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 	return [...created, ...Arr.map([...map.raised.values()], (l) => l.described)]
 }
 
+/** The owned statements a statement value is: a mirrors' two containments, any other statement itself. */
+const ownedAs = (statement: Statement): Arr.NonEmptyReadonlyArray<StatementDesc> => {
+	const expansion = expansionDescOf(statement)
+	return expansion === undefined
+		? [defined(statementDescOf(statement), "a built statement's description")]
+		: expansion.statements
+}
+
+/**
+ * The laws a statement states in `installation`, through the naming door: each owned statement the value is, owned alone
+ * over the installation's levels (ownedStatementText) and matched by identity text among its owned statements, and every
+ * law of its theory that holds one, in theory order, described as the installation describes the law its objects
+ * report. None when the installation states not every owned statement the value is.
+ */
+const statedBy = (
+	installation: Installation
+): ((statement: Statement) => Option.Option<ReadonlyArray<Law>>) => {
+	const { owned, theory } = installation.laws
+	const texts = Arr.map(owned.statements, identityText)
+	const indexOf = (desc: StatementDesc): Option.Option<number> => {
+		const text = ownedStatementText(owned.desc, desc)
+		return text.ok ? Arr.findFirstIndex(texts, (t) => t === text.value) : Option.none()
+	}
+	return (statement) =>
+		Option.map(Option.all(Arr.map(ownedAs(statement), indexOf)), (indices) =>
+			Arr.map(
+				Arr.filter(theory.laws, (law) => Arr.some(law.statements, (i) => indices.includes(i))),
+				(law) =>
+					defined(
+						installation.described.get(law.id),
+						`the installation describes the law ${law.id}`
+					)
+			)
+		)
+}
+
 /** The law kinds an outcome can name, each a coverage feature: a kind a case never lists fails the search. */
 const lawKinds = {
 	primaryKey: "a primaryKey law",
@@ -719,6 +789,13 @@ type LawsFeature =
 	| "a statement restated a level above"
 	| "a level above"
 	| "another order listing the same laws"
+	| "a statement stating no law"
+	| "a law two statements state"
+	| "a key sharing the primary key's law"
+	| "an equal statement built again"
+	| "a statement of another schema stated here"
+	| "a statement of another schema refused"
+	| "a value no builder made refused"
 
 type PatternLaw = Extract<Law, { readonly kind: "pattern" }>
 
@@ -750,7 +827,7 @@ describe("lawsOf", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "the installation's constraint-to-law map, and the case's declared keys, patterns and generated fields"
+							name: "the installation's constraint-to-law map, the naming door's owned statements, and the case's declared keys, patterns and generated fields"
 						},
 						coverage: required<LawsFeature>(
 							[
@@ -768,6 +845,13 @@ describe("lawsOf", () => {
 								"a statement restated a level above",
 								"a level above",
 								"another order listing the same laws",
+								"a statement stating no law",
+								"a law two statements state",
+								"a key sharing the primary key's law",
+								"an equal statement built again",
+								"a statement of another schema stated here",
+								"a statement of another schema refused",
+								"a value no builder made refused",
 								...Rec.values(lawKinds)
 							],
 							{ cases: 120, sense: notesOnly }
@@ -900,6 +984,95 @@ describe("lawsOf", () => {
 								Arr.join(Rec.keys(subject.relations), " ")
 							) {
 								k.note("another order listing the same laws")
+							}
+
+							const lawsOfStatement = lawsByStatement(subject)
+							const stated = statedBy(installation)
+							const looked = Arr.map(subject.statements, (statement) => ({
+								texts: Arr.join(Arr.map(ownedAs(statement), identityText), " "),
+								laws: lawsOfStatement(statement)
+							}))
+							for (const statement of [...subject.statements, ...twin.statements]) {
+								const expected = Option.getOrThrowWith(
+									stated(statement),
+									() => new Error(`the installation states its ${statement.kind}`)
+								)
+								const got = lawsOfStatement(statement)
+								assert.deepEqual(
+									got,
+									expected,
+									`lawsByStatement gives the laws the installation's ${statement.kind} states, in lawsOf's order`
+								)
+								for (const law of got) {
+									assert.ok(
+										Arr.some(reported, (r) => sameLaw(law, r)),
+										`the installation can report the ${statement.kind}'s ${law.kind} law: ${Formatter.format(law)}`
+									)
+								}
+								if (got.length === 0) {
+									k.note("a statement stating no law")
+								}
+								throwsRefused(
+									() => lawsOfStatement({ ...statement }),
+									"MalformedDescription",
+									`a copy of the ${statement.kind} no builder made is no statement of the schema`
+								)
+								k.note("a value no builder made refused")
+							}
+							if (twin.statements.length > 0) {
+								k.note("an equal statement built again")
+							}
+							for (const [i, a] of looked.entries()) {
+								for (const b of Arr.drop(looked, i + 1)) {
+									if (
+										a.texts !== b.texts &&
+										Arr.some(a.laws, (l) => Arr.some(b.laws, (m) => sameLaw(l, m)))
+									) {
+										k.note("a law two statements state")
+									}
+								}
+							}
+							if (Arr.some(looked, (l) => Arr.some(l.laws, (law) => law.kind === "primaryKey"))) {
+								k.note("a key sharing the primary key's law")
+							}
+							const fromStatements = Arr.flatMap(looked, (l) => l.laws)
+							const unstated = [
+								...primaryKeys,
+								...Arr.filter(reported, (l) => l.kind === "contract"),
+								...patterns,
+								...generated
+							]
+							for (const law of laws) {
+								assert.ok(
+									Arr.some([...fromStatements, ...unstated], (l) => sameLaw(law, l)),
+									`lawsOf's ${law.kind} law is a statement's, a primary key's, a contract's, a pattern's or a generated field's: ${Formatter.format(law)}`
+								)
+							}
+							for (const law of fromStatements) {
+								assert.ok(
+									Arr.some(laws, (l) => sameLaw(law, l)),
+									`lawsOf lists the ${law.kind} law a statement states: ${Formatter.format(law)}`
+								)
+							}
+							for (const statement of subjectOf(c.other, (items) => items).statements) {
+								Option.match(stated(statement), {
+									onNone: () => {
+										throwsRefused(
+											() => lawsOfStatement(statement),
+											"MalformedDescription",
+											`a ${statement.kind} of another schema this one does not state is refused`
+										)
+										k.note("a statement of another schema refused")
+									},
+									onSome: (expected) => {
+										assert.deepEqual(
+											lawsOfStatement(statement),
+											expected,
+											`a ${statement.kind} of another schema this one states gives the laws it states here`
+										)
+										k.note("a statement of another schema stated here")
+									}
+								})
 							}
 
 							for (const t of c.tables) {

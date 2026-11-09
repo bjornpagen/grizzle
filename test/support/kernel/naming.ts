@@ -22,6 +22,7 @@ import type {
 	LawId,
 	RelationIdent
 } from "#compiler/core/ids.ts"
+import * as Result from "#compiler/core/result.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
@@ -467,7 +468,7 @@ const theConstraint = (
 }
 
 /** A statement's canonical identity text, source locations excluded (ir/desc.ts descText). */
-const identityText = (desc: unknown): string => {
+export const identityText = (desc: unknown): string => {
 	const text = descText(desc)
 	if (!text.ok) {
 		throw new Error(`the test names a statement src cannot encode: ${text.error.message}`)
@@ -492,26 +493,37 @@ const withoutStatements = (level: SrcSchemaDesc): SrcSchemaDesc => ({
 })
 
 /**
+ * The identity text of the owned statement `desc` is: own itself owns it over `base`'s levels, its top level holding the
+ * statement alone, or refuses it there, such as a statement over a relation `base` does not declare. The statement is
+ * the caller's value: the schema boundary parses it before ownership reads it.
+ */
+export const ownedStatementText = (
+	base: SrcSchemaDesc,
+	desc: unknown
+): Result.Result<string, CompileError> =>
+	Result.map(ownedInput({ ...withoutStatements(base), statements: [desc] }), (alone) => {
+		const [owned, ...more] = alone.statements
+		if (owned === undefined || more.length > 0) {
+			throw new Error(
+				`ownership owns the statement ${identityText(desc)} as ${alone.statements.length} statements`
+			)
+		}
+		return identityText(owned)
+	})
+
+/**
  * Ownership canonicalizes each statement it owns (a check's conjunctions and disjunctions in operand order, an access
- * statement's scopes as sets), so a statement is matched in its owned form: own itself owns it over the model's own
- * levels, its top level holding the statement alone. The owned statements' identity texts are computed once.
+ * statement's scopes as sets), so a statement is matched in its owned form (ownedStatementText) over the model's own
+ * levels. The owned statements' identity texts are computed once.
  */
 const holdingOf = (model: LawModel): Holding => {
 	const texts = Arr.map(model.owned.statements, identityText)
 	const ownedText = (desc: unknown): string => {
-		const written = identityText(desc)
-		/** The statement is the caller's value: the schema boundary parses it before ownership reads it. */
-		const alone = ownedInput({ ...withoutStatements(model.owned.desc), statements: [desc] })
-		if (!alone.ok) {
-			throw refused(alone.error)
+		const text = ownedStatementText(model.owned.desc, desc)
+		if (!text.ok) {
+			throw refused(text.error)
 		}
-		const [owned, ...more] = alone.value.statements
-		if (owned === undefined || more.length > 0) {
-			throw new Error(
-				`ownership owns the statement ${written} as ${alone.value.statements.length} statements`
-			)
-		}
-		return identityText(owned)
+		return text.value
 	}
 	return (desc) => {
 		const target = ownedText(desc)

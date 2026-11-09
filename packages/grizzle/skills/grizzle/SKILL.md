@@ -463,8 +463,12 @@ The command line's own refusals, by stage:
   each once, as an outcome names it: each table's primary key, each statement's laws, each contract's, each stored
   field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
   for a contract's pattern, whose law is the contract's. Compare refusals against it with `sameLaw`, and never keep a
-  list of laws by hand. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
-  PostgreSQL tried first, where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such
+  list of laws by hand. For one statement's laws, bind `const lawsOfStatement = lawsByStatement(schema)` once, which
+  compiles, then look each statement up with `lawsOfStatement(statement)`: its laws from lawsOf's list, in its order, a
+  mirrors' two containments, an alternatives' containments, none for `mutable`, a law two statements state each
+  one's; a statement no level of the schema states throws `CompileError`. `every` names every law grizzle
+  decides the write broke. `first` names the laws of the CHECK PostgreSQL tried first, where grizzle cannot decide a
+  row's checks on the host (a row only PostgreSQL computes, such
   as a query's, or a check that reads a value grizzle does not hold, such as a count or an end a put keeps from the
   stored row): the row may break other checks too, and another version of grizzle may name another of them. `some`
   names two laws or more of one PostgreSQL object, a family's merged foreign key or a domain several fields share,
@@ -562,9 +566,9 @@ The command line's own refusals, by stage:
   installation stay exactly those three: `rds_iam` holds nothing there, so it is admitted, and a membership handing
   the login any privilege or ownership is refused. This has not been run against RDS.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
-  `writableNamesOf` and `lawsOf` take a schema, and a role passed to one is a type error; `query`, `ChangeSet.empty`
-  and `workload` take either. A role's `write` names each entry once: a name listed twice is a type error, and
-  `RoleRefused` (`writeTwice`) for a JavaScript caller.
+  `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type error; `query`,
+  `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed twice is a type
+  error, and `RoleRefused` (`writeTwice`) for a JavaScript caller.
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row
