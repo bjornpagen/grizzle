@@ -1,5 +1,4 @@
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
 import {
@@ -36,11 +35,12 @@ import {
 	type Place,
 	parentColumnsOf,
 	positions,
+	printedStatement,
 	statementRows
 } from "#compiler/lower/conservative/deliver.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
+import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
 	type AttachedTree,
 	type ConservativeParamSlot,
@@ -87,7 +87,7 @@ import {
 	type TakeShape,
 	takeLowerer
 } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
 import {
@@ -106,8 +106,6 @@ import {
 	keyedSet,
 	select
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
-import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 
 /**
  * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent
@@ -728,19 +726,10 @@ export class OptimizedDelivery<
 						: { ...shaped.with, ctes: extendNonEmpty(logged, shaped.with.ctes) }
 			}
 		}
-		const renamed = renameToPublicHeading(bindLaterally(shaped, this.cx.supply), output.names)
-		if (!renamed.ok) {
-			throw new Refusal(renamed.error)
-		}
-		const printed = emit(renamed.value, this.cx.supply.map())
-		if (!printed.ok) {
-			throw new Refusal(printed.error)
-		}
 		return {
 			statement: {
 				...statement,
-				ast: renamed.value,
-				sql: printed.value,
+				...printedStatement(shaped, output.names, this.cx.supply),
 				params: [...this.params.slots],
 				heading: rows,
 				fused

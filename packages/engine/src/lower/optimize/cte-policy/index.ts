@@ -1,7 +1,11 @@
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
+import {
+	type CertificateRule,
+	localCertificate,
+	makeCertificate
+} from "#compiler/ir/certificate.ts"
 import { nodeScopes } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -183,17 +187,15 @@ export const ctePolicyPass: Pass<LogicalQuery, CtePlannedQuery> = {
 				if (decision.strategy === "inline") {
 					continue
 				}
-				const cert = makeCertificate({
-					rule: cteRule(decision.strategy),
-					inputs: [decision.node],
-					outputs: [decision.node],
-					premises: [{ kind: "node", node: decision.node }],
-					context: "queryLocal",
-					preservedHeading: node.heading.map((c) => c.name),
-					equality: [],
-					coercion: [],
-					params: undefined
-				})
+				const cert = makeCertificate(
+					localCertificate(
+						cteRule(decision.strategy),
+						[decision.node],
+						[decision.node],
+						[decision.node],
+						node.heading.map((c) => c.name)
+					)
+				)
 				if (!cert.ok) {
 					throw new Refusal(cert.error)
 				}

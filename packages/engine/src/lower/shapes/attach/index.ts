@@ -24,6 +24,7 @@ import {
 	parentColumnsRead,
 	parentRowsSource
 } from "#compiler/lower/conservative/deliver.ts"
+import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import {
@@ -33,7 +34,7 @@ import {
 } from "#compiler/lower/shapes/attach/decode.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import type { Expr, OperandSelect, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
 import {
 	asc,

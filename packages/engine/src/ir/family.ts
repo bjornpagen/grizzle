@@ -82,7 +82,7 @@ export interface FoldPlane {
 }
 
 /** Whether a family is ordered, its index a field, or counted, its index a drawn law column that hides the order. */
-export const orderOf = (f: Family): "ordered" | "counted" =>
+export const orderOf = (f: Pick<Family, "index">): "ordered" | "counted" =>
 	f.index.kind === "field" ? "ordered" : "counted"
 
 /** Whether a family is a sequence, ordered or a tree, whose members a write nests in order under their owner. */

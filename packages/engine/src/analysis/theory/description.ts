@@ -1,8 +1,8 @@
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { everyFact, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
+import { type Family, orderOf } from "#compiler/ir/family.ts"
 import { fieldNames, type LawField, type TableRelation } from "#compiler/ir/law.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -50,7 +50,7 @@ export const lawDescription = (law: LawIdentity): Law => {
 		case "family":
 			return Object.freeze({
 				kind: "family",
-				order: d.family.index.kind === "field" ? "ordered" : "counted",
+				order: orderOf(d.family),
 				member: memberSide(d.family),
 				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count })
 			})
@@ -94,14 +94,7 @@ const ruleDescription = (rule: QueryRule): Law => {
 }
 
 /** A rule over a query's side as its statement declares it. */
-const ruleSideOf = (side: RuleSide): SideDesc =>
-	Object.freeze({
-		relation: side.relation,
-		terms: Object.freeze(
-			mapNonEmpty(side.terms, (t): TermDesc => Object.freeze({ kind: t.kind, field: t.field }))
-		),
-		selection: Object.freeze({ conjuncts: Object.freeze([...side.selection.conjuncts]) })
-	})
+const ruleSideOf = (side: RuleSide): SideDesc => sideDesc(side, [...side.selection.conjuncts])
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
 export const contractLaw = (contract: string): Law => Object.freeze({ kind: "contract", contract })
@@ -141,14 +134,22 @@ export const generatedFieldLaws = (
 
 /** A side of a law as its statement declares it: its relation, its terms and its selection's conjuncts. */
 const sideOf = (side: ResolvedSide): SideDesc =>
+	sideDesc(
+		side,
+		side.selection.conjuncts.map((c) => c.predicate)
+	)
+
+/** A side's Description: its relation, its terms, and `conjuncts`, its selection's, frozen in place. */
+const sideDesc = (
+	side: Pick<SideDesc, "relation" | "terms">,
+	conjuncts: Array<ExprDesc>
+): SideDesc =>
 	Object.freeze({
 		relation: side.relation,
 		terms: Object.freeze(
 			mapNonEmpty(side.terms, (t): TermDesc => Object.freeze({ kind: t.kind, field: t.field }))
 		),
-		selection: Object.freeze({
-			conjuncts: Object.freeze(side.selection.conjuncts.map((c) => c.predicate))
-		})
+		selection: Object.freeze({ conjuncts: Object.freeze(conjuncts) })
 	})
 
 /** A family's member side as its statement declares it: every fact of its member, over its group then its index. */

@@ -1,7 +1,7 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -19,7 +19,6 @@ import { conjuncts } from "#compiler/logical/props.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	nodePremises,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -51,17 +50,15 @@ const certify = (
 	through: NodeId,
 	outputs: ReadonlyArray<NodeId>
 ): void => {
-	cx.certify({
-		rule,
-		inputs: [m.cell.id, through],
-		outputs,
-		premises: nodePremises([through]),
-		context: "queryLocal",
-		preservedHeading: m.filter.heading.map((c) => c.name),
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	cx.certify(
+		localCertificate(
+			rule,
+			[m.cell.id, through],
+			outputs,
+			[through],
+			m.filter.heading.map((c) => c.name)
+		)
+	)
 }
 
 /** A new filter over `input`: a subset of it (DagEditor.subsetMeta). */

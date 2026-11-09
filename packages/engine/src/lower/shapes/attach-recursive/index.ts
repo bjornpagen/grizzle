@@ -10,11 +10,12 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { parentRowsSource } from "#compiler/lower/conservative/deliver.ts"
+import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import type { DeliveredRows, PipelinedAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import type { Expr, OrderItem, Select, SelectCore, With } from "#compiler/sql/ast.ts"
 import {
 	and,

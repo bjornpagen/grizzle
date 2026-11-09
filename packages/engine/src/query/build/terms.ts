@@ -91,19 +91,23 @@ export interface UntypedTerm extends Built {
 	readonly in: (values: unknown) => PredicateValue
 }
 
+/** A term's comparisons, each a predicate over the term `self` answers, which the term holds once it is built. */
+const comparisons = (self: () => UntypedTerm): Omit<UntypedTerm, keyof Built | "expr"> => ({
+	eq: (other: unknown) => compare("eq")(self(), other),
+	ne: (other: unknown) => compare("ne")(self(), other),
+	lt: (other: unknown) => compare("lt")(self(), other),
+	le: (other: unknown) => compare("le")(self(), other),
+	gt: (other: unknown) => compare("gt")(self(), other),
+	ge: (other: unknown) => compare("ge")(self(), other),
+	between: (low: unknown, high: unknown) => between(self(), low, high),
+	in: (values: unknown) => inSet(self(), values)
+})
+
 export const untypedTerm = (expr: OpenExpr): UntypedTerm => {
-	const self = (): UntypedTerm => term
 	const term: UntypedTerm = Object.freeze({
 		...builtMark,
 		expr,
-		eq: (other: unknown) => compare("eq")(self(), other),
-		ne: (other: unknown) => compare("ne")(self(), other),
-		lt: (other: unknown) => compare("lt")(self(), other),
-		le: (other: unknown) => compare("le")(self(), other),
-		gt: (other: unknown) => compare("gt")(self(), other),
-		ge: (other: unknown) => compare("ge")(self(), other),
-		between: (low: unknown, high: unknown) => between(self(), low, high),
-		in: (values: unknown) => inSet(self(), values)
+		...comparisons(() => term)
 	})
 	return registerUntyped(term, expr)
 }
@@ -118,20 +122,12 @@ const carriedTerm = <T, S extends SqlTag>(
 	expr: OpenExpr,
 	carrier: TermCarrier<T, S>
 ): CarriedTerm<T, S> => {
-	const self = (): CarriedTerm<T, S> => term
 	const term: CarriedTerm<T, S> = Object.freeze({
 		...builtMark,
 		expr,
 		column: carrier.column,
 		sql: carrier.sql,
-		eq: (other: unknown) => compare("eq")(self(), other),
-		ne: (other: unknown) => compare("ne")(self(), other),
-		lt: (other: unknown) => compare("lt")(self(), other),
-		le: (other: unknown) => compare("le")(self(), other),
-		gt: (other: unknown) => compare("gt")(self(), other),
-		ge: (other: unknown) => compare("ge")(self(), other),
-		between: (low: unknown, high: unknown) => between(self(), low, high),
-		in: (values: unknown) => inSet(self(), values)
+		...comparisons(() => term)
 	})
 	return registerCarried(term, expr)
 }

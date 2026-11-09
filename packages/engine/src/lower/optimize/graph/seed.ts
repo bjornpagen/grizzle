@@ -1,17 +1,13 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ColumnRef, DefinedOp, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditNode, EditRefs, HeadingColumn, KindOver } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
-import {
-	nodePremises,
-	type Potential,
-	type RewriteCx,
-	type Rule
-} from "#compiler/lower/optimize/demand/frame.ts"
+import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"

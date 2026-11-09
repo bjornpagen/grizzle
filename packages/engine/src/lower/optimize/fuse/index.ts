@@ -1,11 +1,11 @@
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
+import { localCertificate } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	nodePremises,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -264,17 +264,15 @@ const fuse = (
 			return top
 		})
 	}
-	cx.certify({
-		rule: fusionRule,
-		inputs: [...chain.nodes.map((c) => c.id), chain.regionCell.id],
-		outputs,
-		premises: nodePremises([o.source.id]),
-		context: "queryLocal",
-		preservedHeading: original.heading.map((c) => c.name),
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	cx.certify(
+		localCertificate(
+			fusionRule,
+			[...chain.nodes.map((c) => c.id), chain.regionCell.id],
+			outputs,
+			[o.source.id],
+			original.heading.map((c) => c.name)
+		)
+	)
 }
 
 const fuseRule: Rule = {

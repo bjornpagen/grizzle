@@ -1,6 +1,7 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { postgresSource, published } from "#compiler/core/limits.ts"
+import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -20,7 +21,6 @@ import {
 
 import {
 	type Potential,
-	nodePremises,
 	type RewriteCx,
 	type Rule,
 	rewritePass

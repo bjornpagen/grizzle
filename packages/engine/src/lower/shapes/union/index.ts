@@ -10,9 +10,9 @@ import {
 	type NodeLowerer,
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
+import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import {
 	isSetBody,
 	type Expr,

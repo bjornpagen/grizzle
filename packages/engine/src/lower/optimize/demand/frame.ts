@@ -12,7 +12,7 @@ import { defined, invariant } from "#compiler/core/invariant.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { FinishedCells } from "#compiler/ir/dag.ts"
-import type { EvidenceCatalog, Premise } from "#compiler/ir/evidence.ts"
+import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Pass, PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -108,10 +108,6 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	}
 	return r.value
 }
-
-/** A node premise for each node a proof reads. */
-export const nodePremises = (ids: ReadonlyArray<NodeId>): ReadonlyArray<Premise> =>
-	ids.map((node) => ({ kind: "node", node }))
 
 /**
  * The frame's end: the edited DAG finished. A frame that changed nothing delivers the DAG it started from, which is

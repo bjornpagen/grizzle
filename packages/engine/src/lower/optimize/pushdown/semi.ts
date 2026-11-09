@@ -1,5 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -11,7 +11,6 @@ import {
 } from "#compiler/ir/rel.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	nodePremises,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -42,17 +41,15 @@ const certify = (
 	through: NodeId,
 	outputs: ReadonlyArray<NodeId>
 ): void => {
-	cx.certify({
-		rule,
-		inputs: [m.cell.id, through],
-		outputs,
-		premises: nodePremises([through]),
-		context: "queryLocal",
-		preservedHeading: m.semi.heading.map((c) => c.name),
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	cx.certify(
+		localCertificate(
+			rule,
+			[m.cell.id, through],
+			outputs,
+			[through],
+			m.semi.heading.map((c) => c.name)
+		)
+	)
 }
 
 /** A new semi-join of `left` against `right` on `on`: a subset of `left` (DagEditor.subsetMeta). */

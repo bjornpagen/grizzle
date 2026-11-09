@@ -1,5 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ClosedEvidence } from "#compiler/ir/evidence.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -13,7 +14,6 @@ import {
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	nodePremises,
 	type Potential,
 	type RewriteCx,
 	type Rule,

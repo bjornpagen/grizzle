@@ -1,6 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ColumnRef, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 
 import {
@@ -18,12 +18,7 @@ import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
-import {
-	nodePremises,
-	type Potential,
-	type RewriteCx,
-	type Rule
-} from "#compiler/lower/optimize/demand/frame.ts"
+import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
 import { allenNormal } from "#compiler/lower/optimize/simplify/allen.ts"
 import {
 	conjunction,
@@ -65,17 +60,15 @@ const certify = (
 	heading: Heading,
 	outputs: ReadonlyArray<NodeId>
 ): void => {
-	cx.certify({
-		rule,
-		inputs,
-		outputs,
-		premises: nodePremises(inputs),
-		context: "queryLocal",
-		preservedHeading: heading.map((c) => c.name),
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	cx.certify(
+		localCertificate(
+			rule,
+			inputs,
+			outputs,
+			inputs,
+			heading.map((c) => c.name)
+		)
+	)
 }
 
 /**

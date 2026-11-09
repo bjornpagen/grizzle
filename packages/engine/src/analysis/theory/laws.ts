@@ -1871,12 +1871,6 @@ const keyViolation = (b: ViolationBuilder, r: TheoryRelation, key: KeyName): Rel
 	const spans = span === undefined ? [] : [span]
 	const shared = new Set<LawField>(fields.filter((f) => f !== span))
 	const join = b.selfJoin(r, shared)
-	const differs = r.fields
-		.filter((f) => !shared.has(f))
-		.map((f) => {
-			const pair = join.pair(f)
-			return b.op("ne", [b.col(join.node, pair.left), b.col(join.node, pair.right)])
-		})
 	const overlaps = spans.map((s) => {
 		const pair = join.pair(s)
 		return b.rangeOp(
@@ -1886,7 +1880,10 @@ const keyViolation = (b: ViolationBuilder, r: TheoryRelation, key: KeyName): Rel
 			b.col(join.node, pair.right)
 		)
 	})
-	const pred = b.connective("and", [...overlaps, b.connective("or", differs)])
+	const pred = b.connective("and", [
+		...overlaps,
+		b.connective("or", differsElsewhere(b, r, join, shared))
+	])
 	const filtered = b.filter(join.node, pred)
 	const witness = mapNonEmpty(fields, (field) => ({ field, pair: join.pair(field) }))
 	return b.project(
@@ -1894,6 +1891,20 @@ const keyViolation = (b: ViolationBuilder, r: TheoryRelation, key: KeyName): Rel
 		witness.map((k) => [k.field.name, b.col(filtered, k.pair.left)] as const)
 	)
 }
+
+/** That the two rows of a self-join of `r` on `shared` differ in a field outside it: one inequality per such field. */
+const differsElsewhere = (
+	b: ViolationBuilder,
+	r: TheoryRelation,
+	join: SelfJoin,
+	shared: ReadonlySet<LawField>
+): ReadonlyArray<ScalarExpr> =>
+	r.fields
+		.filter((f) => !shared.has(f))
+		.map((f) => {
+			const pair = join.pair(f)
+			return b.op("ne", [b.col(join.node, pair.left), b.col(join.node, pair.right)])
+		})
 
 /** A row of R whose predicate is false; the witness is R's primary key. */
 const checkViolation = (
@@ -1904,17 +1915,7 @@ const checkViolation = (
 	loc: SourceLoc
 ): CheckViolation => {
 	const region = b.scan(r, r.fields, [])
-	const pred = lowerTotal(b, env, predicate, loc, (desc, at) => {
-		const field = desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
-		if (field === undefined) {
-			return refuse(
-				"MalformedDescription",
-				at,
-				`a field of ${r.name}, not a ${desc.kind} reference`
-			)
-		}
-		return Result.ok(columnLeaf(region, field))
-	})
+	const pred = lowerTotal(b, env, predicate, loc, rowLeaf(r, region))
 	const filtered = b.filter(region, b.not(pred))
 	return {
 		violation: b.project(
@@ -1933,6 +1934,21 @@ const columnLeaf = (node: RelNode, c: HeadingColumn): ExprSpec => ({
 	nonNull: "storage"
 })
 
+/** The lowering of a row expression, total, into the builder's DAG, each leaf read by `leaf`. */
+const totalEnv = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	loc: SourceLoc,
+	leaf: LowerEnv["leaf"]
+): LowerEnv => ({
+	...env.lowerEnv,
+	mode: "check",
+	loc,
+	emit: (spec) => b.expr(spec),
+	leaf,
+	params: noParams
+})
+
 /** Lowers a total predicate (a row check or a contract predicate) into the builder's DAG. */
 const lowerTotal = (
 	b: ViolationBuilder,
@@ -1940,20 +1956,8 @@ const lowerTotal = (
 	predicate: ExprDesc,
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
-) =>
-	unwrap(
-		Result.map(
-			lowerPredicate(predicate, {
-				...env.lowerEnv,
-				mode: "check",
-				loc,
-				emit: (spec) => b.expr(spec),
-				leaf,
-				params: noParams
-			}),
-			(l) => l.expr
-		)
-	)
+): ScalarExpr =>
+	unwrap(Result.map(lowerPredicate(predicate, totalEnv(b, env, loc, leaf)), (l) => l.expr))
 
 /**
  * A stored value of the contract whose predicate is false. Every column of the contract and both
@@ -2017,9 +2021,9 @@ const contractViolation = (
 	})
 }
 
-/** The leaf reader of a row expression of `r` over the row `node` binds: each field of `r` its column there. */
-const rowLeaf =
-	(r: TheoryRelation, node: RelNode): LowerEnv["leaf"] =>
+/** The leaf reader of a row expression of `r`: each field of `r` the column `column` reads it at. */
+const fieldLeaf =
+	(r: TheoryRelation, column: (field: LawField) => ExprSpec): LowerEnv["leaf"] =>
 	(desc, at) => {
 		const field = desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
 		if (field === undefined) {
@@ -2029,8 +2033,12 @@ const rowLeaf =
 				`a field of ${r.name}, not a ${desc.kind} reference`
 			)
 		}
-		return Result.ok(columnLeaf(node, field))
+		return Result.ok(column(field))
 	}
+
+/** The leaf reader of a row expression of `r` over the row `node` binds: each field of `r` its column there. */
+const rowLeaf = (r: TheoryRelation, node: RelNode): LowerEnv["leaf"] =>
+	fieldLeaf(r, (field) => columnLeaf(node, field))
 
 /** A term of a row expression lowered, total, into the builder's DAG: a law side's term, a field or pred's difference. */
 const lowerTermTotal = (
@@ -2039,20 +2047,7 @@ const lowerTermTotal = (
 	term: ExprDesc,
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
-): ScalarExpr =>
-	unwrap(
-		Result.map(
-			lowerTerm(term, {
-				...env.lowerEnv,
-				mode: "check",
-				loc,
-				emit: (spec) => b.expr(spec),
-				leaf,
-				params: noParams
-			}),
-			(l) => l.expr
-		)
-	)
+): ScalarExpr => unwrap(Result.map(lowerTerm(term, totalEnv(b, env, loc, leaf)), (l) => l.expr))
 
 /**
  * The rows of a law side's partial projection, with each of `terms`' values over them: the rows its selection holds on,
@@ -2256,26 +2251,9 @@ const clashes = (
 	const r = side.rel
 	const shared = new Set<LawField>(side.terms.map((t) => t.column))
 	const join = b.selfJoin(r, shared)
-	const differs = r.fields
-		.filter((f) => !shared.has(f))
-		.map((f) => {
-			const pair = join.pair(f)
-			return b.op("ne", [b.col(join.node, pair.left), b.col(join.node, pair.right)])
-		})
 	/** A row expression over one of the two rows, each field read as that row's column of it. */
-	const over =
-		(row: "left" | "right"): LowerEnv["leaf"] =>
-		(desc, at) => {
-			const field = desc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined
-			if (field === undefined) {
-				return refuse(
-					"MalformedDescription",
-					at,
-					`a field of ${r.name}, not a ${desc.kind} reference`
-				)
-			}
-			return Result.ok(columnLeaf(join.node, join.pair(field)[row]))
-		}
+	const over = (row: "left" | "right"): LowerEnv["leaf"] =>
+		fieldLeaf(r, (field) => columnLeaf(join.node, join.pair(field)[row]))
 	const guarded = mapNonEmpty(side.terms, guardedTerm)
 	const holdsAt = (row: "left" | "right"): ReadonlyArray<ScalarExpr> => [
 		...side.selection.conjuncts.map((c) => lowerTotal(b, env, c.predicate, loc, over(row))),
@@ -2284,7 +2262,7 @@ const clashes = (
 	const pred = b.connective("and", [
 		...holdsAt("left"),
 		...holdsAt("right"),
-		b.connective("or", differs)
+		b.connective("or", differsElsewhere(b, r, join, shared))
 	])
 	return { filtered: b.filter(join.node, pred), join }
 }

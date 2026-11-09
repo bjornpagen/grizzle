@@ -1,7 +1,7 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { appendNonEmpty } from "#compiler/core/nonempty.ts"
-import { makeCertificate } from "#compiler/ir/certificate.ts"
+import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
@@ -115,17 +115,9 @@ const castTo = (e: Expr, from: TypeRef, to: TypeRef): Expr =>
 	sameTypeRef(from, to) ? e : cast(e, to)
 
 const certifyConditional = (facts: ShapeFacts, node: NodeOf<"Group">, agg: AggregateSpec): void => {
-	const cert = makeCertificate({
-		rule: "R24.conditionalCount",
-		inputs: [node.input.id],
-		outputs: [node.id],
-		premises: [{ kind: "node", node: node.id }],
-		context: "queryLocal",
-		preservedHeading: [agg.name],
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	const cert = makeCertificate(
+		localCertificate("R24.conditionalCount", [node.input.id], [node.id], [node.id], [agg.name])
+	)
 	if (!cert.ok) {
 		throw new Refusal(cert.error)
 	}

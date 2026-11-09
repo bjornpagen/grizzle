@@ -1,10 +1,6 @@
-import {
-	type DeclaredColumn,
-	declaredHeading,
-	spineObstacle
-} from "#compiler/analysis/derived/analyze.ts"
+import { analyzedDefinition, type DeclaredColumn } from "#compiler/analysis/derived/analyze.ts"
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
-import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
+import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
@@ -14,7 +10,6 @@ import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { classMembers, type ViewRead, viewAlternatives } from "#compiler/ir/keys.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { WholeKey } from "#compiler/logical/props.ts"
 
 /** A query entry of a role, as the role's Description records it. */
@@ -82,38 +77,21 @@ export const analyzeWorld = (
 	base: SchemaReading,
 	entry: WorldEntry
 ): Result.Result<WorldAnalysis, CompileError> => {
-	const checkedResult = checkDefinition(base, `world ${entry.name}`, entry.query)
-	if (!checkedResult.ok) {
-		return checkedResult
+	const definition = analyzedDefinition(
+		base,
+		`world ${entry.name}`,
+		entry.query,
+		entry.name,
+		entry.loc
+	)
+	if (!definition.ok) {
+		return definition
 	}
-	const checked = checkedResult.value
-	const root = checked.dag.roots[0]
-	const obstacle = spineObstacle(root)
-	if (obstacle !== undefined) {
-		return Result.err(derivedRefused(entry.loc, { kind: obstacle, relation: entry.name }))
-	}
-	const analyzedResult = analyzeLogical(checked.dag, queryEvidence)
-	if (!analyzedResult.ok) {
-		return analyzedResult
-	}
-	const analyzed = analyzedResult.value
-	const heading = root.heading
-	if (!isNonEmpty(heading)) {
-		return Result.err(
-			derivedRefused(entry.loc, {
-				kind: "emptyHeading",
-				relation: entry.name
-			})
-		)
-	}
-	const declared = declaredHeading(entry.name, heading, entry.loc)
-	if (!declared.ok) {
-		return declared
-	}
+	const { checked, root, analyzed, heading, declared } = definition.value
 	const { props } = analyzed.of(root)
-	const inherited = inheritedKeys(declared.value, props.keys, props.prove, () => true)
+	const inherited = inheritedKeys(declared, props.keys, props.prove, () => true)
 	/** A definition of one heading group is a set, so its whole heading is always a key. */
-	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared.value)
+	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared)
 	if (keys === undefined) {
 		return Result.err(derivedRefused(entry.loc, { kind: "headingGroups", relation: entry.name }))
 	}
@@ -134,7 +112,7 @@ export const analyzeWorld = (
 		name: entry.name,
 		loc: entry.loc,
 		query: { ...checked, dag: analyzed.dag },
-		heading: declared.value,
+		heading: declared,
 		keys,
 		reads: [...reads].toSorted(compareText),
 		contexts: [...contexts].toSorted(compareText),

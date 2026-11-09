@@ -127,6 +127,32 @@ export interface Certificate<Rule extends CertificateRule = CertificateRule> ext
 	readonly params: ReadonlyArray<ParamId> | undefined
 }
 
+/** A node premise for each node a proof reads. */
+export const nodePremises = (ids: ReadonlyArray<NodeId>): ReadonlyArray<Premise> =>
+	ids.map((node) => ({ kind: "node", node }))
+
+/**
+ * The certificate of a rewrite that holds in the query alone and compares, coerces and assumes nothing: its rule, the
+ * nodes it read and wrote, the nodes its proof reads, and the heading it preserves.
+ */
+export const localCertificate = <Rule extends CertificateRule>(
+	rule: Rule,
+	inputs: ReadonlyArray<NodeId>,
+	outputs: ReadonlyArray<NodeId>,
+	read: ReadonlyArray<NodeId>,
+	preservedHeading: ReadonlyArray<string>
+): Certificate<Rule> => ({
+	rule,
+	inputs,
+	outputs,
+	premises: nodePremises(read),
+	context: "queryLocal",
+	preservedHeading,
+	equality: [],
+	coercion: [],
+	params: undefined
+})
+
 export const makeCertificate = <Rule extends CertificateRule>(
 	input: Certificate<Rule>
 ): Result.Result<Certificate<Rule>, CompileError> =>

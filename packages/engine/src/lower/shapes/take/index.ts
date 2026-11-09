@@ -2,7 +2,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { atMost } from "#compiler/ir/cardinality.ts"
-import { makeCertificate } from "#compiler/ir/certificate.ts"
+import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
@@ -30,8 +30,9 @@ import {
 	type InputSource
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import type { Expr, FromItem, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
@@ -546,17 +547,15 @@ const certify = (facts: ShapeFacts, take: NodeOf<"Take">, shape: TakeShape): voi
 	if (shape === "limit") {
 		return
 	}
-	const cert = makeCertificate({
-		rule: `R20.${shape}`,
-		inputs: [take.input.id],
-		outputs: [take.id],
-		premises: [{ kind: "node", node: take.id }],
-		context: "queryLocal",
-		preservedHeading: take.heading.map((c) => c.name),
-		equality: [],
-		coercion: [],
-		params: undefined
-	})
+	const cert = makeCertificate(
+		localCertificate(
+			`R20.${shape}`,
+			[take.input.id],
+			[take.id],
+			[take.id],
+			take.heading.map((c) => c.name)
+		)
+	)
 	if (!cert.ok) {
 		throw new Refusal(cert.error)
 	}

@@ -44,6 +44,7 @@ import type {
 	FromItem,
 	OperandSelect,
 	OrderItem,
+	EmittedSql,
 	Select
 } from "#compiler/sql/ast.ts"
 
@@ -69,7 +70,27 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { type NameOrigin, renameToPublicHeading } from "#compiler/sql/naming.ts"
+import { type NameOrigin, type NameSupply, renameToPublicHeading } from "#compiler/sql/naming.ts"
+
+/**
+ * A statement's query, its outermost output renamed to `names`, the public heading's, and printed under `supply`'s
+ * names: the AST the statement keeps and the SQL it runs.
+ */
+export const printedStatement = (
+	query: Select,
+	names: ReadonlyArray<string>,
+	supply: NameSupply
+): { readonly ast: Select; readonly sql: EmittedSql } => {
+	const renamed = renameToPublicHeading(bindLaterally(query, supply), names)
+	if (!renamed.ok) {
+		throw new Refusal(renamed.error)
+	}
+	const printed = emit(renamed.value, supply.map())
+	if (!printed.ok) {
+		throw new Refusal(printed.error)
+	}
+	return { ast: renamed.value, sql: printed.value }
+}
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>
 	a.keys.length === b.keys.length &&
@@ -477,24 +498,13 @@ export class Delivery<Own extends PageParamSlot = never> {
 		statement: StatementPlacement
 	): ConservativeStatement<DeclaredParamSlot | Own> {
 		const output = statementOutput(statement.role, rows, [])
-		const renamed = renameToPublicHeading(
-			bindLaterally(
-				refineConservative(this.cx, query, output.heading, rows.length === 0),
-				this.cx.supply
-			),
-			output.names
-		)
-		if (!renamed.ok) {
-			throw new Refusal(renamed.error)
-		}
-		const printed = emit(renamed.value, this.cx.supply.map())
-		if (!printed.ok) {
-			throw new Refusal(printed.error)
-		}
 		return {
 			...statement,
-			ast: renamed.value,
-			sql: printed.value,
+			...printedStatement(
+				refineConservative(this.cx, query, output.heading, rows.length === 0),
+				output.names,
+				this.cx.supply
+			),
 			params: [...this.#params.slots],
 			heading: rows
 		}

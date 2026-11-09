@@ -20,7 +20,7 @@ import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	classMembers,
 	type KeyProof,
@@ -28,8 +28,14 @@ import {
 	type ViewRead,
 	viewAlternatives
 } from "#compiler/ir/keys.ts"
-import { type Card, type HeadingColumn, keptRowsOf, type RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import {
+	type Card,
+	type HeadingColumn,
+	keptRowsOf,
+	type RelNode,
+	type Rooted
+} from "#compiler/ir/rel.ts"
+import { analyzeLogical, type LogicalAnalysis, queryEvidence } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
 import type { OwnedRelation, OwnedView } from "#compiler/schema/own.ts"
 
@@ -92,7 +98,7 @@ type MaterializedView = Extract<OwnedView, { readonly kind: "materialized" }>
  * delivers), and every arm of a union of one heading group. An attachment off the spine is read as its parent, whose
  * heading is the consumer's, so it changes nothing the view stores.
  */
-export const spineObstacle = (root: RelNode): "attachment" | "headingGroups" | undefined => {
+const spineObstacle = (root: RelNode): "attachment" | "headingGroups" | undefined => {
 	const seen = new Set<RelNode>()
 	const queue: Array<RelNode> = [root]
 	for (let node = queue.pop(); node !== undefined; node = queue.pop()) {
@@ -131,7 +137,7 @@ export type DerivedColumn = DeclaredColumn & { readonly desc: InferredFieldDesc 
  * a role query entry's fields are declared names, each its view column's identifier, so a name the rule refuses
  * (MalformedDescription) and two that convert alike (IdentifierCollision) are refused, each at its field of `relation`.
  */
-export const declaredHeading = (
+const declaredHeading = (
 	relation: string,
 	heading: NonEmptyReadonlyArray<HeadingColumn>,
 	loc: SourceLoc
@@ -150,6 +156,55 @@ export const declaredHeading = (
 			return { ...c, name: name.value }
 		})
 	})
+
+/** A definition checked and analyzed, its rows one heading of declared names. */
+export interface AnalyzedDefinition {
+	readonly checked: AdmittedQuery
+	readonly root: RelNode
+	readonly analyzed: LogicalAnalysis<Rooted>
+	readonly heading: NonEmptyReadonlyArray<HeadingColumn>
+	readonly declared: NonEmptyReadonlyArray<DeclaredColumn>
+}
+
+/**
+ * The definition `query` of the relation `relation` (a derived relation's or a world entry's, `label` naming it to the
+ * checker), refused at `at` where its delivered rows carry an attachment or several heading groups (spineObstacle) or
+ * its heading is empty: checked, analyzed under the evidence a view's keys give (queryEvidence), and its heading
+ * declared (declaredHeading).
+ */
+export const analyzedDefinition = (
+	schema: SchemaReading,
+	label: string,
+	query: QueryDesc,
+	relation: string,
+	at: SourceLoc
+): Result.Result<AnalyzedDefinition, CompileError> => {
+	const checkedResult = checkDefinition(schema, label, query)
+	if (!checkedResult.ok) {
+		return checkedResult
+	}
+	const checked = checkedResult.value
+	const root = checked.dag.roots[0]
+	const obstacle = spineObstacle(root)
+	if (obstacle !== undefined) {
+		return Result.err(derivedRefused(at, { kind: obstacle, relation }))
+	}
+	const analyzed = analyzeLogical(checked.dag, queryEvidence)
+	if (!analyzed.ok) {
+		return analyzed
+	}
+	const heading = root.heading
+	if (!isNonEmpty(heading)) {
+		return Result.err(derivedRefused(at, { kind: "emptyHeading", relation }))
+	}
+	return Result.map(declaredHeading(relation, heading, at), (declared) => ({
+		checked,
+		root,
+		analyzed: analyzed.value,
+		heading,
+		declared
+	}))
+}
 
 /**
  * One derived relation of a checked schema, analyzed against the relations it holds so far, or the first refusal.
@@ -201,32 +256,14 @@ export const analyzeDerivedRelation = (
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
 	const { name, loc } = owned
 	const at = loc
-	const checkedResult = checkDefinition(schema, `derived ${name}`, owned.desc.query)
-	if (!checkedResult.ok) {
-		return checkedResult
+	const definition = analyzedDefinition(schema, `derived ${name}`, owned.desc.query, name, at)
+	if (!definition.ok) {
+		return definition
 	}
-	const checked = checkedResult.value
-	const root = checked.dag.roots[0]
-	const obstacle = spineObstacle(root)
-	if (obstacle !== undefined) {
-		return Result.err(derivedRefused(at, { kind: obstacle, relation: name }))
-	}
-	const analyzedResult = analyzeLogical(checked.dag, queryEvidence)
-	if (!analyzedResult.ok) {
-		return analyzedResult
-	}
-	const analyzed = analyzedResult.value
+	const { checked, root, analyzed, heading, declared } = definition.value
 	const { props } = analyzed.of(root)
-	const heading = root.heading
-	if (!isNonEmpty(heading)) {
-		return Result.err(derivedRefused(at, { kind: "emptyHeading", relation: name }))
-	}
-	const declared = declaredHeading(name, heading, loc)
-	if (!declared.ok) {
-		return declared
-	}
 	const all = mapNonEmpty(heading, (c) => c.name)
-	const described = inferredFields(name, declared.value, schema.owned.contracts)
+	const described = inferredFields(name, declared, schema.owned.contracts)
 	if (!described.ok) {
 		return described
 	}

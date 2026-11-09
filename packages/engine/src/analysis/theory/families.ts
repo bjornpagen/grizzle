@@ -19,7 +19,14 @@ import {
 	termText
 } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { AxisKind, AxisPair, Family, FamilyFold, TreeShape } from "#compiler/ir/family.ts"
+import {
+	type AxisKind,
+	type AxisPair,
+	type Family,
+	type FamilyFold,
+	orderOf,
+	type TreeShape
+} from "#compiler/ir/family.ts"
 import type {
 	FamilyId,
 	LawField,
@@ -119,7 +126,7 @@ export const familyStated = (
 	kind:
 		f.members.kind === "tree"
 			? { kind: "tree", root: f.members.root }
-			: { kind: "family", order: f.index.kind === "field" ? "ordered" : "counted" }
+			: { kind: "family", order: orderOf(f) }
 })
 
 /** A family's or tree's law's identifier, as the theory names the law (theory.ts lawIdentityOf). */
@@ -763,7 +770,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	}
 	const ends = endFields(f, s.end, loc)
 	const refused = foldRule(monoid, {
-		order: f.index.kind === "field" ? "ordered" : "counted",
+		order: orderOf(f),
 		step: x,
 		pairs,
 		ends
@@ -907,4 +914,4 @@ export const drawnNamed = (
 export const familyText = (f: FamilyShape): string =>
 	f.members.kind === "tree"
 		? `the tree of ${f.member.name}`
-		: `the ${f.index.kind === "field" ? "ordered" : "counted"} family ${slotsText(f.id)}`
+		: `the ${orderOf(f)} family ${slotsText(f.id)}`

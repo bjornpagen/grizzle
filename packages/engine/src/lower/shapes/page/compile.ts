@@ -49,7 +49,7 @@ import {
 } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
+import { completedOrderItems, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
 	type AttachedTree,
 	type ConservativeOptions,
@@ -104,7 +104,7 @@ import {
 	shapeFactsFromPlan
 } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"

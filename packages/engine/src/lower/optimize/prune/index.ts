@@ -1,12 +1,12 @@
 import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { localCertificate } from "#compiler/ir/certificate.ts"
 import type { Cell, EditNode, Heading } from "#compiler/ir/rel.ts"
 import { restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
 	cellDemand,
-	nodePremises,
 	type RewriteCx,
 	traversalPass
 } from "#compiler/lower/optimize/demand/frame.ts"
@@ -172,17 +172,15 @@ const step = (cx: RewriteCx): void => {
 		}
 	}
 	if (changed.length > 0) {
-		cx.certify({
-			rule: pruneRule,
-			inputs: changed,
-			outputs: changed,
-			premises: nodePremises(changed),
-			context: "queryLocal",
-			preservedHeading: ed.roots.flatMap((r) => r.current.heading.map((c) => c.name)),
-			equality: [],
-			coercion: [],
-			params: undefined
-		})
+		cx.certify(
+			localCertificate(
+				pruneRule,
+				changed,
+				changed,
+				changed,
+				ed.roots.flatMap((r) => r.current.heading.map((c) => c.name))
+			)
+		)
 	}
 }
 
