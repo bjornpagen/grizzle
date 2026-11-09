@@ -188,10 +188,10 @@ const keyFields = (
 }
 
 /**
- * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL and before
- * the bind encodes a parameter, with the key's law and a violating key: among its additions, a generated one on the
- * keys holding no serial field, and among its deletions, each a set of the relation's facts that a key names one of.
- * Each law once, its violations every stratum's.
+ * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL, once
+ * every parameter the bind reads is inside its field (unboundParams), with the key's law and a violating key: among its
+ * additions, a generated one on the keys holding no serial field, and among its deletions, each a set of the relation's
+ * facts that a key names one of. Each law once, its violations every stratum's.
  */
 const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => {
 	const clashes = Arr.flatMap([false, true], (deletions) =>
@@ -298,7 +298,8 @@ const sameKeyViolations = (
  * its target's column, a filter's at its source's column, a scope's at its relation's column, and a relation
  * parameter's facts at their relation's columns. The bind checks every parameter against its declared type, the
  * field's pattern included, so one outside refuses the whole ChangeSet with EncodingFailure refinedValue before any
- * SQL, whatever its stratum and whether or not its source holds a row.
+ * SQL, whatever its stratum, whether or not its source holds a row, and whatever key the enumerated facts share
+ * (hostRefusals): the bind judges no law until every parameter encodes.
  */
 const unboundParams = (ctx: ExpectContext, c: WChangeSet): ReadonlySet<string> => {
 	const params = c.params
@@ -491,10 +492,10 @@ const collisionsOf = (
  * compiler: every key law and immediate foreign key the first refused stratum breaks. Laws are accepted exactly when
  * every violation query evaluated by brute force is empty where it is judged.
  *
- * Before any of these, the bind: host normalization refuses a same-key pair among the enumerated additions or the
- * enumerated deletions of any stratum first, with that key's law and a violating key (hostRefusals), then a parameter
- * passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure refinedValue before any
- * SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
+ * Before any of these, the bind: a parameter passed outside the field it is declared at refuses the whole ChangeSet
+ * with EncodingFailure refinedValue before any SQL (unboundParams), whatever the facts hold; then host normalization
+ * refuses a same-key pair among the enumerated additions or the enumerated deletions of any stratum, with that key's
+ * law and a violating key (hostRefusals). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
  * reading a wider text into a narrower field, is refused there by the domain, naming the laws of the columns it types
  * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
  * initial state.
@@ -526,13 +527,13 @@ const expectUnder = (
 	const schema = oracleSchemaOf(ctx.group, ctx.laws)
 	const initial = oracleState(schema, facts, sequences)
 	const collisions = collisionsOf(ctx, c, initial)
-	const host = hostRefusals(ctx, c)
-	if (host.size > 0) {
-		return { kind: "rejected", refusals: host, initial, collisions }
-	}
 	const unbound = unboundParams(ctx, c)
 	if (unbound.size > 0) {
 		return { kind: "unbound", params: unbound, initial, collisions }
+	}
+	const host = hostRefusals(ctx, c)
+	if (host.size > 0) {
+		return { kind: "rejected", refusals: host, initial, collisions }
 	}
 	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
 	const rejected = (refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>): Expected => ({

@@ -719,7 +719,7 @@ const unboundProblems = (
 		? []
 		: [
 				`expected a refusal at bind, EncodingFailure refinedValue at one of ${Arr.join([...params], ", ")}, got ${
-					Result.isFailure(outcome) ? Formatter.format(outcome.failure) : "a bound change"
+					Result.isFailure(outcome) ? Formatter.format(outcome.failure) : "no refusal at bind"
 				}`
 			]
 }
