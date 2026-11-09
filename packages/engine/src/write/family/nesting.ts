@@ -306,10 +306,13 @@ const nestedRefusal = (
 /**
  * The facts of a nested member `member` added into `into`, the stratum's nested set, by the nesting's levels'
  * normalizers for that member; their own rows, each insert's own relation's when it is no tree's, for its slot's own
- * normalization. Each fact is split along its sequences, its levels admitted, filled, and cut into whole rows. A fact
- * `into` holds already, at its key with every row it nests, adds nothing. A level's row whose binary arrays no Bind
- * message of `transport` carries alone, with the row's placeholders, is refused as its MessageBound before any of its
- * bytes is read, since a family write's statements are cut row by row (write/family/order.ts).
+ * normalization. Every fact is split along its sequences and its levels admitted before any is filled, then each is
+ * filled and cut into whole rows. A fill that finds a generated field with no value refuses the write by its law
+ * (NestedGeneratedNull, the first such fact's) only once every other fact has filled, so an encoding failure of any
+ * fact is the write's refusal instead. A fact `into` holds already, at its key with every row it nests, adds nothing.
+ * A level's row whose binary arrays no Bind message of `transport` carries alone, with the row's placeholders, is
+ * refused as its MessageBound before any of its bytes is read, since a family write's statements are cut row by row
+ * (write/family/order.ts).
  */
 export const nestedRows = (
 	nesting: Nesting,
@@ -341,6 +344,7 @@ export const nestedRows = (
 		new TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
 	const keyFields = nesting.relation.primaryFields
+	const hosts: Array<HostNode> = []
 	for (const fact of facts) {
 		const split = encodeAddition(relation, fact, sequences)
 		if (!split.ok) {
@@ -350,9 +354,18 @@ export const nestedRows = (
 		if (!host.ok) {
 			return host
 		}
-		const filled = nesting.filler(host.value)
+		hosts.push(host.value)
+	}
+	let stopped: NestedGeneratedNull | undefined
+	for (const host of hosts) {
+		const filled = nesting.filler(host)
 		if (!filled.ok) {
-			return Result.err(nestedRefusal(filled.error, slotPlace(member)))
+			const refusal = nestedRefusal(filled.error, slotPlace(member))
+			if (refusal._tag !== "GeneratedNull") {
+				return Result.err(refusal)
+			}
+			stopped ??= refusal
+			continue
 		}
 		const root = filled.value
 		const own = Object.freeze(
@@ -388,7 +401,7 @@ export const nestedRows = (
 			tops.push(own)
 		}
 	}
-	return Result.ok(tops)
+	return stopped === undefined ? Result.ok(tops) : Result.err(stopped)
 }
 
 /** Text order by code point. */

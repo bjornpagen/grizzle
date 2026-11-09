@@ -1,8 +1,9 @@
 import { floorPopulation, type Reached } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { sample, type Source } from "@grizzle/testing/source"
+import { forcedChooser, generate, sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { valuesFromToken } from "@grizzle/testing/tape"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { changeOps } from "#adapter/db/db.ts"
@@ -2825,8 +2826,43 @@ const sameAim = (a: ReadonlySet<ChangeSetFeature>, b: ReadonlySet<ChangeSetFeatu
 /** The witnesses drawn aimed at one requirement. */
 const aimedCount = 2
 
+/**
+ * A case a run's own stream drew failing, kept by its tape, the decisions caseGen made for it: every run draws it beside
+ * the floor's witnesses and its own cases, the very case while caseGen draws it alike and whatever the tape gives where
+ * caseGen changes, which the floor's check then refuses by what the case no longer reaches (`reaches`).
+ */
+interface KeptCase {
+	readonly note: string
+	readonly tape: string
+	readonly reaches: Arr.NonEmptyReadonlyArray<ChangeSetNote>
+}
+
+const keptCases: ReadonlyArray<KeptCase> = [
+	{
+		note: "a put whose query reads a parameter, applied with none, beside a tree's node inserted at one key twice with different rows: bind judged the key before it read the parameters, so the engine answered invariant-rejected where the types refuse the call (TEST_SEED=3)",
+		tape: "10.1.6.1.9.g.f.a.6.1.7.8.4.g.e.1.7.4.b.h.7.8.h.9.e.c.d.a.7.7.a.0.d.e.9.g.2.0.2.a.3.g.9.3.g.8.2.a.c.4.5.2.1.c.9.e.0.7.c.c.d.0.4.7.d.6.4.g.4.c.d.h.h.d.f.7.f.h.2.a.1.8.7.h.1.13.2.2.2.4.1.1.1.1.1.4.0.0.3.1.2.2.0",
+		reaches: ["a parameter left unbound", "a nested tree", "insertAll", "insert"]
+	},
+	{
+		note: "a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
+		tape: "8.1.3.0.e.3.a.c.5.h.2.a.b.2.9.a.8.a.4.c.2.e.1.f.2.3.1.h.5.a.1.4.6.d.g.6.2.g.6.c.d.f.b.3.e.c.c.f.6.6.5.8.5.8.b.3.1.e.9.4.3.g.8.6.7.b.1.f.2.3.3.7.8.6.c.f.2.d.a.2.2.e.0.g.1.d.2.3.0.4.1.0.3.4.1.1.1.0.0.0.1.1.1.0.3.0.4.1.1",
+		reaches: ["a fact value outside its field", "insertAll", "insert"]
+	}
+]
+
+/** The kept cases, each drawn from its tape, beside what it was kept for. */
+export const changeSetKept = (): ReadonlyArray<{
+	readonly kept: KeptCase
+	readonly drawn: ChangeSetCase
+}> =>
+	Arr.map(keptCases, (kept) => {
+		const values = valuesFromToken(kept.tape)
+		return { kept, drawn: generate(caseGen(new Set()), forcedChooser(values, values.length)).value }
+	})
+
 const changeSetCases = (seed: number): ReadonlyArray<ChangeSetCase> => [
 	...Arr.flatMap(changeSetWitnesses(), (w) => w.values),
+	...Arr.map(changeSetKept(), (k) => k.drawn),
 	...sample(caseGen(new Set()), rotatingSeed(seed, floorSeed(changeSetLabel)), changeSetCount)
 ]
 

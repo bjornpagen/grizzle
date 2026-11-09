@@ -281,11 +281,14 @@ export type BindResult =
  *
  * Binding one application's inputs to a WriteProgram, before any SQL is sent.
  *
- * 1. Host normalization of every enumerated member: admission through each column's exact carrier,
+ * 1. Admission of every declared parameter's value, a relation parameter's facts normalized: a value missing or outside
+ *    its type is its EncodingFailure, whatever the members hold, so no law the members break answers for an
+ *    application its caller did not complete.
+ * 2. Host normalization of every enumerated member: admission through each column's exact carrier,
  *    collapse of equal facts, refusal of conflicting additions under a declared key, and netting of additions against
- *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent. A commit is never split,
- *    whatever its members' sizes.
- * 2. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
+ *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent, once every member is
+ *    admitted. A commit is never split, whatever its members' sizes.
+ * 3. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
  *    arrays, a declared parameter's value (a ChangeSet.bind value under its private name, or the caller's), and an
  *    attachment's delivered parent keys from its parent statement's rows. A statement whose enumerated member holds no
  *    fact produces no statement, so the runtime may skip it. A column whose array would be longer than one string
@@ -295,6 +298,38 @@ export const bindWrite = (
 	inputs: BindInputs
 ): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
 	const { frontend, edits: programEdits } = program
+	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
+	 * statement whose take its rows bound (`sentForm`). */
+	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
+	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
+	 * that binds it read. */
+	const relationInputs = new Map<ParamId, NormalizedRelation>()
+	const paramValue = (name: string): unknown => inputs.params[name]
+	for (const decl of program.params) {
+		const value = paramValue(decl.name)
+		if (decl.kind === "relation") {
+			const normalize = parameterNormalizer({
+				relation: decl.name,
+				slot: { kind: "slot", name: decl.name },
+				columns: positionalColumns(decl.heading),
+				codes: frontend.codes
+			})
+			if (!isIterable(value)) {
+				return Result.err(encodeFailure("factShape", slotPlace(decl.name)))
+			}
+			const normal = normalize(value)
+			if (!normal.ok) {
+				return Result.err(normal.error)
+			}
+			counted.push({ param: decl.id, count: normal.value.count })
+			relationInputs.set(decl.id, normal.value)
+			continue
+		}
+		const text = paramEncoder(decl.type, decl.name, frontend.codes)(value)
+		if (!text.ok) {
+			return Result.err(text.error)
+		}
+	}
 	const normalization = normalizeChangeSet(frontend, inputs.members, inputs.transport)
 	if (!normalization.ok) {
 		return Result.err(normalization.error)
@@ -328,38 +363,6 @@ export const bindWrite = (
 	 * lookup, a key fixed at compile time against a table built at run time, which no type makes total. */
 	const factsOf = (slot: ParamId): NormalizedSlot =>
 		defined(normalized.slots.get(slot), `the normal facts of member slot ${slot}`)
-	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
-	 * statement whose take its rows bound (`sentForm`). */
-	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
-	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
-	 * that binds it read. */
-	const relationInputs = new Map<ParamId, NormalizedRelation>()
-	const paramValue = (name: string): unknown => inputs.params[name]
-	for (const decl of program.params) {
-		const value = paramValue(decl.name)
-		if (decl.kind === "relation") {
-			const normalize = parameterNormalizer({
-				relation: decl.name,
-				slot: { kind: "slot", name: decl.name },
-				columns: positionalColumns(decl.heading),
-				codes: frontend.codes
-			})
-			if (!isIterable(value)) {
-				return Result.err(encodeFailure("factShape", slotPlace(decl.name)))
-			}
-			const normal = normalize(value)
-			if (!normal.ok) {
-				return Result.err(normal.error)
-			}
-			counted.push({ param: decl.id, count: normal.value.count })
-			relationInputs.set(decl.id, normal.value)
-			continue
-		}
-		const text = paramEncoder(decl.type, decl.name, frontend.codes)(value)
-		if (!text.ok) {
-			return Result.err(text.error)
-		}
-	}
 	const holdsNoFact = (slot: ParamId): boolean => factsOf(slot).count === 0
 	const skip = (artifact: WriteArtifact): ReadonlySet<number> =>
 		new Set(

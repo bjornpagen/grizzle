@@ -2366,7 +2366,10 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
 - **A relation's rows are a set.** Identical rows are one row. Two rows of one relation that share a key and differ
   elsewhere are `invariant-rejected` on that key before any SQL is sent, or, at a key over a generated field, by the
   statement that writes them. At the primary key, an array literal of up to 1,024 such rows with literal values is a
-  type error. A row one stratum both adds and deletes stays; one it both inserts and puts is the put's.
+  type error. A row one stratum both adds and deletes stays; one it both inserts and puts is the put's. Laws are
+  judged only once every row and parameter of the application encodes: a row or a parameter that does not, a missing
+  parameter among them, is its `EncodingFailure`, whatever key the other rows share or generated field they leave
+  without a value.
 - **Serial columns** may be left out of an insert's rows, all of a row's or none: the identity draws them for a new
   row, and equal such rows are one new row. Leaving out only some is an `EncodingFailure`. A table whose every column
   is serial takes `[{}]`, one new row.

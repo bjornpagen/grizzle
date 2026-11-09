@@ -526,6 +526,27 @@ const sameKey = <I>(
 	return undefined
 }
 
+/** One slot group's admitted facts, by how its inputs write them. */
+type GroupSets = Readonly<
+	Record<"insert" | "generated" | "put" | "delete", TupleMap<FactIdentity, FactEntry>>
+>
+
+/**
+ * A slot group once every input of the ChangeSet is admitted: its facts, by how its inputs write them, with the slot of
+ * each, to be judged by the keys its relation declares; or the first nested write of it whose generated field has no
+ * value, whose law refuses the application when every other input admits.
+ */
+type AdmittedGroup =
+	| {
+			readonly kind: "admitted"
+			readonly stratum: StratumAt
+			readonly relation: SlotFacts
+			readonly serial: ReadonlyArray<string>
+			readonly sets: GroupSets
+			readonly slotOf: ReadonlyMap<keyof GroupSets, MemberSlot>
+	  }
+	| GeneratedRefusal
+
 /** Normalizes every enumerated slot of a compiled ChangeSet over the facts its member slots supply.
  *
  * A fact both an insert and a put request is the put's.
@@ -541,7 +562,9 @@ const sameKey = <I>(
  *
  * An enumerated member is the query over a relation parameter its array or Stream binds, so the host owns its set
  * property and its null ban. For each stratum and each relation, over the write front end's slots
- * (`SlotGroup`), it:
+ * (`SlotGroup`), it does what follows, step 1 over every slot before any slot is judged: an input that does not admit
+ * is its EncodingFailure whatever law the others break, and a nested write's generated field with no value refuses the
+ * application only once every input admits.
  *
  * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, each value's representation
  *    and PostgreSQL's own coercion, before fact identity is taken. An addition into a classed target
@@ -596,17 +619,18 @@ export const normalizeChangeSet = (
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
 	const nested = new Map<StratumAt, NestedSet>()
 	const reached = new Map<StratumAt, Map<string, SlotFacts>>()
+	const groups: Array<AdmittedGroup> = []
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
-		const sets: Record<
-			"insert" | "generated" | "put" | "delete",
-			TupleMap<FactIdentity, FactEntry>
-		> = {
+		const sets: GroupSets = {
 			insert: new TupleMap(),
 			generated: new TupleMap(),
 			put: new TupleMap(),
 			delete: new TupleMap()
 		}
-		const slotOf = new Map<keyof typeof sets, MemberSlot>()
+		const slotOf = new Map<keyof GroupSets, MemberSlot>()
+		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
+		 * input after it is admitted. */
+		let stopped: GeneratedRefusal | undefined
 		/** The serial fields of the group's classed input, which exclude its generated facts from the keys that read
 		 * them; a group with no classed input has no generated fact. */
 		const serial = enumerated.flatMap((input) => (input.kind === "classed" ? input.serial : []))
@@ -629,9 +653,11 @@ export const normalizeChangeSet = (
 						}
 						const rows = nestedRows(input.nesting, member.name, given, set, book, transport)
 						if (!rows.ok) {
-							return rows.error._tag === "GeneratedNull"
-								? Result.ok({ kind: "generatedNull", law: rows.error.law, values: rows.error.key })
-								: Result.err(rows.error)
+							if (rows.error._tag !== "GeneratedNull") {
+								return Result.err(rows.error)
+							}
+							stopped ??= { kind: "generatedNull", law: rows.error.law, values: rows.error.key }
+							continue
 						}
 						const own = admit(member.normalize, member.name, rows.value, book, transport)
 						if (!own.ok) {
@@ -711,6 +737,13 @@ export const normalizeChangeSet = (
 				}
 			}
 		}
+		groups.push(stopped ?? { kind: "admitted", stratum, relation, serial, sets, slotOf })
+	}
+	for (const group of groups) {
+		if (group.kind === "generatedNull") {
+			return Result.ok(group)
+		}
+		const { stratum, relation, serial, sets, slotOf } = group
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}

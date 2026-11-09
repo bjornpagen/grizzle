@@ -5,6 +5,7 @@ import { Array as Arr, Effect } from "effect"
 import {
 	type ChangeSetNote,
 	changeSetCount,
+	changeSetKept,
 	changeSetRefusals,
 	changeSetRequired,
 	changeSetWitnesses
@@ -20,7 +21,8 @@ import { checked } from "#test/types/batch/batch.ts"
  *
  * The floor's witnesses, the same in every run, a population aimed at each requirement, plant every fault
  * and reach every construct, every verdict and every Refusal of the write path, so the program is never vacuous on any
- * seed.
+ * seed. Beside them every run draws the kept cases, each a case a run's own stream once drew failing, replayed by its
+ * tape and checked to still draw what it was kept for.
  */
 const required: Situations<ChangeSetNote> = [
 	"admitted",
@@ -40,6 +42,16 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 					assert.deepEqual(actual, expected)
 				})
 		)
+
+		it("each kept case still draws what it was kept for", () => {
+			for (const { kept, drawn } of changeSetKept()) {
+				assert.deepEqual(
+					Arr.filter(kept.reaches, (n) => !drawn.notes.has(n)),
+					[],
+					kept.note
+				)
+			}
+		})
 
 		it("the floor's witnesses plant every fault and reach every construct, both verdicts and every Refusal", () => {
 			assert.deepEqual(
