@@ -36,15 +36,19 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
     0.33 s with native foreign keys), though each probe alone is index lookups.
-  - A when-guard's text analysis on every lowering (REGEX, 2026-11-09; kept, as no carrier exists). Lowering
-    Compute.when(Compute.matches(x, p), ...) types its branch's subject by analyzing x's patterns and p together
-    (scalar/compute/lower.ts whenGuard, textWithin, then text/refinement.ts analyzeText): each member's admission,
-    minimal DFA and ARE, then their intersection, again on every lowering and for every guard over the same patterns.
-    That was about 0.33 of 36.4 profile-seconds on the kit's layer at 1ab38472 (the theory's and the law model's
-    lowerings). The members' analyses are proved when their text descriptors are registered, but the checker rebuilds a
-    ScalarType from the field's Description (scalarTypeOf over the decoded FieldDesc), which persists only the
-    language's key and check, never a member's DFA. Carrying them would need the Description to hold non-data, or a
-    registry keyed by the FieldDesc, which is a cache; both are refused.
+  - Pattern work the law model's lowering repeats (REGEX, 2026-11-09; not cut, blocked by the zone rules). Two
+    items, measured on the kit's layer at 25ed2465 (25.2 profile-seconds in all): (a) lowering
+    Compute.when(Compute.matches(x, p), ...) analyzes x's patterns and p together again (scalar/compute/lower.ts
+    whenGuard, textWithin, then text/refinement.ts analyzeText), though x's members were analyzed when their text
+    descriptors were registered; carrying those members would save at most 0.06 profile-seconds, since the x ∧ p
+    intersection is still built for each guard. (b) A literal matches source is admitted again where the law model
+    lowers a check (lower.ts patternAdmissions), though Compute.pattern admitted it: at most 0.11 profile-seconds.
+    The blocker: the analysis (text/refinement.ts TextRefinement) and the admitted Pattern (scalar/regex/pattern.ts)
+    would have to ride on a field's ScalarType (TextInfo) and on the matches and when nodes, but ir may import only
+    core and sql, and the descriptor registry (scalar) only core and ir, so neither can name them; a second registry
+    under text/ would be a side table. The one representation that removes it: the regex analysis types (RegexNode,
+    the DFA and Known, PatternAnalysis, TextRefinement, Pattern) moved into ir, after which a registered descriptor's
+    refinement reaches its ScalarType and the built matches and when nodes carry their Pattern and narrowed refinement.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
