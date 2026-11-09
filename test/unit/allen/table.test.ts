@@ -28,7 +28,7 @@ import {
 	rangeLimits,
 	rangeTypes,
 	relationsHolding,
-	type Spelling,
+	type RangeSpelling,
 	spanText,
 	universe,
 	universePairs,
@@ -287,7 +287,7 @@ describe("the verification universe", () => {
 				]
 			)
 			type Item =
-				| { readonly kind: "spelling"; readonly type: RangeType; readonly spelling: Spelling }
+				| { readonly kind: "spelling"; readonly type: RangeType; readonly spelling: RangeSpelling }
 				| { readonly kind: "pair"; readonly type: RangeType; readonly pair: PairFacts }
 			const items: Gen<Item> = oneOf([
 				...Arr.map(rangeTypes, (type) =>

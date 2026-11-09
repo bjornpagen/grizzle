@@ -43,7 +43,7 @@ import {
 	limitSpans,
 	type RangeType,
 	rangeLimits,
-	type Spelling,
+	type RangeSpelling,
 	spanText,
 	spellingText
 } from "#test/support/oracle/allen.ts"
@@ -188,7 +188,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					const { installed, names } = yield* setup
 					const shape = names.spanCheck(Edge, "s", { kind: "shape" })
 					type Drawn =
-						| { readonly kind: "bounded"; readonly spelling: Spelling }
+						| { readonly kind: "bounded"; readonly spelling: RangeSpelling }
 						| {
 								readonly kind: "unbounded"
 								readonly lower: { readonly value: bigint; readonly inclusive: boolean } | "infinite"
@@ -228,13 +228,13 @@ layer(Substrate.layer)("span storage", (it) => {
 							kind: "bounded",
 							spelling: source.draw(
 								oneOf([
-									map(endpointGen(int8), (x): Spelling => ({
+									map(endpointGen(int8), (x): RangeSpelling => ({
 										lowerInc: true,
 										lo: x,
 										hi: x,
 										upperInc: false
 									})),
-									map(endpointGen({ min: int8.min, max: int8.max - 1n }), (x): Spelling => ({
+									map(endpointGen({ min: int8.min, max: int8.max - 1n }), (x): RangeSpelling => ({
 										lowerInc: false,
 										lo: x,
 										hi: x + 1n,
