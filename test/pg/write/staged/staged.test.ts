@@ -20,8 +20,9 @@
  *   and nothing stored.
  * - **A row no fill carries even alone** is InputTooLarge (familyRow) of Entry, its fill's Bind message past the planted
  *   bound, before any SQL: nothing sent and nothing stored.
- * - **A write that stages its rows on a role without TEMPORARY** is InputTooLarge (carrier), naming Entry and the
- *   privilege, and stores nothing.
+ * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
+ *   program's own, which a put of a Tag read back by its delta needs, is TemporaryRefused, naming the privilege, with
+ *   the server's 42501, and stores nothing.
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
  *   its row's text, each entry's indexes and its copies of its owners' counts and each owner's count and end among them,
  *   and answers the same outcome, its kind, its counts, and a refusal's laws and witness.
@@ -39,12 +40,13 @@ import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Result, String as Str } from "effect"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { runApplication } from "#adapter/apply/index.ts"
 import { openDbContext } from "#adapter/db/open.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import type { Session, SessionPool, WireQuery } from "#adapter/wire/session.ts"
+import { type RowDecoder, sqlstates } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import {
 	accumulated,
@@ -54,6 +56,7 @@ import {
 	pg,
 	uuid
 } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
 	counted,
@@ -108,7 +111,9 @@ const Entry = relation(
 const entries = ordered(on(Entry, "package", "at"), fin(Package, "entries"))
 const binned = counted(on(Entry, "bin"), fin(Bin, "n"))
 const shelved = counted(on(Entry, "shelf"), fin(Shelf, "n"))
-const Staged = schema("StagedRows", { Package, Bin, Shelf, Entry }, [
+const Tag = relation("Tag", { id: pg.int4, v: pg.int4 }, ["id"])
+const Staged = schema("StagedRows", { Package, Bin, Shelf, Entry, Tag }, [
+	mutable(Tag),
 	entries,
 	key(on(Entry, "package", "path")),
 	binned,
@@ -151,12 +156,15 @@ const lengthOf = (member: Member): number => (member.kind === "past" ? limit : m
 interface Sketch {
 	readonly packages: ReadonlyArray<ReadonlyArray<Member>>
 	readonly temporary: boolean
+	/** A put of a Tag read back by its delta beside the packages, which the program writes through carriers of its own. */
+	readonly tag: "none" | number
 	readonly flight: "in force" | "past any flight"
 }
 
 const sketchGen: Gen<Sketch> = (source) => ({
 	packages: source.draw(array(array(memberGen, { min: 0, max: 8 }), { min: 0, max: 3 })),
 	temporary: source.draw(int(0, 3)) > 0,
+	tag: source.draw(int(0, 3)) === 0 ? source.draw(int(0, 9)) : "none",
 	flight: source.draw(int(0, 15)) === 0 ? "past any flight" : "in force"
 })
 
@@ -171,6 +179,7 @@ const pantry: Sketch = {
 		}))
 	],
 	temporary: true,
+	tag: "none",
 	flight: "in force"
 }
 
@@ -184,6 +193,8 @@ type Feature =
 	| "a row past one fill alone"
 	| "a flight past one write"
 	| "a staged write without TEMPORARY"
+	| "a carrier of the program's own without TEMPORARY"
+	| "a carrier of the program's own"
 
 const binId = (bin: 0 | 1) => uuidOf(2_000 + bin)
 const shelfId = (shelf: 0 | 1) => uuidOf(3_000 + shelf)
@@ -225,7 +236,9 @@ const plantedPool = (pool: SessionPool, sketch: Sketch, sent: Array<WireQuery>):
 		messageMaxBytes: limit,
 		flightMaxBytes: sketch.flight === "past any flight" ? 1 : session.flightMaxBytes,
 		send: (pipeline, onAnswer, onEnd, onCut) => {
-			sent.push(...pipeline)
+			for (const one of pipeline) {
+				sent.push(one)
+			}
 			session.send(pipeline, onAnswer, onEnd, onCut)
 		}
 	}))
@@ -317,16 +330,22 @@ const searchOn = <A, E, R>(
 						[]
 					)
 				)
-			const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
+			/** One write sent inline and, with its program as `staging` hands it over, on the planted session. */
+			const arms = <R>(
+				changes: { readonly reads: RowDecoder<R> },
+				sketch: Sketch,
+				staging: Staging
+			) =>
 				Effect.gen(function* () {
-					const label = Formatter.format(sketch)
-					const changes = changesOf(sketch)
 					const entry = succeeded(
 						compiledWrite(opened, changes, opened.claims),
 						"the ChangeSet compiles"
 					)
 					yield* fresh
-					const inline = yield* Effect.result(runApplication(opened, entry, {}, changes.reads))
+					const inlineResult = yield* Effect.result(
+						runApplication(opened, entry, {}, changes.reads)
+					)
+					const inline = printed(inlineResult)
 					const inlineRows = yield* state
 					yield* fresh
 					const sent: Array<WireQuery> = []
@@ -342,11 +361,35 @@ const searchOn = <A, E, R>(
 						)
 					).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
 					const stagedRows = yield* state
+					return { entry, inline, inlineRows, staged, stagedRows, sent }
+				})
+			const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
+				Effect.gen(function* () {
+					const label = Formatter.format(sketch)
+					const nested = changesOf(sketch)
+					const { entry, inline, inlineRows, staged, stagedRows, sent } =
+						sketch.tag === "none"
+							? yield* arms(nested, sketch, staging)
+							: yield* arms(
+									nested.put(Tag, [{ id: 1, v: sketch.tag }]).read("tags", (d) =>
+										query(Staged).rule((r) => {
+											const { id, v: value } = v(Tag, "added")
+											return r.match(d.added(Tag), { id, v: value }).find({ id, v: value })
+										})
+									),
+									sketch,
+									staging
+								)
 					const texts = Arr.flatMap(sent, (q) => (q._tag === "statement" ? [q.sql] : []))
 					const carriers = Arr.flatMap(entry.compiled.artifact.statements, (st) =>
 						st.staged.kind === "carriers" ? st.staged.carriers : []
 					)
 					const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create))
+					const temporary = Arr.some(texts, (t) => Str.startsWith("CREATE TEMPORARY TABLE")(t))
+					const own = Arr.some(
+						entry.compiled.artifact.statements,
+						(st) => st.step.kind === "carrier" && st.step.step === "create"
+					)
 					const past = Arr.some(Arr.flatten(sketch.packages), (m) => m.kind === "past")
 					if (sketch.flight === "past any flight") {
 						c.note("a flight past one write")
@@ -379,22 +422,27 @@ const searchOn = <A, E, R>(
 						assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
 						return
 					}
-					if (!sketch.temporary && Arr.isReadonlyArrayNonEmpty(created)) {
-						c.note("a staged write without TEMPORARY")
+					if (!sketch.temporary && temporary) {
+						c.note(
+							Arr.isReadonlyArrayNonEmpty(created)
+								? "a staged write without TEMPORARY"
+								: "a carrier of the program's own without TEMPORARY"
+						)
 						assert.ok(
 							Result.isFailure(staged) &&
 								staged.failure._tag === "ExecutionFailure" &&
-								staged.failure.reason._tag === "InputTooLarge" &&
-								staged.failure.reason.bound.kind === "carrier" &&
-								staged.failure.reason.bound.input === "Entry" &&
-								staged.failure.reason.bound.privilege === "TEMPORARY",
-							`${label}: a carrier the role may not create is InputTooLarge (carrier), not ${String(printed(staged))}`
+								staged.failure.reason._tag === "TemporaryRefused" &&
+								staged.failure.reason.error.sqlstate === sqlstates.insufficientPrivilege,
+							`${label}: a temporary table the role may not create is TemporaryRefused, not ${String(printed(staged))}`
 						)
 						assert.deepEqual(stagedRows, shelved, `${label}: nothing is stored`)
 						return
 					}
 					assert.deepEqual(stagedRows, inlineRows, `${label}: the inline write's rows`)
-					assert.deepEqual(printed(staged), printed(inline), `${label}: the inline write's outcome`)
+					assert.deepEqual(printed(staged), inline, `${label}: the inline write's outcome`)
+					if (own) {
+						c.note("a carrier of the program's own")
+					}
 					if (!Arr.isReadonlyArrayNonEmpty(created)) {
 						c.note("inline under the planted bound")
 						return
@@ -403,10 +451,10 @@ const searchOn = <A, E, R>(
 						const fills = Arr.filter(texts, (t) => t === k.fill).length
 						c.note(fills <= 1 ? "staged in one fill" : "staged in several fills")
 					}
-					if (Result.isSuccess(inline) && inline.success.kind === "accepted") {
+					if (Result.isSuccess(staged) && staged.success.kind === "accepted") {
 						c.note("a stored mutable shelf recounted")
 					}
-					if (Result.isSuccess(inline) && inline.success.kind === "invariant-rejected") {
+					if (Result.isSuccess(staged) && staged.success.kind === "invariant-rejected") {
 						c.note("a refusal the staged statement judges")
 					}
 					if (
@@ -457,7 +505,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"an owner of no member",
 										"a row past one fill alone",
 										"a flight past one write",
-										"a staged write without TEMPORARY"
+										"a staged write without TEMPORARY",
+										"a carrier of the program's own without TEMPORARY",
+										"a carrier of the program's own"
 									],
 									{ cases: 96, sense: notesOnly }
 								),

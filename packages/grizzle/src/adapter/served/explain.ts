@@ -4,7 +4,7 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { variantOf } from "#adapter/db/handles.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { decodePlan } from "#adapter/explain/plan.ts"
+import { decodePlan, explainFailure } from "#adapter/explain/plan.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatements } from "#adapter/reader/run.ts"
@@ -18,14 +18,13 @@ import {
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
-	asReadFailure,
 	type BatchOutcome,
 	type BatchStatement,
 	runFramed,
 	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
-import { type Chunks, inForce } from "#compiler/plan/change.ts"
+import { type Chunks, type ExecutionPart, inForce } from "#compiler/plan/change.ts"
 import {
 	type EmittedText,
 	explainOf,
@@ -37,16 +36,19 @@ import {
 
 /**
  * One statement a member would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's
- * CREATE TEMPORARY TABLE and an ANALYZE, which have no plan, run as it is.
+ * CREATE TEMPORARY TABLE and an ANALYZE, which have no plan, run as it is; with what it does (write/program/staged.ts
+ * ExecutionPart), a read's and every planned one's `statement`.
  */
 interface Explained {
 	readonly statement: BatchStatement
 	readonly planned: boolean
+	readonly part: ExecutionPart
 }
 
 const planned = (sql: EmittedText, params: ReadonlyArray<Param>): Explained => ({
 	statement: { sql: explainOf(sql), params },
-	planned: true
+	planned: true,
+	part: "statement"
 })
 
 /** A read's EXPLAINs in a read-only transaction, a ChangeSet's in a read-write one; either rolled back, never committed. */
@@ -88,7 +90,7 @@ const plansOf = Effect.fn("plansOf")(function* (
 			{ ...frame, prologue: ctx.prologue },
 			Arr.map(statements, (e) => e.statement)
 		),
-		asReadFailure
+		(failure) => explainFailure(statements, failure)
 	)
 	return yield* Effect.fromResult(decodedPlans(statements, outcomes))
 }, Effect.scoped)
@@ -120,7 +122,7 @@ const plansAfter = Effect.fn("plansAfter")(function* (
 					})
 				)
 		),
-		(failure) => (failure._tag === "ReadFailure" ? failure : asReadFailure(failure))
+		(failure) => (failure._tag === "ReadFailure" ? failure : explainFailure(explained, failure))
 	)
 	return yield* Effect.fromResult(decodedPlans(explained, outcomes))
 }, Effect.scoped)
@@ -174,15 +176,15 @@ const explainChange = Effect.fn("explainChange")(function* (
 			if (!executions.ok) {
 				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
 			}
-			const step = s.step
-			for (const { sql, params: sent, part } of executions.value) {
+			for (const execution of executions.value) {
 				statements.push(
-					(step.kind === "carrier" && step.step === "create") ||
-						step.kind === "analyze" ||
-						part.kind === "create" ||
-						part.kind === "analyze"
-						? { statement: { sql, params: sent }, planned: false }
-						: planned(sql, sent)
+					execution.part === "create" || execution.part === "analyze"
+						? {
+								statement: { sql: execution.sql, params: execution.params },
+								planned: false,
+								part: execution.part
+							}
+						: planned(execution.sql, execution.params)
 				)
 			}
 		}
@@ -195,7 +197,7 @@ const explainChange = Effect.fn("explainChange")(function* (
 	}
 	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
 		planned(r.sql, r.params),
-		{ statement: { sql: r.sql, params: r.params }, planned: false }
+		{ statement: { sql: r.sql, params: r.params }, planned: false, part: "statement" }
 	])
 	return yield* plansAfter(ctx, changeFrame, reads, (outcomes) => {
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))

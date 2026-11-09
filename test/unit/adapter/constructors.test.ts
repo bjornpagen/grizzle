@@ -123,6 +123,7 @@ const constructors: {
 	SpanKeyChange: Public.SpanKeyChange,
 	StaleSnapshot: Public.StaleSnapshot,
 	StartupRefused: Public.StartupRefused,
+	TemporaryRefused: Public.TemporaryRefused,
 	TlsRefused: Public.TlsRefused,
 	TokenError: Public.TokenError,
 	TransientFailure: Public.TransientFailure,

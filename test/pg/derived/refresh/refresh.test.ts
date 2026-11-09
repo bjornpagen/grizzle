@@ -202,6 +202,8 @@ const raisedOf = (outcome: Result.Result<unknown, unknown>): unknown => {
 			return { by: "compiler", stage: "compile" }
 		case "ServerError":
 			return { by: "server", sqlstate: reason.sqlstate }
+		case "TemporaryRefused":
+			return { by: "server", sqlstate: reason.error.sqlstate }
 		case "InputTooLarge":
 		case "UnreadableAnswer":
 			return reason

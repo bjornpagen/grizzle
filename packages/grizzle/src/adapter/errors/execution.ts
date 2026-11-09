@@ -21,6 +21,7 @@ import {
 	ServerError,
 	SpanKeyChange,
 	type StaleReason,
+	type TemporaryRefused,
 	TokenError,
 	type TransientReason,
 	UnreadableAnswer,
@@ -104,7 +105,7 @@ export class OpenError extends Data.TaggedError("OpenError")<{
 /**
  * Why a read failed: the server refused its statement (ServerError); its session was not acquired (AcquireRefusal), or
  * its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot
- * read); the compiler refused it before any SQL, for a query that does not compile for this Db; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
+ * read); the compiler refused it before any SQL, for a query that does not compile for this Db; the server refused a temporary table db.explain of a ChangeSet creates to a role without TEMPORARY on the database; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
  * law rejects (db.explain), parameters past a bound of their transport, or a page request.
  */
 export type ReadReason =
@@ -119,6 +120,7 @@ export type ReadReason =
 	| EncodingFailure
 	| LawRejected
 	| InputTooLarge
+	| TemporaryRefused
 	| PageRequestRefused
 
 /** Where a read failed. */
@@ -168,6 +170,8 @@ const readStage = (reason: ReadReason): ReadStage => {
 			return "encode"
 		case "InputTooLarge":
 			return "resource"
+		case "TemporaryRefused":
+			return "execute"
 		case "PageRequestRefused":
 			return "request"
 	}
@@ -311,10 +315,16 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 
 /**
  * Why a write or refresh failed at execution, or was refused before any SQL: the server refused a statement
- * (ServerError); the compiler refused the program, which does not compile for this Db; a relation input is past the size limit; or a statement answered rows grizzle cannot read, with what
+ * (ServerError); the compiler refused the program, which does not compile for this Db; a relation input is past the size limit; the server refused a temporary table the write creates to a role
+ * without TEMPORARY on the database (TemporaryRefused); or a statement answered rows grizzle cannot read, with what
  * its transaction then did.
  */
-export type ExecutionReason = ServerError | CompileError | InputTooLarge | UnreadableAnswer
+export type ExecutionReason =
+	| ServerError
+	| CompileError
+	| InputTooLarge
+	| TemporaryRefused
+	| UnreadableAnswer
 
 /** A write or refresh failed at execution, or the host refused it before any SQL was sent, for `reason`. */
 export class ExecutionFailure extends Data.TaggedError("ExecutionFailure")<{

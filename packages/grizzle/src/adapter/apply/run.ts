@@ -9,10 +9,10 @@ import {
 } from "#adapter/errors/execution.ts"
 import {
 	familyRowBound,
-	InputTooLarge,
+	type InputTooLarge,
 	literalBound,
 	messageBound,
-	type ServerError,
+	temporaryRefusal,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
@@ -68,8 +68,7 @@ import {
 	type ParamMap,
 	type ParamValue,
 	type Row,
-	type RowDecoder,
-	sqlstates
+	type RowDecoder
 } from "#compiler/plan/common.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 
@@ -160,9 +159,10 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  *    with the placeholder texts binding gave it, goes in the flight, a family's once per statement its plan cuts, and
  *    none where its nested write writes no row of the statement's kind; a statement whose nested rows are past the
  *    session's message once, as its staged form, behind its carriers' creations, their fills, a chunk of the rows each,
- *    and their ANALYZE (write/program/staged.ts), so it still runs once over every row, and a carrier the role holds no
- *    TEMPORARY privilege to create is InputTooLarge (carrier); a statement whose enumerated member holds no fact is
- *    skipped, because it produces no statement. A flight left with no statement still sends its frame, BEGIN, the
+ *    and their ANALYZE (write/program/staged.ts), so it still runs once over every row; a statement whose enumerated
+ *    member holds no fact is skipped, because it produces no statement. A temporary table the role holds no TEMPORARY
+ *    privilege to create, a carrier of the program's own or a staged one, is TemporaryRefused (errors/failures.ts
+ *    temporaryRefusal). A flight left with no statement still sends its frame, BEGIN, the
  *    prologue's fence and snapshot check, and COMMIT, so an all-empty application meets the check every transaction
  *    of the Db meets. No statement's rows decide whether a later one is sent: whatever
  *    refuses the write raises inside the statement that detects it (write/refusal.ts), and PostgreSQL then aborts the
@@ -333,22 +333,6 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
- * A staged carrier's creation the server refused for the role's want of the TEMPORARY privilege on the database
- * (42501), as the InputTooLarge naming the relation whose nested rows it would hold; none for any other refusal.
- */
-const refusedCarrier = (
-	at: SentStatement | undefined,
-	error: ServerError
-): InputTooLarge | undefined =>
-	at?.kind === "statement" &&
-	at.part.kind === "create" &&
-	error.sqlstate === sqlstates.insufficientPrivilege
-		? new InputTooLarge({
-				bound: { kind: "carrier", input: at.part.relation, privilege: "TEMPORARY" }
-			})
-		: undefined
-
-/**
  * What a write's failed flight means: a refused statement, or a refusal at COMMIT, is classified at its origin; the
  * fence's refusal is StaleSnapshot; any other refused prologue, which only a login that lost the role's
  * membership meets, is the server's.
@@ -360,15 +344,17 @@ const flightFailure = <R>(
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (failure._tag) {
 		case "BatchRefused": {
-			const carrier = refusedCarrier(sent[failure.index], failure.failure)
-			return carrier === undefined
+			const at = sent[failure.index]
+			const temporary =
+				at?.kind === "statement" ? temporaryRefusal(at.part, failure.failure) : undefined
+			return temporary === undefined
 				? outcomeOf(
 						classifyServerError(failure.failure, {
 							...context,
 							origin: statementOrigin(sent, failure.index)
 						})
 					)
-				: Effect.fail(new ExecutionFailure({ reason: carrier }))
+				: Effect.fail(new ExecutionFailure({ reason: temporary }))
 		}
 		case "CommitRefused":
 			return outcomeOf(

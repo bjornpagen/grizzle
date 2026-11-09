@@ -173,11 +173,9 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 	const all = r.cells.rows
 	const inline = [...written(r, all), r.value]
 	if (bindOf(inline) <= r.transport.messageBytes) {
-		return Result.ok([{ sql: testSql("inline"), params: inline, part: { kind: "statement" } }])
+		return Result.ok([{ sql: testSql("inline"), params: inline, part: "statement" }])
 	}
-	const out: Array<Execution> = [
-		{ sql: testSql("create"), params: [], part: { kind: "create", relation: "Entry" } }
-	]
+	const out: Array<Execution> = [{ sql: testSql("create"), params: [], part: "create" }]
 	let from = 0
 	while (from < all.length) {
 		const alone = bindOf(written(r, all.slice(from, from + 1)))
@@ -198,12 +196,12 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 		out.push({
 			sql: testSql("fill"),
 			params: written(r, all.slice(from, to)),
-			part: { kind: "fill", relation: "Entry" }
+			part: "fill"
 		})
 		from = to
 	}
-	out.push({ sql: testSql("analyze"), params: [], part: { kind: "analyze" } })
-	out.push({ sql: testSql("staged"), params: [r.value], part: { kind: "statement" } })
+	out.push({ sql: testSql("analyze"), params: [], part: "analyze" })
+	out.push({ sql: testSql("staged"), params: [r.value], part: "statement" })
 	return Result.ok(out)
 }
 
@@ -226,6 +224,7 @@ const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
 		}
 		const got = executionsOf(
 			staging(r.statement),
+			"statement",
 			(position) => {
 				assert.equal(position, r.width, "only the kept placeholder is encoded by its slot")
 				return Result.ok(r.value)
@@ -238,7 +237,7 @@ const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
 			assert.deepEqual(got, want, "a row no fill carries alone refuses the write")
 			return
 		}
-		const fills = Arr.filter(want.value, (e) => e.part.kind === "fill").length
+		const fills = Arr.filter(want.value, (e) => e.part === "fill").length
 		c.note(
 			want.value.length === 1
 				? "inline"

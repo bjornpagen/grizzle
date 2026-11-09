@@ -60,6 +60,7 @@ import {
 	type SlotData
 } from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
+import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import {
 	type FilledColumn,
@@ -147,9 +148,9 @@ import {
 	executionsOf,
 	type NestedCells,
 	nestedColumn,
+	type ExecutionPart,
 	type NestedPlaceholder,
-	type NestedRowBound,
-	statementPart
+	type NestedRowBound
 } from "#compiler/write/program/staged.ts"
 
 interface BindInputs {
@@ -755,6 +756,7 @@ export const bindWrite = (
 		})
 		const executions = executionsOf(
 			{ sql: sent.sql, staged: statement.staged, nested },
+			partOf(statement.step),
 			(position) =>
 				encodeSlot(
 					defined(sent.paramSlots[position], "a placeholder of the statement's form"),
@@ -1547,7 +1549,7 @@ export const bindWrite = (
 					if (!arrays.ok) {
 						return arrays
 					}
-					out.push({ sql: sent.sql, params: arrays.value, part: statementPart })
+					out.push({ sql: sent.sql, params: arrays.value, part: "statement" })
 				}
 				return Result.ok(out)
 			}
@@ -1609,6 +1611,23 @@ export const bindWrite = (
 		values,
 		flights
 	})
+}
+
+/** What a statement of `step` does, as its executions are read (write/program/staged.ts ExecutionPart). */
+const partOf = (step: OwnStep): ExecutionPart => {
+	switch (step.kind) {
+		case "carrier":
+			return step.step === "create" ? "create" : "fill"
+		case "analyze":
+			return "analyze"
+		case "write":
+		case "advance":
+		case "check":
+		case "single":
+		case "family":
+		case "familyWrite":
+			return "statement"
+	}
 }
 
 /** A read's keys as its placeholders carry them: one array literal per key field, each within the longest string. The

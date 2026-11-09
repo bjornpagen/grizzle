@@ -22,9 +22,19 @@
  * one fill's Bind message carries, their ANALYZE and the staged statement, in that order, every one in the call's
  * flight. The statement runs once over every row, so what it writes and what its laws judge are the inline
  * statement's. A carrier is the session's own, named after the program's carriers (sql/naming.ts carrierName), drops at
- * COMMIT, and a rollback drops it with the rest; the role creates it under the database's TEMPORARY privilege. Its
- * ANALYZE counts its rows before the statement joins them against stored relations, as the program's own carriers'
- * does (write/program/analyze.ts).
+ * COMMIT, and a rollback drops it with the rest; the role creates it under the database's TEMPORARY privilege, without
+ * which the write is TemporaryRefused.
+ *
+ * The ANALYZE is for what the statement may refuse, never for speed. A carrier created in the transaction that reads
+ * it has never been analyzed, so the planner reads its size from its heap alone, and a heap of under ten pages, which
+ * rows of large values stored out of line make (pantry's sixteen entries of 64 MiB are one page), is planned as ten
+ * pages of narrow rows, hundreds of them. Against that guess the staged statement joins the carrier with the stored
+ * relations it reads (each group's stored members, its owner, its seed) by scanning them whole, and under
+ * SERIALIZABLE a sequential scan takes a relation-level SIRead lock: every concurrent writer of those relations, a
+ * second import of an unrelated package among them, then meets this write as a serialization conflict and one of the
+ * two fails with 40001, a refusal of no conflict the two writes' rows hold. Counted, the carrier's rows are what the
+ * planner probes the stored relations by, one key at a time, which locks only the index pages and rows the write
+ * reads, never a whole relation, as the program's own carriers are analyzed for (write/program/analyze.ts).
  */
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"
@@ -268,15 +278,12 @@ export const carriersOf = (staged: Staged): number =>
 	staged.kind === "carriers" ? staged.carriers.length : 0
 
 /**
- * What one execution of an artifact statement sends: the statement itself, inline or staged, or a chunk of a family
- * step; a staged carrier's creation, named by the relation of the rows it holds; a fill of a chunk of them; or the
- * carriers' ANALYZE.
+ * What one execution of an artifact statement does: `create`, a CREATE TEMPORARY TABLE, a carrier step's of the
+ * program's own or a staged carrier's, the one kind a role without TEMPORARY on the database is refused; `fill`, a
+ * carrier's fill, a staged one's of a chunk of its rows among them; `analyze`, an ANALYZE of carriers; or `statement`,
+ * any other, a staged statement and a chunk of a family step among them.
  */
-export type ExecutionPart =
-	| { readonly kind: "statement" }
-	| { readonly kind: "create"; readonly relation: string }
-	| { readonly kind: "fill"; readonly relation: string }
-	| { readonly kind: "analyze" }
+export type ExecutionPart = "statement" | "create" | "fill" | "analyze"
 
 /** One execution of an artifact statement: its text, its placeholders' values and what it is. */
 export interface Execution {
@@ -284,11 +291,6 @@ export interface Execution {
 	readonly params: ReadonlyArray<Param>
 	readonly part: ExecutionPart
 }
-
-/** The part of an execution that is its statement itself. */
-export const statementPart: ExecutionPart = Object.freeze({ kind: "statement" })
-
-const analyzePart: ExecutionPart = Object.freeze({ kind: "analyze" })
 
 /**
  * A stratum's nested rows of one relation as their placeholders carry them: their sent layout's column types, and each
@@ -476,23 +478,26 @@ export interface StagedStatement {
 /**
  * A statement's executions (see the header): its one, inline, where it reads no nested rows or its Bind message, its
  * nested rows' arrays measured from their cells, fits the transport; otherwise its staged form's, each carrier created
- * and filled chunk by chunk, their ANALYZE, then the staged statement. `encode` writes the value of the placeholder at
- * a position that carries no nested rows. Each array of nested rows is written once, in the executions that send it.
+ * and filled chunk by chunk, their ANALYZE, then the staged statement. `part` is what the statement itself does, which
+ * its inline execution is. `encode` writes the value of the placeholder at a position that carries no nested rows.
+ * Each array of nested rows is written once, in the executions that send it.
  */
 export const executionsOf = (
 	statement: StagedStatement,
+	part: ExecutionPart,
 	encode: (position: number) => Result.Result<Param, LiteralBound | EncodingFailure>,
 	transport: Transport
 ): Result.Result<ReadonlyArray<Execution>, LiteralBound | EncodingFailure | NestedRowBound> => {
 	const values = new Map<number, Param>()
 	for (const [position, slot] of statement.nested.entries()) {
-		if (slot === undefined) {
-			const value = encode(position)
-			if (!value.ok) {
-				return value
-			}
-			values.set(position, value.value)
+		if (slot !== undefined) {
+			continue
 		}
+		const value = encode(position)
+		if (!value.ok) {
+			return value
+		}
+		values.set(position, value.value)
 	}
 	const inline = (): Result.Result<ReadonlyArray<Execution>, LiteralBound | EncodingFailure> => {
 		const params: Array<Param> = []
@@ -507,7 +512,7 @@ export const executionsOf = (
 			}
 			params.push(array.value)
 		}
-		return Result.ok([{ sql: statement.sql, params, part: statementPart }])
+		return Result.ok([{ sql: statement.sql, params, part }])
 	}
 	const staged = statement.staged
 	if (staged.kind === "none") {
@@ -535,11 +540,7 @@ export const executionsOf = (
 		)
 		const [{ cells }] = slots
 		const parts = mapNonEmpty(slots, (slot) => slot.part)
-		out.push({
-			sql: carrier.create,
-			params: [],
-			part: { kind: "create", relation: cells.relation }
-		})
+		out.push({ sql: carrier.create, params: [], part: "create" })
 		const chunks = chunksOf(cells, parts, transport)
 		if (!chunks.ok) {
 			return chunks
@@ -547,23 +548,23 @@ export const executionsOf = (
 		for (const chunk of chunks.value) {
 			const rows = cells.rows.slice(chunk.from, chunk.to)
 			const params: Array<Param> = []
-			for (const part of parts) {
-				const array = nestedColumn(cells, part, rows)
+			for (const column of parts) {
+				const array = nestedColumn(cells, column, rows)
 				if (!array.ok) {
 					return array
 				}
 				params.push(array.value)
 			}
-			out.push({ sql: carrier.fill, params, part: { kind: "fill", relation: cells.relation } })
+			out.push({ sql: carrier.fill, params, part: "fill" })
 		}
 	}
-	out.push({ sql: staged.analyze, params: [], part: analyzePart })
+	out.push({ sql: staged.analyze, params: [], part: "analyze" })
 	out.push({
 		sql: staged.sql,
 		params: staged.kept.map((position) =>
 			defined(values.get(position), "the value of a placeholder the staged statement keeps")
 		),
-		part: statementPart
+		part
 	})
 	return Result.ok(out)
 }

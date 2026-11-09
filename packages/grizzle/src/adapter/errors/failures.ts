@@ -1,6 +1,6 @@
 import { Data } from "effect"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
-import type { FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
+import type { ExecutionPart, FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
 import {
 	admittedIdentifier,
 	type ColumnIdent,
@@ -11,7 +11,8 @@ import {
 	type LiteralBound,
 	type MessageBound,
 	type RelationIdent,
-	type Sqlstate
+	type Sqlstate,
+	sqlstates
 } from "#compiler/plan/common.ts"
 
 /**
@@ -459,11 +460,7 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  *   which the backend ends the connection instead of answering;
  * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
  *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'
- *   lengths before any of its bytes is read or copied;
- * - carrier: the nested rows of `input` are past one Bind message, so they travel through a transaction carrier
- *   (write/program/staged.ts), which the role may not create: it holds no `privilege` on the database, and PostgreSQL
- *   refused the carrier's CREATE TEMPORARY TABLE, the one bound met in the flight rather than before it, which commits
- *   nothing.
+ *   lengths before any of its bytes is read or copied.
  *
  * None bounds a count of rows: a ChangeSet input, a relation parameter or a family of any number of facts travels
  * whenever each row's texts fit and the call's flight fits one write.
@@ -505,15 +502,10 @@ export type InputBound =
 			readonly bytes: number
 			readonly limit: number
 	  }
-	| {
-			readonly kind: "carrier"
-			readonly input: string
-			readonly privilege: "TEMPORARY"
-	  }
 
 /**
- * An execution's parameters are past a bound of their transport (InputBound), before any SQL, or, for `carrier`, at the
- * carrier the role may not create, with nothing committed: split the input across calls, or grant the privilege.
+ * An execution's parameters are past a bound of their transport (InputBound), before any SQL: split the input across
+ * calls.
  */
 export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 	readonly bound: InputBound
@@ -541,11 +533,37 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 				return `a statement's Parse message would be ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}: its text is longer than one message carries`
 			case "input":
 				return `the arrays of input ${bound.input} would make a Bind message of at least ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
-			case "carrier":
-				return `the nested rows of ${bound.input} are past one Bind message, so they travel through a temporary table, and the role holds no ${bound.privilege} privilege on the database to create one; grant it, or split the input across calls`
 		}
 	}
 }
+
+/**
+ * A write creates a temporary table, and the role holds no `privilege` on the database: PostgreSQL refused the CREATE
+ * TEMPORARY TABLE (42501) of a carrier of the write's own (write/carriers) or of one its nested rows past one Bind
+ * message travel through (write/program/staged.ts), and nothing committed. `error` is the server's report. Grant the
+ * privilege on the database to the role or to PUBLIC, which PostgreSQL grants it to unless revoked.
+ */
+export class TemporaryRefused extends Data.TaggedError("TemporaryRefused")<{
+	readonly privilege: "TEMPORARY"
+	readonly error: ServerError
+}> {
+	override get message(): string {
+		return `the write creates a temporary table, and the role holds no ${this.privilege} privilege on the database; grant it to the role or to PUBLIC`
+	}
+}
+
+/**
+ * The refusal of an execution that creates a temporary table (ExecutionPart "create"), for the role's want of the
+ * TEMPORARY privilege on the database (42501), as TemporaryRefused; none for any other execution or refusal. The one
+ * reading of it, every flight that creates one shares (apply/run.ts, explain).
+ */
+export const temporaryRefusal = (
+	part: ExecutionPart,
+	error: ServerError
+): TemporaryRefused | undefined =>
+	part === "create" && error.sqlstate === sqlstates.insufficientPrivilege
+		? new TemporaryRefused({ privilege: "TEMPORARY", error })
+		: undefined
 
 /** A family write's row no statement of its plan can carry (write/family/order.ts plan), as the family names it. */
 export const familyRowBound = ({ family, row }: FamilyRowBound): InputTooLarge =>

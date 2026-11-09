@@ -55,6 +55,7 @@ export {
 	SpanKeyChange,
 	type StaleReason,
 	StartupRefused,
+	TemporaryRefused,
 	type TlsFault,
 	TlsRefused,
 	TokenError,

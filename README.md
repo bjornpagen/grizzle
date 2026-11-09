@@ -2864,7 +2864,7 @@ throws `CompileError` for a rule that is no check of the schema.
 
 | Stage                 | Reason                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001)                                                            |
+| `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001); `TemporaryRefused` (`execute`), from `db.explain` of a ChangeSet |
 | `acquire`             | `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed; `HandleReleased`, a `db.compile` handle used after its `Scope` ended |
 | `transport`           | `ConnectionLost`, `CommitLost`                                                                                         |
 | `driver`              | `DriverFailure`                                                                                                        |
@@ -2872,10 +2872,13 @@ throws `CompileError` for a rule that is no check of the schema.
 | before any SQL        | `CompileError` (`compile`), `EncodingFailure` or `LawRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
 
 **`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
-**`ExecutionFailure`**: `ServerError`, `CompileError`, `InputTooLarge` or `UnreadableAnswer`.
+**`ExecutionFailure`**: `ServerError`, `CompileError`, `InputTooLarge`, `TemporaryRefused` or `UnreadableAnswer`.
 
-**`InputTooLarge`** is found on the host before the call's flight is sent, all but `carrier`, which the flight meets
-before anything commits. Its `bound`, which never counts rows:
+**`TemporaryRefused`**: the write creates a temporary table, a carrier of its own or one its nested rows past one Bind
+message travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
+is the server's 42501. Nothing committed. Grant the privilege to the role or to `PUBLIC`.
+
+**`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
 
 - `message`: one statement's Bind message is longer than PostgreSQL reads (1,073,741,822 bytes,
   `PQ_LARGE_MESSAGE_LIMIT`), with the statement and its length. Split the input across calls.
@@ -2891,9 +2894,6 @@ before anything commits. Its `bound`, which never counts rows:
   TLS carries (1,908,342,784 bytes), with its length. Nothing was sent, so nothing ran. Split the input across calls.
 - `parse`: a statement's Parse message, its text with its name and fields, is longer than PostgreSQL reads
   (1,073,741,822 bytes), with its length. Nothing was sent, so nothing ran.
-- `carrier`: a nested write's rows of the relation `input` are past one Bind message, so they travel through a
-  temporary table, and the role holds no `TEMPORARY` privilege on the database to create it. Nothing committed. Grant
-  the privilege, or split the input across calls.
 
 **`CompileError`**'s reason holds where it refused, `at`, and:
 
@@ -2991,9 +2991,9 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan to machine
   code first.
 - **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
-  the role the snapshot's, by table and name. A write whose nested rows are past one Bind message needs the
-  `TEMPORARY` privilege on the database, which PostgreSQL grants to `PUBLIC` and grizzle never revokes; without it the
-  write is `InputTooLarge` (`carrier`). The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  the role the snapshot's, by table and name. A write that creates a temporary table, a carrier of its own or one its
+  nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, which PostgreSQL
+  grants to `PUBLIC` and grizzle never revokes; without it the write is `TemporaryRefused`. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.
