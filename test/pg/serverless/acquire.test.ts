@@ -4,12 +4,13 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { ReadFailure, TransportFailure } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer } from "#adapter/public/layer.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { paged } from "#compiler/public/workload.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -17,7 +18,6 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
 import { clusterConnection } from "#test/support/pg.ts"
-import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -44,6 +44,24 @@ const point: Gen<readonly [Call, Unhad]> = (source) =>
 
 type AcquireFeature = `${Call}: ${Unhad}`
 
+/**
+ * The full world's workload, one member per call that needs a session: a read of an account's automatic tasks, the
+ * Task key's get, a page of every task by id, and a note written with the facts each call gives.
+ */
+const programs = {
+	automaticTasksFor: W.workReads(W.Work).automaticTasksFor,
+	task: W.Task,
+	tasks: paged(
+		query(W.Work)
+			.rule((r) => {
+				const { id } = v(W.Task, "task")
+				return r.match(W.Task, { id }).find({ id })
+			})
+			.orderBy(["id", "asc"])
+	),
+	note: ChangeSet.empty(W.Work).insert(W.TaskNote, [])
+}
+
 /** What a call failed with: its error, or the call's success, which no case here expects. */
 const failureOf = <A, E>(
 	call: Effect.Effect<A, E>
@@ -63,19 +81,9 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 					const o = yield* installed(W.Work, workFacts, {
 						label: "acquire",
 						extensions: [],
-						programs: {}
+						programs
 					})
 					const credentials = o.installed.as(o.server)
-					const reads = W.workReads(o.schema)
-					const ordered = query(o.schema)
-						.rule((r) => {
-							const { id } = v(W.Task, "task")
-							return r.match(W.Task, { id }).find({ id })
-						})
-						.orderBy(["id", "asc"])
-					const note = ChangeSet.empty(o.schema).insert(W.TaskNote, [
-						{ task: t3, note: "acquired" }
-					])
 					return yield* exhaust(
 						{
 							suite: "serverless/acquire",
@@ -108,8 +116,8 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 									 * A pool of one session closed the least while after its release, its password Effect failing
 									 * once the case turns it.
 									 */
-									const opening = compiledOpen(o.server.roles.app, {})
-									const dbLayer = compiledDbLayer({
+									const opening = Db.open(o.served.login.roles.app, {})
+									const dbLayer = DbLayer.make({
 										...clusterConnection(
 											s.cluster,
 											s.database,
@@ -118,8 +126,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 											)
 										),
 										pool: { max: 1, min: 0, idleTimeoutMs: nodeTimerMin.value },
-										login: o.server,
-										snapshot: snapshotValue(o.installed.snapshot, o.installed.installation),
+										login: o.served.login,
 										verify: testVerify
 									})
 									/** The call on an open Db, and what it failed with. */
@@ -128,16 +135,18 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 											case "execute":
 												return failureOf(
 													Effect.flatMap(
-														db.execute(reads.automaticTasksFor, { account: a1 }),
+														db.workload.automaticTasksFor.execute({ account: a1 }),
 														(r) => r.collect
 													)
 												)
 											case "get":
-												return failureOf(db.get(W.Task, { id: t1 }))
+												return failureOf(db.workload.task.get({ id: t1 }))
 											case "page":
-												return failureOf(db.page(ordered, {}, { first: 2 }))
+												return failureOf(db.workload.tasks.page({}, { first: 2 }))
 											case "apply":
-												return failureOf(db.apply(note, {}))
+												return failureOf(
+													db.workload.note.apply({ TaskNote: [{ task: t3, note: "acquired" }] }, {})
+												)
 										}
 									}
 									const reason: TransportFailure["reason"]["_tag"] & ReadFailure["reason"]["_tag"] =
