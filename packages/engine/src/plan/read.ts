@@ -99,7 +99,7 @@ export {
 export { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 export { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
 export { servedSource } from "#compiler/served/read.ts"
-export { servedSpine } from "#compiler/served/spine.ts"
+export { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 export type {
 	Page,
 	PageCursor,

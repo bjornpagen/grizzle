@@ -1,5 +1,4 @@
 import { Effect, type Option, Result } from "effect"
-import { changeCall } from "#adapter/apply/collect.ts"
 import { compileFailure, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
 import { dbWriteFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, refreshHandle, typedCompiled } from "#adapter/db/ops.ts"
@@ -21,12 +20,14 @@ import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
-import type {
-	LoadedChange,
-	LoadedMember,
-	LoadedPage,
-	LoadedRead,
-	LoadedVariants
+import {
+	type LoadedChange,
+	type LoadedMember,
+	type LoadedPage,
+	type LoadedRead,
+	type LoadedVariants,
+	noFacts,
+	servedCall
 } from "#adapter/served/load.ts"
 import type { ApplyOutcome, QueryResult } from "#adapter/types/db.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
@@ -152,7 +153,9 @@ const applyChange = (
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
 		const inputs = yield* Effect.mapError(
-			Effect.flatMap(changeCall(change.entry, params), (call) => hostInputs(change.entry, call)),
+			Effect.flatMap(Effect.fromResult(servedCall(change, params, noFacts)), (call) =>
+				hostInputs(change.entry, call)
+			),
 			inputApplyError
 		)
 		if (inputs.kind === "rejected") {

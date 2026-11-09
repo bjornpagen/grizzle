@@ -36,8 +36,8 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  *   it (ServedFile rosters);
  * - a host Decimal `~decimal:`, a host Money `~money:`, and the IR's DecimalText, MoneyText and VectorText `~d:`, `~m:`
  *   and `~v:`, each with its canonical payload;
- * - a Map `{"~map": [[key, value], ...]}` and a Set `{"~set": [value, ...]}`, in insertion order, which the compile
- *   that made them fixes.
+ * - a Map `{"~map": [[key, value], ...]}`, each key a primitive, and a Set `{"~set": [value, ...]}`, in insertion
+ *   order, which the compile that made them fixes.
  *
  * Nothing else is a served value: a function, a symbol, a class instance of any other kind, a record whose key begins
  * with `~` or holds a symbol is refused, so no member of a form is ever dropped or guessed.
@@ -177,10 +177,21 @@ class ServedWriter {
 		return out
 	}
 
+	/**
+	 * A Map's entries, each key a primitive: a record key reads back as a new object, which no lookup by another finds,
+	 * so a Map keyed by one is no served value.
+	 */
 	#map(value: ReadonlyMap<unknown, unknown>): Json {
 		const entries: Array<Json> = []
 		for (const [k, v] of value) {
-			entries.push(this.#at(entries.length, () => [this.value(k), this.value(v)]))
+			entries.push(
+				this.#at(entries.length, () => [
+					typeof k === "object" && k !== null
+						? unserved(this.#path, "a Map keyed by primitives")
+						: this.value(k),
+					this.value(v)
+				])
+			)
 		}
 		return { [mapKey]: entries }
 	}

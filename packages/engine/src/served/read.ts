@@ -92,6 +92,16 @@ export interface ServedSource {
 }
 
 /**
+ * One read-back of a compiled ChangeSet as the runtime runs it after the writes: its name in the ChangeSet's reads, and
+ * its program, a read's served source and delivered spine.
+ */
+export interface ServedReadBack {
+	readonly name: string
+	readonly source: ServedSource
+	readonly spine: ServedSpine
+}
+
+/**
  * The delivered spine of a read, from its root: each delivered attachment by name, its child's head keys, and the
  * delivered attachments under it, which say which correlation columns a child carries (adapter reader/analysis.ts).
  */

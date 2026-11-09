@@ -52,6 +52,7 @@ export {
 	loadWrite,
 	type ServedWrite
 } from "#compiler/runtime/write/flight.ts"
+export { type ArrayMember, memberFactsOf } from "#compiler/runtime/write/members.ts"
 export {
 	projectWrite,
 	servedWrite,

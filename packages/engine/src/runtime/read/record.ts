@@ -4,9 +4,9 @@ import {
 	type AttachmentLayout,
 	type BindContext,
 	bytesValueOf,
+	type CellConversion,
 	type CodeNames,
 	type ColumnForm,
-	type Conversion,
 	type DecoderForm,
 	type Delivery,
 	type FieldForm,
@@ -68,7 +68,9 @@ const sameMoney = (literal: unknown, host: unknown): boolean =>
  * The equality of host values under a head literal's conversion: a Decimal's and a Money's `equals`, every other
  * literal's `===` (a string, a number, a bigint or a boolean).
  */
-const literalEquality = (conversion: Conversion): ((literal: unknown, host: unknown) => boolean) =>
+const literalEquality = (
+	conversion: CellConversion
+): ((literal: unknown, host: unknown) => boolean) =>
 	conversion.carrier === "numeric"
 		? sameDecimal
 		: conversion.carrier === "money"
@@ -82,7 +84,7 @@ const literalEquality = (conversion: Conversion): ((literal: unknown, host: unkn
  */
 const constantOf = (
 	values: NonEmptyReadonlyArray<unknown>,
-	conversion: Conversion
+	conversion: CellConversion
 ): ((text: OutputText) => unknown) => {
 	const convert = converterOf(conversion)
 	const equal = literalEquality(conversion)

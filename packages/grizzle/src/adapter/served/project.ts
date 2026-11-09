@@ -5,6 +5,7 @@ import type { RowsForm } from "#adapter/reader/reader.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
+import { servedWrite } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	defect,
@@ -13,8 +14,8 @@ import {
 	loginRoleName,
 	servedSession
 } from "#compiler/plan/common.ts"
-import { servedRosters } from "#compiler/plan/migration.ts"
-import { servedRead } from "#compiler/plan/read.ts"
+import { servedMembers, servedRosters, type UnservedMember } from "#compiler/plan/migration.ts"
+import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,
 	type ServedChange,
@@ -48,25 +49,37 @@ const readOf = (form: RowsForm<unknown>): ServedRead => {
 	return servedRead(compiled.template, compiled.desc, form.decoder())
 }
 
-/** A ChangeSet's variants, served: each compiled change its program, its reads decoder's form and its value's inputs. */
-const variantsOf = (variants: ChangeVariants): ServedVariants => {
+/**
+ * A ChangeSet's variants, served: each compiled change its program, its read-backs, its reads decoder's form, the
+ * values its declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve
+ * it (UnservedMember: a Stream member, a bound value with no canonical text, two array members of one relation).
+ */
+const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, UnservedMember> => {
 	switch (variants.kind) {
 		case "form": {
 			const { entry, decoder } = variants.form
-			const change: ServedChange = {
-				program: entry.compiled,
-				decoder: decoder.form,
-				change: { inputs: entry.change.inputs, values: entry.change.values }
-			}
-			return { kind: "change", change }
+			const compiled = entry.compiled
+			return Result.gen(function* () {
+				const program = yield* toResult(servedWrite(compiled))
+				const members = yield* toResult(
+					servedMembers(compiled.binding.members, entry.change.values)
+				)
+				const change: ServedChange = {
+					program,
+					readBacks: servedReadBacks(compiled.artifact.readBacks),
+					decoder: decoder.form,
+					bound: entry.change.values,
+					members
+				}
+				return { kind: "change", change }
+			})
 		}
 		case "split":
-			return {
-				kind: "split",
-				context: variants.context,
-				holding: variantsOf(variants.holding),
-				lacking: variantsOf(variants.lacking)
-			}
+			return Result.gen(function* () {
+				const holding = yield* variantsOf(variants.holding)
+				const lacking = yield* variantsOf(variants.lacking)
+				return { kind: "split", context: variants.context, holding, lacking }
+			})
 	}
 }
 
@@ -74,24 +87,38 @@ const variantsOf = (variants: ChangeVariants): ServedVariants => {
  * One workload member of a role, served: a read's and a key's read, a paged read's read beside the page its runtime was
  * served from (served/forms.ts pageTemplateFor), and a ChangeSet's variants.
  */
-const memberOf = (member: WorkloadForm): ServedMember => {
+const memberOf = (member: WorkloadForm): Result.Result<ServedMember, UnservedMember> => {
 	const { name } = member
 	switch (member.kind) {
 		case "read":
-			return { name, kind: "read", read: readOf(member.form) }
+			return Result.succeed({ name, kind: "read", read: readOf(member.form) })
 		case "key":
-			return { name, kind: "key", fields: member.fields, read: readOf(member.form) }
+			return Result.succeed({
+				name,
+				kind: "key",
+				fields: member.fields,
+				read: readOf(member.form)
+			})
 		case "paged": {
 			const source = member.form.page
 			if (source.kind !== "compiled") {
 				throw defect("a paged member's page template is compiled with it")
 			}
-			return { name, kind: "paged", read: readOf(member.form), page: source.page.runtime.page }
+			return Result.succeed({
+				name,
+				kind: "paged",
+				read: readOf(member.form),
+				page: source.page.runtime.page
+			})
 		}
 		case "change":
-			return { name, kind: "change", variants: variantsOf(member.variants) }
+			return Result.map(variantsOf(member.variants), (variants): ServedMember => ({
+				name,
+				kind: "change",
+				variants
+			}))
 		case "refresh":
-			return { name, kind: "refresh", targets: member.targets }
+			return Result.succeed({ name, kind: "refresh", targets: member.targets })
 	}
 }
 
@@ -129,21 +156,24 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 }
 
 /** One role of the login, served: its name, its PostgreSQL role, its contexts, its classifier and its members. */
-const roleOf = (role: LayerRole): ServedRoleForm => ({
-	name: role.role.name,
-	installed: role.theory,
-	contexts: contextsOf(role),
-	refusals: refusalsOf(role),
-	members: Arr.map(role.workload, memberOf)
-})
+const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> =>
+	Result.map(Result.all(Arr.map(role.workload, memberOf)), (members): ServedRoleForm => ({
+		name: role.role.name,
+		installed: role.theory,
+		contexts: contextsOf(role),
+		refusals: refusalsOf(role),
+		members
+	}))
 
 /**
  * The served file of a login's compile (see the header): the login, the snapshot fingerprint it compiled under, its
  * base and that level's index, its PostgreSQL role, its base's schema and the prologue's and session's texts, the codes
  * of exactly the rosters its roles read, the laws above its base, and its roles. A ledger or login role the naming door
- * refuses is its CompileError.
+ * refuses is its CompileError, and a workload ChangeSet no call can serve its UnservedMember.
  */
-export const servedFileOf = (compiled: CompiledLogin): Result.Result<ServedFile, CompileError> =>
+export const servedFileOf = (
+	compiled: CompiledLogin
+): Result.Result<ServedFile, CompileError | UnservedMember> =>
 	Result.gen(function* () {
 		const { login, snapshot } = compiled
 		const [first] = compiled.roles
@@ -153,7 +183,7 @@ export const servedFileOf = (compiled: CompiledLogin): Result.Result<ServedFile,
 		const schema = first.artifacts.names.schema
 		const ledger = yield* toResult(ledgerStatements(schema))
 		const role = yield* toResult(loginRoleName(login))
-		const roles = Arr.map(compiled.roles, roleOf)
+		const roles = yield* Result.all(Arr.map(compiled.roles, roleOf))
 		const used = servedRosters(roles)
 		return {
 			login: login.name,

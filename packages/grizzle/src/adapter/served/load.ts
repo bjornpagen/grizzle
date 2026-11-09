@@ -1,7 +1,7 @@
 import { Array as Arr, Result } from "effect"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
+import type { WriteEntry } from "#adapter/apply/compile.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
-import { type BoundReads, boundReads } from "#adapter/apply/run.ts"
+import { type BoundReads, boundReads, type HostCall } from "#adapter/apply/run.ts"
 import { contextOver, type TypedContext } from "#adapter/db/claims.ts"
 import { rowOptions, toResult } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -11,7 +11,7 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import { runnableWrite } from "#compiler/plan/change.ts"
+import { type ArrayMember, loadWrite, memberFactsOf } from "#compiler/plan/change.ts"
 import {
 	type BindContext,
 	bindGroups,
@@ -19,7 +19,10 @@ import {
 	type Codebook,
 	codeNames,
 	type CompileError,
+	type EncodingFailure,
 	type ParamDecl,
+	type ParamMap,
+	type ParamValue,
 	type Row,
 	type SchemaFingerprint,
 	SourceLoc
@@ -64,11 +67,40 @@ export interface LoadedPage {
 	readonly reads: { readonly [V in PageVariant]: (row: Row) => unknown }
 }
 
-/** A ChangeSet compiled for one set of its fill contexts, loaded: its write entry, and its read-backs' decoder bound. */
+/**
+ * A ChangeSet compiled for one set of its fill contexts, loaded: its write entry, its read-backs' decoder bound, the
+ * values its declaration bound, and the array members a call supplies facts for (servedCall).
+ */
 export interface LoadedChange {
-	readonly entry: CompiledChange
+	readonly entry: WriteEntry
 	readonly reads: BoundReads<unknown>
+	readonly bound: ReadonlyMap<string, ParamValue>
+	readonly members: ReadonlyArray<ArrayMember>
 }
+
+/**
+ * The facts of a call that supplies no array member's: what a handle's call passes while its signature takes its
+ * parameters alone, so a ChangeSet whose array members a call must supply is refused with the EncodingFailure
+ * memberFactsOf names at the member's slot, never run with no facts.
+ */
+export const noFacts: Readonly<Record<string, never>> = Object.freeze({})
+
+/**
+ * One call of a loaded ChangeSet as its write's host inputs read it (apply/run.ts HostCall): the call's parameters, the
+ * values the declaration bound, and each array member's facts from the call's `facts`, a record holding under each
+ * member's relation an array of its facts, read once at the boundary (runtime/write/members.ts memberFactsOf); a value
+ * of any other shape is the EncodingFailure that names it.
+ */
+export const servedCall = (
+	change: LoadedChange,
+	params: ParamMap,
+	facts: unknown
+): Result.Result<HostCall, EncodingFailure> =>
+	Result.map(toResult(memberFactsOf(facts, change.members)), (members) => ({
+		params,
+		bound: change.bound,
+		members
+	}))
 
 /** A ChangeSet's variants by its fill contexts, each leaf loaded. */
 export type LoadedVariants =
@@ -168,27 +200,30 @@ const loadPage = (
 /** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, classified by its role's `violation`. */
 const loadChange = (
 	change: ServedChange,
-	violation: CompiledChange["violation"],
+	violation: WriteEntry["violation"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
-	const entry: CompiledChange = {
-		program: runnableWrite(program, codes),
-		compiled: program,
+	const entry: WriteEntry = {
+		program: { kind: "flight", flight: loadWrite(program, codes) },
 		violation,
-		readBacks: readBacks(program, codes),
+		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes),
-		bind,
-		change: change.change
+		bind
 	}
-	return Result.map(boundReads(entry, decoderOf(change.decoder)), (reads) => ({ entry, reads }))
+	return Result.map(boundReads(entry, decoderOf(change.decoder)), (reads) => ({
+		entry,
+		reads,
+		bound: change.bound,
+		members: change.members
+	}))
 }
 
 /** A ChangeSet's variants, each leaf loaded. */
 const loadVariants = (
 	variants: ServedVariants,
-	violation: CompiledChange["violation"],
+	violation: WriteEntry["violation"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedVariants, CompileError> => {
@@ -210,7 +245,7 @@ const loadVariants = (
 /** One member of a role's workload, loaded. */
 const loadMember = (
 	member: ServedMember,
-	violation: CompiledChange["violation"],
+	violation: WriteEntry["violation"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedMember, CompileError> => {

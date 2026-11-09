@@ -47,7 +47,7 @@ import {
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
-import { servedSpine } from "#compiler/served/spine.ts"
+import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
@@ -249,7 +249,7 @@ export const conservativeChange = (
 					...entry,
 					program: runnableWrite(program, entry.names.codes),
 					compiled: program,
-					readBacks: readBacks(program, entry.names.codes)
+					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), entry.names.codes)
 				})
 			)
 	)

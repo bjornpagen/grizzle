@@ -29,14 +29,14 @@ export type ConvertedCarrier =
 	| "exactMoney"
 
 /** How a column converts its cell's text, as data: its carrier's conversion, a vector's by its dimensions. */
-export type Conversion =
+export type CellConversion =
 	| { readonly carrier: ConvertedCarrier }
 	| { readonly carrier: "vector"; readonly dimensions: number }
 
-/** A column's conversion of its cell's text, PostgreSQL's output, by its carrier (Conversion). */
+/** A column's conversion of its cell's text, PostgreSQL's output, by its carrier (CellConversion). */
 interface ConvertColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "convert"
-	readonly conversion: Conversion
+	readonly conversion: CellConversion
 }
 
 /**
@@ -84,7 +84,7 @@ interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
 interface ConstantColumn<out A> {
 	readonly kind: "constant"
 	readonly values: NonEmptyReadonlyArray<A>
-	readonly conversion: Conversion
+	readonly conversion: CellConversion
 }
 
 /**
@@ -114,7 +114,7 @@ export interface Columned<out A> {
 }
 
 /** The column converting its cell's text by `conversion`, whose host type A its caller states (scalar/values/convert.ts). */
-export const convertColumn = <A>(conversion: Conversion): Column<A> =>
+export const convertColumn = <A>(conversion: CellConversion): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "convert", conversion })
 
 /** A closed id's column over roster `roster`, which may deliver `handles`. */
@@ -135,7 +135,7 @@ export const bytesColumn: Column<Uint8Array<ArrayBuffer>> = Object.freeze({
 export const textColumn = <A extends string>(): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "text" })
 
-const constants = <A>(values: NonEmptyReadonlyArray<A>, conversion: Conversion): Column<A> =>
+const constants = <A>(values: NonEmptyReadonlyArray<A>, conversion: CellConversion): Column<A> =>
 	Object.freeze({ kind: "constant", values, conversion })
 
 /**
@@ -171,7 +171,7 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
  * A head literal's column, a JavaScript value's in a head: read by `conversion`, the conversion of the literal's SQL
  * type, and matched by that type's equality.
  */
-export const constantColumn = <A>(value: A, conversion: Conversion): Column<A> =>
+export const constantColumn = <A>(value: A, conversion: CellConversion): Column<A> =>
 	constants([value], conversion)
 
 /** A refined text's column over A, built only where a column of the record assembly's claim kinds is widened. */
@@ -307,14 +307,14 @@ export interface AttachmentLayout {
  * data a served file carries (served/forms.ts), and no handles, which only type a closed id's values.
  */
 export type ColumnForm =
-	| { readonly kind: "convert"; readonly conversion: Conversion }
+	| { readonly kind: "convert"; readonly conversion: CellConversion }
 	| { readonly kind: "code"; readonly roster: string }
 	| { readonly kind: "bits"; readonly roster: string }
 	| { readonly kind: "text" }
 	| {
 			readonly kind: "constant"
 			readonly values: NonEmptyReadonlyArray<unknown>
-			readonly conversion: Conversion
+			readonly conversion: CellConversion
 	  }
 	| { readonly kind: "bytes" }
 

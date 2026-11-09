@@ -1,5 +1,5 @@
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { constantColumn, type Conversion } from "#compiler/core/decoder.ts"
+import { type CellConversion, constantColumn } from "#compiler/core/decoder.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
@@ -162,7 +162,7 @@ export const isTerm = (value: unknown): boolean => termExpr(value) !== undefined
 /** A head literal's SQL type, and that type's conversion of its output text, which its equality of host values follows. */
 interface LiteralType {
 	readonly sql: SqlTag
-	readonly conversion: Conversion
+	readonly conversion: CellConversion
 }
 
 /**

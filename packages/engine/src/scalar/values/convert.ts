@@ -1,9 +1,9 @@
 import { nominal } from "#compiler/core/brand.ts"
 import {
+	type CellConversion,
 	type Column,
-	type Conversion,
-	type ConvertedCarrier,
-	convertColumn
+	convertColumn,
+	type ConvertedCarrier
 } from "#compiler/core/decoder.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -33,7 +33,7 @@ const endpointText = nominal<string, OutputText>()
  * integers, or a span descriptor's endpoint column (scalar/span.ts), whose contract brands them. Each endpoint's text
  * is the endpoint type's own output, which range_out writes between the bounds.
  */
-export const convertSpan =
+const convertSpan =
 	<E>(endpoint: (text: OutputText) => E) =>
 	(text: OutputText): Span<E> => {
 		const comma = text.indexOf(",")
@@ -48,7 +48,7 @@ export const convertSpan =
  * comma at a time, with no intermediate array or substring. The vector is of the column's N dimensions, the tag a
  * pg.vector(N) descriptor's column carries (scalar/vector.ts).
  */
-export const convertVector =
+const convertVector =
 	<N extends number>(dimensions: N) =>
 	(text: string): Vector<N> => {
 		const buffer = new Float32Array(dimensions)
@@ -162,8 +162,8 @@ const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
 	exactMoney: convertByCarrier.exactMoney({ carrier: "exactMoney" })
 }
 
-/** The conversion a column's data states (core/decoder.ts Conversion): its carrier's, a vector's of its dimensions. */
-export const converterOf = (conversion: Conversion): ((text: OutputText) => unknown) =>
+/** The conversion a column's data states (core/decoder.ts CellConversion): its carrier's, a vector's of its dimensions. */
+export const converterOf = (conversion: CellConversion): ((text: OutputText) => unknown) =>
 	conversion.carrier === "vector"
 		? convertVector(conversion.dimensions)
 		: converted[conversion.carrier]

@@ -1,6 +1,12 @@
 import { parentUse } from "#compiler/check/scan.ts"
 import type { AttachDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
-import type { ServedSpine, ServedSpineAttachment } from "#compiler/served/read.ts"
+import {
+	type ServedReadBack,
+	type ServedSpine,
+	type ServedSpineAttachment,
+	servedSource
+} from "#compiler/served/read.ts"
+import type { ReadBackDelivery } from "#compiler/write/program/artifact.ts"
 
 /** A delivered spine as the walk builds it, its attachments merged by name. */
 interface Gathering {
@@ -73,3 +79,16 @@ export const servedSpine = (desc: QueryDesc): ServedSpine => {
 	stage(desc.stage, root)
 	return gatheredSpine(root)
 }
+
+/**
+ * A compiled ChangeSet's read-backs as the runtime runs them, in its artifact's order: each its name, its statements
+ * served (servedSource) and its query's delivered spine.
+ */
+export const servedReadBacks = (
+	readBacks: ReadonlyArray<ReadBackDelivery>
+): ReadonlyArray<ServedReadBack> =>
+	readBacks.map((delivery) => ({
+		name: delivery.name,
+		source: servedSource(delivery.run),
+		spine: servedSpine(delivery.query)
+	}))

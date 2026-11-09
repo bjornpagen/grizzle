@@ -53,7 +53,6 @@ export {
 export {
 	type ServedAbove,
 	type ServedChange,
-	type ServedChangeValue,
 	type ServedContext,
 	servedDirectory,
 	type ServedEntryKey,
@@ -80,6 +79,7 @@ export {
 	type ServedChoice,
 	type ServedForm,
 	type ServedFused,
+	type ServedReadBack,
 	type ServedReadStatement,
 	type ServedRoots,
 	type ServedRunStatement,

@@ -3,7 +3,12 @@ import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
-import { maxMigrationNameLength, metaFileName } from "#compiler/plan/migration.ts"
+import {
+	maxMigrationNameLength,
+	metaFileName,
+	type UnservedMember,
+	type UnservedReason
+} from "#compiler/plan/migration.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
 
 /**
@@ -609,12 +614,39 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
 	readonly schema: string
 	readonly login: string
 	readonly place: WorkloadPlace
-	readonly error: CompileError
+	readonly error: CompileError | UnservedMember
 }> {
 	override get message(): string {
-		return `login ${this.login}'s workload does not compile${workloadPlaceText(this.place)}: ${this.error.message}`
+		return `login ${this.login}'s workload does not compile${workloadPlaceText(this.place)}: ${servedRefusalText(this.error)}`
 	}
 }
+
+/** Why no served file can hold a workload ChangeSet: one reason's text (write/program/served.ts UnservedReason). */
+const unservedReasonText = (reason: UnservedReason): string => {
+	switch (reason.kind) {
+		case "edit":
+			return `an edit of a family's member relation ${reason.relation} in stratum ${reason.stratum}, which runs on the host`
+		case "refill":
+			return `a refill of the families counted by ${Arr.join(
+				Arr.map(reason.families, (family) => `${family.owner}.${family.count}`),
+				", "
+			)} in stratum ${reason.stratum}${reason.tree ? ", over a tree" : ""}${reason.hops > 1 ? `, across ${reason.hops} hops` : ""}, which runs on the host`
+		case "nested":
+			return `nested rows in stratum ${reason.stratum}, which the host fills`
+		case "stream":
+			return `a Stream member of ${reason.relation} in slot ${reason.slot}, whose facts are code`
+		case "opaqueBinding":
+			return `the bound value ${reason.name}, which has no canonical text`
+		case "repeated":
+			return `array members ${reason.slots[0]} and ${reason.slots[1]} of one relation ${reason.relation}, whose facts one call keys alike`
+	}
+}
+
+/** A served workload's refusal as a person reads it: a CompileError's message, or every reason no call can serve. */
+const servedRefusalText = (error: CompileError | UnservedMember): string =>
+	error._tag === "CompileError"
+		? error.message
+		: `a ChangeSet no served file can hold: ${Arr.join(Arr.map(error.reasons, unservedReasonText), "; ")}`
 
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
 type CliReason =

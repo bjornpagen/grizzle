@@ -23,7 +23,10 @@ import type {
 } from "#compiler/lower/shapes/page/seek.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
+import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 import type {
+	ServedReadBack,
 	ServedRoots,
 	ServedSource,
 	ServedSpecified,
@@ -31,8 +34,7 @@ import type {
 } from "#compiler/served/read.ts"
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import type { ParsedChangeSet } from "#compiler/write/changeset/value.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import type { ParamValue } from "#compiler/types/core/phantom.ts"
 
 /**
  * A login's served workload: what `grizzle generate` compiles for each login of the config, once, and commits as
@@ -202,18 +204,19 @@ export interface ServedPage {
 	readonly generation: CursorGeneration
 }
 
-/** What applying a ChangeSet reads of its value besides its program: its array members' facts and its bound values. */
-export type ServedChangeValue = Pick<ParsedChangeSet, "inputs" | "values">
-
 /**
- * A ChangeSet compiled for one set of its fill contexts: its program, its reads decoder and its value's inputs. The
- * program is the compiled one until the write lanes narrow it to the data bindWrite and the write runtime read, BIND's
- * compile-time bind facts among it.
+ * A ChangeSet compiled for one set of its fill contexts: its program, its read-backs, its reads decoder, the values its
+ * declaration bound (ChangeSet.bind), by their private names, which a call's parameters are read beside, and the array
+ * members a call supplies facts for, by relation (write/program/served-members.ts servedMembers). Its program is the
+ * write as data (runtime/write/flight.ts ServedWrite), which a layer loads with loadWrite.
  */
 export interface ServedChange {
-	readonly program: CompiledWrite
+	readonly program: ServedWrite
+	/** Its read-backs, run after its writes, which its reads decoder reads (adapter apply/readback.ts). */
+	readonly readBacks: ReadonlyArray<ServedReadBack>
 	readonly decoder: DecoderForm
-	readonly change: ServedChangeValue
+	readonly bound: ReadonlyMap<string, ParamValue>
+	readonly members: ReadonlyArray<ArrayMember>
 }
 
 /**

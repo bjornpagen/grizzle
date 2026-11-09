@@ -45,6 +45,7 @@ import {
 	queryInput,
 	queryState,
 	servedPage,
+	servedReadBacks,
 	servedSource,
 	servedSpine,
 	statedOrderOf
@@ -321,7 +322,7 @@ const writeEntry = (
 					schema: artifacts.fingerprint,
 					names: artifacts.names,
 					violation: witness.classify,
-					readBacks: readBacks(program, artifacts.names.codes),
+					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), artifacts.names.codes),
 					codecs: paramCodecs(program.params, artifacts.names.codes),
 					bind: role.bind,
 					change

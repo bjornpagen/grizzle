@@ -1,5 +1,4 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
-import { changeCall } from "#adapter/apply/collect.ts"
 import { hostInputs, valuesFailure } from "#adapter/apply/run.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { variantOf } from "#adapter/db/handles.ts"
@@ -9,7 +8,13 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatements } from "#adapter/reader/run.ts"
-import type { LoadedChange, LoadedMember, LoadedRead } from "#adapter/served/load.ts"
+import {
+	type LoadedChange,
+	type LoadedMember,
+	type LoadedRead,
+	noFacts,
+	servedCall
+} from "#adapter/served/load.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
@@ -150,7 +155,9 @@ const explainChange = Effect.fn("explainChange")(function* (
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError> {
 	const entry = change.entry
 	const inputs = yield* Effect.mapError(
-		Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
+		Effect.flatMap(Effect.fromResult(servedCall(change, params, noFacts)), (call) =>
+			hostInputs(entry, call)
+		),
 		(reason) => new ReadFailure({ reason })
 	)
 	if (inputs.kind === "rejected") {

@@ -225,8 +225,13 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 								)
 							}
 							if (refusal._tag === "DraftRefused" || refusal._tag === "ServedRefused") {
-								assert.deepEqual(refusal.error.reason, compiled.failure.reason)
-								const reason = refusal.error.reason
+								const error = refusal.error
+								assert.ok(
+									error._tag === "CompileError",
+									`refused by a CompileError: ${refusal.message}`
+								)
+								assert.deepEqual(error.reason, compiled.failure.reason)
+								const reason = error.reason
 								assert.ok(
 									reason._tag === "ResourceBound" && reason.bound.kind === "selectList",
 									"refused past the select list"

@@ -3,9 +3,8 @@ import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.t
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
-import type { CompiledWrite } from "#compiler/plan/change.ts"
 import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/common.ts"
-import { servedSource, servedSpine } from "#compiler/plan/read.ts"
+import type { ServedReadBack } from "#compiler/plan/serve.ts"
 
 /**
  * Delivering a ChangeSet's read-backs.
@@ -66,14 +65,15 @@ export const readsRow = (delivered: ReadonlyArray<ReadonlyArray<Row>>): Row => (
 })
 
 /**
- * The read-backs of `program`'s artifact, ready to run, in the artifact's order, under the installation's codes
- * `codes`: each its delivery's statements as the runtime runs them, with its attachments' delivered heads read from its
- * query. Built once, with the program (apply/compile.ts writeEntry), so every application runs them as they are.
+ * The read-backs of a compiled ChangeSet, ready to run, in its artifact's order, under the installation's codes
+ * `codes`: each its served statements (engine served/spine.ts servedReadBacks) as the runtime runs them, with its
+ * attachments' delivered heads read from its spine. Built once, with the program (served/forms.ts writeEntry) or from
+ * its served file, so every application runs them as they are.
  */
-export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBackRuns => {
-	const each = Arr.map(program.artifact.readBacks, (delivery): ReadBackRun => ({
-		name: delivery.name,
-		program: readProgram(servedSource(delivery.run), servedSpine(delivery.query), codes)
+export const readBacks = (served: ReadonlyArray<ServedReadBack>, codes: Codebook): ReadBackRuns => {
+	const each = Arr.map(served, (readBack): ReadBackRun => ({
+		name: readBack.name,
+		program: readProgram(readBack.source, readBack.spine, codes)
 	}))
 	return { runs: each, layout: readsLayout(each) }
 }

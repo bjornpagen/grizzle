@@ -16,7 +16,7 @@ import {
 	type LoginDesc,
 	type OwnedLogin
 } from "#compiler/plan/common.ts"
-import { servedText } from "#compiler/plan/migration.ts"
+import { servedText, type UnservedMember } from "#compiler/plan/migration.ts"
 import { type ServedFile, type ServedSnapshot, servedSnapshot } from "#compiler/plan/serve.ts"
 
 /** A login of a configured schema, as generate and check compile it: its value, and the login owned over its base. */
@@ -35,10 +35,13 @@ export type WorkloadPlace =
 	| { readonly kind: "role"; readonly role: string }
 	| { readonly kind: "program"; readonly role: string; readonly program: string }
 
-/** The compile of a login's workload refused, at `place`, for `error`. */
+/**
+ * The compile of a login's workload refused, at `place`, for `error`: a CompileError, or a workload ChangeSet no served
+ * file can hold, with every reason (write/program/served.ts UnservedMember).
+ */
 export interface ServedRefusal {
 	readonly place: WorkloadPlace
-	readonly error: CompileError
+	readonly error: CompileError | UnservedMember
 }
 
 /**
@@ -51,7 +54,10 @@ interface CompiledServed {
 	readonly roles: ReadonlyArray<LayerRole>
 }
 
-const atLogin = (error: CompileError): ServedRefusal => ({ place: { kind: "login" }, error })
+const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
+	place: { kind: "login" },
+	error
+})
 
 /** A refusal of the login's compile, at the role and the program it names (adapter/served/login.ts). */
 const atRole = (refused: WorkloadRefused): ServedRefusal => ({
