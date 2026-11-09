@@ -19,9 +19,10 @@
  *
  * A third box reads a head literal: a derived relation of Item whose two arms deliver a text or a Decimal as a
  * JavaScript literal, one in both or one each, the union's discriminant, read directly and through Item's semijoin with
- * it binding it by a variable or by a literal, under a check, a key and a selection that read it, and a containment into
- * it. A bare head literal takes its column's type, a Decimal's computed numeric as numeric(p, s) of the bound its
- * analysis proves, so it stands wherever a term of the column does.
+ * it binding it by a variable a stored match binds, by a literal, or by a variable minted from the relation itself,
+ * which only the head literal defines, under a check, a key and a selection that read it, and a containment into it. A
+ * bare head literal takes its column's type, a Decimal's computed numeric as numeric(p, s) of the bound its analysis
+ * proves, so it stands wherever a term of the column does; a variable only a head literal defines is that literal.
  *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts. Beside it, each name a
  * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
@@ -262,21 +263,28 @@ type Tagging = "same" | "distinct"
 /** What the rules over the tagged relation and over its semijoin do with the literal's column. */
 type TagRule = "check" | "key" | "selection" | "into"
 
+/** How a semijoin binds the tagged relation's column (TagCase.read). */
+type TagRead = Bound | "own"
+const tagReads = [...bounds, "own"] as const
+
 /** The literal a derived relation's head delivers: a text, or a Decimal, whose column is a computed numeric. */
 type Literal = "text" | "decimal"
 
 interface TagCase {
 	readonly literal: Literal
 	readonly tagging: Tagging
-	/** How Item's semijoin with the tagged relation binds its column: by a variable, or by a literal. */
-	readonly read: Bound
+	/**
+	 * How Item's semijoin with the tagged relation binds its column: by a variable a stored match binds, by a literal, or
+	 * by a variable minted from the tagged relation, which only the head literal its definition delivers defines.
+	 */
+	readonly read: TagRead
 	readonly rule: TagRule
 }
 
 const tagCase: Gen<TagCase> = (s) => ({
 	literal: s.draw(element(["text", "decimal"] as const)),
 	tagging: s.draw(element(["same", "distinct"] as const)),
-	read: s.draw(element(bounds)),
+	read: s.draw(element(tagReads)),
 	rule: s.draw(element(["check", "key", "selection", "into"] as const))
 })
 
@@ -308,10 +316,11 @@ const tagSchemaOf = (c: TagCase) => {
 		query(Middle).rule((r) => {
 			const { id } = v(Item, "item")
 			const { tag } = v(Tag, "tag")
+			const { tag: own } = v(Tagged, "tagged")
 			return r
 				.match(Item, { id })
 				.match(Tag, { item: id, tag })
-				.match(Tagged, { id, tag: c.read === "literal" ? "a" : tag })
+				.match(Tagged, { id, tag: c.read === "literal" ? "a" : c.read === "own" ? own : tag })
 				.find({ id, tag })
 		})
 	)
@@ -382,10 +391,14 @@ const amountSchemaOf = (c: TagCase) => {
 		query(Middle).rule((r) => {
 			const { id } = v(Item, "item")
 			const { amount } = v(Amount, "amount")
+			const { amount: own } = v(Priced, "priced")
 			return r
 				.match(Item, { id })
 				.match(Amount, { item: id, amount })
-				.match(Priced, { id, amount: c.read === "literal" ? half : amount })
+				.match(Priced, {
+					id,
+					amount: c.read === "literal" ? half : c.read === "own" ? own : amount
+				})
 				.find({ id, amount })
 		})
 	)
@@ -425,7 +438,7 @@ const amountSchemaOf = (c: TagCase) => {
 	return schema.extend(Middle, "RuleQueryAmountsTop", { Read }, rules)
 }
 
-type TagReached = `${Literal} literal` | `${Tagging} tagging` | `read by a ${Bound}` | TagRule
+type TagReached = `${Literal} literal` | `${Tagging} tagging` | `read by ${TagRead}` | TagRule
 
 type Reached = `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}` | Kind
 
@@ -550,7 +563,7 @@ describe("a rule over a query", () => {
 						generator: tagCase,
 						literal: Formatter.format,
 						limit: 100,
-						box: "every check, key and selection over, and containment into, a derived relation of Item whose two arms deliver a text or Decimal head literal, one in both or a discriminant, and over its semijoin binding it by a variable or a literal",
+						box: "every check, key and selection over, and containment into, a derived relation of Item whose two arms deliver a text or Decimal head literal, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
 						oracle: {
 							kind: "specification",
 							name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
@@ -560,8 +573,9 @@ describe("a rule over a query", () => {
 							"decimal literal",
 							"same tagging",
 							"distinct tagging",
-							"read by a variable",
-							"read by a literal",
+							"read by variable",
+							"read by literal",
+							"read by own",
 							"check",
 							"key",
 							"selection",
@@ -573,7 +587,7 @@ describe("a rule over a query", () => {
 						Effect.sync(() => {
 							k.note(`${c.literal} literal`)
 							k.note(`${c.tagging} tagging`)
-							k.note(`read by a ${c.read}`)
+							k.note(`read by ${c.read}`)
 							k.note(c.rule)
 							const compiled = testArtifacts(
 								c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c),

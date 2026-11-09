@@ -276,6 +276,59 @@ interface PartialArm {
 	readonly head: Readonly<Record<string, ExprDesc>>
 }
 
+/**
+ * A variable no match of `p` binds that an equality of its conditions defines: `name`, equal to `term`, a term over
+ * variables the matches bind or a constant.
+ */
+interface Definition {
+	readonly name: string
+	readonly term: ExprDesc
+	readonly at: number
+}
+
+/** The first definition among `p`'s conditions of a variable no match binds (Definition), or none. */
+const definitionIn = (p: PartialArm): Definition | undefined => {
+	const bound = boundVars(p.matches)
+	const defines = (v: ExprDesc, term: ExprDesc, at: number): Definition | undefined =>
+		v.kind === "var" &&
+		!bound.has(v.var) &&
+		[...varsOf(term, new Set())].every((id) => bound.has(id))
+			? { name: v.var, term, at }
+			: undefined
+	for (const [at, w] of p.where.entries()) {
+		if (w.kind === "compare" && w.op === "eq") {
+			const found = defines(w.left, w.right, at) ?? defines(w.right, w.left, at)
+			if (found !== undefined) {
+				return found
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * `p` with every variable no match binds but an equality of its conditions defines replaced by the term it equals, and
+ * that equality dropped: inlining a derived relation equates the variable a match binds to a column with the column's
+ * head, which is that term where the head is a literal or computed term, so the variable is the term and every variable
+ * left in the arm is one a match binds.
+ */
+const definedArm = (p: PartialArm): PartialArm => {
+	const d = definitionIn(p)
+	if (d === undefined) {
+		return p
+	}
+	const leaves: Leaves = {
+		var: (id) => (id === d.name ? d.term : undefined),
+		field: () => undefined
+	}
+	return definedArm({
+		vars: p.vars.filter((v) => v.id !== d.name),
+		matches: p.matches.map((m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) })),
+		where: p.where.flatMap((w, at) => (at === d.at ? [] : [mapLeaves(w, leaves)])),
+		head: mapBindings(p.head, leaves)
+	})
+}
+
 /** Flattens definitions, each inlined definition's variables under a fresh prefix of its own. */
 class Flattener {
 	readonly env: LiveEnv
@@ -381,7 +434,8 @@ class Flattener {
 							inlined.arms.map((arm) => this.#merged(relation, p, arm, bindings))
 						)
 		}
-		return partials.map((p) => {
+		return partials.map((partial) => {
+			const p = definedArm(partial)
 			const [first, ...rest] = p.matches
 			if (first === undefined) {
 				return this.#refuse(relation, "matches no stored relation")
