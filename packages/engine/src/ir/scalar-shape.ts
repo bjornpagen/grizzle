@@ -698,7 +698,7 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 			S.struct({
 				...common(S.array(exprIdShape), strict),
 				op: opIdShape,
-				patterns: S.nonEmptyArray(S.struct({ source: S.string, are: S.string }))
+				patterns: S.nonEmptyArray(S.string)
 			}),
 			(e): CaseFields<TableExprOf<"op">> => ({
 				...e,

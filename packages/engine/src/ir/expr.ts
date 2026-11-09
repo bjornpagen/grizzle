@@ -181,41 +181,29 @@ const exprKinds = [
 ] as const
 type ExprKind = (typeof exprKinds)[number]
 
-/**
- * One value a Compute.matches pattern operand can take: its source, in grizzle's pattern grammar under the flags "u",
- * which the host's automaton reads, and its translation into a PostgreSQL ARE (scalar/regex/are.ts), which `~` reads.
- */
-export interface PatternEntry {
-	readonly source: string
-	readonly are: string
-}
-
 declare const patternTableBrand: unique symbol
 
 /**
- * Every value a Compute.matches pattern operand can take, each admitted when the node was typed
- * (scalar/regex/admit.ts matchPattern): at least one, each source once, in code point order of the sources, so one
- * set of patterns has one table. patternTableOf alone mints one.
+ * Every value a Compute.matches pattern operand can take, each its source in grizzle's pattern grammar under the flags
+ * "u", admitted when the node was typed (scalar/regex/admit.ts admitMatch): at least one, each once, in code point
+ * order, so one set of patterns has one table. The host's automaton reads a source; only a lowering into SQL translates
+ * one into the PostgreSQL ARE `~` reads (scalar/regex/admit.ts matchAre). patternTableOf alone mints one.
  */
-export type PatternTable = NonEmptyReadonlyArray<PatternEntry> & {
+export type PatternTable = NonEmptyReadonlyArray<string> & {
 	readonly [patternTableBrand]: true
 }
 
-const mintPatternTable = nominal<NonEmptyReadonlyArray<PatternEntry>, PatternTable>()
+const mintPatternTable = nominal<NonEmptyReadonlyArray<string>, PatternTable>()
 
 /**
- * The one table of the patterns `entries` holds, in whatever order and with whatever repeats they arrive: each source
- * once, in code point order of the sources (core/text.ts compareCodePoints).
+ * The one table of the patterns `sources` holds, in whatever order and with whatever repeats they arrive: each source
+ * once, in code point order (core/text.ts compareCodePoints).
  */
-export const patternTableOf = (entries: NonEmptyReadonlyArray<PatternEntry>): PatternTable => {
-	const [head, ...tail] = entries
-	const others = new Map(tail.map((e) => [e.source, e]))
-	others.delete(head.source)
-	return mintPatternTable(
-		Object.freeze(
-			sortNonEmpty([head, ...others.values()], (a, b) => compareCodePoints(a.source, b.source))
-		)
-	)
+export const patternTableOf = (sources: NonEmptyReadonlyArray<string>): PatternTable => {
+	const [head, ...tail] = sources
+	const others = new Set(tail)
+	others.delete(head)
+	return mintPatternTable(Object.freeze(sortNonEmpty([head, ...others], compareCodePoints)))
 }
 
 /** How a parameter's placeholder is cast: compare binds the base type; write and emit cast to the domain. */

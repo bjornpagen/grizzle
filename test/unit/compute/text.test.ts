@@ -16,7 +16,7 @@ import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
@@ -256,23 +256,20 @@ describe("Compute's text terms", () => {
 						const node = matchNode(lowered.value.root.expr)
 						const distinct = Arr.sort(Arr.dedupe(c.sources), byCodePoints)
 						assert.deepEqual(
-							Arr.map(node.patterns, (e) => e.source),
+							Arr.fromIterable(node.patterns),
 							distinct,
 							"each value the pattern can take, once, in code point order"
 						)
 						if (outOfUnitOrder(distinct)) {
 							k.note("sources out of code unit order")
 						}
-						for (const entry of node.patterns) {
-							const declared = analyzeText(
-								[{ source: entry.source, flags: "u" }],
-								SourceLoc("str.regex", [])
-							)
+						for (const source of node.patterns) {
+							const declared = analyzeText([{ source, flags: "u" }], SourceLoc("str.regex", []))
 							if (declared.ok) {
 								assert.equal(
-									entry.are,
+									matchAre(source),
 									declared.value.members[0].are,
-									`the ARE str.regex prints for /${entry.source}/u`
+									`the ARE str.regex prints for /${source}/u`
 								)
 							}
 						}
@@ -798,7 +795,7 @@ describe("Compute's text terms", () => {
 
 	/** The ARE str.regex prints for an admitted pattern. */
 	const areOf = (source: string): string =>
-		succeeded(matchPattern(source, SourceLoc("pattern", []))).are
+		matchAre(succeeded(matchPattern(source, SourceLoc("pattern", []))))
 
 	it.effect("hands `~` the ARE of every value its pattern takes, never a source", (ctx) =>
 		searched(
@@ -837,7 +834,7 @@ describe("Compute's text terms", () => {
 							).root.expr
 						)
 						assert.deepEqual(
-							Arr.map(node.patterns, (e) => e.source),
+							Arr.fromIterable(node.patterns),
 							Arr.sort(Arr.dedupe(spelling.sources), byCodePoints),
 							"each distinct source once, in code point order"
 						)
@@ -863,9 +860,9 @@ describe("Compute's text terms", () => {
 						assert.deepEqual(sql.right.else, patternSql, "its ELSE keeps an absent read's NULL")
 						assert.deepEqual(
 							Arr.map(sql.right.whens, (w): ReadonlyArray<Expr> => [w.when, w.result]),
-							Arr.map(node.patterns, (e): ReadonlyArray<Expr> => [
-								lit.text(e.source, types.text),
-								lit.text(areOf(e.source), types.text)
+							Arr.map(node.patterns, (source): ReadonlyArray<Expr> => [
+								lit.text(source, types.text),
+								lit.text(areOf(source), types.text)
 							]),
 							"an arm per distinct source, its ARE beside it"
 						)

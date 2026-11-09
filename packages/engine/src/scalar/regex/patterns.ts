@@ -163,6 +163,6 @@ export const tablePatterns = (table: ExprTable): ReadonlyArray<PatternSource> =>
 	Object.values(table.exprs).flatMap((e) => [
 		...typePatterns(e.type),
 		...(e.kind === "op" && "patterns" in e
-			? e.patterns.map((entry) => ({ source: entry.source, flags: matchFlags }))
+			? e.patterns.map((source) => ({ source, flags: matchFlags }))
 			: [])
 	])

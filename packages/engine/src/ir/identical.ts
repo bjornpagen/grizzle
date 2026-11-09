@@ -1,6 +1,6 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
-import type { ExprTable, PatternEntry, TableExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import type { ExprTable, TableExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type {
 	Exact,
 	FactSource,
@@ -236,23 +236,20 @@ const identicalProof = (a: OperationProof, b: OperationProof): boolean =>
 const identicalNative = (a: NativeProof, b: NativeProof): boolean =>
 	each(a.premises, b.premises, identicalPremise)
 
-const identicalPattern = (a: PatternEntry, b: PatternEntry): boolean =>
-	a.source === b.source && a.are === b.are
-
 type Operation = Extract<TableExpr, { readonly kind: "op" | "cast" }>
 
 const nativeOf = (e: Operation): NativeProof | undefined => ("native" in e ? e.native : undefined)
 
 const proofOf = (e: Operation): OperationProof | undefined => ("proof" in e ? e.proof : undefined)
 
-const patternsOf = (e: Operation): ReadonlyArray<PatternEntry> | undefined =>
+const patternsOf = (e: Operation): ReadonlyArray<string> | undefined =>
 	"patterns" in e ? e.patterns : undefined
 
 /** What an operator and a cast name beside their overload: a native proof, an operation proof, a pattern table. */
 const identicalWitness = (a: Operation, b: Operation): boolean =>
 	both(nativeOf(a), nativeOf(b), identicalNative) &&
 	both(proofOf(a), proofOf(b), identicalProof) &&
-	both(patternsOf(a), patternsOf(b), (x, y) => each(x, y, identicalPattern))
+	both(patternsOf(a), patternsOf(b), (x, y) => each(x, y, (p, q) => p === q))
 
 /** An entry's own fields, by its kind, beside the fields every entry has (identicalEntry). */
 const identicalOwn = (a: TableExpr, b: TableExpr): boolean => {

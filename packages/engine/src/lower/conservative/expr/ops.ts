@@ -10,6 +10,7 @@ import {
 	nativeOp,
 	type OperandReading
 } from "#compiler/scalar/compute/registry.ts"
+import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
@@ -185,7 +186,8 @@ const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined 
 
 /**
  * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
- * the node's pattern can take, never its source, which only grizzle's own automaton reads. A pattern printed as a text
+ * the node's pattern can take (scalar/regex/admit.ts matchAre), translated here, where it is printed, never its source,
+ * which only grizzle's own automaton reads. A pattern printed as a text
  * literal, a literal pattern or one a persistent expression folds to its value (physical/ddl/expr.ts), is its ARE's
  * literal, so no CASE compares two constants, which a generation expression refuses (42P22); any other is
  * `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once, whatever SQL computes it, and
@@ -194,18 +196,17 @@ const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined 
 const patternOperand = (sql: Expr, table: PatternTable): Expr => {
 	if (sql.kind === "literal" && sql.value.kind === "text") {
 		const source = sql.value.value
-		const entry = table.find((e) => e.source === source)
-		if (entry === undefined) {
+		if (!table.includes(source)) {
 			throw defect(`a literal pattern's entry in its node's pattern table: /${source}/`)
 		}
-		return lit.text(entry.are, types.text)
+		return lit.text(matchAre(source), types.text)
 	}
 	return {
 		kind: "case",
 		operand: sql,
-		whens: mapNonEmpty(table, (e) => ({
-			when: lit.text(e.source, types.text),
-			result: lit.text(e.are, types.text)
+		whens: mapNonEmpty(table, (source) => ({
+			when: lit.text(source, types.text),
+			result: lit.text(matchAre(source), types.text)
 		})),
 		else: sql
 	}

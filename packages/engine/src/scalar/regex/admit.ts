@@ -5,9 +5,9 @@ import {
 	resourceBound,
 	unsupported
 } from "#compiler/core/errors.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { PatternEntry } from "#compiler/ir/expr.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
@@ -109,48 +109,41 @@ export const matchFlags: RegexFlags = "u"
 type MatchRefusal = PatternRefusal | { readonly kind: "noText" }
 
 /**
- * A Compute.matches pattern value, its source, admitted where its value is first held (admitMatch): its entry, or why
- * the admission refuses it, which a lowering reading it places at the match (matchEntryAt).
+ * A Compute.matches pattern value, its source, admitted where its value is first held (admitMatch): admitted, or
+ * refused with why, which a lowering reading it places at the match (matchSourceAt).
  */
-export interface MatchAdmission {
-	readonly source: string
-	readonly admitted: Result.Result<PatternEntry, MatchRefusal>
-}
+export type MatchAdmission =
+	| { readonly kind: "admitted"; readonly source: string }
+	| { readonly kind: "refused"; readonly source: string; readonly refusal: MatchRefusal }
 
 /**
- * A Compute.matches pattern admitted (admitIr under matchFlags) and translated into the ARE `~` reads in its place
- * (are.ts toAre): refused where its admission refuses it, and where its IR is the empty language's, which no ARE
- * spells, so the test could never hold. The IR is the empty language exactly when no text matches the pattern, an
- * empty class or an order of anchors no match can pass alike (ir.ts), so this refuses every such pattern and no other.
+ * A Compute.matches pattern admitted (admitIr under matchFlags): refused where its admission refuses it, and where its
+ * IR is the empty language's, which no ARE spells, so the test could never hold. The IR is the empty language exactly
+ * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
+ * refuses every such pattern and no other. Its ARE is translated only where SQL prints it (matchAre).
  */
 export const admitMatch = (source: string): MatchAdmission => {
 	const admitted = admitIr(source, matchFlags)
 	if (!admitted.ok) {
-		return { source, admitted }
+		return { kind: "refused", source, refusal: admitted.error }
 	}
-	const ir = admitted.value
-	return {
-		source,
-		admitted:
-			ir.kind === "never"
-				? Result.err({ kind: "noText" })
-				: Result.ok(Object.freeze({ source, are: toAre(ir) }))
-	}
+	return admitted.value.kind === "never"
+		? { kind: "refused", source, refusal: { kind: "noText" } }
+		: { kind: "admitted", source }
 }
 
 /**
- * The entry of an admitted Compute.matches pattern, or its refusal placed at `loc`: a refusal of its admission as
+ * The source of an admitted Compute.matches pattern, or its refusal placed at `loc`: a refusal of its admission as
  * refusalAt places one, and the empty language's as UnsupportedOperation naming the pattern.
  */
-export const matchEntryAt = (
+export const matchSourceAt = (
 	admission: MatchAdmission,
 	loc: SourceLoc
-): Result.Result<PatternEntry, CompileError> => {
-	const { source, admitted } = admission
-	if (admitted.ok) {
-		return admitted
+): Result.Result<string, CompileError> => {
+	if (admission.kind === "admitted") {
+		return Result.ok(admission.source)
 	}
-	const refusal = admitted.error
+	const { source, refusal } = admission
 	return Result.err(
 		refusal.kind === "noText"
 			? unsupported(
@@ -161,8 +154,18 @@ export const matchEntryAt = (
 	)
 }
 
-/** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchEntryAt). */
-export const matchPattern = (
-	source: string,
-	loc: SourceLoc
-): Result.Result<PatternEntry, CompileError> => matchEntryAt(admitMatch(source), loc)
+/** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchSourceAt). */
+export const matchPattern = (source: string, loc: SourceLoc): Result.Result<string, CompileError> =>
+	matchSourceAt(admitMatch(source), loc)
+
+/**
+ * The ARE `~` reads in place of a Compute.matches pattern its node's admission admitted (admitMatch): its IR under
+ * matchFlags translated (are.ts toAre). It runs where SQL prints the pattern, the one reader of its ARE.
+ */
+export const matchAre = (source: string): string => {
+	const parsed = parsePattern(source, matchFlags)
+	if (!parsed.ok || parsed.value.kind === "never") {
+		throw defect(`a Compute.matches pattern its admission admitted: /${source}/${matchFlags}`)
+	}
+	return toAre(parsed.value)
+}

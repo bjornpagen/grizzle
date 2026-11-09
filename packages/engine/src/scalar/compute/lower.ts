@@ -196,8 +196,8 @@ import {
 import {
 	admitMatch,
 	type MatchAdmission,
-	matchEntryAt,
-	matchFlags
+	matchFlags,
+	matchSourceAt
 } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -2307,10 +2307,10 @@ class Lowering<R extends Refs> {
 	/**
 	 * Compute.matches(subject, pattern), PostgreSQL's textregexeq: whether the subject holds a match of the pattern,
 	 * which is a text term or a literal read under the flags "u", in grizzle's pattern grammar. Every value the pattern
-	 * can take is seen here (patternSources) and admitted as a str.regex pattern is, its grammar and PostgreSQL's regex
-	 * compile space (scalar/regex/admit.ts matchPattern), and the node carries each one's ARE, which the lowering spells
-	 * for `~` in its place (PatternTable). A builder types the predicate alone: it sees no operand's value, and admits a
-	 * literal pattern where it builds the call.
+	 * can take is seen here (patternAdmissions) and admitted as a str.regex pattern is, its grammar and PostgreSQL's
+	 * regex compile space (scalar/regex/admit.ts admitMatch), and the node carries each one's source, whose ARE the SQL
+	 * lowering spells for `~` in its place (PatternTable). A builder types the predicate alone: it sees no operand's
+	 * value, and admits a literal pattern where it builds the call.
 	 */
 	matches(
 		subjectDesc: ExprDesc<Located, R>,
@@ -2362,19 +2362,12 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * The table of the values a matches pattern can take (ir/expr.ts patternTableOf), each admitted and translated once
-	 * (patternAdmissions), each source once in the order the pattern states them, so a refusal names the first refused
-	 * value it states.
+	 * The table of the values a matches pattern can take (ir/expr.ts patternTableOf), each admitted once
+	 * (patternAdmissions), read in the order the pattern states them, so a refusal names the first refused value it
+	 * states.
 	 */
 	patternTable(desc: ExprDesc<Located, R>, at: SourceLoc): PatternTable {
-		const sources = new Set<string>()
-		const admitted: Array<MatchAdmission> = []
-		for (const a of this.patternAdmissions(desc, at)) {
-			if (!sources.has(a.source)) {
-				sources.add(a.source)
-				admitted.push(a)
-			}
-		}
+		const admitted = this.patternAdmissions(desc, at)
 		if (!isNonEmpty(admitted)) {
 			return stop(
 				"UnsupportedOperation",
@@ -2382,7 +2375,7 @@ class Lowering<R extends Refs> {
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchEntryAt(a, at))))
+		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchSourceAt(a, at))))
 	}
 
 	/**
