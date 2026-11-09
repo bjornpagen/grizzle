@@ -31,11 +31,12 @@ export const rosterCodebook = (
 	return book.size === 0 ? emptyCodebook : Object.freeze({ rosters: book })
 }
 
-/** A level of a snapshot in its JSON form, as the layer reads it: its name and schema, which are names alone, so their
- * JSON form is their value, and its laws. */
+/** A level of a snapshot in its JSON form, as the layer reads it: its name, schema and fingerprint, whose JSON form is
+ * their value, and its laws. */
 interface LevelJson {
 	readonly name: string
 	readonly schema: string
+	readonly fingerprint: SchemaFingerprint
 	readonly laws: unknown
 }
 
@@ -57,11 +58,11 @@ const revived = (value: unknown, path: Path): Result.Result<unknown, CompileErro
  * The snapshot an application's DbLayer serves over its level `level` (its base's, the last of the base's own levels),
  * from the JSON value an import of snapshot.json yields, trusted as the snapshot `grizzle generate` wrote, whose content
  * is verified where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
- * schema, and the laws of each level above `level`, their canonical tags revived (`fromJson`); its constraint-to-law
- * map and its rosters' codes, revived; and the installation's derived runtime facts (SnapshotDerived), each closed
- * relation's constants as readers address them, which hold names and numbers alone, so their JSON form is their value. Nothing else of it is read: the laws of `level` and the levels
- * below it are the layer's own artifacts', and manifest.json, the rest of the snapshot, is generate's, check's, drift's
- * and migrate's.
+ * schema and recorded fingerprint, and the laws of each level above `level`, their canonical tags revived (`fromJson`);
+ * its constraint-to-law map and its rosters' codes, revived; and the installation's derived runtime facts
+ * (SnapshotDerived), each closed relation's constants as readers address them, which hold names and numbers alone, so
+ * their JSON form is their value. Nothing else of it is read: the laws of `level` and the levels below it are the
+ * layer's own artifacts', and manifest.json, the rest of the snapshot, is generate's, check's, drift's and migrate's.
  */
 export const servedSnapshot = (
 	json: unknown,
@@ -92,6 +93,7 @@ export const servedSnapshot = (
 	return Result.ok({
 		fingerprint: served.fingerprint,
 		schemas: served.levels.map((l) => l.schema),
+		levels: served.levels.map((l) => ({ name: l.name, fingerprint: l.fingerprint })),
 		above,
 		constraintToLaw: trusted<ConstraintLaws>(constraintToLaw.value),
 		codes: rosterCodebook(rosters),

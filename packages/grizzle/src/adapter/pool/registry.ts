@@ -49,15 +49,16 @@ import {
 	codeNames,
 	type CompileError,
 	Engine,
+	levelChain,
 	type LoginDesc,
 	loginDescOf,
 	loginRoleName,
 	malformedDescription,
-	own,
 	ownBuiltLogin,
 	type Owned,
 	ownedEntry,
 	type OwnedLogin,
+	ownServed,
 	parseBuiltSchema,
 	parseSchemaInput,
 	queryUses,
@@ -417,8 +418,9 @@ const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, 
 	Effect.mapError(fromEngine(result), (reason) => new OpenError({ reason }))
 
 /**
- * Builds the service in the current scope (the layer's) from a parsed config: the login's base owned once; the
- * snapshot, parsed over the base's level, the last of its own levels, its codes read; the login over the base; the base's
+ * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed over the base's
+ * level, the last of its own levels, its codes read; the login's base owned once, under the fingerprints the snapshot
+ * records for its levels (schema/own.ts ownServed), so the layer hashes no level; the login over the base; the base's
  * artifacts compiled once under the codes for the writes of the login's roles (artifactsUnder), which every role reads,
  * and the laws of the levels above the base's that the snapshot records (witness/keylaw.ts lawsAbove), the base's level
  * the last of its own levels; every role's artifacts and programs over them; the login's role, its pool and the
@@ -427,8 +429,11 @@ const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, 
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<DbSessions, OpenError, Scope.Scope> {
-	const base = yield* openStage(own(config.login.base.desc))
-	const snapshot = yield* layerSnapshot(config.snapshot, base.levels.length - 1)
+	const snapshot = yield* layerSnapshot(
+		config.snapshot,
+		levelChain(config.login.base.desc).length - 1
+	)
+	const base = yield* openStage(ownServed(config.login.base.desc, snapshot.levels))
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))

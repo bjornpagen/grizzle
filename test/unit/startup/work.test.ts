@@ -52,11 +52,13 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  *   one digest); roles, workloads and the login over it, and every level check they and every command and layer make,
  *   encode it again never, nor read it again from a description (contentOfDesc).
  * - `grizzle generate`, `grizzle check` and DbLayer.make own the schema once, which reads each statement's text, as
- *   schema(...) did, and writes its fingerprint, the snapshot's encoding of it; no level check or program they compile
- *   reads a description's text (descText). They compile its basis once and compile the login's programs once, through
- *   the one path they share (adapter/pool/registry.ts loginRoles): generate and check compile the installation's basis
- *   (its law model and closed constants, physical/install/plan.ts installBasis), packing every closed relation's cells
- *   once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the programs read
+ *   schema(...) did; generate and check hash each level's fingerprint (core/fingerprint.ts schemaLevel), the snapshot's
+ *   encoding of it, and the layer hashes none, owning the schema under the fingerprints the snapshot records
+ *   (schema/own.ts ownServed); no level check or program they compile reads a description's text (descText). They
+ *   compile its basis once and compile the login's programs once, through the one path they share
+ *   (adapter/pool/registry.ts loginRoles): generate and check compile the installation's basis (its law model and
+ *   closed constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
+ *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the programs read
  *   and for the draft, and build the draft's DDL once; the layer compiles its plan's basis from the closed constants'
  *   names the snapshot records (planBasis), packs no cell, plans once and builds no DDL.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
@@ -85,7 +87,8 @@ const sites = {
 	literalProblem: { file: "packages/engine/src/ir/expr.ts", name: "literalProblem" },
 	levelContent: { file: "packages/engine/src/schema/levels.ts", name: "levelContent" },
 	contentOfDesc: { file: "packages/engine/src/schema/levels.ts", name: "contentOfDesc" },
-	own: { file: "packages/engine/src/schema/own.ts", name: "own" },
+	own: { file: "packages/engine/src/schema/own.ts", name: "ownWith" },
+	schemaLevel: { file: "packages/engine/src/core/fingerprint.ts", name: "schemaLevel" },
 	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
 	installBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "installBasis" },
 	planBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "planBasis" },
@@ -299,6 +302,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 1,
+		schemaLevel: 1,
 		compileLaws: 1,
 		installBasis: 1,
 		planBasis: 0,
@@ -311,6 +315,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 1,
+		schemaLevel: 1,
 		compileLaws: 1,
 		installBasis: 1,
 		planBasis: 0,
@@ -351,6 +356,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 1,
+		schemaLevel: 0,
 		compileLaws: 1,
 		installBasis: 0,
 		planBasis: 1,

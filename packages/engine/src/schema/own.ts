@@ -828,15 +828,16 @@ const plainSide = (side: SideDesc, entry: RelationEntry): boolean => {
 }
 
 /**
- * The levels of a canonical description, root first: each level's installation, minted from its declared name, and its
- * fingerprint, the digest of the canonical description it tops, which owning that level alone computes, each level's
- * text written once and read by the level above (core/fingerprint.ts schemaLevel). Two levels whose names convert to
- * one PostgreSQL schema are IdentifierCollision.
+ * The levels of a canonical description, root first, each with its installation, minted from its declared name, and
+ * its fingerprint, which `fingerprinted` gives the chain of levels. Two levels whose names convert to one PostgreSQL
+ * schema are IdentifierCollision.
  */
-const ownedLevels = (canonical: SchemaDesc): NonEmptyReadonlyArray<OwnedLevel> => {
+const ownedLevels = (
+	canonical: SchemaDesc,
+	fingerprinted: LevelFingerprints
+): NonEmptyReadonlyArray<OwnedLevel> => {
 	const schemas = new Map<string, SchemaDesc>()
-	let below: SchemaLevel | undefined
-	return mapNonEmpty(levelChain(canonical), (level): OwnedLevel => {
+	return mapNonEmpty(fingerprinted(levelChain(canonical)), ({ level, fingerprint }): OwnedLevel => {
 		const installation = unwrap(schemaInstallation(level.name, level.loc))
 		const ident = identifierOf(installation)
 		const prior = schemas.get(ident)
@@ -852,15 +853,58 @@ const ownedLevels = (canonical: SchemaDesc): NonEmptyReadonlyArray<OwnedLevel> =
 			})
 		}
 		schemas.set(ident, level)
-		below = unwrap(schemaLevel(level, below))
 		return {
 			name: level.name,
 			installation,
-			fingerprint: below.fingerprint,
+			fingerprint,
 			loc: level.loc
 		}
 	})
 }
+
+/** The chain of an owned schema's levels, root first, each with its fingerprint. */
+type LevelFingerprints = (
+	levels: NonEmptyReadonlyArray<SchemaDesc>
+) => NonEmptyReadonlyArray<{ readonly level: SchemaDesc; readonly fingerprint: SchemaFingerprint }>
+
+/**
+ * Each level's fingerprint hashed over its canonical description: the digest of the canonical description it tops,
+ * each level's text written once and read by the level above (core/fingerprint.ts schemaLevel). What `grizzle
+ * generate` and `grizzle check` record and verify.
+ */
+const hashedLevels: LevelFingerprints = (levels) => {
+	let below: SchemaLevel | undefined
+	return mapNonEmpty(levels, (level) => {
+		below = unwrap(schemaLevel(level, below))
+		return { level, fingerprint: below.fingerprint }
+	})
+}
+
+/** A level of a schema as its installation's snapshot records it: its declared name and its fingerprint. */
+export interface RecordedLevel {
+	readonly name: string
+	readonly fingerprint: SchemaFingerprint
+}
+
+/**
+ * Each level's fingerprint as the installation's snapshot records it, the level at its position, which must be the one
+ * of its declared name: the fingerprints a layer serves under, which `grizzle generate` hashed and recorded, so the layer
+ * hashes none. A level the snapshot records under another name, or does not record, is MalformedDescription.
+ */
+const recordedLevels =
+	(recorded: ReadonlyArray<RecordedLevel>): LevelFingerprints =>
+	(levels) =>
+		mapNonEmpty(levels, (level, at) => {
+			const r = recorded[at]
+			if (r === undefined || r.name !== level.name) {
+				return fail(
+					"MalformedDescription",
+					level.loc,
+					`the snapshot's level ${at} recorded as schema ${level.name}; it records ${r === undefined ? "no such level" : `schema ${r.name}`}`
+				)
+			}
+			return { level, fingerprint: r.fingerprint }
+		})
 
 /** The PostgreSQL schemas an owned schema's levels install in under their declared names, root first. */
 export const installationsOf = (owned: Owned): NonEmptyReadonlyArray<Identity<"schema">> =>
@@ -894,7 +938,7 @@ class Owner {
 		this.#schemaName = desc.name
 	}
 
-	run(): Owned {
+	run(fingerprinted: LevelFingerprints): Owned {
 		this.#collectRelations()
 		this.#checkDerived()
 		this.#collectFields()
@@ -907,7 +951,7 @@ class Owner {
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
 		const contracts = this.#ownContracts()
 		const canonical = this.#canonicalDesc()
-		const levels = ownedLevels(canonical)
+		const levels = ownedLevels(canonical, fingerprinted)
 		const fingerprint = lastNonEmpty(levels).fingerprint
 		const fieldIds = Object.values(relations)
 			.flatMap((r) => Object.values(r.fields).map((f) => f.id))
@@ -1973,8 +2017,23 @@ export const ownedOf = (input: unknown): Owned | undefined =>
 
 /** Owns a schema description: one a schema value's builder recorded, one decoded at a boundary, or an Owned's own. */
 export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
+	ownWith(desc, hashedLevels)
+
+/**
+ * own(), each level's fingerprint taken from its installation's snapshot (`recorded`, root first) rather than hashed:
+ * what DbLayer.make owns its login's base with, serving under the fingerprints `grizzle generate` recorded.
+ */
+export const ownServed = (
+	desc: SchemaDesc,
+	recorded: ReadonlyArray<RecordedLevel>
+): Result.Result<Owned, CompileError> => ownWith(desc, recordedLevels(recorded))
+
+const ownWith = (
+	desc: SchemaDesc,
+	fingerprinted: LevelFingerprints
+): Result.Result<Owned, CompileError> =>
 	Result.map(
-		catchRefusal(() => new Owner(desc).run()),
+		catchRefusal(() => new Owner(desc).run(fingerprinted)),
 		(owned) => {
 			owners.set(owned, owned)
 			return owned

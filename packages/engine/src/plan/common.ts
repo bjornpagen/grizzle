@@ -138,8 +138,10 @@ export {
 	type SchemaInput
 } from "#compiler/program/schema.ts"
 export {
+	levelChain,
 	own,
 	ownBuiltLogin,
+	ownServed,
 	type Owned,
 	type OwnedLogin,
 	type OwnedRole,
