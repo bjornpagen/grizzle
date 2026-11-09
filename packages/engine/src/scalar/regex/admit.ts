@@ -39,19 +39,19 @@ const diagnosticError = (
 	)
 
 /**
- * The one admission of a pattern grizzle hands PostgreSQL: a str.regex refinement's (text/refinement.ts analyzeText)
- * and every pattern value a Compute.matches term can take (compute/lower.ts). It parses the admitted grammar
- * (parse.ts), with source-located diagnostics at any length and nesting depth, and refuses, as ResourceBound naming the
- * pattern, one past a limit of PostgreSQL's regex compiler (space.ts pastCompileSpace), the one limit on a pattern's
- * size, which is PostgreSQL's own. The limits are checked in a fixed order, a loop through an anchor first, so one
- * pattern has one refusal. `loc` places a refusal alone; diagnostics point one level deeper, at the construct's offset
- * in the pattern (`... .pattern[3]`).
+ * The one admission of a pattern grizzle hands PostgreSQL: a str.regex refinement's (text/refinement.ts analyzeText,
+ * through admitPattern) and every pattern value a Compute.matches term can take (matchPattern). It parses the admitted
+ * grammar (parse.ts), with source-located diagnostics at any length and nesting depth, and refuses, as ResourceBound
+ * naming the pattern, one past a limit of PostgreSQL's regex compiler (space.ts pastCompileSpace), the one limit on a
+ * pattern's size, which is PostgreSQL's own. The limits are checked in a fixed order, a loop through an anchor first, so
+ * one pattern has one refusal. `loc` places a refusal alone; diagnostics point one level deeper, at the construct's
+ * offset in the pattern (`... .pattern[3]`). Its result is the pattern's normalized IR, the flags folded in.
  */
-export const admitPattern = (
+const admitIr = (
 	source: string,
 	flags: RegexFlags,
 	loc: SourceLoc
-): Result.Result<AdmittedPattern, CompileError> => {
+): Result.Result<RegexNode, CompileError> => {
 	const parsed = parsePattern(source, flags)
 	if (!parsed.ok) {
 		return Result.err(diagnosticError(parsed.error, loc, source, flags))
@@ -72,15 +72,25 @@ export const admitPattern = (
 	if (past !== undefined) {
 		return tooComplex(past)
 	}
-	const nfa = buildNfa(ir)
-	return Result.ok({ ir, nfa })
+	return Result.ok(ir)
 }
+
+/**
+ * A pattern admitted (admitIr) with the NFA its language is measured by: what a str.regex refinement's analysis reads
+ * of each of its patterns (text/refinement.ts analyzePattern).
+ */
+export const admitPattern = (
+	source: string,
+	flags: RegexFlags,
+	loc: SourceLoc
+): Result.Result<AdmittedPattern, CompileError> =>
+	Result.map(admitIr(source, flags, loc), (ir) => ({ ir, nfa: buildNfa(ir) }))
 
 /** The flags every Compute.matches pattern is read under: str.regex's default. */
 export const matchFlags: RegexFlags = "u"
 
 /**
- * A Compute.matches pattern admitted (admitPattern under matchFlags) and translated into the ARE `~` reads in its
+ * A Compute.matches pattern admitted (admitIr under matchFlags) and translated into the ARE `~` reads in its
  * place (are.ts toAre): refused where its admission refuses it, and where its IR is the empty language's, which no ARE
  * spells, so the test could never hold (UnsupportedOperation, naming the pattern). The IR is the empty language exactly
  * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
@@ -90,11 +100,11 @@ export const matchPattern = (
 	source: string,
 	loc: SourceLoc
 ): Result.Result<PatternEntry, CompileError> => {
-	const admitted = admitPattern(source, matchFlags, loc)
+	const admitted = admitIr(source, matchFlags, loc)
 	if (!admitted.ok) {
 		return admitted
 	}
-	const { ir } = admitted.value
+	const ir = admitted.value
 	if (ir.kind === "never") {
 		return Result.err(
 			unsupported(
