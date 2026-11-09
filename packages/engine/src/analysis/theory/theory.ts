@@ -59,7 +59,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
-import type { HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
+import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -585,11 +585,11 @@ class Builder {
 	/**
 	 * Each law with its detail written, in law order: each primary key's law with its relation, then every other law.
 	 * The families are resolved first, each fold's step selection lowered, since a family's and a tree's law carry
-	 * them; a rule over a query is admitted, its violation query checked against the checked schema. No law's violation
-	 * query is written (laws/model/violations.ts writes them) and no row check's predicate is lowered (law
-	 * specialization lowers the checks it keeps). The DAG holds what the theory lowered, each fold's nonempty step
-	 * selection projected over its scan, so the law model's own DAG extends it under labels apart from every one it
-	 * carries.
+	 * them; a rule over a query keeps its violation query as normalization wrote it. No law's violation query is written
+	 * or checked (laws/model/violations.ts writes and checks them, for the snapshot that reads them) and no row check's
+	 * predicate is lowered (law specialization lowers the checks it keeps). The DAG holds what the theory lowered, each
+	 * fold's nonempty step selection projected over its scan, so the law model's own DAG extends it under labels apart
+	 * from every one it carries.
 	 */
 	#written(
 		normalizer: Normalizer,
@@ -614,22 +614,11 @@ class Builder {
 			switch (writing.kind) {
 				case "built":
 					return Object.freeze({ ...law, detail: writing.detail() })
-				case "query": {
-					const checked = checkQuery(this.checked, writing.violation, {
-						read: "rows",
-						label: `rule ${k.named.display}`
-					})
-					if (!checked.ok) {
-						throw new Refusal(checked.error)
-					}
+				case "query":
 					return Object.freeze({
 						...law,
-						detail: {
-							...writing.detail,
-							violation: { dag: checked.value.dag, root: checked.value.dag.roots[0] }
-						}
+						detail: { ...writing.detail, violation: writing.violation }
 					})
-				}
 			}
 		}
 		const primaryKeys = normalizer.primaryKeys.map((p: PrimaryKeyKept): PrimaryKeyLaw =>
@@ -752,6 +741,24 @@ class Builder {
  */
 export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, CompileError> =>
 	catchRefusal(() => new Builder(checked).run())
+
+/**
+ * A rule over a query's violation query, as normalization wrote it (`violation`), checked against the checked schema
+ * its theory was built over: what the violation queries' writer reads (laws/model/violations.ts), its one reader, so
+ * no theory checks a rule's query no installation's snapshot writes.
+ */
+export const ruleViolation = (
+	checked: CheckedSchema,
+	law: Pick<TheoryLaw, "named">,
+	violation: QueryDesc
+): Result.Result<{ readonly dag: ValidDag; readonly root: RelNode }, CompileError> =>
+	Result.map(
+		checkQuery(checked, violation, { read: "rows", label: `rule ${law.named.display}` }),
+		(admitted) => ({
+			dag: admitted.dag,
+			root: admitted.dag.roots[0]
+		})
+	)
 
 /**
  * The sides of an owned schema's laws, resolved as the theory resolves them (LawSides), in the environment its

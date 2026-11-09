@@ -1,8 +1,8 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawViolation } from "#compiler/analysis/theory/laws.ts"
-import { lawSides, type Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal } from "#compiler/core/canonical.ts"
+import { lawSides, ruleViolation, type Theory } from "#compiler/analysis/theory/theory.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -71,10 +71,10 @@ const lawExprs = (owned: Owned): ReadonlyArray<ExprDesc> => [
 /**
  * The violation queries of `theory`'s laws, the theory of `checked`, or the first refusal: each law's written in law
  * order, each primary key's law first, then every other law, from what its theory law carries (laws.ts lawViolation),
- * its sides resolved as the theory resolves them (lawSides); a rule over a query's the one its theory law carries
- * checked, labelled past them under its Forbid node (LabelSupply). The laws and their identities are a pure function of
- * the owned schema, and the builder allocates its identifiers in the same order for the same laws, so every write of a
- * schema's violation queries builds one DAG.
+ * its sides resolved as the theory resolves them (lawSides); a rule over a query's the one its theory law carries,
+ * checked here (theory.ts ruleViolation), labelled past them under its Forbid node (LabelSupply). The laws and their
+ * identities are a pure function of the owned schema, and the builder allocates its identifiers in the same order for
+ * the same laws, so every write of a schema's violation queries builds one DAG.
  */
 export const theoryViolations = (
 	checked: CheckedSchema,
@@ -89,13 +89,18 @@ export const theoryViolations = (
 		const statements = checked.owned.statements
 		const written = theory.laws.map((law): Written => {
 			const d = law.detail
-			return d.kind === "rule"
-				? { kind: "query", id: law.id, query: d.violation.dag, root: d.violation.root }
-				: {
-						kind: "built",
-						id: law.id,
-						forbid: vb.forbid(law.id, lawViolation(vb, sides, theory.families, statements, law, d))
-					}
+			if (d.kind !== "rule") {
+				return {
+					kind: "built",
+					id: law.id,
+					forbid: vb.forbid(law.id, lawViolation(vb, sides, theory.families, statements, law, d))
+				}
+			}
+			const admitted = ruleViolation(checked, law, d.violation)
+			if (!admitted.ok) {
+				throw new Refusal(admitted.error)
+			}
+			return { kind: "query", id: law.id, query: admitted.value.dag, root: admitted.value.root }
 		})
 		const supply = new LabelSupply(
 			vb.b.build(written.flatMap((w) => (w.kind === "built" ? [w.forbid] : [])))

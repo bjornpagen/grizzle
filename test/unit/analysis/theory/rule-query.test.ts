@@ -33,7 +33,9 @@
  * of these fails the fourth box: a conjunction holding a negation read whole, which refuses it as a negation below a
  * condition; and a negated query that negates in turn admitted, its inner negation dropped.
  *
- * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts. Beside it, each name a
+ * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts, and its laws'
+ * violation queries are written as generate writes them, each rule's checked there (laws/model/violations.ts
+ * theoryViolations). Beside it, each name a
  * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
  * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
  * its law's.
@@ -44,7 +46,11 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import type { CompileError } from "#compiler/core/errors.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { ConstraintLaw, ConstraintLawOf } from "#compiler/laws/model/model.ts"
+import { theoryViolations } from "#compiler/laws/model/violations.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { Decimal, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -62,6 +68,15 @@ import { str } from "#compiler/public/text.ts"
 import { assert } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+
+/**
+ * A schema's artifacts with its laws' violation queries written, each rule over a query's checked against the checked
+ * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot.
+ */
+const compiledOf = (schema: unknown): Result.Result<SchemaArtifacts, CompileError> =>
+	Result.flatMap(testArtifacts(schema, testCompile), (artifacts) =>
+		Result.map(theoryViolations(artifacts.laws.checked, artifacts.laws.theory), () => artifacts)
+	)
 
 /** How a definition binds a field: by a variable, or by a literal, which takes the type of the field it meets. */
 type Bound = "variable" | "literal"
@@ -628,7 +643,7 @@ describe("a rule over a query", () => {
 							if (c.read === "literal") {
 								k.note("a literal read id")
 							}
-							const compiled = testArtifacts(schemaOf(c), testCompile)
+							const compiled = compiledOf(schemaOf(c))
 							assert.deepEqual(
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
@@ -679,7 +694,7 @@ describe("a rule over a query", () => {
 							if (c.note !== "none" && c.note !== "same") {
 								k.note(`a ${c.note} note`)
 							}
-							const compiled = testArtifacts(textSchemaOf(c), testCompile)
+							const compiled = compiledOf(textSchemaOf(c))
 							assert.deepEqual(
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
@@ -727,10 +742,7 @@ describe("a rule over a query", () => {
 							k.note(`${c.tagging} tagging`)
 							k.note(`read by ${c.read}`)
 							k.note(c.rule)
-							const compiled = testArtifacts(
-								c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c),
-								testCompile
-							)
+							const compiled = compiledOf(c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c))
 							assert.deepEqual(
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
@@ -783,7 +795,7 @@ describe("a rule over a query", () => {
 							if (c.read === "semijoin") {
 								k.note(`${c.rule} read through a semijoin`)
 							}
-							const compiled = testArtifacts(negationSchemaOf(c), testCompile)
+							const compiled = compiledOf(negationSchemaOf(c))
 							if (admitted(c.source)) {
 								assert.deepEqual(
 									compiled.ok ? undefined : compiled.error.reason,

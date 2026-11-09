@@ -86,7 +86,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
-import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -194,9 +194,9 @@ export type LawDetail =
 	| { readonly kind: "family"; readonly family: Family }
 	| { readonly kind: "tree"; readonly family: TreeFamily }
 	| (StatedRule & {
-			/** Its violation query as the checker admitted it, which the theory checks once and the violation queries'
-			 * writer reads (laws/model/violations.ts). */
-			readonly violation: { readonly dag: ValidDag; readonly root: RelNode }
+			/** Its violation query as normalization wrote it (query.ts violationQuery), which the violation queries'
+			 * writer checks against the checked schema and reads (laws/model/violations.ts). */
+			readonly violation: QueryDesc
 	  })
 	| {
 			readonly kind: "fold"
