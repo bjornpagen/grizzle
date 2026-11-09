@@ -17,10 +17,10 @@ import {
 	refreshBlock,
 	refreshSql
 } from "#adapter/refresh/populated.ts"
-import type { RefreshTarget } from "#adapter/refresh/targets.ts"
 import { type BatchStatement, type FlightFailure, runFramed } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { type EmittedText, sqlstates } from "#compiler/plan/common.ts"
+import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /** One refresh statement an attempt ran. */
 interface RefreshStatement {
@@ -94,7 +94,7 @@ const classifyRefreshFailure = (failure: ServerError): TransientFailure | Execut
  * the target it names.
  */
 const refreshFailure =
-	(targets: ReadonlyArray<RefreshTarget>) =>
+	(targets: ReadonlyArray<ServedRefreshTarget>) =>
 	(failure: FlightFailure): Effect.Effect<never, ApplyError> => {
 		switch (failure._tag) {
 			case "BatchRefused": {
@@ -131,9 +131,9 @@ const refreshFailure =
 
 /** The targets by their view's PostgreSQL schema. */
 const bySchema = (
-	targets: ReadonlyArray<RefreshTarget>
-): ReadonlyMap<string, ReadonlyArray<RefreshTarget>> => {
-	const out = new Map<string, Array<RefreshTarget>>()
+	targets: ReadonlyArray<ServedRefreshTarget>
+): ReadonlyMap<string, ReadonlyArray<ServedRefreshTarget>> => {
+	const out = new Map<string, Array<ServedRefreshTarget>>()
 	for (const t of targets) {
 		const grouped = out.get(t.view.schema) ?? []
 		grouped.push(t)
@@ -146,7 +146,7 @@ const bySchema = (
 const refreshFlight = (
 	ctx: Pick<DbContext, "prologue">,
 	session: Session,
-	targets: Arr.NonEmptyReadonlyArray<RefreshTarget>
+	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
 ): Effect.Effect<ReadonlyArray<RefreshStatement>, FlightFailure> => {
 	const schemas = [...bySchema(targets)]
 	const statements: Array<BatchStatement> = [
@@ -161,7 +161,7 @@ const refreshFlight = (
 	]
 	return Effect.map(runFramed(session, dbWriteFrame(ctx), statements), (outcomes) => {
 		/** The targets whose view its schema's catalog statement read populated. */
-		const populated = new Set<RefreshTarget>()
+		const populated = new Set<ServedRefreshTarget>()
 		for (const [[, grouped], outcome] of Arr.zip(schemas, outcomes)) {
 			const views = populatedViews(outcome.rows)
 			for (const t of grouped) {
@@ -185,7 +185,7 @@ const refreshFlight = (
 /** Refreshes `targets`, already in refresh order, in one transaction of the Db's role. */
 export const runRefresh = Effect.fn("runRefresh")(function* (
 	ctx: Pick<DbContext, "pool" | "prologue">,
-	targets: Arr.NonEmptyReadonlyArray<RefreshTarget>
+	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
 ): Effect.fn.Return<RefreshReport, ApplyError, Scope.Scope> {
 	const session = yield* Effect.mapError(
 		ctx.pool.lease,

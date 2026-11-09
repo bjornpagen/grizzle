@@ -257,10 +257,17 @@ export const servedRosters = (roles: ReadonlyArray<ServedRoleForm>): ReadonlySet
 			out.add(domain.roster)
 		}
 		for (const member of role.members) {
-			if (member.kind === "change") {
-				variantRosters(member.variants, out)
-			} else {
-				decoderRosters(member.read.decoder, out)
+			switch (member.kind) {
+				case "change":
+					variantRosters(member.variants, out)
+					break
+				case "refresh":
+					break
+				case "read":
+				case "paged":
+				case "key":
+					decoderRosters(member.read.decoder, out)
+					break
 			}
 		}
 	}

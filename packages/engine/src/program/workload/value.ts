@@ -1,5 +1,6 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type WorkloadDesc, decodeDesc, type ProgramDesc } from "#compiler/ir/desc.ts"
@@ -18,8 +19,9 @@ import {
 	type QueryValue
 } from "#compiler/query/build/query.ts"
 import { builderLoc, malformed } from "#compiler/schema/protocol.ts"
+import { derivedDraftOf } from "#compiler/schema/relation.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type { Paged, Workload } from "#compiler/types/db/workload.ts"
+import type { Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
@@ -43,14 +45,16 @@ type ProgramValue =
 	  }
 
 /**
- * One program of a workload, by kind, as the layer compiles it at startup: a query or ordered query value, a ChangeSet
+ * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, a ChangeSet
  * value, or a key, which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload
- * admitted. Its Description is what the migration generator plans: a key's is its lookup's, built over the workload's
- * schema.
+ * admitted, each with the Description the migration generator plans (a key's is its lookup's, built over the workload's
+ * schema); or a refresh of materialized derived relations, which plans nothing and reads no relation's law, so it has
+ * none: the compile resolves its relations against the role that runs it.
  */
 type WorkloadProgram = { readonly name: string } & (
 	| ProgramValue
 	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
+	| { readonly kind: "refresh"; readonly relations: NonEmptyReadonlyArray<unknown> }
 )
 
 /** What a workload value carries: its schema parsed, its Description, and its programs in its record's order. */
@@ -113,6 +117,36 @@ export const pagedMember = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Pa
 	return value
 }
 
+/** The relations each value refresh(...) made refreshes (refreshMember). */
+const refreshValues = new WeakMap<object, NonEmptyReadonlyArray<unknown>>()
+
+/**
+ * refresh(...relations): the workload member that refreshes the materialized derived relations `relations`, each built
+ * by derived.materialized(...): its handle refreshes them all in one transaction (`yield* db.workload.<name>.refresh`), lower
+ * levels first. No relation, and a value that is no materialized derived relation, throw CompileError
+ * MalformedDescription synchronously; which relations a role may refresh is the compile's to judge, against its refresh
+ * list.
+ */
+export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
+	...relations: Rs
+): Refresh<Rs> => {
+	if (!isNonEmpty(relations)) {
+		throw malformed("refresh", "refresh(...relations): at least one materialized derived relation")
+	}
+	for (const r of relations) {
+		if (derivedDraftOf(r)?.storage !== "materialized") {
+			throw malformed(
+				"refresh",
+				"a materialized derived relation, built by derived.materialized(...)"
+			)
+		}
+	}
+	const frozen = Object.freeze(relations)
+	const value: Refresh<Rs> = Object.freeze({ refresh: frozen })
+	refreshValues.set(value, frozen)
+	return value
+}
+
 /**
  * One program value, its Description and the schema it was written over, when it is a query, ordered query, paged
  * ordered query or ChangeSet value; undefined otherwise.
@@ -153,6 +187,10 @@ const workloadProgram = (
 	schema: object,
 	built: SchemaInput
 ): WorkloadProgram => {
+	const refreshed = hasProperties(program) ? refreshValues.get(program) : undefined
+	if (refreshed !== undefined) {
+		return { name, kind: "refresh", relations: refreshed }
+	}
 	const found = programDescOf(program)
 	if (found !== undefined) {
 		const over = found.schema
@@ -168,7 +206,7 @@ const workloadProgram = (
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet or a relation's key the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a relation's key or a refresh the builders made`
 		)
 	}
 	return {
@@ -191,9 +229,10 @@ const copyRecord = <P extends object>(record: P): P => {
 /**
  * workload(schema, programs): the exported query workload as a value.
  *
- * The workload is an application artifact naming, by name, the queries, ordered queries, ChangeSets and relation keys
- * the application runs, which a login owns (schema/world.ts login): DbLayer.make compiles each once, at startup, and a
- * Db reaches it as `db.workload.<name>`. Like every builder, workload is pure and synchronous and records a
+ * The workload is an application artifact naming, by name, the queries, ordered queries, ChangeSets, relation keys and
+ * refreshes the application runs, which a login owns (schema/world.ts login): `grizzle generate` compiles each once,
+ * into the login's served file, and a Db reaches it as `db.workload.<name>`. Its WorkloadDesc holds every program but
+ * the refreshes, which plan no access. Like every builder, workload is pure and synchronous and records a
  * Description: the value is frozen, exposes `schema` and `programs` exactly as given, and carries its
  * WorkloadDesc privately, so the migration generator reads the schema and the workload together (program/workload/compile.ts).
  * A malformed argument the TypeScript signature already forbids, from a JavaScript caller, throws CompileError
@@ -240,6 +279,9 @@ export const workload = <S, P extends object>(
 	for (const name of Object.keys(named)) {
 		const program = workloadProgram(name, named[name], built.value, built)
 		entries.push(program)
+		if (program.kind === "refresh") {
+			continue
+		}
 		Object.defineProperty(descs, name, {
 			value: program.desc,
 			enumerable: true,

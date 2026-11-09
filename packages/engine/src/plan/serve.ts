@@ -67,6 +67,7 @@ export {
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,
+	type ServedRefreshTarget,
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedSession,

@@ -1,13 +1,14 @@
 import { Effect, type Option, Result } from "effect"
 import { changeHandle, type ChangeForm } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
-import { changeOps, readOps, rowsOps } from "#adapter/db/db.ts"
-import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
+import { changeOps, readOps, refreshOps, rowsOps } from "#adapter/db/db.ts"
+import { type CompiledOps, refreshHandle, typedCompiled } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import { type ReadForm, readHandle, type RowsForm, rowsHandle } from "#adapter/reader/reader.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
+import type { NonEmptyReadonlyArray, ParamMap } from "#compiler/plan/common.ts"
+import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /**
  * A ChangeSet of a role's workloads compiled for every set of the contexts its compilation depends on (fillContexts)
@@ -38,6 +39,7 @@ export type WorkloadForm = { readonly name: string } & (
 			readonly form: RowsForm<unknown>
 	  }
 	| { readonly kind: "change"; readonly variants: ChangeVariants }
+	| { readonly kind: "refresh"; readonly targets: NonEmptyReadonlyArray<ServedRefreshTarget> }
 )
 
 /** A workload program's handle never ends: it lives as long as the layer that compiled it. */
@@ -92,6 +94,9 @@ export const workloadHandles = (ctx: DbContext, forms: ReadonlyArray<WorkloadFor
 				handles[w.name] = typedCompiled(
 					changeOps(changeHandle(ctx, variantOf(ctx, w.variants), alwaysLive))
 				)
+				break
+			case "refresh":
+				handles[w.name] = refreshHandle(refreshOps(ctx, w.targets))
 				break
 		}
 	}

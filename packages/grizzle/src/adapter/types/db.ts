@@ -26,6 +26,7 @@ import type {
 	LevelsOf,
 	OnlyParams,
 	Paged,
+	Refresh,
 	ParamArg,
 	ParamValue,
 	Phantom,
@@ -376,12 +377,24 @@ export interface FactsApply<X, A> {
  * its parameters alone.
  */
 export type WorkloadHandles<R, P> = {
-	readonly [K in keyof P]: P[K] extends Paged<infer O>
-		? Compiled<R, O, RecordsOf<O>>
-		: [keyof ArraysOf<P[K]>] extends [never]
-			? Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
-			: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page" | "apply"> &
-					FactsApply<P[K], RecordsOf<P[K]>>
+	readonly [K in keyof P]: P[K] extends Refresh<unknown>
+		? RefreshHandle
+		: P[K] extends Paged<infer O>
+			? Compiled<R, O, RecordsOf<O>>
+			: [keyof ArraysOf<P[K]>] extends [never]
+				? Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
+				: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page" | "apply"> &
+						FactsApply<P[K], RecordsOf<P[K]>>
+}
+
+/**
+ * A refresh member's handle (refresh(...) in a workload): its one operation brings its materialized derived relations to
+ * their definitions, all in one transaction of the Db's role, lower levels first, each view refreshed CONCURRENTLY once
+ * PostgreSQL holds it populated. A concurrent refresher's commit it meets is a TransientFailure (40001, 40P01,
+ * ConcurrentRefresh), which the caller may run again; it writes only materialized views, which no law names.
+ */
+export interface RefreshHandle {
+	readonly refresh: Effect.Effect<void, ApplyError>
 }
 
 /**

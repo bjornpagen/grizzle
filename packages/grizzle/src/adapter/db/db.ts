@@ -17,6 +17,7 @@ import {
 	type RowsRead
 } from "#adapter/reader/reader.ts"
 import { refresh } from "#adapter/refresh/index.ts"
+import { runRefresh } from "#adapter/refresh/run.ts"
 import type {
 	CompilableProgram,
 	Compiled,
@@ -35,6 +36,7 @@ import {
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/plan/read.ts"
+import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /**
  * What a JavaScript caller passes as a ChangeSet and is none: the refusal db.apply compiles it to.
@@ -67,7 +69,8 @@ export const readOps = <A>(read: CompiledRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
 	page: (params, request) => read.page(params, request),
-	apply: () => compileFailure(notItsOperation())
+	apply: () => compileFailure(notItsOperation()),
+	refresh: compileFailure(notItsOperation())
 })
 
 /** A read's operations but page, a workload member that does not page: it pages nothing and applies nothing. */
@@ -75,7 +78,8 @@ export const rowsOps = <A>(read: RowsRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
 	page: () => Effect.fail(new ReadFailure({ reason: notItsOperation() })),
-	apply: () => compileFailure(notItsOperation())
+	apply: () => compileFailure(notItsOperation()),
+	refresh: compileFailure(notItsOperation())
 })
 
 /** A compiled ChangeSet's operations; it reads nothing. */
@@ -85,7 +89,23 @@ export const changeOps = <A>(change: CompiledChangeValue<A>): CompiledOps<A> => 
 		execute: () => refused,
 		get: () => refused,
 		page: () => refused,
-		apply: (params) => change.apply(params)
+		apply: (params) => change.apply(params),
+		refresh: compileFailure(notItsOperation())
+	}
+}
+
+/** A refresh member's operations: it refreshes its targets in one transaction of the Db's role, and reads nothing. */
+export const refreshOps = (
+	ctx: Pick<DbContext, "pool" | "prologue">,
+	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
+): CompiledOps<unknown> => {
+	const refused = Effect.fail(new ReadFailure({ reason: notItsOperation() }))
+	return {
+		execute: () => refused,
+		get: () => refused,
+		page: () => refused,
+		apply: () => compileFailure(notItsOperation()),
+		refresh: Effect.asVoid(runRefresh(ctx, targets))
 	}
 }
 

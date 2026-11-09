@@ -33,6 +33,7 @@ import {
 	type ServedMember,
 	type ServedPage,
 	type ServedRead,
+	type ServedRefreshTarget,
 	type ServedRoleForm,
 	type ServedSession,
 	type ServedVariants
@@ -85,6 +86,7 @@ export type LoadedMember = { readonly name: string } & (
 	| { readonly kind: "paged"; readonly read: LoadedRead; readonly page: LoadedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: LoadedRead }
 	| { readonly kind: "change"; readonly variants: LoadedVariants }
+	| { readonly kind: "refresh"; readonly targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget> }
 )
 
 /**
@@ -237,6 +239,8 @@ const loadMember = (
 				loadVariants(member.variants, violation, codes, bind),
 				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
 			)
+		case "refresh":
+			return Result.succeed({ name: member.name, kind: "refresh", targets: member.targets })
 	}
 }
 

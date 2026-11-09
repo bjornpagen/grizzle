@@ -20,7 +20,14 @@ import {
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import { type Chunks, inForce } from "#compiler/plan/change.ts"
-import { type EmittedText, explainOf, type Param, type ParamMap } from "#compiler/plan/common.ts"
+import {
+	type EmittedText,
+	explainOf,
+	malformedDescription,
+	type Param,
+	type ParamMap,
+	SourceLoc
+} from "#compiler/plan/common.ts"
 
 /**
  * One statement a member would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's
@@ -217,5 +224,14 @@ export const explainMember = (
 			return explainRead(ctx, member.read, params)
 		case "change":
 			return explainChange(ctx, variantOf(ctx, member.variants), params)
+		case "refresh":
+			return Effect.fail(
+				new ReadFailure({
+					reason: malformedDescription(
+						SourceLoc("explainMember", [member.name]),
+						"a member whose statements EXPLAIN plans: a refresh runs REFRESH MATERIALIZED VIEW, which has no plan"
+					)
+				})
+			)
 	}
 }

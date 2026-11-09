@@ -75,13 +75,18 @@ export const servedFixture = <L extends AnyLogin>(
 	})
 
 /**
- * One Db of a role over an installation: its context, which every member it serves runs over, and `serve`, which
- * compiles `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
- * relation's key or refresh(...)), into members of the role's workload under their names, and gives each one's
- * operations over the context, by name: the operations its program allows run, the others refuse before any SQL.
+ * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
+ * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
+ * relation's key or refresh(...)), into members of the role's workload under their names, and gives each one loaded, by
+ * name, for a test that runs it over a context or executor of its own (adapter/db/handles.ts memberOpsOn) or reads its
+ * loaded program; and `serve`, which gives each one's operations over the context, by name: the operations its program
+ * allows run, the others refuse before any SQL.
  */
 export interface ServedDb {
 	readonly ctx: ServedDbContext
+	readonly load: (
+		programs: Readonly<Record<string, unknown>>
+	) => Effect.Effect<ReadonlyMap<string, LoadedMember>, ServedRefusal | OpenError>
 	readonly serve: (
 		programs: Readonly<Record<string, unknown>>
 	) => Effect.Effect<ReadonlyMap<string, CompiledOps<unknown>>, ServedRefusal | OpenError>
@@ -123,23 +128,32 @@ export const withServedDb = <A, E>(
 			const { ctx } = yield* openServed(servedRoleOf(fixture.login, role), {
 				token: tokenOf(payload)
 			})
-			const serve: ServedDb["serve"] = (programs) =>
+			const load: ServedDb["load"] = (programs) =>
 				Effect.gen(function* () {
 					const json = yield* servedJson(installed, login, [workload(role.role, programs)])
 					const loaded = yield* Effect.fromResult(loadServed(json, login.name))
 					return new Map(
 						Arr.map(
 							roleMembers(loaded.roles, role.role.name),
-							(m) => [m.name, memberOps(ctx, m)] as const
+							(m): readonly [string, LoadedMember] => [m.name, m]
 						)
 					)
 				})
-			return yield* body({ ctx, serve })
+			const serve: ServedDb["serve"] = (programs) =>
+				Effect.map(
+					load(programs),
+					(loaded) =>
+						new Map(
+							Arr.map([...loaded], ([name, m]): readonly [string, CompiledOps<unknown>] => [
+								name,
+								memberOps(ctx, m)
+							])
+						)
+				)
+			return yield* body({ ctx, load, serve })
 		}).pipe(withLayer(fixture.layer))
 	})
 
-/** Every member `serve` gave, by name: a name it did not serve is a defect of the test. */
-export const member = (
-	served: ReadonlyMap<string, CompiledOps<unknown>>,
-	name: string
-): CompiledOps<unknown> => defined(served.get(name), `the served member ${name}`)
+/** The member under `name` of those `load` or `serve` gave: a name it did not give is a defect of the test. */
+export const member = <M>(served: ReadonlyMap<string, M>, name: string): M =>
+	defined(served.get(name), `the served member ${name}`)

@@ -89,6 +89,8 @@ const memberOf = (member: WorkloadForm): ServedMember => {
 		}
 		case "change":
 			return { name, kind: "change", variants: variantsOf(member.variants) }
+		case "refresh":
+			return { name, kind: "refresh", targets: member.targets }
 	}
 }
 

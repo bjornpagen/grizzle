@@ -1,11 +1,13 @@
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type { ChangeSetAt, PlannedStrata } from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped } from "#compiler/types/core/phantom.ts"
+import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type { OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
 import type { CandidateKey } from "#compiler/types/schema/statements.ts"
-import type { AnyRole, WriteListOf } from "#compiler/types/schema/world.ts"
+import type { AnyRole, RefreshListOf, WriteListOf } from "#compiler/types/schema/world.ts"
 
 /** A stored or closed relation of L, which a key reads through. */
 type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyClosed> : never
@@ -31,8 +33,25 @@ export interface Paged<O> {
 }
 
 /**
+ * A workload member that refreshes the materialized derived relations Rs: refresh(...Rs), whose handle refreshes them
+ * all in one transaction (`yield* db.workload.<name>.refresh`), lower levels first. It reads and writes nothing else.
+ */
+export interface Refresh<Rs> {
+	readonly refresh: Rs
+}
+
+/** The materialized derived relations of a level L, one level at a time. */
+type MaterializedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyMaterialized> : never
+
+/**
+ * What a refresh member of a workload over S refreshes: over a role, only the relations its refresh list names, as a Db
+ * of the role refreshes them; over a schema, any materialized derived relation of it or a level below it.
+ */
+type RefreshableBy<S> = S extends AnyRole ? RefreshListOf<S> : MaterializedAt<LevelsOf<S>>
+
+/**
  * A program of a workload over S, over S or a level below it, L: a query, an ordered query, an ordered query that pages,
- * a ChangeSet S writes or a relation's key.
+ * a ChangeSet S writes, a relation's key, or a refresh of materialized derived relations S may refresh.
  */
 type ProgramAt<S, L> =
 	| QueryAt<L>
@@ -40,6 +59,7 @@ type ProgramAt<S, L> =
 	| Paged<OrderedAt<L>>
 	| (ChangeSetAt<L> & WritableBy<S>)
 	| KeyAt<L>
+	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
 /**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
@@ -70,3 +90,8 @@ export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, 
 
 /** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
 export type PagedConstructor = <const O extends OrderedBase>(ordered: O) => Paged<O>
+
+/** refresh(...relations): the workload member that refreshes the materialized derived relations `relations` (Refresh). */
+export type RefreshConstructor = <const Rs extends NonEmptyReadonlyArray<AnyMaterialized>>(
+	...relations: Rs
+) => Refresh<Rs>

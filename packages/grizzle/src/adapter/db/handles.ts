@@ -1,7 +1,7 @@
 import { Effect, type Option, Result } from "effect"
 import { compileFailure, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
 import { dbWriteFrame, type ServedDbContext } from "#adapter/db/context.ts"
-import { type CompiledOps, typedCompiled } from "#adapter/db/ops.ts"
+import { type CompiledOps, refreshHandle, typedCompiled } from "#adapter/db/ops.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	type ApplyError,
@@ -19,6 +19,7 @@ import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
 import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
+import { runRefresh } from "#adapter/refresh/run.ts"
 import type {
 	LoadedChange,
 	LoadedMember,
@@ -48,7 +49,7 @@ import type { Page } from "#compiler/plan/read.ts"
 const notItsOperation = (): CompileError =>
 	malformedDescription(
 		SourceLoc("db.workload", []),
-		"an operation of the program: execute and get read a query, page pages a paged member, apply applies a ChangeSet, a key gets its row"
+		"an operation of the program: execute and get read a query, page pages a paged member, apply applies a ChangeSet, a key gets its row, refresh refreshes a refresh member's materialized derived relations"
 	)
 
 /** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
@@ -98,7 +99,8 @@ const readOps = (executor: ReadExecutor, read: LoadedRead): CompiledOps<unknown>
 			? Effect.fail(new ReadFailure({ reason: read.get.failure }))
 			: runRead(executor, read, params, programGetFlight),
 	page: refusedRead,
-	apply: refusedApply
+	apply: refusedApply,
+	refresh: refusedApply()
 })
 
 /**
@@ -173,10 +175,15 @@ export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): Loade
 /**
  * A loaded member's operations over a Db's context (db.ts CompiledOps), those its program does not allow refused before
  * any SQL: a read executes and gets; a key gets by its values, read once at the boundary (reader/params.ts
- * readKeyValues); a paged member also pages; a ChangeSet applies its variant for the Db's claims.
+ * readKeyValues); a paged member also pages; a ChangeSet applies its variant for the Db's claims; a refresh refreshes
+ * its targets, already in refresh order, in one transaction of the Db's role (refresh/run.ts runRefresh). Its reads run
+ * through `executor`, which sends each flight.
  */
-export const memberOps = (ctx: ServedDbContext, member: LoadedMember): CompiledOps<unknown> => {
-	const executor = poolExecutor(ctx)
+export const memberOpsOn = (
+	executor: ReadExecutor,
+	ctx: ServedDbContext,
+	member: LoadedMember
+): CompiledOps<unknown> => {
 	switch (member.kind) {
 		case "read":
 			return readOps(executor, member.read)
@@ -202,20 +209,39 @@ export const memberOps = (ctx: ServedDbContext, member: LoadedMember): CompiledO
 				execute: refusedRead,
 				get: refusedRead,
 				page: refusedRead,
-				apply: (params) => applyChange(ctx, change, params)
+				apply: (params) => applyChange(ctx, change, params),
+				refresh: refusedApply()
+			}
+		}
+		case "refresh": {
+			const targets = member.targets
+			return {
+				execute: refusedRead,
+				get: refusedRead,
+				page: refusedRead,
+				apply: refusedApply,
+				refresh: Effect.asVoid(runRefresh(ctx, targets))
 			}
 		}
 	}
 }
 
-/** The record of a Db's workload handles: each member's operations (memberOps), typed, under its name. */
+/** A loaded member's operations over a Db's context (memberOpsOn), its reads run on the context's pool. */
+export const memberOps = (ctx: ServedDbContext, member: LoadedMember): CompiledOps<unknown> =>
+	memberOpsOn(poolExecutor(ctx), ctx, member)
+
+/**
+ * The record of a Db's workload handles: each member's operations (memberOps), typed, under its name: a refresh's its one
+ * operation (refreshHandle), every other member's its program's (typedCompiled).
+ */
 export const servedHandles = (
 	ctx: ServedDbContext,
 	members: ReadonlyArray<LoadedMember>
 ): object => {
 	const handles: Record<string, object> = {}
 	for (const member of members) {
-		handles[member.name] = typedCompiled(memberOps(ctx, member))
+		const ops = memberOps(ctx, member)
+		handles[member.name] = member.kind === "refresh" ? refreshHandle(ops) : typedCompiled(ops)
 	}
 	return Object.freeze(handles)
 }

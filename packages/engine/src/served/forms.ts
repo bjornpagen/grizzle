@@ -8,6 +8,7 @@ import type {
 	RelationIdent,
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
@@ -28,7 +29,7 @@ import type {
 	ServedSpecified,
 	ServedSpine
 } from "#compiler/served/read.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParsedChangeSet } from "#compiler/write/changeset/value.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
@@ -131,15 +132,25 @@ export interface ServedContext {
 
 /**
  * One program of a role's workload, by name: a query or ordered query read for its rows; an ordered query that pages,
- * with its page; a key, whose lookup reads by the key's values; or a ChangeSet, compiled for each set of its fill
- * contexts that may hold a fact.
+ * with its page; a key, whose lookup reads by the key's values; a ChangeSet, compiled for each set of its fill
+ * contexts that may hold a fact; or a refresh of materialized derived relations, its targets in refresh order.
  */
 export type ServedMember = { readonly name: string } & (
 	| { readonly kind: "read"; readonly read: ServedRead }
 	| { readonly kind: "paged"; readonly read: ServedRead; readonly page: ServedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: ServedRead }
 	| { readonly kind: "change"; readonly variants: ServedVariants }
+	| { readonly kind: "refresh"; readonly targets: NonEmptyReadonlyArray<ServedRefreshTarget> }
 )
+
+/**
+ * A materialized view one refresh call refreshes, in refresh order (lower levels first, then declared order): its
+ * derived relation's declared name, which a refusal names, and the view's qualified name.
+ */
+export interface ServedRefreshTarget {
+	readonly relation: string
+	readonly view: ObjectName
+}
 
 /**
  * A query or ordered query compiled for a role's rows: its declared parameters, its artifact, its delivered spine,
