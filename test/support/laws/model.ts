@@ -868,13 +868,35 @@ const removes = (schema: HostSchema, w: StratumOp): boolean => {
 	return Arr.some(relation.fields, (f) => !relation.key.includes(f.name))
 }
 
+/**
+ * Whether a relation's facts meet nowhere (schedule.ts Meeting `nowhere`): every field is in its key, a pure set, and no
+ * key besides it reads it, so each fact is its own key and a deletion of it frees nothing an addition of it takes.
+ */
+const meetsNowhere = (schema: HostSchema, relation: string): boolean => {
+	const r = relationOf(schema, relation)
+	const primary = (fields: ReadonlyArray<string>): boolean =>
+		fields.length === r.key.length && Arr.every(fields, (f) => r.key.includes(f))
+	return (
+		Arr.every(r.fields, (f) => r.key.includes(f.name)) &&
+		!Arr.some(
+			schema.laws,
+			(l) =>
+				(l.kind === "key" &&
+					l.relation === relation &&
+					!(l.selection.kind === "every" && primary(l.fields))) ||
+				(l.kind === "spanKey" && l.relation === relation)
+		)
+	)
+}
+
 /** Whether two writes are one: the same op on the same relation. */
 const sameWrite = (a: StratumOp, b: StratumOp): boolean =>
 	a.relation === b.relation && a.op === b.op
 
 /**
  * The order a stratum's writes require, as the README's statement order states it: one relation's deletions before its
- * puts and its puts before its insertions, since its keys are checked at each statement; and along a containment whose
+ * puts and its puts before its insertions, since its keys are checked at each statement, but a deletion of a relation
+ * whose facts meet nowhere (`meetsNowhere`), which may follow them; and along a containment whose
  * foreign key is immediate (isImmediate), checked at each statement too, the target's additions before the source's
  * and the source's removals before the target's.
  */
@@ -890,7 +912,7 @@ const stratumOrder = (schema: HostSchema, ops: ReadonlyArray<HostOp>): ReadonlyA
 	)
 	const required = (a: StratumOp, b: StratumOp): boolean =>
 		a.relation === b.relation
-			? phase[a.op] < phase[b.op]
+			? phase[a.op] < phase[b.op] && !(a.op === "delete" && meetsNowhere(schema, a.relation))
 			: Arr.some(
 					references,
 					(r) =>

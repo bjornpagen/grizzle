@@ -28,10 +28,11 @@ import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suite
 import { type FamilyCase, type FamilyFeature, plantedInsert } from "#test/support/laws/support.ts"
 
 /**
- * From the empty state, one stratum that deletes two desks, inserts one and puts a badge: the badge's put follows the
- * desk's insertion and precedes its deletion by the immediate key from the badges it selects into the desks, which
- * follows the desk's deletion, so the ChangeSet is refused as it compiles (UnorderableStratum), on the mutable schema
- * whose unissued badges need their desk. A counterexample of the mutation tester's oracle, which died on the refusal
+ * From the empty state, one stratum that deletes two desks, inserts one and puts a badge, on the mutable schema whose
+ * unissued badges need their desk: the badge's put follows the desk's insertion and precedes its deletion by the
+ * immediate key from the badges it selects into the desks, and a desk's facts meet nowhere, so its deletion may follow
+ * its insertion (a30d00af) and the stratum is ordered by its keys, its outcome its add-wins state's. It was refused as
+ * UnorderableStratum before that rule, a counterexample of the mutation tester's oracle, which died on the refusal
  * when the host modelled no stratum's order.
  */
 const unorderableStratum: Kept<FamilyCase, FamilyFeature> = {
@@ -87,7 +88,7 @@ const unorderableStratum: Kept<FamilyCase, FamilyFeature> = {
 		]
 	},
 	draws: "",
-	reaches: ["a stratum no order keeps refused"]
+	reaches: ["op put", "op delete", "op insert"]
 }
 
 familySuite(projectedSource, casesPerTest, "the family", {
