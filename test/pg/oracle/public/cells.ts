@@ -8,43 +8,34 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberOpsOn } from "#adapter/db/handles.ts"
+import type { CompiledOps } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
-import {
-	type CompiledReadValue,
-	makeReader,
-	type QueryResultValue,
-	type ReaderValue
-} from "#adapter/reader/reader.ts"
-import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
-import { pageTemplateFor } from "#adapter/served/forms.ts"
+import { deliveredRows, type ReadProgram } from "#adapter/reader/run.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
+import type { QueryResult } from "#adapter/types/db.ts"
 import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Cell } from "#compiler/core/wire.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
-import { type ServedRunStatement, servedSource } from "#compiler/served/read.ts"
-import { servedSpine } from "#compiler/served/spine.ts"
+import type { ServedRunStatement } from "#compiler/served/read.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
 import {
@@ -172,13 +163,6 @@ interface LaidOut {
 }
 
 type Flight = { readonly kind: "awaiting" } | { readonly kind: "flown"; readonly sent: SentRuns }
-
-interface Recorded {
-	readonly prepared: CompiledTemplate
-	readonly desc: QueryDesc
-	/** The artifacts the template was compiled against (db/context.ts ProgramTemplate). */
-	readonly artifacts: SchemaArtifacts
-}
 
 /**
  * Every answer of a flight read strictly by its statement's delivery (test/support/kernel/strict.ts strictDelivered),
@@ -402,18 +386,13 @@ const sentRow = (row: Row, layout: Layout): SentRow => ({
 })
 
 const checkRead =
-	(conversion: Conversion, codes: Codebook) =>
+	(conversion: Conversion) =>
 	(
-		recorded: Option.Option<Recorded>,
+		program: ReadProgram,
 		sent: SentRuns,
-		params: unknown,
+		params: ParamMap,
 		records: ReadonlyArray<unknown>
 	): ReadonlyArray<SentRow> => {
-		const { prepared, desc } = Option.getOrThrowWith(
-			recorded,
-			() => new Error("a read whose template was not recorded")
-		)
-		const program = readProgram(servedSource(prepared.template.run), servedSpine(desc), codes)
 		const statements = Arr.map(
 			program.records,
 			({ run: { statement }, layout, arrival }): SentChecked => ({
@@ -429,7 +408,7 @@ const checkRead =
 			sent,
 			conversion
 		)
-		const delivered = deliveredRows(program, sent, isRecord(params) ? params : {})
+		const delivered = deliveredRows(program, sent, params)
 		if (Result.isFailure(delivered)) {
 			throw new Error(`the rows PostgreSQL sent are unreadable: ${delivered.failure.message}`)
 		}
@@ -456,29 +435,12 @@ const probeOf = (
 
 const checkPage =
 	(conversion: Conversion) =>
-	(
-		recordedPage: Option.Option<Recorded>,
-		sent: SentRuns,
-		request: unknown,
-		page: Page<unknown, unknown>
-	): void => {
-		const recorded = Option.getOrThrowWith(
-			recordedPage,
-			() => new Error("a page whose template was not recorded")
-		)
-		const runtime = pageTemplateFor({
-			template: recorded.prepared.template,
-			desc: recorded.desc,
-			artifacts: recorded.artifacts
-		})
-		if (Result.isFailure(runtime)) {
-			throw new Error("a page whose page template does not compile")
-		}
+	<Q>(runtime: PageRuntime, sent: SentRuns, request: unknown, page: Page<unknown, Q>): void => {
 		const parsed = pageRequest(request)
 		if (Result.isFailure(parsed)) {
 			throw new Error("a page that answered a request its runtime refuses")
 		}
-		const run = runtime.success.artifact
+		const run = runtime.artifact
 		const program = run.requests[parsed.success.variant]
 		const statements = Arr.map(
 			program.records,
@@ -513,40 +475,45 @@ const defined = <A>(value: A | undefined, what: string): A => {
 	return value
 }
 
-const recordingCompile = (ctx: DbContext) => {
-	let last: Option.Option<Recorded> = Option.none()
+/**
+ * A served Db's members, each read through an executor that keeps the rows PostgreSQL sent its last flight, and the rows
+ * its last execute delivered as PostgreSQL sent them.
+ */
+export interface StrictReader {
+	/**
+	 * The operations of `member` over the reader's context, every read checked strictly: each cell PostgreSQL sent read
+	 * by its column's strict reader and checked against `conversion`, and every delivered field against its cell, by the
+	 * member's own loaded program (a read's statements and layouts, a page's runtime). A check that disagrees dies with
+	 * a CellDisagreement.
+	 */
+	readonly ops: (member: LoadedMember) => Omit<CompiledOps<unknown>, "apply">
+	readonly sentRows: () => ReadonlyArray<SentRow>
+}
 
-	const pages = new WeakMap<object, Recorded>()
-	const compile: DbContext["compile"] = (input, request) =>
-		Engine.map(ctx.compile(input, request), (prepared) => {
-			const recorded: Recorded = {
-				prepared: prepared.compiled,
-				desc: input.desc,
-				artifacts: prepared.artifacts
-			}
-			last = Option.some(recorded)
-			if (request.read === "page") {
-				pages.set(input.desc, recorded)
-			}
-			return prepared
-		})
-	return {
-		compile,
-		last: (): Option.Option<Recorded> => last,
-		pageOf: (query: unknown): Option.Option<Recorded> => {
-			const input = queryInput(query)
-			return input.ok ? Option.fromUndefinedOr(pages.get(input.value.desc)) : Option.none()
-		}
+/** The loaded read a member reads through: a read's, a key's, a paged member's; none for a change or a refresh. */
+const readOf = (member: LoadedMember) => {
+	switch (member.kind) {
+		case "read":
+		case "key":
+		case "paged":
+			return member.read
+		case "change":
+		case "refresh":
+			throw new Error(`the member ${member.name} reads nothing`)
 	}
 }
 
-/** A reader that reads every cell strictly, and the rows its last execute delivered as PostgreSQL sent them. */
-export type StrictReader = ReaderValue & { readonly sentRows: () => ReadonlyArray<SentRow> }
+/** The page runtime of a paged member, which every page of it is checked by. */
+const pageRuntimeOf = (member: LoadedMember): PageRuntime => {
+	if (member.kind !== "paged") {
+		throw new Error(`the member ${member.name} pages nothing`)
+	}
+	return member.page.runtime
+}
 
-export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictReader => {
-	const compiler = recordingCompile(ctx)
+/** The strict reader of the served Db of `ctx` (StrictReader), its cells checked against `conversion`. */
+export const strictReaderOf = (ctx: ServedDbContext, conversion: Conversion): StrictReader => {
 	let lastSent: ReadonlyArray<SentRow> = []
-	const context: DbContext = { ...ctx, compile: compiler.compile }
 	let inProgress: Flight = { kind: "awaiting" }
 	const base = poolExecutor(ctx)
 	const executor: ReadExecutor = {
@@ -560,8 +527,7 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictRe
 					})
 			})
 	}
-	const reader: ReaderValue = makeReader(context, executor)
-	const read = checkRead(conversion, ctx.artifacts.names.codes)
+	const read = checkRead(conversion)
 	const paged = checkPage(conversion)
 
 	const checked = <A, E>(
@@ -583,54 +549,36 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictRe
 		})
 	const collected =
 		(
-			recorded: () => Option.Option<Recorded>,
-			params: unknown
-		): ((result: QueryResultValue, sent: SentRuns) => Effect.Effect<void, ReadError>) =>
+			program: ReadProgram,
+			params: ParamMap
+		): ((result: QueryResult<unknown>, sent: SentRuns) => Effect.Effect<void, ReadError>) =>
 		(result, sent) =>
 			Effect.flatMap(result.collect, (rows) =>
 				Effect.sync(() => {
-					lastSent = read(recorded(), sent, params, rows)
+					lastSent = read(program, sent, params, rows)
 				})
 			)
 	return {
 		sentRows: () => lastSent,
-		execute: (query, params) =>
-			checked(reader.execute(query, params), collected(compiler.last, params)),
-		get: (target, params) =>
-			checked(reader.get(target, params), (got, sent) =>
-				Effect.sync(() => {
-					read(compiler.last(), sent, params, Option.isSome(got) ? [got.value] : [])
-				})
-			),
-		page: (query, params, request) =>
-			checked(reader.page(query, params, request), (page, sent) =>
-				Effect.sync(() => {
-					paged(compiler.pageOf(query), sent, request, page)
-				})
-			),
-		compile: (query) =>
-			Effect.map(reader.compile(query), (handle): CompiledReadValue => {
-				const recorded = compiler.last()
-				return {
-					compiled: handle.compiled,
-					execute: (params) =>
-						checked(
-							handle.execute(params),
-							collected(() => recorded, params)
-						),
-					get: (params) =>
-						checked(handle.get(params), (got, sent) =>
-							Effect.sync(() => {
-								read(recorded, sent, params, Option.isSome(got) ? [got.value] : [])
-							})
-						),
-					page: (params, request) =>
-						checked(handle.page(params, request), (page, sent) =>
-							Effect.sync(() => {
-								paged(compiler.pageOf(query), sent, request, page)
-							})
-						)
-				}
-			})
+		ops: (member) => {
+			const { ops } = memberOpsOn(executor, ctx, member)
+			return {
+				refresh: ops.refresh,
+				execute: (params) =>
+					checked(ops.execute(params), collected(readOf(member).program, params)),
+				get: (params) =>
+					checked(ops.get(params), (got, sent) =>
+						Effect.sync(() => {
+							read(readOf(member).program, sent, params, Option.isSome(got) ? [got.value] : [])
+						})
+					),
+				page: <Q>(params: ParamMap, request: unknown) =>
+					checked(ops.page<Q>(params, request), (page, sent) =>
+						Effect.sync(() => {
+							paged(pageRuntimeOf(member), sent, request, page)
+						})
+					)
+			}
+		}
 	}
 }

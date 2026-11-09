@@ -348,25 +348,36 @@ export const factRecord = (
 }
 
 /**
- * The ChangeSet that stores a case's facts: one insert per relation that holds any, or none when no relation does.
- * db.apply stores each value in its one form, whatever spelling the fact drew.
+ * A case's facts, by each relation that holds any: the relation and its facts as records, each value in its one form,
+ * whatever spelling the fact drew, as a change member stores it.
+ */
+export const factRows = (
+	c: ProgramCase
+): ReadonlyArray<{
+	readonly relation: Stored
+	readonly rows: Arr.NonEmptyReadonlyArray<Readonly<Record<string, unknown>>>
+}> =>
+	Arr.flatMap(c.schema.relations, (r) => {
+		const facts = c.facts.get(r.name) ?? []
+		return Arr.isReadonlyArrayNonEmpty(facts)
+			? [{ relation: r, rows: Arr.map(facts, (fact) => factRecord(r, storedFactValues(fact))) }]
+			: []
+	})
+
+/**
+ * The ChangeSet that stores a case's facts: one insert per relation that holds any (factRows), each an array member a
+ * call supplies its rows to, or none when no relation does.
  */
 export const factsChangeSet = (
 	c: ProgramCase,
 	built: BuiltSchema,
 	value: SchemaValue
 ): Option.Option<ChangeSetValue> => {
-	const holding = Arr.flatMap(c.schema.relations, (r) => {
-		const facts = c.facts.get(r.name) ?? []
-		return Arr.isReadonlyArrayNonEmpty(facts) ? [{ relation: r, facts }] : []
-	})
+	const holding = factRows(c)
 	return Arr.isReadonlyArrayNonEmpty(holding)
 		? Option.some(
-				Arr.reduce(holding, changeSetOver.empty(value), (changes, { relation: stored, facts }) =>
-					changes.insert(
-						built.relation(stored),
-						Arr.map(facts, (fact) => factRecord(stored, storedFactValues(fact)))
-					)
+				Arr.reduce(holding, changeSetOver.empty(value), (changes, { relation, rows }) =>
+					changes.insert(built.relation(relation), rows)
 				)
 			)
 		: Option.none()
