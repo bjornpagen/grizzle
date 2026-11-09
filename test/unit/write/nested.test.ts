@@ -25,9 +25,8 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { fieldKey } from "#compiler/write/family/fold.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { inputSlotsOf } from "#compiler/write/normalize/normalize.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -196,7 +195,7 @@ describe("a nested write through the program", () => {
 							const program = programOf(value)
 							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
-								bindWrite(program, flightOf(program, program.frontend.codes), {
+								bindWrite(runnableWrite(program, program.frontend.codes), {
 									members,
 									params: {},
 									transport: inForce(bindFrame)
@@ -371,7 +370,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							setShaped ??= compiled(value)
 							const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
-								bindWrite(setShaped, flightOf(setShaped, setShaped.frontend.codes), {
+								bindWrite(runnableWrite(setShaped, setShaped.frontend.codes), {
 									members,
 									params: {},
 									transport: inForce(bindFrame)
@@ -501,7 +500,7 @@ describe("a nested tree at depth and width", () => {
 								parsedOf(value).inputs
 							)
 							const bound = succeeded(
-								bindWrite(treeShaped, flightOf(treeShaped, treeShaped.frontend.codes), {
+								bindWrite(runnableWrite(treeShaped, treeShaped.frontend.codes), {
 									members,
 									params: {},
 									transport: inForce(bindFrame)

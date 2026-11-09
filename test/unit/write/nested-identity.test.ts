@@ -21,9 +21,9 @@ import {
 	inputSlotsOf,
 	type MemberFacts
 } from "#compiler/write/normalize/normalize.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { prepareBinding } from "#compiler/write/program/binding.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
 	nestedRowsColumn,
@@ -179,7 +179,10 @@ const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, lengt
 	succeeded(
 		nestedRows(
 			nesting,
-			{ fill: program.prepared.fill, codes: program.frontend.codes },
+			{
+				fill: prepareBinding(program.binding, program.frontend.codes).fill,
+				codes: program.frontend.codes
+			},
 			member,
 			factsOf(facts, length),
 			set,
@@ -242,7 +245,7 @@ describe("a nested write's identities", () => {
 								parsedOf(value).inputs
 							)
 							const bound = succeeded(
-								bindWrite(program, flightOf(program, program.frontend.codes), {
+								bindWrite(runnableWrite(program, program.frontend.codes), {
 									members,
 									params: {},
 									transport: inForce(bindFrame)

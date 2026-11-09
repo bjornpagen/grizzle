@@ -47,6 +47,7 @@ import type { GroupData, InputData, SlotData } from "#compiler/write/normalize/n
 import type {
 	Binding,
 	CountedFamily,
+	FamilyNames,
 	FreshOwner,
 	FreshStratum,
 	JudgedRelation,
@@ -481,6 +482,28 @@ const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> => {
 	return [...byStratum].map(([stratum, layouts]) => ({ stratum, layouts }))
 }
 
+/** A family as a row of it no statement carries is reported by (binding.ts FamilyNames). */
+export const familyNames = (family: Family): FamilyNames => ({
+	owner: family.owner.name,
+	count: family.count.name,
+	member: family.member.name
+})
+
+/** Each relation a nested write fills, by name, as the first family in the law model's order it is a member of names it
+ * (binding.ts FamilyNames). */
+const rowFamilies = (frontend: WriteFrontend): ReadonlyMap<string, FamilyNames> => {
+	const out = new Map<string, FamilyNames>()
+	for (const n of frontend.nested) {
+		for (const relation of n.nesting.layouts.keys()) {
+			const family = frontend.laws.families.find((f) => f.member.name === relation)
+			if (family !== undefined && !out.has(relation)) {
+				out.set(relation, familyNames(family))
+			}
+		}
+	}
+	return out
+}
+
 /** Each array or Stream member of the ChangeSet's Description, in its strata's order (binding.ts MemberAt). */
 const membersAt = (frontend: WriteFrontend): ReadonlyArray<MemberAt> =>
 	frontend.desc.strata.flatMap((s, stratum) =>
@@ -721,6 +744,7 @@ export const decideBinding = (frontend: WriteFrontend): Binding => {
 		members: membersAt(frontend),
 		groups: frontend.slots.map(groupData),
 		nested: nestedAts(frontend),
+		rowFamilies: rowFamilies(frontend),
 		proposals: new Map(
 			[...frontend.slotsById].map(
 				([slot, at]) => [slot, proposalAt(frontend, at.group.stratum, slot)] as const

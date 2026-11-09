@@ -838,37 +838,36 @@ const lawChecks = (
 	relation: WitnessTable,
 	codes: Codebook
 ): ReadonlyArray<LawCheck> =>
-	relation.checks.map((check): LawCheck => {
-		const test = check.test
-		switch (test.kind) {
-			case "row":
-				return {
-					name: check.name,
-					laws: check.laws,
-					verdict: (row) => checked(judge.evaluate(relation, test.predicate, row))
-				}
-			case "closed":
-				return {
-					name: check.name,
-					laws: check.laws,
-					verdict: (row) => closedContainment(judge, relation, test, row, codes)
-				}
-			case "endpoint": {
-				const field = fieldOf(relation, test.field)
-				return {
-					name: check.name,
-					laws: check.laws,
-					verdict: (row) =>
-						firstBreak(
-							endpointsOf(hostField(row, field)).map((endpoint) => {
-								const carried = judge.carried(endpoint, test.level)
-								return carried === undefined ? "unjudged" : breaksLevel(judge, carried, test.level)
-							})
-						)
-				}
-			}
+	relation.checks.map((check): LawCheck => ({
+		name: check.name,
+		laws: check.laws,
+		verdict: verdictOf(judge, relation, check.test, codes)
+	}))
+
+/** How a law CHECK of `relation`'s table judges one of its stated rows (`CheckTest`). */
+const verdictOf = (
+	judge: Judge,
+	relation: WitnessTable,
+	test: CheckTest,
+	codes: Codebook
+): ((row: JudgedRow) => Verdict) => {
+	switch (test.kind) {
+		case "row":
+			return (row) => checked(judge.evaluate(relation, test.predicate, row))
+		case "closed":
+			return (row) => closedContainment(judge, relation, test, row, codes)
+		case "endpoint": {
+			const field = fieldOf(relation, test.field)
+			return (row) =>
+				firstBreak(
+					endpointsOf(hostField(row, field)).map((endpoint) => {
+						const carried = judge.carried(endpoint, test.level)
+						return carried === undefined ? "unjudged" : breaksLevel(judge, carried, test.level)
+					})
+				)
 		}
-	})
+	}
+}
 
 /**
  * A law CHECK's verdict on a stated row, as PostgreSQL meets it: a row whose generated field's NOT NULL refuses it

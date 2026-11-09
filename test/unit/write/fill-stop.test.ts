@@ -32,9 +32,9 @@ import {
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
+import { prepareBinding } from "#compiler/write/program/binding.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { hostJudgement, type StatedRows } from "#compiler/write/program/witness.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -275,7 +275,7 @@ const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Out
 		kind: "invariant-rejected",
 		law: weightLaw,
 		witness: hostJudgement(
-			path.program.prepared.witness,
+			prepareBinding(path.program.binding, path.program.frontend.codes).witness,
 			stated,
 			{ kind: "write", stratum: path.stratum, relations: [member.name] },
 			{ kind: "generated", table: member.ident, column: w.column }
@@ -288,7 +288,7 @@ const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 	Effect.map(
 		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
 		(members): Outcome => {
-			const bound = bindWrite(path.program, flightOf(path.program, path.program.frontend.codes), {
+			const bound = bindWrite(runnableWrite(path.program, path.program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

@@ -30,9 +30,8 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import {
 	Bin,
 	Budget,
@@ -2422,7 +2421,7 @@ const bound = (
 	}
 	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
-	return bindWrite(program, flightOf(program, program.frontend.codes), {
+	return bindWrite(runnableWrite(program, program.frontend.codes), {
 		members,
 		params,
 		transport: inForce(bindFrame)

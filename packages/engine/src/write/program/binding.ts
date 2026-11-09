@@ -119,6 +119,14 @@ export interface MemberAt {
 	readonly kind: "array" | "stream"
 }
 
+/** A family as a row of it past every statement is reported by (bind.ts FamilyRowBound): its owner relation, its count
+ * field and its member relation, by name. */
+export interface FamilyNames {
+	readonly owner: string
+	readonly count: string
+	readonly member: string
+}
+
 /** Each relation whose rows one stratum's nested writes fill, by name, as the first of them that fills it lays it out. */
 export interface NestedAt {
 	readonly stratum: StratumAt
@@ -133,6 +141,9 @@ export interface Binding {
 	readonly groups: ReadonlyArray<GroupData>
 	/** Each stratum's nested layouts, in the strata's order. */
 	readonly nested: ReadonlyArray<NestedAt>
+	/** Each relation a nested write fills, by name, as the first family it is a member of names it, which a row of it no
+	 * statement carries even alone is reported by. */
+	readonly rowFamilies: ReadonlyMap<string, FamilyNames>
 	/** Which facts of each member slot the statement that writes them proposes (insert/statement.ts Proposal). */
 	readonly proposals: ReadonlyMap<ParamId, Proposal>
 	/** Each stratum whose fresh owners the host counts, in order. */

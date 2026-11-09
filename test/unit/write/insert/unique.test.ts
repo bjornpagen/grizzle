@@ -12,9 +12,8 @@ import { pg, span } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, deepEquals, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawIdOf } from "#test/support/kernel/naming.ts"
@@ -56,7 +55,7 @@ const bind = Effect.fn("bind")(function* (value: ReturnType<typeof ChangeSet.emp
 	const p = program(value)
 	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
 	return succeeded(
-		bindWrite(p, flightOf(p, p.frontend.codes), {
+		bindWrite(runnableWrite(p, p.frontend.codes), {
 			members,
 			params: {},
 			transport: inForce(bindFrame)

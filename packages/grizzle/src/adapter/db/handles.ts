@@ -1,4 +1,5 @@
 import { Effect, type Option, Result } from "effect"
+import { changeCall } from "#adapter/apply/collect.ts"
 import { compileFailure, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
 import { dbWriteFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, refreshHandle, typedCompiled } from "#adapter/db/ops.ts"
@@ -150,7 +151,10 @@ const applyChange = (
 	params: ParamMap
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
-		const inputs = yield* Effect.mapError(hostInputs(change.entry, params), inputApplyError)
+		const inputs = yield* Effect.mapError(
+			Effect.flatMap(changeCall(change.entry, params), (call) => hostInputs(change.entry, call)),
+			inputApplyError
+		)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected({ kind: "every", laws: [inputs.law] }, inputs.witness)
 		}

@@ -68,6 +68,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -240,19 +241,19 @@ type Staging = (entry: CompiledChange) => CompiledChange
 const asCompiled: Staging = (entry) => entry
 
 /** The planted bug: a program whose statements carry no staged form, which sends its rows inline past any bound. */
-const unstaged: Staging = (entry) => ({
-	...entry,
-	program: {
-		...entry.program,
+const unstaged: Staging = (entry) => {
+	const compiled = {
+		...entry.compiled,
 		artifact: {
-			...entry.program.artifact,
-			statements: Arr.map(entry.program.artifact.statements, (st) => ({
+			...entry.compiled.artifact,
+			statements: Arr.map(entry.compiled.artifact.statements, (st) => ({
 				...st,
 				staged: { kind: "none" } as const
 			}))
 		}
 	}
-})
+	return { ...entry, compiled, program: runnableWrite(compiled, entry.program.flight.codes) }
+}
 
 /** The search's options but its name, kept cases, coverage and budget. */
 const search = {
@@ -342,7 +343,7 @@ const searchOn = <A, E, R>(
 					).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
 					const stagedRows = yield* state
 					const texts = Arr.flatMap(sent, (q) => (q._tag === "statement" ? [q.sql] : []))
-					const carriers = Arr.flatMap(entry.program.artifact.statements, (st) =>
+					const carriers = Arr.flatMap(entry.compiled.artifact.statements, (st) =>
 						st.staged.kind === "carriers" ? st.staged.carriers : []
 					)
 					const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create))

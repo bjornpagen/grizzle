@@ -43,7 +43,9 @@ export {
 	type Chunks,
 	type FamilyRowBound,
 	type GeneratedRejection,
-	type Raw
+	type Raw,
+	type RunnableWrite,
+	runnableWrite
 } from "#compiler/write/program/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 export type { ExecutionPart } from "#compiler/write/program/staged.ts"
@@ -54,7 +56,6 @@ export {
 	type ServedWrite
 } from "#compiler/runtime/write/flight.ts"
 export {
-	flightOf,
 	projectWrite,
 	servedWrite,
 	type UnservedMember,

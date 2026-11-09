@@ -10,9 +10,8 @@ import { drawn, generated, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { fin, key, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -198,7 +197,7 @@ describe("a write that names rows by a primary key", () => {
 								const program = succeeded(compiled, "a write that names its rows by stated fields")
 								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 								const bound = succeeded(
-									bindWrite(program, flightOf(program, program.frontend.codes), {
+									bindWrite(runnableWrite(program, program.frontend.codes), {
 										members,
 										params: {},
 										transport: inForce(bindFrame)

@@ -8,9 +8,8 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -42,9 +41,10 @@ const bound = Effect.fn("bound")(function* (name: string) {
 		name
 	)
 	const members = yield* membersOf(program, value)
-	const flight = flightOf(program, program.frontend.codes)
+	const write = runnableWrite(program, program.frontend.codes)
+	const flight = write.flight
 	const b = succeeded(
-		bindWrite(program, flight, {
+		bindWrite(write, {
 			members,
 			params: { [name]: [fact(1), fact(2)] },
 			transport: inForce(bindFrame)

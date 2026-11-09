@@ -11,6 +11,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -1091,22 +1092,25 @@ const takesOf = (
 	entry: CompiledChange,
 	params: ParamMap
 ): Effect.Effect<ReadonlyArray<TakeForm>, InputFailure> =>
-	Effect.map(hostInputs(entry, params), (ready) => {
-		if (ready.kind !== "bound") {
-			return []
+	Effect.map(
+		Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
+		(ready) => {
+			if (ready.kind !== "bound") {
+				return []
+			}
+			return Arr.flatMap(entry.program.flight.statements, (st): ReadonlyArray<TakeForm> =>
+				st.forms.kind === "chosen"
+					? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
+					: []
+			)
 		}
-		return Arr.flatMap(entry.flight.statements, (st): ReadonlyArray<TakeForm> =>
-			st.forms.kind === "chosen"
-				? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
-				: []
-		)
-	})
+	)
 
 /**
  * The realizations a program's optimized artifact chose (schedule/plan.ts): a stratum as one statement, a stratum of
  * several write statements in sequence, and a deletion anchored on its own relation (write/delete/anchor.ts).
  */
-const realizationsOf = (program: CompiledChange["program"]): ReadonlyArray<WriteOracleFeature> => {
+const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<WriteOracleFeature> => {
 	const steps = program.artifact.steps
 	const writes = new Map<number, number>()
 	for (const step of steps) {
@@ -1268,7 +1272,7 @@ export const runCase = (
 				report: `${header()}\nthe ChangeSet does not compile: ${entry.failure.message}`
 			})
 		}
-		const program = entry.success.program
+		const program = entry.success.compiled
 		const baseline = conservativeChange(entry.success, t.ctx)
 		if (!baseline.ok) {
 			return yield* new CaseFailed({
@@ -1282,7 +1286,7 @@ export const runCase = (
 				Effect.try({
 					try: () => {
 						checkedStatements(
-							Arr.map(entries[artifact].program.artifact.statements, (st) => st.ast),
+							Arr.map(entries[artifact].compiled.artifact.statements, (st) => st.ast),
 							`${artifact} write statement`
 						)
 					},

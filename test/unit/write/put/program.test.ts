@@ -10,8 +10,7 @@ import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { assert, failed } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -102,7 +101,7 @@ describe("the write program's relation parameters", () => {
 								})
 							)
 							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-							const bound = bindWrite(program, flightOf(program, program.frontend.codes), {
+							const bound = bindWrite(runnableWrite(program, program.frontend.codes), {
 								members,
 								params,
 								transport: inForce(bindFrame)

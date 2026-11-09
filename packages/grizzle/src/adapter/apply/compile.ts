@@ -1,7 +1,7 @@
 import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
-import type { CompiledWrite, FlightWrite, ParsedChangeSet } from "#compiler/plan/change.ts"
+import type { CompiledWrite, ParsedChangeSet, RunnableWrite } from "#compiler/plan/change.ts"
 import type { BindContext } from "#compiler/plan/common.ts"
 
 /**
@@ -20,9 +20,8 @@ import type { BindContext } from "#compiler/plan/common.ts"
  * read-backs and its parameters' codecs. The layer builds each once, when it loads its served file (served/load.ts).
  */
 export interface WriteEntry {
-	readonly program: CompiledWrite
-	/** The program as an application runs it, projected and loaded as a served one is (write/program/served.ts). */
-	readonly flight: FlightWrite
+	/** The program as an application runs it, loaded as a served one is (write/program/bind.ts RunnableWrite). */
+	readonly program: RunnableWrite
 	readonly violation: ViolationClassifier
 	/** The read-backs of the program's artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBackRuns
@@ -33,9 +32,11 @@ export interface WriteEntry {
 }
 
 /**
- * A ChangeSet compiled for a role: its program entry, and what applying it reads of its value besides its program,
- * its array members' facts and its bound values.
+ * A ChangeSet compiled for a role: its program entry, the program as it compiled, which a served file holds
+ * (served/project.ts), and what applying it reads of its value besides its program, its array members' facts and its
+ * bound values.
  */
 export interface CompiledChange extends WriteEntry {
+	readonly compiled: CompiledWrite
 	readonly change: Pick<ParsedChangeSet, "inputs" | "values">
 }

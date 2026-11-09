@@ -5,9 +5,8 @@ import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
-import { type BindResult, bindWrite } from "#compiler/write/program/bind.ts"
+import { type BindResult, bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
@@ -68,7 +67,7 @@ export const offlineBind = (
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
 	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
 		withinMessage(
-			bindWrite(program, flightOf(program, program.frontend.codes), {
+			bindWrite(runnableWrite(program, program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

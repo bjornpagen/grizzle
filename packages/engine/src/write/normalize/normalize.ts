@@ -547,12 +547,12 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 	const inputOf = (input: InputData): BindInput => {
 		switch (input.kind) {
 			case "single": {
-				const admit = normalizer(input.admitted)
+				const admitBy = normalizer(input.admitted)
 				return {
 					kind: "single",
 					act: input.act,
 					slot: input.slot,
-					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admit(name) })),
+					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admitBy(name) })),
 					starts: input.starts.map((st) => ({ name: st.name, value: startOf(st) }))
 				}
 			}
@@ -571,7 +571,7 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 				}
 			}
 			case "nested": {
-				const admit = normalizer(input.slot.heading)
+				const admitBy = normalizer(input.slot.heading)
 				return {
 					kind: "nested",
 					act: input.act,
@@ -580,7 +580,7 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 					reached: new Map(
 						[...input.reached].map(([name, facts]) => [name, checkedFacts(facts, codes)] as const)
 					),
-					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admit(name) }))
+					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admitBy(name) }))
 				}
 			}
 		}

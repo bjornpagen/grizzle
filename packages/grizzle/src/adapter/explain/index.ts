@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
+import { changeCall } from "#adapter/apply/collect.ts"
 import { hostInputs, valuesFailure } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -181,7 +182,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	}
 	const entry = compiled.success
 	const inputs = yield* Effect.mapError(
-		hostInputs(entry, params),
+		Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
 		(reason) => new ReadFailure({ reason })
 	)
 	if (inputs.kind === "rejected") {
@@ -196,7 +197,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	 */
 	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
 		const statements: Array<Explained> = []
-		for (const s of entry.flight.statements) {
+		for (const s of entry.program.flight.statements) {
 			if (skip.has(s.index)) {
 				continue
 			}

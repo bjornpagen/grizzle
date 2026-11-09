@@ -1,6 +1,6 @@
 import { Data } from "effect"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
-import type { Family, Law, Unsendable } from "#compiler/plan/change.ts"
+import type { FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
 import {
 	admittedIdentifier,
 	type ColumnIdent,
@@ -548,13 +548,13 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 }
 
 /** A family write's row no statement of its plan can carry (write/family/order.ts plan), as the family names it. */
-export const familyRowBound = (family: Family, row: Unsendable): InputTooLarge =>
+export const familyRowBound = ({ family, row }: FamilyRowBound): InputTooLarge =>
 	new InputTooLarge({
 		bound: {
 			kind: "familyRow",
-			owner: family.owner.name,
-			count: family.count.name,
-			member: family.member.name,
+			owner: family.owner,
+			count: family.count,
+			member: family.member,
 			row
 		}
 	})

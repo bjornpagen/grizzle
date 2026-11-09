@@ -1,10 +1,13 @@
 import { Array as Arr, Effect, Stream } from "effect"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
+import type { HostCall } from "#adapter/apply/run.ts"
 import {
 	type ChangeSetInput,
 	type GroupData,
 	type MemberFacts,
 	memberSlots
 } from "#compiler/plan/change.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 
 /**
  * Each member slot the compiled ChangeSet reads with the ChangeSet value's input for it, in slot order. The program was
@@ -38,4 +41,12 @@ export const collectInputs = (
 				: Effect.map(Stream.runCollect(input.stream), (facts) => [member, facts] as const)
 		),
 		(entries): MemberFacts => new Map<string, Iterable<unknown>>(entries)
+	)
+
+/** The call of a ChangeSet value compiled in process (run.ts HostCall): the caller's parameters, the value's bound
+ * values, and its members' facts, a Stream member's collected whole (`collectInputs`). */
+export const changeCall = (compiled: CompiledChange, params: ParamMap): Effect.Effect<HostCall> =>
+	Effect.map(
+		collectInputs(compiled.program.flight.binding.groups, compiled.change.inputs),
+		(members): HostCall => ({ params, bound: compiled.change.values, members })
 	)

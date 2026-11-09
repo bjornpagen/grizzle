@@ -32,9 +32,8 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -122,12 +121,13 @@ describe("a write of large bytes values", () => {
 										? ChangeSet.empty(Large).insert(One, facts)
 										: ChangeSet.empty(Large).insert(Two, facts)
 								const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
+								const write = runnableWrite(program, program.frontend.codes)
 								const members = yield* collectInputs(
 									program.binding.groups,
 									parsedOf(change).inputs
 								)
 								const before = process.memoryUsage().arrayBuffers
-								const bound = bindWrite(program, flightOf(program, program.frontend.codes), {
+								const bound = bindWrite(write, {
 									members,
 									params: {},
 									transport: inForce(bindFrame)
@@ -147,8 +147,8 @@ describe("a write of large bytes values", () => {
 									`a bound member's ${copied(d)} bytes allocated ${grown}, more than one copy`
 								)
 								const normalized = normalizeChangeSet(
-									program.prepared.groups,
-									{ fill: program.prepared.fill, codes: program.frontend.codes },
+									write.flight.prepared.groups,
+									{ fill: write.flight.prepared.fill, codes: write.flight.codes },
 									members,
 									inForce(bindFrame)
 								)

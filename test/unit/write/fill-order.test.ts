@@ -18,9 +18,8 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { role } from "#compiler/schema/world.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -549,7 +548,8 @@ const property = (
 			return
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
-		const bound = bindWrite(program.value, flightOf(program.value, program.value.frontend.codes), {
+		const write = runnableWrite(program.value, program.value.frontend.codes)
+		const bound = bindWrite(write, {
 			members,
 			params: {},
 			transport: inForce(bindFrame)
@@ -570,7 +570,7 @@ const property = (
 			)
 		}
 		const chunks = writes.value
-		for (const statement of flightOf(program.value, program.value.frontend.codes).statements) {
+		for (const statement of write.flight.statements) {
 			const sent = chunks(statement, inForce(bindFrame))
 			if (!sent.ok) {
 				return assert.fail(`every statement's rows, not ${Formatter.format(sent.error)}`)
@@ -580,8 +580,8 @@ const property = (
 		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
 		const normalized = succeeded(
 			normalizeChangeSet(
-				program.value.prepared.groups,
-				{ fill: program.value.prepared.fill, codes: program.value.frontend.codes },
+				write.flight.prepared.groups,
+				{ fill: write.flight.prepared.fill, codes: write.flight.codes },
 				members,
 				inForce(bindFrame)
 			)

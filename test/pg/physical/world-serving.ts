@@ -74,9 +74,8 @@ import {
 } from "#compiler/sql/print.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import {
 	type IndexFacts,
 	judgeScan,
@@ -1195,9 +1194,10 @@ const precheck = (
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))
-		const flight = flightOf(program, program.frontend.codes)
+		const write = runnableWrite(program, program.frontend.codes)
+		const flight = write.flight
 		const bound = succeeded(
-			bindWrite(program, flight, { members, params: {}, transport: inForce(bindFrame) })
+			bindWrite(write, { members, params: {}, transport: inForce(bindFrame) })
 		)
 		if (bound.kind !== "bound") {
 			return assert.fail(`${label}: the fact is refused before any SQL`)

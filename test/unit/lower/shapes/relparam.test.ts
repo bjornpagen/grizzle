@@ -14,9 +14,8 @@ import { str } from "#compiler/public/text.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -95,9 +94,10 @@ describe("a write's enumerated members", () => {
 								compiled.binding.groups,
 								parsedOf(changes).inputs
 							)
-							const flight = flightOf(compiled, compiled.frontend.codes)
+							const write = runnableWrite(compiled, compiled.frontend.codes)
+							const flight = write.flight
 							const bound = succeeded(
-								bindWrite(compiled, flight, { members, params: {}, transport: inForce(bindFrame) })
+								bindWrite(write, { members, params: {}, transport: inForce(bindFrame) })
 							)
 							if (bound.kind !== "bound") {
 								return assert.fail(`the input binds, not ${bound.kind}`)

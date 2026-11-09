@@ -22,9 +22,8 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
+import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
@@ -163,7 +162,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							compileWrite(checking(S), desc, reality),
 							"the ChangeSet compiles"
 						)
-						const flight = flightOf(program, program.frontend.codes)
+						const write = runnableWrite(program, program.frontend.codes)
+						const flight = write.flight
 						const found = Arr.findFirst(flight.statements, (st) => st.step.kind === "write")
 						if (Option.isNone(found)) {
 							throw new Error("no insert statement")
@@ -215,7 +215,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								},
 								(parents, c) =>
 									Effect.gen(function* () {
-										const bound = bindWrite(program, flight, {
+										const bound = bindWrite(write, {
 											members: new Map(),
 											params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) },
 											transport: inForce(bindFrame)

@@ -50,6 +50,7 @@ import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
 import {
 	type CompiledWrite,
 	type CompileWriteOptions,
@@ -62,7 +63,6 @@ import {
 	placeReadBack,
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
 import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
@@ -244,11 +244,11 @@ export const conservativeChange = (
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>
 			Result.map(
-				conservativeWrite(entry.program, { names: entry.names, reads: artifacts.reads }),
+				conservativeWrite(entry.compiled, { names: entry.names, reads: artifacts.reads }),
 				(program) => ({
 					...entry,
-					program,
-					flight: flightOf(program, entry.names.codes),
+					program: runnableWrite(program, entry.names.codes),
+					compiled: program,
 					readBacks: readBacks(program, entry.names.codes)
 				})
 			)

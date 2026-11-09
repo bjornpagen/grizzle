@@ -54,7 +54,7 @@ const variantsOf = (variants: ChangeVariants): ServedVariants => {
 		case "form": {
 			const { entry, decoder } = variants.form
 			const change: ServedChange = {
-				program: entry.program,
+				program: entry.compiled,
 				decoder: decoder.form,
 				change: { inputs: entry.change.inputs, values: entry.change.values }
 			}

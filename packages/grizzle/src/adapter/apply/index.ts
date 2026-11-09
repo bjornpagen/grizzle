@@ -1,4 +1,5 @@
 import { Effect, Result, type Scope } from "effect"
+import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import {
 	type BoundReads,
@@ -83,7 +84,10 @@ const applyBound = <R>(
 	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
-		const inputs = yield* Effect.mapError(hostInputs(entry, params), inputApplyError)
+		const inputs = yield* Effect.mapError(
+			Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
+			inputApplyError
+		)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected({ kind: "every", laws: [inputs.law] }, inputs.witness)
 		}

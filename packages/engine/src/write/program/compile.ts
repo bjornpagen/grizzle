@@ -148,11 +148,7 @@ import {
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import {
-	type Binding,
-	type PreparedBinding,
-	prepareBinding
-} from "#compiler/write/program/binding.ts"
+import type { Binding } from "#compiler/write/program/binding.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
@@ -205,8 +201,6 @@ export interface CompiledWrite extends WriteProgram<WriteParamSlot> {
 	readonly slots: ReadonlyArray<SlotGroup>
 	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
 	readonly binding: Binding
-	/** The binding's closures, built once (binding.ts prepareBinding). */
-	readonly prepared: PreparedBinding
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -1486,7 +1480,6 @@ const compile = (
 	const vector =
 		topoOrder(ir.dag).some((n) => n.heading.some((c) => c.type.carrier === "vector")) ||
 		frontend.written.some((r) => r.heading.some((c) => c.type.carrier === "vector"))
-	const binding = decideBinding(frontend)
 	const program: CompiledWrite = {
 		edits: family.edits,
 		refills: family.refills,
@@ -1507,8 +1500,7 @@ const compile = (
 		placements: family.placements,
 		params: frontend.params,
 		slots: frontend.slots,
-		binding,
-		prepared: prepareBinding(binding, frontend.codes)
+		binding: decideBinding(frontend)
 	}
 	return program
 }

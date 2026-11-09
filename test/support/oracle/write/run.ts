@@ -356,7 +356,7 @@ export const putRealizations = (
 	changes: unknown
 ): Result.Result<ReadonlyArray<PutRealization>, CompileError> =>
 	Result.map(compiledWrite(ctx, changes, ctx.claims), (entry) =>
-		Arr.map(entry.program.choices, (c): PutRealization =>
+		Arr.map(entry.compiled.choices, (c): PutRealization =>
 			c.target === "deleteThenInsert"
 				? { target: c.target, reason: c.reason }
 				: { target: c.target }

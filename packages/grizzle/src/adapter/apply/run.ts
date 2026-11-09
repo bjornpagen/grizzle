@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
+import type { WriteEntry } from "#adapter/apply/compile.ts"
 import { type ReadBackRuns, readBackFlight, readsRow } from "#adapter/apply/readback.ts"
 import {
 	type ApplyError,
@@ -52,6 +51,7 @@ import {
 	inForce,
 	interpretRows,
 	type Law,
+	type MemberFacts,
 	type Raw,
 	type StatementAt,
 	statementRelations,
@@ -124,7 +124,7 @@ export const valuesFailure = (
 		case "MessageBound":
 			return messageBound(failure)
 		case "FamilyRowBound":
-			return familyRowBound(failure.family, failure.row)
+			return familyRowBound(failure)
 	}
 }
 
@@ -239,23 +239,31 @@ const declaredParams = (
 	})
 
 /**
+ * What one call of a write gives: the caller's parameters, the values ChangeSet.bind closed, under their private names,
+ * and the facts of each member slot (write/normalize/normalize.ts MemberFacts).
+ */
+export interface HostCall {
+	readonly params: ParamMap
+	readonly bound: ReadonlyMap<string, ParamValue>
+	readonly members: MemberFacts
+}
+
+/**
  * The first half of an application: everything before any SQL (see the header). A binding the WriteProgram refuses is
  * its CompileError, which each caller reports in its own error channel.
  */
 export const hostInputs = (
-	compiled: CompiledChange,
-	params: ParamMap
+	entry: WriteEntry,
+	call: HostCall
 ): Effect.Effect<HostInputs, InputFailure> =>
 	Effect.gen(function* () {
-		const program = compiled.program
-		const members = yield* collectInputs(program.binding.groups, compiled.change.inputs)
-		const host = yield* declaredParams(compiled.flight.params, params, compiled.change.values)
+		const host = yield* declaredParams(entry.program.flight.params, call.params, call.bound)
 		/**
 		 * `host` holds every bound value under its private name with its Stream collected, so the statements bind the
 		 * same values the read-backs read; the raw bindings would hand them an uncollected Stream.
 		 */
-		const bound = bindWrite(program, compiled.flight, {
-			members,
+		const bound = bindWrite(entry.program, {
+			members: call.members,
 			params: host,
 			transport: inForce(bindFrame)
 		})
@@ -276,7 +284,7 @@ export const hostInputs = (
 				witness: bound.value.rejection.witness
 			} as const
 		}
-		const ready = executionInputs(compiled.codecs, host)
+		const ready = executionInputs(entry.codecs, host)
 		if (Result.isFailure(ready)) {
 			return yield* Effect.fail(ready.failure)
 		}
@@ -446,15 +454,14 @@ export const runWrite = <R>(
 	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
-		const program = entry.program
-		const flight = entry.flight
+		const flight = entry.program.flight
 		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
 		let stated = inputs.bound.unplanned
 		const context: WitnessContext = {
 			violation: entry.violation,
 			statement: (at) => ({
-				relations: statementRelations(program.prepared.witness, at),
-				judge: (refuser) => hostJudgement(program.prepared.witness, stated, at, refuser)
+				relations: statementRelations(flight.prepared.witness, at),
+				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser)
 			})
 		}
 		const readBackFlights = yield* Effect.mapError(

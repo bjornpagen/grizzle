@@ -806,7 +806,7 @@ const observedArtifact = (
 	if (Result.isFailure(entry)) {
 		return Result.fail(entry.failure)
 	}
-	const statements = Arr.map(entry.success.program.artifact.statements, observedStatement)
+	const statements = Arr.map(entry.success.compiled.artifact.statements, observedStatement)
 	const attribute = attributor(statements)
 	return Result.succeed({
 		statements,
