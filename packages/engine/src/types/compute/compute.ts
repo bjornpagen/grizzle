@@ -42,6 +42,7 @@ import type {
 	Takes,
 	TakesFirst,
 	TakesRest,
+	WholeTerm,
 	WithinFacts
 } from "#compiler/types/compute/scalar.ts"
 
@@ -1126,6 +1127,18 @@ export interface ComputeApi {
 	parseDecimal<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
+	/**
+	 * The SHA-256 digest of a bytes value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that
+	 * reads a bytes value, read whole: text of the language `^[0-9a-f]{64}$`, which compilation reads, so a cast into a
+	 * text type whose language holds it, `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose
+	 * language lacks it is PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every
+	 * value, it stands in row checks, selections, generated fields and queries:
+	 * `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))` is a field whose every value PostgreSQL
+	 * computes from the bytes it stores.
+	 */
+	sha256<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea">
+	): Admitted<TakesFirst<A, "bytea">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
 	 * A pattern for Compute.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
 	 * the type level as str.regex's does, admitted once, here, inside PostgreSQL's regex compile space and matched by

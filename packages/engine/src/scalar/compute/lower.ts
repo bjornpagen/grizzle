@@ -158,6 +158,7 @@ import {
 	type CommonTypeFn,
 	type CommonTypeOp,
 	commonTypeOf,
+	digestText,
 	type FixedFn,
 	type FixedOp,
 	type NativeFn,
@@ -572,6 +573,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"collapse",
 	"parseDouble",
 	"parseDecimal",
+	"sha256",
 	"lower",
 	"upper",
 	"width",
@@ -2062,7 +2064,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A reference an operation reads: refused where its type is stored only (scalar/registry.ts storedOnly), as bytes is,
-	 * so no comparison, computation, cast, conditional or guard reads one.
+	 * so no comparison, computation, cast, conditional or guard reads one; Compute.sha256 reads its operand whole
+	 * (sha256).
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Lowered {
 		const leaf = this.emit(unwrap(this.env.leaf(desc, at)))
@@ -2739,6 +2742,36 @@ class Lowering<R extends Refs> {
 			at,
 			`Compute.parseDecimal(${exprText(x.expr)})`
 		)
+	}
+
+	/**
+	 * Compute.sha256(x): the SHA-256 digest of a bytes value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the
+	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
+	 * its operand is a bytes reference, a row's field or a variable. The node computes text; the term is text of
+	 * digestText's language (registry.ts), whose pattern bounds it at 64 bytes, so a cast into a text type whose language
+	 * holds it is proved, and a literal opposite it is judged by it. Its SQL allocates 64 characters whatever x's length,
+	 * so it stands in a query as in a check or a generated field. A builder types the term as text of no pattern: it sees
+	 * no type's language.
+	 */
+	sha256(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const x = this.whole(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "bytes") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a bytes term for sha256, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const op = this.overload("sha256", [x.actual], at)
+		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.sha256")
+		return this.env.mode === "build"
+			? node
+			: this.restate(
+					node,
+					this.textWithin([digestText], undefined, this.env.patternLanguage, at),
+					node.actual,
+					node.facts
+				)
 	}
 
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
@@ -3475,6 +3508,7 @@ class Lowering<R extends Refs> {
 			collapse: 1,
 			parseDouble: 1,
 			parseDecimal: 1,
+			sha256: 1,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -3777,6 +3811,8 @@ class Lowering<R extends Refs> {
 				return this.parseDouble(arg(0), here)
 			case "parseDecimal":
 				return this.parseDecimal(arg(0), here)
+			case "sha256":
+				return this.sha256(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

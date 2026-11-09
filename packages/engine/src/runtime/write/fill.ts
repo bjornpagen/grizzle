@@ -430,7 +430,7 @@ const hostLayout = (layout: FillLayoutData, relation: FillRelation, codes: Codeb
 
 /**
  * A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints, a date
- * span's endpoints as their day numbers.
+ * span's endpoints as their day numbers, a bytes value as its admitted value, whose digest Compute.sha256 reads.
  */
 export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined => {
 	switch (spec.carrier) {
@@ -452,8 +452,9 @@ export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | und
 				: undefined
 		}
 		case "vector":
-		case "bytes":
 			return undefined
+		case "bytes":
+			return isAdmittedBytes(value) ? value : undefined
 		case "int8":
 		case "numeric":
 		case "float4":

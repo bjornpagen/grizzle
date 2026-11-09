@@ -74,7 +74,8 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
- * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes.
+ * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes, and no SHA-256 of
+ * its own: a bytes value's digest is PostgreSQL's alone, against which test/pg/compute/digest.test.ts holds the host's.
  */
 export type Evaluation = "exact" | "estimated" | "database"
 
@@ -87,6 +88,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "complement":
 		case "regexpReplace":
 		case "btrim":
+		case "sha256":
 			return "database"
 		case "union":
 		case "intersection":
@@ -659,6 +661,7 @@ const catalogApply = (
 		case "complement":
 		case "regexpReplace":
 		case "btrim":
+		case "sha256":
 			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "collapse":
 			return isString(a) ? Result.succeed(collapsedText(a)) : mismatch(op)

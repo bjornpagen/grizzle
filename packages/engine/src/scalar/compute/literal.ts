@@ -8,6 +8,7 @@ import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { floatSpecials, type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -48,7 +49,9 @@ export const bareLiteralKind = (value: unknown): BareLiteralKind | undefined => 
 /**
  * The exact carrier value of a literal, as the evaluator holds it: integers as bigint, numeric as Decimal, floats as
  * number, money as Money, booleans, text, uuid and closed ids' handles as their primitives, a set over a roster as the
- * fresh Set of its handles, spans as { start, end } bigints, vectors as their canonical value.
+ * fresh Set of its handles, spans as { start, end } bigints, vectors as their canonical value. A bytes value, which no
+ * literal is, is its identity, the SHA-256 digest of its bytes (scalar/values/bytes.ts BytesDigest), which is all
+ * Compute.sha256, the one operation over it, reads.
  */
 export type CarrierValue =
 	| bigint
@@ -60,6 +63,7 @@ export type CarrierValue =
 	| ReadonlySet<string>
 	| { readonly start: bigint; readonly end: bigint }
 	| { readonly vector: VectorText }
+	| BytesDigest
 
 /** A decoded Description's set literal: its handles, each a string. */
 const setHandles = (value: LiteralDesc): ReadonlyArray<string> | undefined => {

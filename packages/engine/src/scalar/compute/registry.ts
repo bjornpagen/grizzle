@@ -13,7 +13,12 @@ import {
 	type Volatility
 } from "#compiler/ir/expr.ts"
 import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.ts"
-import { type Carrier, carriers, type SpanCarrier } from "#compiler/ir/scalar.ts"
+import {
+	type Carrier,
+	carriers,
+	type PatternSource,
+	type SpanCarrier
+} from "#compiler/ir/scalar.ts"
 import {
 	floatCast,
 	type HostCast,
@@ -43,8 +48,8 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  * How an overload is defined on every value its operand types admit. Every overload states one, so none can be added
  * partial without deciding, and the lowering and the SQL rendering dispatch on it exhaustively:
  * - `total`: defined everywhere as PostgreSQL computes it: comparisons, boolean composition, numeric arithmetic within
- *   the digit bounds every numeric expression has (lower.ts), sign, char_length, octet_length, span endpoints, widening
- *   casts;
+ *   the digit bounds every numeric expression has (lower.ts), sign, char_length, octet_length, a bytes value's digest,
+ *   span endpoints, widening casts;
  * - `exact`: integer or money arithmetic computed exactly: its value is an exact integer or exact money
  *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
  *   identity only, and SQL rendering computes it over its operands widened into the exact space
@@ -105,7 +110,8 @@ type Owner = "catalog" | "vector"
  * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
  * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
- * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes.
+ * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes; a
+ * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`.
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -128,6 +134,7 @@ type SqlForm =
 				| "endsWith"
 				| "parseDouble"
 				| "parseDecimal"
+				| "sha256"
 	  }
 	| {
 			/** whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space. */
@@ -170,7 +177,7 @@ type CatalogRef =
 
 /**
  * The Compute operation a native node serves (computeNodes), the comparisons, the boolean constructs, the set algebra
- * over a roster, the text operations and the casts; cond has no entry, it is the IR's cond node. The complement serves
+ * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
  * right serves only the suffix test, endsWith.
  */
@@ -212,6 +219,7 @@ export type NativeFn =
 	| "btrim"
 	| "parseDouble"
 	| "parseDecimal"
+	| "sha256"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -278,6 +286,7 @@ export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<Na
 		collapse: ["collapse"],
 		parseDouble: ["parseDouble"],
 		parseDecimal: ["parseDecimal"],
+		sha256: ["sha256"],
 		cosineDistance: ["cosineDistance"],
 		union: ["union"],
 		intersection: ["intersection"],
@@ -770,6 +779,31 @@ const textParseDecimal: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * The language of a SHA-256 digest as `encode(sha256(x), 'hex')` writes it, Compute.sha256's: 64 lowercase hex digits,
+ * under the flags "u", the pattern `str.regex("^[0-9a-f]{64}$")` declares.
+ */
+export const digestText: PatternSource = Object.freeze({ source: "^[0-9a-f]{64}$", flags: "u" })
+
+/**
+ * A bytes value's SHA-256 digest as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that reads
+ * a bytes value, read whole: sha256(bytea) reads a bytea of any length and encode(bytea, text) writes its 32 bytes as
+ * two lowercase digits each, so it is defined on every value, and both are IMMUTABLE in pg_proc, so it is one value
+ * wherever it stands, a generated column among them. Neither is a Compute operation, so it uses no entry here. Its text
+ * is digestText's language (lower.ts sha256), and it is the digest a bytes value's identity is
+ * (scalar/values/bytes.ts BytesDigest).
+ */
+const bytesDigest: FixedOverload = frozen({
+	fn: "sha256",
+	operands: positional(["bytes"]),
+	result: "text",
+	sql: { kind: "sha256" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -833,7 +867,8 @@ const endpoint = (
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
- *   "difference:bits", "subset:bits" and "disjoint:bits", and a text's "endsWith:text";
+ *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", and a bytes value's
+ *   "sha256:bytea";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
@@ -841,8 +876,8 @@ const endpoint = (
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
  * take two terms of one type, but right(text, integer), which only the suffix test reads, and set_bit over a set and a
  * closed id's code, which only Compute.singleton reads; of text's functions only
- * its length, concatenation, prefix and suffix tests, regex match and translate, no array function, and of bit's only the set
- * algebra over a roster; no money * money,
+ * its length, concatenation, prefix and suffix tests, regex match and translate, no array function, of bit's only the set
+ * algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
  * resolved in lower.ts: sign over an integer type is sign(numeric) cast back, sign over real is sign(double precision)
@@ -880,6 +915,8 @@ const endpoint = (
  *   allocates past its operand's own size;
  * - a decimal's parse from its text, `lexical` over every decimal text within decimalTextMaxBytes, everywhere: numeric_in
  *   reads a member of at most that many bytes into a value numeric holds;
+ * - a bytes value's SHA-256 digest as lowercase hex, total, everywhere: it allocates 64 characters whatever its
+ *   operand's length;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -1033,6 +1070,7 @@ const catalogOverloads = {
 	"collapse:text": textCollapse,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
+	"sha256:bytea": bytesDigest,
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",

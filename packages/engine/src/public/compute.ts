@@ -63,6 +63,7 @@ const catalogue: ComputeApi = {
 	collapse: (x) => C.collapse(x),
 	parseDouble: (x) => C.parseDouble(x),
 	parseDecimal: (x) => C.parseDecimal(x),
+	sha256: (x) => C.sha256(x),
 	cosineDistance: (a, b) => C.cosineDistance(a, b),
 	union: (a, b) => C.union(a, b),
 	intersection: (a, b) => C.intersection(a, b),

@@ -582,9 +582,11 @@ The command line's own refusals, by stage:
   `Compute.or(Compute.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
   `Compute.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
-  filter, a parameter, a `Compute` call, a contract, or a generated or accumulated field. A value holds at most
-  1,073,741,819 bytes (`bytesMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip
-  still; a write reads back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
+  filter, a parameter, a contract, a generated or accumulated field, or a `Compute` call but `Compute.sha256(x)`, its
+  SHA-256 digest as 64 lowercase hex digits. Store a digest PostgreSQL computes from the bytes, never one the caller
+  sends: `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`. A value holds at most 1,073,741,819
+  bytes (`bytesMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
+  back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
   before then is `bytesChanged`. An attachment whose rows hold one is a statement of its own, so under rows that read
   `.approximateNearest` attach in a second query instead.
 - A call's flight, every byte the driver writes for its one round trip, is at most 1,908,342,784 bytes

@@ -326,17 +326,28 @@ type IsHeadLiteral<A> =
  * The first operand of an operation is a term, a parameter among them, never a head literal: a Description records one
  * untyped, and the checker types it from the term it meets. FirstTerm reads a term's own origin, and refuses a
  * JavaScript value by the same name: every first operand admits one beside its terms (A extends TermBase | FirstValue),
- * so its refusal names the rule rather than the members a value lacks. A term of bytes, which no operation reads, is
- * refused (NotStoredOnly). FirstOrigin reads the origin a callback's returned term was inferred with (Compute.when's
- * branch), where no type parameter holds the value itself.
+ * so its refusal names the rule rather than the members a value lacks. A term of bytes, which no operation but
+ * Compute.sha256 reads, is refused (NotStoredOnly). FirstOrigin reads the origin a callback's returned term was
+ * inferred with (Compute.when's branch), where no type parameter holds the value itself.
  */
 export type FirstTerm<A> = A extends FirstValue
-	? Refusal<"a term first: a literal takes its place opposite a term, never first">
-	: Requires<
-			IsHeadLiteral<A> extends true ? false : true,
-			"a term first: a literal takes its place opposite a term, never first"
-		> &
-			NotStoredOnly<SqlOfTerm<A>>
+	? LiteralFirst
+	: OwnTerm<A> & NotStoredOnly<SqlOfTerm<A>>
+
+/**
+ * The first operand an operation reads whole, Compute.sha256's: a term as FirstTerm reads one, of any SQL type, bytes
+ * among them.
+ */
+export type WholeTerm<A> = A extends FirstValue ? LiteralFirst : OwnTerm<A>
+
+/** The refusal of a JavaScript value or a head literal where a first operand belongs. */
+type LiteralFirst = Refusal<"a term first: a literal takes its place opposite a term, never first">
+
+/** A term's own requirement as a first operand: it is no head literal, a JavaScript value in a head. */
+type OwnTerm<A> = Requires<
+	IsHeadLiteral<A> extends true ? false : true,
+	"a term first: a literal takes its place opposite a term, never first"
+>
 /** A JavaScript value written where a first operand belongs: a primitive, a Decimal, a Money, a vector, a span or a set. */
 export type FirstValue =
 	| string

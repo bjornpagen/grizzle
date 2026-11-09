@@ -43,6 +43,7 @@ import { decimalOfText, doubleOfText } from "#compiler/scalar/lexical.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
 import { collapsed } from "#compiler/scalar/regex/whitespace.ts"
+import { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -229,6 +230,7 @@ const isString = (v: unknown): v is string => typeof v === "string"
 const isDecimal = (v: unknown): v is Decimal => v instanceof Decimal
 const isMoney = (v: unknown): v is Money => v instanceof Money
 const isSet = (v: unknown): v is ReadonlySet<string> => v instanceof Set
+const isBytes = (v: unknown): v is BytesDigest => v instanceof BytesDigest
 
 /**
  * A set's membership over its roster's handles in declared order, one 0 or 1 per handle: two sets of one roster are
@@ -398,9 +400,11 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
  * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, a text's
  * concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
- * as PostgreSQL's translate reads them), a double's parse from its decimal text, a decimal's from its text, span
- * endpoints, LEAST and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset
- * and disjointness, and a set with one more handle, over its handles. Each case checks its operands' host kinds; the IR's typing
+ * as PostgreSQL's translate reads them), a double's parse from its decimal text, a decimal's from its text, a bytes
+ * value's SHA-256 digest, which its value is (literal.ts CarrierValue), worked out by core/sha256.ts sha256Hex where
+ * the value was admitted (scalar/values/bytes.ts AdmittedBytes), span endpoints, LEAST and GREATEST by the type's
+ * order, and a set's union, intersection, difference, cardinality, subset and disjointness, and a set with one more
+ * handle, over its handles. Each case checks its operands' host kinds; the IR's typing
  * guarantees them, so a mismatch is `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
  */
 const apply = (
@@ -522,6 +526,8 @@ const apply = (
 			return isString(a) && isString(b) ? Result.ok(patterns.matches(b, a)) : mismatch(op)
 		case "collapse":
 			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
+		case "sha256":
+			return isBytes(a) ? Result.ok(a.digest) : mismatch(op)
 		case "regexpReplace":
 		case "btrim":
 			return unsupported(`${op.fn} alone, which only collapse's SQL reads`)
@@ -911,6 +917,7 @@ const nullAware = (
 		case "rem":
 		case "right":
 		case "round":
+		case "sha256":
 		case "sign":
 		case "sqrt":
 		case "startsWith":

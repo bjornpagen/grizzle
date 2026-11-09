@@ -185,6 +185,16 @@ const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined 
 }
 
 /**
+ * A bytes value's SHA-256 digest as lowercase hex (scalar/compute/registry.ts bytesDigest), `encode(sha256(x), 'hex')`.
+ */
+const bytesDigest = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [x] = args
+	return args.length === 1 && x !== undefined
+		? call("encode", [call("sha256", [x]), lit.text("hex", types.text)])
+		: undefined
+}
+
+/**
  * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
  * the node's pattern can take (scalar/regex/admit.ts matchAre), translated here, where it is printed, never its source,
  * which only grizzle's own automaton reads. A pattern printed as a text
@@ -302,6 +312,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 		case "parseDecimal":
 			return args.length === 1 && first !== undefined ? cast(first, types.numeric) : undefined
+		case "sha256":
+			return bytesDigest(args)
 	}
 }
 

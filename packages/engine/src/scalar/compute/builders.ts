@@ -1138,6 +1138,7 @@ const checks = Object.freeze({
 	collapse: unary("collapse"),
 	parseDouble: unary("parseDouble"),
 	parseDecimal: unary("parseDecimal"),
+	sha256: unary("sha256"),
 	cosineDistance: binary("cosineDistance", "literal"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
@@ -1286,6 +1287,7 @@ export const compute = Object.freeze({
 	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
+	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
 	pattern: admittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
@@ -1424,6 +1426,7 @@ export const computeCore = Object.freeze({
 		plainBy(checks.parseDouble(x, extra)),
 	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.parseDecimal(x, extra)),
+	sha256: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sha256(x, extra)),
 	pattern: (source: unknown): Pattern =>
 		typeof source === "string"
 			? admittedPattern(source)

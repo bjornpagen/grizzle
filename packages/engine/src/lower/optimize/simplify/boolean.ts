@@ -258,6 +258,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "btrim":
 		case "parseDouble":
 		case "parseDecimal":
+		case "sha256":
 		case "cosineDistance":
 		case "union":
 		case "intersection":
@@ -344,6 +345,7 @@ export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
 		case "btrim":
 		case "parseDouble":
 		case "parseDecimal":
+		case "sha256":
 		case "cosineDistance":
 		case "union":
 		case "intersection":

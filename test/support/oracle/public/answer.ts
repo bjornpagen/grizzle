@@ -4,6 +4,7 @@ import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -120,6 +121,9 @@ const showValue = (v: Value): string => {
 	}
 	if ("vector" in v) {
 		return `vector ${Formatter.format(v.vector)}`
+	}
+	if (v instanceof BytesDigest) {
+		return `bytes of digest ${v.digest}`
 	}
 	return `{${Arr.join(
 		Arr.map([...v], (h) => Formatter.format(h)),

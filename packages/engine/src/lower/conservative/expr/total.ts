@@ -230,6 +230,7 @@ const exactIn = (
 		case "btrim":
 		case "parseDouble":
 		case "parseDecimal":
+		case "sha256":
 		case "lower":
 		case "upper":
 		case "cosineDistance":
