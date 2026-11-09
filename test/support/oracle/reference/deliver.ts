@@ -2,7 +2,7 @@ import { Array as Arr } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import { exprsOf, type Heading, keptRowsOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
-import { deliveredHeading } from "#compiler/lower/conservative/types.ts"
+import { deliveredHeading } from "#compiler/runtime/lower/tree.ts"
 import {
 	type Bindings,
 	columnIndex,

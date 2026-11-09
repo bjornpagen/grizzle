@@ -24,7 +24,7 @@ import {
 	nativeOp,
 	overloadOf
 } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 
 /** A catalog shape that does not hold: the reason the composed lowering is kept. */
 export class NoMatch extends Error {

@@ -1,20 +1,3 @@
-/**
- * The server's answer held to the proofs grizzle's SQL carries: a row PostgreSQL delivers is decoded only where its
- * statement's compiled proof says it can deliver it, never repaired on the host.
- *
- * - An attachment's delivery (core/decoder.ts): an array delivers its children, an Option at most one and the one child
- *   exactly one; a child more than its proof allows, or the child a proof requires missing, is a defect naming the
- *   attachment, never the first of several. Oracle: the specification of the deliveries, enumerated in a box of every
- *   delivery, every proof that licenses it and every count of children up to three.
- * - A statement's rows (reader/execution.ts rowsOf): every statement grizzle delivers, an attachment's included, is a
- *   set, so its answer holding one row twice, under the column types' equality (1.5 and 1.50 alike), is
- *   UnreadableAnswer at that statement, and an answer that is a set is stitched exactly. Oracle: a model of the delivered
- *   set, the generated rows themselves, which are distinct by construction until the case plants a repeat.
- * - A page's candidates (page/execute.ts pageEdges): the rows a request fetches strictly increase under its fetch order,
- *   so the lookahead counts distinct rows; an equal tuple, a step back, or a row past the statement's LIMIT, the size
- *   and its one lookahead row, is UnreadableAnswer at the rows statement. Oracle: the request's contract, edges the
- *   first min(size, n) of n increasing rows and the lookahead n > size.
- */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -42,11 +25,28 @@ import {
 } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { statementOutput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+/**
+ * The server's answer held to the proofs grizzle's SQL carries: a row PostgreSQL delivers is decoded only where its
+ * statement's compiled proof says it can deliver it, never repaired on the host.
+ *
+ * - An attachment's delivery (core/decoder.ts): an array delivers its children, an Option at most one and the one child
+ *   exactly one; a child more than its proof allows, or the child a proof requires missing, is a defect naming the
+ *   attachment, never the first of several. Oracle: the specification of the deliveries, enumerated in a box of every
+ *   delivery, every proof that licenses it and every count of children up to three.
+ * - A statement's rows (reader/execution.ts rowsOf): every statement grizzle delivers, an attachment's included, is a
+ *   set, so its answer holding one row twice, under the column types' equality (1.5 and 1.50 alike), is
+ *   UnreadableAnswer at that statement, and an answer that is a set is stitched exactly. Oracle: a model of the delivered
+ *   set, the generated rows themselves, which are distinct by construction until the case plants a repeat.
+ * - A page's candidates (page/execute.ts pageEdges): the rows a request fetches strictly increase under its fetch order,
+ *   so the lookahead counts distinct rows; an equal tuple, a step back, or a row past the statement's LIMIT, the size
+ *   and its one lookahead row, is UnreadableAnswer at the rows statement. Oracle: the request's contract, edges the
+ *   first min(size, n) of n increasing rows and the lookahead n > size.
+ */
+import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"

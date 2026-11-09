@@ -20,7 +20,7 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, orderSubjectOf } from "#compiler/logical/annotate.ts"
 import { completeOrder, type OrderSubject } from "#compiler/logical/order.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"

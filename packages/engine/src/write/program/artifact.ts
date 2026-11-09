@@ -10,7 +10,6 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import type { StatementRole, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import { mapTree, type StatementRoots } from "#compiler/lower/conservative/types.ts"
 import {
 	type FusedStatement,
 	type OptimizedStatement,
@@ -25,7 +24,9 @@ import {
 	statementSpec,
 	writeSlotOf
 } from "#compiler/lower/template.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"

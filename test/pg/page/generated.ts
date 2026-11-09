@@ -45,15 +45,14 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
 	type ConservativeStatement,
-	flight,
-	keyColumns,
-	statementOutput
+	flight
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
-import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { declaredSlotOf, statementSpec } from "#compiler/lower/template.ts"
+import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
+import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"

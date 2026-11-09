@@ -6,11 +6,11 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
-	columnType,
 	type StatementParams
 } from "#compiler/lower/conservative/context.ts"
 import type { PageParamSlot } from "#compiler/lower/conservative/types.ts"
 import { isVectorType, typedCompare } from "#compiler/lower/conservative/vector/equality.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
 import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
 

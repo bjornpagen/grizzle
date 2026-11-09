@@ -38,7 +38,7 @@ import {
 	catalogPass,
 	rewriteCatalog
 } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { checkedQuery, lab, labOptions } from "#test/pg/catalog/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"

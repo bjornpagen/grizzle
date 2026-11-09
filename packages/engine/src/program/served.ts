@@ -10,7 +10,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { type PageStatementSlot, traverseTree } from "#compiler/lower/conservative/types.ts"
+import { type PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import type {
 	PageProbeProgram,
@@ -23,6 +23,7 @@ import type { PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts
 import { pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
+import { traverseTree } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ServedPage,
 	ServedPageProbe,

@@ -43,9 +43,10 @@ import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
+import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 
 import { type Direction, directions } from "#compiler/core/order.ts"
-import { armBoundedUnion, mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
+import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"

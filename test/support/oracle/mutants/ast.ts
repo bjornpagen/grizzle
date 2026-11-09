@@ -4,9 +4,9 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type ConservativeProgram,
-	type ConservativeStatement,
-	traverseTree
+	type ConservativeStatement
 } from "#compiler/lower/conservative/types.ts"
+import { traverseTree } from "#compiler/runtime/lower/tree.ts"
 import type {
 	CoreProjection,
 	Expr,

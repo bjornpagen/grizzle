@@ -10,12 +10,8 @@ import {
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
-import type {
-	ConservativeProgram,
-	StatementRole,
-	StatementRoots,
-	StatementTree
-} from "#compiler/lower/conservative/types.ts"
+import type { ConservativeProgram } from "#compiler/lower/conservative/types.ts"
+import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"

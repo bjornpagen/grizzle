@@ -13,7 +13,6 @@ import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
-	columnType,
 	distinctSelect,
 	type Env,
 	extendEnv,
@@ -25,6 +24,7 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
 import { col, target, unitTargets } from "#compiler/sql/build.ts"

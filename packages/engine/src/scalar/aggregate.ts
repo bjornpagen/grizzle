@@ -17,9 +17,9 @@ import {
 	exactNumericBound,
 	exactType,
 	familyDigits,
-	plainType,
 	valueType
 } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"

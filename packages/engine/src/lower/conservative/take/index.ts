@@ -1,6 +1,5 @@
 import {
 	columnIn,
-	columnType,
 	extendEnv,
 	headingTargets,
 	type Lowerers,
@@ -8,6 +7,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
 import { conjunction, distinctCore, select } from "#compiler/sql/build.ts"
 

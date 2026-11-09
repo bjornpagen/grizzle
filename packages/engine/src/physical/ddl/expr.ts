@@ -38,7 +38,7 @@ import {
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
 import { isDateParse, nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { and, cast, lit, tableCol } from "#compiler/sql/build.ts"

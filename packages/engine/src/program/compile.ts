@@ -9,7 +9,7 @@ import { contextAdmits, type TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
-import { flight, mapTree, type ProgramDelivery } from "#compiler/lower/conservative/types.ts"
+import { flight, type ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 
 import {
 	lowerOptimized,
@@ -36,6 +36,7 @@ import {
 } from "#compiler/program/schema.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { publicDesc, queryState } from "#compiler/query/build/state.ts"
+import { mapTree } from "#compiler/runtime/lower/tree.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"

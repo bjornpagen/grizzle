@@ -4,12 +4,9 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { dagDigestWithin } from "#compiler/ir/dag.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
-import type {
-	AttachedTree,
-	ConservativeStatement,
-	StatementRoots
-} from "#compiler/lower/conservative/types.ts"
+import type { ConservativeStatement } from "#compiler/lower/conservative/types.ts"
 import type { Arrival, Sent } from "#compiler/lower/shapes/index.ts"
+import type { AttachedTree, StatementRoots } from "#compiler/runtime/lower/tree.ts"
 
 /** The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read. */
 export const shareKey = (dag: RelDag, node: RelNode): Result.Result<string, CompileError> =>

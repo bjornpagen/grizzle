@@ -10,7 +10,7 @@ import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/deman
 import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 
 /**
  * Proved root pushdown: a predicate on a completed recursion's carried columns placed in its seed.

@@ -1,4 +1,3 @@
-import { firstIndex } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -32,10 +31,11 @@ import {
 	type OwnParamSlot,
 	type RelationColumn,
 	type RelationParamSlot,
-	type ScalarParamSlot,
-	unitColumn
+	type ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
+import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
+import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ArraysSource,
 	Cte,
@@ -114,17 +114,6 @@ export const refuse = (tag: ProseTag, at: string, capability: string): never =>
 	refuseAt(tag, loweringAt(at), capability)
 
 export const nodeLabel = (node: RelNode): string => `node ${node.id} (${node.kind})`
-
-/**
- * The column `name` found in a heading, or in a column map the lowering built over one, that holds it: the one site of
- * the fact that every column a node of the valid DAG names (a binding, a correlation, an order, a key, a carried or
- * bound column) is a column of the heading it names it in (valid DAG). The DAG is data built before any lowering, and
- * each lowering mints its own SQL expression per column under its own fresh aliases, so a reference can never hold what
- * it is resolved to: it names a column, and what it reads is a runtime map from names to expressions. No TypeScript
- * type ties a runtime name to the key set of a runtime map, so an absent one is a defect.
- */
-const namedColumn = <V>(found: V | undefined, name: string): V =>
-	defined(found, `a column ${name} of the heading the valid DAG names it in`)
 
 /** The column `name` of a column map the lowering built over a heading that holds it (namedColumn). */
 export const columnIn = <V>(map: ReadonlyMap<string, V>, name: string): V =>
@@ -857,20 +846,6 @@ const namedType = (p: PhysicalType, at: string): TypeRef =>
 /** The PostgreSQL type of a value of `t` (physicalTypeOf); a refinement without a domain name is refused. */
 export const physicalTypeRef = (names: PhysicalNames, t: ScalarType, at: string): TypeRef =>
 	namedType(physicalTypeOf(names, t), at)
-
-/** The type of the column `name` of `heading`, a column the valid DAG names in that heading (namedColumn). */
-export const columnType = (heading: Heading, name: string): ScalarType =>
-	namedColumn(
-		heading.find((h) => h.name === name),
-		name
-	).type
-
-/** The position of the column `name` in `heading`, a column the valid DAG names in that heading (namedColumn). */
-export const columnPosition = (heading: Heading, name: string): number =>
-	namedColumn(
-		firstIndex(heading, (h) => h.name === name),
-		name
-	)
 
 /** The output names of a heading: its columns, or the unit marker. */
 export const outputNames = (heading: Heading): NonEmptyReadonlyArray<string> =>

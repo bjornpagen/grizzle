@@ -68,7 +68,8 @@ import {
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, isFloat, plainType } from "#compiler/scalar/compute/types.ts"
+import { compatible, isFloat } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"

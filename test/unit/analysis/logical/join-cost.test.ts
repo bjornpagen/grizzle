@@ -1,12 +1,3 @@
-/**
- * The logical analysis of k relations matched in one region, each of two columns a and b, each its own declared key,
- * no variable shared: 2^k minimal keys, which one proof states over k independent factors (logical/props.ts finish).
- * Its work is counted, never timed (test/support/kernel/calls.ts), so no verdict depends on the machine: the closures
- * it computes and the minimal-key searches it runs grow linearly from k relations to 2k, where listing every minimal
- * key grew with 2^k. The counts are process-wide, so the gate runs alone in its file.
- *
- * The box is exhausted: k at 4, 5 and 6, each against twice it.
- */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -18,7 +9,16 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+/**
+ * The logical analysis of k relations matched in one region, each of two columns a and b, each its own declared key,
+ * no variable shared: 2^k minimal keys, which one proof states over k independent factors (logical/props.ts finish).
+ * Its work is counted, never timed (test/support/kernel/calls.ts), so no verdict depends on the machine: the closures
+ * it computes and the minimal-key searches it runs grow linearly from k relations to 2k, where listing every minimal
+ * key grew with 2^k. The counts are process-wide, so the gate runs alone in its file.
+ *
+ * The box is exhausted: k at 4, 5 and 6, each against twice it.
+ */
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"

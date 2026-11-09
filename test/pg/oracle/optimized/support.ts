@@ -22,11 +22,9 @@ import {
 	conservativeInput,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
-	flight,
-	keyColumns,
-	type StatementRoots,
-	statementOutput
+	flight
 } from "#compiler/lower/conservative/types.ts"
+import { keyColumns, statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 
 import {
 	lowerOptimized,

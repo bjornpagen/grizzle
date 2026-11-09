@@ -9,7 +9,6 @@ import { contractOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar
 import {
 	type ColumnMap,
 	columnIn,
-	columnType,
 	type Env,
 	extendEnv,
 	type LowerContext,
@@ -20,6 +19,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { aggregateExpr, groupAggregateOverload } from "#compiler/lower/conservative/group/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { AggregateOverload } from "#compiler/scalar/aggregate.ts"
 import type { Expr, FromItem, OperandSelect, TypeRef } from "#compiler/sql/ast.ts"
 import {

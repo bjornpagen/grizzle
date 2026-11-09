@@ -32,23 +32,14 @@ export {
 } from "#compiler/codec/scalar.ts"
 export type { PageFill, SizeFill } from "#compiler/ir/products.ts"
 export type { CompletedOrder, Heading, NodeOf, TakeBound } from "#compiler/ir/rel.ts"
-export { columnPosition, columnType } from "#compiler/lower/conservative/context.ts"
 export {
-	type AttachedTree,
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
 	flight,
 	type GroupMerge,
-	keyColumns,
-	mapTree,
 	type PageStatementSlot,
 	type ProgramDelivery,
-	type RelationColumn,
-	statementOutput,
-	type StatementOutput,
-	type StatementRoots,
-	type StatementTree,
-	traverseTree
+	type RelationColumn
 } from "#compiler/lower/conservative/types.ts"
 export {
 	type FusedAttachment,
@@ -80,12 +71,7 @@ export type {
 	ProbeKind,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
-export {
-	type ChoiceInput,
-	type RelationInput,
-	runsLargeForm
-} from "#compiler/lower/shapes/take/index.ts"
-export { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
+export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
 export {
 	pageStatementSlotOf,
 	type SpecifiedStatement,
@@ -104,6 +90,19 @@ export { hostArguments } from "#compiler/query/build/host.ts"
 export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 export { keyLookup, keyQuery } from "#compiler/query/build/key.ts"
 export { queryState } from "#compiler/query/build/state.ts"
+export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
+export { runsLargeForm } from "#compiler/runtime/lower/take.ts"
+export {
+	type AttachedTree,
+	keyColumns,
+	mapTree,
+	statementOutput,
+	type StatementOutput,
+	type StatementRoots,
+	type StatementTree,
+	traverseTree
+} from "#compiler/runtime/lower/tree.ts"
+export { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 export { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
 export { servedSource } from "#compiler/served/read.ts"
 export { servedSpine } from "#compiler/served/spine.ts"

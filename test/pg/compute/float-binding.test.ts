@@ -1,23 +1,3 @@
-/**
- * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
- * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
- *
- * Each case draws a tree of IEEE 754 arithmetic over the double precision and real columns of a ledger, nested so an
- * operand is itself an operation, with casts between the two widths, and reads it where a statement evaluates it for
- * every row: delivered per entry, summed and averaged per group, filtered on, grouped by, tested in the condition of
- * a delivered conditional, which a CASE evaluates for every row as its first WHEN, and tested in the condition of a
- * conditional that keys a filter's closed read, whose dictionary payload the read indexes by an expression of that key.
- * Two fact sets run it:
- *
- * - the edge classes of each float type, NaN and the infinities among them, through the conservative and the optimized
- *   lowering against the reference evaluator, which must agree exactly, or, for the closed read, which the reference
- *   evaluates none of, the optimized lowering against the conservative one;
- * - moderate values, small dyadic fractions none of whose operations leaves the native range of its type
- *   (scalar/compute/native.ts nativeRange), so every guarded form takes its fast path: each statement both lowerings
- *   send is planned under EXPLAIN ANALYZE, and no SubPlan or InitPlan of it runs, since the exact paths, the only
- *   bindings left in a branch, are never taken. A binding a statement evaluated per row in a scalar subquery shows as
- *   a SubPlan that ran once per row.
- */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -38,7 +18,27 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+/**
+ * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
+ * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
+ *
+ * Each case draws a tree of IEEE 754 arithmetic over the double precision and real columns of a ledger, nested so an
+ * operand is itself an operation, with casts between the two widths, and reads it where a statement evaluates it for
+ * every row: delivered per entry, summed and averaged per group, filtered on, grouped by, tested in the condition of
+ * a delivered conditional, which a CASE evaluates for every row as its first WHEN, and tested in the condition of a
+ * conditional that keys a filter's closed read, whose dictionary payload the read indexes by an expression of that key.
+ * Two fact sets run it:
+ *
+ * - the edge classes of each float type, NaN and the infinities among them, through the conservative and the optimized
+ *   lowering against the reference evaluator, which must agree exactly, or, for the closed read, which the reference
+ *   evaluates none of, the optimized lowering against the conservative one;
+ * - moderate values, small dyadic fractions none of whose operations leaves the native range of its type
+ *   (scalar/compute/native.ts nativeRange), so every guarded form takes its fast path: each statement both lowerings
+ *   send is planned under EXPLAIN ANALYZE, and no SubPlan or InitPlan of it runs, since the exact paths, the only
+ *   bindings left in a branch, are never taken. A binding a statement evaluated per row in a scalar subquery shows as
+ *   a SubPlan that ran once per row.
+ */
+import { plainType } from "#compiler/scalar/native.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"

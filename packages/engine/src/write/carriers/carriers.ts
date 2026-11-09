@@ -8,7 +8,8 @@ import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
-import { columnIn, columnType, emptyEnv } from "#compiler/lower/conservative/context.ts"
+import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import {
 	type Analyze,
 	type ColumnDef,

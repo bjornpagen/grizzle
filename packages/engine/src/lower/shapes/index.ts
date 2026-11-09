@@ -11,7 +11,6 @@ import {
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
-	columnType,
 	distinctSelect,
 	type Env,
 	emptyEnv,
@@ -42,16 +41,12 @@ import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
-	type AttachedTree,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
 	type ConservativeStatement,
 	type DeclaredParamSlot,
-	mapTree,
 	type PageParamSlot,
-	type StatementPlacement,
-	type StatementRoots,
-	statementOutput
+	type StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
@@ -90,6 +85,13 @@ import {
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
+import {
+	type AttachedTree,
+	mapTree,
+	statementOutput,
+	type StatementRoots
+} from "#compiler/runtime/lower/tree.ts"
 import {
 	type Cte,
 	isSetQuery,

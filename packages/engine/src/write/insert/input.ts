@@ -8,12 +8,12 @@ import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	arraysSource,
 	columnIn,
-	columnType,
 	emptyEnv,
 	outputNames,
 	relationColumns
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type {
 	Cte,
 	Expr,

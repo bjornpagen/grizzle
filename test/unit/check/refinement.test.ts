@@ -25,7 +25,8 @@ import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { plainType, sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert, defined, refused, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import {
 	charLength,

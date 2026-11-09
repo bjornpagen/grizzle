@@ -177,7 +177,6 @@ import {
 	meetingType,
 	meets,
 	mixesExact,
-	plainType,
 	sameRegex,
 	valueType,
 	wideningOf,
@@ -193,6 +192,7 @@ import {
 	lexicalTargetOf,
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import {
 	admitMatch,
 	type MatchAdmission,

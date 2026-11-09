@@ -1,10 +1,11 @@
 import type { ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
-import { columnType, emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
+import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
 import {
 	and,

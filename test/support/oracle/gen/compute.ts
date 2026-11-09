@@ -39,10 +39,9 @@ import {
 	isComputedNumeric,
 	meets as engineMeets,
 	meetingType,
-	mixesExact,
-	type PlainCarrier,
-	plainType
+	mixesExact
 } from "#compiler/scalar/compute/types.ts"
+import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

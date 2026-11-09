@@ -19,14 +19,10 @@ import {
 	type ConservativeStatement,
 	type DeclaredParamSlot,
 	type MemberParamSlot,
-	mapTree,
 	type PageParamSlot,
 	type PageStatementSlot,
 	type ProgramDelivery,
 	type RelationColumn,
-	type StatementOutput,
-	type StatementRoots,
-	statementOutput,
 	type WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import {
@@ -42,6 +38,12 @@ import type {
 	OptimizedStatement,
 	RelationChoice
 } from "#compiler/lower/shapes/index.ts"
+import {
+	mapTree,
+	type StatementOutput,
+	statementOutput,
+	type StatementRoots
+} from "#compiler/runtime/lower/tree.ts"
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"

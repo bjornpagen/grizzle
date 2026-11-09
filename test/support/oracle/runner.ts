@@ -44,9 +44,9 @@ import {
 	type ConservativeParamSlot,
 	type ConservativeProgram,
 	type ConservativeStatement,
-	flight,
-	statementOutput
+	flight
 } from "#compiler/lower/conservative/types.ts"
+import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

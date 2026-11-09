@@ -1,15 +1,3 @@
-/**
- * The IR builder the fixtures state their queries with.
- *
- * A fixture query is written as the checked relational IR the checker produces from the example's rule (one
- * MatchRegion per rule, a ProjectSet or Group for find, union arms grouped by heading, take, attach, recursion), so
- * the conservative lowering runs it without the query frontend. The builder takes every type from the fixture's
- * schema as ownership read it (test/support/evidence.ts ownedFixture): a stored relation's heading is its fields
- * resolved through scalarTypeOf and its keys are ownership's, a closed relation's is its handle and payload with its
- * declared facts as typed literal rows, and every operator is the Compute catalogue's native overload for its operands'
- * carriers (packages/engine/src/scalar/compute/registry.ts), so a fixture never invents an OpId. Every query is built through
- * DagBuilder, so it is validated before anything reads it.
- */
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import {
 	atomOperands,
@@ -62,9 +50,21 @@ import {
 	anyNumeric,
 	exactType,
 	familyDigits,
-	plainType,
 	wildcardText
 } from "#compiler/scalar/compute/types.ts"
+/**
+ * The IR builder the fixtures state their queries with.
+ *
+ * A fixture query is written as the checked relational IR the checker produces from the example's rule (one
+ * MatchRegion per rule, a ProjectSet or Group for find, union arms grouped by heading, take, attach, recursion), so
+ * the conservative lowering runs it without the query frontend. The builder takes every type from the fixture's
+ * schema as ownership read it (test/support/evidence.ts ownedFixture): a stored relation's heading is its fields
+ * resolved through scalarTypeOf and its keys are ownership's, a closed relation's is its handle and payload with its
+ * declared facts as typed literal rows, and every operator is the Compute catalogue's native overload for its operands'
+ * carriers (packages/engine/src/scalar/compute/registry.ts), so a fixture never invents an OpId. Every query is built through
+ * DagBuilder, so it is validated before anything reads it.
+ */
+import { plainType } from "#compiler/scalar/native.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"

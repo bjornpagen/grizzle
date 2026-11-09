@@ -19,7 +19,6 @@ import {
 
 import {
 	columnIn,
-	columnType,
 	type Env,
 	extendEnv,
 	headingTargets,
@@ -34,6 +33,7 @@ import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, FromItem, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
 	call,
@@ -169,17 +169,6 @@ export const chooseTakeShape = <I extends ChoiceInput>(
 			return { kind: "fixed", shape: whole }
 	}
 }
-
-/**
- * Whether one execution runs a per-execution choice's large form: "LATERAL when the
- * distinct parent count times the other parents' bound is at most lateralParentMax, the whole-relation form
- * otherwise". The threshold is lateralParentMax divided by that bound, rounded down, so for a whole count n,
- * n * factor <= lateralParentMax exactly when n <= threshold.
- */
-export const runsLargeForm = (
-	choice: { readonly threshold: number },
-	distinctCount: number
-): boolean => distinctCount > choice.threshold
 
 /**
  * A correlation is outer when its expression reads a column of some node; one fixed only by parameters and literals is

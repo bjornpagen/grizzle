@@ -1,9 +1,3 @@
-/**
- * Canonical cell keyed-set comparison (test/support/oracle/compare.ts): row multisets against a count-by-key oracle,
- * and runs whose cells spell values in any of their output spellings (1.0 and 1.00, -0 and 0) against a count of the
- * values those cells spell, which reads no spelling: two runs agree exactly when each holds every value once and they
- * hold one set of values, so a run that repeats a value agrees with nothing, a run repeating it alike included.
- */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -14,7 +8,14 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric } from "#compiler/scalar/compute/types.ts"
+/**
+ * Canonical cell keyed-set comparison (test/support/oracle/compare.ts): row multisets against a count-by-key oracle,
+ * and runs whose cells spell values in any of their output spellings (1.0 and 1.00, -0 and 0) against a count of the
+ * values those cells spell, which reads no spelling: two runs agree exactly when each holds every value once and they
+ * hold one set of values, so a run that repeats a value agrees with nothing, a run repeating it alike included.
+ */
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"

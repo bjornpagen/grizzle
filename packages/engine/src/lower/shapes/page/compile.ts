@@ -51,15 +51,11 @@ import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { completedOrderItems, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
-	type AttachedTree,
 	type ConservativeOptions,
 	type ConservativeStatement,
-	mapTree,
 	type PageParamSlot,
 	type PageStatementSlot,
-	type RowsRole,
-	type StatementPlacement,
-	type StatementRoots
+	type StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
@@ -106,7 +102,13 @@ import {
 import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import {
+	type AttachedTree,
+	mapTree,
+	type RowsRole,
+	type StatementRoots
+} from "#compiler/runtime/lower/tree.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import { and, keyedSet, or, provedCore, select, target } from "#compiler/sql/build.ts"
 

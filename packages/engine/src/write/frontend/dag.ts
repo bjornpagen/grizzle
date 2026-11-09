@@ -44,7 +44,7 @@ import {
 	sameScalarType,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
-import { columnType } from "#compiler/lower/conservative/context.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { typeFitProof } from "#compiler/scalar/compute/lower.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { widening, wideningOf } from "#compiler/scalar/compute/types.ts"

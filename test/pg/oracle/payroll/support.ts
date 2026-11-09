@@ -5,14 +5,11 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import {
-	type ConservativeParamSlot,
-	flight,
-	type StatementRoots
-} from "#compiler/lower/conservative/types.ts"
+import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
+import type { StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { delivered, executeStatements, orderProblems } from "#test/pg/oracle/optimized/support.ts"
 import { succeeded } from "#test/support/assert.ts"

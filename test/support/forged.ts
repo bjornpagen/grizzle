@@ -1,14 +1,15 @@
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { Array as Arr, Option, Result } from "effect"
+import { canonicalTag } from "#compiler/core/canonical.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 /**
  * Forged carrier instances: what a JavaScript caller can build that looks like a Decimal, a Money or a Vector without
  * the checked constructors, each named, with the PostgreSQL value it stands for, as PostgreSQL's own text of it, stated
  * apart from grizzle. The host property (test/unit/values/forged.test.ts) and the PostgreSQL differential
  * (test/pg/codec/forged.test.ts) draw their cases here.
  */
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Result } from "effect"
-import { canonicalTag } from "#compiler/core/canonical.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { defined } from "#test/support/assert.ts"

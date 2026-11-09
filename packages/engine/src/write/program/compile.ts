@@ -21,7 +21,7 @@ import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalo
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
-import { flight, mapTree, type WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import { flight, type WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import {
@@ -41,6 +41,8 @@ import {
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { declaredSlotOf, statementSpec, writeSlotOf } from "#compiler/lower/template.ts"
+import { mapTree } from "#compiler/runtime/lower/tree.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { NameSupply, namesPast } from "#compiler/sql/naming.ts"
@@ -67,7 +69,7 @@ import {
 
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type AppendedMember,
 	additionsSql,

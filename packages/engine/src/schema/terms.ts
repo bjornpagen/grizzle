@@ -20,7 +20,7 @@ import {
 	registerUntyped,
 	termExpr
 } from "#compiler/scalar/compute/term.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { describeField, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { literalFor, untypedLiteral } from "#compiler/schema/literal.ts"
 import {

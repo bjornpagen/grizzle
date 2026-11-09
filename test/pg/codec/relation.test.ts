@@ -14,7 +14,8 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	type FactIdentity,

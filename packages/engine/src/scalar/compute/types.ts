@@ -28,7 +28,8 @@ import {
 	castOf,
 	definedIdOf
 } from "#compiler/scalar/compute/registry.ts"
-import { nativeCapabilities, numericValue } from "#compiler/scalar/registry.ts"
+import { nativeCapabilities, type PlainCarrier } from "#compiler/scalar/native.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 
 /**
  * The native capabilities of each carrier: the field registry's table (scalar/registry.ts), so a
@@ -37,26 +38,8 @@ import { nativeCapabilities, numericValue } from "#compiler/scalar/registry.ts"
 const carrierCapabilities: { readonly [C in Carrier]: ReadonlyArray<Capability> } =
 	nativeCapabilities
 
-/**
- * The plain carriers an operation result can have without further metadata. numeric is none: a computed numeric
- * carries its bound (numericValue).
- */
-export type PlainCarrier =
-	| "int2"
-	| "int4"
-	| "int8"
-	| "float4"
-	| "float8"
-	| "money"
-	| "bool"
-	| "date"
-
 /** A registered result: a plain carrier, numeric, or an exact one, whose bound the lowering derives. */
 export type ResultCarrier = PlainCarrier | "numeric" | ExactValueCarrier
-
-/** The plain result type of a carrier, frozen: no contract. */
-export const plainType = (carrier: PlainCarrier): ScalarType =>
-	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), contract: undefined })
 
 /** The exact type of `carrier` whose values lie below 10^digits (ir/scalar.ts ExactType), frozen. */
 export const exactType = (carrier: ExactValueCarrier, digits: number): ScalarType =>

@@ -6,16 +6,18 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ConservativeProgram,
-	deliveredHeading,
 	flight,
+	type ProgramDelivery
+} from "#compiler/lower/conservative/types.ts"
+import {
+	deliveredHeading,
 	keyColumns,
 	mapTree,
-	type ProgramDelivery,
 	type RowsRole,
+	statementOutput,
 	type StatementRoots,
-	type StatementTree,
-	statementOutput
-} from "#compiler/lower/conservative/types.ts"
+	type StatementTree
+} from "#compiler/runtime/lower/tree.ts"
 
 import {
 	type FusedAttachment,

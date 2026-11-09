@@ -1,20 +1,3 @@
-/**
- * Key inferences the logical analysis makes over four shapes, each searched against an oracle written apart from it: a
- * closure brute-forced over the shape's own dependencies, which each inference must reach exactly, and the reference
- * evaluator over generated facts, on which every key and dependency the analysis claims must hold (support.ts
- * logicalUnsound, which also holds every proof to the key kernel).
- *
- * - Closed columns of identical values: two columns of one type a closed relation holds one value in, fact by fact,
- *   are one class, and a column whose values are distinct is a key.
- * - A lateral source's fixed column: a region's variable bound to a column its lateral source fixes to a region
- *   column's value equals that column's variable, each determining the other, so the region's keys are exactly the
- *   minimal sets its matches and that equality determine its heading by.
- * - Projections of a join: a node keeps every attribute of its input it does not deliver as a hidden one, so whether
- *   some columns of two stacked projections determine others is exactly their closure in the join, a dependency whose
- *   determinants hold a dropped column included.
- * - Keys of joined relations of two declared keys each: one proof over independent factors, the keys its factors'
- *   choices state exactly the join's minimal keys (the work it takes is join-cost.test.ts's).
- */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -42,7 +25,24 @@ import {
 } from "#compiler/logical/annotate.ts"
 import { closure } from "#compiler/logical/closure.ts"
 import type { Props } from "#compiler/logical/props.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+/**
+ * Key inferences the logical analysis makes over four shapes, each searched against an oracle written apart from it: a
+ * closure brute-forced over the shape's own dependencies, which each inference must reach exactly, and the reference
+ * evaluator over generated facts, on which every key and dependency the analysis claims must hold (support.ts
+ * logicalUnsound, which also holds every proof to the key kernel).
+ *
+ * - Closed columns of identical values: two columns of one type a closed relation holds one value in, fact by fact,
+ *   are one class, and a column whose values are distinct is a key.
+ * - A lateral source's fixed column: a region's variable bound to a column its lateral source fixes to a region
+ *   column's value equals that column's variable, each determining the other, so the region's keys are exactly the
+ *   minimal sets its matches and that equality determine its heading by.
+ * - Projections of a join: a node keeps every attribute of its input it does not deliver as a hidden one, so whether
+ *   some columns of two stacked projections determine others is exactly their closure in the join, a dependency whose
+ *   determinants hold a dropped column included.
+ * - Keys of joined relations of two declared keys each: one proof over independent factors, the keys its factors'
+ *   choices state exactly the join's minimal keys (the work it takes is join-cost.test.ts's).
+ */
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts, type GenFacts, type LiteralRow } from "#test/support/oracle/gen/facts.ts"

@@ -21,22 +21,24 @@ import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
 import { refineConservative } from "#compiler/lower/conservative/refined.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
 import {
-	type AttachedTree,
 	type ConservativeProgram,
 	type ConservativeStatement,
 	type DeclaredParamSlot,
 	type DeliveredBreach,
-	deliveredHeading,
 	type GroupMerge,
-	type KeyColumn,
 	noColumns,
 	type PageParamSlot,
 	type ProgramDelivery,
-	type StatementPlacement,
-	type StatementRoots,
-	statementOutput
+	type StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
+import {
+	type AttachedTree,
+	deliveredHeading,
+	type KeyColumn,
+	statementOutput,
+	type StatementRoots
+} from "#compiler/runtime/lower/tree.ts"
 import type {
 	CountStar,
 	Cte,

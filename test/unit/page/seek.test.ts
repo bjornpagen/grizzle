@@ -17,7 +17,7 @@ import {
 	type SeekKey,
 	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import type { BinaryOperator, Expr } from "#compiler/sql/ast.ts"
 import { asc, col, desc, param, types } from "#compiler/sql/build.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"

@@ -1,7 +1,6 @@
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
-	columnType,
 	distinctSelect,
 	type Env,
 	extendEnv,
@@ -9,6 +8,7 @@ import {
 	type LowerContext,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, Select } from "#compiler/sql/ast.ts"
 import {
 	conjunction,

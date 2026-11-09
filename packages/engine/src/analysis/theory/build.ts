@@ -38,10 +38,9 @@ import {
 	commonType,
 	exactNumericBound,
 	numericHull,
-	type PlainCarrier,
-	plainType,
 	valueType
 } from "#compiler/scalar/compute/types.ts"
+import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 
 /** A refusal deep inside a construction is the kernel's Refusal, caught at the theory boundary (catchRefusal). */

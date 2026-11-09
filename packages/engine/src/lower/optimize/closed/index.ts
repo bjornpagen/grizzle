@@ -20,7 +20,7 @@ import {
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 
 const membershipRule = "R07.closedMembership"
 

@@ -128,13 +128,12 @@ import {
 	literalNumeric,
 	meetingType,
 	meets,
-	type PlainCarrier,
-	plainType,
 	valueType,
 	wildcardText,
 	widening,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"

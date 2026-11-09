@@ -1,9 +1,3 @@
-/**
- * Scalar types for tests, each the one the registry builds (scalar/registry.ts scalarTypeOf): no test states a
- * ScalarType as a literal, so every capability set a test meets is production's. Beside them, what only tests read of
- * scalar types and text refinements: a predicate table's normal form, the plain carriers, the refinement-dropping
- * widening, and a refinement's host NFA membership and language.
- */
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -21,17 +15,24 @@ import {
 } from "#compiler/ir/scalar.ts"
 import {
 	exactNumericBound,
-	type PlainCarrier,
 	valueType,
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+/**
+ * Scalar types for tests, each the one the registry builds (scalar/registry.ts scalarTypeOf): no test states a
+ * ScalarType as a literal, so every capability set a test meets is production's. Beside them, what only tests read of
+ * scalar types and text refinements: a predicate table's normal form, the plain carriers, the refinement-dropping
+ * widening, and a refinement's host NFA membership and language.
+ */
+import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
 
-export { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+export { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
+export { plainType } from "#compiler/scalar/native.ts"
 
 /**
  * The declared type of `desc`, a closed id's or a set's roster read from `rosters` (roster name to its handles in

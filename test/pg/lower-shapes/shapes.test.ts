@@ -17,9 +17,9 @@ import {
 	conservativeInput,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
-	flight,
-	statementOutput
+	flight
 } from "#compiler/lower/conservative/types.ts"
+import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { defined, unorderedEqual } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { fixtureGroup, type ResetGroup, replaceRows } from "#test/support/substrate/replace.ts"

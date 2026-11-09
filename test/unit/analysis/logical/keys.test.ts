@@ -19,7 +19,7 @@ import {
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import { minimalKeys } from "#compiler/logical/closure.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { plainType } from "#compiler/scalar/native.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
