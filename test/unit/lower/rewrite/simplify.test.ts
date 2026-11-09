@@ -34,6 +34,8 @@ import {
 
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -619,8 +621,11 @@ describe("branch removal", () => {
 							)
 						}
 						const isEmpty = (arm: number) => (vacuous & (1 << arm)) !== 0
-						const built = Arr.makeBy(arms, (arm) =>
-							isEmpty(arm) ? empty() : q.project(postings(q), [["id", "id"]], conservativeMeta)
+						const built = nonEmptyList(
+							upTo(arms, (arm) =>
+								isEmpty(arm) ? empty() : q.project(postings(q), [["id", "id"]], conservativeMeta)
+							),
+							"the arms"
 						)
 						const [first] = built
 						const left = arms === 1 ? first : q.union(built, [])
@@ -628,7 +633,7 @@ describe("branch removal", () => {
 						const dag = ran.query.dag
 						const [root] = dag.roots
 						const live = Arr.filter(
-							Arr.makeBy(arms, (arm) => arm),
+							upTo(arms, (arm) => arm),
 							(arm) => !isEmpty(arm)
 						).length
 						assert.equal(

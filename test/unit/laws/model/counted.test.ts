@@ -26,6 +26,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	brokenBy,
 	drawnColumn,
@@ -119,7 +120,7 @@ const stateOf = (drawn: Drawn, stored: FoldStored): State =>
 
 /** One owner's family of `size` members, numbered from 10, beside owner 2's one member, 20. */
 const familiesOf = (size: number): ReadonlyArray<FoldFamily> => [
-	{ owner: 1, members: Arr.makeBy(size, (k) => ({ member: 10 + k, x: 0n, selected: true })) },
+	{ owner: 1, members: upTo(size, (k) => ({ member: 10 + k, x: 0n, selected: true })) },
 	{ owner: 2, members: [{ member: 20, x: 0n, selected: true }] }
 ]
 
@@ -132,13 +133,13 @@ const permutations = (k: number): ReadonlyArray<ReadonlyArray<number>> =>
 	k === 0
 		? [[]]
 		: Arr.flatMap(permutations(k - 1), (p) =>
-				Arr.makeBy(k, (at) => [...p.slice(0, at), k - 1, ...p.slice(at)])
+				upTo(k, (at) => [...p.slice(0, at), k - 1, ...p.slice(at)])
 			)
 
 const changes: Arr.NonEmptyReadonlyArray<Change> = nonEmpty([
 	...Arr.flatMap(
 		Arr.makeBy(4, (k) => k + 1),
-		(size) => Arr.makeBy(size, (at): Change => ({ kind: "swap with last", size, at }))
+		(size) => upTo(size, (at): Change => ({ kind: "swap with last", size, at }))
 	),
 	...Arr.flatMap(
 		Arr.makeBy(5, (k) => k),
@@ -167,6 +168,9 @@ const variants: Arr.NonEmptyReadonlyArray<Variant> = [
 	"a junk end"
 ]
 
+/** The variants that change a member the family holds, so an empty family carries none of them. */
+const ofMembers: ReadonlyArray<Variant> = ["a stale copy", "a junk accumulator at slot 0"]
+
 type Case =
 	| { readonly kind: "plan"; readonly change: Change }
 	| { readonly kind: "lawless"; readonly size: number; readonly variant: Variant }
@@ -175,7 +179,11 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = nonEmpty([
 	...Arr.map(changes, (change): Case => ({ kind: "plan", change })),
 	...Arr.flatMap(
 		Arr.makeBy(5, (k) => k),
-		(size) => Arr.map(variants, (variant): Case => ({ kind: "lawless", size, variant }))
+		(size) =>
+			Arr.map(
+				Arr.filter(variants, (variant) => size > 0 || !Arr.contains(ofMembers, variant)),
+				(variant): Case => ({ kind: "lawless", size, variant })
+			)
 	)
 ])
 
@@ -197,7 +205,7 @@ const statementsOf = (
 			return { from, statements: swapWithLast(count, from, 1, change.at).statements }
 		case "append": {
 			const added = nonEmpty(
-				Arr.makeBy(change.order.length, (k) => ({ member: 30 + k, x: 0n, selected: true }))
+				upTo(change.order.length, (k) => ({ member: 30 + k, x: 0n, selected: true }))
 			)
 			return { from, statements: appended(count, from, 1, added, change.order).statements }
 		}
@@ -272,11 +280,11 @@ describe("a counted family's natives admit grizzle's plans and refuse every lawl
 						suite: "unit/laws/model/counted",
 						generator: element(cases),
 						literal: Formatter.format,
-						/** The space: 10 swaps, 15 appends, and 5 family sizes × 7 variants. */
+						/** The space: 10 swaps, 15 appends, and 5 family sizes × 7 variants, but the 2 an empty family cannot carry. */
 						limit: cases.length,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
-						box: "one owner of 0 to 4 members beside one of one: every swap-with-last, every append of 1 or 2 in every order, every named lawless variant",
+						box: "one owner of 0 to 4 members beside one of one: every swap-with-last, every append of 1 or 2 in every order, every named lawless variant its family can carry",
 						oracle: {
 							kind: "second-implementation",
 							name: "NP's counted planner and the family law, judged by a host model of the natives"

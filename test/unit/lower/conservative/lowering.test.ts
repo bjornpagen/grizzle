@@ -47,6 +47,7 @@ import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/or
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
 import {
 	Account,
@@ -500,7 +501,7 @@ describe("heterogeneous unions", () => {
 									conservativeMeta
 								)
 							const isAttached = (arm: number) => (attached & (1 << arm)) !== 0
-							const built = Arr.makeBy(arms, (arm) =>
+							const built = upTo(arms, (arm) =>
 								isAttached(arm)
 									? q.attach(
 											ids(Account, "id"),
@@ -524,7 +525,7 @@ describe("heterogeneous unions", () => {
 							)
 							const r = lowered(q.build(q.union(built, [])))
 							const carrying = Arr.filter(
-								Arr.makeBy(arms, (arm) => arm),
+								upTo(arms, (arm) => arm),
 								isAttached
 							).length
 							if (carrying === 0) {
@@ -573,7 +574,7 @@ describe("regions", () => {
 					generator: (source) => {
 						const count = source.draw(int(2, 3))
 						return {
-							sources: Arr.makeBy(count, () => source.draw(int(0, 1))),
+							sources: upTo(count, () => source.draw(int(0, 1))),
 							read: source.draw(int(0, count - 2))
 						}
 					},

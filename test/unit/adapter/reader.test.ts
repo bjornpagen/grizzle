@@ -46,6 +46,7 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 /**
@@ -287,7 +288,7 @@ interface InputCase {
 
 const inputCaseGen: Gen<InputCase> = (source) => {
 	const width = source.draw(int(1, columnNames.length))
-	const positions = Arr.makeBy(width, (i) => i)
+	const positions = upTo(width, (i) => i)
 	return {
 		width,
 		facts: source.draw(
@@ -356,7 +357,7 @@ const factsOf = (c: InputCase): ReadonlyArray<Fact> => {
 		case "few":
 			return Arr.map(c.facts.facts, (values) => fact((i) => defined(values[i], "a fact's value")))
 		case "many": {
-			const many = Arr.makeBy(c.facts.count, (n) => fact(() => n))
+			const many = upTo(c.facts.count, (n) => fact(() => n))
 			return [...many, fact(() => 0)]
 		}
 	}

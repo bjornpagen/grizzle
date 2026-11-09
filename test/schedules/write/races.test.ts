@@ -132,6 +132,7 @@ import {
 import { type StepOutcome } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const ids = ["1", "2", "3"] as const
 const labels = ["a", "b", "c"] as const
@@ -227,7 +228,7 @@ const memberGen: Gen<Member> = oneOf([
 	map(idGen, (id): Member => ({ kind: "copied", id })),
 	enumerated("insert", "Code", 1),
 	enumerated("put", "Code", 1),
-	map(int(1, 2), (n): Member => ({ kind: "generated", labels: Arr.makeBy(n, () => "") })),
+	map(int(1, 2), (n): Member => ({ kind: "generated", labels: upTo(n, () => "") })),
 	enumerated("insert", "Ticket", 1),
 	enumerated("insert", "Room", 1),
 	enumerated("put", "Room", 1),

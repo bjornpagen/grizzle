@@ -17,6 +17,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -74,10 +75,6 @@ type OrderFeature =
 	| "an owner with members on both sides"
 	| "an owner with no members"
 	| "immutable owners"
-
-/** `f` of 0 to n - 1: none for n = 0, where Arr.makeBy makes one. */
-const upTo = <A>(n: number, f: (i: number) => A): ReadonlyArray<A> =>
-	n === 0 ? [] : Arr.makeBy(n, f)
 
 const sortedIds = (ids: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(ids, Order.String)
 

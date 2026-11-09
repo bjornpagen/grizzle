@@ -78,6 +78,7 @@ import {
 } from "#test/support/fixtures/api/work.ts"
 import { dictionaryNameGen, type IdentifierFeature } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	descOf,
 	BookEntry,
@@ -506,7 +507,7 @@ const bound = (c: ModelChangeSet, entries: ReadonlyArray<BindEntry>): ModelChang
 
 const unionOf = (a: ModelChangeSet, b: ModelChangeSet): ModelChangeSet => ({
 	level: defined(higherLevel(a.level, b.level), "related levels"),
-	strata: Arr.makeBy(Math.max(a.strata.length, b.strata.length), (i) => [
+	strata: upTo(Math.max(a.strata.length, b.strata.length), (i) => [
 		...(a.strata[i] ?? []),
 		...(b.strata[i] ?? [])
 	]),

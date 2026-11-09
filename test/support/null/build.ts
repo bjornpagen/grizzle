@@ -32,6 +32,7 @@ import {
 	type Val,
 	type World
 } from "#test/support/null/language.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Any text: the pattern every text of the language lies in. */
 const Wild = str.regex("^.*$", "su")
@@ -42,7 +43,7 @@ const flagOf = (code: number): string => `f${code}`
 /** Handles h(0) … h(n − 1). */
 const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArray<string> => [
 	h(0),
-	...Arr.makeBy(n - 1, (code) => h(code + 1))
+	...upTo(n - 1, (code) => h(code + 1))
 ]
 
 /** A numeric(3, 1) of `tenths` tenths. */

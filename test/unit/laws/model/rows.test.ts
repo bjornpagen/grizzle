@@ -12,6 +12,7 @@ import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { assert, refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
 
 /**
@@ -183,7 +184,7 @@ describe("a relation's rows fit one heap tuple", () => {
 							const columns = (k: number): ReadonlyArray<Column> => [
 								{ kind: uuidKind, nullable: false },
 								...Arr.map(prefix, (kind): Column => ({ kind, nullable: false })),
-								...Arr.makeBy(k, (): Column => ({ kind: int8, nullable: false }))
+								...upTo(k, (): Column => ({ kind: int8, nullable: false }))
 							]
 							let fits = 0
 							while (specified(columns(fits + 1)) <= heapTupleMaxBytes.value) {
@@ -210,7 +211,7 @@ describe("a relation's rows fit one heap tuple", () => {
 											...Rec.fromEntries(
 												Arr.map(prefix, (kind, i) => [`p${i}`, kind.desc] as const)
 											),
-											...Rec.fromEntries(Arr.makeBy(k, (i) => [`c${i}`, f.bigint] as const))
+											...Rec.fromEntries(upTo(k, (i) => [`c${i}`, f.bigint] as const))
 										},
 										["id"]
 									)

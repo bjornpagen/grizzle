@@ -32,6 +32,7 @@ import { bytesChunkLength } from "#compiler/core/limits.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { outputRows } from "#test/support/wire.ts"
 
 /** A drawn cell: a text column's text, or a bytes column's value. */
@@ -168,7 +169,7 @@ const sent = (
 	!kinds.includes("bytes")
 		? Arr.map(rows, (cells) => Arr.map(cells, textOf))
 		: Arr.flatMap(rows, (cells, r) =>
-				Arr.makeBy(resultRowsOf(cells, chunk), (i) => [
+				upTo(resultRowsOf(cells, chunk), (i) => [
 					String(ords[r]),
 					String(i),
 					...Arr.map(cells, (cell) =>

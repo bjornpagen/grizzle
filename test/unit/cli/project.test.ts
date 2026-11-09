@@ -81,6 +81,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftCodes, parsedMigrationName } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The loop a person runs over a project, without a database, as a state machine over the command line: edit the
@@ -559,7 +560,7 @@ type Refusal =
 /** The longest migration name, at the file name limit once its timestamp prefixes it. */
 const longestName = parsedMigrationName(
 	Arr.join(
-		Arr.makeBy(maxMigrationNameLength.value, () => "a"),
+		upTo(maxMigrationNameLength.value, () => "a"),
 		""
 	)
 )
@@ -722,7 +723,7 @@ const findingsOf = (s: SchemaState): ReadonlyArray<FindingKind> => {
 		return ["strayEntry"]
 	}
 	const files: ReadonlyArray<FindingKind> = Arr.flatMap(s.folders, (f) => [
-		...(f.placeholders > 0 ? Arr.makeBy(f.placeholders, (): FindingKind => "placeholder") : []),
+		...(f.placeholders > 0 ? upTo(f.placeholders, (): FindingKind => "placeholder") : []),
 		...(f.loss === "undecided" ? (["unresolvedLoss"] as const) : [])
 	])
 	const committed = s.committed

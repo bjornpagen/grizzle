@@ -103,6 +103,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A family of the root level: its owner and its member, an earlier relation owning a later one, ordered or counted. */
 interface FamilyDraw {
@@ -182,10 +183,6 @@ const familiesOf = (draws: ReadonlyArray<FamilyDraw>): ReadonlyArray<FamilyDraw>
 
 const distinct = <A>(xs: ReadonlyArray<A>): ReadonlyArray<A> => [...new Set(xs)]
 
-/** `f` of 0 to n - 1: none for n = 0, where Arr.makeBy makes one. */
-const upTo = <A>(n: number, f: (i: number) => A): ReadonlyArray<A> =>
-	n === 0 ? [] : Arr.makeBy(n, f)
-
 const caseGen: Gen<SliceCase> = (s) => {
 	const roots = s.draw(int(2, 4))
 	const tops = s.draw(int(0, 2))
@@ -228,7 +225,7 @@ const caseGen: Gen<SliceCase> = (s) => {
 		(r: RoleDraw): Gen<Read> =>
 		(t) => {
 			const options: ReadonlyArray<Read> = [
-				...Arr.makeBy(roots, (at): Read => ({ kind: "root", at })),
+				...upTo(roots, (at): Read => ({ kind: "root", at })),
 				...upTo(tops, (at): Read => ({ kind: "top", at })),
 				...Arr.map(derived, (at): Read => ({ kind: "derived", at })),
 				...Arr.map(chained, (at): Read => ({ kind: "chained", at })),
@@ -410,7 +407,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 		name: "Slice",
 		relations: [
 			closed(roster, ["red", "green"]),
-			...Arr.makeBy(c.roots, (i) => relation(rootName(i), rootFields(c, i), ["id"]))
+			...upTo(c.roots, (i) => relation(rootName(i), rootFields(c, i), ["id"]))
 		],
 		statements: rootStatements(c),
 		extends: undefined

@@ -18,6 +18,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
@@ -254,7 +255,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 										const shelved = yield* db.apply(
 											ChangeSet.empty(o.schema).insert(
 												Shelf,
-												Arr.makeBy(d.shelves, (id) => ({ id }))
+												upTo(d.shelves, (id) => ({ id }))
 											),
 											{}
 										)

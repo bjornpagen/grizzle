@@ -44,6 +44,7 @@ import {
 	unowned
 } from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 /**
@@ -802,13 +803,13 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 		chain,
 		held: source.draw(
 			weighted<ReadonlyArray<boolean>>([
-				[3, constant(Arr.makeBy(length, () => true))],
+				[3, constant(upTo(length, () => true))],
 				[1, array(boolean, { min: length, max: length })]
 			])
 		),
 		reviewed: source.draw(
 			weighted<ReadonlyArray<boolean>>([
-				[3, constant(Arr.makeBy(length, () => true))],
+				[3, constant(upTo(length, () => true))],
 				[1, array(boolean, { min: length, max: length })]
 			])
 		),

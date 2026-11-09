@@ -4,7 +4,7 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
+import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
@@ -29,6 +29,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * `grizzle generate` compiles every program of a login's workloads exactly as DbLayer.make does, through the one
@@ -72,7 +73,7 @@ const widthsOf = (head: Head): ReadonlyArray<Width> => [
 const side = <const Name extends string>(name: Name, prefix: string, count: number) => {
 	const fields: Readonly<Record<string, typeof uuid | typeof pg.boolean>> = {
 		id: uuid,
-		...Rec.fromEntries(Arr.makeBy(count, (i) => [`${prefix}${i}`, pg.boolean] as const))
+		...Rec.fromEntries(upTo(count, (i) => [`${prefix}${i}`, pg.boolean] as const))
 	}
 	return relation(name, fields, ["id"])
 }

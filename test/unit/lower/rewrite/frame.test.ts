@@ -36,6 +36,8 @@ import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	caseQuery,
@@ -79,10 +81,16 @@ describe("a DAG's roots", () => {
 								constants: {}
 							})
 							/** Each other root a projection of its own region, which simplification keeps. */
-							const built: Rooted = Arr.makeBy(roots, (i) =>
-								i === at
-									? q.filter(q.region([occurrence()]), q.lit({ kind: "bool", value: true }, T.bool))
-									: q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
+							const built: Rooted = nonEmptyList(
+								upTo(roots, (i) =>
+									i === at
+										? q.filter(
+												q.region([occurrence()]),
+												q.lit({ kind: "bool", value: true }, T.bool)
+											)
+										: q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
+								),
+								"the roots"
 							)
 							const ran = succeeded(
 								simplifyPass.run(

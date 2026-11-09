@@ -15,6 +15,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A query's compiled statements grow with the query, never faster: a query attaching n relations, each its own, and the
@@ -32,7 +33,7 @@ const linear = 2.5
 const attachments = 100
 
 /** A child's `width` own fields beside its key and its parent's. */
-const childFields = (width: number): ReadonlyArray<string> => Arr.makeBy(width, (i) => `f${i}`)
+const childFields = (width: number): ReadonlyArray<string> => upTo(width, (i) => `f${i}`)
 
 /** A relation built at run time: its type is the widest the relation constructor gives. */
 type RelationValue = Relation<
@@ -83,7 +84,7 @@ const attached = (
 ): { readonly query: QueryValue; readonly schema: unknown } => {
 	const fields = childFields(width)
 	const root = keyedRelation("Root", [], ["rank"])
-	const kids = Arr.makeBy(n, (i) => keyedRelation(`Kid${i}`, ["parent"], fields))
+	const kids = upTo(n, (i) => keyedRelation(`Kid${i}`, ["parent"], fields))
 	const declared: Record<string, RelationValue> = { Root: root }
 	for (const kid of kids) {
 		declared[kid.name] = kid

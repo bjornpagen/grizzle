@@ -40,8 +40,10 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Startup work, counted and never timed, so no verdict depends on the machine: the calls a schema's build and every
@@ -157,17 +159,17 @@ type Generated = Relation<string, Record<string, FieldBase>, readonly [string, .
  * relation of `rows` rows a relation's rows are held to. */
 const schemaOf = (size: Size) => {
 	const Ident = str.regex("^[a-z0-9_]{1,64}$")
-	const A = closed("GuardA", ["a0", ...Arr.makeBy(size.rows - 1, (i) => `a${i + 1}`)])
+	const A = closed("GuardA", ["a0", ...upTo(size.rows - 1, (i) => `a${i + 1}`)])
 	const B = closed("GuardB", ["b0"])
 	const Weight = closed.relation(
 		"Weight",
 		{ a: closedId(A), b: closedId(B), w: pg.integer },
 		["a", "b"],
-		Arr.makeBy(size.rows, (i) => ({ a: `a${i}`, b: "b0" as const, w: i }))
+		upTo(size.rows, (i) => ({ a: `a${i}`, b: "b0" as const, w: i }))
 	)
 	const fields: Record<string, FieldBase> = { id: Ident, parent: Ident, code: Ident }
 	const primary: readonly [string, ...Array<string>] = ["id"]
-	const ordinary: ReadonlyArray<Generated> = Arr.makeBy(size.relations, (i) =>
+	const ordinary: ReadonlyArray<Generated> = upTo(size.relations, (i) =>
 		relation(`G${i}`, fields, primary)
 	)
 	const Pick = relation("Pick", { id: Ident, a: closedId(A), b: closedId(B) }, ["id"])
@@ -195,8 +197,11 @@ const schemaOf = (size: Size) => {
 
 /** The login of a size over its built schema: its full roles, and a workload over the first of keyed lookups. */
 const loginOf = (size: Size, base: AnySchema, made: ReturnType<typeof schemaOf>) => {
-	const [first, ...rest] = Arr.makeBy(size.roles, (i) =>
-		role(base, `guard${i}`, made.entries, { write: made.written, refresh: [] })
+	const [first, ...rest] = nonEmptyList(
+		upTo(size.roles, (i) =>
+			role(base, `guard${i}`, made.entries, { write: made.written, refresh: [] })
+		),
+		"the login's roles"
 	)
 	const programs = workload(
 		first,

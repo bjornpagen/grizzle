@@ -22,6 +22,7 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
@@ -263,7 +264,7 @@ describe("attachment statements fed from an earlier one", () => {
 						/** One to three attachments, each of one of the three filters. */
 						generator: (source) => {
 							const count = source.draw(int(1, 3))
-							return Arr.makeBy(count, () => source.draw(int(0, 2)))
+							return upTo(count, () => source.draw(int(0, 2)))
 						},
 						limit: 39,
 						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),

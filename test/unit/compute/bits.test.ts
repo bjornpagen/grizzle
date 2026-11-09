@@ -46,6 +46,7 @@ import {
 } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { paramText } from "#test/support/wire.ts"
 
 /** The codes a roster of the box has minted, holes included. */
@@ -248,7 +249,7 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			}
 			if (
 				Arr.some(
-					Arr.makeBy(k, (below) => below),
+					upTo(k, (below) => below),
 					(below) => !isSet(live, below)
 				)
 			) {

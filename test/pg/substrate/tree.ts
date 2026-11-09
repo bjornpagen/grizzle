@@ -33,6 +33,7 @@ import { indices, maxOf } from "#compiler/core/array.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { qualified, tuple } from "#test/support/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * One row of the tree relation as a writer sends it: its fields, and the two copies the host draws from its parent's
@@ -1352,12 +1353,12 @@ export const loadTree = (rows: number, fanout: number): Arr.NonEmptyReadonlyArra
 	const parentOf = (i: number) => (i === 0 ? 0 : Math.floor((i - 1) / fanout))
 	const kidsOf = (i: number) =>
 		Arr.filter(Arr.range(i * fanout + 1, i * fanout + fanout), (k) => k < rows)
-	const sizes = Arr.makeBy(rows, () => 1)
+	const sizes = upTo(rows, () => 1)
 	for (let i = rows - 1; i > 0; i -= 1) {
 		sizes[parentOf(i)] = defined(sizes[parentOf(i)]) + defined(sizes[i])
 	}
 	/** Pre-order starts, top-down: a first child one past its parent, each next one past its predecessor's subtree. */
-	const starts = Arr.makeBy(rows, () => 0)
+	const starts = upTo(rows, () => 0)
 	for (let i = 0; i < rows; i += 1) {
 		let next = defined(starts[i]) + 1
 		for (const k of kidsOf(i)) {

@@ -37,13 +37,14 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** PostgreSQL's limit on a table's attribute numbers, live and dropped (htup_details.h MaxHeapAttributeNumber). */
 const maxAttributes = tableMaxColumns.value
 
 /** The columns of a version: `prefix0 … prefix(n − 1)`, each int2, beside the key. */
 const columnsOf = (prefix: string, n: number): ReadonlyArray<string> =>
-	Arr.makeBy(n, (i) => `${prefix}${i}`)
+	upTo(n, (i) => `${prefix}${i}`)
 
 /** A wide relation of its key and the given int2 columns. */
 const wide = (name: string, columns: ReadonlyArray<string>) =>

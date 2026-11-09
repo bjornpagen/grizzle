@@ -26,6 +26,7 @@ import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/tra
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { transformOperand, testTypeSchema } from "#test/support/sql.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Where a cell's value came from.
  *
@@ -686,7 +687,7 @@ const bitwise = (op: "&" | "|", a: string, b: string): string => {
 	}
 	return Arr.join(
 		Arr.map(
-			Arr.makeBy(a.length, (i) => i),
+			upTo(a.length, (i) => i),
 			(i) =>
 				op === "&"
 					? a[i] === "1" && b[i] === "1"
@@ -1215,7 +1216,7 @@ const windowColumn = (
 		call.fn.kind === "builtin" ? call.fn.name : unevaluable(`the window function ${call.fn.name}`)
 	const at = (e: Expr, row: number): SqlValue => evaluate(e, scopeOf(row))
 	const partitions = new Map<string, Array<number>>()
-	for (const row of Arr.makeBy(count, (i) => i)) {
+	for (const row of upTo(count, (i) => i)) {
 		const key = groupText(Arr.map(spec.partitionBy, (e) => at(e, row)))
 		const members = partitions.get(key) ?? []
 		members.push(row)
@@ -1320,7 +1321,7 @@ const windowColumn = (
 			)
 		}
 	}
-	return Arr.makeBy(count, (row) => out.get(row))
+	return upTo(count, (row) => out.get(row))
 }
 
 class Model {
@@ -2494,7 +2495,7 @@ class Model {
 		if (c.groupBy.length === 0) {
 			groups.set(
 				"",
-				Arr.makeBy(rows.length, (i) => i)
+				upTo(rows.length, (i) => i)
 			)
 		}
 		for (const [i, row] of c.groupBy.length === 0 ? [] : rows.entries()) {

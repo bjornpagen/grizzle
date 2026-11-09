@@ -48,6 +48,7 @@ import {
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The law-bearing schema families of the generated suites.
@@ -256,7 +257,7 @@ export const stageName = (i: number): string => `s${i}`
 const drawnRuns = (p: RunsParams) => {
 	const names: readonly [string, ...Array<string>] = [
 		stageName(0),
-		...Arr.makeBy(p.roster - 1, (i) => stageName(i + 1))
+		...upTo(p.roster - 1, (i) => stageName(i + 1))
 	]
 	const DrawnStage = closed("Stage", names)
 	const Run = relation("Run", { id: pg.integer, stage: closedId(DrawnStage), note: label }, ["id"])

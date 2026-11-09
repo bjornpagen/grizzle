@@ -83,6 +83,7 @@ import {
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const kinds = ["counted", "ordered", "tree"] as const
 type Kind = (typeof kinds)[number]
@@ -414,13 +415,13 @@ const familyRows: Gen<ReadonlyArray<Stored>> = (source) => {
 /** One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the
  * other's, every node keyed apart in any order, and each node's two tags. */
 const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
-	const shapes = Arr.makeBy(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
+	const shapes = upTo(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
 	const total = Arr.reduce(shapes, 0, (sum, shape) => sum + shape.length + 1)
 	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
 	let offset = 0
 	const rows = Arr.flatMap(shapes, (shape, doc) => {
 		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
-		const nodes = Arr.makeBy(shape.length + 1, (node) => ({
+		const nodes = upTo(shape.length + 1, (node) => ({
 			id: idOf(node),
 			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
 			doc,

@@ -70,6 +70,7 @@ import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/s
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { outputText, paramText } from "#test/support/wire.ts"
 
 /**
@@ -140,7 +141,7 @@ const patternOf = (mask: number): RosterState => {
 /** Every hole pattern of a 5-code roster, each with one live code at least: masks 1 … 31. */
 const patterns: NonEmptyReadonlyArray<RosterState> = nonEmpty(
 	Arr.map(
-		Arr.makeBy(2 ** patternSize - 1, (i) => i + 1),
+		upTo(2 ** patternSize - 1, (i) => i + 1),
 		patternOf
 	),
 	"the patterns"
@@ -689,7 +690,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						const stale = yield* sessionOf(m, first.writer, "cached writer")
 						const pid = yield* stale.pid
 						for (const h of histories) {
-							for (const code of Arr.makeBy(sizeOf(h.installed), (c) => c)) {
+							for (const code of upTo(sizeOf(h.installed), (c) => c)) {
 								yield* judgeCode(m, stale, {
 									state: h.installed,
 									code,

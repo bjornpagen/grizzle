@@ -35,6 +35,7 @@ import {
 	Substrate,
 	type SubstrateShape
 } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * How a search stops a case in flight: its deadline's cut, its hang guard, or the interruption of the search itself.
@@ -65,8 +66,7 @@ type Plan = ReadonlyArray<ReadonlyArray<Held>>
 const heldGen: Gen<ReadonlyArray<Held>> = (source) =>
 	Arr.map(source.draw(subarray(roleWords)), (word) => ({ word, session: source.draw(boolean) }))
 
-const planGen: Gen<Plan> = (source) =>
-	Arr.makeBy(source.draw(int(1, 2)), () => source.draw(heldGen))
+const planGen: Gen<Plan> = (source) => upTo(source.draw(int(1, 2)), () => source.draw(heldGen))
 
 /**
  * A case of the property: how the search is stopped, how many of its cases run at once, which case, in the order they

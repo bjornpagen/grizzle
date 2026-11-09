@@ -29,6 +29,7 @@ import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -203,7 +204,7 @@ const caseGen: Gen<RewriteCase> = (s) => {
 		n: t.draw(int(0, 2)),
 		m: t.draw(int(0, 2))
 	})
-	const pick = Arr.makeBy(kinds, (): Picked | undefined =>
+	const pick = upTo(kinds, (): Picked | undefined =>
 		s.draw(boolean) ? { t: s.draw(textGen), f: s.draw(doubleGen) } : undefined
 	)
 	const held = Arr.some(pick, (p) => p !== undefined)
@@ -211,7 +212,7 @@ const caseGen: Gen<RewriteCase> = (s) => {
 	return {
 		kinds,
 		pick,
-		allowed: Arr.makeBy(kinds, () => s.draw(boolean)),
+		allowed: upTo(kinds, () => s.draw(boolean)),
 		checked: s.draw(pred),
 		generated: s.draw(pred),
 		contained: s.draw(pred),
@@ -382,7 +383,7 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 }
 
 const schemaOf = (c: RewriteCase) => {
-	const Kind = closed("Kind", [kindOf(0), ...Arr.makeBy(c.kinds - 1, (i) => kindOf(i + 1))])
+	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
 		{ kind: closedId(Kind), t: Short, f: pg.float8 },

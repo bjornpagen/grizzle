@@ -43,7 +43,9 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import type {
 	BaseSpec,
@@ -133,13 +135,13 @@ const roster = (
 	armOf: (i: number) => number | undefined,
 	mutableAll: boolean
 ): SchemaDesc => {
-	const key = Arr.makeBy(keyWidth, (i) => `k${i + 1}`)
+	const key = upTo(keyWidth, (i) => `k${i + 1}`)
 	const keyFields = Rec.fromEntries(Arr.map(key, (k) => [k, f.integer] as const))
-	const handles = Arr.makeBy(size, (i) => `h${i}`)
+	const handles = upTo(size, (i) => `h${i}`)
 	const Roster = closed("Roster", handles)
 	const Node = relation("Node", { ...keyFields, kind: f.closedId("Roster") }, key)
 	const armIndexes = [
-		...new Set(Arr.flatMap(Arr.makeBy(size, armOf), (j) => (j === undefined ? [] : [j])))
+		...new Set(Arr.flatMap(upTo(size, armOf), (j) => (j === undefined ? [] : [j])))
 	]
 	const arms = new Map(
 		Arr.map(
@@ -242,7 +244,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 		case "parent key fields":
 			return schemaAt(roster(2, n, (i) => i, true))
 		case "participating tables": {
-			const sources = Arr.makeBy(n, (i) =>
+			const sources = upTo(n, (i) =>
 				relation(`Source${i}`, { id: f.integer, target: f.integer, active: f.boolean }, ["id"])
 			)
 			return schemaAt(
@@ -262,7 +264,10 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 			)
 		}
 		case "selector fields": {
-			const selectors = Arr.makeBy(n, (i) => `s${i}`)
+			const selectors = nonEmptyList(
+				upTo(n, (i) => `s${i}`),
+				"the selectors"
+			)
 			return schemaAt(
 				schemaOf(
 					"Scaled",
@@ -294,7 +299,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 		}
 		case "relations": {
 			/** Each team's members number 1 to its cap: a counted family over the team's drawn n, and a check of n. */
-			const pairs = Arr.makeBy(n, (i) => [
+			const pairs = upTo(n, (i) => [
 				relation(`Team${i}`, { id: f.integer, cap: f.bigint, n: f.drawn }, ["id"]),
 				relation(`Member${i}`, { id: f.integer, team: f.integer }, ["id"])
 			])
@@ -303,7 +308,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 					"Scaled",
 					Arr.flatten(pairs),
 					Arr.flatMap(
-						Arr.makeBy(n, (i) => i),
+						upTo(n, (i) => i),
 						(i) => [
 							counted(on(`Member${i}`, ["team"]), fin(`Team${i}`, "n")),
 							check(
@@ -326,7 +331,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 					[
 						closed(
 							"Color",
-							Arr.makeBy(n, (i) => `c${i}`)
+							upTo(n, (i) => `c${i}`)
 						),
 						relation("Paint", { id: f.integer, color: f.closedId("Color") }, ["id"])
 					],
@@ -336,15 +341,21 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 		case "roles":
 			return worldsAt(
 				baseOf([item], []),
-				Arr.makeBy(n, (i) => fullOn(`r${i}`, [item]))
+				nonEmptyList(
+					upTo(n, (i) => fullOn(`r${i}`, [item])),
+					"the roles"
+				)
 			)
 		case "entries per role": {
-			const relations = Arr.makeBy(n, (i): RelationSpec => ({
-				name: `E${i}`,
-				fields: [{ name: "id", domain: uuidDomain }],
-				key: ["id"],
-				mutability: "immutable"
-			}))
+			const relations = nonEmptyList(
+				upTo(n, (i): RelationSpec => ({
+					name: `E${i}`,
+					fields: [{ name: "id", domain: uuidDomain }],
+					key: ["id"],
+					mutability: "immutable"
+				})),
+				"the relations"
+			)
 			return worldsAt(baseOf(relations, []), [fullOn("reader", relations)])
 		}
 		case "world views":
@@ -352,7 +363,7 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 				{
 					name: "reader",
 					entries: Rec.fromEntries(
-						Arr.makeBy(n, (i) => [`View${i}`, ownedItems(literalTerm(i), [])] as const)
+						upTo(n, (i) => [`View${i}`, ownedItems(literalTerm(i), [])] as const)
 					),
 					write: [],
 					refresh: []
@@ -362,7 +373,10 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 			const claims: ContextSpec = {
 				name: "Claims",
 				claim: { kind: "top-level" },
-				fields: Arr.makeBy(n, (i) => ({ name: `c${i}`, domain: integerDomain }))
+				fields: nonEmptyList(
+					upTo(n, (i) => ({ name: `c${i}`, domain: integerDomain })),
+					"the context fields"
+				)
 			}
 			const owner = variable("owner")
 			return worldsAt(baseOf([item], [claims]), [

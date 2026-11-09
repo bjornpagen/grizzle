@@ -66,6 +66,7 @@ import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The `grizzle` command line without a database: argument parsing, folder timestamps and the lean configuration file.
@@ -152,7 +153,7 @@ const valueGen: Gen<string> = map(array(element(valueParts), { min: 1, max: 3 })
 
 /** The longest migration name, at the file name limit once its timestamp prefixes it. */
 const longestName = Arr.join(
-	Arr.makeBy(maxMigrationNameLength.value, () => "a"),
+	upTo(maxMigrationNameLength.value, () => "a"),
 	""
 )
 

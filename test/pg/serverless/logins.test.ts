@@ -18,6 +18,7 @@ import { installMigrated as install, loadMigrated as load } from "#test/support/
 import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
@@ -210,7 +211,7 @@ layer(Substrate.layer)("logins in one process", (it) => {
 								const requests: ReadonlyArray<Request> =
 									program.kind === "drawn requests"
 										? program.requests
-										: Arr.makeBy(program.count, (n) => ({
+										: upTo(program.count, (n) => ({
 												installation: program.installation,
 												role: n % 2 === 0 ? "reader" : "auditor"
 											}))

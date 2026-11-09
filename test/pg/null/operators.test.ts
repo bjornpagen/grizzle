@@ -72,6 +72,7 @@ import {
 import { checking, owning } from "#test/support/policy.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Every operation of grizzle's scalar language over operands that are each NULL or one of two values, on PostgreSQL
@@ -321,7 +322,7 @@ interface OperatorCase {
 
 const caseGen: Gen<OperatorCase> = (s) => {
 	const operation = s.draw(element(operations))
-	return { operation, slots: Arr.makeBy(arityOf(operation), () => s.draw(slotGen)) }
+	return { operation, slots: upTo(arityOf(operation), () => s.draw(slotGen)) }
 }
 
 /** What a case evaluates: a predicate, a term, which a check orders against a literal, or a rounding of a slot. */

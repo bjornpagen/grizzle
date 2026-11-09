@@ -393,6 +393,21 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["test/**"],
+				rules: active({
+					/** A test's support modules draw the cases its searches run, so a count they pass makeBy holds there too. */
+					"testing/no-clamped-count": "error"
+				})
+			},
+			{
+				files: ["packages/testing/**"],
+				rules: active({
+					/** The library's own suites cannot import the repository's test support, and each count they pass makeBy is
+					 * drawn at least 1. */
+					"testing/no-clamped-count": "off"
+				})
+			},
+			{
 				files: ["test/support/kernel/naming.ts"],
 				rules: active({ "devtools/test-no-spelled-names": "off" })
 			},

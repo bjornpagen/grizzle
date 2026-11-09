@@ -2,6 +2,7 @@ import { Array as Arr, Record } from "effect"
 import type { DummyRuleMap } from "oxlint"
 import type { Rule } from "#oxlint/rule.ts"
 import { noBooleanAssert } from "#oxlint/rules/no-boolean-assert.ts"
+import { noClampedCount } from "#oxlint/rules/no-clamped-count.ts"
 import { noErrorProse } from "#oxlint/rules/no-error-prose.ts"
 import { noExampleTable } from "#oxlint/rules/no-example-table.ts"
 import { noFixedSeed } from "#oxlint/rules/no-fixed-seed.ts"
@@ -14,6 +15,7 @@ import { noWallClockVerdict } from "#oxlint/rules/no-wall-clock-verdict.ts"
 /** Every rule of the plugin, by its name. */
 const RULES = {
 	"no-boolean-assert": noBooleanAssert,
+	"no-clamped-count": noClampedCount,
 	"no-error-prose": noErrorProse,
 	"no-example-table": noExampleTable,
 	"no-fixed-seed": noFixedSeed,

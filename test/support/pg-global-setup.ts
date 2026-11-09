@@ -1,5 +1,5 @@
 import { NodeServices } from "@effect/platform-node"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Duration, Effect } from "effect"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
@@ -8,6 +8,7 @@ import { run, runOptions } from "#test/support/process.ts"
 import { ensureSharedDatabase, sweep } from "#test/support/substrate/shared.ts"
 import { dropRole } from "#test/support/substrate/substrate.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * How long the doctor's quick checks may run: as long as one test may (testTimeout). They open a dozen psql sessions
@@ -17,7 +18,7 @@ import { networkWorkers } from "#test/support/substrate/workers.ts"
 const doctorTimeout = Duration.millis(testTimeout.value)
 
 /** The index of every worker's shared database: 1 to the run's worker count. */
-const workers: ReadonlyArray<number> = Arr.makeBy(networkWorkers, (index) => index + 1)
+const workers: ReadonlyArray<number> = upTo(networkWorkers, (index) => index + 1)
 
 /**
  * The global setup and teardown of `pnpm test:network` (vitest.network.config.ts), which Vitest runs once per run in

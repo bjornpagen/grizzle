@@ -50,8 +50,10 @@ import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The counted family before it: owners keyed by id, members keyed by member, each with its owner g and a value x. */
 const before = (name: string) =>
@@ -189,7 +191,10 @@ const familyGen: Gen<Family> = (source) => {
 	const total = source.draw(int(0, 6))
 	const counts = source.draw(composition(total, owners))
 	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	const tags = Arr.makeBy(owners, () => source.draw(int(-valueBound, valueBound)))
+	const tags = nonEmptyList(
+		upTo(owners, () => source.draw(int(-valueBound, valueBound))),
+		"the owners' tags"
+	)
 	let at = 0
 	const members: Array<WrittenMember> = []
 	for (const [g, count] of counts.entries()) {
@@ -228,7 +233,7 @@ interface Forest {
  * kind.
  */
 const forestGen: Gen<Forest> = (source) => {
-	const shapes = Arr.makeBy(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
+	const shapes = upTo(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
 	const sizes = Arr.map(shapes, (shape) => shape.length + 1)
 	const total = Arr.reduce(sizes, 0, (sum, size) => sum + size)
 	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
@@ -239,7 +244,7 @@ const forestGen: Gen<Forest> = (source) => {
 	const trees = Arr.map(shapes, (shape, t) => {
 		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
 		const doc = defined(docs[t], "a tree's root value")
-		const nodes = Arr.makeBy(shape.length + 1, (node) => ({
+		const nodes = upTo(shape.length + 1, (node) => ({
 			id: idOf(node),
 			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
 			doc,

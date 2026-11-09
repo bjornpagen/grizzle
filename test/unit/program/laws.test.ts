@@ -106,6 +106,7 @@ import {
 	ownedStatementText
 } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { bareContract } from "#test/unit/schema/support.ts"
 
 type Flags = "u" | "su"
@@ -398,7 +399,7 @@ const schemaCaseGen: Gen<SchemaCase> = (source) => {
 					kind: "above",
 					restated: source.draw(
 						shuffled(
-							Arr.makeBy(coreStatements, (i) => i),
+							upTo(coreStatements, (i) => i),
 							{ min: 0, max: Math.min(2, coreStatements) }
 						)
 					)

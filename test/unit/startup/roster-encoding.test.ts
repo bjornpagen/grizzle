@@ -24,7 +24,9 @@ import { closed, key, on, relation, schema, select } from "#compiler/public/sche
 import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** An atom of a guard. */
 type Atom =
@@ -84,7 +86,7 @@ const handleAt = (i: number): string => `h${Str.padStart(4, "0")(String(i))}`
 
 /** The characters of the canonical text of every guard of T's guarded keys, the roster Kind of `size` handles. */
 const encodedAt = (guard: Guard, size: number): number => {
-	const handles = Arr.makeBy(size, handleAt)
+	const handles = nonEmptyList(upTo(size, handleAt), "the roster's handles")
 	const Kind = closed("Kind", handles)
 	const Weight = closed.relation(
 		"Weight",

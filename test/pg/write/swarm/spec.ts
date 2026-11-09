@@ -58,6 +58,7 @@ import {
 	uuidOfRow,
 	verdictOf
 } from "#test/support/families/fill.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** An extra fold end over a family: max over its member's `v`, or or over its member's set `b`, into its owner's `e<f>`. */
 export interface EndSpec {
@@ -304,7 +305,7 @@ const coreGen =
 		const kept = (feature: SwarmFeature): boolean => source.draw(keep(features, feature))
 		const size = space(scale)
 		const n = source.draw(int(2, size.relations))
-		const relations = Arr.makeBy(n, (): RelationSpec => ({
+		const relations = upTo(n, (): RelationSpec => ({
 			generated: kept("generated"),
 			mutable: kept("mutable")
 		}))
@@ -435,7 +436,7 @@ const aroundGen =
 			source.draw(keep(features, "plain set")) || source.draw(keep(features, "plain referrer"))
 				? source.draw(int(0, size.plains))
 				: 0
-		const plains = Arr.makeBy(m, (): PlainSpec => ({
+		const plains = upTo(m, (): PlainSpec => ({
 			kind:
 				source.draw(swarmChoice(features, ["plain set", "plain referrer"] as const)) === "plain set"
 					? "set"

@@ -41,6 +41,7 @@ import {
 	followUpRows,
 	type InstanceRow
 } from "#test/support/families/fill.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Element of a non-empty list drawn uniformly. */
 const pick =
@@ -147,7 +148,7 @@ const referrersGen =
 			if (!Arr.isReadonlyArrayNonEmpty(targets)) {
 				return []
 			}
-			return Arr.makeBy(source.draw(int(0, 3)), (i): PlainRow => {
+			return upTo(source.draw(int(0, 3)), (i): PlainRow => {
 				const [r, x] = source.draw(pick(targets))
 				return { kind: "referrer", plain, id: first + plain * 100 + i, r, x }
 			})
@@ -293,7 +294,7 @@ export const stepsGen =
 		const strata = kept("strata")
 		const shape = (): Shape => ({ split: kept("split members"), repeat: kept("repeated fact") })
 		const later: Array<Later> = [
-			...Arr.makeBy(kept("follow-ups") ? source.draw(int(1, 3)) : 0, (): Later => "follow"),
+			...upTo(kept("follow-ups") ? source.draw(int(1, 3)) : 0, (): Later => "follow"),
 			...(kept("query put") ? ["query put" as const] : []),
 			...(kept("delete all") ? ["delete all" as const] : [])
 		]

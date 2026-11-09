@@ -36,6 +36,7 @@ import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type Family,
 	type Flags,
@@ -160,13 +161,13 @@ const wordsGen: Gen<Growth> = (source) => {
 	const length = source.draw(int(2, 6))
 	const wordOf = (i: number): string =>
 		Arr.join(
-			Arr.makeBy(length, (d) =>
+			upTo(length, (d) =>
 				escaped(defined(points[Math.floor(i / points.length ** d) % points.length], "a point"))
 			),
 			""
 		)
 	return {
-		at: (n) => `^(?:${Arr.join(Arr.makeBy(n * 100, wordOf), "|")})$`,
+		at: (n) => `^(?:${Arr.join(upTo(n * 100, wordOf), "|")})$`,
 		top: Math.min(Math.floor(points.length ** length / 100), 1_024)
 	}
 }
@@ -189,7 +190,7 @@ const colorsGen: Gen<Growth> = (source) => {
 	return {
 		at: (n) =>
 			`^(?:${Arr.join(
-				Arr.makeBy(n * 100, (i) => `${escaped(base + i)}y`),
+				upTo(n * 100, (i) => `${escaped(base + i)}y`),
 				"|"
 			)})$`,
 		top: 255

@@ -21,7 +21,7 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
@@ -38,6 +38,7 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The one value every fact of a case holds: 64 MiB, so sixteen facts of one column pass a message. */
@@ -112,7 +113,7 @@ describe("a write of large bytes values", () => {
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const facts = Arr.makeBy(d.facts, (id) =>
+								const facts = upTo(d.facts, (id) =>
 									d.columns === 1 ? { id, body: value } : { id, body: value, more: value }
 								)
 								const change =

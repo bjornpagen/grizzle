@@ -47,6 +47,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	accumulatedOf,
 	decodedStatements,
@@ -197,7 +198,7 @@ const boxCase =
 		const rightSelected = boolean(source)
 		const width = int(1, 3)(source)
 		const options = typedPairs(left, right, was)
-		const pairs = Arr.makeBy(width, () => defined(options[source.pick(0, options.length - 1)]))
+		const pairs = upTo(width, () => defined(options[source.pick(0, options.length - 1)]))
 		return { left, right, leftSelected, rightSelected, pairs }
 	}
 

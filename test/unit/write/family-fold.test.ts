@@ -37,6 +37,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { compiledModel } from "#test/unit/laws/model/natives.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -205,7 +206,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 	const type = fieldOf[s.carrier]
 	const start = descOf(s.carrier, identityOf(foldMonoid(s))[0])
 	const accumulated = () => f.accumulated(type, start)
-	const planeNames = Arr.makeBy(planes(s), (p) => p)
+	const planeNames = upTo(planes(s), (p) => p)
 	const named = s.accumulators === "named"
 	const step = [
 		"owner",
@@ -308,7 +309,7 @@ const caseGen: Gen<FoldCase> = (source) => {
 	const shape = source.draw(element(SHAPES))
 	const n = source.draw(int(0, 3))
 	const values = shape.monoid === "count" ? ([0n] as const) : valuesOf(shape)
-	const members = Arr.makeBy(n, () => ({
+	const members = upTo(n, () => ({
 		x: source.draw(element(values)),
 		flag: source.draw(element([false, true]))
 	}))

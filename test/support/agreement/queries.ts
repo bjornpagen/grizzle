@@ -83,6 +83,7 @@ import {
 	preludeImports,
 	preludeProgram
 } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The type/engine agreement: queries drawn over the agreement schema (./schema.ts), each with the engine's verdict on
@@ -2498,7 +2499,7 @@ const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 }
 
 /** The components of a vector value of `dims` dimensions, each nonzero, so its norm is in the cosine domain. */
-const componentsOf = (dims: number): ReadonlyArray<number> => Arr.makeBy(dims, (i) => (i + 1) / 2)
+const componentsOf = (dims: number): ReadonlyArray<number> => upTo(dims, (i) => (i + 1) / 2)
 
 /** An Allen mask as the program writes it: its names joined by `|`, under ALLEN's complement or converse. */
 const maskText = (mask: Mask): string => {

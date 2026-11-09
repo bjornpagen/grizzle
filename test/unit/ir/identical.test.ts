@@ -23,6 +23,7 @@ import { decodeWith } from "#compiler/ir/shape.ts"
 import { assert } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
@@ -90,7 +91,7 @@ const sitesOf = (root: unknown): Sites => {
 			}
 		} else if (value instanceof Roster) {
 			roster.push([...path, "closed"])
-			for (const i of Arr.makeBy(value.handles.length, (at) => at)) {
+			for (const i of upTo(value.handles.length, (at) => at)) {
 				roster.push([...path, "handles", i])
 			}
 		} else {
@@ -98,7 +99,7 @@ const sitesOf = (root: unknown): Sites => {
 			if (text === undefined) {
 				plain.push(path)
 			} else {
-				for (const i of Arr.makeBy(text.length, (at) => at)) {
+				for (const i of upTo(text.length, (at) => at)) {
 					if (steppedDigit(text, i) !== undefined) {
 						decimal.push([...path, "digits", i])
 					}

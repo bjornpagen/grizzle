@@ -53,6 +53,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { defined } from "#test/support/assert.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A family's kind: a tree on one relation, or an ordered or a counted family of an owner and a member. */
 export type FamilyKind = "tree" | "ordered" | "counted"
@@ -289,7 +290,7 @@ export const fillSpecGen =
 		const features: Swarm<FillFeature> = source.draw(swarm(Arr.copy(fillFeatures)))
 		const kept = (feature: FillFeature): boolean => source.draw(keep(features, feature))
 		const n = source.draw(int(1, space.relations))
-		const relations = Arr.makeBy(n, () => ({
+		const relations = upTo(n, () => ({
 			generated: kept("generated"),
 			mutable: kept("mutable")
 		}))

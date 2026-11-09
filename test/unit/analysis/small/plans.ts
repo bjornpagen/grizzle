@@ -14,6 +14,8 @@ import {
 	type SourceDesc,
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	closedName,
 	type FieldName,
@@ -781,7 +783,12 @@ const plansOf = (grammar: Grammar, operators: number): Gen<Plan> =>
  * comparing or correlating columns offers only integer ones.
  */
 export const plansUpTo = (grammar: Grammar, operators: number): Gen<Plan> =>
-	oneOf(Arr.makeBy(operators, (i) => plansOf(grammar, i + 1)))
+	oneOf(
+		nonEmptyList(
+			upTo(operators, (i) => plansOf(grammar, i + 1)),
+			"the plans of one to the most operators"
+		)
+	)
 
 /** The plan in the builder's words, for a failure report. */
 export const printPlan = (plan: Plan): string =>

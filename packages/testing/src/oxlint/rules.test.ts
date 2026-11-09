@@ -198,6 +198,20 @@ tester.run("no-boolean-assert", plugin.rules["no-boolean-assert"], {
 	]
 })
 
+tester.run("no-clamped-count", plugin.rules["no-clamped-count"], {
+	valid: [
+		valid("const rows = Arr.makeBy(3, (i) => i)"),
+		valid("const width = 4\nconst cells = Arr.makeBy(width, (i) => i)"),
+		valid("const rows = upTo(n, (i) => i)")
+	],
+	invalid: [
+		invalid("const rows = Arr.makeBy(n, (i) => i)", "clampedCount", 1),
+		invalid("const rows = Arr.makeBy(0, (i) => i)", "clampedCount", 1),
+		invalid("const rows = Arr.makeBy(n - 1, (i) => i)", "clampedCount", 1),
+		invalid("const rows = pipe(3, Arr.makeBy((i) => i))", "clampedCount", 1)
+	]
+})
+
 tester.run("no-fixed-seed", plugin.rules["no-fixed-seed"], {
 	valid: [
 		valid("explore(spec, property)"),

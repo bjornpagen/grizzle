@@ -50,6 +50,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The bound on growth from k to 2k: linear, with ε for the parts that do not grow. */
 const linear = 2.5
@@ -74,7 +75,7 @@ type Counts = Readonly<Record<keyof typeof sites, number>>
 const loginOf = (k: number) => {
 	const T = relation("T", { id: uuid, kind: pg.integer, a: uuid }, ["id"])
 	const U = relation("U", { id: uuid }, ["id"])
-	const keys: ReadonlyArray<Statement> = Arr.makeBy(k, (j) =>
+	const keys: ReadonlyArray<Statement> = upTo(k, (j) =>
 		key(
 			on(
 				select(T, (t) => t.eq(t.kind, j)),
@@ -202,7 +203,7 @@ const orderSites = {
 /** The comparisons ordering the installation of r relations, each keyed by its id, with no law between them. */
 const orderedAt = (r: number) =>
 	Effect.gen(function* () {
-		const relations = Arr.makeBy(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
+		const relations = upTo(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
 		const owned = succeeded(
 			ownedInput(
 				schema("Tables", Rec.fromEntries(Arr.map(relations, (t) => [t.name, t] as const)), [])

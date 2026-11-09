@@ -56,6 +56,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -237,7 +238,7 @@ const wildGen: Gen<string> = (s) => textAt(s.draw(int(0, 6)))
 const shortGen: Gen<string> = (s) => textAt(s.draw(int(1, 6)))
 
 /** Codes 0 … n − 1. */
-const codesBelow = (n: number): ReadonlyArray<number> => Arr.makeBy(n, (code) => code)
+const codesBelow = (n: number): ReadonlyArray<number> => upTo(n, (code) => code)
 
 const payloadGen =
 	(flags: number): Gen<Payload> =>
@@ -638,7 +639,7 @@ const flagOf = (code: number): string => `f${code}`
 /** Handles h(0) … h(n − 1). */
 const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArray<string> => [
 	h(0),
-	...Arr.makeBy(n - 1, (code) => h(code + 1))
+	...upTo(n - 1, (code) => h(code + 1))
 ]
 
 const Units = contract("Units", pg.integer, (x) => x.le(5))

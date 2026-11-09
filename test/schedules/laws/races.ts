@@ -79,6 +79,7 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import { upTo } from "#test/support/up-to.ts"
 /**
  * The threats a transaction draws, and the writers' features: each writer kind, immediate constraints, each form of a
  * direct writer's put at a fact's key (the SQL put its relation admits, or a replacement), and each choice of a planted
@@ -1092,7 +1093,7 @@ const skewStartsOf = <P>(
 		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened).length
 		return Arr.flatMap(
-			Arr.makeBy(laws, (l) => pickOf(l, laws)),
+			upTo(laws, (l) => pickOf(l, laws)),
 			(law) =>
 				Arr.flatMap(plantedInitials(env, law), (initial) =>
 					Arr.flatMap(
@@ -1154,7 +1155,7 @@ const windowStartsOf = <P>(
 		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened).length
 		return Arr.flatMap(
-			Arr.makeBy(laws, (l) => pickOf(l, laws)),
+			upTo(laws, (l) => pickOf(l, laws)),
 			(law) =>
 				Arr.flatMap(plantedInitials(env, law), (initial) => {
 					const { t, standing, applicable } = seededRace(env, plantedSketch(law, initial, []))

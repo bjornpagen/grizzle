@@ -16,6 +16,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { byPatternInput } from "#compiler/write/family/pattern-order.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A case: rows of one width, each its texts, and the positions of the pattern input among them. */
 interface Case {
@@ -28,7 +29,7 @@ const textGen: Gen<string> = string(codePoint(0x61, 0x63), { min: 0, max: 2 })
 
 const caseGen: Gen<Case> = (source) => {
 	const width = source.draw(int(1, 4))
-	const columns = Arr.makeBy(width, (i) => i)
+	const columns = upTo(width, (i) => i)
 	const rowGen: Gen<ReadonlyArray<string>> = (inner) => Arr.map(columns, () => inner.draw(textGen))
 	const first = source.draw(rowGen)
 	const rest = source.draw(array(rowGen, { min: 0, max: 11 }))

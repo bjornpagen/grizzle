@@ -96,6 +96,7 @@ import { floatOf } from "#test/support/descriptors.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { messageOf } from "#test/support/message.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 /**
  * The schema agreement: schemas drawn as data, each with the engine's verdict on it and on probe statements beside it,
  * and the one TypeScript program that states every verdict as types, which the type tier checks
@@ -5965,7 +5966,7 @@ const uuidAssertions = (ids: Ids): ReadonlyArray<string> => {
 	const canonical = toUuid("0193D8F2-7C1E-7000-8000-00000000002A")
 	const groups = canonical.ok ? Str.split(canonical.value, "-").length : 0
 	const template = `\`${Arr.join(
-		Arr.makeBy(groups, () => `\${string}`),
+		upTo(groups, () => `\${string}`),
 		"-"
 	)}\``
 	return [

@@ -50,6 +50,7 @@ import {
 	outcomeKind as oracleOutcomeKind,
 	stateDelta
 } from "#test/support/oracle/delta.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Deltas and counts netted across strata, checked against the test oracle's definitions over every sequence of
@@ -109,7 +110,7 @@ const sequences: Gen<{
 		strata,
 		relations: Arr.map(distinct, () => ({
 			start: source.draw(subarray(universe)),
-			steps: Arr.makeBy(strata, () => source.draw(option(step)))
+			steps: upTo(strata, () => source.draw(option(step)))
 		}))
 	}
 }
@@ -204,7 +205,7 @@ describe("netting", () => {
 							if (!Arr.every(sorted, (r, i) => r === byUnits[i])) {
 								c.note("names out of code unit order")
 							}
-							const mine: Array<Map<string, StratumChange>> = Arr.makeBy(strata, () => new Map())
+							const mine = upTo(strata, () => new Map<string, StratumChange>())
 							const expected = Arr.map(sorted, (relation) => {
 								const sequence = defined(
 									relations[distinct.indexOf(relation)],

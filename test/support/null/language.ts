@@ -11,6 +11,7 @@ import {
 import { Array as Arr, String as Str } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { assert } from "#test/support/assert.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A world of closed relations over two rosters, Kind (k0 … k(K−1)) and Flag (f0 … f(F−1)), in which a read finds no
@@ -352,7 +353,7 @@ const tenthsGen: Gen<number> = (s) => s.draw(int(-3, 3)) * 5
 const textGen: Gen<string> = (s) => textAt(s.draw(int(0, 6)))
 
 /** Codes 0 … n − 1. */
-const codesBelow = (n: number): ReadonlyArray<number> => Arr.makeBy(n, (code) => code)
+const codesBelow = (n: number): ReadonlyArray<number> => upTo(n, (code) => code)
 
 const payloadGen =
 	(flags: number): Gen<Payload> =>
@@ -858,7 +859,7 @@ const comparisonGen = (w: World, depth: number, v: Vocabulary): Gen<Pred> =>
 const arrayOf =
 	<A>(item: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
 	(s) =>
-		Arr.makeBy(s.draw(int(0, max)), () => s.draw(item))
+		upTo(s.draw(int(0, max)), () => s.draw(item))
 
 /** A predicate at most `depth` connectives deep over terms at most `depth` deep. */
 export const predGen = (w: World, depth: number, v: Vocabulary): Gen<Pred> =>
@@ -1807,10 +1808,10 @@ export const twoKindWorld = (w: World): World => {
 	return {
 		...w,
 		kinds,
-		pick: Arr.makeBy(kinds, (kind) =>
+		pick: upTo(kinds, (kind) =>
 			kind === kinds - 1 ? undefined : kind === 0 ? held : w.pick[kind]
 		),
-		allowed: Arr.makeBy(kinds, (kind) => w.allowed[kind] ?? [])
+		allowed: upTo(kinds, (kind) => w.allowed[kind] ?? [])
 	}
 }
 

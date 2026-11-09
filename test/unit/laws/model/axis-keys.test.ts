@@ -39,6 +39,7 @@ import {
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A family axis's key is a key like any declared one (laws/model/plan.ts #axis): the UNIQUE its predecessor and last
@@ -294,7 +295,7 @@ describe("a carried set's key", () => {
 				slots: [
 					{ kind: "live", handle: "red" },
 					{ kind: "live", handle: "blue" },
-					...Arr.makeBy(holes, (i) => ({ kind: "hole" as const, was: `gone${i}` }))
+					...upTo(holes, (i) => ({ kind: "hole" as const, was: `gone${i}` }))
 				],
 				spellings: { plain: 1 }
 			}

@@ -100,6 +100,7 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A migration from `before` to `after`: both installations, compiled as `grizzle generate` drafts them, and both
  * drafts, the first from nothing, or, for a successor (successorOf), from the migration before it. */
@@ -1390,7 +1391,7 @@ type Backfill =
 	  }
 
 /** The owners' ids: 0 to `count - 1`, at least one. */
-const ownersOf = (count: number): ReadonlyArray<number> => Arr.makeBy(count, (i) => i)
+const ownersOf = (count: number): ReadonlyArray<number> => upTo(count, (i) => i)
 
 /** Distinct keys in the order the rows are stored: shuffled, so storage never follows key order. */
 const keysGen = (size: {

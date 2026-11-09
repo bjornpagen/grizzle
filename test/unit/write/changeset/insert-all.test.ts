@@ -32,6 +32,7 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -140,7 +141,7 @@ const factOf = (name: KeyName, n: number): Readonly<Record<string, unknown>> => 
 
 /** A key's members as the facade takes them, the same value for the insertAll and for the insert. */
 const membersOf = (key: Key): MemberInput => {
-	const facts = Arr.makeBy(key.count, (i) => factOf(key.name, key.first + i))
+	const facts = upTo(key.count, (i) => factOf(key.name, key.first + i))
 	switch (key.travel) {
 		case "array":
 			return facts

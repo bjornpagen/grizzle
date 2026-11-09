@@ -105,6 +105,7 @@ import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/inst
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
 import { pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The kinds a path may draw, each a swarm feature: the edits a successor applies to its predecessor's sketch, the
  * edits of its extras, and the renames a renamed path makes.
@@ -376,7 +377,7 @@ const applyEdit = (
 				payload: Arr.map(from.payload, (p) => ({
 					...p,
 					values: Arr.flatMap(
-						Arr.makeBy(codes, (i) => i),
+						upTo(codes, (i) => i),
 						(i) => Option.toArray(Arr.get(p.values, i % Math.max(p.values.length, 1)))
 					)
 				}))

@@ -31,6 +31,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
 
 /**
@@ -137,7 +138,7 @@ const specGen: Gen<Spec> = (source) => {
 const caseGen: Gen<Case> = (source) => {
 	const spec = source.draw(specGen)
 	const lawful = source.draw(boolean)
-	const owners = Arr.makeBy(source.draw(int(1, 2)), (i) => ({
+	const owners = upTo(source.draw(int(1, 2)), (i) => ({
 		id: i + 1,
 		x: BigInt(source.draw(int(0, 1))),
 		flag: lawful || source.draw(boolean)
@@ -166,7 +167,7 @@ const caseGen: Gen<Case> = (source) => {
 		}
 	}
 	const referrers = spec.referrer
-		? Arr.makeBy(source.draw(int(0, 2)), (i) => ({
+		? upTo(source.draw(int(0, 2)), (i) => ({
 				id: 20 + i,
 				owner: source.draw(int(1, owners.length)),
 				x: BigInt(source.draw(int(0, 1)))

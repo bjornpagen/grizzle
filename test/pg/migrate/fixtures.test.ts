@@ -57,10 +57,12 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 /** One version of a history: a schema or an extension, every level renamed with it, and the logins of its worlds over
@@ -194,7 +196,10 @@ const historyFrom =
 		const level = int(0, family.levels.length - 1)
 		return {
 			family,
-			levels: Arr.makeBy(source.draw(int(2, 4)), () => source.draw(level))
+			levels: nonEmptyList(
+				upTo(source.draw(int(2, 4)), () => source.draw(level)),
+				"a history's versions"
+			)
 		}
 	}
 

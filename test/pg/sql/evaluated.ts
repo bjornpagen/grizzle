@@ -41,6 +41,8 @@ import {
 } from "#compiler/sql/build.ts"
 
 import { whereIndex } from "#test/support/oracle/pick.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The decisions a generator takes from its source, in order: one of some options, the first the simplest, or a count. */
 class Draws {
@@ -336,7 +338,10 @@ class Expressions {
 			}
 			case "connective": {
 				const kind = t.from(["and", "or"] as const)
-				const args = Arr.makeBy(t.count(2, 3), () => this.bool(depth - 1))
+				const args = nonEmptyList(
+					upTo(t.count(2, 3), () => this.bool(depth - 1)),
+					"a connective's operands"
+				)
 				return {
 					type: "bool",
 					expr: { kind, args: Arr.map(args, (a) => a.expr) },

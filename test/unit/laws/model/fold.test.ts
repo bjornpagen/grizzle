@@ -32,6 +32,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	accepts,
 	assertWellFormed,
@@ -221,7 +222,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 	const type = fieldOf[s.carrier]
 	const start = descOf(s.carrier, identity(s))
 	const accumulated = () => f.accumulated(type, start)
-	const planeNames = Arr.makeBy(planes(s), (p) => p)
+	const planeNames = upTo(planes(s), (p) => p)
 	const named = s.accumulators === "named"
 	const step = [
 		"owner",
@@ -289,7 +290,7 @@ const tuples = (values: ReadonlyArray<bigint>, n: number): ReadonlyArray<Readonl
 
 /** The accumulator columns of each plane, by name: a named field's, or a hidden drawn column's identifier. */
 const columnsOf = (model: LawModel, s: Shape) =>
-	Arr.makeBy(planes(s), (p) =>
+	upTo(planes(s), (p) =>
 		s.accumulators === "named"
 			? { before: `before${p}`, after: `after${p}` }
 			: {

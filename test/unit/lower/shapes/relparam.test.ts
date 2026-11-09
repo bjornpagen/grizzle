@@ -21,6 +21,7 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -67,7 +68,7 @@ describe("a write's enumerated members", () => {
 				explore(
 					{
 						suite: "unit/lower/relparam-members",
-						draw: sketched(factCount, (count) => Arr.makeBy(count, fact)),
+						draw: sketched(factCount, (count) => upTo(count, fact)),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",

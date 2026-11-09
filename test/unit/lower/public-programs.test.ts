@@ -37,6 +37,7 @@ import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
@@ -227,7 +228,7 @@ const plantedRead = (p: PlantedRead): { readonly schema: unknown; readonly read:
 					(parent: Readonly<Record<string, unknown>>) =>
 						queryOver(Routes).rule((r: RuleValue) =>
 							Arr.reduce(
-								Arr.makeBy(p.scans - 1, (i) => varsOver(Stop, `stop${i}`)),
+								upTo(p.scans - 1, (i) => varsOver(Stop, `stop${i}`)),
 								r.match(Stop, { route: parent["route"] }),
 								(matched, { route }) => matched.match(Stop, { route })
 							).find({})

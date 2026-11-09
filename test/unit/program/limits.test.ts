@@ -28,7 +28,9 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * PostgreSQL's limits where grizzle meets them (core/limits.ts), each drawn on both sides of it:
@@ -60,7 +62,7 @@ const wideSchema = (columns: number) =>
 		{
 			Wide: relation(
 				"Wide",
-				Rec.fromEntries(Arr.makeBy(columns, (i) => [`c${i}`, pg.integer] as const)),
+				Rec.fromEntries(upTo(columns, (i) => [`c${i}`, pg.integer] as const)),
 				["c0"]
 			)
 		},
@@ -77,7 +79,7 @@ const wideInstallation = (columns: number) =>
 const selectOf = (entries: number) =>
 	provedSelect(
 		"oneRow",
-		Arr.makeBy(entries, (i) => target(lit.int(i, types.integer))),
+		upTo(entries, (i) => target(lit.int(i, types.integer))),
 		[],
 		undefined
 	)
@@ -88,7 +90,12 @@ const placeholders = (params: number) =>
 		"oneRow",
 		[target(lit.int(1, types.integer))],
 		[],
-		or(Arr.makeBy(params, (i): Expr => eq(param(i + 1, types.integer), lit.int(0, types.integer))))
+		or(
+			nonEmptyList(
+				upTo(params, (i): Expr => eq(param(i + 1, types.integer), lit.int(0, types.integer))),
+				"the parameters"
+			)
+		)
 	)
 
 /** The limits a compile meets: a table's columns, a select list's entries and a statement's placeholders. */

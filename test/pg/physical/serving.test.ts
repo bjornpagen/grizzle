@@ -57,6 +57,7 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import type { ProgramCase, FieldKind } from "#test/support/oracle/public/program.ts"
 import { spread } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Index serving judged by PostgreSQL, over generated schemas and workloads and over drawn index requests, at volume.
@@ -801,7 +802,7 @@ type MatchSketch = ReadSketch["rule"]["matches"][number]
 type CompareSketch = ReadSketch["rule"]["where"][number]
 
 /** A kept workload sketch's picks, each at its floor, zero, but those that select what the case reaches. */
-const zeros = (length: number): ReadonlyArray<number> => Arr.makeBy(length, () => 0)
+const zeros = (length: number): ReadonlyArray<number> => upTo(length, () => 0)
 const floorValue = { cls: 0, sp: 0 } as const
 const floorCompare: CompareSketch = { left: 0, op: 0, pick: 0, value: floorValue }
 const negation = { source: 0, picks: zeros(2) } as const

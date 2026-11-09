@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	drawnNatural,
 	type HostFacts,
@@ -75,11 +76,11 @@ const drawnRows = (
 ): ReadonlyArray<Row> => {
 	const children = (p: number): ReadonlyArray<number> =>
 		Arr.filter(
-			Arr.makeBy(parents.length, (i) => i),
+			upTo(parents.length, (i) => i),
 			(i) => i !== p && parents[i] === p
 		)
 	const size = (p: number): number => 1 + Arr.reduce(children(p), 0, (n, c) => n + size(c))
-	return Arr.makeBy(parents.length, (i) => {
+	return upTo(parents.length, (i) => {
 		const parent = defined(parents[i])
 		const at = i === 0 ? 0 : children(parent).indexOf(i)
 		return {

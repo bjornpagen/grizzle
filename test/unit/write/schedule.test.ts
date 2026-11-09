@@ -23,6 +23,7 @@ import {
 } from "#compiler/write/frontend/schedule.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A family statement this model's strata hold: a member relation's rows or a family's counts, the planner's own. */
 type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removals" }>
@@ -307,7 +308,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 	const n = source.draw(int(2, 24))
 	/** A family's owner comes before its member, but where `cyclic` draws, which draws any two relations, so families
 	 * may form a cycle, as an owner of an ordered family whose member owns a counted family of it does. */
-	const families = Arr.makeBy(source.draw(int(0, n)), (k) => {
+	const families = upTo(source.draw(int(0, n)), (k) => {
 		if (source.draw(boolean)) {
 			const owner = source.draw(int(0, n - 1))
 			const other = source.draw(int(0, n - 2))
@@ -356,7 +357,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 		...drawnOn(r),
 		...Arr.map(memberOf(r), (f) => `law:p${String(f.k)}`)
 	]
-	const laws = Arr.makeBy(source.draw(int(0, n)), (): ImmediateReference => {
+	const laws = upTo(source.draw(int(0, n)), (): ImmediateReference => {
 		const from = source.draw(int(0, n - 1))
 		const to = source.draw(int(0, n - 1))
 		const fromColumns = source.draw(subarray(columnsOf(from)))

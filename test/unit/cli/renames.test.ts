@@ -63,6 +63,7 @@ import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { aliasGroups, dictionaryNameGen, refusedNames } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A name the checker reads, through the naming door. */
 const parsedName = (name: string): DeclaredName => succeeded(parseDeclaredName(name))
@@ -466,7 +467,7 @@ const rosterCaseGen: Gen<RosterCase> = (source) => {
 	)
 	const count = source.draw(int(1, 3))
 	const renames = nonEmpty(
-		Arr.makeBy(count, (at) => ({
+		upTo(count, (at) => ({
 			roster: source.draw(
 				weighted([
 					[3, (inner) => inner.draw(alikeOf(inner.draw(element(rosters))))],

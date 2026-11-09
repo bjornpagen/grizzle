@@ -55,7 +55,7 @@ export const isOwnSourcePath = (path: string): boolean =>
 /** The directories above a file, nearest first; the root directory is the empty name. */
 export const directoriesAbove = (fileName: string): ReadonlyArray<string> => {
 	const segments = Str.split("/")(fileName)
-	return Arr.makeBy(segments.length - 1, (index) =>
+	return Arr.map(Arr.take(segments, segments.length - 1), (_, index) =>
 		Arr.join(Arr.take(segments, segments.length - 1 - index), "/")
 	)
 }

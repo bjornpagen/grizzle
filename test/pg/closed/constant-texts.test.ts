@@ -38,6 +38,7 @@ import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -214,8 +215,8 @@ const caseGen: Gen<ConstantCase> = (s) => {
 	})
 	return {
 		kinds,
-		pick: Arr.makeBy(kinds, () => (s.draw(boolean) ? s.draw(textGen) : undefined)),
-		allowed: Arr.makeBy(kinds, () => s.draw(boolean)),
+		pick: upTo(kinds, () => (s.draw(boolean) ? s.draw(textGen) : undefined)),
+		allowed: upTo(kinds, () => s.draw(boolean)),
 		generated: s.draw(phiGen(kinds)),
 		text: s.draw(textTermGen(kinds)),
 		checked: s.draw(phiGen(kinds)),
@@ -351,7 +352,7 @@ type TextTermOf = Term<string, unknown, unknown, "text", unknown>
 
 /** The case's schema: Kind, Pick and Allowed, and a relation per position. */
 const schemaOf = (c: ConstantCase) => {
-	const Kind = closed("Kind", [kindOf(0), ...Arr.makeBy(c.kinds - 1, (i) => kindOf(i + 1))])
+	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
 		{ kind: closedId(Kind), t: Wild },

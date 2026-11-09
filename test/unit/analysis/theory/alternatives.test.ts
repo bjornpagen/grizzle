@@ -19,6 +19,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { schemaOf, theoryOf } from "#test/unit/analysis/theory/support.ts"
 
 /**
@@ -35,7 +36,7 @@ type Assignment = ReadonlyArray<"A" | "B" | undefined>
 /** A roster of 1 to 4 handles, each the arm of A, of B or of none, at least one armed by construction. */
 const assignment: Gen<{ readonly arms: Assignment; readonly restated: boolean }> = (source) => {
 	const size = int(1, 4)(source)
-	const drawn: Assignment = Arr.makeBy(
+	const drawn: Assignment = upTo(
 		size,
 		(): "A" | "B" | undefined => (["A", "B", undefined] as const)[source.pick(0, 2)]
 	)
@@ -49,7 +50,7 @@ const handleOf = (i: number): string => `h${i}`
 
 /** The schema: roster R, parent P(id, tag: closedId(R)), arm relations A and B, the alternatives over P.tag. */
 const alternativesSchema = (arms: Assignment, restated: boolean): SchemaDesc => {
-	const handles = Arr.makeBy(arms.length, handleOf)
+	const handles = upTo(arms.length, handleOf)
 	const armOf = Rec.fromEntries(
 		Arr.flatMap(arms, (a, i) =>
 			a === undefined ? [] : [[handleOf(i), { name: a, primaryKey: ["id"] }] as const]

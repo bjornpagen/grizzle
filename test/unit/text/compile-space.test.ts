@@ -43,6 +43,7 @@ import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, assertVariant, defined, refused, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	families,
 	flagsGen,
@@ -337,14 +338,14 @@ const shapeGen: Gen<Shape> = oneOf<Shape>([
 	}),
 	(s) => ({
 		crosses: "matchStates",
-		source: `^(?:${Arr.join(Arr.makeBy(Math.floor(regexMaxMatchStates.value / 3) + s.draw(int(-40, 40)), wordOf), "|")})$`,
+		source: `^(?:${Arr.join(upTo(Math.floor(regexMaxMatchStates.value / 3) + s.draw(int(-40, 40)), wordOf), "|")})$`,
 		measured: matchStatesOf,
 		limit: regexMaxMatchStates.value
 	}),
 	(s) => ({
 		crosses: "matchCells",
 		source: `^(?:${Arr.join(
-			Arr.makeBy(
+			upTo(
 				Math.floor(Math.sqrt(regexMaxMatchCells.value)) + s.draw(int(-8, 8)),
 				(i) => `${cjk(i)}y`
 			),

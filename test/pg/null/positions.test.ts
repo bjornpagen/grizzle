@@ -105,6 +105,7 @@ import {
 import { owning } from "#test/support/policy.ts"
 import { dbRuntime } from "#test/support/runtime-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -340,7 +341,7 @@ const aimed = (nc: NullCase, notes: Case<Feature>): NullCase => {
 
 /** The rows written into Keyed: each row at every kind, so rows its selection keeps and leaves share their integer. */
 const keyedRows = (nc: NullCase): ReadonlyArray<Item> =>
-	Arr.flatMap(nc.items, (item) => Arr.makeBy(nc.world.kinds, (kind) => ({ ...item, kind })))
+	Arr.flatMap(nc.items, (item) => upTo(nc.world.kinds, (kind) => ({ ...item, kind })))
 
 /** The schema of a case: its world, the relations each position writes, their rules, and the fold's family. */
 const schemaOf = (nc: NullCase) => {

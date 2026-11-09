@@ -58,6 +58,7 @@ import {
 	valueText
 } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The host model's own label for its one law, never compared with a production name. */
 const law = wild.lawId("the Worker key")
@@ -247,7 +248,7 @@ const recordGen =
  */
 const historyGen: Gen<History> = (source) => {
 	const initial = source.draw(lawfulGen)
-	const planned = Arr.makeBy(source.draw(int(2, 3)), (id) => source.draw(plannedGen(id)))
+	const planned = upTo(source.draw(int(2, 3)), (id) => source.draw(plannedGen(id)))
 	const order = source.draw(shuffled(planned, { min: planned.length, max: planned.length }))
 	const recorded: Array<Recorded> = []
 	let reached = initial

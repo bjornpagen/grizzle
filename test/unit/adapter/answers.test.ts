@@ -60,6 +60,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
 import { ascendingTasks, compiledPageResult, Paging } from "#test/unit/page/fixtures.ts"
 
@@ -298,7 +299,7 @@ const stitchCases: Gen<StitchCase> = (source) => {
 	return {
 		posts,
 		comments,
-		numeric: Arr.makeBy(posts + comments.length, () => source.draw(int(0, numerics.length - 1))),
+		numeric: upTo(posts + comments.length, () => source.draw(int(0, numerics.length - 1))),
 		plant: source.draw(
 			element<Plant>([
 				{ kind: "none" },
@@ -383,7 +384,7 @@ describe("a statement's rows", () => {
 							Effect.sync(() => {
 								const postId = (p: number) => defined(uuids[p], "a post id")
 								const commentId = (k: number) => defined(uuids[posts + k], "a comment id")
-								const rootRows = Arr.makeBy(posts, (p) =>
+								const rootRows = upTo(posts, (p) =>
 									Arr.map(outputOf(root), (col) =>
 										cellText(col.type, postId(p), defined(numeric[p], "n"), false)
 									)
