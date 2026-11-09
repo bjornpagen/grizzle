@@ -1146,7 +1146,7 @@ const oracleDraft = (
 	const b = builtOf(spec)
 	const previous: DeploySnapshot = Option.match(previousText, {
 		onNone: () => emptySnapshot({ schemaName: spec.name, schema: identOf(spec.name) }),
-		onSome: (files) => succeeded(readSnapshot(files), "the committed snapshot")
+		onSome: (files) => succeeded(readSnapshot(files), "the committed snapshot").snapshot
 	})
 	const plan = succeeded(
 		compileTestWorkload(
@@ -1298,7 +1298,7 @@ const runGenerate = (
 				const previousSnapshot = Option.match(previousText, {
 					onNone: () =>
 						emptySnapshot({ schemaName: s.current.name, schema: identOf(s.current.name) }),
-					onSome: (t) => succeeded(readSnapshot(t), "the committed snapshot")
+					onSome: (t) => succeeded(readSnapshot(t), "the committed snapshot").snapshot
 				})
 				const custom = succeeded(
 					customMigration({

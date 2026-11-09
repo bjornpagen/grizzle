@@ -31,6 +31,11 @@ export const refusalText = {
 		problem: "a workload program's access differs from snapshot.json (an ungenerated change)",
 		fix: "run grizzle generate"
 	},
+	derivedFacts: {
+		problem:
+			"the derived facts snapshot.json records differ from the ones the schemas compile to, or are missing (an ungenerated change)",
+		fix: "run grizzle generate, which writes snapshot.json again and drafts no migration"
+	},
 	compile: {
 		problem: "the schema or a login's workload does not compile",
 		fix: "fix the schema or workload it names, then run grizzle generate"

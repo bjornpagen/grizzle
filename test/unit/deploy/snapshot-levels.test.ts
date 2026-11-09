@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	codebookOf,
+	derivedHolds,
 	derivedOf,
 	finishSnapshot,
 	targetState,
@@ -169,7 +170,12 @@ describe("snapshot.json", () => {
 								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 							)
 							const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
-							const read = succeeded(readSnapshot(files))
+							const committed = succeeded(readSnapshot(files))
+							const read = committed.snapshot
+							assert.ok(
+								derivedHolds(committed.derived, derivedOf(installation)),
+								"the derived facts written are the compile's"
+							)
 							const lawsOf = (levels: typeof snapshot.levels) =>
 								Arr.map(levels, (l) => Arr.map(l.laws, (law) => law.law))
 							const codesOf = (book: ReturnType<typeof codebookOf>) =>

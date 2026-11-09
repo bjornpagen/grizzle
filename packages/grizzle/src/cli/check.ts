@@ -10,7 +10,7 @@ import {
 	String as Str
 } from "effect"
 import { transactionControl } from "#adapter/migrate/input.ts"
-import { chainWhole, committedChain, committedSnapshot } from "#cli/committed.ts"
+import { chainWhole, type Committed, committedChain, committedSnapshot } from "#cli/committed.ts"
 import {
 	type CompiledSchema,
 	type ConfiguredSchema,
@@ -27,6 +27,7 @@ import {
 	accessDrift,
 	accessDriftText,
 	type DeploySnapshot,
+	derivedHolds,
 	findMarkers,
 	type Installation,
 	literalPackFault,
@@ -79,6 +80,9 @@ interface CheckFinding {
  * - an ungenerated change: the schemas and their logins compile to another snapshot than snapshot.json, so `grizzle
  *   generate` has something to draft; and among them a name the snapshot holds that the schema drops, which the draft
  *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop);
+ * - derived facts out of date: the derived runtime facts snapshot.json records beside the snapshot, outside its
+ *   fingerprint, are not the ones the compile derives (build.ts derivedHolds), or snapshot.json records none, which
+ *   `grizzle generate` writes again with no migration;
  * - a literal pack edited: a closed relation's constant, stated as one hex literal, whose literal does not decode to
  *   the content its comment states and its function's name digests, decoded back to its cells and held to them, each
  *   named with the first cell and key where it parts from the rows the schema declares (physical/ddl/literal.ts
@@ -110,7 +114,7 @@ interface PackStatement {
  */
 interface CommittedCheck {
 	readonly findings: ReadonlyArray<CheckFinding>
-	readonly snapshot: Option.Option<DeploySnapshot>
+	readonly committed: Option.Option<Committed>
 	readonly folders: number
 	readonly packs: ReadonlyArray<PackStatement>
 }
@@ -142,14 +146,14 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const read = yield* Effect.result(readSchemaTree(schema.declared, schema.directory))
 	if (Result.isFailure(read)) {
 		at("strayEntry", path(), read.failure.reason.message)
-		return { findings, snapshot: Option.none(), folders: 0, packs: [] }
+		return { findings, committed: Option.none(), folders: 0, packs: [] }
 	}
 	const tree: SchemaTree = read.success
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
 	if (Result.isFailure(committed)) {
 		at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
 	}
-	const snapshot = Result.getSuccess(committed)
+	const recorded = Result.getSuccess(committed)
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
 	const chain = committedChain(schema, tree)
@@ -216,13 +220,13 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		}
 	}
 	if (
-		Option.isSome(snapshot) &&
+		Option.isSome(recorded) &&
 		chainWhole(chain) &&
-		chain.reached !== snapshot.value.fingerprint
+		chain.reached !== recorded.value.snapshot.fingerprint
 	) {
 		at("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)
 	}
-	return { findings, snapshot, folders: tree.folders.length, packs }
+	return { findings, committed: recorded, folders: tree.folders.length, packs }
 })
 
 /**
@@ -261,7 +265,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 ): Effect.fn.Return<SchemaCheck, never, FileSystem.FileSystem | Path.Path> {
 	const schema = compiled.configured
 	const committed = yield* checkCommitted(schema, cwd)
-	const snapshot = committed.snapshot
+	const snapshot = Option.map(committed.committed, (c) => c.snapshot)
 	const draft = Option.isSome(snapshot)
 		? yield* Effect.result(draftSchema(compiled, snapshot.value, [], noDeclarations))
 		: undefined
@@ -310,6 +314,14 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 			}
 			if (drifts.length === 0 && draft.success.change === "schema") {
 				at("ungenerated", schema.declared, refusalText.ungenerated.problem)
+			}
+			const recorded = committed.committed
+			if (
+				Option.isSome(recorded) &&
+				recorded.value.kind === "files" &&
+				!derivedHolds(recorded.value.derived, draft.success.derived)
+			) {
+				at("derivedFacts", schema.declared, refusalText.derivedFacts.problem)
 			}
 		}
 	}
@@ -383,7 +395,7 @@ export const checkFiles = (
 		Effect.map(checkCommitted(schema, cwd), (committed): SchemaCheck => ({
 			schema: schema.declared,
 			findings: [...committed.findings, ...packFindings(schema, committed.packs, undefined)],
-			snapshot: committed.snapshot,
+			snapshot: Option.map(committed.committed, (c) => c.snapshot),
 			folders: committed.folders
 		}))
 	)

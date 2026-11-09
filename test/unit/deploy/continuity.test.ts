@@ -480,7 +480,7 @@ const drafted = (
 	if (Result.isFailure(read)) {
 		return assert.fail(`${at}: the written snapshot reads back: ${read.failure.message}`)
 	}
-	const book = codebookOf(read.success)
+	const book = codebookOf(read.success.snapshot)
 	for (const r of after.rosters) {
 		assert.deepEqual(
 			book.rosters.get(parsedName(nameOf(r)))?.codes,
@@ -500,7 +500,7 @@ const drafted = (
 			`${at}: field ${field} is converted at its placeholder, which names its roster as the reason a cast would misread it, exactly when its values move to other meanings`
 		)
 	}
-	return fromSnapshot(read.success)
+	return fromSnapshot(read.success.snapshot)
 }
 
 const run = (sketch: Sketch, c: Case<Feature>): void => {

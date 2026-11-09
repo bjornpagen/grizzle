@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
-import { readSnapshot } from "#adapter/boundary/snapshot.ts"
+import { type CommittedSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { ConfiguredSchema } from "#cli/config.ts"
 import {
 	type ChainBreak,
@@ -23,6 +23,14 @@ import {
 } from "#compiler/plan/migration.ts"
 
 /**
+ * What a schema's directory commits: its empty snapshot, before its first migration, which is no file and records no
+ * derived facts; or the snapshot its two files lay out, with the derived runtime facts snapshot.json records.
+ */
+export type Committed =
+	| { readonly kind: "empty"; readonly snapshot: DeploySnapshot }
+	| ({ readonly kind: "files" } & CommittedSnapshot)
+
+/**
  * A schema's committed migration state as the command line reads it: its snapshot's two files and its folders.
  *
  * The snapshot is read by the generator's own reader, which trusts it once its fingerprint holds. A schema without them is at
@@ -30,14 +38,19 @@ import {
  * emptySnapshot): the empty snapshot is never a file. The snapshot must be the configured schema's: its PostgreSQL
  * schema and declared name are the configuration's. It names no owner: the migration identity is whoever connects.
  *
- * The snapshot the schema's directory commits, or its empty snapshot when it has neither snapshot file.
+ * What the schema's directory commits: the snapshot its files lay out and the derived facts they record, or its empty
+ * snapshot when it has neither snapshot file.
  */
 export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	schema: ConfiguredSchema,
 	tree: SchemaTree
-): Effect.fn.Return<DeploySnapshot, CliError> {
+): Effect.fn.Return<Committed, CliError> {
 	if (Option.isNone(tree.snapshotFiles)) {
-		return emptySnapshot({ schemaName: schema.root, schema: schema.ident })
+		const empty: Committed = {
+			kind: "empty",
+			snapshot: emptySnapshot({ schemaName: schema.root, schema: schema.ident })
+		}
+		return empty
 	}
 	const read = readSnapshot(tree.snapshotFiles.value)
 	if (Result.isFailure(read)) {
@@ -49,7 +62,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 			})
 		)
 	}
-	const snapshot = read.success
+	const snapshot = read.success.snapshot
 	if (snapshot.schema !== schema.ident || snapshot.schemaName !== schema.root) {
 		return yield* cliError(
 			new SnapshotForeign({
@@ -60,7 +73,8 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 			})
 		)
 	}
-	return snapshot
+	const committed: Committed = { kind: "files", ...read.success }
+	return committed
 })
 
 /** A committed folder whose meta.json reads, with its name and its files' texts. */

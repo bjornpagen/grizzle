@@ -859,7 +859,7 @@ const readBack = (files: SnapshotFiles, at: string): DeploySnapshot => {
 	if (Result.isFailure(read)) {
 		return assert.fail(`${at}: the written snapshot reads back: ${read.failure.message}`)
 	}
-	return read.success
+	return read.success.snapshot
 }
 
 /** The installed first state: the model's initial declaration drafted from the empty snapshot, once. */

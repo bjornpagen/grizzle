@@ -47,6 +47,7 @@ export {
 } from "#compiler/deploy/render/markers.ts"
 export {
 	codebookOf,
+	derivedHolds,
 	emptyFingerprint,
 	emptySnapshot,
 	isEmptySnapshot,

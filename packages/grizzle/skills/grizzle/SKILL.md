@@ -91,7 +91,9 @@ export default defineConfig({
    `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
    It prints one line per written file, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its
    kind `placeholder` or `confirm`, then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`,
-   then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`. A name the previous snapshot
+   then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`,
+   unless the derived facts snapshot.json records are out of date or missing: then it writes `snapshot.json` and
+   `manifest.json` again, drafts no folder, and prints `next: commit snapshot.json, then run grizzle check`. A name the previous snapshot
    holds that the schema no longer does and no declaration names refuses the draft before anything is written:
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
@@ -323,6 +325,7 @@ schema or workload that does not compile) are `check`'s alone.
 | --- | --- |
 | the schemas or their logins differ from snapshot.json (an ungenerated change) | run grizzle generate |
 | a workload program's access differs from snapshot.json (an ungenerated change) | run grizzle generate |
+| the derived facts snapshot.json records differ from the ones the schemas compile to, or are missing (an ungenerated change) | run grizzle generate, which writes snapshot.json again and drafts no migration |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |

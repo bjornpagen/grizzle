@@ -56,6 +56,7 @@ import {
 	type MigrationFolder,
 	noWorkload,
 	rosterFates,
+	derivedHolds,
 	type SnapshotFiles,
 	snapshotFileName,
 	workloadExtension
@@ -83,11 +84,13 @@ interface DraftLoss {
 }
 
 /**
- * What generate wrote for one schema: nothing; an empty custom folder, its name and path; or a drafted folder and the
- * snapshot files it replaced, manifest.json's path and snapshot.json's.
+ * What generate wrote for one schema: nothing; the snapshot files written again for their derived facts alone, with no
+ * folder; an empty custom folder, its name and path; or a drafted folder and the snapshot files it replaced,
+ * manifest.json's path and snapshot.json's.
  */
 type Written =
 	| { readonly kind: "unchanged" }
+	| { readonly kind: "rederived"; readonly snapshotPaths: ReadonlyArray<string> }
 	| { readonly kind: "custom"; readonly folder: string; readonly path: string }
 	| {
 			readonly kind: "drafted"
@@ -105,7 +108,10 @@ type Written =
  * timestamp to the pure generator (compiler/deploy/render/generate.ts). The generator diffs the snapshots and renders
  * the phased files and meta.json; this command supplies the clock (clock.ts) and writes the result (files.ts):
  *
- * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot's files;
+ * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot's files, unless the derived
+ *   runtime facts snapshot.json records are not the ones the compile derives, or it records none (build.ts
+ *   derivedHolds): then snapshot.json is written again with them, with no folder, since no fact is part of the
+ *   fingerprinted content;
  * - otherwise the folder `<migrations>/<schema>/<timestamp>_<name>/` is written whole, then manifest.json and
  *   snapshot.json are replaced by the new snapshot's. A folder may hold no SQL file when only the snapshot changed, such as a workload program whose
  *   access moved onto an index that already exists. Its name is `--name`, else derived from the change (compiler/deploy/render/naming.ts).
@@ -171,9 +177,11 @@ const selectSchemas = (
 	return Result.succeed(config.schemas)
 }
 
-/** A schema's draft: nothing to write; an empty custom folder; or a drafted folder and its new snapshot's files. */
+/** A schema's draft: nothing to write; snapshot.json written again, its derived facts the compile's, with no folder; an
+ * empty custom folder; or a drafted folder and its new snapshot's files. */
 type SchemaDraft = (
 	| { readonly kind: "unchanged" }
+	| { readonly kind: "rederived"; readonly snapshotFiles: SnapshotFiles }
 	| { readonly kind: "custom"; readonly folder: MigrationFolder }
 	| {
 			readonly kind: "drafted"
@@ -331,7 +339,8 @@ const draftFor = Effect.fn("draftFor")(function* (
 	options: GenerateOptions
 ): Effect.fn.Return<SchemaDraft, CliError, FileSystem.FileSystem | Path.Path> {
 	const tree = yield* readSchemaTree(schema.declared, schema.directory)
-	const previous = yield* committedSnapshot(schema, tree)
+	const committed = yield* committedSnapshot(schema, tree)
+	const previous = committed.snapshot
 	const chain = yield* continuedChain(schema, tree, previous)
 	const timestamp = nextTimestamp(options.now, chain.timestamps)
 	const mode = options.mode
@@ -352,7 +361,14 @@ const draftFor = Effect.fn("draftFor")(function* (
 		options.declared
 	)
 	if (generated.change === "none") {
-		return { schema, snapshot: previous, kind: "unchanged" } satisfies SchemaDraft
+		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
+			? ({
+					schema,
+					snapshot: previous,
+					snapshotFiles: generated.snapshotFiles,
+					kind: "rederived"
+				} satisfies SchemaDraft)
+			: ({ schema, snapshot: previous, kind: "unchanged" } satisfies SchemaDraft)
 	}
 	return {
 		schema,
@@ -419,6 +435,21 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 			losses: []
 		}
 		return unchanged
+	}
+	if (draft.kind === "rederived") {
+		const rederived: SchemaGenerateReport = {
+			...common,
+			kind: "rederived",
+			snapshotPaths: yield* writeSnapshotFiles(
+				schema.declared,
+				schema.directory,
+				draft.snapshotFiles
+			),
+			files: [],
+			markers: [],
+			losses: []
+		}
+		return rederived
 	}
 	const folder = draft.folder
 	const written = {

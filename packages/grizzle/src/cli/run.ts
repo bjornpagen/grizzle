@@ -84,15 +84,21 @@ const renderGenerate = (
 	reports: ReadonlyArray<SchemaGenerateReport>,
 	relative: (path: string) => string
 ): ReadonlyArray<string> => {
-	const written = Arr.flatMap(reports, (r) => (r.kind === "unchanged" ? [] : [r]))
-	if (written.length === 0) {
+	const rederived = Arr.flatMap(reports, (r) => (r.kind === "rederived" ? [r] : []))
+	const written = Arr.flatMap(reports, (r) =>
+		r.kind === "custom" || r.kind === "drafted" ? [r] : []
+	)
+	if (written.length === 0 && rederived.length === 0) {
 		return [noChanges]
 	}
 	const folderOf = (r: (typeof written)[number]) => relative(r.path)
-	const files = Arr.flatMap(written, (r) => [
-		...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
-		...(r.kind === "drafted" ? Arr.map(r.snapshotPaths, relative) : [])
-	])
+	const files = [
+		...Arr.flatMap(written, (r) => [
+			...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
+			...(r.kind === "drafted" ? Arr.map(r.snapshotPaths, relative) : [])
+		]),
+		...Arr.flatMap(rederived, (r) => Arr.map(r.snapshotPaths, relative))
+	]
 	const markers = Arr.flatMap(written, (r) => Arr.map(r.markers, (m) => markerLine(folderOf(r), m)))
 	const losses = Arr.flatMap(written, (r) =>
 		Arr.map(
@@ -109,7 +115,9 @@ const renderGenerate = (
 			? "next: resolve the markers, then run grizzle check"
 			: custom
 				? "next: write the SQL files, then run grizzle check"
-				: "next: review the SQL, then run grizzle check"
+				: written.length > 0
+					? "next: review the SQL, then run grizzle check"
+					: "next: commit snapshot.json, then run grizzle check"
 	]
 }
 

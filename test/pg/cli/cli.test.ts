@@ -335,7 +335,7 @@ const configurations = (ctx: TestContext) =>
 							)
 							assert.equal(state.partial, undefined, `${name}'s ledger records no partial folder`)
 							const files = yield* snapshotFilesOf(ws, name)
-							assert.equal(state.latest, succeeded(readSnapshot(files)).fingerprint)
+							assert.equal(state.latest, succeeded(readSnapshot(files)).snapshot.fingerprint)
 							yield* roundTrip(
 								name,
 								defined(sketch.schemas[i], "the schema's fixture"),

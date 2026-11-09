@@ -18,7 +18,7 @@ export const names = (
 		Effect.forEach(config.schemas, (schema) =>
 			Effect.gen(function* () {
 				const tree = yield* readSchemaTree(schema.declared, schema.directory)
-				const snapshot = yield* committedSnapshot(schema, tree)
+				const { snapshot } = yield* committedSnapshot(schema, tree)
 				return [
 					`${schema.declared} in PostgreSQL schema ${schema.ident}:`,
 					...Arr.flatMap(snapshot.manifest.comments, (c) =>

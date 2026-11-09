@@ -72,14 +72,30 @@ export const parseSnapshot = (
 		() => toResult(servedSnapshot(json, level))
 	)
 
+/**
+ * A committed snapshot as the command line reads its two files: the snapshot they lay out, trusted once its fingerprint
+ * holds, and the derived runtime facts snapshot.json records beside it, as read and outside the fingerprint, which
+ * `grizzle check` and generate hold to the compile's (build.ts derivedHolds) and never read otherwise.
+ */
+export interface CommittedSnapshot {
+	readonly snapshot: DeploySnapshot
+	readonly derived: unknown
+}
+
 /** Reads a snapshot's two files' texts: each file's JSON parsed and its canonical tags revived (`decode`), the two
- * joined into the one snapshot they lay out (build.ts joinedSnapshot), then trusted once its fingerprint holds. The
- * empty snapshot is no file: a schema without them starts from emptySnapshot. */
-export const readSnapshot = (files: SnapshotFiles): Result.Result<DeploySnapshot, CompileError> =>
+ * joined into the one snapshot they lay out (build.ts joinedSnapshot), then trusted once its fingerprint holds, beside
+ * the derived facts snapshot.json records. The empty snapshot is no file: a schema without them starts from
+ * emptySnapshot. */
+export const readSnapshot = (
+	files: SnapshotFiles
+): Result.Result<CommittedSnapshot, CompileError> =>
 	Result.flatMap(toResult(decode(files.snapshot, noRevivers)), (runtime) =>
 		Result.flatMap(toResult(decode(files.manifest, noRevivers)), (migration) =>
 			Result.flatMap(toResult(joinedSnapshot(runtime, migration)), (joined) =>
-				sealedSnapshot(joined.content)
+				Result.map(sealedSnapshot(joined.content), (snapshot) => ({
+					snapshot,
+					derived: joined.derived
+				}))
 			)
 		)
 	)

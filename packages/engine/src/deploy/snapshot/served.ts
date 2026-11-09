@@ -1,11 +1,12 @@
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
-import { type CompileError, within } from "#compiler/core/errors.ts"
+import { type CompileError, malformedArtifact, within } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { ServedSnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { ServedSnapshot, SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, emptyCodebook, type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
@@ -42,16 +43,46 @@ interface LevelJson {
 }
 
 /** The members of snapshot.json the layer reads (ServedSnapshot), as `grizzle generate` writes them: each roster's
- * codes by its declared name among them. */
+ * codes by its declared name among them, and the derived runtime facts, which a snapshot.json generate has not written
+ * since they joined it does not hold whole (servedDerived). */
 interface ServedJson {
 	readonly fingerprint: SchemaFingerprint
 	readonly levels: ReadonlyArray<LevelJson>
 	readonly constraintToLaw: unknown
 	readonly rosters: Readonly<Record<string, unknown>>
-	readonly derived: {
-		readonly closed: Readonly<Record<string, NamedClosed>>
-		readonly fkCycles: FkCycles
+	readonly derived: unknown
+}
+
+/** A snapshot.json without the derived runtime facts the layer reads, whole: one grizzle generate has not written since
+ * they joined it, which it writes again with no migration. */
+const underived = (at: Path): CompileError =>
+	malformedArtifact(
+		"snapshot",
+		at,
+		"snapshot.json recording the derived runtime facts grizzle generate writes beside the snapshot: run grizzle generate, which drafts no migration"
+	)
+
+/**
+ * The derived runtime facts snapshot.json records, as one required record of required members, each read as it is
+ * (names and numbers alone): refused at the first member it does not record, so no partial record is ever served. It
+ * returns SnapshotDerived whole, so a fact added to it is no fact the layer reads until it is read here too.
+ */
+const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, CompileError> => {
+	if (!isRecord(derived)) {
+		return Result.err(underived(["derived"]))
 	}
+	const closed = derived["closed"]
+	const fkCycles = derived["fkCycles"]
+	if (!isRecord(closed)) {
+		return Result.err(underived(["derived", "closed"]))
+	}
+	if (!isList(fkCycles)) {
+		return Result.err(underived(["derived", "fkCycles"]))
+	}
+	return Result.ok({
+		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
+		fkCycles: trusted<FkCycles>(fkCycles)
+	})
 }
 
 /** A member of a snapshot's JSON form at `path`, its canonical tags revived. */
@@ -74,6 +105,10 @@ export const servedSnapshot = (
 	level: number
 ): Result.Result<ServedSnapshot, CompileError> => {
 	const served = trusted<ServedJson>(json)
+	const derived = servedDerived(served.derived)
+	if (!derived.ok) {
+		return derived
+	}
 	const above: Array<{ readonly name: string; readonly laws: ReadonlyArray<DescribedLaw> }> = []
 	const first = level + 1
 	for (const [i, l] of served.levels.slice(first).entries()) {
@@ -102,9 +137,6 @@ export const servedSnapshot = (
 		above,
 		constraintToLaw: trusted<ConstraintLaws>(constraintToLaw.value),
 		codes: rosterCodebook(rosters),
-		derived: {
-			closed: new Map(Object.entries(served.derived.closed)),
-			fkCycles: served.derived.fkCycles
-		}
+		derived: derived.value
 	})
 }
