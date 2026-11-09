@@ -231,12 +231,12 @@ interface Opened<V, R> {
 }
 
 /**
- * The form of `root`, folded bottom up by `read`. Every container read is opened onto a stack on the heap, where its
- * members wait while one of them is read, so a value nested to any depth never deepens the call stack. A refusal
- * thrown while reading ends the traversal.
+ * The form of the value read first as `first`, folded bottom up by `read`. Every container read is opened onto a
+ * stack on the heap, where its members wait while one of them is read, so a value nested to any depth never deepens
+ * the call stack. A refusal thrown while reading ends the traversal.
  */
-const traverse = <V, R>(root: V, read: (value: V) => Reading<V, R>): R => {
-	let reading = read(root)
+const traverse = <V, R>(first: Reading<V, R>, read: (value: V) => Reading<V, R>): R => {
+	let reading = first
 	let top: Opened<V, R> | undefined
 	for (;;) {
 		let next: IteratorResult<V, R>
@@ -290,7 +290,21 @@ class Walk<R> {
 
 	/** The form of `root`. */
 	of(root: unknown): R {
-		return traverse(root, (value: unknown) => this.#read(value))
+		return traverse(this.#read(root), (value: unknown) => this.#read(value))
+	}
+
+	/**
+	 * The form of `root`, a plain record, its member `member` taken as `form` where the traversal would read it: the
+	 * form that member has, beside which the record's other members are read.
+	 */
+	over(root: unknown, member: string, form: R): R {
+		if (!isRecord(root)) {
+			stop(this.#path, "a value, not null")
+		}
+		this.#ancestors.add(root)
+		return traverse(membersOf(this.#recordOver(root, member, form)), (value: unknown) =>
+			this.#read(value)
+		)
 	}
 
 	#read(value: unknown): Reading<unknown, R> {
@@ -357,7 +371,8 @@ class Walk<R> {
 		return this.#fold.array(items)
 	}
 
-	*#record(value: Readonly<Record<string, unknown>>): Members<unknown, R> {
+	/** A plain record's keys in canonical order; a value that is no plain record is refused. */
+	#keysOf(value: Readonly<Record<string, unknown>>): ReadonlyArray<string> {
 		const proto: unknown = Object.getPrototypeOf(value)
 		if (proto !== Object.prototype && proto !== null) {
 			stop(this.#path, "a plain object")
@@ -365,8 +380,12 @@ class Walk<R> {
 		if (Object.getOwnPropertySymbols(value).length > 0) {
 			stop(this.#path, "an object without symbol keys")
 		}
+		return Object.keys(value).toSorted(compareStrings)
+	}
+
+	*#record(value: Readonly<Record<string, unknown>>): Members<unknown, R> {
 		const members: Array<readonly [string, R]> = []
-		for (const key of Object.keys(value).toSorted(compareStrings)) {
+		for (const key of this.#keysOf(value)) {
 			const child = value[key]
 			if (child === undefined || this.#options.omit(key, child, this.#path)) {
 				continue
@@ -374,6 +393,27 @@ class Walk<R> {
 			this.#path.push(key)
 			checkText(key, this.#path, refuseValue)
 			members.push([key, yield child])
+			this.#path.pop()
+		}
+		this.#ancestors.delete(value)
+		return this.#fold.object(members)
+	}
+
+	/** `#record`, its member `member` taken as `form` instead of read (`over`). */
+	*#recordOver(
+		value: Readonly<Record<string, unknown>>,
+		member: string,
+		form: R
+	): Members<unknown, R> {
+		const members: Array<readonly [string, R]> = []
+		for (const key of this.#keysOf(value)) {
+			const child = value[key]
+			if (child === undefined || this.#options.omit(key, child, this.#path)) {
+				continue
+			}
+			this.#path.push(key)
+			checkText(key, this.#path, refuseValue)
+			members.push([key, key === member ? form : yield child])
 			this.#path.pop()
 		}
 		this.#ancestors.delete(value)
@@ -477,7 +517,7 @@ const readJson = (value: Json): Reading<Json, string> => {
 	return membersOf(isJsonArray(value) ? jsonItems(value) : jsonMembers(value))
 }
 
-const writeJson = (value: Json): string => traverse(value, readJson)
+const writeJson = (value: Json): string => traverse(readJson(value), readJson)
 
 /** The canonical text of a JSON form value; ResourceBound (stringLength) past V8's longest string. */
 export const writeCanonicalJson = (value: Json): Result.Result<string, CompileError> =>
@@ -522,6 +562,20 @@ export const encode = (
 	value: unknown,
 	options: EncodeOptions
 ): Result.Result<string, CompileError> => encodeWalk(value, options)
+
+/**
+ * The canonical text under `options` of `record`, a plain record whose member `member` has the canonical text `text`
+ * under the same options: `encode`'s text of it, with that member written from `text` rather than encoded again. A
+ * record that is no plain record is refused as `encode` refuses it. What `options` omits below the member does not
+ * read the member's path, so the member's text at the root is its text inside the record.
+ */
+export const encodeOver = (
+	record: unknown,
+	options: EncodeOptions,
+	member: string,
+	text: string
+): Result.Result<string, CompileError> =>
+	catchRefusal(() => new Walk(options, textFold).over(record, member, text))
 
 /** The canonical text's opening bracket of an array. */
 const arrayOpen: unique symbol = Symbol("[")
@@ -716,7 +770,7 @@ class Revive {
 
 	/** The value `root` restores to. */
 	of(root: unknown): unknown {
-		return traverse(root, (value: unknown) => this.#read(value))
+		return traverse(this.#read(root), (value: unknown) => this.#read(value))
 	}
 
 	#read(value: unknown): Reading<unknown, unknown> {

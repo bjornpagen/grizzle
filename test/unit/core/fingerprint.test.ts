@@ -18,7 +18,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record } from "effect"
 import { everyProperty, type Path } from "#compiler/core/canonical.ts"
-import { digest, schemaFingerprint } from "#compiler/core/fingerprint.ts"
+import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"
 import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
@@ -156,7 +156,7 @@ describe("fingerprints", () => {
 								? { ...p, content: { ...Record.fromEntries(entries), loc: "Paris" } }
 								: p
 						const after = changed(before, change, there, entries)
-						const schema = (q: Parts) => succeeded(schemaFingerprint({ content: q.content }))
+						const schema = (q: Parts) => succeeded(schemaLevel(q.content, undefined)).fingerprint
 						const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
 						assert.equal(
 							schema(after) !== schema(before),
@@ -164,6 +164,12 @@ describe("fingerprints", () => {
 							"the schema fingerprint"
 						)
 						assert.equal(schema({ ...before, content: stripped(before.content) }), schema(before))
+						const above = { ...Record.fromEntries(entries), loc: there, extends: before.content }
+						assert.deepEqual(
+							succeeded(schemaLevel(above, succeeded(schemaLevel(before.content, undefined)))),
+							succeeded(schemaLevel(above, undefined)),
+							"a level over the level below it, as it is alone"
+						)
 						c.note(change)
 					})
 			)

@@ -42,6 +42,7 @@ import {
 	compareCanonicalTokens,
 	decode,
 	encode,
+	encodeOver,
 	everyProperty,
 	fromJson,
 	type Json,
@@ -370,6 +371,17 @@ describe("the canonical text", () => {
 						assert.deepEqual(succeeded(toJson(permuted, everyProperty)), form)
 						assert.equal(succeeded(encode(permuted, everyProperty)), rfc8785(form))
 						assert.equal(succeeded(writeCanonicalJson(form)), rfc8785(form))
+						if (isRecord(permuted) && !(permuted instanceof Exact) && !isList(permuted)) {
+							for (const [k, child] of Rec.toEntries(permuted)) {
+								assert.equal(
+									succeeded(
+										encodeOver(permuted, everyProperty, k, succeeded(encode(child, everyProperty)))
+									),
+									rfc8785(form),
+									`the text with member ${k} written from its own`
+								)
+							}
+						}
 					})
 			)
 		)

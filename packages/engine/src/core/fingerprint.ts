@@ -3,6 +3,7 @@ import {
 	canonicalFormat,
 	type EncodeOptions,
 	encode,
+	encodeOver,
 	ownedText,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
@@ -104,11 +105,40 @@ export const constantDigest = <D extends ConstantDomain>(
 	options: EncodeOptions
 ): ConstantDigest<D> => nominal<string, ConstantDigest<D>>()(ownedDigest(domain, value, options))
 
+declare const levelTextBrand: unique symbol
+
 /**
- * A schema's fingerprint: its canonical content, without the SourceLocs its descs carry under "loc" (ir/desc.ts), which
- * are presentation, excluded from semantic identity.
+ * The canonical text of one level of a schema description, without its SourceLocs, minted only by schemaLevel: what the
+ * level's fingerprint hashes, and what the text of the level above holds as its `extends` member.
  */
-export const schemaFingerprint = (input: {
-	readonly content: unknown
-}): Result.Result<SchemaFingerprint, CompileError> =>
-	Result.map(digest("schema", { content: input.content }, withoutSourceLocs), SchemaFingerprint)
+export type LevelText = string & { readonly [levelTextBrand]: true }
+
+const mintLevelText = nominal<string, LevelText>()
+
+/** A schema level's canonical text and its fingerprint (schemaLevel). */
+export interface SchemaLevel {
+	readonly text: LevelText
+	readonly fingerprint: SchemaFingerprint
+}
+
+/**
+ * A schema level's canonical text and fingerprint, over the level `below` it, none for the root. The fingerprint is
+ * SHA-256 over the domain-separated canonical text of `{ content: level }`, without the SourceLocs its descs carry under
+ * "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. A level above the root holds the level
+ * below under `extends`, whose text the level below's fingerprint hashed, so that member is written from that text
+ * (core/canonical.ts encodeOver) and the level below is never encoded again.
+ */
+export const schemaLevel = (
+	level: unknown,
+	below: SchemaLevel | undefined
+): Result.Result<SchemaLevel, CompileError> =>
+	Result.flatMap(
+		below === undefined
+			? encode(level, withoutSourceLocs)
+			: encodeOver(level, withoutSourceLocs, "extends", below.text),
+		(text) =>
+			Result.map(encodeOver({ content: level }, withoutSourceLocs, "content", text), (content) => ({
+				text: mintLevelText(text),
+				fingerprint: SchemaFingerprint(sha256Hex(`${canonicalFormat}\nschema\n${content}`))
+			}))
+	)

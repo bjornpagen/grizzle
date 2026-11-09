@@ -7,7 +7,7 @@ import {
 	type ProseTag,
 	prose
 } from "#compiler/core/errors.ts"
-import { schemaFingerprint } from "#compiler/core/fingerprint.ts"
+import { type SchemaLevel, schemaLevel } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	DeclaredNamespace,
@@ -219,7 +219,7 @@ export interface OwnedContract {
  * text. A statement is canonicalized first: a check's and a selection's conjunctions and disjunctions have their
  * operands in canonical order, each comparison its canonical orientation and each IN list its values in canonical
  * order, so that reordered but equal declarations share one text. Roster order is kept, because it is comparison
- * order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaFingerprint).
+ * order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaLevel).
  * PostgreSQL identifiers are part of the installation artifact, not of the fingerprint.
  *
  * The owned schema: the frozen schema product (desc and fingerprint, ir/products.ts) with what ownership resolved
@@ -810,11 +810,13 @@ const plainSide = (side: SideDesc, entry: RelationEntry): boolean => {
 
 /**
  * The levels of a canonical description, root first: each level's installation, minted from its declared name, and its
- * fingerprint, the digest of the canonical description it tops, which owning that level alone computes. Two levels
- * whose names convert to one PostgreSQL schema are IdentifierCollision.
+ * fingerprint, the digest of the canonical description it tops, which owning that level alone computes, each level's
+ * text written once and read by the level above (core/fingerprint.ts schemaLevel). Two levels whose names convert to
+ * one PostgreSQL schema are IdentifierCollision.
  */
 const ownedLevels = (canonical: SchemaDesc): NonEmptyReadonlyArray<OwnedLevel> => {
 	const schemas = new Map<string, SchemaDesc>()
+	let below: SchemaLevel | undefined
 	return mapNonEmpty(levelChain(canonical), (level): OwnedLevel => {
 		const installation = unwrap(schemaInstallation(level.name, level.loc))
 		const ident = identifierOf(installation)
@@ -831,10 +833,11 @@ const ownedLevels = (canonical: SchemaDesc): NonEmptyReadonlyArray<OwnedLevel> =
 			})
 		}
 		schemas.set(ident, level)
+		below = unwrap(schemaLevel(level, below))
 		return {
 			name: level.name,
 			installation,
-			fingerprint: unwrap(schemaFingerprint({ content: level })),
+			fingerprint: below.fingerprint,
 			loc: level.loc
 		}
 	})
