@@ -5,7 +5,7 @@ import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 /** A relation's fields its facts carry outside its primary key, in heading order (insert/statement.ts isCarried): none
  * for a pure set, whose primary key is every field its facts carry. A generated field is no payload: PostgreSQL writes
  * it from the row's written fields, so no UPDATE assigns it and two facts equal at those are equal at it. Nor is a
- * drawn or accumulated field: grizzle draws it (rows-first.md §1), so a put of an owner leaves its families as they
+ * drawn or accumulated field: grizzle draws it, so a put of an owner leaves its families as they
  * are. A pure set has no payload: its insert is ON CONFLICT DO NOTHING, and its put displaces nothing and updates
  * nothing in place. */
 export type Payload =

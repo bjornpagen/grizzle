@@ -173,7 +173,7 @@ export type Chunks = (
 	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
-/** One family's read as one execution sends it (write/family/edit.ts SuffixRead): its text and its placeholders' texts. */
+/** One family's read as one execution sends it (write/family/statements.ts ReadSql): its text and its placeholders' texts. */
 export interface ReadStatement {
 	/** The family whose stored suffixes it reads, which a failure the read meets is attributed to. */
 	readonly family: FamilyId
@@ -182,7 +182,7 @@ export interface ReadStatement {
 }
 
 /**
- * How one application's statements reach the server, in its one transaction (rows-first.md §2):
+ * How one application's statements reach the server, in its one transaction:
  * - `write`: one flight of the artifact's statements, when the changeset names no member of any family, so no family
  *   write needs a stored row;
  * - `read`: first a flight of the family reads, one batched SELECT per family of the stored suffixes and the owners'
@@ -772,7 +772,7 @@ export const bindWrite = (
 	}
 	/**
 	 * A stratum's owner writes with every count of an owner the stratum inserts carried by the owner's own insert row
-	 * instead of a count statement (rows-first.md §2.1): a fresh owner's stored suffix is empty, so the filler knows its
+	 * instead of a count statement: a fresh owner's stored suffix is empty, so the filler knows its
 	 * every member, and its insert row then states its final count and ends, which an immediate CHECK over them judges
 	 * and every member's axes reference. `refilled` gathers each such owner's insert slot with its facts' counts and
 	 * ends replaced (normalize.ts refilledSlot), and `nested` each such owner a nested write of the stratum fills, a
@@ -1426,7 +1426,7 @@ const readLiterals = (
 }
 
 /** The slots of an enumerated input whose facts may insert their keys: an insert's, a put's (whose insert half inserts
- * each fact no row holds the key of, rows-first.md §3), a nested insert's, and a classed insert's complete one. */
+ * each fact no row holds the key of), a nested insert's, and a classed insert's complete one. */
 const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 	switch (input.kind) {
 		case "single":

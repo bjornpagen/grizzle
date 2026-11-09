@@ -516,7 +516,7 @@ interface ViewColumn {
 /**
  * A view's columns over the heading `heading`, each column `c` read as `read(c)` under its view name `columnName(c)`: each
  * closed id followed by its decoded column, `<field>_name`, the handle its code names, read from its roster's names
- * constant, `(N())[c + 1]::text` (E2, D12). A set has no decoded column (OPEN-4).
+ * constant, `(N())[c + 1]::text`. A set has no decoded column.
  */
 const viewColumns = <C extends HeadingColumn>(
 	b: InstallBuilder,
@@ -583,7 +583,7 @@ const wholeView = (
 }
 
 /** The view of a query entry: its definition, lowered, behind a security barrier. A definition with a closed id in its
- * heading is read as a derived table under generated names (physical/derived/definition.ts readAsDerived), whose every
+ * heading is read as a derived table under generated names (physical/derived/definition.ts derivedReading), whose every
  * column the view passes on, each closed id with its decoded column after it. */
 const worldView = (
 	b: InstallBuilder,
@@ -767,7 +767,7 @@ const writePlan = (
 	const all = written.fields.map(column)
 	/** The columns a write names: every field but a generated one, the caller's and those grizzle writes for it (a
 	 * serial field's explicit value, a family's drawn index and count, a fold's accumulator), then the drawn law columns
-	 * grizzle writes (D14). A generated field, which PostgreSQL computes, takes no INSERT or UPDATE. */
+	 * grizzle writes. A generated field, which PostgreSQL computes, takes no INSERT or UPDATE. */
 	const insertable = [
 		...written.fields.filter((f) => f.writing.kind !== "generated").map(column),
 		...drawnColumnsOf(b, relation)
@@ -1019,7 +1019,7 @@ const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<stri
 	)
 
 /**
- * What a role that writes a member of a family holds on the family's owner O (rows-first.md §2), beside what its own
+ * What a role that writes a member of a family holds on the family's owner O, beside what its own
  * entries grant, and nothing wider. Column SELECT on exactly what the family's read flight reads of O
  * (write/family/statements.ts suffixReadSql): its key, the owner fields the group pairs with, and `ownerReadColumns`:
  * its count, its ends and the fields its owner axis copies into members, which the role writes into its own member rows.

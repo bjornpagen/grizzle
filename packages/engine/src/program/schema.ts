@@ -287,7 +287,7 @@ export const levelSchema = (
 
 /**
  * The artifacts of a schema under the target identifiers: those of the Owned the schema owns to, and for a role its
- * base's read through its views (roleArtifactsOf). Each call computes them: their holder (the layer, generate,
+ * base's read through its views (roleArtifacts). Each call computes them: their holder (the layer, generate,
  * describe) computes them once and hands them to every compilation over the schema.
  */
 export const schemaArtifacts = (

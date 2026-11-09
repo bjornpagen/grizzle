@@ -9,8 +9,8 @@ import { type SchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 
 /**
- * describeQuery and lowerQuery: the inspection vocabulary over query values, internal to the engine (tests, the golden
- * capture and the compile profiler read it; no package export does).
+ * describeQuery and lowerQuery: the inspection vocabulary over query values, internal to the engine (tests and the compile
+ * profiler read it; no package export does).
  *
  * - describeQuery: a query or ordered value to its QueryDescription, its Description in canonical JSON form
  *   (ir/describe.ts). Like every builder-side convenience it is synchronous and throws the

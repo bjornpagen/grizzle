@@ -1,7 +1,7 @@
 import { type GeneratedLaw, generatedLaw } from "#compiler/analysis/theory/description.ts"
 import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
 /**
- * The host's fills of a nested write (W3.P2): every column of every row a nesting writes that grizzle writes itself, by
+ * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
  * (analysis/theory/fill.ts).
  *

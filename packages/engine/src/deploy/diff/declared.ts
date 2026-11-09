@@ -71,7 +71,7 @@ export interface Applied {
 	readonly previous: DeploySnapshot
 }
 
-/** A name as D9 spells it, for a refusal. */
+/** A name as a refusal spells it. */
 const spelled = (n: Named): string => {
 	switch (n.kind) {
 		case "relation":

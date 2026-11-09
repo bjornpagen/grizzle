@@ -1,9 +1,9 @@
 /**
- * A family write's rows, as the columnar transport carries them (rows-first.md §1).
+ * A family write's rows, as the columnar transport carries them.
  *
  * The caller writes rows; a family is a law over them, and grizzle owns every value a family draws: each count, index,
  * interval, copy and accumulator. So every row a family write sends is whole: its key, then every other column the host
- * writes, in its relation's row layout (write/family/statements.ts rowColumns), whichever families it is a member of,
+ * writes, in its relation's row layout (write/family/statements.ts rowLayout), whichever families it is a member of,
  * and every owner's count statement carries its count and its ends. None of those values is the caller's, so no write
  * can state a gap, a shared slot, a count that disagrees with its family or a fold that disagrees with its members.
  */

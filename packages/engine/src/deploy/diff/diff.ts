@@ -2593,7 +2593,7 @@ type SequenceFate = "dropped" | "recreated"
  * A serial column converted gives its identity up first, whatever its new type, which drops the sequence and its
  * privileges, and the sequence is created again when the converted column takes the target's identity under its name. A
  * field serial before and after keeps its sequence, which its table's pairing renames when the target names it
- * otherwise (KeptPlan, renameOffer). */
+ * otherwise (KeptPlan sequences). */
 type FieldChange =
 	| { readonly kind: "kept" }
 	| {
@@ -2618,7 +2618,7 @@ const generationOf = (c: ColumnDef): Expr | undefined =>
 /** Whether a column's type changes between a previous column and a target one (Differ.retyped). */
 type Retyped = (b: ColumnDef, c: ColumnDef) => boolean
 
-/** The one reading of a field's change from its column before and after, alone (fieldChanges reads a table's), its type
+/** The one reading of a field's change from its column before and after, alone (fieldChangesOf reads a table's), its type
  * changing as `retyped` reads it. */
 const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange => {
 	const was = identitySequence(b)
@@ -2690,7 +2690,7 @@ const isDrawn = (w: SnapshotWriting | undefined): boolean =>
 
 /**
  * The field changes of a table with each field the target draws or accumulates otherwise than the previous snapshot
- * records it rewritten (rows-first §6 as amended): a field its caller wrote, or one drawn or accumulated by another
+ * records it rewritten: a field its caller wrote, or one drawn or accumulated by another
  * filler (SnapshotWriting), its family, fold, copy or start changed. Its column is added again under its placeholder
  * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames reads
  * as its previous record (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its

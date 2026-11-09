@@ -1047,7 +1047,7 @@ const addBits = (
  * the side only where its selection is true: one the selection leaves unknown, by a closed read at an absent key, is
  * off it as one it leaves false is, so the containment holds vacuously there, as a law column's `CASE WHEN` reads it.
  *
- * The guard is C2's RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
+ * The guard is a RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
  * persistent lowering (physical/ddl/expr.ts lowerPersistent), as every row CHECK and law column's guard is, so a
  * literal is typed by its base and never cast to a domain, whose later tightening would refuse every later insert;
  * only a probe's query, which runs once per statement, lowers a guard through write/insert/unique.ts withinRow.

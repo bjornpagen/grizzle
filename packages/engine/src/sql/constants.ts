@@ -25,7 +25,7 @@ import {
  * closed relation, and every closed side a law or query reads, compiles to one bit string, a string of cells read w
  * bits at a time: the body of an IMMUTABLE SQL function named by its contents, so a changed relation is a new function
  * and never a function replaced in place. Cell i holds bits i * w to (i + 1) * w - 1; 0 is absent, and 1 + c is present
- * with payload code c. A tuple's cell is the index its key gives its codes (ir/physical.ts ClosedKey): their row-major
+ * with payload code c. A tuple's cell is the index its key gives its codes (ClosedKey): their row-major
  * mixed radix over a product of closed ids, or over a dependent sum its owner's base plus its block's mixed radix at the
  * owner's own counts.
  *

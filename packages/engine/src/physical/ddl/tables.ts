@@ -466,7 +466,7 @@ export interface KeyIndex {
  *   generated field is `GENERATED ALWAYS AS (<e>) STORED`, its expression over the row's written fields, a closed read
  *   among them reading the closed relation's constants, which the table is created after.
  * - A drawn law column, a family's count copy, index, parent start or fold accumulator, is a plain NOT NULL column of
- *   its type's base that the host writes (D13), its own `ALTER TABLE ... ADD COLUMN` after its table, as a generated
+ *   its type's base that the host writes, its own `ALTER TABLE ... ADD COLUMN` after its table, as a generated
  *   law column is (`lawColumnDdl`), so a migration adds a family to a relation that stands by the same statements.
  * - A generated law column, added before every key and reference because they name it, is a private STORED generated column of
  *   its type's base (`lawColumnType`), the keyword STORED always emitted, since PostgreSQL defaults to VIRTUAL, which
@@ -867,7 +867,7 @@ const lawColumnGeneration = (
 /**
  * A law column's one statement, `ALTER TABLE ... ADD COLUMN` of its field's type's base (`lawColumnType`), after its
  * table: a generated one STORED from its row (`lawColumnGeneration`), and a drawn one, a family's count copy, index,
- * parent start or fold accumulator, a plain NOT NULL column the host writes (D13). Every law column is its own object
+ * parent start or fold accumulator, a plain NOT NULL column the host writes. Every law column is its own object
  * by one path, so a migration that adds a family to a relation that stands adds its columns as a fresh installation
  * does.
  */

@@ -129,7 +129,7 @@ const compareUses = (a: TextDomainUse, b: TextDomainUse): number =>
 
 /**
  * A domain's physical definition, its CREATE DOMAIN but for the names it is created and checked under: its base type,
- * its collation and its CHECKs' predicates. Its digest is what the domain is named by (W6.Q10), so two contracts or
+ * its collation and its CHECKs' predicates. Its digest is what the domain is named by, so two contracts or
  * refinements of one definition share one domain, and a changed definition is a new domain.
  */
 export const definitionDigest = (
@@ -369,7 +369,7 @@ const addContractDomain = (
 }
 
 /** The contract domains, in contract name order, each after the schema and after the types its base names, each
- * definition once (W6.Q10): two contracts of one definition share one domain. Every contract is a law, and the law
+ * definition once: two contracts of one definition share one domain. Every contract is a law, and the law
  * model's domain native holds its base and decides its CHECK.
  *
  * A contract is `CREATE DOMAIN <schema>.<domain> AS <base>`, named by its definition's digest. Its base is an inner

@@ -903,8 +903,8 @@ const compile = (
 		[...nestingFor(relation).layouts].flatMap(([name, laid]) =>
 			laid.pending.size > 0 ? [name] : []
 		)
-	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation
-	 * (rows-first.md §1). A counted family's members are rows of their own, inserted directly by their group key, so an
+	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation.
+	 * A counted family's members are rows of their own, inserted directly by their group key, so an
 	 * owner of counted families alone is inserted on the plain path, its counts at 0 and its ends at their starts. */
 	const nests = (name: string): boolean =>
 		families.some((f) => f.owner.name === name && isSequence(f))

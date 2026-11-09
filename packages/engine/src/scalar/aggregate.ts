@@ -55,7 +55,7 @@ export type ExactCarrier = "float4" | "float8" | "money"
  * - native: the native call over the arguments as they are, whose accumulator is exact or returns an input: count,
  *   min, max, bool_and, bool_or, and sum over the integers and numeric;
  * - scaleFree: the native call over each argument through trim_scale: avg over numeric, whose quotient reads the sum's
- *   display scale (I2);
+ *   display scale;
  * - exactSum: sum over the exact numeric value of each argument, rounded once to real or double precision as IEEE 754
  *   rounds, or kept as exact money;
  * - exactMean: that exact sum over count(*), rounded once to double precision: avg over real and double precision.
@@ -342,7 +342,7 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  *   the exact carriers is exact too, bounded by its rows. A derived relation holds no exact field
  *   (analysis/derived/fields.ts), so a stored money total sums the amounts cast to numeric.
  * - r.mean over numeric is avg over each argument through trim_scale, so the quotient's scale is read from the values
- *   alone (I2).
+ *   alone.
  *
  * Each is the identity on one value, equals IEEE `+` on two values, and never raises.
  *

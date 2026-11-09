@@ -45,14 +45,14 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  * - `total`: defined everywhere as PostgreSQL computes it: comparisons, boolean composition, numeric arithmetic within
  *   the digit bounds every numeric expression has (lower.ts), sign, char_length, octet_length, span endpoints, widening
  *   casts;
- * - `exact`: integer or money arithmetic computed exactly (T1): its value is an exact integer or exact money
+ * - `exact`: integer or money arithmetic computed exactly: its value is an exact integer or exact money
  *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
  *   identity only, and SQL rendering computes it over its operands widened into the exact space
- *   (lower/conservative/expr/exact.ts);
- * - `ieee`: float arithmetic as IEEE 754 defines it (T2): overflow is ±Infinity, underflow the correctly rounded
+ *   (lower/conservative/expr/total.ts exactForm);
+ * - `ieee`: float arithmetic as IEEE 754 defines it: overflow is ±Infinity, underflow the correctly rounded
  *   subnormal or the one zero, x / ±0 is ±Infinity, 0 / 0 and the square root of a negative are NaN, computed by SQL
- *   rendering without letting PostgreSQL raise (lower/conservative/expr/ieee.ts);
- * - `requires`: defined where its preconditions hold, which the lowering proves at the node (T3), or refuses the
+ *   rendering without letting PostgreSQL raise (lower/conservative/expr/total.ts ieeeForm);
+ * - `requires`: defined where its preconditions hold, which the lowering proves at the node, or refuses the
  *   operation as PartialOperation.
  */
 type Totality =

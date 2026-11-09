@@ -75,7 +75,7 @@ export type PutChoice = {
 	  }
 )
 
-/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row (rows-first.md §3). */
+/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
 const ownsFamily = (frontend: WriteFrontend, relation: string): boolean =>
 	frontend.laws.families.some((f) => f.owner.name === relation)
 
@@ -143,7 +143,7 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  * each put's choice beside it. These rules are where a put's target is decided, once. None of these targets is
  * exposed.
  *
- * A put of a mutable relation that owns a family is ownerPut (rows-first.md §3): an UPDATE ... FROM of the fields its
+ * A put of a mutable relation that owns a family is ownerPut: an UPDATE ... FROM of the fields its
  * facts carry (`payloadOf`), none for an owner whose facts carry nothing outside its key, then the insert protocol's
  * put half for every fact no row holds, its counts at 0 and its ends at their starts (insert/statement.ts startOf).
  * Its families are left as they are, so it is never the pair, whose deletion of a stored owner would trip every

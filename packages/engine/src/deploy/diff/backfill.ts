@@ -1,5 +1,5 @@
 /**
- * The backfill of the families a migration adds to relations that may hold rows (rows-first §6): grizzle draws every
+ * The backfill of the families a migration adds to relations that may hold rows: grizzle draws every
  * value a family holds (each index, count, copy and accumulator), so a family new to stored rows takes its values from
  * SQL over those rows, in the migration that adds it, never from the reviewer.
  *
@@ -10,7 +10,7 @@
  * then proves it: a value it drew wrongly is a violation of the family's own natives, never a silent state.
  *
  * - **Counted:** ‹i› = row_number() OVER (PARTITION BY g ORDER BY the member key) − 1, and ‹n› the group's count. The
- *   member key is a key of the stored rows, so the order is total and no two members tie (rows-first §0).
+ *   member key is a key of the stored rows, so the order is total and no two members tie.
  * - **Ordered:** the drawn index the same, by the member key: the stored rows carry no order of the caller's.
  * - **Folds:** each plane's after a running aggregate of its masked step in index order, its frame ROWS BETWEEN UNBOUNDED
  *   PRECEDING AND CURRENT ROW, never RANGE, which would merge peers; each before its predecessor's after, the identity
@@ -987,7 +987,7 @@ const familyColumns = (family: Family): ReadonlySet<string> =>
 	])
 
 /**
- * A copy a family's axis carries (rows-first §6 as amended): a column the host fills on the axis's source row, `from`,
+ * A copy a family's axis carries: a column the host fills on the axis's source row, `from`,
  * with the value of `to` on the row the axis names, its target. The owner axis names each member's owner, a tree's
  * row its parent's, the root its own (it references itself), so no row lacks one; the predecessor axis names the
  * member at the slot before, and the first slot holds the copy's base; the last axis names an owner's last member, and

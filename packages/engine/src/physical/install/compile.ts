@@ -382,7 +382,7 @@ const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
 /**
  * Each checked contract domain's constraint, a base contract's and a context contract's alike: the laws of every
  * contract whose definition the domain holds, in contract name order, since contracts of one definition share one
- * domain (W6.Q10), and each column of a stored relation the domain checks, down its type's contract chain, with the law
+ * domain, and each column of a stored relation the domain checks, down its type's contract chain, with the law
  * of the contract that column's chain names it by, which a violation on that column reports, in canonical use order.
  */
 const contractConstraintLaws = (

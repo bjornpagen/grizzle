@@ -249,7 +249,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	/** The written fields its input carries: a put's facts state the caller's and serial fields, and an enumerated put
 	 * of an owner carries its counts and ends beside them (input.ts RelationInput family), at their starts or as its
 	 * stratum's appends drew them for an owner it inserts (frontend/compile.ts), which no UPDATE sets: a stored owner's
-	 * families keep them (rows-first.md §3). */
+	 * families keep them. */
 	const heading = [...inputStated(input), ...inputFamily(input)]
 	const carried = writtenFields(relation).filter((f) => heading.some((c) => c.name === f.name))
 	if (!isNonEmpty(carried)) {

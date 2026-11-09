@@ -67,7 +67,7 @@ export type InsertOf = "insert" | "put"
  * Which requested facts an insert statement proposes to its INSERT:
  * - `every`: each one, the arbiter settling a stored row at its key, an insertion's exact repeat or its conflict, a
  *   put's commit after its deletion;
- * - `unstored`: into a family owner, only those at no stored key (rows-first.md §3). A proposed owner carries every
+ * - `unstored`: into a family owner, only those at no stored key. A proposed owner carries every
  *   count and end its input does not carry at its start, and PostgreSQL judges a proposed row by every CHECK before any
  *   arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a
  *   stored owner proposed again would meet a check over an end, such as an invoice's lines summing to its amount, at
@@ -425,13 +425,13 @@ export const writtenFields = (relation: RelationInfo): NonEmptyReadonlyArray<Law
 	return [...key, ...relation.heading.filter((f) => !key.includes(f) && isWritten(f))]
 }
 
-/** Whether a fact carries a field: a caller's or a serial one. A drawn or accumulated field is grizzle's (rows-first.md
- * §1) and a generated one PostgreSQL's, so no fact carries either. */
+/** Whether a fact carries a field: a caller's or a serial one. A drawn or accumulated field is grizzle's
+ * and a generated one PostgreSQL's, so no fact carries either. */
 export const isCarried = (field: Pick<LawField, "writing">): boolean =>
 	field.writing.kind === "caller" || field.writing.kind === "serial"
 
 /**
- * The value an insert writes a field at when its input does not carry it (rows-first.md §1): a drawn field, which
+ * The value an insert writes a field at when its input does not carry it: a drawn field, which
  * outside a nesting is a fresh owner's count of a counted family, at 0, and an accumulated one, a fresh owner's empty
  * family's end, at its start; none for a field its fact carries.
  */

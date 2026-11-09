@@ -579,9 +579,9 @@ export interface LawPlan {
 	readonly natives: ReadonlyArray<NativePlan>
 	/**
 	 * Where the law is discharged: on every write, by its natives; for a law that reads closed relations alone, once by
-	 * PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs nothing
-	 * (fin.md §17, "Where each law is discharged"); or, for a rule over a query, at every COMMIT by the deferred
-	 * constraint triggers the law model plans for it, and once by its violation query in the migration that adds it.
+	 * PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs nothing;
+	 * or, for a rule over a query, at every COMMIT by the deferred constraint triggers the law model plans for it, and
+	 * once by its violation query in the migration that adds it.
 	 */
 	readonly discharge: "write" | "migration" | "trigger"
 }
@@ -1214,7 +1214,7 @@ export class Recognizer {
 	}
 
 	/**
-	 * A containment of an open relation's side into a closed relation's (U3): a lone closed-id field contained in its own
+	 * A containment of an open relation's side into a closed relation's: a lone closed-id field contained in its own
 	 * roster's unselected id is discharged by the roster's domain, which types the field, whatever rows the source
 	 * selects; every other is a ClosedCheck, a table CHECK on the source reading the target side's constant at the row's
 	 * codes, holding vacuously outside the source's selection. The target side is a closed relation of its own
@@ -1563,7 +1563,7 @@ export class Recognizer {
 	}
 
 	/**
-	 * A family's natives, planned once (fin.md §5.2, trees.md §2):
+	 * A family's natives, planned once:
 	 *
 	 * - its columns: the index, a field when ordered and a drawn ‹i› when counted; the drawn ‹n› on each member; ‹p›,
 	 *   the generated pred of the index; ‹pn›, the generated pred of the count on the owner; and for a tree ‹parent₀›,

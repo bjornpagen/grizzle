@@ -80,8 +80,8 @@ export interface InstallNames extends PhysicalNames {
 	/** The identity a relation's table, roster domain or materialized view is named by. */
 	readonly relationNamed: (relation: string) => Identity<"table" | "rosterDomain" | "view">
 	/**
-	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition
-	 * (W6.Q10), so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
+	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition,
+	 * so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
 	 */
 	readonly contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
 	/** The identity of the structural text domain of a pattern the installation names, by its definition's digest. */

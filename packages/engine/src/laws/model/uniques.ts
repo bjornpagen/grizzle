@@ -113,7 +113,7 @@ type Placed =
 type LawColumns = ReadonlyMap<string, ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">>>
 
 /**
- * The compared fields and guards of columns over law columns (law/model/plan.ts sideColumns): two rows agree at them
+ * The compared fields and guards of columns over law columns (laws/model/plan.ts sideColumns): two rows agree at them
  * where both meet every column's guard, so that no column is null, and agree at each column's term. A column's term
  * reads at most one field of its own row, injective where defined, so two rows agree at it where they agree at the
  * field it reads, which is read off the term itself, never off the field that types the column (a constant column's is

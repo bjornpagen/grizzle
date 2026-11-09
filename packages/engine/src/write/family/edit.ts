@@ -1,5 +1,5 @@
 /**
- * Rows first (rows-first.md §2): a changeset's rows are data and a family is a law over them, so grizzle owns every
+ * Rows first: a changeset's rows are data and a family is a law over them, so grizzle owns every
  * value a family draws. Per family, a changeset's rows are grouped by group, the group-key value for a counted family
  * and the owner for a sequence, and every change to a group is one edit: its appends, its removals and its members'
  * updates. Each edit becomes one suffix rewrite of its group:
@@ -499,7 +499,7 @@ interface GroupFilled {
 }
 
 /**
- * One group's fill (rows-first.md §2): its members' final slots, then from the least slot the edit touches every
+ * One group's fill: its members' final slots, then from the least slot the edit touches every
  * member's index, copies and accumulators in slot order, each from its predecessor, its owner and the step, and the
  * owner's count and ends from its last member. A counted removal moves the last kept members into the slots removals
  * free below the new count, and every other member keeps its slot; a sequence's members keep their order, and from the
@@ -829,7 +829,7 @@ const typeOfKey = (relation: LawRelation, family: Family, key: ColumnKey): LawFi
 }
 
 /**
- * The host value a new row holds a field at when nothing fills it (rows-first.md §1): a drawn field, which beside a
+ * The host value a new row holds a field at when nothing fills it: a drawn field, which beside a
  * member's own family values is its own counted family's count, at 0, and an accumulated one, its own family's end, at
  * its start, so a member that owns a family is inserted with that family empty; none for any other field.
  */

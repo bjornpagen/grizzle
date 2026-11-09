@@ -49,7 +49,7 @@ import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
  * - on a table the rule's breaking side reads (a containment's source, a key's or a check's relation), INSERT and an
  *   UPDATE of a column it reads, whose probes (analysis/theory/query.ts newProbes) read the side's facts the row at
  *   NEW's primary key derives;
- * - on a table a containment's target reads, DELETE and an UPDATE of a column it reads, whose probes (lostProbes) read
+ * - on a table a containment's target reads, DELETE and an UPDATE of a column it reads, whose probes (analysis/theory/query.ts oldProbes) read
  *   the target tuples OLD's row may have withdrawn and the source tuples that needed them.
  *
  * Each probe is a query description grizzle's own compiler checks and lowers, through the optimized lowering under the

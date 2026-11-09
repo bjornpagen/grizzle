@@ -1,6 +1,5 @@
 /**
- * The statements of a family write, in the one order PostgreSQL admits, cut into statements the transport carries
- * (rows-first.md §2).
+ * The statements of a family write, in the one order PostgreSQL admits, cut into statements the transport carries.
  *
  * PostgreSQL never defers a check nor a unique slot (group, index), and checks a sequence's predecessor key and every
  * owner axis at the end of each statement; a counted family's closure and every family's last axis wait for commit. So

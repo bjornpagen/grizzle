@@ -116,7 +116,7 @@ interface ConservativeWriteOptions {
 
 const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): ConservativeWrite => {
 	const { ir } = frontend
-	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row (rows-first.md §3). */
+	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
 	const ownsFamily = (relation: string): boolean =>
 		frontend.laws.families.some((f) => f.owner.name === relation)
 	const w: WriteContext = writeContext(ir.dag, {

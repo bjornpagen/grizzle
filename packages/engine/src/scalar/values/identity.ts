@@ -74,7 +74,7 @@ export interface CarrierHost {
 	readonly money: Money
 	readonly bool: boolean
 	readonly uuid: string
-	/** A date's host value is its ISO 8601 text, its one form (values/date.ts). */
+	/** A date's host value is its ISO 8601 text, its one form (ir/date.ts). */
 	readonly date: CalendarDate
 	readonly text: string
 	/** A bytes value's host value is its bytes with their digest (values/bytes.ts AdmittedBytes). */

@@ -80,9 +80,9 @@
  *    level-generic consumers holds everywhere.
  *
  * 5. Db.open opens a role reached through its login. The layer cannot say which role: it is the Effect's
- *    requirement, an output of the call, from which TypeScript cannot infer a type argument. `Db.open(Web.roles.user,
+ *    requirement, an output of the call, from which TypeScript cannot infer a type argument. `Db.open(Web.roles.member,
  *    { token })` names the role, with the programs of the login's workloads it runs (LoginRole's phantom); its
- *    requirement DbLayer<UserBlog> is provided only by the layer of the login that holds the role (DbLayerOf), and its
+ *    requirement DbLayer<MemberBlog> is provided only by the layer of the login that holds the role (DbLayerOf), and its
  *    options require a token exactly when the role's relations read a context (ReadsContext over the contexts phantom
  *    its query entries carry). The runtime reads the role's login off the value it was given and fails with OpenError
  *    at stage `role` when no provided layer serves it.

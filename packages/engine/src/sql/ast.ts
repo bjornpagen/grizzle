@@ -1373,7 +1373,7 @@ export type TriggerEvent =
 
 /**
  * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
- * (sql/catalog.ts DoBlock, built by sql/build.ts databaseDefaultBlock):
+ * (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseDefaultBlock):
  *
  *   DO $$
  *   BEGIN

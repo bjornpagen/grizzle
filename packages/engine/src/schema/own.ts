@@ -174,7 +174,7 @@ export type OwnedView =
 /**
  * An owned contract: its declared name, its type-level brand, and its descriptor. Ownership names no installed object
  * for it: its domain is named by the domain's physical definition, which only the installation's names spell
- * (physical/ddl/names.ts InstallNames.contractNamed), so contracts of one definition share one domain (W6.Q10).
+ * (physical/ddl/names.ts InstallNames.contractNamed), so contracts of one definition share one domain.
  */
 export interface OwnedContract {
 	readonly name: DeclaredName

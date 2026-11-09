@@ -1,5 +1,5 @@
 /**
- * The SQL of a family write's statements (fin.md §4.5, §4.5a, rows-first.md §2), each reading its rows from the
+ * The SQL of a family write's statements, each reading its rows from the
  * columnar arrays its placeholders carry, $n the array of the n-th column of its rows' layout (write/family/order.ts
  * textsOf, draw.ts), each array of its column's base type:
  *
@@ -8,7 +8,7 @@
  *   `INSERT INTO F (<every column>) SELECT …`;
  * - a family's owners' counts (`countStatement`): `UPDATE O SET n = n, e… = e… … WHERE O.k… = k…`, each owner's one
  *   count and its ends, which the owner axis cascades into every member's ‹n›;
- * - a family's read (`suffixReadSql`, rows-first.md §2): its touched groups' owners and stored suffixes, one SELECT.
+ * - a family's read (`suffixReadSql`): its touched groups' owners and stored suffixes, one SELECT.
  *
  * Every write is a SELECT over the data-modifying CTE that writes, as every write statement is
  * (write/insert/statement.ts), and returns the facts it wrote or removed, every field of its relation key first, as
@@ -657,7 +657,7 @@ const arraysAt = (
 }
 
 /**
- * A family's read (rows-first.md §2), one SELECT. $1 … $k are the touched members' keys, one array per key field, and
+ * A family's read, one SELECT. $1 … $k are the touched members' keys, one array per key field, and
  * the next ones the touched groups' keys, one array per group field. A touched group is the stored group of a member a
  * key names, or a group the arrays name whose owner is stored. It returns, tag `o`, each touched group's owner, its key
  * and its `ownerReadColumns`; and, tag `m`, each member of a touched group from one slot before the least slot a key
