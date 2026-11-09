@@ -357,7 +357,6 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 									value: () =>
 										`${quoteIdent(identifierOf(identity.column(parsedName("words"))))}::bigint`
 								},
-								register: true,
 								/** Each login's rename, the one name a version takes from another, declared; nothing is dropped. */
 								declared: (i) => {
 									const from = versions[i - 1]

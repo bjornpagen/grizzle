@@ -311,7 +311,6 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 									first,
 									later,
 									apply: { kind: "noPlaceholders" },
-									register: true,
 									declared: () => noDeclarations,
 									observe: Option.some((i: number, owner: RawSession) =>
 										Effect.gen(function* () {

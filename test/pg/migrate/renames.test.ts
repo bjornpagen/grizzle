@@ -294,7 +294,6 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 			},
 			later: [(name) => ({ schema: schemaAt(name, p, true), logins: [] })],
 			apply: { kind: "noPlaceholders" },
-			register: false,
 			declared: (v) => (v === 1 ? declarationsOf(p) : noDeclarations),
 			observe: Option.some((v: number, owner: RawSession) =>
 				Effect.gen(function* () {

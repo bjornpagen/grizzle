@@ -219,7 +219,6 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							},
 							later: [],
 							apply: { kind: "noPlaceholders" },
-							register: true,
 							declared: () => noDeclarations,
 							observe: noObservation
 						})

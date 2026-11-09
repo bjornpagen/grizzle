@@ -8,7 +8,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { registerSnapshot } from "#adapter/admission/snapshots.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -78,10 +77,10 @@ import { regex } from "arkregex"
  *    leave no object, its privileges in the script's order (runsInstallScript); one it cannot certify is compared in
  *    full: the script runs under another allocated name and the two catalogs, function bodies, trigger events and view
  *    queries included, must be equal (test/pg/migrate/support.ts sameCatalog).
- * 5. The snapshot. The generated snapshot is registered with the schema rebuilt under the allocated name
- *    (adapter/admission/snapshots.ts): it stands for the committed `migrations/<schema>/snapshot.json` the application
- *    knows, and a Db opened on a layer given it, of a schema value of that name or of a level below it, admits the
- *    database against it.
+ * 5. The snapshot. The generated snapshot, of the schema rebuilt under the allocated name, stands for the committed
+ *    `migrations/<schema>/snapshot.json` the application knows: a layer is given its JSON value (snapshot-json.ts
+ *    snapshotValue), as an application's import of the file, and a Db opened on it, of a schema value of that name or
+ *    of a level below it, admits the database against it.
  * 6. Logins. The installation carries the logins the caller gives, over the schema as declared (a login value or a
  *    LoginDesc), and every login role gets a password through the substrate, so a test logs in as it over verify-full
  *    TLS exactly as a grizzle connection or a psql writer would, and takes on a role of it per transaction or session;
@@ -465,7 +464,6 @@ export const installMigrated = (
 		const owner = yield* ambientOwner(options.ambient, installedSchemas(installation))
 		yield* applyFolders(owner, substrate.database, g.snapshot, [folder])
 		yield* expectFreshCatalog(desc, installation, folder, options)
-		yield* Effect.fromResult(registerSnapshot(g.snapshot))
 		const installed = yield* installedOf({
 			plan,
 			declared: name,

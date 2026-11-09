@@ -385,7 +385,6 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 									first,
 									later,
 									apply: { kind: "noPlaceholders" },
-									register: false,
 									declared: () => noDeclarations,
 									observe: Option.some((i: number, owner: RawSession) =>
 										Effect.gen(function* () {

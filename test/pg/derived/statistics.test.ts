@@ -246,7 +246,6 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 									},
 									apply: { kind: "noPlaceholders" },
 									later: [],
-									register: true,
 									observe: noObservation,
 									declared: () => noDeclarations
 								})

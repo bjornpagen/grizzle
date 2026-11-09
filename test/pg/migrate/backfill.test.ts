@@ -322,7 +322,6 @@ const migratedOver = (
 			},
 			later: [(name) => ({ schema: after(name), logins: [] })],
 			apply: { kind: "noPlaceholders" },
-			register: false,
 			declared: () => noDeclarations,
 			observe: Option.some((v: number, owner: RawSession) =>
 				v !== 0 ? Effect.void : inserted(owner, schemaName, stored)

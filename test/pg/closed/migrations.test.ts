@@ -1120,7 +1120,6 @@ layer(Substrate.layer)("roster migrations on PostgreSQL 19rc1", (it) => {
 									},
 									later: [],
 									apply: { kind: "noPlaceholders" },
-									register: false,
 									declared: () => noDeclarations,
 									observe: noObservation
 								})

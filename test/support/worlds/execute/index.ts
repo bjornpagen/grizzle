@@ -14,7 +14,6 @@ import {
 	Result,
 	Scope
 } from "effect"
-import { registerSnapshot } from "#adapter/admission/snapshots.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
@@ -44,7 +43,7 @@ import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { contextOf } from "#test/support/runtime-db.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { snapshotJson, snapshotValue } from "#test/support/snapshot-json.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
@@ -354,12 +353,18 @@ const realizeWith = (
 					installation: identity.schema(parsedSchemaName(installed.declared))
 				}
 				const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
-				yield* Effect.orDie(Effect.fromResult(registerSnapshot(snapshot)))
 				/** Each login's layer, given the version's snapshot, built in the realization's scope. */
 				const layers: Record<string, Context.Context<DbLayerOf<BuiltLogin>>> = {}
 				for (const l of spec.logins) {
 					const loginCredentials = yield* get(credentials, l.name, "credentials of")
-					const layer = yield* layerOf(spec, built, l.name, loginCredentials, snapshot, "version")
+					const layer = yield* layerOf(
+						spec,
+						built,
+						l.name,
+						loginCredentials,
+						snapshotValue(snapshot),
+						"version"
+					)
 					layers[l.name] = yield* Effect.orDie(Scope.provide(Layer.build(layer), scope))
 				}
 				return { spec, built, names, plan, installation, snapshot, credentials, layers }
@@ -438,7 +443,7 @@ const realizeWith = (
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool: clusterPool,
 						login: strangerLogin,
-						snapshot: first.snapshot
+						snapshot: snapshotValue(first.snapshot)
 					})
 				),
 				scope
@@ -464,16 +469,16 @@ const realizeWith = (
 			: yield* Effect.die(foreignDraft.error)
 
 		/**
-		 * The snapshot the opening role's login layer is given (DbConfig): the current version's and an older one's as the
-		 * test installer registered them; another schema's snapshot.json (foreign) and the current one's with its schema
-		 * name edited by hand (tampered) as the JSON value an import of the file yields, which is how an application holds
-		 * one; and, as that JSON value too, the directory's snapshot.json while folders are pending (drafted), the target
-		 * no complete migration reached, which the new application version deployed early imports.
+		 * The snapshot the opening role's login layer is given (DbConfig), each the JSON value an import of its
+		 * snapshot.json yields, which is how an application holds one: the current version's and an older one's; another
+		 * schema's (foreign) and the current one's with its schema name edited by hand (tampered); and the directory's
+		 * snapshot.json while folders are pending (drafted), the target no complete migration reached, which the new
+		 * application version deployed early imports.
 		 */
 		const snapshotOf = (ref: SnapshotRef): Effect.Effect<{ readonly fingerprint: string }> => {
 			switch (ref) {
 				case "current":
-					return Effect.succeed(state.current.snapshot)
+					return Effect.succeed(snapshotValue(state.current.snapshot))
 				case "stale":
 					return Effect.succeed(state.stale)
 				case "tampered": {
@@ -1088,7 +1093,7 @@ const realizeWith = (
 					versionOf(next.spec, next.plan, next.plan.installation, next.snapshot, credentials)
 				)
 				if (version.snapshot.fingerprint !== state.current.snapshot.fingerprint) {
-					state.stale = state.current.snapshot
+					state.stale = snapshotValue(state.current.snapshot)
 				}
 				state.current = version
 			})

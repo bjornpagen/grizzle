@@ -227,7 +227,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							},
 							later: [],
 							apply: { kind: "noPlaceholders" },
-							register: true,
 							declared: () => noDeclarations,
 							observe: Option.none()
 						})

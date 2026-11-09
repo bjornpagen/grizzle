@@ -1311,7 +1311,6 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 							},
 							later: [],
 							apply: { kind: "noPlaceholders" },
-							register: true,
 							declared: () => noDeclarations,
 							observe: noObservation
 						})

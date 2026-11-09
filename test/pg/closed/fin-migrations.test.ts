@@ -287,7 +287,6 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 				logins: []
 			})),
 			apply: { kind: "noPlaceholders" },
-			register: false,
 			declared: (v) => declaredAt(h, stages, v),
 			observe: Option.some((v: number, owner: RawSession) =>
 				Effect.gen(function* () {

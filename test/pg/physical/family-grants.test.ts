@@ -303,7 +303,6 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 						},
 						later: [],
 						apply: { kind: "noPlaceholders" },
-						register: true,
 						declared: () => noDeclarations,
 						observe: Option.none()
 					})
@@ -502,7 +501,6 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 						},
 						later: [],
 						apply: { kind: "noPlaceholders" },
-						register: true,
 						declared: () => noDeclarations,
 						observe: Option.none()
 					})

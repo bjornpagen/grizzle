@@ -20,6 +20,7 @@ import type { AnyLogin, EntryContexts, RoleRelations } from "#compiler/types/sch
 import type { Installed } from "#test/support/install-migrate.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -118,7 +119,7 @@ export const loginLayerIn = <L extends AnyLogin>(
 		...clusterConnection(installed.cluster, database, installed.as(account).password),
 		pool: clusterPool,
 		login: account,
-		snapshot: installed.snapshot,
+		snapshot: snapshotValue(installed.snapshot),
 		verify: testVerify
 	})
 

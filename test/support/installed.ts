@@ -1,5 +1,4 @@
 import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
-import { registerSnapshot } from "#adapter/admission/snapshots.ts"
 import type { CompiledOps } from "#adapter/db/db.ts"
 import { openDb as openRuntime } from "#adapter/db/open.ts"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
@@ -142,8 +141,6 @@ interface MigrateOptions {
 	readonly apply:
 		| { readonly kind: "noPlaceholders" }
 		| { readonly kind: "values"; readonly value: Decisions["value"] }
-	/** Whether to register the last snapshot as the application's. */
-	readonly register: boolean
 	/**
 	 * The renames and drops each version's migration declares (`--rename`, `--drop`), by the version's index, 0 the
 	 * first: every drop of stored data is declared, a roster's removed handle among them, and a renamed handle keeps its
@@ -270,7 +267,7 @@ const schemaNameOf = (options: MigrateOptions) =>
  * cluster-wide) or a reserved word, its first migration is generated from the
  * empty snapshot (with its logins' workloads) and applied by the real runner (packages/grizzle/src/adapter/migrate) as the migration
  * identity, which checks, runs, records and drift-checks each folder (test/pg/migrate/support.ts), and the generated
- * snapshot is registered as the one the application knows. Every generated folder is reviewed first by the one reviewer
+ * snapshot is the one the application knows. Every generated folder is reviewed first by the one reviewer
  * (test/support/migrate/review.ts), every candidate rename kept or chosen as the caller says and every placeholder
  * given the caller's value, so no later version runs a placeholder raw. Each version states its
  * logins, whose worlds its migration installs and whose workloads it plans. Db.open then admits the database as one of
@@ -343,9 +340,6 @@ export const migrated = (options: MigrateOptions) =>
 		const { plan, snapshot } = Arr.lastNonEmpty(
 			nonEmpty(steps, "a migrated schema has its first version")
 		)
-		if (options.register) {
-			succeeded(registerSnapshot(snapshot))
-		}
 		const history = nonEmpty(folders, "a migrated schema has its first migration")
 		const installed = yield* installedOf({
 			plan,

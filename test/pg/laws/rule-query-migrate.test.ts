@@ -231,7 +231,6 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 									},
 									later: [(name) => ({ schema: versionOf(name, c, true), logins: [] })],
 									apply: { kind: "noPlaceholders" },
-									register: false,
 									declared,
 									observe: Option.some((version: number, owner: RawSession) =>
 										version === 0 ? store(owner) : Effect.void

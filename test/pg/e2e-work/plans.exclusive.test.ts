@@ -281,7 +281,6 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 				},
 				later: [],
 				apply: { kind: "noPlaceholders" },
-				register: true,
 				declared: () => noDeclarations,
 				observe: noObservation
 			})

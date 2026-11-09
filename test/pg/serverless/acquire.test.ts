@@ -17,6 +17,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
 import { clusterConnection } from "#test/support/pg.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -114,7 +115,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 										),
 										pool: { max: 1, min: 0, idleTimeoutMs: nodeTimerMin.value },
 										login: o.server,
-										snapshot: o.installed.snapshot,
+										snapshot: snapshotValue(o.installed.snapshot),
 										verify: testVerify
 									})
 									/** The call on an open Db, and what it failed with. */

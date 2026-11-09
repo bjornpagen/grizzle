@@ -102,7 +102,6 @@ layer(Substrate.layer)(
 							first: (name) => ({ schema: wide(name, first), logins: [] }),
 							later: [(name) => ({ schema: wide(name, second), logins: [] })],
 							apply: { kind: "values", value: () => "0" },
-							register: false,
 							declared: (version) =>
 								version === 1
 									? {

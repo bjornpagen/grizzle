@@ -366,7 +366,6 @@ const installFirst = <B>(
 			},
 			later: [],
 			apply: { kind: "noPlaceholders" },
-			register: false,
 			declared: () => noDeclarations,
 			observe: noObservation
 		})

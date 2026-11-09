@@ -8,7 +8,7 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import { registeredSnapshot, servedLevel } from "#adapter/admission/snapshots.ts"
+import { servedLevel } from "#adapter/admission/snapshots.ts"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	loginSettings,
@@ -404,19 +404,11 @@ export const loginRoles = (
 }
 
 /**
- * The snapshot the config gives, parsed once: one the test installer registered as registered
- * (admission/snapshots.ts), any other the JSON value an import of snapshot.json yields, read as the generator wrote it
- * and its fingerprint checked (boundary/snapshot.ts parseSnapshot), so a hand-edited file is refused.
+ * The snapshot the config gives, parsed once: the JSON value an import of snapshot.json yields, read as the generator
+ * wrote it and its fingerprint checked (boundary/snapshot.ts parseSnapshot), so a hand-edited file is refused.
  */
-const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> => {
-	const registered = registeredSnapshot(given)
-	return Option.isNone(registered)
-		? Effect.mapError(
-				Effect.fromResult(parseSnapshot(given)),
-				(reason) => new OpenError({ reason })
-			)
-		: Effect.succeed(registered.value)
-}
+const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> =>
+	Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) => new OpenError({ reason }))
 
 /**
  * The startup check: the snapshot is of the login's base, its codes are the base's rosters' (ir/codes.ts
