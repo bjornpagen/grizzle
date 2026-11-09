@@ -849,7 +849,7 @@ export class Checker {
 
 	/**
 	 * The closed relations a rule's filter applies: the schema's (SchemaReading.closedReads) with every text payload field
-	 * the query's Compute.matches patterns read admitted, the query's lowering batch (check/closed.ts admittedReads).
+	 * the query's Compute.matches patterns read admitted, the query's lowering batch (scalar/compute/lower.ts admittedReads).
 	 */
 	readonly #closedReads: ClosedRelations
 

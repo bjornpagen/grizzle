@@ -4,7 +4,7 @@ import {
 	type DerivedRelationAnalysis
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
-import { admittedReads, closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
+import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
 import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
 import {
 	closedReadNames,
@@ -58,6 +58,7 @@ import {
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
+	admittedReads,
 	type ClosedRelations,
 	exprEmitter,
 	type LeafDesc,

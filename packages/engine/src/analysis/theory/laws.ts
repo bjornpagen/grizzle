@@ -42,7 +42,6 @@ import {
 	storedSideArm,
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
-import { admittedReads } from "#compiler/check/closed.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule } from "#compiler/check/fold.ts"
 import { compareText, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
@@ -99,6 +98,7 @@ import {
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
+	admittedReads,
 	type LowerEnv,
 	lowerPredicate,
 	lowerTerm,

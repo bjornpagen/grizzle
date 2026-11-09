@@ -78,7 +78,6 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 
-import { admittedReads } from "#compiler/check/closed.ts"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {
@@ -95,6 +94,7 @@ import {
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import {
+	admittedReads,
 	type ClosedRelations,
 	type LeafDesc,
 	lowerPredicate,
