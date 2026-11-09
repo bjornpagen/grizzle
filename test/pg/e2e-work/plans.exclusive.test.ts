@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import type { TestContext } from "vitest"
 /**
  * The worked example's plans at volume, read as a tenant through its world: every selective workload read is planned
@@ -22,9 +22,9 @@ import type { TestContext } from "vitest"
  * a policy filtering it for the tenant. The owner loads Work at volume in one SERIALIZABLE transaction, every law judged
  * at COMMIT: accounts, tasks alternating automatic and manual over them, each automatic task's budget and each manual
  * task's operator, and a note on every third task; then VACUUM ANALYZE. Each case draws which account, which tasks and
- * which range of names the selective reads ask about, opens the tenant's Db with a token naming that account, runs every
- * selective read of its workload through the runtime with a counting executor, and EXPLAINs each statement it sent with
- * its parameters (test/support/plans.ts): planned with sequential and index scans disabled, so that a bitmap scan,
+ * which range of names the selective reads ask about, opens the tenant's Db with a token naming that account through its
+ * login's served file, runs every selective read of its workload as a served member through a counting executor, and
+ * EXPLAINs each statement it sent with its parameters (test/support/plans.ts): planned with sequential and index scans disabled, so that a bitmap scan,
  * which reads only by an index condition, is the one scan left, every scan of a relation a statement restricts reads by
  * an index condition on an index the installation planned; and no free plan scans a relation of more than 20,000 rows,
  * neither sequentially nor as a nested loop's inner side without an index condition.
@@ -34,10 +34,10 @@ import type { TestContext } from "vitest"
  * arm's row goes, and the serving suites (test/pg/physical/serving.ts, world-serving.ts) hold every law's probe and
  * every world function to the index planned for it.
  */
-import { openDbContext } from "#adapter/db/open.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role } from "#compiler/public/schema.ts"
@@ -53,14 +53,14 @@ import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	createdIndexes,
 	plannedIndexes,
-	recordingReader,
+	recordingMembers,
 	relationRows,
 	sentProblems,
 	spread
 } from "#test/support/plans.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer, tokenOf } from "#test/support/worlds.ts"
 
 interface Sizes {
 	readonly accounts: number
@@ -237,29 +237,32 @@ const accountOf = (e: Entities, pick: number): string =>
 		"an account with tasks"
 	)
 
+/** A selective read of the tenant's workload, by its member's name, with its parameters. */
+interface SelectiveRead {
+	readonly name: keyof TenantWorld["reads"]
+	readonly params: ParamMap
+}
+
 /** Every selective read of the tenant's workload with its parameters for one pick, about `account`. */
 const selectiveReads = (
-	reads: TenantWorld["reads"],
 	e: Entities,
 	sizes: Sizes,
 	pick: number,
 	account: string
-) => {
+): ReadonlyArray<SelectiveRead> => {
 	const first = pickIndex(pick, Math.max(1, e.tasks.length - 8))
 	const range = pickIndex(pick, Math.floor(sizes.accounts / 10))
 	return [
-		{ name: "automaticTasksFor", query: reads.automaticTasksFor, params: { account } },
-		{ name: "automaticBudgetFor", query: reads.automaticBudgetFor, params: { account } },
-		{ name: "labeledAutomaticTasks", query: reads.labeledAutomaticTasks, params: { account } },
-		{ name: "taskCards", query: reads.taskCards, params: { account } },
+		{ name: "automaticTasksFor", params: { account } },
+		{ name: "automaticBudgetFor", params: { account } },
+		{ name: "labeledAutomaticTasks", params: { account } },
+		{ name: "taskCards", params: { account } },
 		{
 			name: "tasksById",
-			query: reads.tasksById,
 			params: { ids: Arr.map(e.tasks.slice(first, first + 8), (id) => ({ id })) }
 		},
 		{
 			name: "accountsByPrefix",
-			query: reads.accountsByPrefix,
 			params: { lo: accountName(range * 10), hi: accountName(range * 10 + 10) }
 		}
 	]
@@ -363,37 +366,33 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 							pickIndex(pick, 4) === 0 ? "a read by a busy account" : "a read by another account"
 						)
 						const account = accountOf(e, pick)
-						/**
-						 * The layer is provided around every use of the Db: its pools end when the layer's scope closes.
-						 */
-						const { ctx: dbCtx } = yield* openDbContext(world.server.roles.tenant, {
-							token: tokenOf({ account })
-						})
-						const { reader, counts } = yield* recordingReader(dbCtx)
-						const problems: Array<string> = []
-						for (const read of selectiveReads(world.reads, e, sizes, pick, account)) {
-							const before = counts.sent.length
-							yield* (yield* reader.execute(read.query, read.params)).collect
-							const judged = yield* sentProblems(
-								s.admin,
-								read.name,
-								counts.sent.slice(before),
-								judge
-							)
-							appendAll(problems, judged.problems)
-							for (const index of judged.read) {
-								used.add(index)
-							}
-						}
-						assert.deepEqual(problems, [], "every selective read is planned through its indexes")
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(m, world.server)), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
-					)
+						yield* withServedDb(m, world.server.roles.tenant, { account }, ({ ctx, load }) =>
+							Effect.gen(function* () {
+								const loaded = yield* load(world.reads)
+								const { ops, counts } = recordingMembers(ctx)
+								const problems: Array<string> = []
+								for (const read of selectiveReads(e, sizes, pick, account)) {
+									const before = counts.sent.length
+									yield* (yield* ops(member(loaded, read.name)).execute(read.params)).collect
+									const judged = yield* sentProblems(
+										s.admin,
+										read.name,
+										counts.sent.slice(before),
+										judge
+									)
+									appendAll(problems, judged.problems)
+									for (const index of judged.read) {
+										used.add(index)
+									}
+								}
+								assert.deepEqual(
+									problems,
+									[],
+									"every selective read is planned through its indexes"
+								)
+							})
+						)
+					}).pipe(Effect.scoped)
 			)
 			/** The indexes no access path asked for: each serves only a law's maintenance. */
 			const lawOnly = new Set<string>(
