@@ -184,10 +184,3 @@ export const shopV4: SchemaDesc = {
 	]
 }
 
-/** One relation of two integer columns. */
-export const withB: SchemaDesc = {
-	name: "Recol",
-	relations: [relation("R0", { a: f.integer, b: f.integer }, ["a"])],
-	statements: [],
-	extends: undefined
-}
