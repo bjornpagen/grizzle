@@ -1,6 +1,7 @@
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
+import { familyKey } from "#compiler/analysis/theory/families.ts"
 import type { ResolvedConjunct, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
 import {
@@ -1160,7 +1161,7 @@ class Specializer {
 			owned: this.owned,
 			theory: Object.freeze({ ...this.theory, dag: merged.dag, evidence }),
 			natives,
-			families: this.theory.families,
+			families: this.#plannedFamilies(),
 			constraints,
 			constraintToLaw: constraintLawMap(constraints),
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
@@ -1177,6 +1178,19 @@ class Specializer {
 				natives
 			)
 		}
+	}
+
+	/** The families whose laws the model plans, a tree's included, in the theory's order: what a write of its slice
+	 * draws, fills and orders by, each with its owner axis among the model's natives. */
+	#plannedFamilies(): ReadonlyArray<Family> {
+		const planned = new Set(
+			this.planned.flatMap((law) =>
+				law.detail.kind === "family" || law.detail.kind === "tree"
+					? [familyKey(law.detail.family.id)]
+					: []
+			)
+		)
+		return this.theory.families.filter((f) => planned.has(familyKey(f.id)))
 	}
 
 	/**
