@@ -1,4 +1,10 @@
-import { floorPopulation, type Reached } from "@grizzle/testing/features"
+import {
+	floorPopulation,
+	keyOf,
+	type Reached,
+	type Tally,
+	tallyOf
+} from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
@@ -3886,19 +3892,48 @@ const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 const rootCount = 12
 
 /**
- * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
- * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts; they are
- * the only cases whose constructs and verdicts meet the required situations (test/types/compute/compute.test.ts).
+ * One digest case per digest note, so the floor reaches each by construction, whatever its draws: the pantry's
+ * declaration, its digest of an Entry's bytes stored uncast into `^[0-9a-f]{64}$`, which both admit; that digest cast
+ * into its own type, which compilation proves with no guard; cast into uppercase hex, which the engine refuses by the
+ * digest's language while the types admit it; and the digest of a text, which both refuse.
  */
-export const computeWitnesses = () =>
-	Arr.map(roots, (root) =>
+const digestKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "digest" }>> = [
+	{ kind: "digest", operand: "content", target: lowerHex, cast: false },
+	{ kind: "digest", operand: "content", target: lowerHex, cast: true },
+	{ kind: "digest", operand: "content", target: upperHex, cast: true },
+	{ kind: "digest", operand: "text", target: lowerHex, cast: false }
+]
+
+/** The digest root's kept cases as a stratum of the floor: every case, each tallied by what it reached. */
+const digestKeptStratum = (): Readonly<{
+	values: ReadonlyArray<ComputeCase>
+	tally: Tally<"floor">
+}> => {
+	const values = Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) }))
+	const tally = tallyOf("floor")
+	for (const value of values) {
+		tally.add(new Set(Arr.map(reachedBy(value), keyOf)))
+	}
+	return { values, tally: tally.tally() }
+}
+
+/**
+ * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
+ * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts, and the
+ * digest root's kept cases, which reach its four notes by construction; they are the only cases whose constructs and
+ * verdicts meet the required situations (test/types/compute/compute.test.ts).
+ */
+export const computeWitnesses = () => [
+	...Arr.map(roots, (root) =>
 		floorPopulation(
 			`${computeLabel}: ${rootName(root)}`,
 			caseGen(Option.some(root)),
 			rootCount,
 			reachedBy
 		)
-	)
+	),
+	digestKeptStratum()
+]
 
 /**
  * The program a query's head refused because the image of its translation names no domain, which the types admit:
@@ -3939,20 +3974,9 @@ const arithmeticKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>
 	}
 ]
 
-/**
- * The programs the pantry declares and refuses: its digest of an Entry's bytes stored uncast into `^[0-9a-f]{64}$`,
- * which both admit, and cast into uppercase hex, which the engine refuses by the digest's language while the types
- * admit it. Every run holds them.
- */
-const digestKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "digest" }>> = [
-	{ kind: "digest", operand: "content", target: lowerHex, cast: false },
-	{ kind: "digest", operand: "content", target: upperHex, cast: true }
-]
-
 /** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
 	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
-	...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
 	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
 	...Arr.map(arithmeticKept, (spec) => caseOf({ spec, reached: new Set(["add"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
