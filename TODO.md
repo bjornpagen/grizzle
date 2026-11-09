@@ -21,6 +21,9 @@ post-beta swarm's fixes for the next release.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
+- **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
+  relation lists for its key, e.g. one row per (domain, pattern), compiled into the CHECK as each key's patterns ANDed.
+  It would delete qti-pie's product regex (~1.2 MB of install SQL for NCName). Until then qti-pie keeps it.
 - **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, plus a counted family over
   a live derived relation, and Compute.matches over patterns held as data. #7 (row order for the regex cache) is
   performance machinery, ruled out.
