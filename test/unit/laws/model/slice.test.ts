@@ -142,6 +142,9 @@ interface Use {
 	/** The ordinary relations it writes, by position among the root's relations and then the level above's. */
 	readonly writes: ReadonlyArray<number>
 	readonly reads: ReadonlyArray<Read>
+	/** Whether a query over a root relation first also delivers its text cast into the refinement only the level
+	 * above's relations declare. */
+	readonly casts: boolean
 }
 
 /** A role: the ordinary relations it writes and the root relations it holds world entries over. */
@@ -242,7 +245,7 @@ const caseGen: Gen<SliceCase> = (s) => {
 				)
 			: []
 		const reads = t.draw(array(readGen(r), { min: changes ? 0 : 1, max: 3 }))
-		return { role, kind: changes ? "changes" : "query", writes, reads }
+		return { role, kind: changes ? "changes" : "query", writes, reads, casts: t.draw(boolean) }
 	}
 	const [firstUse, ...moreUses] = s.draw(array(useGen, { min: 1, max: 3 }))
 	return {
@@ -283,8 +286,14 @@ const live = eq(field("on"), literal(true))
 
 /** Root relation i's fields: its own, then the count of each family it owns and the group and index of each it is a
  * member of. */
+/** A refinement the level above's relations declare on a field, and no root relation does: a root's bounded text cast
+ * into it, under a guard that it matches, is delivered through the refinement's domain. */
+const refinedPattern = "^[a-z]{1,8}$"
+const refined = f.regex(refinedPattern, "u")
+
 const rootFields = (c: SliceCase, i: number) => ({
 	id: f.integer,
+	t: f.regex("^.{0,8}$", "su"),
 	a: f.integer,
 	on: f.boolean,
 	c: f.closedId(roster),
@@ -406,7 +415,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 		name: "SliceTop",
 		relations: [
 			...Arr.makeBy(c.tops, (i) =>
-				relation(topName(i), { id: f.integer, a: f.integer, r: f.integer }, ["id"])
+				relation(topName(i), { id: f.integer, a: f.integer, r: f.integer, s: refined }, ["id"])
 			),
 			...Arr.map(c.derived, (i) => derivedOf(c, derivedName(i), 1, derivedDefinition(i)))
 		],
@@ -482,27 +491,69 @@ const sourceOf = (c: SliceCase, read: Read): Source => {
 	}
 }
 
-/** A query over the sources `reads` names, each matched apart, its head the first's ids. */
-const queryOver = (c: SliceCase, reads: Arr.NonEmptyReadonlyArray<Read>): QueryDesc =>
-	decodedQuery({
+/**
+ * A query over the sources `reads` names, each matched apart, its head the first's ids; and, when `casts` and the first
+ * is a root relation, the first's text cast into `refined`, which only its pattern's domain admits.
+ */
+const queryOver = (
+	c: SliceCase,
+	reads: Arr.NonEmptyReadonlyArray<Read>,
+	casts: boolean
+): QueryDesc => {
+	const [first] = reads
+	const matches = Arr.map(reads, (r, k) => matchOf(sourceOf(c, r), `x${k}`, false))
+	const vars = Arr.map(reads, (r, k) => varOf(sourceOf(c, r), `x${k}`))
+	if (!casts || first.kind !== "root") {
+		return decodedQuery({
+			kind: "rules",
+			arms: [
+				{
+					vars,
+					matches,
+					where: [],
+					head: { id: { kind: "var", var: "x0" } },
+					interiors: [],
+					attach: []
+				}
+			]
+		})
+	}
+	const [head, ...rest] = matches
+	return decodedQuery({
 		kind: "rules",
 		arms: [
 			{
-				vars: Arr.map(reads, (r, k) => varOf(sourceOf(c, r), `x${k}`)),
-				matches: Arr.map(reads, (r, k) => matchOf(sourceOf(c, r), `x${k}`, false)),
+				vars: [...vars, { id: "text", origin: { relation: rootName(first.at), field: "t" } }],
+				matches: [
+					{ ...head, bindings: { ...head.bindings, t: { kind: "var", var: "text" } } },
+					...rest
+				],
 				where: [],
-				head: { id: { kind: "var", var: "x0" } },
+				head: {
+					id: { kind: "var", var: "x0" },
+					refined: {
+						kind: "when",
+						guard: { kind: "matches", pattern: refinedPattern },
+						subject: { kind: "var", var: "text" },
+						proved: { kind: "cast", to: refined, arg: { kind: "var", var: "text" } },
+						otherwise: { kind: "literal", value: "a", type: refined }
+					}
+				},
 				interiors: [],
 				attach: []
 			}
 		]
 	})
+}
 
 /** The program a use runs: its query, or its ChangeSet of an insert into each of its writes, reading back its reads. */
 const programOf = (c: SliceCase, u: Use): ProgramDesc => {
 	if (u.kind === "query") {
 		const [first, ...more] = u.reads
-		return { kind: "query", query: queryOver(c, [defined(first, "a query's read"), ...more]) }
+		return {
+			kind: "query",
+			query: queryOver(c, [defined(first, "a query's read"), ...more], u.casts)
+		}
 	}
 	const [first, ...more] = u.reads
 	const changeSet = succeeded(
@@ -517,7 +568,10 @@ const programOf = (c: SliceCase, u: Use): ProgramDesc => {
 					}))
 				}
 			],
-			reads: first === undefined ? [] : [{ name: "back", query: queryOver(c, [first, ...more]) }],
+			reads:
+				first === undefined
+					? []
+					: [{ name: "back", query: queryOver(c, [first, ...more], u.casts) }],
 			bindings: []
 		}),
 		"the use's ChangeSet"
@@ -766,6 +820,7 @@ type SliceFeature =
 	| "a query compiled over the slice"
 	| "a query of a derived relation compiled over the slice"
 	| "a materialized derived relation over a live one"
+	| "a query casting into a refinement no named relation declares"
 
 const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"a relation outside the names",
@@ -781,7 +836,8 @@ const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"a ChangeSet compiled over the slice",
 	"a query compiled over the slice",
 	"a query of a derived relation compiled over the slice",
-	"a materialized derived relation over a live one"
+	"a materialized derived relation over a live one",
+	"a query casting into a refinement no named relation declares"
 ]
 
 /**
@@ -851,7 +907,7 @@ const ledgerShape: Kept<SliceCase, SliceFeature> = {
 		crossings: [],
 		rules: [{ from: 0, to: 1 }],
 		roles: [{ writes: [2], worlds: [] }],
-		uses: [{ role: 0, kind: "changes", writes: [2], reads: [] }]
+		uses: [{ role: 0, kind: "changes", writes: [2], reads: [], casts: false }]
 	},
 	draws: "",
 	reaches: ["a relation outside the names", "a rule reading the writes"]
@@ -875,7 +931,7 @@ const memberAlone: Kept<SliceCase, SliceFeature> = {
 		crossings: [],
 		rules: [],
 		roles: [{ writes: [1], worlds: [] }],
-		uses: [{ role: 0, kind: "changes", writes: [1], reads: [] }]
+		uses: [{ role: 0, kind: "changes", writes: [1], reads: [], casts: false }]
 	},
 	draws: "",
 	reaches: [
@@ -911,7 +967,8 @@ const cycleOutside: Kept<SliceCase, SliceFeature> = {
 				role: 0,
 				kind: "query",
 				writes: [],
-				reads: [{ kind: "root", at: 0 }]
+				reads: [{ kind: "root", at: 0 }],
+				casts: false
 			}
 		]
 	},
@@ -1160,6 +1217,13 @@ describe("a compile's law model", () => {
 									k.note("a query compiled over the slice")
 									if (Arr.some(u.reads, (r) => r.kind === "derived" || r.kind === "chained")) {
 										k.note("a query of a derived relation compiled over the slice")
+									}
+									if (
+										u.casts &&
+										u.reads[0]?.kind === "root" &&
+										!Arr.some(Arr.makeBy(c.tops, topName), (t) => names.has(t))
+									) {
+										k.note("a query casting into a refinement no named relation declares")
 									}
 								}
 								continue
