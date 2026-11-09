@@ -19,6 +19,9 @@
  * - ordered: the kept members from `s`, the least removed or changed slot, take the slots from `s` on in their order,
  *   re-placed, deleted and inserted again, since the family's predecessor axis is immediate.
  *
+ * An immutable member relation, on which no role holds UPDATE, has every row the statement writes re-placed, its
+ * put-updated rows as its puts are (write/put/choose.ts).
+ *
  * The drawn rows are each group's members from `s` at their final slots, each copying the group's stored count, which
  * a recount in this statement cascades into every member at its end; the seed is the member at `s − 1`; and the scan
  * (write/family/scan.ts) draws them in slot order. A group whose stratum appends to it, or whose owner the stratum puts
@@ -74,6 +77,7 @@ import {
 	type PerGroup,
 	type Scanned,
 	type ScanRows,
+	scannedValue,
 	scanOf,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
@@ -1002,7 +1006,26 @@ const redraw = (
 	return { family, member, groups, scan: scan.rows }
 }
 
-/** The deletion of a member relation's removed rows and its re-placed ones, the redrawn members of its ordered family. */
+/**
+ * Which of a member relation's written rows the statement re-places, deleting them and inserting them again, rather
+ * than updating them in place: every one of an immutable relation, on which no role holds UPDATE, as its puts are
+ * (write/put/choose.ts); a mutable relation's redrawn members of its sequence, since the sequence's predecessor axis is
+ * immediate; or none.
+ */
+type Replacing =
+	| { readonly kind: "every" }
+	| { readonly kind: "sequence"; readonly scan: Shaped }
+	| { readonly kind: "none" }
+
+const replacingOf = (member: EditedMember, redrawn: ReadonlyArray<Redrawn>): Replacing => {
+	if (!member.relation.mutable) {
+		return { kind: "every" }
+	}
+	const sequence = redrawn.find((x) => x.member === member && isSequence(x.family))
+	return sequence === undefined ? { kind: "none" } : { kind: "sequence", scan: sequence.scan }
+}
+
+/** The deletion of a member relation's removed rows and the written rows it re-places (`Replacing`). */
 const deleteOf = (
 	w: WriteContext,
 	supply: NameSupply,
@@ -1020,12 +1043,18 @@ const deleteOf = (
 			)
 		)
 	const r = supply.relation(internal("deleted removed"))
-	const replaced = redrawn.filter((x) => x.member === read.member && isSequence(x.family))
+	const replacing = replacingOf(read.member, redrawn)
+	const replaced: ReadonlyArray<Shaped> =
+		replacing.kind === "every"
+			? [...redrawn.filter((x) => x.member === read.member).map((x) => x.scan), read.updated]
+			: replacing.kind === "sequence"
+				? [replacing.scan]
+				: []
 	const conditions: NonEmptyReadonlyArray<Expr> = [
 		exists(simpleSelect([target(one)], [cteRefAs(read.removed.name, r)], keyAt(r, read.removed))),
-		...replaced.map((x) => {
+		...replaced.map((shape) => {
 			const s = supply.relation(internal("deleted re-placed"))
-			return exists(simpleSelect([target(one)], [cteRefAs(x.scan.name, s)], keyAt(s, x.scan)))
+			return exists(simpleSelect([target(one)], [cteRefAs(shape.name, s)], keyAt(s, shape)))
 		})
 	]
 	const fields = [
@@ -1081,9 +1110,9 @@ const barrierOf = (
 }
 
 /**
- * A member relation's inserts and updates after its deletions: each re-placed row of its ordered family inserted again,
- * and each other redrawn or put-updated row updated in place where any column changes, every column from the family
- * that draws it, else the put, else stored.
+ * A member relation's inserts and updates after its deletions: each written row it re-places inserted again
+ * (`Replacing`), and each other redrawn or put-updated row updated in place where any column changes, every column from
+ * the family that draws it, else the put, else stored.
  */
 const writesOf = (
 	w: WriteContext,
@@ -1097,7 +1126,7 @@ const writesOf = (
 	const relation = member.relation
 	const name = relation.name
 	const own = redrawn.filter((x) => x.member === member)
-	const sequence = own.find((x) => isSequence(x.family))
+	const replacing = replacingOf(member, redrawn)
 	const keys = layoutKeys(member.layout)
 	const columns = [...member.layout.key, ...member.layout.columns]
 	const keyOf = (alias: string, shape: Shaped): NonEmptyReadonlyArray<Expr> =>
@@ -1173,25 +1202,19 @@ const writesOf = (
 		}
 	}
 	const out: Array<FamilyReturning> = []
-	const isReplaced = (a: string): Expr => {
-		if (sequence === undefined) {
-			return lit.bool(false)
-		}
+	/** Whether the written row `a` is one the statement re-places, where its relation re-places only some. */
+	const replacedAt = (a: string, scan: Shaped): Expr => {
 		const s = supply.relation(internal("re-placed"))
 		return exists(
 			simpleSelect(
 				[target(one)],
-				[cteRefAs(sequence.scan.name, s)],
-				and(
-					mapNonEmpty(keyOf(s, sequence.scan), (x, j) =>
-						eq(x, defined(keyOf(a, written_)[j], "a key"))
-					)
-				)
+				[cteRefAs(scan.name, s)],
+				and(mapNonEmpty(keyOf(s, scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key"))))
 			)
 		)
 	}
 	const b = supply.relation(internal("after deletions"))
-	if (sequence !== undefined) {
+	if (replacing.kind !== "none") {
 		const a = supply.relation(internal("re-inserted row"))
 		const fields = [
 			...relation.primaryFields,
@@ -1230,7 +1253,7 @@ const writesOf = (
 									steps: [{ kind: "cross", source: cteRefAs(barrier, b) }]
 								}
 							],
-							isReplaced(a)
+							replacing.kind === "sequence" ? replacedAt(a, replacing.scan) : undefined
 						)
 					)
 				},
@@ -1249,7 +1272,7 @@ const writesOf = (
 	}
 	const settable = member.layout.columns.filter((c) => c.settable || c.copy)
 	const [firstSettable, ...restSettable] = settable
-	if (firstSettable !== undefined) {
+	if (firstSettable !== undefined && replacing.kind !== "every") {
 		const t = supply.relation(internal("updated table"))
 		const a = supply.relation(internal("updated row"))
 		const set = mapNonEmpty([firstSettable, ...restSettable], (c): Assignment => ({
@@ -1294,7 +1317,7 @@ const writesOf = (
 					...mapNonEmpty(relation.primaryFields, (f) =>
 						eq(col(t, w.names.column(name, f.name)), col(a, columnAt(written_, fieldKey(f.name))))
 					),
-					not(isReplaced(a)),
+					...(replacing.kind === "sequence" ? [not(replacedAt(a, replacing.scan))] : []),
 					or(changed)
 				]),
 				returning: returning.returning
@@ -1365,7 +1388,10 @@ const recountOf = (
 					...groupTargets(g),
 					targetAs(col(g, r.groups.kept), last.count),
 					...ends.map((p) =>
-						targetAs(col(s, columnAt(r.scan, columnKey(p.to))), columnAt(last, columnKey(p.from)))
+						targetAs(
+							scannedValue(w, family.member, s, r.scan, p.to),
+							columnAt(last, columnKey(p.from))
+						)
 					)
 				],
 				[

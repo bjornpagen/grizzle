@@ -205,9 +205,28 @@ const ownValue =
 	}
 
 /**
+ * A scanned row's value at `column`, as `ownValue` reads a row: the scan's column where it carries one, else a generated
+ * field's generation over its other columns, in the field's base type.
+ */
+export const scannedValue = (
+	w: WriteContext,
+	relation: LawRelation,
+	alias: string,
+	scanned: Shaped,
+	column: NativeColumn
+): Expr => {
+	const key = columnKey(column)
+	const value = ownValue(relation, readAt(alias, scanned), w)(key)
+	return scanned.columns.has(key) || column.kind !== "field"
+		? value
+		: cast(value, w.cx.baseTypeRef(column.field.type))
+}
+
+/**
  * The value of each column of a scanned member, `spec.drawn`'s rules in fill order over `row`, the member's own columns,
  * its `slot` and its group's `count`, `prev`, the member before it ("base" at slot 0), and `owner`: each column a rule
- * draws, else the member's own (`ownValue`).
+ * draws, else the member's own; the member's, its predecessor's and its owner's columns each read as `ownValue` reads a
+ * row, a generated field's generation where the row holds none.
  */
 const memberValues = (
 	w: WriteContext,
@@ -221,8 +240,8 @@ const memberValues = (
 	const drawn = new Map<ColumnKey, Expr>()
 	const own = ownValue(spec.member, row, w)
 	const value = (key: ColumnKey): Expr => drawn.get(key) ?? own(key)
-	const read = (side: Read, column: NativeColumn, what: string): Expr =>
-		defined(side(columnKey(column)), `the ${what} column ${columnKey(column)} a rule reads`)
+	const ownerValue = ownValue(spec.family.owner, owner, w)
+	const prevValue = prev === "base" ? "base" : ownValue(spec.member, prev, w)
 	for (const c of spec.drawn) {
 		const rule = c.rule
 		const to = w.cx.baseTypeRef(c.type)
@@ -237,13 +256,13 @@ const memberValues = (
 				draw(count)
 				break
 			case "ownerCopy":
-				draw(read(owner, rule.to, "owner's"))
+				draw(ownerValue(columnKey(rule.to)))
 				break
 			case "predecessor":
 				draw(
-					prev === "base"
+					prevValue === "base"
 						? lowerLiteral(w.names, rule.base, c.type)
-						: read(prev, rule.to, "previous member's")
+						: prevValue(columnKey(rule.to))
 				)
 				break
 			case "after": {

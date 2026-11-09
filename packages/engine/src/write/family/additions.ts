@@ -67,6 +67,7 @@ import {
 	readAt,
 	type Scanned,
 	type ScanRows,
+	scannedValue,
 	scanOf,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
@@ -711,7 +712,10 @@ const recountOf = (
 					),
 					targetAs(col(sc, scan.count), last.count),
 					...ends.map((p) =>
-						targetAs(col(sc, columnAt(scan, columnKey(p.to))), columnAt(last, columnKey(p.from)))
+						targetAs(
+							scannedValue(w, family.member, sc, scan, p.to),
+							columnAt(last, columnKey(p.from))
+						)
 					)
 				],
 				[cteRefAs(scan.name, sc)],

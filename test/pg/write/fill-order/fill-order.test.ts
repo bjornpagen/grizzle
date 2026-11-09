@@ -440,6 +440,78 @@ const replacedCountedMember: ClusterCase = {
 }
 
 /**
+ * The cases the search found reading a member's generated field a scan does not hold: R1's members copy their
+ * predecessor's generated field, and R0 its last member's. A follow-up deletes R1's first member under R0, so the scan
+ * redraws the rest from slot 0, each copying the generated field of the member before it, and the recount copies the
+ * last one's, each computed by its generation.
+ */
+const generatedPredecessor: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true },
+			{ generated: true, mutable: true }
+		],
+		families: [{ kind: "ordered", owner: 0, member: 1, fold: "none" }],
+		copies: [
+			{ family: 0, axis: "predecessor", source: { kind: "generated" } },
+			{ family: 0, axis: "last", source: { kind: "generated" } }
+		],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 1n, memberOf: [] },
+		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+		{ relation: 1, id: 4, v: 4n, memberOf: [{ family: 0, owner: 1, slot: 2 }] }
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 1,
+		put: Option.none(),
+		inserted: [],
+		removed: Option.some({ id: 2, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
+/**
+ * The case the search found updating an immutable relation in place: R1, immutable, is a member of R0's ordered family
+ * and owns R2's counted one. A follow-up deletes R1's first member under R0, re-placing the second, which owns an R2
+ * member; the removals write no UPDATE of R1, on which no role holds UPDATE, and re-place every R1 row they write.
+ */
+const replacedImmutableOwner: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: false },
+			{ generated: false, mutable: true }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+			{ kind: "counted", owner: 1, member: 2, fold: "none" }
+		],
+		copies: [],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 1n, memberOf: [] },
+		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+		{ relation: 2, id: 4, v: 4n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 1,
+		put: Option.none(),
+		inserted: [],
+		removed: Option.some({ id: 2, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
+/**
  * The case the search found leaving an owner's recount to an additions statement its stratum lacked: R1 owns R2's
  * ordered family, and copies its last member's v along the last axis. A follow-up puts R1 and deletes its first member,
  * re-placing the second at slot 0, and appends nothing: the removals leave R1's recount to the additions, after the put,
@@ -633,6 +705,27 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								reaches: [
 									"a follow-up that refills a fold stepping a copy",
 									"an owner put in place beside an append to its family"
+								]
+							},
+							{
+								note: "a delete of an ordered family's first member redraws the rest, each copying its predecessor's generated field, and its owner the last one's",
+								sketch: generatedPredecessor,
+								draws: "",
+								reaches: [
+									"a predecessor copy",
+									"a last copy",
+									"a copy of a generated field",
+									"a follow-up written over the stored instance"
+								]
+							},
+							{
+								note: "a delete of an ordered family's member re-places the next, an immutable owner of a counted member",
+								sketch: replacedImmutableOwner,
+								draws: "",
+								reaches: [
+									"a counted family of nested owners",
+									"a follow-up written over the stored instance",
+									"a follow-up that re-places an immutable owner of counted members"
 								]
 							},
 							{
