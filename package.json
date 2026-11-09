@@ -60,7 +60,6 @@
 		"@types/pg": "catalog:",
 		"@vercel/functions": "catalog:",
 		"fallow": "catalog:",
-		"lefthook": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",
 		"oxlint-tsgolint": "catalog:",

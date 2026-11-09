@@ -2442,7 +2442,6 @@ whose `refresh` list names it, all of one call's tables in one transaction. `db.
 error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` first. A rule over either kind reads its
 definition, never the view.
 
-## Migrations
 ## Levels
 
 A schema builds on another under its own name: `schema.extend(base, name, relations, statements)` is a level over
@@ -2504,6 +2503,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   `Sitting` holds, the outcome is `invariant-rejected` with the law `{ kind: "above", level: "Ledger", law }`, which
   names the level and the law as that level states it.
 
+## Migrations
 
 `grizzle.config.ts`, whose default export is `defineConfig({ ... })`, and which every command names as its argument:
 

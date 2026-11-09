@@ -184,7 +184,7 @@ export type UnresolvedMarker = {
 export type UnresolvedLoss = {
 	readonly folder: string
 	readonly file: string
-	/** What it loses (chosen.ts lossText). */
+	/** What it loses (deploy/render/folder.ts lossText). */
 	readonly loses: string
 }
 

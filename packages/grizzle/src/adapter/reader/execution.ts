@@ -74,7 +74,7 @@ import {
  *   attachment statement's rows lead with the parent key texts; each parent
  *   row gets the child Rows whose parent key equals its own under the key's type, in the statement's row order, which
  *   is the child's completed order when the child is ordered. Equality is the type's, never the raw text's: each key
- *   cell is read as its carrier's cell text (codec/scalar.ts cellText), one text per value, so of two parent rows whose
+ *   cell is read as its carrier's cell text (codec/read.ts cellText), one text per value, so of two parent rows whose
  *   keys are equal but print differently (1.0 and 1.00, -0 and 0) both own the children the statement delivers under
  *   its one spelling. Attachments nest: a child row's own attachments are grouped under it the same way. A fused attachment's
  *   column is parsed into its children's texts (lower/shapes/attach/decode.ts), its correlated columns copied from the
@@ -227,7 +227,7 @@ export type SentRuns = ReadonlyArray<OutputRows>
 
 /**
  * One parent key column as a row holds it: its position among the row's texts, and its type's cell text
- * (codec/scalar.ts cellText), the one text of the value a cell spells, so 1.0 and 1.00 are one key, as are -0 and 0:
+ * (codec/read.ts cellText), the one text of the value a cell spells, so 1.0 and 1.00 are one key, as are -0 and 0:
  * the identity the statement's read-back check partitions by natively (lower/conservative/deliver.ts
  * checkedAttachment).
  */
@@ -269,7 +269,7 @@ interface RowPlan<Run> {
 }
 
 /**
- * A row's identity: each cell's value text under its column's type (codec/scalar.ts cellText), in column order, so two
+ * A row's identity: each cell's value text under its column's type (codec/read.ts cellText), in column order, so two
  * rows have one identity exactly when every column holds equal values under its type's equality, 1.0 and 1.00 or -0
  * and 0 alike, whatever their spellings. It is those texts, never one text joined from them, so it costs its row's
  * arity, whatever its cells' lengths.

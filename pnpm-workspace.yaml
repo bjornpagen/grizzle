@@ -1,7 +1,5 @@
 packages:
   - "packages/*"
-allowBuilds:
-  lefthook: true
 # Approved dependencies' agent skills link into the one skills folder, which .claude/skills and .cursor/skills link to.
 skills:
   dirs:
@@ -25,7 +23,6 @@ catalog:
   arkregex: 0.0.14
   effect: 4.1.2
   fallow: 3.38.1
-  lefthook: 2.2.2
   oxfmt: 0.76.0
   oxlint-tsgolint: 7.0.2005
   oxlint: 1.91.0

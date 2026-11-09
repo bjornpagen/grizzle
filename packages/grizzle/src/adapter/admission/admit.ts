@@ -405,13 +405,13 @@ type AdmissionRead = (typeof admissionReads)[number]
  *
  * 1. version, locale and capability (expectation.ts): PostgreSQL 19, the database's encoding and builtin C.UTF-8
  *    locale, and the extensions the schema needs;
- * 2. ledger: the snapshot is the application's (of the opened schema, up to its declared name, or of a schema the
- *    opened one is a lower level of, as the test installer's registration records: snapshots.ts servesSchema), and
- *    the fence passes, the very fence every transaction of the Db takes (physical/ddl/ledger.ts snapshotGuardDdl): the
- *    ledger's lock NOWAIT, which a migration holding or awaiting it refuses at once, then the guard of the snapshot's
- *    fingerprint, which refuses while a folder is unfinished, a run stopped part-way included, and when the latest
- *    complete folder's target is another. So no snapshot opens while a migration runs, and only the new one after it.
- *    A schema without its ledger holds its empty snapshot;
+ * 2. ledger: the snapshot is the application's, one of whose levels is the opened schema at its own depth
+ *    (snapshots.ts servedLevel), installed in the opened schema's root's PostgreSQL schema, and the fence passes, the
+ *    very fence every transaction of the Db takes (physical/ddl/ledger.ts snapshotGuardDdl): the ledger's lock NOWAIT,
+ *    which a migration holding or awaiting it refuses at once, then the guard of the snapshot's fingerprint, which
+ *    refuses while a folder is unfinished, a run stopped part-way included, and when the latest complete folder's
+ *    target is another. So no snapshot opens while a migration runs, and only the new one after it. A schema without
+ *    its ledger holds its empty snapshot;
  * 3. settings and privileges (compiler/deploy/admission/roles.ts), judged against that snapshot: the login's defaults
  *    exactly as it installs them and the role's none, none for either in this database alone, the database's defaults
  *    the installation sets among the owner's others; what the login and the role can do to the schema's and the role
@@ -431,10 +431,9 @@ type AdmissionRead = (typeof admissionReads)[number]
  *    admission fails with AdmissionFailed, at stage admission, before it sends anything, and never admits it unjudged.
  *
  * A refusal is OpenError whose reason, AdmissionRefused, holds every mismatch, at the stage of the first in admission's
- * order. A database that fails
- * at the ledger stage is not judged further: its settings and privileges would be compared with a snapshot it does not
- * hold, and its claims with domains it may not hold. A statement the server or transport refuses is
- * OpenError{stage: "admission"} whose reason, AdmissionFailed, carries the failure.
+ * order. A database that fails at the ledger stage is not judged further: its settings and privileges would be compared
+ * with a snapshot it does not hold, and its claims with domains it may not hold. A statement the server or transport
+ * refuses is OpenError{stage: "admission"} whose reason, AdmissionFailed, carries the failure.
  *
  * An admitted database yields the installed extensions and their schemas, and the schemas the role holds USAGE on,
  * against which a query's own capability requirements are checked when it compiles (reader/reader.ts), and the claims

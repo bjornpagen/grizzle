@@ -35,8 +35,7 @@ library, with the tests, benches and scripts at its root:
 ## Development environment
 
 Everything runs natively on one macOS machine through Homebrew. There is no Docker, no container image and no hosted
-CI and no commit gate: `lefthook.yml` installs no hook. The typecheck and lint, `pnpm check`, run by hand before a
-release.
+CI and no commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
 
 - **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex openssl@3 lz4 zstd readline`. You need
   Node 26 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for

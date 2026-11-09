@@ -1,3 +1,0 @@
-# No commit gate (owner, 2026-11-07): every agent commits and pushes straight to main, and the typecheck and lint run
-# once, by hand, before a release. `pnpm check` (scripts/dev/check-commit.sh mirrors exactly what a commit holds) stays
-# available to run on demand.
