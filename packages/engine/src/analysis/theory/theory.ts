@@ -42,7 +42,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { assembledDag, mergeForbidding } from "#compiler/ir/dag.ts"
+import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
 import { type FieldDesc, fieldTermsOf, type QueryDesc, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -201,6 +201,8 @@ export interface Theory extends CheckedTheory {
 	/** Each ordinary relation with its primary key's law, a law of `laws`, in relation order: the theory states one
 	 * primary key per ordinary relation. */
 	readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
+	/** The violation queries the laws name, in one DAG, with its label supply, which the law model's merge reads. */
+	readonly dag: LabelledDag
 	/**
 	 * Every family, ordered, counted or a tree, in statement order, with its axes' carried pairs and its folds resolved
 	 * (ir/family.ts): what the law model lowers to natives, the write planner draws and fills, and the shell reads counts
@@ -587,7 +589,7 @@ class Builder {
 	): {
 		readonly laws: ReadonlyArray<TheoryLaw>
 		readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
-		readonly dag: ValidDag
+		readonly dag: LabelledDag
 		readonly families: ReadonlyArray<Family>
 	} {
 		const vb = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
@@ -639,24 +641,24 @@ class Builder {
 			written: write(p.kept)
 		}))
 		const written = kept.map(write)
-		let dag: ValidDag = vb.b.build(
-			[...keyed.map((p) => p.written), ...written].flatMap((w) =>
-				w.kind === "built" ? [w.law.violation] : []
+		const supply = new LabelSupply(
+			vb.b.build(
+				[...keyed.map((p) => p.written), ...written].flatMap((w) =>
+					w.kind === "built" ? [w.law.violation] : []
+				)
 			)
 		)
 		const lawOf = (w: Written): TheoryLaw => {
 			if (w.kind === "built") {
 				return w.law
 			}
-			const merged = mergeForbidding(dag, w.query, w.root, w.law.id)
-			dag = merged.dag
-			return Object.freeze({ ...w.law, violation: merged.forbid })
+			return Object.freeze({ ...w.law, violation: supply.forbid(w.query, w.root, w.law.id) })
 		}
 		const primaryKeys = keyed.map((p): PrimaryKeyLaw =>
 			Object.freeze({ relation: p.relation, law: lawOf(p.written) })
 		)
 		const laws = [...primaryKeys.map((p) => p.law), ...written.map(lawOf)]
-		return { laws, primaryKeys, dag: assembledDag(laws.map((law) => law.violation)), families }
+		return { laws, primaryKeys, dag: supply.dag(laws.map((law) => law.violation)), families }
 	}
 
 	/**

@@ -139,8 +139,32 @@ export const assembledDag = <R extends Roots>(roots: R): ValidDag<R> =>
 /** A valid DAG read from other roots, each a node of it: a write's read-back, a query's root moved first. */
 export const rooted = (roots: Rooted): RootedDag => assembledDag(roots)
 
-/** The empty DAG of no roots: what a merge of queries starts from. */
-export const emptyDag: ValidDag = assembledDag(noIds)
+type AllocatedKind = keyof typeof allocatedKinds
+
+/** The highest numeric suffix of each allocated kind among a DAG's labels: the supply its merges' fresh labels follow. */
+export type LabelTops = Readonly<Record<AllocatedKind, number>>
+
+/**
+ * A valid DAG with its label supply: no allocated label it holds is past its kind's top (LabelTops), so a merge into it
+ * labels the extension past the tops and reads none of its labels. A merge answers one (mergeDags), the empty DAG is
+ * one, and so is the DAG of a theory's laws (LabelSupply.dag), which starts from its builder's DAG's labels, read once.
+ */
+export type LabelledDag<R extends Roots = Roots> = ValidDag<R> & { readonly tops: LabelTops }
+
+/** The one mint of LabelledDag: `roots`, each a node a construction built, with the tops of the labels they reach. */
+const labelledDag = <R extends Roots>(roots: R, tops: LabelTops): LabelledDag<R> =>
+	nominal<RelDag<R> & { readonly tops: LabelTops }, LabelledDag<R>>()(
+		freeze({ roots: freeze(roots), tops: freeze(tops) })
+	)
+
+/** The empty DAG of no roots, which holds no label: what a merge of queries starts from. */
+export const emptyDag: LabelledDag = labelledDag(noIds, {
+	node: 0,
+	expr: 0,
+	var: 0,
+	occurrence: 0,
+	scope: 0
+})
 
 /**
  * A fold step's reading of `node`: each data edge yielded in structural order (rel.ts mapNode) and its value received,
@@ -584,8 +608,6 @@ export const finishCells = <R extends Roots>(
 	return Result.ok({ dag, node: (cell) => built.of(cell) })
 }
 
-type AllocatedKind = keyof typeof allocatedKinds
-
 /** The highest numeric suffix of each allocated kind among a DAG's labels, so fresh labels can follow it. */
 const highest = (dag: RelDag): Record<AllocatedKind, number> => {
 	const top: Record<AllocatedKind, number> = { node: 0, expr: 0, var: 0, occurrence: 0, scope: 0 }
@@ -623,28 +645,21 @@ const highest = (dag: RelDag): Record<AllocatedKind, number> => {
 	return top
 }
 
-interface MergedDag {
-	readonly dag: ValidDag
-	/**
-	 * The highest numeric suffix of each allocated kind among the merged DAG's labels: the base's, or the last fresh label
-	 * the merge gave the extension.
-	 */
-	readonly tops: Readonly<Record<AllocatedKind, number>>
-	/** The merged counterpart of a node of the extension. */
+/** An extension renamed into a label space: its roots' counterparts, and any node's or expression's. */
+interface Renamed {
+	readonly roots: Roots
+	/** The renamed counterpart of a node of the extension. */
 	readonly node: (node: RelNode) => RelNode
-	/** The merged counterpart of an expression of the extension. */
+	/** The renamed counterpart of an expression of the extension. */
 	readonly expr: (expr: ScalarExpr) => ScalarExpr
 }
 
 /**
- * The base DAG with the extension's nodes and expressions added under fresh labels, its roots after the base's: a fold
- * over the extension that renames every allocated label past the base's highest, so the two share none, and every name
- * a renamed node or expression holds (a column reference's node, a SelfRef's Recursive, a premise's node) with it.
- * The base's nodes are kept as they are; each renamed one is built by the one constructor. The merge of two valid DAGs
- * is valid. `node` and `expr` read the counterpart of any node or expression of the extension.
+ * The extension's nodes and expressions under fresh labels past `tops`, which advance past each one given: a fold over
+ * the extension that renames every allocated label, and every name a renamed node or expression holds (a column
+ * reference's node, a SelfRef's Recursive, a premise's node) with it. Each renamed node is built by the one constructor.
  */
-export const mergeDags = (base: ValidDag, extension: ValidDag): MergedDag => {
-	const top = highest(base)
+const renamedPast = (tops: Record<AllocatedKind, number>, extension: ValidDag): Renamed => {
 	const fresh = <A extends string>(kind: AllocatedKind, make: (s: string) => A) => {
 		const seen = new Map<string, A>()
 		return (id: A): A => {
@@ -652,8 +667,8 @@ export const mergeDags = (base: ValidDag, extension: ValidDag): MergedDag => {
 			if (known !== undefined) {
 				return known
 			}
-			top[kind] += 1
-			const next = make(`${allocatedKinds[kind]}${top[kind]}`)
+			tops[kind] += 1
+			const next = make(`${allocatedKinds[kind]}${tops[kind]}`)
 			seen.set(id, next)
 			return next
 		}
@@ -694,37 +709,70 @@ export const mergeDags = (base: ValidDag, extension: ValidDag): MergedDag => {
 		})
 		return relNode(nodeName(node.id), spec)
 	})
-	const roots = [...base.roots, ...extension.roots.map((root) => nodes.of(root))]
 	return {
-		dag: assembledDag(roots),
-		tops: Object.freeze({ ...top }),
+		roots: extension.roots.map((root) => nodes.of(root)),
 		node: (n) => nodes.of(n),
 		expr: (e) => exprs.of(e)
 	}
 }
 
+interface MergedDag {
+	/** The merged DAG, its tops the last fresh label of each kind the merge gave the extension, or the base's. */
+	readonly dag: LabelledDag
+	/** The merged counterpart of a node of the extension. */
+	readonly node: (node: RelNode) => RelNode
+	/** The merged counterpart of an expression of the extension. */
+	readonly expr: (expr: ScalarExpr) => ScalarExpr
+}
+
 /**
- * `base` with a law's violation query added under its Forbid node: `query`'s nodes renamed past every label of the
- * base's (mergeDags), and the Forbid over `violation`, the query's counterpart there, labelled past them. The DAG's
- * roots are the base's, then the Forbid, which `forbid` is.
+ * The base DAG with the extension's nodes and expressions added under fresh labels past the base's tops (renamedPast),
+ * so the two share none, its roots after the base's. The base's nodes are kept as they are. The merge of two valid
+ * DAGs is valid. `node` and `expr` read the counterpart of any node or expression of the extension.
  */
-export const mergeForbidding = (
-	base: ValidDag,
-	query: ValidDag,
-	violation: RelNode,
-	law: LawId
-): { readonly dag: ValidDag; readonly forbid: RelNode } => {
-	const merged = mergeDags(base, query)
-	const root = merged.node(violation)
-	const forbid = relNode(NodeId(`${allocatedKinds.node}${merged.tops.node + 1}`), {
-		kind: "Forbid",
-		lawId: law,
-		violation: root,
-		heading: root.heading,
-		loc: undefined,
-		meta: conservativeMeta
-	})
-	return { dag: assembledDag([...base.roots, forbid]), forbid }
+export const mergeDags = (base: LabelledDag, extension: ValidDag): MergedDag => {
+	const tops = { ...base.tops }
+	const renamed = renamedPast(tops, extension)
+	return {
+		dag: labelledDag([...base.roots, ...renamed.roots], { ...tops }),
+		node: renamed.node,
+		expr: renamed.expr
+	}
+}
+
+/**
+ * The label space of a theory's laws: the highest numeric suffix of each allocated kind among the labels its builder's
+ * DAG holds, read once when it starts, and advanced past each rule's violation query merged into it under the rule's
+ * Forbid node (forbid), so no merge reads a DAG for its labels. dag() is the DAG of the laws' violations, with its tops.
+ */
+export class LabelSupply {
+	readonly #tops: Record<AllocatedKind, number>
+
+	constructor(built: ValidDag) {
+		this.#tops = highest(built)
+	}
+
+	/**
+	 * A law's violation query under its Forbid node: `query`'s nodes renamed past every label so far (renamedPast), and
+	 * the Forbid over `violation`, the query's counterpart there, labelled past them.
+	 */
+	forbid(query: ValidDag, violation: RelNode, law: LawId): RelNode {
+		const root = renamedPast(this.#tops, query).node(violation)
+		this.#tops.node += 1
+		return relNode(NodeId(`${allocatedKinds.node}${this.#tops.node}`), {
+			kind: "Forbid",
+			lawId: law,
+			violation: root,
+			heading: root.heading,
+			loc: undefined,
+			meta: conservativeMeta
+		})
+	}
+
+	/** The DAG of `roots`, the builder's DAG's nodes and the Forbid nodes forbid gave, with the labels' tops. */
+	dag<R extends Roots>(roots: R): LabelledDag<R> {
+		return labelledDag(roots, { ...this.#tops })
+	}
 }
 
 /** Fresh positional names of one namespace, "<ns>#<i>", by first occurrence of the label they rename. */

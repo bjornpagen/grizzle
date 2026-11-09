@@ -4,7 +4,14 @@ import { CompileError } from "#compiler/core/errors.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { assembledDag, emptyDag, mergeDags, relNode, topoOrder } from "#compiler/ir/dag.ts"
+import {
+	assembledDag,
+	emptyDag,
+	type LabelledDag,
+	mergeDags,
+	relNode,
+	topoOrder
+} from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
 	type ExprSpec,
@@ -62,7 +69,7 @@ import { widening, wideningOf } from "#compiler/scalar/compute/types.ts"
  * Every glue node is built by the one constructor (ir/dag.ts relNode) and every glue expression by builtExpr, so their
  * structural fields, dependencies and effects are computed as a builder's are. */
 export class QueryMerger {
-	#dag: ValidDag = emptyDag
+	#dag: LabelledDag = emptyDag
 
 	/** Merges `query` past the queries added before it, answering its root in the merged DAG. */
 	add(query: LogicalQuery): RelNode {

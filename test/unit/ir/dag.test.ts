@@ -34,6 +34,7 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
 	cellFold,
 	dagDigest,
+	emptyDag,
 	finishCells,
 	mergeDags,
 	nodeScopes,
@@ -372,7 +373,10 @@ describe("traversals of generated DAGs", () => {
 								succeeded(dagDigest(finished.dag, "dag")),
 								succeeded(dagDigest(built, "dag"))
 							)
-							assert.equal(topoOrder(mergeDags(built, built).dag).length, 2 * (depth + 1))
+							assert.equal(
+								topoOrder(mergeDags(mergeDags(emptyDag, built).dag, built).dag).length,
+								2 * (depth + 1)
+							)
 						})
 				)
 			)
