@@ -220,13 +220,39 @@ export const schemaInputOf = (schema: unknown): SchemaInput => {
 
 /**
  * The template of `query` over `schema` (querySchema: undefined is the query's own schema), the schema parsed here as
- * the compiler's boundary parses a caller's.
+ * the compiler's boundary parses a caller's, against the artifacts of the schema it reads, computed for this query.
  */
 export const compileTemplate = (
 	query: unknown,
 	schema: unknown,
 	options: TestCompileOptions
-): Result.Result<OracleTemplate, CompileError> => {
+): Result.Result<OracleTemplate, CompileError> =>
+	Result.flatMap(templateSource(query, schema), (source) =>
+		Result.flatMap(testArtifacts(source.schema, options), (artifacts) =>
+			templateOver(source, artifacts, options)
+		)
+	)
+
+/**
+ * The template of `query` over `schema`, as compileTemplate compiles it, against `artifacts`: the artifacts of the
+ * schema it reads (testArtifacts under `options`), which a caller compiling many queries over one fixture schema
+ * computes once, as a named value, and passes to each.
+ */
+export const compileTemplateOver = (
+	query: unknown,
+	schema: unknown,
+	artifacts: SchemaArtifacts,
+	options: TestCompileOptions
+): Result.Result<OracleTemplate, CompileError> =>
+	Result.flatMap(templateSource(query, schema), (source) =>
+		templateOver(source, artifacts, options)
+	)
+
+/** The query and the schema it reads, `schema` parsed as the compiler's boundary parses a caller's. */
+const templateSource = (
+	query: unknown,
+	schema: unknown
+): Result.Result<Parameters<typeof compileQuery>[0], CompileError> => {
 	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 	if (!named.ok) {
 		return named
@@ -235,26 +261,27 @@ export const compileTemplate = (
 	if (!input.ok) {
 		return input
 	}
-	const source = querySchema(input.value, named.value)
-	if (!source.ok) {
-		return source
-	}
-	const artifacts = testArtifacts(source.value.schema, options)
-	if (!artifacts.ok) {
-		return artifacts
-	}
+	return querySchema(input.value, named.value)
+}
+
+/** A query's template against the artifacts of the schema it reads, its lowering checked. */
+const templateOver = (
+	source: Parameters<typeof compileQuery>[0],
+	artifacts: SchemaArtifacts,
+	options: TestCompileOptions
+): Result.Result<OracleTemplate, CompileError> => {
 	const template = Result.flatMap(
-		compileQuery(source.value, {
+		compileQuery(source, {
 			context: options.context,
-			artifacts: artifacts.value,
+			artifacts,
 			read: options.read
 		}),
-		(compiled) => withConservative(compiled, artifacts.value.reads)
+		(compiled) => withConservative(compiled, artifacts.reads)
 	)
 	if (!template.ok) {
 		return template
 	}
-	checkedLowering(templateLowering(template.value, options.context, schemaCatalog(artifacts.value)))
+	checkedLowering(templateLowering(template.value, options.context, schemaCatalog(artifacts)))
 	return template
 }
 

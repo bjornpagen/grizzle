@@ -70,8 +70,14 @@ import {
 	Tones,
 	ToneWeight
 } from "#test/support/agreement/schema.ts"
-import { defined } from "#test/support/assert.ts"
-import { codebookFor, compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
+import {
+	codebookFor,
+	compileTemplateOver,
+	type TestCompileOptions,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { admittedNames, refusedNames } from "#test/support/kernel/dict.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -2998,6 +3004,24 @@ const schemaOf = (spec: QuerySpec): "Agree" | "Rollup" =>
 /** The schema value a query is built over. */
 const schemaValue = (spec: QuerySpec): unknown => (schemaOf(spec) === "Rollup" ? Rollup : Agree)
 
+/**
+ * The artifacts of Agree, Rollup and the role views a case reads through (Reader over Agree, Reporter over Rollup),
+ * under the test's naming, each computed once: every query the agreement compiles over one of them compiles against
+ * its artifacts (compileTemplateOver).
+ */
+const agreeArtifacts = succeeded(testArtifacts(Agree, testCompile), "Agree's artifacts")
+const rollupArtifacts = succeeded(testArtifacts(Rollup, testCompile), "Rollup's artifacts")
+const readerArtifacts = succeeded(testArtifacts(Reader, testCompile), "Reader's artifacts")
+const reporterArtifacts = succeeded(testArtifacts(Reporter, testCompile), "Reporter's artifacts")
+
+/** The artifacts of the schema a case's queries read, Agree's or Rollup's. */
+const artifactsOf = (spec: QuerySpec) =>
+	schemaOf(spec) === "Rollup" ? rollupArtifacts : agreeArtifacts
+
+/** The template of `q`, a query over the schema of `spec`, read as `read` says, against that schema's artifacts. */
+const templateOf = (spec: QuerySpec, q: unknown, read: TestCompileOptions["read"]) =>
+	compileTemplateOver(q, undefined, artifactsOf(spec), { ...testCompile, read })
+
 /** The query a spec states, built through the query builder's JavaScript view, as the engine compiles it. */
 const built = (spec: QuerySpec): QueryValue => {
 	const [first, ...rest] = Arr.map(spec.arms, builtArm)
@@ -3242,7 +3266,7 @@ const headOf = (spec: QuerySpec): string =>
 	Arr.join(
 		Arr.map(spec.arms, (arm) => {
 			const q: QueryValue = queryOver(schemaValue(spec)).rule(builtArm(arm))
-			const template = compileTemplate(q, undefined, testCompile)
+			const template = templateOf(spec, q, testCompile.read)
 			if (!template.ok) {
 				throw new Error(
 					`the engine refuses an arm of a query it compiles: ${messageOf(template.error)}`
@@ -3309,21 +3333,17 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 	const paged = Result.flatMap(
 		catchCompileError(() => built(spec).orderBy([by, "asc"])),
 		(ordered) =>
-			Result.flatMap(
-				compileTemplate(ordered, undefined, { ...testCompile, read: "page" }),
-				(template) =>
-					Result.flatMap(testArtifacts(schemaValue(spec), testCompile), (artifacts) =>
-						Result.flatMap(queryInput(ordered), (input) =>
-							Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
-								compilePage({
-									checked: template.programs.checked,
-									stated,
-									optimized: template.programs.optimized,
-									names: artifacts.names
-								})
-							)
-						)
+			Result.flatMap(templateOf(spec, ordered, "page"), (template) =>
+				Result.flatMap(queryInput(ordered), (input) =>
+					Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
+						compilePage({
+							checked: template.programs.checked,
+							stated,
+							optimized: template.programs.optimized,
+							names: artifactsOf(spec).names
+						})
 					)
+				)
 			)
 	)
 	if (!paged.ok) {
@@ -3378,7 +3398,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const compiled = Arr.map(variants, (variant) =>
 		Result.flatMap(
 			catchCompileError(() => built(variant)),
-			(q) => compileTemplate(q, undefined, testCompile)
+			(q) => templateOf(variant, q, testCompile.read)
 		)
 	)
 	const templates: Array<QueryTemplate> = []
@@ -3406,7 +3426,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const shared = Arr.some(spec.arms, (arm) => arm.flagged !== undefined)
 		? Result.flatMap(
 				catchCompileError(() => built(sharedReading(spec))),
-				(q) => compileTemplate(q, undefined, testCompile)
+				(q) => templateOf(sharedReading(spec), q, testCompile.read)
 			)
 		: Result.ok(first)
 	if (!shared.ok) {
@@ -3416,7 +3436,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const readingOf = (reading: QuerySpec) => {
 		const compiled = Result.flatMap(
 			catchCompileError(() => built(reading)),
-			(q) => compileTemplate(q, undefined, testCompile)
+			(q) => templateOf(reading, q, testCompile.read)
 		)
 		if (!compiled.ok) {
 			return failed(`a reading of one flag: ${messageOf(compiled.error)}`)
@@ -3462,10 +3482,11 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
  * refuses a query over no level of the role's schema before any SQL, and compiles any other as over its own schema.
  */
 const readsThrough = (spec: QuerySpec, failed: (what: string) => never): boolean => {
-	const role = spec.db === "Reader" ? Reader : Reporter
+	const [role, artifacts] =
+		spec.db === "Reader" ? [Reader, readerArtifacts] : [Reporter, reporterArtifacts]
 	const compiled = Result.flatMap(
 		catchCompileError(() => built(spec)),
-		(q) => compileTemplate(q, role, testCompile)
+		(q) => compileTemplateOver(q, role, artifacts, testCompile)
 	)
 	if (compiled.ok) {
 		return true
@@ -3551,7 +3572,7 @@ const keyedOf = (k: KeyedGet): KeyedVerdict => {
 		throw new Error(`the engine reads no key through ${k.target}`)
 	}
 	const q = lookup.query
-	const template = compileTemplate(q, undefined, testCompile)
+	const template = compileTemplateOver(q, undefined, agreeArtifacts, testCompile)
 	if (!template.ok) {
 		throw new Error(
 			`the engine refuses the keyed lookup of ${k.target}: ${messageOf(template.error)}`

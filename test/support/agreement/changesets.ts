@@ -2336,6 +2336,14 @@ const realityOf = (level: Level) => {
 
 const roles = { Writer, Clerk, Reader } as const
 
+/** Each level's reality, computed once: every case compiles its ChangeSet against its level's. */
+const realities: { readonly [L in Level]: ReturnType<typeof realityOf> } = {
+	Work: realityOf("Work"),
+	Reports: realityOf("Reports"),
+	Other: realityOf("Other"),
+	Twin: realityOf("Twin")
+}
+
 /** The world a role's Db compiles a ChangeSet in: its checked world and its compile options. */
 const roleWorldOf = (name: RoleName) => {
 	const artifacts = testArtifacts(roles[name], testCompile)
@@ -2357,6 +2365,13 @@ const roleWorldOf = (name: RoleName) => {
 			derived: artifacts.value.derived
 		}
 	}
+}
+
+/** Each role's world, computed once: every application through a role's Db compiles in its role's. */
+const roleWorlds: { readonly [R in RoleName]: ReturnType<typeof roleWorldOf> } = {
+	Writer: roleWorldOf("Writer"),
+	Clerk: roleWorldOf("Clerk"),
+	Reader: roleWorldOf("Reader")
 }
 
 /** The facts and arguments of an application, bound as db.apply binds them: the engine's encoding is the oracle. */
@@ -2472,7 +2487,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 	if (Result.isFailure(built)) {
 		return refusedAt("change", built.failure, spec, code)
 	}
-	const reality = realityOf(levelOf(spec.change))
+	const reality = realities[levelOf(spec.change)]
 	const desc = changeSetDesc(built.success)
 	if (desc === undefined) {
 		throw new Error("a ChangeSet the facade built has no Description")
@@ -2561,7 +2576,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		}
 	}
 	if (spec.apply !== undefined) {
-		const world = roleWorldOf(spec.apply.role)
+		const world = roleWorlds[spec.apply.role]
 		const applied = compileWrite(world.checked, desc, world.options)
 		if (!applied.ok) {
 			return refusedAt("apply", applied.error, spec, code)
