@@ -40,6 +40,7 @@ import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { jsAccepts, patternOver } from "#test/unit/text/generators.ts"
 
 /**
@@ -832,7 +833,7 @@ const longestWithin = (l: Language, bytes: number): number => {
 				? l.chars
 				: Number.POSITIVE_INFINITY
 	const accepting = l.kind === "free" ? [0] : [0, 1]
-	const fewest = Arr.makeBy(3, () => Arr.makeBy(bytes + 1, () => Number.POSITIVE_INFINITY))
+	const fewest = Arr.makeBy(3, () => upTo(bytes + 1, () => Number.POSITIVE_INFINITY))
 	defined(fewest[0])[0] = 0
 	for (let b = 0; b <= bytes; b += 1) {
 		for (const move of moves) {
