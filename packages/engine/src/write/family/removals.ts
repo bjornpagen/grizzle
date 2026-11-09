@@ -114,14 +114,18 @@ export interface EditedMember {
 	readonly relation: RelationInfo
 	/** Every column its rows are written with (statements.ts rowLayout). */
 	readonly layout: RowLayout
+	/** Its puts and deletes, none of either for a member only the stratum's refills rewrite, whose rows are updated in
+	 * place (`Replacing`). */
 	readonly puts: MemberSlot | undefined
 	readonly deletes: MemberSlot | undefined
 	/** Its families, each with the columns its fill layout draws at the member's position in the family, in fill order,
-	 * and the member's fields those values read, a put of which draws the family again from the member's slot. */
+	 * the member's fields those values read, a put of which draws the family again from the member's slot, and the ways
+	 * the stratum's puts of plain relations reach its members (`RefillWay`), whose groups a refill draws again. */
 	readonly families: NonEmptyReadonlyArray<{
 		readonly family: Family
 		readonly drawn: ReadonlyArray<FillColumn>
 		readonly inputs: ReadonlyArray<LawField>
+		readonly refills: ReadonlyArray<RefillWay>
 	}>
 }
 
@@ -203,6 +207,7 @@ const layoutKeys = (layout: RowLayout): ReadonlyArray<ColumnKey> => [
 export const removalsSql = (
 	w: WriteContext,
 	members: NonEmptyReadonlyArray<EditedMember>,
+	roots: ReadonlyArray<RefillRoot>,
 	deferring: ReadonlyArray<Deferring>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
@@ -212,10 +217,20 @@ export const removalsSql = (
 	const ctes: Array<Cte> = []
 	const slots = slotReader(w, supply, ctes)
 	const deferred = deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
-	const reads = members.map((member) => readEdit(w, supply, ctes, member, slots))
+	/** Each root's put facts, the root's rows as the stratum leaves them, by relation. */
+	const rootFacts = new Map(
+		roots.map((r) => [r.relation.name, slots(r.relation.name, r.slot)] as const)
+	)
+	const reads = members.map((member): Read => {
+		const read = readEdit(w, supply, ctes, member, slots)
+		const ways = member.families.flatMap((f) => f.refills)
+		return isNonEmpty(ways)
+			? { ...read, updated: cascaded(w, supply, ctes, member, ways, rootFacts) }
+			: read
+	})
 	const redrawn = reads.flatMap((read) =>
 		read.member.families.map((f) =>
-			redraw(w, supply, ctes, read, f.family, f.drawn, f.inputs, deferred)
+			redraw(w, supply, ctes, read, f.family, f.drawn, f.inputs, deferred, rootFacts)
 		)
 	)
 	const returnings: Array<FamilyReturning> = []
@@ -251,6 +266,106 @@ export const removalsSql = (
 		throw defect("a family write that removes returns its deletions")
 	}
 	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params)
+}
+
+/**
+ * A put of the stratum whose changes a refill starts from: the relation it writes, which no family has as a member, and
+ * its slot, whose facts' keys name the changed rows.
+ */
+export interface RefillRoot {
+	readonly relation: RelationInfo
+	readonly slot: MemberSlot
+}
+
+/**
+ * One way a root's put reaches a refilled family's members: the family whose owner axis carries the root's put fields
+ * into its members' copies, the refilled family's member relation's rows.
+ */
+export interface RefillWay {
+	readonly root: string
+	readonly hop: Family
+}
+
+/**
+ * A member relation's rows a refill reaches as the stratum's puts of plain relations leave them, before those puts run
+ * (`RefillWay`): each row in a group a root's put names, every column as stored but each copy its family's owner axis
+ * carries of a field the put states, which takes the put's value, as the axis's cascade would. The refill writes them
+ * ahead of the put, so the cascade finds them changed, and each row check over a copy meets its redrawn values.
+ */
+const cascaded = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	member: EditedMember,
+	ways: NonEmptyReadonlyArray<RefillWay>,
+	rootFacts: ReadonlyMap<string, Shaped>
+): Shaped => {
+	const name = member.relation.name
+	const keys = layoutKeys(member.layout)
+	const columnOf = (key: ColumnKey): NativeColumn =>
+		defined(
+			[...member.layout.key, ...member.layout.columns].find((c) => c.key === key),
+			`the column ${key} of ${name}`
+		).column
+	const out = shapedCte(supply, "cascaded member", keys)
+	const s = supply.relation(internal("cascaded stored"))
+	const factsOf = (way: RefillWay): Shaped =>
+		defined(rootFacts.get(way.root), `the put of ${way.root} a refill reads`)
+	/** The way's put facts naming the stored member's group, read as `p`. */
+	const naming = (way: RefillWay, p: string): Expr =>
+		and(
+			mapNonEmpty(way.hop.group, (g) =>
+				eq(
+					col(s, w.names.column(name, g.member.name)),
+					col(p, columnAt(factsOf(way), fieldKey(g.owner.name)))
+				)
+			)
+		)
+	/** A column's value: the put's field a way's owner axis copies into it, else the stored one. */
+	const valueOf = (key: ColumnKey): Expr => {
+		const stored = col(s, installed(w, name, columnOf(key)))
+		const puts = ways.flatMap((way) =>
+			way.hop.axes.owner.flatMap((pair): ReadonlyArray<Expr> => {
+				const facts = factsOf(way)
+				const put =
+					pair.to.kind === "field" ? facts.columns.get(fieldKey(pair.to.field.name)) : undefined
+				if (columnKey(pair.from) !== key || put === undefined) {
+					return []
+				}
+				const p = supply.relation(internal("cascading put"))
+				return [
+					{
+						kind: "subquery",
+						query: simpleSelect([target(col(p, put))], [cteRefAs(facts.name, p)], naming(way, p))
+					}
+				]
+			})
+		)
+		const [first, ...rest] = puts
+		return first === undefined ? stored : firstNonNull([first, ...rest, stored])
+	}
+	ctes.push(
+		cte(
+			out.name,
+			[...out.columns.values()],
+			select(
+				provedCore(
+					"keyed",
+					keys.map((k) => targetAs(valueOf(k), columnAt(out, k))),
+					[tableAs(w, name, s)],
+					or(
+						mapNonEmpty(ways, (way) => {
+							const p = supply.relation(internal("cascading put"))
+							return exists(
+								simpleSelect([target(one)], [cteRefAs(factsOf(way).name, p)], naming(way, p))
+							)
+						})
+					)
+				)
+			)
+		)
+	)
+	return out
 }
 
 const isTree = (family: Family): boolean => family.members.kind === "tree"
@@ -484,7 +599,8 @@ const redraw = (
 	family: Family,
 	drawnColumns: ReadonlyArray<FillColumn>,
 	inputs: ReadonlyArray<LawField>,
-	deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>
+	deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>,
+	rootFacts: ReadonlyMap<string, Shaped>
 ): Redrawn => {
 	const member = read.member
 	const name = member.relation.name
@@ -713,23 +829,41 @@ const redraw = (
 			stored
 		])
 	}
+	/** An owner's column as the stratum leaves it: a refill's root's put field where the put names the owner, else the
+	 * stored one. */
 	const ownerColumn = (g: string, to: NativeColumn): Expr => {
 		const o = supply.relation(internal("redrawn owner"))
-		return {
+		const atGroup = (alias: string, key: (field: string) => string): Expr =>
+			and(
+				mapNonEmpty(family.group, (gr, i) =>
+					eq(col(alias, key(gr.owner.name)), col(g, defined(groups.group[i], "a group column")))
+				)
+			)
+		const stored: Expr = {
 			kind: "subquery",
 			query: simpleSelect(
 				[target(col(o, installed(w, owner.name, to)))],
 				[tableAs(w, owner.name, o)],
-				and(
-					mapNonEmpty(family.group, (gr, i) =>
-						eq(
-							col(o, w.names.column(owner.name, gr.owner.name)),
-							col(g, defined(groups.group[i], "a group column"))
-						)
-					)
-				)
+				atGroup(o, (field) => w.names.column(owner.name, field))
 			)
 		}
+		const facts = rootFacts.get(owner.name)
+		const put = to.kind === "field" ? facts?.columns.get(fieldKey(to.field.name)) : undefined
+		if (facts === undefined || put === undefined) {
+			return stored
+		}
+		const p = supply.relation(internal("redrawn owner put"))
+		return firstNonNull([
+			{
+				kind: "subquery",
+				query: simpleSelect(
+					[target(col(p, put))],
+					[cteRefAs(facts.name, p)],
+					atGroup(p, (field) => columnAt(facts, fieldKey(field)))
+				)
+			},
+			stored
+		])
 	}
 	const notRemoved = (m: string): Expr => {
 		const x = supply.relation(internal("not removed"))
@@ -1028,14 +1162,19 @@ const redraw = (
  * Which of a member relation's written rows the statement re-places, deleting them and inserting them again, rather
  * than updating them in place: every one of an immutable relation, on which no role holds UPDATE, as its puts are
  * (write/put/choose.ts); a mutable relation's redrawn members of its sequence, since the sequence's predecessor axis is
- * immediate; or none.
+ * immediate; or none, a member only refills rewrite, whose rows are updated in place under the axes a refill defers
+ * (analysis/theory/refill.ts refillDeferral).
  */
 type Replacing =
 	| { readonly kind: "every" }
 	| { readonly kind: "sequence"; readonly scan: Shaped }
 	| { readonly kind: "none" }
 
-const replacingOf = (member: EditedMember, redrawn: ReadonlyArray<Redrawn>): Replacing => {
+const replacingOf = (read: Read, redrawn: ReadonlyArray<Redrawn>): Replacing => {
+	const member = read.member
+	if (member.puts === undefined && member.deletes === undefined) {
+		return { kind: "none" }
+	}
 	if (!member.relation.mutable) {
 		return { kind: "every" }
 	}
@@ -1061,7 +1200,7 @@ const deleteOf = (
 			)
 		)
 	const r = supply.relation(internal("deleted removed"))
-	const replacing = replacingOf(read.member, redrawn)
+	const replacing = replacingOf(read, redrawn)
 	const replaced: ReadonlyArray<Shaped> =
 		replacing.kind === "every"
 			? [...redrawn.filter((x) => x.member === read.member).map((x) => x.scan), read.updated]
@@ -1105,7 +1244,7 @@ const deleteOf = (
 }
 
 /** One row of the deletions' total count, which every insert and update of the statement joins, so PostgreSQL finishes
- * every deletion before any of them writes a row. */
+ * every deletion before any of them writes a row; 0 for a statement that deletes none. */
 const barrierOf = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
@@ -1117,10 +1256,8 @@ const barrierOf = (
 		kind: "subquery",
 		query: simpleSelect([target(countStar())], [cteRef(d)], undefined)
 	}))
-	if (first === undefined) {
-		throw defect("a removals statement deletes")
-	}
-	const total = rest.reduce((a, b) => binary("+", a, b), first)
+	const total =
+		first === undefined ? lit.int(0, types.bigint) : rest.reduce((a, b) => binary("+", a, b), first)
 	ctes.push(
 		cte(name, [column], select(provedCore("oneRow", [targetAs(total, column)], [], undefined)))
 	)
@@ -1144,7 +1281,7 @@ const writesOf = (
 	const relation = member.relation
 	const name = relation.name
 	const own = redrawn.filter((x) => x.member === member)
-	const replacing = replacingOf(member, redrawn)
+	const replacing = replacingOf(read, redrawn)
 	const keys = layoutKeys(member.layout)
 	const columns = [...member.layout.key, ...member.layout.columns]
 	const keyOf = (alias: string, shape: Shaped): NonEmptyReadonlyArray<Expr> =>

@@ -81,6 +81,7 @@ import {
 	type Deferring,
 	type EditedMember,
 	familyInputs,
+	type RefillRoot,
 	removalsSql
 } from "#compiler/write/family/removals.ts"
 import {
@@ -107,7 +108,7 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
-import type { StratumRefill } from "#compiler/write/frontend/refill.ts"
+import { plainRefills, type StratumRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
@@ -411,30 +412,32 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 				reads
 			})
 		})
-	const refills = frontend.refills.map(({ stratum, refill }): RefillProgram =>
-		Object.freeze({
-			stratum,
-			refill,
-			reads: refill.reads.map((read) =>
-				chainReadSql(read, w, (relation) => rowLayout(relation, all))
-			),
-			targets: refill.relations.map((name): EditTarget => {
-				const relation = defined(stored.get(name), `the refilled relation ${name}`)
-				const layout = layoutOf(name)
-				return Object.freeze({
-					relation,
-					layout,
-					families: memberFamilies(name, all)
-						.filter((f) => !isTreeOf(f, name))
-						.map((family) => ({
-							family,
-							shape: readShape(family, layout),
-							fixed: !family.owner.mutable
-						}))
+	const refills = frontend.refills
+		.filter(({ stratum }) => !added.has(stratum))
+		.map(({ stratum, refill }): RefillProgram =>
+			Object.freeze({
+				stratum,
+				refill,
+				reads: refill.reads.map((read) =>
+					chainReadSql(read, w, (relation) => rowLayout(relation, all))
+				),
+				targets: refill.relations.map((name): EditTarget => {
+					const relation = defined(stored.get(name), `the refilled relation ${name}`)
+					const layout = layoutOf(name)
+					return Object.freeze({
+						relation,
+						layout,
+						families: memberFamilies(name, all)
+							.filter((f) => !isTreeOf(f, name))
+							.map((family) => ({
+								family,
+								shape: readShape(family, layout),
+								fixed: !family.owner.mutable
+							}))
+					})
 				})
 			})
-		})
-	)
+		)
 	const info = (name: string) =>
 		defined(frontend.schema.relations.get(name), `the family relation ${name}`)
 	const familyOf = (id: FamilyId): Family =>
@@ -456,9 +459,35 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							drawn: familyDrawn(frontend, relation.name, family),
 							inputs: familyInputs(family, relation)
 						}))
-				/** The families a removals statement redraws its rows of `relation` by, at least one. */
+				/** The stratum's refills its family statements draw, by member relation (frontend/refill.ts plainRefills). */
+				const refilled = new Map(
+					frontend.refills.flatMap((r) =>
+						r.stratum === s
+							? [
+									...defined(
+										plainRefills(
+											r.refill,
+											(name) => all.some((f) => f.member.name === name),
+											new Set(
+												stratumEdits.flatMap((e) =>
+													e.puts === undefined && e.deletes === undefined ? [] : [e.relation.name]
+												)
+											)
+										),
+										"the refills of a stratum whose family statements draw them"
+									)
+								]
+							: []
+					)
+				)
+				/** The families a removals statement redraws its rows of `relation` by, at least one, each with the ways the
+				 * stratum's puts of plain relations reach its members. */
 				const removedFamilies = (relation: RelationInfo) => {
-					const own = familiesOf(relation)
+					const ways = refilled.get(relation.name) ?? []
+					const own = familiesOf(relation).map((f) => ({
+						...f,
+						refills: ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
+					}))
 					if (!isNonEmpty(own)) {
 						throw defect(
 							`the families of ${relation.name}, which a family removals statement redraws`
@@ -545,27 +574,22 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					}
 					return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
 				}
-				const removing = stratumEdits.flatMap((edit): ReadonlyArray<EditedMember> => {
-					if (
-						(edit.puts === undefined && edit.deletes === undefined) ||
-						edit.relation.name !== node.member
-					) {
-						return []
-					}
-					const relation = info(edit.relation.name)
-					return [
-						{
-							relation,
-							layout: layoutOf(relation.name),
-							puts: slotOf(edit.puts),
-							deletes: slotOf(edit.deletes),
-							families: removedFamilies(relation)
-						}
-					]
-				})
-				if (!isNonEmpty(removing)) {
-					throw defect(`the edited members of stratum ${s}'s removals statement`)
+				const relation = info(node.member)
+				const memberEdit = stratumEdits.find((e) => e.relation.name === node.member)
+				const removing: EditedMember = {
+					relation,
+					layout: layoutOf(relation.name),
+					puts: slotOf(memberEdit?.puts),
+					deletes: slotOf(memberEdit?.deletes),
+					families: removedFamilies(relation)
 				}
+				const roots = node.refilledFrom.map((root): RefillRoot => ({
+					relation: info(root),
+					slot: defined(
+						ownerSlots("put").find((o) => o.relation === root),
+						`the put of ${root} a refill reads`
+					).slot
+				}))
 				const deferring: ReadonlyArray<Deferring> = [
 					...stratumEdits.flatMap((edit) => [
 						...(edit.inserts === undefined
@@ -592,7 +616,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 						as: "owners" as const
 					}))
 				]
-				const sql = removalsSql(w0, removing, deferring, stored)
+				const sql = removalsSql(w0, [removing], roots, deferring, stored)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,

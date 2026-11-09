@@ -31,7 +31,7 @@ import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
@@ -78,6 +78,74 @@ export interface StratumRefill {
 	readonly relations: ReadonlyArray<string>
 	readonly recounted: ReadonlyArray<Family>
 	readonly order: RefillOrder
+}
+
+/**
+ * A way a put of the stratum reaches a refilled family's members (write/family/removals.ts RefillWay): the plain
+ * relation it writes, and the family whose owner axis carries its change into the refilled family's member.
+ */
+export interface PlainRefillWay {
+	readonly root: string
+	readonly hop: Family
+}
+
+/** A refilled family of one member relation, and the ways the stratum's puts reach its members. */
+export interface PlainRefill {
+	readonly family: Family
+	readonly ways: NonEmptyReadonlyArray<PlainRefillWay>
+}
+
+/**
+ * Where a stratum's refills are drawn in the call's flight: every refilled family's ways from the stratum's puts of
+ * relations no family has as a member (`managed`), by member relation, when every path of its closure is one, a put's
+ * change cascading along one owner axis into a counted or ordered family's member and read there by its fold,
+ * predecessor or last axis, and no refilled member is one the stratum edits; none otherwise, where the family planner
+ * refills on the host.
+ */
+export const plainRefills = (
+	refill: StratumRefill,
+	managed: (relation: string) => boolean,
+	edited: ReadonlySet<string>
+): ReadonlyMap<string, ReadonlyArray<PlainRefill>> | undefined => {
+	const byFamily = new Map<
+		string,
+		{ readonly family: Family; readonly ways: [PlainRefillWay, ...Array<PlainRefillWay>] }
+	>()
+	for (const path of refill.closure.paths) {
+		const change = path.change
+		const [hop, ...further] = path.copies
+		const reader = path.reader
+		if (
+			change.kind !== "write" ||
+			change.op !== "put" ||
+			managed(change.relation.name) ||
+			hop === undefined ||
+			isNonEmpty(further) ||
+			reader.family.members.kind === "tree" ||
+			(reader.kind !== "fold" && reader.kind !== "predecessor" && reader.kind !== "last") ||
+			hop.family.member.name !== reader.family.member.name ||
+			edited.has(reader.family.member.name)
+		) {
+			return undefined
+		}
+		const way: PlainRefillWay = { root: change.relation.name, hop: hop.family }
+		const key = familyKey(reader.family.id)
+		const known = byFamily.get(key)
+		if (known === undefined) {
+			byFamily.set(key, { family: reader.family, ways: [way] })
+		} else if (
+			!known.ways.some((w) => w.root === way.root && familyKey(w.hop.id) === familyKey(way.hop.id))
+		) {
+			known.ways.push(way)
+		}
+	}
+	const out = new Map<string, Array<PlainRefill>>()
+	for (const { family, ways } of byFamily.values()) {
+		const list = out.get(family.member.name) ?? []
+		list.push({ family, ways })
+		out.set(family.member.name, list)
+	}
+	return out
 }
 
 /** A relation's family statement of kind `statement`, as the schedule names it. */

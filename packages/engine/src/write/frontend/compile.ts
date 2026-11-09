@@ -90,6 +90,8 @@ import {
 	rowLayout
 } from "#compiler/write/family/statements.ts"
 import {
+	type PlainRefill,
+	plainRefills,
 	type RefillHolds,
 	type StratumRefill,
 	type StratumWrite,
@@ -106,6 +108,7 @@ import {
 	generating,
 	type ImmediateReference,
 	type Meeting,
+	type RemovalEdit,
 	scheduleStratum,
 	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
@@ -1965,8 +1968,9 @@ const compile = (
 
 	/**
 	 * A stratum's family work as one removals statement and one additions statement of each member relation
-	 * (write/family/removals.ts, write/family/additions.ts), where nothing refills: a member's removals where an edit puts
-	 * or deletes it, its additions where one inserts or puts it or a nested write fills its rows, each with each owner of
+	 * (write/family/removals.ts, write/family/additions.ts), where its refills are puts' of plain relations
+	 * (frontend/refill.ts plainRefills): a member's removals where an edit puts or deletes it or a refill draws a family
+	 * of it again, its additions where one inserts or puts it or a nested write fills its rows, each with each owner of
 	 * its families, its count and ends changed, and, for a member it removes from and appends nothing to, the recount of
 	 * the owners the stratum puts; none for any other stratum, whose family statements the family planner plans.
 	 */
@@ -1981,12 +1985,20 @@ const compile = (
 		const nested = nestedWrites.flatMap((n) =>
 			n.stratum === stratum ? [...n.nesting.layouts.keys()] : []
 		)
-		if ((edited.length === 0 && nested.length === 0) || refill !== undefined) {
-			return undefined
-		}
 		const by = (ops: ReadonlyArray<"insert" | "put" | "delete">) => [
 			...new Set(own.flatMap((e) => (ops.some((op) => op === e.write.op) ? [e.relation] : [])))
 		]
+		/** The stratum's refills its family statements draw, by member relation; none where the family planner draws them. */
+		const refilled =
+			refill === undefined
+				? new Map<string, ReadonlyArray<PlainRefill>>()
+				: plainRefills(refill, managed, new Set(by(["put", "delete"])))
+		if (
+			refilled === undefined ||
+			(edited.length === 0 && nested.length === 0 && refilled.size === 0)
+		) {
+			return undefined
+		}
 		/** The owners of `drawn`, the families a family statement draws, each changed at its counts and ends. */
 		const ownersOfFamilies = (drawn: ReadonlyArray<Family>) =>
 			[...new Set(drawn.map((f) => f.owner.name))].map((relation) => ({
@@ -2012,28 +2024,34 @@ const compile = (
 		const removing = by(["put", "delete"])
 		const putting = by(["put"])
 		const deleting = by(["delete"])
-		/** The operations the stratum states of `member`, one it puts or deletes. */
-		const removalEdits = (member: string): NonEmptyReadonlyArray<"put" | "delete"> =>
+		/** What `member`'s removals statement does to its rows (schedule.ts RemovalEdit): the operations the stratum states
+		 * of a member it puts or deletes, and else the refill its plain puts' cascades draw. */
+		const removalEdits = (member: string): NonEmptyReadonlyArray<RemovalEdit> =>
 			putting.includes(member)
 				? deleting.includes(member)
 					? ["put", "delete"]
 					: ["put"]
-				: ["delete"]
+				: deleting.includes(member)
+					? ["delete"]
+					: ["refill"]
 		const slotted = by(["insert", "put"])
 		const adding = [...new Set([...slotted, ...nested])]
+		/** The members whose removals statements redraw their groups: an edit's, which puts or deletes them, and a
+		 * refill's. */
+		const redrawing = [...new Set([...removing, ...refilled.keys()])]
 		/**
 		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
 		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
 		 * stratum appends to it.
 		 */
-		const put = ownersOf(removing).filter(
+		const put = ownersOf(redrawing).filter(
 			(o) =>
 				families.some(
 					(f) =>
 						f.owner.name === o.relation &&
 						f.owner.mutable &&
 						f.members.kind !== "tree" &&
-						removing.includes(f.member.name)
+						redrawing.includes(f.member.name)
 				) &&
 				slots.some(
 					(g) =>
@@ -2079,14 +2097,19 @@ const compile = (
 			)
 		]
 		const recountedOnly = [
-			...new Set(families.flatMap((f) => (removing.includes(f.member.name) ? [f.member.name] : [])))
+			...new Set(
+				families.flatMap((f) => (redrawing.includes(f.member.name) ? [f.member.name] : []))
+			)
 		].filter((m) => !adding.includes(m))
 		return [
-			...removing.map((member) => ({
+			...redrawing.map((member) => ({
 				kind: "removals" as const,
 				member,
 				edits: removalEdits(member),
-				owners: ownersOf([member])
+				owners: ownersOf([member]),
+				refilledFrom: [
+					...new Set((refilled.get(member) ?? []).flatMap((r) => r.ways.map((way) => way.root)))
+				]
 			})),
 			...adding.map((member) => {
 				const drawn = drawnOwners(member)

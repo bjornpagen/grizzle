@@ -72,17 +72,28 @@ export type FamilyAdditions =
 	  }
 
 /**
+ * What a removals statement does to its member's rows besides redrawing their indexes: deletes and re-places those its
+ * stratum deletes or puts, updates in place each stored one its stratum puts, and rewrites in place the groups its
+ * stratum's plain puts' cascades reach (frontend/refill.ts plainRefills).
+ */
+export type RemovalEdit = Extract<MemberOp, "put" | "delete"> | "refill"
+
+/**
  * One member relation's family removals in a stratum, one statement (write/family/removals.ts): it deletes and re-places
- * rows of `member`, redraws the indexes of the rest, updates in place each stored one its stratum puts, and changes the
- * rows of `owners` at the columns `changes` names of each, their counts and ends. `edits` are the operations its
- * stratum states of `member`: only a put's update in place sets a field a reference from `member` reads. Its stratum's
- * additions follow it.
+ * rows of `member`, redraws the indexes of the rest, updates in place each stored one its stratum puts and the groups
+ * its refills draw again, and changes the rows of `owners` at the columns `changes` names of each, their counts and
+ * ends. `edits` are what it does to `member` (`RemovalEdit`): only a put's or a refill's update in place sets a field a
+ * reference from `member` reads. Its stratum's additions follow it.
  */
 export interface FamilyRemovals {
 	readonly kind: "removals"
 	readonly member: string
-	readonly edits: NonEmptyReadonlyArray<Extract<MemberOp, "put" | "delete">>
+	readonly edits: NonEmptyReadonlyArray<RemovalEdit>
 	readonly owners: ReadonlyArray<OwnerChanges>
+	/** The plain relations whose puts its refills draw from, the member's rows as their cascades would leave them, which
+	 * it writes ahead of each put of them, members first, so the cascade finds them changed (frontend/refill.ts
+	 * plainRefills). */
+	readonly refilledFrom: ReadonlyArray<string>
 }
 
 /** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions or removals
@@ -545,8 +556,9 @@ const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
  * as landed, and an owner's insert where they copy its columns; an owner the stratum inserts carries its counts and ends
  * in its own row (write/program/bind.ts freshOwners), which no recount changes; and the immediate references between
  * them order them as any two writes' do, the additions adding the rows they insert, the removals removing the rows they
- * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put member in
- * place, and either adding and changing an owner's facts at the columns its recount changes.
+ * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put or refilled
+ * member in place, and either adding and changing an owner's facts at the columns its recount changes; and a removals
+ * that refills a member ahead of a put of a plain relation it draws from runs before that put.
  */
 const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	action: Scheduled,
@@ -557,6 +569,9 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 ): void => {
 	const a = action.action.relation
 	const members = writtenMembers(node)
+	if (node.kind === "removals" && node.refilledFrom.includes(a) && action.action.op === "put") {
+		x.follows.add(y)
+	}
 	if (
 		node.kind === "additions" &&
 		(members.includes(a) ||
@@ -569,7 +584,7 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 		if (members.includes(relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
-				: { adds: node.edits.includes("put"), removes: true, updates: true }
+				: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
 		}
 		const owner = node.owners.find((o) => o.relation === relation)
 		if (owner === undefined) {
