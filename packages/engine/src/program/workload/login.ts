@@ -5,7 +5,7 @@ import { workloadState } from "#compiler/program/workload/value.ts"
 import { isLevelOf } from "#compiler/schema/levels.ts"
 import { builderLoc, isPlainRecord, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
 import { login as loginBuilder } from "#compiler/schema/world.ts"
-import type { Refusal } from "#compiler/types/core/phantom.ts"
+import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
@@ -88,7 +88,8 @@ const admitWorkloads = (
  *
  * A role off the base and a workload over none of these each carry their refusal. The shared-name check reads the
  * whole list, so it is written against the options object beside its `workload`: the refusal it reaches is a
- * constituent of the options' own type, so the call's diagnostic names it, not a long tuple type that hides it.
+ * constituent of the options' own type, so the call's diagnostic names it, not a long tuple type that hides it. A
+ * role or workload typed `any` is refused (MembersTyped).
  */
 export const login = <
 	Base extends AnySchema,
@@ -98,13 +99,13 @@ export const login = <
 >(
 	base: Base,
 	name: Name,
-	roles: Roles & RolesOver<Base, Roles>,
+	roles: Roles & RolesOver<Base, Roles> & MembersTyped<Roles>,
 	...options:
 		| readonly []
 		| readonly [
-				options: { readonly workload: Ws & WorkloadsOver<Base, Roles[number], Ws> } & ([
-					SharedNames<Ws, never>
-				] extends [never]
+				options: {
+					readonly workload: Ws & WorkloadsOver<Base, Roles[number], Ws> & MembersTyped<Ws>
+				} & ([SharedNames<Ws, never>] extends [never]
 					? unknown
 					: Refusal<"two programs of one name across a login's workloads">)
 		  ]

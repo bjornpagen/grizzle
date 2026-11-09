@@ -25,7 +25,13 @@ import {
 } from "#compiler/schema/statements.ts"
 import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
 import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
-import type { Parameterless, Predicate, Refusal, Simplify } from "#compiler/types/core/phantom.ts"
+import type {
+	MembersTyped,
+	Parameterless,
+	Predicate,
+	Refusal,
+	Simplify
+} from "#compiler/types/core/phantom.ts"
 import type { AnyDerived, RuleReadDerived } from "#compiler/types/derived/derived.ts"
 import type {
 	FieldBase,
@@ -258,7 +264,8 @@ export const closed: typeof closedRoster & { readonly relation: typeof closedRel
 /**
  * schema(name, relations, statements). Each relation sits under its own name, so the record is the schema's index by
  * name. The statements are a frozen copy, held by name (StatementsByName) and read back whole, so `statements` is the
- * tuple the call writes: every tuple of statements reads back as itself (StatementsReadBack).
+ * tuple the call writes: every tuple of statements reads back as itself (StatementsReadBack). A relation or statement
+ * typed `any` is refused (UnderOwnNames, StatementsWithin).
  */
 const rootSchema = <
 	const Name extends string,
@@ -280,7 +287,8 @@ const rootSchema = <
  * schema of its own, beside the base's, in one installation with every level below it. A derived definition must be a
  * query over the base or a lower level. Query is invariant in its schema, so a query over this level, which would read
  * its own relations, is no query over any level below it. Its statements are the base's, then its own, held by name
- * over the base's relations and its own.
+ * over the base's relations and its own. A relation or statement typed `any` is refused (UnderOwnNames,
+ * StatementsWithin).
  */
 const extend = <
 	Base extends AnySchema,
@@ -556,7 +564,7 @@ export const context = <
  * Relations defined over the base, a schema: whole relations of the base, each under its own name, and queries over
  * it. `write` names role relations, each once, `refresh` derived whole entries. A repeat in the write list is read
  * against the options object beside its `write`, as login reads its workloads' shared names, so the call's diagnostic
- * names the refusal.
+ * names the refusal. An entry, or a member of either list, typed `any` is refused (MembersTyped).
  */
 export const role = <
 	Base extends AnySchema,
@@ -567,7 +575,11 @@ export const role = <
 >(
 	base: Base,
 	name: Name,
-	relations: Rs & EntriesCheck<Base, Rs>,
-	...options: readonly [] | readonly [options: RoleOptionRecord<W, F> & DistinctWrites<W>]
+	relations: Rs & EntriesCheck<Base, Rs> & MembersTyped<Rs>,
+	...options:
+		| readonly []
+		| readonly [
+				options: RoleOptionRecord<W, F> & DistinctWrites<W> & MembersTyped<W> & MembersTyped<F>
+		  ]
 ): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], EntryContexts<Rs>> =>
 	roleBuilder<Base, Name, Rs, W, F>(base, name, relations, ...options)

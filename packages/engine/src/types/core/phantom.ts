@@ -919,6 +919,7 @@ export const typeRefusals = [
 	"a login's roles share its base",
 	"a login's workload is over its base, a level of it, or one of its roles",
 	"a member fact is not a fact of the relation",
+	"a member typed any, which every check admits: type each member of the list or record",
 	"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast",
 	"a new field name for the attachment",
 	"a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union's first k",
@@ -1018,3 +1019,20 @@ export type TypeRefusal = (typeof typeRefusals)[number]
 export interface Refusal<Message extends TypeRefusal> {
 	readonly "grizzle type error": Message
 }
+
+/**
+ * A list or record a builder captures, refused where a member is typed `any`: an array's elements, a record's values.
+ * `any` is assignable to and from every type, so a schema whose statements or relations, a role whose entries or lists,
+ * a login whose roles or workloads, or a workload whose programs read as `any` passes every check that reads them,
+ * far from the call: a schema's insert types lose each family's nesting, its keys and laws read nothing. A library
+ * overload that gives up typing yields one, such as `Object.values` over a union of records, typed `any[]`. An argument
+ * typed `any` whole is TypeScript's own opt-out: it is assignable to any refusal at its own parameter, and a refusal at
+ * another would stand in every generic caller that forwards a checked argument, where TypeScript reads a type parameter
+ * as `any` and cannot prove it none.
+ */
+export type MembersTyped<C> = 0 extends 1 & MemberOf<C>
+	? Refusal<"a member typed any, which every check admits: type each member of the list or record">
+	: unknown
+
+/** The members of a list or record: an array's elements, a record's values. */
+type MemberOf<C> = C extends ReadonlyArray<infer E> ? E : C[keyof C]

@@ -11,6 +11,7 @@ import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schema
 import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/workloads.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
 import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
+import { untypedEntriesFrom, untypedSource } from "#test/types/api/untyped.ts"
 import type { Group, UnitSpec } from "#test/types/batch/batch.ts"
 import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
@@ -97,6 +98,19 @@ const typeGroups: ReadonlyArray<Group> = [
 				disarm: false,
 				heavy: false,
 				source: (entry) => [{ file: "index.ts", source: surfaceModule(surfaceEntriesFrom(entry)) }]
+			}
+		}
+	},
+	{
+		owner: "test/types/api/untyped.test.ts",
+		units: {
+			"api/untyped": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".untyped-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [{ file: "index.ts", source: untypedSource(untypedEntriesFrom(entry)) }]
 			}
 		}
 	},

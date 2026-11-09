@@ -1,5 +1,6 @@
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type { ChangeSetAt, PlannedStrata } from "#compiler/types/changeset/changeset.ts"
+import type { MembersTyped } from "#compiler/types/core/phantom.ts"
 import type { OrderedAt, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
@@ -27,12 +28,18 @@ type WritableBy<S> = S extends AnyRole ? Phantom<{ readonly writes: WriteListOf<
  */
 type ProgramAt<S, L> = QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>) | KeyAt<L>
 
+/**
+ * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
+ * its immutable owner's insert (PlannedStrata). A program typed `any` is refused (MembersTyped).
+ */
 export type WorkloadConstructor = <
 	S extends AnySchema | AnyRole,
 	const Programs extends Record<string, ProgramAt<S, LevelsOf<S>>>
 >(
 	schema: S,
-	programs: Programs & { readonly [K in keyof Programs]: PlannedStrata<Programs[K]> }
+	programs: Programs & {
+		readonly [K in keyof Programs]: PlannedStrata<Programs[K]>
+	} & MembersTyped<Programs>
 ) => Workload<S, Programs>
 
 /**

@@ -1,6 +1,12 @@
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
 import type { Identical } from "#compiler/types/core/identical.ts"
-import type { Carriers, Headed, Invariant, Refusal } from "#compiler/types/core/phantom.ts"
+import type {
+	Carriers,
+	Headed,
+	Invariant,
+	MembersTyped,
+	Refusal
+} from "#compiler/types/core/phantom.ts"
 import type { AnyDerived, Derived } from "#compiler/types/derived/derived.ts"
 import type { QueryOver } from "#compiler/types/query/query.ts"
 import type {
@@ -255,23 +261,26 @@ type Undeclared<Members, R> = R extends unknown
 	: never
 
 /**
- * Every relation a statement names is one of the schema's, at some level (the runtime refusal of schemaArtifacts,
- * "names B, which no level of the schema declares", as a type error).
+ * Every statement is typed (MembersTyped), and every relation it names is one of the schema's, at some level (the
+ * runtime refusal of schemaArtifacts, "names B, which no level of the schema declares", as a type error). A statement
+ * typed `any` names whatever its reader asks, so it is refused before the relations it names are read.
  */
-export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relations> = [
-	Undeclared<Relations[keyof Relations], NamedBy<Statements[number]>>
-] extends [never]
-	? unknown
-	: Refusal<"a statement names a relation no level of the schema declares">
+export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relations> = 0 extends 1 &
+	Statements[number]
+	? Refusal<"a member typed any, which every check admits: type each member of the list or record">
+	: [Undeclared<Relations[keyof Relations], NamedBy<Statements[number]>>] extends [never]
+		? unknown
+		: Refusal<"a statement names a relation no level of the schema declares">
 
 /**
  * Each relation of a level's record sits under its own name, as a role's whole entries do (EntriesCheck), the type
  * of the run time's refusal "a relation under its own name". The record's values are then the level's relations, one
  * per name, so "R is the level's relation of R's name" is "R is one of the record's values": one identity test
  * against the union of the values, which the checker builds once per record, and no index by name is derived. A
- * relation whose name the type does not know passes here; the run time checks it.
+ * relation whose name the type does not know passes here; the run time checks it. A relation typed `any` states no
+ * name and passes every reader of the record, so it is refused (MembersTyped).
  */
-export type UnderOwnNames<Relations> = {
+export type UnderOwnNames<Relations> = MembersTyped<Relations> & {
 	readonly [K in keyof Relations]: [K] extends [NameOf<Relations[K]>]
 		? unknown
 		: Refusal<"a schema holds each relation under its own name">
