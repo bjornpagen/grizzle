@@ -16,7 +16,15 @@ import {
 	type WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import type { Cte, EmittedSql, Expr, FromSource, Select, SetArm } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	EmittedSql,
+	Expr,
+	FromItem,
+	FromSource,
+	Select,
+	SetArm
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	arrays,
@@ -24,11 +32,13 @@ import {
 	call,
 	cast,
 	col,
+	core,
 	countStar,
 	cte,
-	cteRefAs,
+	cteRef,
 	eq,
 	lit,
+	operandSelect,
 	provedCore,
 	select,
 	table,
@@ -108,6 +118,20 @@ export const written = (w: WriteContext, value: Expr, type: ScalarType): Expr =>
 export const rowNumber = (partition: ReadonlyArray<Expr>, order: ReadonlyArray<Expr>): Expr => ({
 	...call("row_number", []),
 	over: windowOf(partition, order.map(asc))
+})
+
+/**
+ * The scalar subquery of one aggregate `value` over one group: grouped by `group`, columns its WHERE holds at the group's
+ * key, so an empty group yields no row rather than one row of NULL, and the subquery reads NULL there either way.
+ */
+export const groupAggregate = (
+	value: Expr,
+	from: ReadonlyArray<FromItem>,
+	where: Expr,
+	group: NonEmptyReadonlyArray<Expr>
+): Expr => ({
+	kind: "subquery",
+	query: operandSelect({ ...core([target(value)], from, where), groupBy: group })
 })
 
 /** `count(*) OVER (PARTITION BY ...)`. */
@@ -319,7 +343,7 @@ export const taggedRows = (
 		0
 	)
 	const arms = mapNonEmpty(returnings, (r, tag): SetArm => {
-		const rows = returnedRows("keyed", r.columns, [cteRefAs(r.cte, r.cte)], undefined)
+		const rows = returnedRows("keyed", r.columns, [cteRef(r.cte)], undefined)
 		const partName = supply.relation(internal("family write part"))
 		const partColumns = r.columns.map(() => supply.column(internal("family write part column")))
 		ctes.push(cte(partName, partColumns, rows))
@@ -332,7 +356,7 @@ export const taggedRows = (
 					target(lit.text("", types.text))
 				)
 			],
-			[cteRefAs(partName, partName)],
+			[cteRef(partName)],
 			undefined
 		)
 	})

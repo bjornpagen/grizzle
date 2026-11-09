@@ -43,7 +43,7 @@ import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Assignment, Cte, Expr, OperandSelect, SetArm } from "#compiler/sql/ast.ts"
+import type { Assignment, Cte, Expr, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -52,6 +52,7 @@ import {
 	col,
 	countStar,
 	cte,
+	cteRef,
 	cteRefAs,
 	distinctCore,
 	eq,
@@ -86,6 +87,7 @@ import {
 	columnAt,
 	deletedResult,
 	type FamilyWriteSql,
+	groupAggregate,
 	insertedResult,
 	installed,
 	internal,
@@ -569,36 +571,43 @@ const redraw = (
 		columns: new Map<ColumnKey, string>()
 	}
 	const t0 = supply.relation(internal("touched row"))
-	const t1 = supply.relation(internal("touched in group"))
 	const o0 = supply.relation(internal("touched owner"))
 	const tGroup = touched.group.map((c) => col(t0, c))
-	const inGroup = sameGroupExprs(tGroup, t1, touched.group)
-	const removals = (where: Expr | undefined): OperandSelect =>
-		simpleSelect(
-			[target(countStar())],
-			[cteRefAs(touched.name, t1)],
-			and([inGroup, col(t1, touched.removed), ...(where === undefined ? [] : [where])])
-		)
+	/** The touched rows of the row's group, read as `t1`. */
+	const inGroup = (t1: string): Expr => sameGroupExprs(tGroup, t1, touched.group)
 	const storedCount = col(o0, w.names.column(owner.name, family.count.name))
-	const keptCount = binary("-", storedCount, { kind: "subquery", query: removals(undefined) })
-	const leastOf = (where: Expr): Expr => ({
-		kind: "subquery",
-		query: simpleSelect(
-			[target(call("min", [col(t1, touched.slot)]))],
+	/** The group's kept count, its stored count less its removals, built apart wherever it is read. */
+	const keptCount = (): Expr => {
+		const t1 = supply.relation(internal("touched removed"))
+		return binary("-", storedCount, {
+			kind: "subquery",
+			query: simpleSelect(
+				[target(countStar())],
+				[cteRefAs(touched.name, t1)],
+				and([inGroup(t1), col(t1, touched.removed)])
+			)
+		})
+	}
+	/** The group's least touched slot among the rows `where` reads as `t1`. */
+	const leastOf = (where: (t1: string) => Expr): Expr => {
+		const t1 = supply.relation(internal("touched in group"))
+		return groupAggregate(
+			call("min", [col(t1, touched.slot)]),
 			[cteRefAs(touched.name, t1)],
-			and([inGroup, where])
+			and([inGroup(t1), where(t1)]),
+			mapNonEmpty(touched.group, (c) => col(t1, c))
 		)
-	})
+	}
 	const counted = !isSequence(family)
 	const first: Expr = counted
 		? {
 				kind: "least",
 				args: [
-					leastOf(and([col(t1, touched.removed), lt(col(t1, touched.slot), keptCount)])),
-					leastOf(not(col(t1, touched.removed)))
+					leastOf((t1) => and([col(t1, touched.removed), lt(col(t1, touched.slot), keptCount())])),
+					leastOf((t1) => not(col(t1, touched.removed)))
 				]
 			}
-		: leastOf(lit.bool(true))
+		: leastOf(() => lit.bool(true))
 	const deferredHere = deferralOf(w, supply, member, family, deferred, tGroup)
 	const recounted: Expr =
 		!owner.mutable || isTree(family)
@@ -615,7 +624,7 @@ const redraw = (
 					[
 						...mapNonEmpty(groups.group, (c, i) => targetAs(defined(tGroup[i], "a group key"), c)),
 						targetAs(cast(storedCount, bigint), groups.stored),
-						targetAs(cast(keptCount, bigint), groups.kept),
+						targetAs(cast(keptCount(), bigint), groups.kept),
 						targetAs(cast(first, bigint), groups.first),
 						targetAs(recounted, groups.recounted)
 					],
@@ -670,24 +679,27 @@ const redraw = (
 				).column
 			)
 		)
-		const u = supply.relation(internal("put overlay"))
-		const uAt = and(
-			mapNonEmpty(member.relation.primaryFields, (f) =>
-				eq(col(u, columnAt(read.updated, fieldKey(f.name))), col(m, w.names.column(name, f.name)))
+		/** The put's update of the member, read as `u`. */
+		const uAt = (u: string): Expr =>
+			and(
+				mapNonEmpty(member.relation.primaryFields, (f) =>
+					eq(col(u, columnAt(read.updated, fieldKey(f.name))), col(m, w.names.column(name, f.name)))
+				)
 			)
-		)
+		const u = supply.relation(internal("put overlay"))
+		const uv = supply.relation(internal("put overlay value"))
 		return {
 			kind: "case",
 			operand: undefined,
 			whens: [
 				{
-					when: exists(simpleSelect([target(one)], [cteRefAs(read.updated.name, u)], uAt)),
+					when: exists(simpleSelect([target(one)], [cteRefAs(read.updated.name, u)], uAt(u))),
 					result: {
 						kind: "subquery",
 						query: simpleSelect(
-							[target(col(u, columnAt(read.updated, k)))],
-							[cteRefAs(read.updated.name, u)],
-							uAt
+							[target(col(uv, columnAt(read.updated, k)))],
+							[cteRefAs(read.updated.name, uv)],
+							uAt(uv)
 						)
 					}
 				}
@@ -1097,7 +1109,7 @@ const barrierOf = (
 	const column = supply.column(internal("deletions"))
 	const [first, ...rest] = deletions.map((d): Expr => ({
 		kind: "subquery",
-		query: simpleSelect([target(countStar())], [cteRefAs(d, d)], undefined)
+		query: simpleSelect([target(countStar())], [cteRef(d)], undefined)
 	}))
 	if (first === undefined) {
 		throw defect("a removals statement deletes")
@@ -1178,22 +1190,25 @@ const writesOf = (
 		if (drawer === undefined) {
 			return ownValue
 		}
+		/** The drawer's scan row of the written row, read as `s`. */
+		const at = (s: string): Expr =>
+			and(
+				mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
+			)
 		const s = supply.relation(internal("final drawn"))
-		const at = and(
-			mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
-		)
+		const sv = supply.relation(internal("final drawn value"))
 		return {
 			kind: "case",
 			operand: undefined,
 			whens: [
 				{
-					when: exists(simpleSelect([target(one)], [cteRefAs(drawer.scan.name, s)], at)),
+					when: exists(simpleSelect([target(one)], [cteRefAs(drawer.scan.name, s)], at(s))),
 					result: {
 						kind: "subquery",
 						query: simpleSelect(
-							[target(col(s, columnAt(drawer.scan, key)))],
-							[cteRefAs(drawer.scan.name, s)],
-							at
+							[target(col(sv, columnAt(drawer.scan, key)))],
+							[cteRefAs(drawer.scan.name, sv)],
+							at(sv)
 						)
 					}
 				}
@@ -1364,29 +1379,35 @@ const recountOf = (
 				ends.map((p) => [columnKey(p.from), supply.column(internal("recount end"))] as const)
 			)
 		}
-		const g = supply.relation(internal("recount group row"))
 		const groupTargets = (alias: string) =>
 			mapNonEmpty(last.group, (c, i) =>
 				targetAs(col(alias, defined(r.groups.group[i], "a group column")), c)
 			)
-		const here = col(g, r.groups.recounted)
-		const s = supply.relation(internal("recount scanned"))
-		const m = supply.relation(internal("recount stored last"))
-		const memberInGroup = and(
-			mapNonEmpty(family.group, (gr, i) =>
-				eq(
-					col(m, w.names.column(memberName, gr.member.name)),
-					col(g, defined(r.groups.group[i], "a group column"))
+		/** Whether the group read as `g` is recounted here. */
+		const here = (g: string): Expr => col(g, r.groups.recounted)
+		/** Whether the stored member read as `m` is in the group read as `g`. */
+		const memberInGroup = (m: string, g: string): Expr =>
+			and(
+				mapNonEmpty(family.group, (gr, i) =>
+					eq(
+						col(m, w.names.column(memberName, gr.member.name)),
+						col(g, defined(r.groups.group[i], "a group column"))
+					)
 				)
 			)
-		)
 		const indexColumn = installed(w, memberName, family.index)
+		/** Each arm reads the groups under an alias of its own. */
+		const g1 = supply.relation(internal("recount group row"))
+		const s = supply.relation(internal("recount scanned"))
+		const g2 = supply.relation(internal("recount stored group"))
+		const m = supply.relation(internal("recount stored last"))
+		const g3 = supply.relation(internal("recount empty group"))
 		const arms: NonEmptyReadonlyArray<SetArm> = [
 			provedCore(
 				"keyed",
 				[
-					...groupTargets(g),
-					targetAs(col(g, r.groups.kept), last.count),
+					...groupTargets(g1),
+					targetAs(col(g1, r.groups.kept), last.count),
 					...ends.map((p) =>
 						targetAs(
 							scannedValue(w, family.member, s, r.scan, p.to),
@@ -1396,52 +1417,55 @@ const recountOf = (
 				],
 				[
 					join(
-						cteRefAs(r.groups.name, g),
+						cteRefAs(r.groups.name, g1),
 						cteRefAs(r.scan.name, s),
 						and([
 							sameGroupExprs(
 								r.scan.group.map((c) => col(s, c)),
-								g,
+								g1,
 								r.groups.group
 							),
-							eq(col(s, r.scan.slot), binary("-", col(g, r.groups.kept), lit.int(1, bigint)))
+							eq(col(s, r.scan.slot), binary("-", col(g1, r.groups.kept), lit.int(1, bigint)))
 						])
 					)
 				],
-				here
+				here(g1)
 			),
 			provedCore(
 				"keyed",
 				[
-					...groupTargets(g),
-					targetAs(col(g, r.groups.kept), last.count),
+					...groupTargets(g2),
+					targetAs(col(g2, r.groups.kept), last.count),
 					...ends.map((p) =>
 						targetAs(col(m, installed(w, memberName, p.to)), columnAt(last, columnKey(p.from)))
 					)
 				],
 				[
 					join(
-						cteRefAs(r.groups.name, g),
+						cteRefAs(r.groups.name, g2),
 						tableAs(w, memberName, m),
 						and([
-							memberInGroup,
-							eq(col(m, indexColumn), binary("-", col(g, r.groups.kept), lit.int(1, bigint)))
+							memberInGroup(m, g2),
+							eq(col(m, indexColumn), binary("-", col(g2, r.groups.kept), lit.int(1, bigint)))
 						])
 					)
 				],
 				and([
-					here,
+					here(g2),
 					not({
 						kind: "isTrue",
-						expr: ge(binary("-", col(g, r.groups.kept), lit.int(1, bigint)), col(g, r.groups.first))
+						expr: ge(
+							binary("-", col(g2, r.groups.kept), lit.int(1, bigint)),
+							col(g2, r.groups.first)
+						)
 					})
 				])
 			),
 			provedCore(
 				"keyed",
 				[
-					...groupTargets(g),
-					targetAs(col(g, r.groups.kept), last.count),
+					...groupTargets(g3),
+					targetAs(col(g3, r.groups.kept), last.count),
 					...ends.map((p) => {
 						const base = defined(
 							baseLiteral(family, p.from),
@@ -1456,8 +1480,8 @@ const recountOf = (
 						return targetAs(lowerLiteral(w.names, base, type), columnAt(last, columnKey(p.from)))
 					})
 				],
-				[cteRefAs(r.groups.name, g)],
-				and([here, eq(col(g, r.groups.kept), lit.int(0, bigint))])
+				[cteRefAs(r.groups.name, g3)],
+				and([here(g3), eq(col(g3, r.groups.kept), lit.int(0, bigint))])
 			)
 		]
 		ctes.push(
@@ -1470,34 +1494,46 @@ const recountOf = (
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))
-	const l = supply.relation(internal("recount source"))
 	const ownerKey = (family: Family): ReadonlyArray<Expr> =>
 		family.group.map((gr) => col(o, w.names.column(name, gr.owner.name)))
-	const at = (family: Family, last: PerGroup) => sameGroupExprs(ownerKey(family), l, last.group)
-	const hasGroup = (family: Family, last: PerGroup): Expr =>
-		exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last)))
-	const recounted = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => ({
-		kind: "case",
-		operand: undefined,
-		whens: [
-			{
-				when: hasGroup(family, last),
-				result: {
-					kind: "subquery",
-					query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last))
+	/** The recount source's row of the owner row's group, read as `l`. */
+	const at = (family: Family, last: PerGroup, l: string) =>
+		sameGroupExprs(ownerKey(family), l, last.group)
+	const hasGroup = (family: Family, last: PerGroup): Expr => {
+		const l = supply.relation(internal("recount source"))
+		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
+	}
+	const recounted = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
+		const l = supply.relation(internal("recount value"))
+		return {
+			kind: "case",
+			operand: undefined,
+			whens: [
+				{
+					when: hasGroup(family, last),
+					result: {
+						kind: "subquery",
+						query: simpleSelect(
+							[target(col(l, column))],
+							[cteRefAs(last.name, l)],
+							at(family, last, l)
+						)
+					}
 				}
-			}
-		],
-		else: stored
-	})
+			],
+			else: stored
+		}
+	}
 	const sets: Array<Assignment> = []
 	const changed: Array<Expr> = []
 	for (const { family, last } of lasts) {
 		const assign = (field: LawField, column: string): void => {
 			const installedColumn = w.names.column(name, field.name)
-			const value = written(w, recounted(family, last, column, col(o, installedColumn)), field.type)
-			sets.push({ column: installedColumn, value })
-			changed.push(not(typedEq(field.type, col(o, installedColumn), value, w.names.vectorSchema)))
+			/** The column's recounted value, built apart for the SET and for the WHERE that tests it changed. */
+			const value = (): Expr =>
+				written(w, recounted(family, last, column, col(o, installedColumn)), field.type)
+			sets.push({ column: installedColumn, value: value() })
+			changed.push(not(typedEq(field.type, col(o, installedColumn), value(), w.names.vectorSchema)))
 		}
 		assign(family.count, last.count)
 		for (const [key, column] of last.columns) {

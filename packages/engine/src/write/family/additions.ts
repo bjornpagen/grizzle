@@ -82,6 +82,7 @@ import {
 	columnAt,
 	countOver,
 	type FamilyWriteSql,
+	groupAggregate,
 	insertedResult,
 	installed,
 	internal,
@@ -588,14 +589,12 @@ const appendScan = (
 									kind: "greatest",
 									args: [
 										lit.int(0, bigint),
-										{
-											kind: "subquery",
-											query: simpleSelect(
-												[target(binary("+", call("max", [col(m0, index)]), lit.int(1, bigint)))],
-												[tableAs(w, name, m0)],
-												storedGroup(m0, g0Keys)
-											)
-										}
+										groupAggregate(
+											binary("+", call("max", [col(m0, index)]), lit.int(1, bigint)),
+											[tableAs(w, name, m0)],
+											storedGroup(m0, g0Keys),
+											mapNonEmpty(family.group, (g) => col(m0, w.names.column(name, g.member.name)))
+										)
 									]
 								},
 								bigint
@@ -684,12 +683,13 @@ const appendScan = (
 	const aKey = member.relation.primaryFields.map((f) =>
 		col(a, columnAt(appended, fieldKey(f.name)))
 	)
-	const o = supply.relation(internal("row owner"))
-	const ownerAt = and(
-		mapNonEmpty(family.group, (g, i) =>
-			eq(col(o, w.names.column(owner.name, g.owner.name)), defined(aGroup[i], "a group key"))
+	/** The stored owner of an appended row's group, read as `o`. */
+	const ownerAt = (o: string): Expr =>
+		and(
+			mapNonEmpty(family.group, (g, i) =>
+				eq(col(o, w.names.column(owner.name, g.owner.name)), defined(aGroup[i], "a group key"))
+			)
 		)
-	)
 	const ownerValue = (read: {
 		readonly to: NativeColumn
 		readonly from: NativeColumn
@@ -699,37 +699,44 @@ const appendScan = (
 			baseLiteral(family, read.from),
 			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
 		)
+		const o = supply.relation(internal("row owner"))
+		const ov = supply.relation(internal("row owner value"))
 		const stored = {
-			when: exists(simpleSelect([target(one)], [tableAs(w, owner.name, o)], ownerAt)),
+			when: exists(simpleSelect([target(one)], [tableAs(w, owner.name, o)], ownerAt(o))),
 			result: {
 				kind: "subquery" as const,
 				query: simpleSelect(
-					[target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
-					[tableAs(w, owner.name, o)],
-					ownerAt
+					[target(cast(col(ov, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
+					[tableAs(w, owner.name, ov)],
+					ownerAt(ov)
 				)
 			}
 		}
 		/** The owner among the rows this statement's nested writes insert, which no scan finds stored. */
 		const inserted = (owners: Shaped) => {
 			const n = supply.relation(internal("nested owner"))
-			const at = and(
-				mapNonEmpty(family.group, (g, i) =>
-					eq(col(n, columnAt(owners, fieldKey(g.owner.name))), defined(aGroup[i], "a group key"))
+			const nv = supply.relation(internal("nested owner value"))
+			const at = (alias: string): Expr =>
+				and(
+					mapNonEmpty(family.group, (g, i) =>
+						eq(
+							col(alias, columnAt(owners, fieldKey(g.owner.name))),
+							defined(aGroup[i], "a group key")
+						)
+					)
 				)
-			)
 			return {
-				when: exists(simpleSelect([target(one)], [cteRefAs(owners.name, n)], at)),
+				when: exists(simpleSelect([target(one)], [cteRefAs(owners.name, n)], at(n))),
 				result: {
 					kind: "subquery" as const,
 					query: simpleSelect(
 						[
 							target(
-								cast(col(n, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type))
+								cast(col(nv, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type))
 							)
 						],
-						[cteRefAs(owners.name, n)],
-						at
+						[cteRefAs(owners.name, nv)],
+						at(nv)
 					)
 				}
 			}
@@ -849,38 +856,46 @@ const insertOf = (
 	 * and its last member's column, where the scan appends to the row's group, else the row's own. */
 	const recounted = new Map<ColumnKey, Expr>()
 	for (const { family, scan } of owned) {
-		const s = supply.relation(internal("owned scan"))
-		const at = and([
-			...mapNonEmpty(family.group, (g, i) =>
-				eq(
-					col(s, defined(scan.group[i], "a scan group column")),
-					col(a, columnAt(d.appended, fieldKey(g.owner.name)))
-				)
-			),
-			eq(col(s, scan.slot), binary("-", col(s, scan.count), lit.int(1, types.bigint)))
-		])
-		const fromLast = (key: ColumnKey, value: Expr): Expr => ({
-			kind: "case",
-			operand: undefined,
-			whens: [
-				{
-					when: exists(simpleSelect([target(one)], [cteRefAs(scan.name, s)], at)),
-					result: {
-						kind: "subquery",
-						query: simpleSelect([target(value)], [cteRefAs(scan.name, s)], at)
+		/** The scan's last appended member of the row's group, read as `s`. */
+		const at = (s: string): Expr =>
+			and([
+				...mapNonEmpty(family.group, (g, i) =>
+					eq(
+						col(s, defined(scan.group[i], "a scan group column")),
+						col(a, columnAt(d.appended, fieldKey(g.owner.name)))
+					)
+				),
+				eq(col(s, scan.slot), binary("-", col(s, scan.count), lit.int(1, types.bigint)))
+			])
+		const fromLast = (key: ColumnKey, value: (s: string) => Expr): Expr => {
+			const s = supply.relation(internal("owned scan"))
+			const sv = supply.relation(internal("owned scan value"))
+			return {
+				kind: "case",
+				operand: undefined,
+				whens: [
+					{
+						when: exists(simpleSelect([target(one)], [cteRefAs(scan.name, s)], at(s))),
+						result: {
+							kind: "subquery",
+							query: simpleSelect([target(value(sv))], [cteRefAs(scan.name, sv)], at(sv))
+						}
 					}
-				}
-			],
-			else: col(a, columnAt(d.appended, key))
-		})
+				],
+				else: col(a, columnAt(d.appended, key))
+			}
+		}
 		recounted.set(
 			fieldKey(family.count.name),
-			fromLast(fieldKey(family.count.name), col(s, scan.count))
+			fromLast(fieldKey(family.count.name), (s) => col(s, scan.count))
 		)
 		for (const p of family.axes.last) {
 			if (p.from.kind === "field" && p.from.field.writing.kind === "accumulated") {
 				const key = columnKey(p.from)
-				recounted.set(key, fromLast(key, scannedValue(w, family.member, s, scan, p.to)))
+				recounted.set(
+					key,
+					fromLast(key, (s) => scannedValue(w, family.member, s, scan, p.to))
+				)
 			}
 		}
 	}
@@ -1030,14 +1045,12 @@ const recountOf = (
 					)
 				)
 			const m2 = supply.relation(internal("put owner's last"))
-			const lastIndex: Expr = {
-				kind: "subquery",
-				query: simpleSelect(
-					[target(call("max", [col(m2, index)]))],
-					[tableAs(w, memberName, m2)],
-					inGroup(m2)
-				)
-			}
+			const lastIndex = groupAggregate(
+				call("max", [col(m2, index)]),
+				[tableAs(w, memberName, m2)],
+				inGroup(m2),
+				mapNonEmpty(family.group, (g) => col(m2, w.names.column(memberName, g.member.name)))
+			)
 			arms.push(
 				provedCore(
 					"keyed",
@@ -1107,37 +1120,49 @@ const recountOf = (
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))
-	const l = supply.relation(internal("recount source"))
 	const ownerKey = (family: Family): ReadonlyArray<Expr> =>
 		family.group.map((g) => col(o, w.names.column(name, g.owner.name)))
-	const at = (family: Family, last: PerGroup) => sameGroupExprs(ownerKey(family), l, last.group)
-	const hasGroup = (family: Family, last: PerGroup): Expr =>
-		exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last)))
+	/** The recount source's row of the owner row's group, read as `l`. */
+	const at = (family: Family, last: PerGroup, l: string) =>
+		sameGroupExprs(ownerKey(family), l, last.group)
+	const hasGroup = (family: Family, last: PerGroup): Expr => {
+		const l = supply.relation(internal("recount source"))
+		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
+	}
 	/** A family's recounted value of an owner column, its stored one where it recounts no group of the row. */
-	const valueAt = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => ({
-		kind: "case",
-		operand: undefined,
-		whens: [
-			{
-				when: hasGroup(family, last),
-				result: {
-					kind: "subquery",
-					query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last))
+	const valueAt = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
+		const l = supply.relation(internal("recount value"))
+		return {
+			kind: "case",
+			operand: undefined,
+			whens: [
+				{
+					when: hasGroup(family, last),
+					result: {
+						kind: "subquery",
+						query: simpleSelect(
+							[target(col(l, column))],
+							[cteRefAs(last.name, l)],
+							at(family, last, l)
+						)
+					}
 				}
-			}
-		],
-		else: stored
-	})
+			],
+			else: stored
+		}
+	}
 	const sets: Array<Assignment> = []
 	const changed: Array<Expr> = []
 	for (const { family, last } of lasts) {
 		const assign = (field: LawField, column: string): void => {
 			const installedColumn = w.names.column(name, field.name)
-			const value = written(w, valueAt(family, last, column, col(o, installedColumn)), field.type)
-			sets.push({ column: installedColumn, value })
+			/** The column's recounted value, built apart for the SET and for the WHERE that tests it changed. */
+			const value = (): Expr =>
+				written(w, valueAt(family, last, column, col(o, installedColumn)), field.type)
+			sets.push({ column: installedColumn, value: value() })
 			changed.push({
 				kind: "not",
-				expr: typedEq(field.type, col(o, installedColumn), value, w.names.vectorSchema)
+				expr: typedEq(field.type, col(o, installedColumn), value(), w.names.vectorSchema)
 			})
 		}
 		assign(family.count, last.count)
