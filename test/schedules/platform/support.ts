@@ -19,7 +19,8 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import {
 	type ApplyError,
 	type OpenError,
@@ -553,7 +554,7 @@ interface Connected {
 
 /**
  * A Db of `app` opened through its own DbLayer of the login `server`, as an application opens it, and its actor: the
- * one session of the login that is none of `beside`.
+ * one session its Db's pool leases, none of `beside` (grizzleActor).
  */
 const openApp = (
 	i: RaceInstall,
@@ -567,8 +568,10 @@ const openApp = (
 	Effect.gen(function* () {
 		const server = i.rig.worlds.server
 		const context = yield* Layer.build(loginLayer(i.rig.installed, server))
-		const db = yield* Db.open(server.roles.app, {}).pipe(Effect.provideContext(context))
-		return { db, actor: yield* grizzleActor(name, i.rig.installed.as(server).role, beside) }
+		const { db, ctx } = yield* openDbContext(server.roles.app, {}).pipe(
+			Effect.provideContext(context)
+		)
+		return { db, actor: yield* grizzleActor(name, ctx.pool, beside) }
 	})
 
 const connect = (

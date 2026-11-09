@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Formatter, Predicate, Record, type Scope } from "effect"
+import type { SessionPool } from "#adapter/wire/session.ts"
 import { defined } from "#test/support/assert.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
@@ -41,7 +42,10 @@ export interface DirectActor {
 export interface GrizzleActor {
 	readonly name: string
 	readonly role: string
-	/** The one session its Db's pool holds (a pool floor of one), resolved once at construction. */
+	/**
+	 * The one session its Db's pool holds, resolved once at construction: the pool's first lease connects it and takes it
+	 * back idle, and each of the Db's calls, one at a time, leases it again.
+	 */
 	readonly pid: number
 }
 
@@ -244,16 +248,20 @@ const openActor = (
 			)
 
 /**
- * The one client backend of `role` in this database whose pid is none of `beside`, after its Db opened; a die when
- * there is not exactly one. The only copy of the pg_stat_activity backend query in the tests.
+ * The actor of the Db whose pool is `pool`: its pool leases a session, which connects one, and takes it back idle,
+ * since Db.open contacts nothing, and the actor is the one client backend of the pool's login in this database whose
+ * pid is none of `beside`; a die when there is not exactly one. The only copy of the pg_stat_activity backend query in
+ * the tests.
  */
 export const grizzleActor = (
 	name: string,
-	role: string,
+	pool: SessionPool,
 	beside: ReadonlyArray<number>
 ): Effect.Effect<GrizzleActor, never, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
+		const role = pool.role
+		yield* Effect.orDie(Effect.scoped(pool.lease))
 		const excluded =
 			beside.length === 0 ? "" : ` AND a.pid NOT IN (${Arr.join(Arr.map(beside, String), ", ")})`
 		const rows = yield* Effect.orDie(

@@ -6,8 +6,8 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -332,19 +332,18 @@ const open: Effect.Effect<
 		declared.psql
 	])
 	const f = build(opened.installed.declared)
-	const server = opened.installed.as(f.server).role
 	const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresherDb = yield* Db.open(f.server.roles.refresher, {}).pipe(
+	const refresherDb = yield* openDbContext(f.server.roles.refresher, {}).pipe(
 		Effect.provideContext(refresherContext)
 	)
-	const first = yield* grizzleActor("refresher", server, [])
+	const first = yield* grizzleActor("refresher", refresherDb.ctx.pool, [])
 	const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
-	const refresher2Db = yield* Db.open(f.server.roles.refresher2, {}).pipe(
+	const refresher2Db = yield* openDbContext(f.server.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
 	const refreshers = {
 		refresher: first,
-		refresher2: yield* grizzleActor("refresher2", server, [first.pid])
+		refresher2: yield* grizzleActor("refresher2", refresher2Db.ctx.pool, [first.pid])
 	}
 	const values = {
 		StudentWeekly: f.StudentWeekly,
@@ -359,7 +358,7 @@ const open: Effect.Effect<
 		refreshers,
 		refresh: (refresher, call) => {
 			const named = Arr.map(call, (r) => values[r])
-			const db = refresher === "refresher" ? refresherDb : refresher2Db
+			const db = refresher === "refresher" ? refresherDb.db : refresher2Db.db
 			return db.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
 		}
 	}

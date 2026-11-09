@@ -27,8 +27,9 @@ import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { PayrollInstalled } from "#test/pg/e2e-laws/payroll.ts"
@@ -182,12 +183,14 @@ const runRace = (
 		const s: PayrollInstalled = f.rebuilt(P.Payroll)
 		const worlds = P.reportingWorlds(s)
 		const serverContext = yield* Layer.build(f.layer(worlds.server))
-		const hr = yield* Db.open(worlds.server.roles.hr, {}).pipe(Effect.provideContext(serverContext))
+		const { db: hr, ctx } = yield* openDbContext(worlds.server.roles.hr, {}).pipe(
+			Effect.provideContext(serverContext)
+		)
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
 		const psqlPid = yield* Effect.orDie(direct.h.pid)
-		const g = yield* grizzleActor("g", f.installed.as(worlds.server).role, [psqlPid])
+		const g = yield* grizzleActor("g", ctx.pool, [psqlPid])
 		const env = yield* exploreEnv(substrate)
 		const names = namesOf(f.installed)
 		const leave = names.table(P.Leave)

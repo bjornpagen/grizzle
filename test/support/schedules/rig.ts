@@ -126,7 +126,7 @@ export const openRig = <W extends RigWorlds>(
 					const login: W["server"] = worlds.server
 					const context = yield* Layer.build(loginLayer(installed, login))
 					const { db, ctx } = yield* open(context)
-					const actor = yield* grizzleActor(actorName, installed.as(login).role, opened)
+					const actor = yield* grizzleActor(actorName, ctx.pool, opened)
 					opened.push(actor.pid)
 					return { db, ctx, actor }
 				})

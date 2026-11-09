@@ -32,6 +32,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { SessionPool } from "#adapter/wire/session.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
@@ -193,10 +194,9 @@ const runRace = (
 		const queue = f.rebuilt(Q.Queue)
 		const worlds = Q.queueWorlds(queue)
 		const env = yield* exploreEnv(s)
-		const login = f.installed.as(worlds.server).role
 		const names = namesOf(f.installed)
-		const worker = (name: string, beside: ReadonlyArray<number>) =>
-			Effect.provideService(grizzleActor(name, login, beside), Substrate, s)
+		const worker = (name: string, pool: SessionPool, beside: ReadonlyArray<number>) =>
+			Effect.provideService(grizzleActor(name, pool, beside), Substrate, s)
 		const work = names.table(Q.QueueWork)
 		const leased = names.table(Q.Leased)
 		const workColumn = (field: "key" | "standing" | "epoch") => names.column(Q.QueueWork, field)
@@ -236,12 +236,12 @@ const runRace = (
 			],
 			" UNION ALL "
 		)
-		yield* f.withDb(worlds.server.roles.worker, (one) =>
+		yield* f.withDb(worlds.server.roles.worker, (one, oneCtx) =>
 			Effect.gen(function* () {
-				const g = yield* worker("g", [])
-				yield* f.withDb(worlds.server.roles.worker, (two) =>
+				const g = yield* worker("g", oneCtx.pool, [])
+				yield* f.withDb(worlds.server.roles.worker, (two, twoCtx) =>
 					Effect.gen(function* () {
-						const h = yield* worker("h", [g.pid])
+						const h = yield* worker("h", twoCtx.pool, [g.pid])
 						const direct = yield* openActors(s, {
 							e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 							w: { kind: "psql", as: f.installed.world(worlds.worker) }
