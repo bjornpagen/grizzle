@@ -47,7 +47,7 @@ import {
 } from "#compiler/scalar/registry.ts"
 import { RosterSet } from "#compiler/scalar/values/bits.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
-import { literalFor } from "#compiler/schema/literal.ts"
+import { literalFor, literalResult } from "#compiler/schema/literal.ts"
 import {
 	builderLoc,
 	describedField,
@@ -657,7 +657,7 @@ export const closed = <
  * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
  * row written twice is one row, its first, and two rows of one key but other payloads break the key law, refused naming
  * the key and both payloads. `kept` is the index of each row of the set among those written, in their order. Rows are
- * keyed by their key fields' handles (closed ids, which literalFor reads as their handles), and a pair's payloads are
+ * keyed by their key fields' handles (closed ids, which literalResult reads as their handles), and a pair's payloads are
  * compared only where their keys meet, so the set costs a text per row.
  */
 const closedRows = (
@@ -705,12 +705,14 @@ const closedRows = (
 		}
 		const literals: Record<string, LiteralDesc> = {}
 		for (const { field, desc, handles } of typed) {
-			const at = `${label} row ${i} field ${field}`
-			const literal = literalFor(desc, row[field], at, undefined)
-			if (handles !== undefined && !handles.has(literal)) {
-				throw malformed(at, describeFault("codeHandle"))
+			const literal = literalResult(desc, row[field], undefined)
+			if (!literal.ok || (handles !== undefined && !handles.has(literal.value))) {
+				throw malformed(
+					`${label} row ${i} field ${field}`,
+					describeFault(literal.ok ? "codeHandle" : literal.error)
+				)
 			}
-			literals[field] = literal
+			literals[field] = literal.value
 		}
 		const handles = keyFields.map((f) => literals[f])
 		const keyText = handles.every((h): h is string => typeof h === "string")
