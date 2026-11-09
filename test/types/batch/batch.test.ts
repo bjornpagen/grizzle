@@ -27,17 +27,24 @@ import {
 	Order,
 	Path,
 	Record as Rec,
+	Result,
 	String as Str
 } from "effect"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
-import { buildBatchAt, type UnitSpec, whenWritten } from "#test/types/batch/batch.ts"
+import {
+	batchLayout,
+	buildBatchAt,
+	readUnit,
+	type UnitSpec,
+	whenWritten
+} from "#test/types/batch/batch.ts"
 import { guardedRun } from "#test/types/batch/compiler.ts"
 import { diagnosticKey } from "#test/types/batch/directives.ts"
 import { startBatch } from "#test/types/batch/global-setup.ts"
-import { type TypeRun, typeRun } from "#test/types/batch/provided.ts"
+import { type BatchAt, type TypeRun, typeRun } from "#test/types/batch/provided.ts"
 
 /** The test file that reads these batches, which the runner's batch never holds. */
 const owner = "test/types/batch/batch.test.ts"
@@ -367,12 +374,14 @@ const plantedCheck: Gen<PlantedCheck> = (source) => ({
 })
 
 /**
- * What a planted builder does once it has read its request to the end: prints a batch of `units`, one output line each,
- * whose unattributed lines are the request it read, whether it ran in a process of its own, and `padding` copies of
- * `character`; or prints a partial line on stdout and `stderr`, then exits with `status`.
+ * What a planted builder does once it has read its request to the end: writes a batch of `units` into the request's
+ * directory, one output line each, whose unattributed lines are the request it read and whether it ran in a process of
+ * its own; writes such a batch but withholds the file of the unit at `withheld`, which its index still names; or prints
+ * a partial line on stdout and `stderr`, then exits with `status`.
  */
 type PlantedBuilder =
-	| Readonly<{ kind: "prints"; units: ReadonlyArray<number>; character: string; padding: number }>
+	| Readonly<{ kind: "writes"; units: ReadonlyArray<number> }>
+	| Readonly<{ kind: "withholds"; units: ReadonlyArray<number>; withheld: number }>
 	| Readonly<{ kind: "fails"; stderr: string; status: number }>
 
 /** A test module's tier: a type test, which the batch is for, or a unit test, which it ignores. */
@@ -393,17 +402,15 @@ type PlantedRun =
 			builder: PlantedBuilder
 	  }>
 
-/** The most a pipe holds unread, 64 KiB on macOS and Linux: a longer output reaches its reader in several reads. */
-const PIPE_BUFFER_BYTES = 65_536
+const writing: Gen<PlantedBuilder> = (source) => ({
+	kind: "writes",
+	units: source.draw(array(int(0, 9), { min: 0, max: 3 }))
+})
 
-const printing =
-	(padding: Gen<number>): Gen<PlantedBuilder> =>
-	(source) => ({
-		kind: "prints",
-		units: source.draw(array(int(0, 9), { min: 0, max: 3 })),
-		character: source.draw(unicodeScalar),
-		padding: source.draw(padding)
-	})
+const withholding: Gen<PlantedBuilder> = (source) => {
+	const units = source.draw(array(int(0, 9), { min: 1, max: 3 }))
+	return { kind: "withholds", units, withheld: source.draw(int(0, units.length - 1)) }
+}
 
 const failing: Gen<PlantedBuilder> = (source) => ({
 	kind: "fails",
@@ -434,15 +441,15 @@ const withTypeTests =
 /** Each situation the search requires is an arm of its own, drawn as often as the others. */
 const plantedRun: Gen<PlantedRun> = oneOf<PlantedRun>([
 	withoutTypeTests,
-	withTypeTests(printing(int(0, 64))),
-	withTypeTests(printing(int(PIPE_BUFFER_BYTES + 1, 2 * PIPE_BUFFER_BYTES))),
+	withTypeTests(writing),
+	withTypeTests(withholding),
 	withTypeTests(failing)
 ])
 
 type RunFeature =
 	| "a run without type tests"
-	| "a builder that prints its batch"
-	| "an output past a pipe's buffer"
+	| "a builder that writes its batch"
+	| "a unit's file withheld, refused"
 	| "a builder that fails"
 
 /** A planted batch's units: one per drawn value, its one output line the value. */
@@ -460,18 +467,29 @@ const APART = "a process of its own"
 /** A planted builder as a Node program, which reads its request on stdin to the end before it acts. */
 const builderProgram = (builder: PlantedBuilder): string => {
 	const read = [
+		'import fs from "node:fs"',
+		'import path from "node:path"',
 		"const chunks = []",
 		"for await (const chunk of process.stdin) chunks.push(chunk)",
 		'const request = Buffer.concat(chunks).toString("utf8")'
 	]
 	switch (builder.kind) {
-		case "prints":
+		case "writes":
+		case "withholds":
 			return Arr.join(
 				[
 					...read,
+					"const { dir } = JSON.parse(request)",
 					`const where = process.pid === ${process.pid} ? "the run's own process" : ${jsonText(APART)}`,
-					`const padded = ${jsonText(builder.character)}.repeat(${builder.padding})`,
-					`process.stdout.write(JSON.stringify({ units: ${jsonText(unitsOf(builder.units))}, unattributed: [request, where, padded] }))`,
+					`const units = ${jsonText(unitsOf(builder.units))}`,
+					`const withheld = ${jsonText(builder.kind === "withholds" ? [`u${builder.withheld}`] : [])}`,
+					`fs.mkdirSync(path.join(dir, ${jsonText(batchLayout.units)}), { recursive: true })`,
+					"for (const [unit, result] of Object.entries(units)) {",
+					"\tif (!withheld.includes(unit)) {",
+					`\t\tfs.writeFileSync(path.join(dir, ${jsonText(batchLayout.units)}, unit + ".json"), JSON.stringify(result))`,
+					"\t}",
+					"}",
+					`fs.writeFileSync(path.join(dir, ${jsonText(batchLayout.index)}), JSON.stringify({ units: Object.keys(units), unattributed: [request, where] }))`,
 					""
 				],
 				"\n"
@@ -491,68 +509,87 @@ const builderProgram = (builder: PlantedBuilder): string => {
 }
 
 /** The request a run sends its builder (BuildRequest), as a planted builder reads it back. */
-type SentRequest = Readonly<{ seed: number; files: ReadonlyArray<string> }>
+type SentRequest = Readonly<{ seed: number; files: ReadonlyArray<string>; dir: string }>
 
 /** A planted test module's path, relative to the repository: its tier's directory, and its place in the run. */
 const moduleOf = (tier: Tier, at: number): string => `test/${tier}/m${at}.test.ts`
 
-/** What a run's batch file holds once its builder has run: what the builder printed, or its failure. */
+/**
+ * What a run's batch holds once its builder has run, read as a test process reads it: the units the builder wrote, each
+ * from its own file, and what it put beside them; a unit whose file it withheld refused as BatchUnreadable; or its
+ * failure.
+ */
 const heldBy = (
 	builder: PlantedBuilder,
-	result: Effect.Success<ReturnType<typeof whenWritten>>,
+	batch: BatchAt,
 	expected: SentRequest,
 	c: Case<RunFeature>
-): void => {
-	switch (builder.kind) {
-		case "prints": {
-			c.note("a builder that prints its batch")
-			const padded = Str.repeat(builder.padding)(builder.character)
-			if (new TextEncoder().encode(padded).length > PIPE_BUFFER_BYTES) {
-				c.note("an output past a pipe's buffer")
+) =>
+	Effect.gen(function* () {
+		const index = yield* whenWritten(batch)
+		switch (builder.kind) {
+			case "writes": {
+				c.note("a builder that writes its batch")
+				const units = yield* Effect.forEach(index.units, (unit) =>
+					Effect.map(readUnit(batch, unit), (result) => [unit, result] as const)
+				)
+				const [request, where, ...rest] = index.unattributed
+				assert.deepEqual(
+					{
+						units: Rec.fromEntries(units),
+						request: Option.map(Option.fromUndefinedOr(request), (text) =>
+							trustedJson<SentRequest>(text)
+						),
+						where,
+						rest
+					},
+					{
+						units: unitsOf(builder.units),
+						request: Option.some(expected),
+						where: APART,
+						rest: []
+					}
+				)
+				return
 			}
-			const [request, where, printed, ...rest] = result.unattributed
-			assert.deepEqual(
-				{
-					units: result.units,
-					request: Option.map(Option.fromUndefinedOr(request), (text) =>
-						trustedJson<SentRequest>(text)
-					),
-					where,
-					verbatim: printed === padded,
-					rest
-				},
-				{
-					units: unitsOf(builder.units),
-					request: Option.some(expected),
-					where: APART,
-					verbatim: true,
-					rest: []
-				}
-			)
-			return
-		}
-		case "fails": {
-			c.note("a builder that fails")
-			const { stderr, status } = builder
-			assert.deepEqual(
-				{
-					units: result.units,
-					named: Arr.map(
-						result.unattributed,
-						(line) => Str.includes(stderr)(line) && Str.includes(`status ${status}`)(line)
+			case "withholds": {
+				c.note("a unit's file withheld, refused")
+				const read = yield* Effect.forEach(index.units, (unit) =>
+					Effect.map(
+						Effect.result(readUnit(batch, unit)),
+						(result) => [unit, Result.isFailure(result) ? result.failure._tag : "read"] as const
 					)
-				},
-				{ units: {}, named: [true] }
-			)
+				)
+				assert.deepEqual(
+					read,
+					Arr.map(Rec.keys(unitsOf(builder.units)), (unit) =>
+						unit === `u${builder.withheld}` ? [unit, "BatchUnreadable"] : [unit, "read"]
+					)
+				)
+				return
+			}
+			case "fails": {
+				c.note("a builder that fails")
+				const { stderr, status } = builder
+				assert.deepEqual(
+					{
+						units: index.units,
+						named: Arr.map(
+							index.unattributed,
+							(line) => Str.includes(stderr)(line) && Str.includes(`status ${status}`)(line)
+						)
+					},
+					{ units: [], named: [true] }
+				)
+			}
 		}
-	}
-}
+	})
 
 /**
  * Starts a planted run as the type tier's global setup starts one, with a planted builder, and holds what it provides
- * to the model: no batch for a run without type tests; otherwise the file the builder's result reaches, which holds
- * what the builder printed, its request read in a process of its own, or, for a builder that fails, one line naming its
- * status and what it printed on stderr.
+ * to the model: no batch for a run without type tests; otherwise the directory the builder's result reaches, which
+ * holds what the builder wrote, its request read in a process of its own, each unit read from its own file and a
+ * withheld one refused, or, for a builder that fails, one line naming its status and what it printed on stderr.
  */
 const delivered = (planted: PlantedRun, c: Case<RunFeature>) =>
 	Effect.scoped(
@@ -591,15 +628,15 @@ const delivered = (planted: PlantedRun, c: Case<RunFeature>) =>
 						Arr.flatMap(provided, (run) => (run.batch.kind === "batch" ? [run.batch] : []))[0],
 						"the run's batch"
 					)
-					const result = yield* whenWritten(batch)
-					heldBy(
+					yield* heldBy(
 						planted.builder,
-						result,
+						batch,
 						{
 							seed: planted.seed,
 							files: Arr.flatMap(planted.modules, (tier, at) =>
 								tier === "types" ? [moduleOf(tier, at)] : []
-							)
+							),
+							dir: batch.dir
 						},
 						c
 					)
@@ -730,7 +767,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 	)
 
 	it.effect(
-		"builds a run's batch in a builder process of its own, delivers what it printed, and fails every check when it fails",
+		"builds a run's batch in a builder process of its own, delivers each unit's file it wrote, refuses one it withheld, and fails every check when it fails",
 		(ctx) =>
 			searched(
 				ctx,
@@ -739,15 +776,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 						suite: "type batch builder",
 						oracle: {
 							kind: "second-implementation",
-							name: "a model of the run's request, and of the batch each planted builder prints or the failure it ends with"
+							name: "a model of the run's request, and of the batch each planted builder writes or the failure it ends with"
 						},
 						draw: drawn(plantedRun),
 						literal: Formatter.format,
 						coverage: required<RunFeature>(
 							[
 								"a run without type tests",
-								"a builder that prints its batch",
-								"an output past a pipe's buffer",
+								"a builder that writes its batch",
+								"a unit's file withheld, refused",
 								"a builder that fails"
 							],
 							{ cases: 24, sense: notesOnly }

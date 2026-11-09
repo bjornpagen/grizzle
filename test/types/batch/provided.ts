@@ -5,10 +5,11 @@ export const typeRunKey = "grizzle.types.run"
 
 /**
 /**
- * A run's type-test batch as a test process reaches it: the file its result is written to once its builder has built
- * it (build.ts), and the Unix socket that ends each connection once the writer has finished (batch.ts writtenSignal).
+ * A run's type-test batch as a test process reaches it: the directory its builder (build.ts) writes the result into,
+ * an index and one file per unit (batch.ts batchLayout), and the Unix socket that ends each connection once the writer
+ * has finished (batch.ts writtenSignal).
  */
-export type BatchAt = Readonly<{ file: string; signal: string }>
+export type BatchAt = Readonly<{ dir: string; signal: string }>
 
 /**
  * The type tier's run as its global setup hands it to the test processes: the run's seed, which the generated programs

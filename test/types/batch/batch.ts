@@ -60,10 +60,12 @@ import { regex } from "arkregex"
  * its checks the same way.
  *
  * The type tier's global setup (global-setup.ts) starts the batch of the type-test files a run runs in a builder, a
- * process of its own (build.ts), beside the files, and provides the result file and the run's seed to every test
- * process (provided.ts); a test reads its unit from that file once it is written. Drawing a generated program is one
- * long synchronous computation, so the batch never draws one in Vitest's own process, whose timers start every test
- * process, nor in a test process, which only reads the result. A unit the batch lacks fails its checks. Every file the
+ * process of its own (build.ts), beside the files, and provides the result's directory and the run's seed to every
+ * test process (provided.ts). The builder writes each unit's result to a file of its own, then an index naming them
+ * (batchLayout), and a test reads the index and its own unit's file once the writer has finished, nothing of the other
+ * units'. Drawing a generated program is one long synchronous computation, so the batch never draws one in Vitest's own
+ * process, whose timers start every test process, nor in a test process, which only reads the result. A unit the batch
+ * lacks fails its checks, and so does a unit whose file cannot be read whole (BatchUnreadable). Every file the
  * batch reads or writes goes through Effect's FileSystem, every directory it writes is a scoped temporary directory, and
  * the builder and tsgo are child processes their scopes own, so nothing the batch makes outlives it.
  */
@@ -170,8 +172,8 @@ type ErrorDiagnostic = PromisedDiagnostic & { readonly text: string }
 type UnitResult = {
 	/** Every line tsgo printed for the unit's files, continuation lines included. */
 	readonly output: ReadonlyArray<string>
-	/** The unit's error diagnostics, by file name. */
-	readonly errors: ReadonlyArray<ErrorDiagnostic>
+	/** Where each of the unit's error diagnostics is, by file name; its text is the output's. */
+	readonly errors: ReadonlyArray<PromisedDiagnostic>
 	/** The diagnostics the unit's disarmed directives promise, in order, one per directive. */
 	readonly directives: ReadonlyArray<PromisedDiagnostic>
 	/**
@@ -185,6 +187,40 @@ type BatchResult = {
 	readonly units: Readonly<Record<string, UnitResult>>
 	/** Lines no unit owns. */
 	readonly unattributed: ReadonlyArray<string>
+}
+
+/**
+ * A written batch's index, the last file its builder writes into the batch's directory: the units it wrote a result
+ * file for (batchLayout), and the lines no unit owns, which every check reports. A batch that failed as a whole names
+ * no unit, and its failure is its one unattributed line.
+ */
+type BatchIndex = {
+	readonly units: ReadonlyArray<string>
+	readonly unattributed: ReadonlyArray<string>
+}
+
+/**
+ * Where a batch's directory holds its result: the index (BatchIndex), and each unit's result (UnitResult) at its name
+ * under `units`, a `.json` file, so a test process reads its own unit and nothing of the others'.
+ */
+export const batchLayout = { index: "batch.json", units: "units" } as const
+
+const indexFile = (path: Path.Path, dir: string): string => path.join(dir, batchLayout.index)
+
+const unitFile = (path: Path.Path, dir: string, unit: string): string =>
+	path.join(dir, batchLayout.units, `${unit}.json`)
+
+/**
+ * A file of a written batch that a test process could not read whole: missing, unreadable, empty or no JSON. Its check
+ * fails with it, never reading it as a unit with no diagnostic.
+ */
+export class BatchUnreadable extends Data.TaggedError("BatchUnreadable")<{
+	readonly file: string
+	readonly cause: unknown
+}> {
+	override get message(): string {
+		return `the type-test batch's ${this.file} could not be read: ${messageOf(this.cause)}`
+	}
 }
 
 /** The `.ts` files of `dir`/fixtures, in name order. */
@@ -433,7 +469,7 @@ const attribute = Effect.fn("attribute")(function* (
 		}))
 		results[unit] = {
 			output,
-			errors,
+			errors: Arr.map(errors, ({ file, line, code }) => ({ file, line, code })),
 			directives: Arr.map(placement.directives, ({ file, line, code }) => ({ file, line, code })),
 			problems: [...placement.problems, ...contradicted(placement.directives, errors)]
 		}
@@ -569,12 +605,19 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 		})
 	)
 
-/** What a run asks of its builder (build.ts): the run's seed, and its type-test files, relative to the repository. */
-export type BuildRequest = Readonly<{ seed: number; files: Arr.NonEmptyReadonlyArray<string> }>
+/**
+ * What a run asks of its builder (build.ts): the run's seed, its type-test files, relative to the repository, and the
+ * directory to write the batch into (batchLayout).
+ */
+export type BuildRequest = Readonly<{
+	seed: number
+	files: Arr.NonEmptyReadonlyArray<string>
+	dir: string
+}>
 
 /**
- * The builder ended without printing a batch: it exited with `status`, having printed `stderr`. A build that fails
- * still prints its failure (builtText), so this is the process failing: a module it could not load, a crash, a signal.
+ * The builder ended without writing a batch: it exited with `status`, having printed `stderr`. A build that fails
+ * still writes its failure (buildInto), so this is the process failing: a module it could not load, a crash, a signal.
  */
 class BatchBuilderFailed extends Data.TaggedError("BatchBuilderFailed")<{
 	readonly status: number
@@ -585,37 +628,59 @@ class BatchBuilderFailed extends Data.TaggedError("BatchBuilderFailed")<{
 	}
 }
 
-/** A batch that failed as a whole, as JSON text: no unit, and its failure, the one line every check reports. */
-const failedText = (cause: Cause.Cause<unknown>): string => {
-	const failed: BatchResult = {
-		units: {},
-		unattributed: [`the type-test batch failed: ${Cause.pretty(cause)}`]
-	}
-	return jsonText(failed)
-}
+/** A batch that failed as a whole: no unit, and its failure, the one line every check reports. */
+const failedResult = (cause: Cause.Cause<unknown>): BatchResult => ({
+	units: {},
+	unattributed: [`the type-test batch failed: ${Cause.pretty(cause)}`]
+})
 
-/** The builder's half: the batch of `groups` under the run's seed, or the failure that ended it, as JSON text. */
-export const builtText = (groups: ReadonlyArray<Group>, seed: number): Effect.Effect<string> =>
-	buildBatch(groups, seed).pipe(
-		Effect.map(jsonText),
-		Effect.catchCause((cause) => Effect.succeed(failedText(cause)))
+/**
+ * Writes `result` into the batch's directory `dir` (batchLayout): each unit's result to a file of its own, then the
+ * index, by a rename, so the index names only units whose files are whole.
+ */
+const writeResult = (dir: string, result: BatchResult) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		for (const [unit, written] of Rec.toEntries(result.units)) {
+			const file = unitFile(path, dir, unit)
+			yield* fs.makeDirectory(path.dirname(file), { recursive: true })
+			yield* fs.writeFileString(file, jsonText(written))
+		}
+		const index: BatchIndex = { units: Rec.keys(result.units), unattributed: result.unattributed }
+		const at = indexFile(path, dir)
+		yield* fs.writeFileString(`${at}.partial`, jsonText(index))
+		yield* fs.rename(`${at}.partial`, at)
+	})
+
+/**
+ * The builder's half: builds the batch of `groups` under the run's seed and writes it into `dir`, or, when the build
+ * fails, its failure, so every reader learns it.
+ */
+export const buildInto = (groups: ReadonlyArray<Group>, seed: number, dir: string) =>
+	Effect.flatMap(
+		Effect.catchCause(buildBatch(groups, seed), (cause) => Effect.succeed(failedResult(cause))),
+		(result) => writeResult(dir, result)
+	).pipe(
+		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
+		Effect.provideContext(platform)
 	)
 
 /**
- * What the builder, the Node program at `builder`, printed for `request`, which it reads on stdin: the batch as JSON
- * text, or BatchBuilderFailed when it exits otherwise. The builder belongs to the run's scope, so an interrupted run
- * kills it.
+ * Runs the builder, the Node program at `builder`, on `request`, which it reads on stdin, to its exit: it writes the
+ * batch into the request's directory itself, and an exit other than 0 is BatchBuilderFailed with what it printed on
+ * stderr. The builder belongs to the run's scope, so an interrupted run kills it.
  */
-const builderOutput = (request: BuildRequest, builder: string) =>
+const builderRan = (request: BuildRequest, builder: string) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const handle = yield* ChildProcess.make(process.execPath, [sourceCondition, builder], {
 				cwd: yield* repoRoot,
 				stdin: { stream: Stream.make(new TextEncoder().encode(jsonText(request))), endOnDone: true }
 			})
-			const [stdout, stderr, status] = yield* Effect.all(
+			const [, stderr, status] = yield* Effect.all(
 				[
-					Stream.mkString(Stream.decodeText(handle.stdout)),
+					Stream.runDrain(handle.stdout),
 					Stream.mkString(Stream.decodeText(handle.stderr)),
 					handle.exitCode
 				],
@@ -624,35 +689,20 @@ const builderOutput = (request: BuildRequest, builder: string) =>
 			if (status !== 0) {
 				return yield* new BatchBuilderFailed({ status, stderr })
 			}
-			return stdout
 		})
 	)
 
 /**
- * The global setup's half: runs the builder at `builder` on `request` and writes what it printed to `file`, or, when it
- * ends without printing a batch, its failure, so no reader waits forever. The file appears at once, by a rename.
+ * The global setup's half: runs the builder at `builder` on `request`, which writes the batch into the request's
+ * directory, and, when the builder ends otherwise, writes its failure there instead, so every reader learns it.
  */
-export const writeBatch = (
-	request: BuildRequest,
-	builder: string,
-	file: string
-): ReturnType<typeof writeBatchTo> => writeBatchTo(request, builder, file)
-
-const writeBatchTo = (request: BuildRequest, builder: string, file: string) =>
-	writeBatchOn(request, builder, file).pipe(
+export const writeBatch = (request: BuildRequest, builder: string) =>
+	Effect.catchCause(builderRan(request, builder), (cause) =>
+		writeResult(request.dir, failedResult(cause))
+	).pipe(
 		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
 		Effect.provideContext(platform)
 	)
-
-const writeBatchOn = (request: BuildRequest, builder: string, file: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const text = yield* Effect.catchCause(builderOutput(request, builder), (cause) =>
-			Effect.succeed(failedText(cause))
-		)
-		yield* fs.writeFileString(`${file}.partial`, text)
-		yield* fs.rename(`${file}.partial`, file)
-	})
 
 /**
  * The Unix socket at `at`, open for the scope, which ends every connection once `written` is done: a test process waits
@@ -696,14 +746,28 @@ export const writtenSignal = (at: string, written: Deferred.Deferred<void>) =>
 		)
 	})
 
+/** The JSON value of a written batch's `file`, or BatchUnreadable for a file missing, unreadable, empty or no JSON. */
+const readWritten = <A>(file: string) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const text = yield* Effect.mapError(
+			fs.readFileString(file),
+			(cause) => new BatchUnreadable({ file, cause })
+		)
+		return yield* Effect.try({
+			try: () => trustedJson<A>(text),
+			catch: (cause) => new BatchUnreadable({ file, cause })
+		})
+	})
+
 /**
- * The batch at `batch.file`, once its writer has finished: the wait is a connection to the batch's signal
+ * The index of the batch in `batch.dir`, once its writer has finished: the wait is a connection to the batch's signal
  * (writtenSignal), which the global setup ends when the writer finishes. A connection refused or lost is
- * BatchSignalFailed, and a writer that finished without writing the file fails the read.
+ * BatchSignalFailed, and an index the writer did not write is BatchUnreadable.
  */
 export const whenWritten = (batch: BatchAt) =>
 	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
 		yield* Effect.callback<void, BatchSignalFailed>((resume) => {
 			const connection = net.createConnection(batch.signal)
 			let failure: unknown
@@ -720,8 +784,14 @@ export const whenWritten = (batch: BatchAt) =>
 			connection.resume()
 			return Effect.sync(() => connection.destroy())
 		})
-		const text = yield* fs.readFileString(batch.file)
-		return trustedJson<BatchResult>(text)
+		return yield* readWritten<BatchIndex>(indexFile(path, batch.dir))
+	})
+
+/** The result of `unit` in the written batch in `batch.dir`, or BatchUnreadable for a file missing or no JSON. */
+export const readUnit = (batch: BatchAt, unit: string) =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		return yield* readWritten<UnitResult>(unitFile(path, batch.dir, unit))
 	})
 
 interface Checked {
@@ -763,11 +833,7 @@ const lacking = (unit: string, why: string): UnitResult => ({
 /** The diagnostics of `unit` in the run's batch, read in a test process of the type tier. */
 export const checked = (unit: string): ReturnType<typeof checkedIn> => checkedIn(unit)
 
-const checkedIn = (unit: string) =>
-	checkedOn(unit).pipe(
-		Effect.catchTag("PlatformError", (cause) => Effect.fail(new BatchPlatformFailed({ cause }))),
-		Effect.provideContext(platform)
-	)
+const checkedIn = (unit: string) => checkedOn(unit).pipe(Effect.provideContext(platform))
 
 const checkedOn = (unit: string) =>
 	Effect.gen(function* () {
@@ -776,18 +842,18 @@ const checkedOn = (unit: string) =>
 			case "none":
 				return checkedOf(lacking(unit, "the run started no type-test batch"), [])
 			case "batch": {
-				const batch = yield* whenWritten(run.batch)
-				return checkedOf(
-					Option.match(Option.fromUndefinedOr(batch.units[unit]), {
-						onNone: () =>
-							lacking(
-								unit,
-								"the run's batch holds no such unit: no group of its files has it (groups.ts)"
-							),
-						onSome: (found) => found
-					}),
-					batch.unattributed
-				)
+				const index = yield* whenWritten(run.batch)
+				if (!Arr.contains(index.units, unit)) {
+					return checkedOf(
+						lacking(
+							unit,
+							"the run's batch holds no such unit: no group of its files has it (groups.ts)"
+						),
+						index.unattributed
+					)
+				}
+				const result = yield* readUnit(run.batch, unit)
+				return checkedOf(result, index.unattributed)
 			}
 		}
 	})

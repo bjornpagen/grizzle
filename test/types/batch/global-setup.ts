@@ -33,9 +33,9 @@ type TypeRunStart = Readonly<{
 
 /**
  * Starts the type-test batch of a run (test/types/batch/batch.ts): its builder, a process of its own, builds the groups
- * of the run's type-test files as one tsgo program while the files run, and this provides the run's seed, the file the
- * result will be written to and the socket that signals the writer finished (batch.ts writtenSignal), on which each
- * type test waits. No program is drawn in this process, Vitest's own, whose timers start every test process, so however
+ * of the run's type-test files as one tsgo program while the files run, and this provides the run's seed, the
+ * directory the result will be written into and the socket that signals the writer finished (batch.ts writtenSignal),
+ * on which each type test waits. No program is drawn in this process, Vitest's own, whose timers start every test process, so however
  * long a build runs, it never holds them. The temporary directory, the socket and the builder live in the scope this
  * runs in, so closing it removes, closes and kills them. A run without type-test files provides no batch and loads
  * nothing of it: the unit tier never pays for it.
@@ -54,12 +54,11 @@ export const startBatch = Effect.fn("startBatch")(function* (start: TypeRunStart
 		() => import("#test/types/batch/batch.ts")
 	)
 	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-types-" })
-	const file = path.join(dir, "batch.json")
 	const signal = path.join(dir, "written.sock")
 	const written = yield* Deferred.make<void>()
 	yield* writtenSignal(signal, written)
 	yield* Effect.forkScoped(
-		writeBatch({ seed: start.seed, files }, start.builder, file).pipe(
+		writeBatch({ seed: start.seed, files, dir }, start.builder).pipe(
 			Effect.andThen(
 				Console.log(`types: the batch of ${files.length} type-test file(s) is written`)
 			),
@@ -70,7 +69,7 @@ export const startBatch = Effect.fn("startBatch")(function* (start: TypeRunStart
 		)
 	)
 	yield* Effect.sync(() =>
-		start.provide({ seed: start.seed, batch: { kind: "batch", file, signal } })
+		start.provide({ seed: start.seed, batch: { kind: "batch", dir, signal } })
 	)
 })
 
