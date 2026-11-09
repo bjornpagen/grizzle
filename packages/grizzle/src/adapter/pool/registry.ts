@@ -17,7 +17,7 @@ import {
 import { startupVariableSet } from "#adapter/connection/environment.ts"
 import { theoryRole } from "#adapter/connection/role.ts"
 import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
-import type { ProgramArtifacts, RoleContext, RoleInput } from "#adapter/db/context.ts"
+import type { SliceArtifacts, RoleContext, RoleInput } from "#adapter/db/context.ts"
 import { compileRoleWorkload, programsOn, type WorkloadForm } from "#adapter/db/workload.ts"
 import { fromEngine, readHost, rowOptions } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -425,16 +425,16 @@ const layerRole = Effect.fn("layerRole")(function* (
 	if (theory === undefined) {
 		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
 	}
-	const own: ProgramArtifacts = { artifacts, witness: installationWitness(artifacts, above) }
+	const own: SliceArtifacts = { artifacts, witness: installationWitness(artifacts, above) }
 	const programArtifacts = (
 		program: ProgramDesc
-	): Engine.Result<ProgramArtifacts, CompileError> => {
+	): Engine.Result<SliceArtifacts, CompileError> => {
 		const slice = sliceOf(owned.base, [{ role: ownedRole, program }])
 		return within(slice, layer.slice)
 			? Engine.ok(own)
 			: Engine.map(
 					Engine.flatMap(layer.over(slice), (base) => roleArtifacts(ownedRole, base)),
-					(sliced): ProgramArtifacts => ({
+					(sliced): SliceArtifacts => ({
 						artifacts: sliced,
 						witness: installationWitness(sliced, above)
 					})

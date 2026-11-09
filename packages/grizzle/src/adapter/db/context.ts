@@ -57,7 +57,7 @@ export interface RoleContext {
 	 * of the program's own slice, compiled at the call (pool/registry.ts). Either reads, of each relation the program
 	 * names, exactly what the installation's law model states.
 	 */
-	readonly programArtifacts: (program: ProgramDesc) => Engine.Result<ProgramArtifacts, CompileError>
+	readonly programArtifacts: (program: ProgramDesc) => Engine.Result<SliceArtifacts, CompileError>
 	/**
 	 * What every decoder of the role's programs binds under besides its layout, the layer's: the shell's Option
 	 * vocabulary, and each roster's names in code order from the installation's codes, which a closed id's or a set's
@@ -74,7 +74,7 @@ export interface ProgramTemplate {
 
 /** What one program of a role compiles against: the role's artifacts over a slice holding the program's, and their
  * witness decoding. */
-export interface ProgramArtifacts {
+export interface SliceArtifacts {
 	readonly artifacts: SchemaArtifacts
 	readonly witness: InstallationWitness
 }
