@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -15,7 +15,6 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Edits of stored bytes values on PostgreSQL 19rc1, which the host knows only by their SHA-256 digests: a write returns
@@ -29,6 +28,8 @@ import { loginLayer } from "#test/support/worlds.ts"
  *
  * Oracle: a model of the relations' rows, which counts each put whose value differs from the stored one and each exact
  * delete of a stored fact, refuses two facts at one key one byte apart, and holds every row each ChangeSet leaves.
+ *
+ * Each ChangeSet is a member of the full world's served workload, its call's facts keyed by op and relation.
  */
 
 /** `length` bytes of a xorshift stream from `seed`. */
@@ -245,6 +246,32 @@ const Held = relation("Held", { id: pg.integer, body: bytes }, ["id"])
 const Stage = relation("Stage", { id: pg.integer, body: bytes }, ["id"])
 const Edits = schema("BytesEdits", { Blob, Held, Stage }, [mutable(Blob), mutable(Held)])
 
+/** Every row of `target`, with its value. */
+const rowsOf = (target: typeof Blob | typeof Held) =>
+	query(Edits).rule((r) => {
+		const { id, body } = v(target, "row")
+		return r.match(target, { id, body }).find({ id, body })
+	})
+
+/**
+ * The full world's workload: the stored rows written with the facts each call gives; every staged value put into Held
+ * through a query; the edits, one write that puts and deletes Blob facts, each op's facts each call gives; and Blob's
+ * and Held's rows read back.
+ */
+const programs = {
+	store: ChangeSet.empty(Edits).insert(Blob, []).insert(Held, []).insert(Stage, []),
+	stage: ChangeSet.empty(Edits).put(
+		Held,
+		query(Edits).rule((r) => {
+			const { id, body } = v(Stage, "staged")
+			return r.match(Stage, { id, body }).match(Held, { id }).find({ id, body })
+		})
+	),
+	edit: ChangeSet.empty(Edits).put(Blob, []).delete(Blob, []),
+	blobRows: rowsOf(Blob),
+	heldRows: rowsOf(Held)
+}
+
 const byId = Order.mapInput(Order.Number, (row: { readonly id: number }) => row.id)
 
 /** Whether two values hold the same bytes. */
@@ -293,51 +320,22 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 								const o = yield* installed(
 									Edits,
 									{},
-									{ label: "bytesedits", extensions: [], programs: {} }
+									{ label: "bytesedits", extensions: [], programs }
 								)
 								yield* Effect.gen(function* () {
-									const db = yield* compiledOpen(o.server.roles.app, {})
+									const db = yield* Db.open(o.served.login.roles.app, {})
 									if (d.stored.length > 0) {
 										const rows = Arr.map(d.stored, (b, id) => ({ id, body: bodyBytes(b) }))
 										const stage = Arr.flatMap(d.staged, (st, id) =>
 											st.as === "unstaged" ? [] : [{ id, body: bodyBytes(st.body) }]
 										)
-										const stored = yield* db.apply(
-											ChangeSet.empty(o.schema)
-												.insert(Blob, rows)
-												.insert(Held, rows)
-												.insert(Stage, stage),
+										const stored = yield* db.workload.store.apply(
+											{ insert: { Blob: rows, Held: rows, Stage: stage } },
 											{}
 										)
 										assert.equal(stored.kind, "accepted", "every stored row is written")
 									}
-									const readAll = (target: typeof Blob | typeof Held) =>
-										Effect.map(
-											Effect.flatMap(
-												db.execute(
-													query(o.schema).rule((r) => {
-														const { id, body: value } = v(target, "row")
-														return r.match(target, { id, body: value }).find({ id, body: value })
-													}),
-													{}
-												),
-												(executed) => executed.collect
-											),
-											(rows) => Arr.sort(rows, byId)
-										)
-									const staging = yield* db.apply(
-										ChangeSet.empty(o.schema).put(
-											Held,
-											query(o.schema).rule((r) => {
-												const { id, body: value } = v(Stage, "staged")
-												return r
-													.match(Stage, { id, body: value })
-													.match(Held, { id })
-													.find({ id, body: value })
-											})
-										),
-										{}
-									)
+									const staging = yield* db.workload.stage.apply({})
 									const staged = Arr.filter(
 										d.staged,
 										(st) => st.as === "one byte off" || st.as === "resized"
@@ -359,7 +357,8 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 											"a described put counts each row whose value its digest says changed"
 										)
 									}
-									const held = yield* readAll(Held)
+									const heldRows = yield* (yield* db.workload.heldRows.execute({})).collect
+									const held = Arr.sort(heldRows, byId)
 									assert.deepEqual(
 										Arr.map(held, (row) => row.id),
 										Arr.map(d.stored, (_, id) => id),
@@ -392,8 +391,10 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 									const deletes = Arr.flatMap(d.edits, (e) =>
 										e.kind === "delete" ? [{ id: e.id, body: bodyBytes(e.body) }] : []
 									)
-									const changes = ChangeSet.empty(o.schema).put(Blob, stated).delete(Blob, deletes)
-									const outcome = yield* db.apply(changes, {})
+									const outcome = yield* db.workload.edit.apply(
+										{ put: { Blob: stated }, delete: { Blob: deletes } },
+										{}
+									)
 									if (again !== undefined && d.again === "one byte off") {
 										assert.equal(
 											outcome.kind,
@@ -435,7 +436,8 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 										}),
 										byId
 									)
-									const blobs = yield* readAll(Blob)
+									const blobRows = yield* (yield* db.workload.blobRows.execute({})).collect
+									const blobs = Arr.sort(blobRows, byId)
 									assert.deepEqual(
 										Arr.map(blobs, (row) => row.id),
 										Arr.map(expected, (row) => row.id),
@@ -449,7 +451,7 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 									)
 								}).pipe(
 									(run) =>
-										Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+										Effect.flatMap(Layer.build(o.served.layer), (context) =>
 											Effect.provideContext(run, context)
 										),
 									Effect.scoped
