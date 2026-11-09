@@ -40,6 +40,7 @@ import {
 } from "#test/support/agreement/access-schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 
 /**
@@ -144,16 +145,6 @@ const openerDirective = (opener: Opener): string => {
 			return "// @ts-expect-error -- TS2739: Db.open takes a role of a served login"
 	}
 }
-
-/**
- * The served workload's JSON members served(...) reads, of a case's login: its base, its PostgreSQL role and its
- * roles' names, as `grizzle generate` writes them; nothing else of it is read before a layer is built.
- */
-const servedHead = (spec: AccessSpec): object => ({
-	base: spec.level,
-	role: "agreement",
-	roles: Arr.map(spec.roles, (r) => ({ name: r.name }))
-})
 
 /** Db.open's options as a caller may give them: none, null, a token, or a token of another type than text. */
 const optionForms = ["omitted", "null", "a token", "a token of another type"] as const
@@ -579,7 +570,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 	const first = spec.roles[0].name
 	const opened: unknown =
 		spec.opener === "served role"
-			? served(servedHead(spec), "agreement").roles[first]
+			? served(compiledServedFile(built), "agreement").roles[first]
 			: spec.opener === "login role"
 				? built.roles[first]
 				: spec.opener === "role value"
