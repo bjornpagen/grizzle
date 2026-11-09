@@ -12,7 +12,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, Decimal, Money, uuid } from "#compiler/public/fields.ts"
+import { Bits, bytes, Decimal, Money, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, type Pattern, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -22,6 +22,7 @@ import { guarded, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	AsTyped,
 	Cell,
@@ -230,6 +231,7 @@ const computeFeatures = [
 	"parts member",
 	"literal first",
 	"byte guard",
+	"digest",
 	"closed read",
 	"lexical form",
 	"foreign operand",
@@ -341,6 +343,39 @@ const byteNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<ByteNote> 
 				: []
 		: language
 			? ["a byte cast unguarded"]
+			: []
+}
+
+/**
+ * What a digest case reached, by the engine's verdict on its schema: a digest stored uncast, admitted by both, since a
+ * value enters its column at its carrier and the column's domain judges its pattern, the pantry's declaration among
+ * them; a digest cast into a text type whose language holds every digest, admitted with no guard; one cast into a type
+ * whose language lacks a digest, a decided language, which the types admit since a pattern is no type; and the digest
+ * of a text, which both refuse, since Compute.sha256 reads bytes alone.
+ */
+const digestNotes = [
+	"a digest stored uncast",
+	"a digest cast into a type that holds it",
+	"a digest cast into a type that lacks it",
+	"a digest of a text refused"
+] as const
+type DigestNote = (typeof digestNotes)[number]
+
+/** What a digest case reached (digestNotes): none for any other case. */
+const digestNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<DigestNote> => {
+	if (spec.kind !== "digest") {
+		return []
+	}
+	if (spec.operand !== "content") {
+		return verdict.kind === "refused" ? ["a digest of a text refused"] : []
+	}
+	if (!spec.cast) {
+		return verdict.kind === "admitted" ? ["a digest stored uncast"] : []
+	}
+	return verdict.kind === "admitted"
+		? ["a digest cast into a type that holds it"]
+		: verdict.kind === "decided" && verdict.note === engineDecides.language
+			? ["a digest cast into a type that lacks it"]
 			: []
 }
 
@@ -483,6 +518,7 @@ export type ComputeNote =
 	| ComputeFeature
 	| HeadingNote
 	| ByteNote
+	| DigestNote
 	| ContractNote
 	| ContestedNote
 	| FamilyNote
@@ -589,9 +625,56 @@ type CaseSpec =
 			readonly to: TunedTarget
 			readonly guard: TunedGuard
 	  }
+	| {
+			readonly kind: "digest"
+			readonly operand: "content" | TextField
+			readonly target: DigestTarget
+			readonly cast: boolean
+	  }
 
 /** A text field of Cell a byte guard's case reads. */
 type TextField = (typeof families.text)[number]
+
+/** A text type a digest case's generated field is of: as the program spells it, and as the engine builds it. */
+interface DigestTarget {
+	readonly text: string
+	readonly field: FieldBase
+}
+
+/** The pantry's digest type, `^[0-9a-f]{64}$`, whose language is every digest's. */
+const lowerHex: DigestTarget = {
+	text: 'str.regex("^[0-9a-f]{64}$")',
+	field: str.regex("^[0-9a-f]{64}$")
+}
+
+/** Uppercase hex of 64 digits, whose language holds no digest with a letter. */
+const upperHex: DigestTarget = {
+	text: 'str.regex("^[0-9A-F]{64}$")',
+	field: str.regex("^[0-9A-F]{64}$")
+}
+
+/**
+ * The text types a digest case stores into, a dictionary of the languages the inclusion branches on: those holding
+ * every digest (the digest's own, hex of any length, letters and digits of at most 64, any text, any text of at most 64
+ * bytes) and those lacking some (uppercase hex, 63 hex digits, decimal digits, any text of at most 63 bytes).
+ */
+const digestTargets: Arr.NonEmptyReadonlyArray<DigestTarget> = [
+	lowerHex,
+	upperHex,
+	{ text: 'str.regex("^[0-9a-f]*$")', field: str.regex("^[0-9a-f]*$") },
+	{ text: 'str.regex("^[0-9a-z]{1,64}$")', field: str.regex("^[0-9a-z]{1,64}$") },
+	{ text: 'str.regex("^[0-9a-f]{63}$")', field: str.regex("^[0-9a-f]{63}$") },
+	{ text: 'str.regex("^[0-9]{64}$")', field: str.regex("^[0-9]{64}$") },
+	{ text: 'str.regex("^.*$", "su")', field: str.regex("^.*$", "su") },
+	{
+		text: 'str.bytes(64, str.regex("^.*$", "su"))',
+		field: str.bytes(64, str.regex("^.*$", "su"))
+	},
+	{
+		text: 'str.bytes(63, str.regex("^.*$", "su"))',
+		field: str.bytes(63, str.regex("^.*$", "su"))
+	}
+]
 
 /**
  * The fields of Cell Tuning (./compute-schema.ts) holds a payload of at each tone, of one type each: its integers, its
@@ -1760,6 +1843,7 @@ type Root =
 	| { readonly kind: "value"; readonly root: ValueCtor }
 	| { readonly kind: "member"; readonly root: MemberFeature }
 	| { readonly kind: "bytes"; readonly root: "byte guard" }
+	| { readonly kind: "digest"; readonly root: "digest" }
 	| { readonly kind: "closed"; readonly root: "closed read" }
 	| { readonly kind: "lexical"; readonly root: "lexical form" }
 
@@ -1774,6 +1858,7 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	...Arr.map(values, (root): Root => ({ kind: "value", root })),
 	...Arr.map(memberFeatures, (root): Root => ({ kind: "member", root })),
 	{ kind: "bytes", root: "byte guard" },
+	{ kind: "digest", root: "digest" },
 	{ kind: "closed", root: "closed read" },
 	{ kind: "lexical", root: "lexical form" }
 ]
@@ -1796,6 +1881,8 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 			return { kind: "value", ctor: root.root, lit: d.from(lits) }
 		case "bytes":
 			return bytesOf(d)
+		case "digest":
+			return digestOf(d)
 		case "closed":
 			return closedOf(d)
 		case "lexical":
@@ -1877,6 +1964,60 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): unkno
 						[]
 					)
 				})
+			)
+		},
+		[]
+	)
+}
+
+/**
+ * A digest a generated field stores, Compute.sha256 of the row's bytes three times in four and otherwise of one of its
+ * text fields, into a text type of the dictionary (digestTargets), uncast a third of the time and otherwise cast into
+ * it, which the engine proves by the digest's language alone.
+ */
+const digestOf = (d: Drawing): CaseSpec => ({
+	kind: "digest",
+	operand: d.from([0, 1, 2, 3]) < 3 ? "content" : d.from(families.text),
+	target: d.from(digestTargets),
+	cast: d.from([false, true, true])
+})
+
+/**
+ * A digest case's schema: Media, whose bytes `content` and Cell's text fields are written, and whose generated field
+ * is the case's digest, cast into its type or not.
+ */
+const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string => {
+	const digest = `Compute.sha256(r.${spec.operand})`
+	const term = spec.cast ? `Compute.cast(${digest}, ${spec.target.text})` : digest
+	return `schema("Digests", { Media: relation.generated("Media", { id: uuid, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) })) }, [])`
+}
+
+/** The engine's reading of a digest case: the same schema, built by the public constructors and Compute's core. */
+const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): unknown => {
+	const target = spec.target.field
+	return schema(
+		"Digests",
+		{
+			Media: relation.generated(
+				"Media",
+				{
+					id: uuid,
+					content: bytes,
+					text: Cell.fields.text,
+					word: Cell.fields.word,
+					body: Cell.fields.body
+				},
+				["id"],
+				(r) => {
+					const digest = computeCore.sha256(r[spec.operand])
+					return {
+						stored: generatedField(
+							target,
+							spec.cast ? computeCore.cast(digest, target) : digest,
+							[]
+						)
+					}
+				}
 			)
 		},
 		[]
@@ -2086,6 +2227,7 @@ const caseOver = (d: Drawing): CaseSpec => {
 			"value",
 			"member",
 			"bytes",
+			"digest",
 			"closed",
 			"lexical"
 		] as const)
@@ -2102,6 +2244,8 @@ const caseOver = (d: Drawing): CaseSpec => {
 			return caseAt(d, { kind: "member", root: d.choose(memberFeatures) })
 		case "bytes":
 			return caseAt(d, { kind: "bytes", root: "byte guard" })
+		case "digest":
+			return caseAt(d, { kind: "digest", root: "digest" })
 		case "closed":
 			return caseAt(d, { kind: "closed", root: "closed read" })
 		case "lexical":
@@ -2851,8 +2995,11 @@ const engineVerdict = (
 				? decidedOr(form.failure, undefined, code)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
-		case "bytes": {
-			const compiled = Result.try(() => testArtifacts(bytesSchema(spec), testCompile))
+		case "bytes":
+		case "digest": {
+			const compiled = Result.try(() =>
+				testArtifacts(spec.kind === "bytes" ? bytesSchema(spec) : digestSchema(spec), testCompile)
+			)
 			if (Result.isFailure(compiled)) {
 				return decidedOr(compiled.failure, undefined, code)
 			}
@@ -3018,6 +3165,7 @@ const guardsOf = (spec: CaseSpec): ReadonlyArray<GuardSpec> => {
 		case "value":
 		case "member":
 		case "bytes":
+		case "digest":
 		case "closed":
 		case "lexical":
 			return []
@@ -3436,6 +3584,7 @@ const standInsOf = (
 			case "value":
 			case "member":
 			case "bytes":
+			case "digest":
 			case "closed":
 			case "lexical":
 				return spec
@@ -3525,6 +3674,7 @@ const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
 		case "value":
 		case "member":
 		case "bytes":
+		case "digest":
 		case "closed":
 		case "lexical":
 			return []
@@ -3577,6 +3727,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 		notes.add(headingNote)
 	}
 	for (const note of byteNotesOf(spec, verdict)) {
+		notes.add(note)
+	}
+	for (const note of digestNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
 	for (const note of contractNotesOf(spec, verdict)) {
@@ -3661,6 +3814,8 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 			return `${spec.ctor}(${spec.lit.text})`
 		case "bytes":
 			return bytesSchemaText(spec)
+		case "digest":
+			return digestSchemaText(spec)
 		case "closed":
 			return closedSchemaText(spec)
 		case "lexical":
@@ -3687,6 +3842,7 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...Arr.map(familyNotes, (n) => [n, "refused"] as const),
 	...exactLiteralNotes,
 	...byteNotes,
+	...digestNotes,
 	...contractNotes,
 	contestedNote,
 	...Arr.map(
@@ -3783,9 +3939,20 @@ const arithmeticKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>
 	}
 ]
 
+/**
+ * The programs the pantry declares and refuses: its digest of an Entry's bytes stored uncast into `^[0-9a-f]{64}$`,
+ * which both admit, and cast into uppercase hex, which the engine refuses by the digest's language while the types
+ * admit it. Every run holds them.
+ */
+const digestKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "digest" }>> = [
+	{ kind: "digest", operand: "content", target: lowerHex, cast: false },
+	{ kind: "digest", operand: "content", target: upperHex, cast: true }
+]
+
 /** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
 	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
+	...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
 	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
 	...Arr.map(arithmeticKept, (spec) => caseOf({ spec, reached: new Set(["add"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
@@ -3862,6 +4029,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 				"\n"
 			)
 		case "bytes":
+		case "digest":
 		case "closed":
 		case "lexical":
 			return Arr.join([`export const t${i} = () =>`, ...directive, `\t${c.expression}`, ""], "\n")
