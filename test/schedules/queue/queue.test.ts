@@ -29,11 +29,11 @@ import { constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
@@ -52,22 +52,6 @@ import {
 } from "#test/support/schedules/serial.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-const claimOf = (s: Q.QueueNamed<string>) => {
-	const m = Q.installedQueueQueries(s)
-	return ChangeSet.empty(s)
-		.put(Q.QueueWork, m.claimWorkPut)
-		.delete(Q.Wanted, m.claimWantedDelete)
-		.put(Q.Leased, m.claimLeasedPut)
-}
-
-const settleOf = (s: Q.QueueNamed<string>) => {
-	const m = Q.installedQueueQueries(s)
-	return ChangeSet.empty(s)
-		.delete(Q.Leased, m.settleLeasedDelete)
-		.insert(Q.Done, m.settleDoneInsert)
-		.put(Q.QueueWork, m.settleWorkPut)
-}
 
 const digest = (hex: string) => Q.Digest(Str.repeat(64)(hex))
 
@@ -181,7 +165,13 @@ const runRace = (
 	c: Case<QueueFeature>
 ): Effect.Effect<
 	void,
-	CompileError | SqlError | TransactionRolledBack | OpenError | PsqlProcessError | SerialRaceFailed,
+	| CompileError
+	| SqlError
+	| TransactionRolledBack
+	| OpenError
+	| PsqlProcessError
+	| SerialRaceFailed
+	| ServedRefusal,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
@@ -192,6 +182,14 @@ const runRace = (
 		})
 		const queue = f.rebuilt(Q.Queue)
 		const worlds = Q.queueWorlds(queue)
+		const served = yield* f.served(worlds.server)
+		/** A worker's Db, opened through a DbLayer of its own over the served login: its pool keeps one session. */
+		const workerDb = Effect.flatMap(Layer.build(served.layer), (context) =>
+			Effect.provideContext(Db.open(served.login.roles.worker, {}), context)
+		)
+		const withWorker = <A, E, R>(
+			body: (db: Effect.Success<typeof workerDb>) => Effect.Effect<A, E, R>
+		) => Effect.scoped(Effect.flatMap(workerDb, body))
 		const env = yield* exploreEnv(s)
 		const names = namesOf(f.installed)
 		const login = f.installed.as(worlds.server).role
@@ -239,12 +237,12 @@ const runRace = (
 			],
 			" UNION ALL "
 		)
-		yield* f.withDb(worlds.server.roles.worker, (one) =>
+		yield* withWorker((one) =>
 			Effect.gen(function* () {
-				const g = yield* worker("g", one.apply(ChangeSet.empty(queue), {}), [])
-				yield* f.withDb(worlds.server.roles.worker, (two) =>
+				const g = yield* worker("g", one.workload.noop.apply({}), [])
+				yield* withWorker((two) =>
 					Effect.gen(function* () {
-						const h = yield* worker("h", two.apply(ChangeSet.empty(queue), {}), [g.pid])
+						const h = yield* worker("h", two.workload.noop.apply({}), [g.pid])
 						const direct = yield* openActors(s, {
 							e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 							w: { kind: "psql", as: f.installed.world(worlds.worker) }
@@ -263,7 +261,7 @@ const runRace = (
 										: "settle kB epoch 1",
 								call:
 									write.kind === "claim"
-										? db.apply(claimOf(queue), {
+										? db.workload.claim.apply({
 												kind: "render" as const,
 												slot: Q.Slot(0),
 												resource: "gpu" as const,
@@ -272,7 +270,7 @@ const runRace = (
 												now: Instant(race.time.now),
 												expires: Instant(race.time.now + race.time.lease)
 											})
-										: db.apply(settleOf(queue), {
+										: db.workload.settle.apply({
 												key: Q.Digest(kB),
 												epoch: 1n,
 												outcome: "succeeded"
