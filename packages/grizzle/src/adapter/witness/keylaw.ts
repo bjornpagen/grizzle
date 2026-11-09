@@ -232,15 +232,16 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 	/** Each table constraint's name by its table and each law it discharges, the first the installation lists. */
 	const discharging = new Map<RelationIdent, Map<LawId, ConstraintName>>()
 	for (const c of data.constraintLaws) {
-		if (c.kind === "constraint") {
-			const byLaw = discharging.get(c.owner) ?? new Map<LawId, ConstraintName>()
-			for (const { law } of c.laws) {
-				if (!byLaw.has(law)) {
-					byLaw.set(law, c.name)
-				}
-			}
-			discharging.set(c.owner, byLaw)
+		if (c.kind !== "constraint") {
+			continue
 		}
+		const byLaw = discharging.get(c.owner) ?? new Map<LawId, ConstraintName>()
+		for (const { law } of c.laws) {
+			if (!byLaw.has(law)) {
+				byLaw.set(law, c.name)
+			}
+		}
+		discharging.set(c.owner, byLaw)
 	}
 	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
 	const aboveLaw = (id: LawId): NativeLaws | undefined => {
