@@ -33,12 +33,14 @@
  * updates of drawn rows, the unwinding of a J3 fact, which deletes every row of its derivation from R, S and U in one
  * transaction while W may still need it, and the end of a lonely row, which deletes it and inserts an S row of its k in
  * one transaction while V may still hold its id: the two situations a target probe's relaxation exists for, which the
- * search requires. A transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row
- * of one, remove a picked mark, or list the k of a marked row of Unlisted no S row shares: an S row whose b is 1 and a W
- * row of its k inserted at once, each blocking the row through a negated arm of its own, with the rows every other rule
- * then needs and every other negation's marks synced, so the row's stale mark is the one rule the state breaks. The
- * search requires that last situation refused: a probe that kept the target arm's other negations read it through
- * neither insert.
+ * search requires. A lonely row and a single insert come with or without the marks they move, and the end of a lonely
+ * row always with them, so a marked lonely row keeps every rule and its end, alone in its k, breaks vLonely alone. A
+ * transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row of one, remove a
+ * picked mark, or list the k of a marked row of Unlisted no S row shares: an S row whose b is 1 and a W row of its k
+ * inserted at once, each blocking the row through a negated arm of its own, with the rows every other rule then needs
+ * and every other negation's marks synced, so the row's stale mark is the one rule the state breaks. The search
+ * requires that last situation refused: a probe that kept the target arm's other negations read it through neither
+ * insert.
  *
  * Planted in a scratch copy, each of these fails the search: no trigger on one table a rule reads; a NEW probe that
  * restricts only the first occurrence of the written relation in an arm, which misses the self-join; a key over a
@@ -470,9 +472,15 @@ type Deleted = Rel | "V"
  */
 type Edit =
 	| { readonly kind: "cluster"; readonly k: number; readonly a: number; readonly b: number }
-	| { readonly kind: "insert"; readonly relation: Rel; readonly x: number; readonly y: number }
+	| {
+			readonly kind: "insert"
+			readonly relation: Rel
+			readonly x: number
+			readonly y: number
+			readonly marked: boolean
+	  }
 	| { readonly kind: "insertT"; readonly a: number; readonly b: number }
-	| { readonly kind: "lone"; readonly k: number; readonly a: number }
+	| { readonly kind: "lone"; readonly k: number; readonly a: number; readonly marked: boolean }
 	| { readonly kind: "delete"; readonly relation: Deleted; readonly pick: number }
 	| { readonly kind: "deleteT"; readonly pick: number }
 	| { readonly kind: "unwind"; readonly pick: number }
@@ -511,15 +519,24 @@ const edits: Arr.NonEmptyReadonlyArray<Weighted<Edit>> = [
 			kind: "insert",
 			relation: s.draw(element(rels)),
 			x: s.draw(int(0, 2)),
-			y: s.draw(int(0, 2))
+			y: s.draw(int(0, 2)),
+			marked: s.draw(element([false, true]))
 		})
 	],
 	[1, (s) => ({ kind: "insertT", a: s.draw(int(0, 2)), b: s.draw(int(0, 2)) })],
-	[1, (s) => ({ kind: "lone", k: s.draw(int(0, 2)), a: s.draw(int(0, 2)) })],
+	[
+		2,
+		(s) => ({
+			kind: "lone",
+			k: s.draw(int(0, 2)),
+			a: s.draw(int(0, 2)),
+			marked: s.draw(element([false, true]))
+		})
+	],
 	[2, (s) => ({ kind: "delete", relation: s.draw(element(deleted)), pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "deleteT", pick: s.draw(int(0, 9)) })],
 	[2, (s) => ({ kind: "unwind", pick: s.draw(int(0, 9)) })],
-	[1, (s) => ({ kind: "unlone", pick: s.draw(int(0, 9)), keepV: s.draw(element([false, true])) })],
+	[3, (s) => ({ kind: "unlone", pick: s.draw(int(0, 9)), keepV: s.draw(element([false, true])) })],
 	[2, () => ({ kind: "sync" })],
 	[2, (s) => ({ kind: "list", pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "mark", form: s.draw(element(forms)), pick: s.draw(int(0, 9)) })],
@@ -692,6 +709,30 @@ const resolve = (
 			}
 		}
 	}
+	/**
+	 * Runs `write`, then moves the marks it moves: marks each row a negation gains by it, unmarks each marked row a
+	 * negation loses by it, and leaves every other mark as it stands.
+	 */
+	const moving = (write: () => void): void => {
+		const was = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
+		write()
+		const is = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
+		for (const form of forms) {
+			const code = formCode[form]
+			for (const id of was[form]) {
+				if (!is[form].includes(id) && Nr.has(markKey(code, id))) {
+					unmark(code, id)
+				}
+			}
+			for (const id of is[form]) {
+				if (!was[form].includes(id) && !Nr.has(markKey(code, id))) {
+					mark(code, id)
+				}
+			}
+		}
+	}
+	/** Runs `write`, moving the marks it moves (`moving`) exactly when `marked`. */
+	const writing = (marked: boolean, write: () => void): void => (marked ? moving(write) : write())
 	const rowsOf = (relation: Deleted): Map<number, unknown> =>
 		relation === "R" ? R : relation === "S" ? S : relation === "U" ? U : relation === "W" ? Wr : Vr
 	const deleteRow = (relation: Deleted, id: number): void => {
@@ -709,17 +750,21 @@ const resolve = (
 				insertRow("W", id, op.k, 0)
 				break
 			}
-			case "insert":
-				insertRow(op.relation, keys.fresh(), op.x, op.y)
+			case "insert": {
+				const id = keys.fresh()
+				writing(op.marked, () => insertRow(op.relation, id, op.x, op.y))
 				break
+			}
 			case "insertT":
 				insertT(op.a, op.b)
 				break
 			case "lone": {
 				const id = keys.fresh()
-				insertRow("R", id, op.k, op.a)
-				Vr.set(id, id)
-				statements.push(`INSERT INTO ${table("V")} (id) VALUES (${id})`)
+				writing(op.marked, () => {
+					insertRow("R", id, op.k, op.a)
+					Vr.set(id, id)
+					statements.push(`INSERT INTO ${table("V")} (id) VALUES (${id})`)
+				})
 				break
 			}
 			case "delete": {
@@ -806,8 +851,10 @@ const resolve = (
 					break
 				}
 				const [id, r] = found.value
-				deleteRow("R", id)
-				insertRow("S", keys.fresh(), r.k, 0)
+				moving(() => {
+					deleteRow("R", id)
+					insertRow("S", keys.fresh(), r.k, 0)
+				})
 				if (Vr.has(id)) {
 					if (op.keepV) {
 						withdrawn.push(id)
