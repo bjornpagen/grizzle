@@ -388,7 +388,7 @@ export type WorkloadHandles<R, P> = {
 }
 
 /**
- * A refresh member's handle (refresh(...) in a workload): its one operation brings its materialized derived relations to
+ * A refresh member's handle (refresh(relations) in a workload): its one operation brings its materialized derived relations to
  * their definitions, all in one transaction of the Db's role, lower levels first, each view refreshed CONCURRENTLY once
  * PostgreSQL holds it populated. A concurrent refresher's commit it meets is a TransientFailure (40001, 40P01,
  * ConcurrentRefresh), which the caller may run again; it writes only materialized views, which no law names.

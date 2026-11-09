@@ -1029,7 +1029,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
 - **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: only its handle has `page`, and generate compiles a page template for no other member. A materialized table is refreshed by the member `refresh(...tables)`.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: only its handle has `page`, and generate compiles a page template for no other member. A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
@@ -1078,7 +1078,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 export const usage = workload(Analyst, {
 	callLog: paged(callLog),
 	modelSpend,
-	nightly: refresh(ModelSpend)
+	nightly: refresh([ModelSpend])
 })
 export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [usage] })
 ```
@@ -1102,7 +1102,7 @@ export const nightly = (db: AnalystDb) => db.workload.nightly.refresh
 **What you get.**
 
 - **Pages.** `page` answers `{ edges, pageInfo }`. Each edge is a row, `{ id, model, at, cost }` with `at` and `cost` the branded `bigint`s of their contracts, and its cursor; `pageInfo` holds the first and last edges' cursors and exact `hasNextPage` and `hasPreviousPage`. A cursor is an opaque string typed to `callLog`, and checked against it when it comes back. Ties are broken by `id`, the row's key, which grizzle adds to the order. `{ last: 50, before }` pages backward.
-- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row and its handle has `get`: `spendOn` gives an `Option<{ calls: bigint; spend: Decimal }>`. `refresh(ModelSpend)` compiles only for a role whose `refresh` lists it, and `nightly` is one Effect that refreshes the view in one transaction.
+- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row and its handle has `get`: `spendOn` gives an `Option<{ calls: bigint; spend: Decimal }>`. `refresh([ModelSpend])` compiles only for a role whose `refresh` lists it, and `nightly` is one Effect that refreshes the view in one transaction.
 - **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from the rollup's key, and grants the refresh:
 
 ```sql
@@ -2348,7 +2348,7 @@ Every read takes a query and its parameters and runs in one READ ONLY transactio
 - **`db.get(target, params)`** gives an `Option` of one row: of a table by its primary key, `db.get(Post, { id })`; of a candidate key or a closed relation by its key values; or of a query that returns at most one row.
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`, `{ first, after }`, `{ last }` or `{ last, before }`. A size is any safe integer of at least 1, with no default and no largest.
 - **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, in the order the program's statements would run, never EXPLAIN ANALYZE; a ChangeSet's are taken in a transaction that is rolled back. A plan node holds only its node type, estimated startup and total cost, rows, width and children; the relation and index names and conditions PostgreSQL reports are dropped.
-- **`db.workload.<name>`** is a program in the login's workloads, compiled by `grizzle generate` and loaded when the layer was built, with exactly the operations it allows: `page` only for a member `paged(orderedQuery)`, whose page template generate compiles beside its rows. A member `refresh(...tables)` has one operation, `refresh`, an Effect that refreshes its materialized tables in one transaction, lower levels first. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them with each call: `apply(facts, params)`, where `facts` holds under each such member's relation name the rows that member takes, typed and checked as its own (an owner's insert's with their families nested, `insertAll`'s the same record it takes). A relation left out, a row that is no fact of its relation and a name that is no array member's are type errors. Every other member applies with its parameters alone.
+- **`db.workload.<name>`** is a program in the login's workloads, compiled by `grizzle generate` and loaded when the layer was built, with exactly the operations it allows: `page` only for a member `paged(orderedQuery)`, whose page template generate compiles beside its rows. A member `refresh(tables)`, of a nonempty list of tables, has one operation, `refresh`, an Effect that refreshes its materialized tables in one transaction, lower levels first. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them with each call: `apply(facts, params)`, where `facts` holds under each such member's relation name the rows that member takes, typed and checked as its own (an owner's insert's with their families nested, `insertAll`'s the same record it takes). A relation left out, a row that is no fact of its relation and a name that is no array member's are type errors. Every other member applies with its parameters alone.
 - **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send it as unnamed statements, with no index promised for it. A layer compiles the laws of the relations its workloads name and write, and no others, so a program that names or writes a relation outside them first compiles the laws of its own relations where it is compiled: at every call of `db.apply`, `db.execute` and the others, and once for a `db.compile` handle. Put the programs of your hot paths in a workload.
 - **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its compiled form drops when the handle's `Scope` ends.
 
@@ -2459,7 +2459,7 @@ of the product stands in a `get`, a nested result or an order. A query of severa
 tells its rows apart, is keyed the same way: its keys hold a key of every rule beside those literals. Columns the query
 makes equal count as one column of a key, so k equal pairs make one key, not 2^k: the index holds the first of them,
 and any of them stands for it. A materialized table changes only when a refresh refreshes it, on a role whose
-`refresh` list names it: a workload member `refresh(...tables)`, whose handle `yield* db.workload.<name>.refresh`
+`refresh` list names it: a workload member `refresh(tables)`, whose handle `yield* db.workload.<name>.refresh`
 refreshes all its tables, or `db.refresh(...tables)`, all of one call's tables, each in one transaction, lower levels
 first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
 first. A rule over either kind reads its definition, never the view.

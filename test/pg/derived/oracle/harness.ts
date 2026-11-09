@@ -214,7 +214,7 @@ export interface CaseDb {
 	/** Every fact of the relation the reads name `name`, read through its served member (everyFact). */
 	readonly read: (name: string) => Effect.Effect<ReadonlyArray<unknown>, ReadError>
 	/**
-	 * A refresh of `named` through a refresh member compiled for the Db's role, refresh(...named), run on the Db's
+	 * A refresh of `named` through a refresh member compiled for the Db's role, refresh(named), run on the Db's
 	 * context under `plan`, every transaction of it setting the plan's planner settings (perturb.ts perturbedContext),
 	 * and its statements.
 	 */
@@ -260,9 +260,9 @@ export const withCaseDb = <A, E>(
 					read: (name) => Effect.flatMap(member(members, name).execute({}), (r) => r.collect),
 					refresh: (named, plan) =>
 						Effect.gen(function* () {
-							const loaded = yield* load({ refresh: refreshMember(...named) })
+							const loaded = yield* load({ refresh: refreshMember(named) })
 							const refresh = member(loaded, "refresh")
-							assertVariant(refresh, "kind", "refresh", "refresh(...) loads a refresh member")
+							assertVariant(refresh, "kind", "refresh", "refresh(named) loads a refresh member")
 							return yield* Effect.scoped(runRefresh(contexts[plan], refresh.targets))
 						})
 				}

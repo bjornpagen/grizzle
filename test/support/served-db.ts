@@ -77,7 +77,7 @@ export const servedFixture = <L extends AnyLogin>(
 /**
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
  * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
- * relation's key or refresh(...)), into members of the role's workload under their names, and gives each one loaded, by
+ * relation's key or refresh(relations)), into members of the role's workload under their names, and gives each one loaded, by
  * name, for a test that runs it over a context or executor of its own (adapter/db/handles.ts memberOpsOn) or reads its
  * loaded program; and `serve`, which gives each one's operations over the context, by name: the operations its program
  * allows run, the others refuse before any SQL.

@@ -20,7 +20,8 @@ export const workload: WorkloadConstructor = runtime.workload
 export const paged: PagedConstructor = runtime.pagedMember
 
 /**
- * refresh(...relations): the workload member that refreshes materialized derived relations in one transaction
+ * refresh(relations): the workload member that refreshes a nonempty list of materialized derived relations in one
+ * transaction
  * (program/workload/value.ts refreshMember).
  */
 export const refresh: RefreshConstructor = runtime.refreshMember

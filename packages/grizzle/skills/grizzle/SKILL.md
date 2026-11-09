@@ -70,7 +70,7 @@ export default defineConfig({
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets, relation keys and refreshes. An ordered query the application
   pages is the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and generate compiles a page
-  template for no other member. The member `refresh(...tables)` refreshes materialized derived tables the role's
+  template for no other member. The member `refresh(tables)`, of a nonempty list, refreshes materialized derived tables the role's
   `refresh` list names: its handle is one Effect, `db.workload.<name>.refresh`, which refreshes them all in one
   transaction, lower levels first. Two programs of one name across a login's workloads are refused when the login is
   built. A ChangeSet member whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them

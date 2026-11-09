@@ -33,8 +33,9 @@ export interface Paged<O> {
 }
 
 /**
- * A workload member that refreshes the materialized derived relations Rs: refresh(...Rs), whose handle refreshes them
- * all in one transaction (`yield* db.workload.<name>.refresh`), lower levels first. It reads and writes nothing else.
+ * A workload member that refreshes the materialized derived relations of the nonempty list Rs: refresh(Rs), whose handle
+ * refreshes them all in one transaction (`yield* db.workload.<name>.refresh`), lower levels first. It reads and writes
+ * nothing else.
  */
 export interface Refresh<Rs> {
 	readonly refresh: Rs
@@ -91,7 +92,10 @@ export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, 
 /** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
 export type PagedConstructor = <const O extends OrderedBase>(ordered: O) => Paged<O>
 
-/** refresh(...relations): the workload member that refreshes the materialized derived relations `relations` (Refresh). */
+/**
+ * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list
+ * `relations` (Refresh).
+ */
 export type RefreshConstructor = <const Rs extends NonEmptyReadonlyArray<AnyMaterialized>>(
-	...relations: Rs
+	relations: Rs
 ) => Refresh<Rs>

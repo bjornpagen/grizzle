@@ -1,7 +1,7 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type WorkloadDesc, decodeDesc, type ProgramDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -117,23 +117,31 @@ export const pagedMember = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Pa
 	return value
 }
 
-/** The relations each value refresh(...) made refreshes (refreshMember). */
+/** The relations each value refresh(relations) made refreshes, as its list held them at the call (refreshMember). */
 const refreshValues = new WeakMap<object, NonEmptyReadonlyArray<unknown>>()
 
 /**
- * refresh(...relations): the workload member that refreshes the materialized derived relations `relations`, each built
- * by derived.materialized(...): its handle refreshes them all in one transaction (`yield* db.workload.<name>.refresh`), lower
- * levels first. No relation, and a value that is no materialized derived relation, throw CompileError
- * MalformedDescription synchronously; which relations a role may refresh is the compile's to judge, against its refresh
- * list.
+ * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list
+ * `relations`, each built by derived.materialized(...): its handle refreshes them all in one transaction
+ * (`yield* db.workload.<name>.refresh`), lower levels first. A value that is no list, an empty list, and an item that is
+ * no materialized derived relation throw CompileError MalformedDescription synchronously; which relations a role may
+ * refresh is the compile's to judge, against its refresh list. The compile reads the list as it held at the call, a
+ * frozen copy, and never the caller's list itself.
  */
 export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
-	...relations: Rs
+	relations: Rs
 ): Refresh<Rs> => {
-	if (!isNonEmpty(relations)) {
-		throw malformed("refresh", "refresh(...relations): at least one materialized derived relation")
+	const listed: unknown = relations
+	if (!isList(listed) || !isNonEmpty(listed)) {
+		throw malformed(
+			"refresh",
+			"refresh(relations): a list of at least one materialized derived relation"
+		)
 	}
-	for (const r of relations) {
+	const [first, ...rest] = listed
+	const copy: NonEmptyReadonlyArray<unknown> = [first, ...rest]
+	const held = Object.freeze(copy)
+	for (const r of held) {
 		if (derivedDraftOf(r)?.storage !== "materialized") {
 			throw malformed(
 				"refresh",
@@ -141,9 +149,8 @@ export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
 			)
 		}
 	}
-	const frozen = Object.freeze(relations)
-	const value: Refresh<Rs> = Object.freeze({ refresh: frozen })
-	refreshValues.set(value, frozen)
+	const value: Refresh<Rs> = Object.freeze({ refresh: relations })
+	refreshValues.set(value, held)
 	return value
 }
 

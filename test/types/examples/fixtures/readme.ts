@@ -447,7 +447,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 export const usage = workload(Analyst, {
 	callLog: paged(callLog),
 	modelSpend,
-	nightly: refresh(ModelSpend)
+	nightly: refresh([ModelSpend])
 })
 export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [usage] })
 

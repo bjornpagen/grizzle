@@ -42,11 +42,11 @@ import { caseHang } from "#test/support/limits.ts"
 /**
  * A refresh member of a login's workload is compiled by `grizzle generate` into the login's served file, and held to
  * it by `grizzle check`, as every member is: its targets are the views of the set of materialized relations its
- * refresh(...) call names, in refresh order, so a call that names other relations leaves the committed file stale.
+ * refresh(relations) call names, in refresh order, so a call that names other relations leaves the committed file stale.
  *
  * The schema holds three materialized relations over two levels above its base: Spend and Calls at the first, in that
  * order, and Usage, which joins them, at the second; the role `analyst` refreshes all three, and its login serves one
- * workload member, `nightly: refresh(...)`. A case draws two calls, each a nonempty list of the three, in any order and
+ * workload member, `nightly: refresh(relations)`. A case draws two calls, each a nonempty list of the three, in any order and
  * with repeats: the committed one, which generate drafts, and the configured one, which the configuration then names.
  *
  * The oracle is the first draft of each set of relations, taken before any case: its refresh member's targets are the
@@ -127,7 +127,7 @@ const materialized: ReadonlyArray<Materialized> = [
 const relationAt = (position: number): Materialized =>
 	defined(materialized[position], `materialized relation ${position}`)
 
-/** The configuration whose login serves `nightly: refresh(...)` of the relations at `positions`, in that order. */
+/** The configuration whose login serves `nightly: refresh(relations)` of the relations at `positions`, in that order. */
 const configOf = (positions: Arr.NonEmptyReadonlyArray<number>) =>
 	defineConfig({
 		schemas: [top],
@@ -135,7 +135,7 @@ const configOf = (positions: Arr.NonEmptyReadonlyArray<number>) =>
 			login(top, loginName, [analyst], {
 				workload: [
 					workload(analyst, {
-						[memberName]: refresh(...Arr.map(positions, (p) => relationAt(p).relation))
+						[memberName]: refresh(Arr.map(positions, (p) => relationAt(p).relation))
 					})
 				]
 			})

@@ -76,7 +76,7 @@ const build = (name: string) => {
 	const server = login(Reports, "server", [viewer, refresher], {
 		workload: [
 			workload(viewer, { scored }),
-			workload(refresher, { embeddings: refresh(Embeddings) })
+			workload(refresher, { embeddings: refresh([Embeddings]) })
 		]
 	})
 	return {
