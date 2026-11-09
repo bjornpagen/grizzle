@@ -3293,8 +3293,10 @@ class RuleCheck {
 	}
 
 	/**
-	 * A negated column correlated with a region column, which has its value type up to refinement: a serial column is
-	 * its integer, so it correlates with its integer's values.
+	 * A negated column correlated with a region column of a compatible type, compared by `=` with no cast, as a stored
+	 * foreign key compares its columns: what compatible types may differ in refines their values and leaves PostgreSQL's
+	 * equality alone, a text's pattern and bounds (every text is of the deterministic collation pg_c_utf8), a numeric's
+	 * typmod, a span's width. A serial column is its integer, so it correlates with its integer's values.
 	 */
 	#correlatedBinding(
 		col: HeadingColumn,
@@ -3307,13 +3309,6 @@ class RuleCheck {
 				"MalformedDescription",
 				at,
 				`operands of one type: ${region.name} is ${typeLabel(region.type)}, ${col.name} is ${typeLabel(col.type)}`
-			)
-		}
-		if (!sameScalarType(valueType(region.type), valueType(col.type))) {
-			fail(
-				"UnsupportedOperation",
-				at,
-				`relational negation correlating columns of different refinement or typmod, ${region.name} and ${col.name}`
 			)
 		}
 		return { kind: "correlated", column: col.name, type: col.type, left: correlation.on }

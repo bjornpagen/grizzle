@@ -10,6 +10,12 @@
  * each probe site a literal binding reaches, a match's pinned key, a withdrawn match's field, an anti-join's binding
  * and a match of a derived relation inlined in another's definition.
  *
+ * A second box correlates texts of different refinements: a containment into or out of a derived relation of Doc,
+ * read directly or through Doc's semijoin with it, between Doc's path and a Ref's of the same, a narrower or a wider
+ * pattern, the definition negating a Note of the doc's path of each of those patterns or none. Equality of two texts is
+ * the equality of their bytes whatever patterns refine them, so each correlation is admitted, as a stored foreign key
+ * between them is.
+ *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts.
  */
 import { describe, it } from "@effect/vitest"
@@ -21,6 +27,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { assert } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -119,6 +126,90 @@ const schemaOf = (c: RuleCase) => {
 	return schema.extend(Middle, "RuleQueryTop", { Read }, [rule])
 }
 
+/** The pattern a text field is refined by: Doc's own, one inside it, or one around it. */
+type Pattern = "same" | "narrower" | "wider"
+const patterns = ["same", "narrower", "wider"] as const
+
+const paths = {
+	same: str.bytes(100, str.regex("^[a-z][a-z/]*$")),
+	narrower: str.bytes(60, str.regex("^[a-z]+$")),
+	wider: str.bytes(200, str.regex("^.*$", "su"))
+} as const
+
+interface TextCase {
+	readonly ref: Pattern
+	readonly note: Pattern | "none"
+	readonly read: "itself" | "semijoin"
+	readonly rule: "into" | "out of"
+}
+
+const textCase: Gen<TextCase> = (s) => ({
+	ref: s.draw(element(patterns)),
+	note: s.draw(element(["none", ...patterns] as const)),
+	read: s.draw(element(["itself", "semijoin"] as const)),
+	rule: s.draw(element(["into", "out of"] as const))
+})
+
+const Doc = relation("Doc", { id: pg.integer, path: paths.same }, ["id"])
+const refs = {
+	same: relation("RefSame", { id: pg.integer, path: paths.same }, ["id"]),
+	narrower: relation("RefNarrower", { id: pg.integer, path: paths.narrower }, ["id"]),
+	wider: relation("RefWider", { id: pg.integer, path: paths.wider }, ["id"])
+} as const
+const notes = {
+	same: relation("NoteSame", { id: pg.integer, path: paths.same }, ["id"]),
+	narrower: relation("NoteNarrower", { id: pg.integer, path: paths.narrower }, ["id"]),
+	wider: relation("NoteWider", { id: pg.integer, path: paths.wider }, ["id"])
+} as const
+const Docs = schema(
+	"RuleQueryText",
+	{
+		Doc,
+		RefSame: refs.same,
+		RefNarrower: refs.narrower,
+		RefWider: refs.wider,
+		NoteSame: notes.same,
+		NoteNarrower: notes.narrower,
+		NoteWider: notes.wider
+	},
+	[]
+)
+
+/**
+ * The case's schema: Doc's paths derived, on a level of its own, then Doc's semijoin with them and a containment between
+ * the one the case reads and Ref's paths.
+ */
+const textSchemaOf = (c: TextCase) => {
+	const Paths = derived(
+		"Paths",
+		query(Docs).rule((r) => {
+			const { id, path } = v(Doc, "doc")
+			const docs = r.match(Doc, { id, path })
+			return (c.note === "none" ? docs : docs.where(r.not(notes[c.note], { path }))).find({
+				id,
+				path
+			})
+		})
+	)
+	const Middle = schema.extend(Docs, "RuleQueryTextMiddle", { Paths }, [])
+	const Read = derived(
+		"Read",
+		query(Middle).rule((r) => {
+			const { id, path } = v(Doc, "doc")
+			return r.match(Doc, { id, path }).match(Paths, { id, path }).find({ id, path })
+		})
+	)
+	const side = c.read === "itself" ? Paths : Read
+	const ref = refs[c.ref]
+	return schema.extend(Middle, "RuleQueryTextTop", { Read }, [
+		c.rule === "into"
+			? contained(on(ref, "path"), on(side, "path"))
+			: contained(on(side, "path"), on(ref, "path"))
+	])
+}
+
+type TextReached = `a ${Exclude<Pattern, "same">} ${"ref" | "note"}` | "into" | "out of"
+
 type Reached = `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}` | Kind
 
 describe("a rule over a query", () => {
@@ -179,4 +270,49 @@ describe("a rule over a query", () => {
 			)
 	)
 
+	it.effect(
+		"compiles whenever the builders admit it, correlating texts of different patterns as a stored foreign key does",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/theory/rule-query/text",
+						generator: textCase,
+						literal: Formatter.format,
+						limit: 100,
+						box: "every containment into and out of Doc's paths, read itself or through a semijoin, against a Ref path of Doc's, a narrower or a wider pattern, the paths negating a Note path of each pattern or none",
+						oracle: {
+							kind: "specification",
+							name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
+						},
+						coverage: requiredInSpace<TextReached>([
+							"a narrower ref",
+							"a wider ref",
+							"a narrower note",
+							"a wider note",
+							"into",
+							"out of"
+						]),
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							k.note(c.rule)
+							if (c.ref !== "same") {
+								k.note(`a ${c.ref} ref`)
+							}
+							if (c.note !== "none" && c.note !== "same") {
+								k.note(`a ${c.note} note`)
+							}
+							const compiled = testArtifacts(textSchemaOf(c), testCompile)
+							assert.deepEqual(
+								compiled.ok ? undefined : compiled.error.reason,
+								undefined,
+								`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+							)
+						})
+				)
+			)
+	)
 })

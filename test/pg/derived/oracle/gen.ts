@@ -244,11 +244,7 @@ export interface AggSketch {
 export interface RuleSketch {
 	readonly matches: ReadonlyArray<MatchSketch>
 	readonly preds: ReadonlyArray<PredSketch>
-	/**
-	 * A negation: -1 for none, otherwise a source, bound through one variable of a field's kind, never a computed numeric:
-	 * each is typed by the bound its own definition proves, so two are of different refinements, which a negation does
-	 * not correlate.
-	 */
+	/** A negation: -1 for none, otherwise a source, bound through one variable of a field's kind, never a computed numeric. */
 	readonly not: number
 	readonly head: ReadonlyArray<number>
 	readonly aggregate: boolean
