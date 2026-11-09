@@ -66,6 +66,20 @@ post-beta swarm's fixes for the next release.
     whose config note says one-pool runs at 3 to 6 workers hit 40001): qti-pie's standing sweep deletes that
     workaround in the pack that carries the fix. The file's plant (the carriers' ANALYZE dropped) fails as it should,
     but proves nothing until then.
+  - test/pg/world-model/rules.test.ts, TEST_SEED=665578811, the steered phase (seed 0x48e8b3db), case 14, replay
+    TEST_REPLAY='pg/world-model/rules:72322:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0':
+    an apply by role booker inserting into MyBooking fails with "grizzle internal invariant: the installation stores
+    relation MyBooking, which a write statement wrote" (adapter/witness/keylaw.ts tableOf, from hostRefused at
+    adapter/apply/run.ts). The shape: a role writes through a query entry whose name is not a stored relation's
+    (MyBooking, Booking's rows by the caller projected on room and during), and its ChangeSet adds two facts of one
+    key, which the host refuses before any statement. The suspected cause: the host's key refusal names the entry it
+    was stated against, while the served refusal tables (served/refusals.ts keyLawsData `tables`) hold only stored
+    relations by their own names, since 64a22953 cut to the relations a role's writes change; the served `entries`
+    map, keyed by each entry's target, already holds the entry's key mapping, so hostRefused should resolve an
+    entry's name to its target's table, or the refusal should name the target. Whether it predates 64a22953 is
+    unchecked. Neither downstream reaches it: edullm's learner and pantry's author write through no query entry (the
+    `entries` of both served files' refusals are empty at main), and their whole entries keep each relation's name,
+    which the tables hold (app.json 8 of 8, author_app.json 251).
 - **Served explain chunks under the protocol's bound, not the session's (FORMAT, after the pin):**
   adapter/served/explain.ts explainChange cuts a statement's executions under `inForce(bindFrame)`, where an
   application (adapter/apply/run.ts) cuts under the leased session's `messageMaxBytes`. On a session whose bound is
