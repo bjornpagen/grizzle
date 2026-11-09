@@ -126,9 +126,9 @@ const refillOrder = (
 				case "rows":
 					return `${n.statement}:${n.relation}`
 				case "additions":
-					return "additions"
+					return `additions:${n.member}`
 				case "removals":
-					return "removals"
+					return `removals:${n.member}`
 			}
 		}
 		edges.set(`${key(first)}\u0000${key(second)}`, { before: first, after: second })

@@ -513,18 +513,21 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							known.push(source)
 						}
 					}
-					const appended = [...sourced].map(([name, sources]): AppendedMember => {
-						const relation = info(name)
-						return { relation, layout: layoutOf(name), sources, families: familiesOf(relation) }
-					})
-					const edited = new Set(stratumEdits.map((e) => e.relation.name))
+					const member = node.member
+					const appended = [...sourced].flatMap(
+						([name, sources]): ReadonlyArray<AppendedMember> => {
+							if (name !== member) {
+								return []
+							}
+							const relation = info(name)
+							return [{ relation, layout: layoutOf(name), sources, families: familiesOf(relation) }]
+						}
+					)
 					const putOwners = ownerSlots("put").flatMap(
 						({ relation, slot }): ReadonlyArray<PutOwner> => {
 							const recounted = all.filter(
 								(f) =>
-									f.owner.name === relation &&
-									f.members.kind !== "tree" &&
-									edited.has(f.member.name)
+									f.owner.name === relation && f.members.kind !== "tree" && f.member.name === member
 							)
 							const owner = info(relation)
 							return isNonEmpty(recounted) && owner.mutable
@@ -542,7 +545,10 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
 				}
 				const removing = stratumEdits.flatMap((edit): ReadonlyArray<EditedMember> => {
-					if (edit.puts === undefined && edit.deletes === undefined) {
+					if (
+						(edit.puts === undefined && edit.deletes === undefined) ||
+						edit.relation.name !== node.member
+					) {
 						return []
 					}
 					const relation = info(edit.relation.name)

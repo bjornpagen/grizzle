@@ -689,18 +689,18 @@ const drawnBy = (f: Family): ReadonlyArray<string> => [
 ]
 
 /**
- * Where a stratum's family additions or removals stands in a cycle its stratum cannot order: the removals' first
- * member's delete; the additions' first member's insert, or its first owner's count where it appends to none.
+ * Where a stratum's family additions or removals stands in a cycle its stratum cannot order: the removals' member's
+ * delete; the additions' member's insert, or its first owner's count where it appends to none.
  */
 const familyWriteAt = (
 	node: FamilyAdditions | FamilyRemovals
 ): { readonly relation: string; readonly op: "insert" | "delete" | "count" } => {
 	if (node.kind === "removals") {
-		return { relation: node.members[0], op: "delete" }
+		return { relation: node.member, op: "delete" }
 	}
 	switch (node.appends) {
 		case "rows":
-			return { relation: node.members[0], op: "insert" }
+			return { relation: node.member, op: "insert" }
 		case "nothing":
 			return { relation: node.owners[0].relation, op: "count" }
 	}
@@ -1947,10 +1947,11 @@ const compile = (
 	}
 
 	/**
-	 * A stratum's family work as one statement of removals and one of additions (write/family/removals.ts,
-	 * write/family/additions.ts), where no nested write fills a family and nothing refills: the removals where an edit
-	 * puts or deletes, the additions where one inserts or puts, each with the members it writes and each owner of their
-	 * families, its count and ends changed; none for any other stratum, whose family statements the family planner plans.
+	 * A stratum's family work as one removals statement and one additions statement of each member relation
+	 * (write/family/removals.ts, write/family/additions.ts), where no nested write fills a family and nothing refills: a
+	 * member's removals where an edit puts or deletes it, its additions where one inserts or puts it, each with each owner
+	 * of its families, its count and ends changed, and, for a member it removes from and appends nothing to, the recount
+	 * of the owners the stratum puts; none for any other stratum, whose family statements the family planner plans.
 	 */
 	const familyWritesOf = (
 		stratum: number,
@@ -1994,16 +1995,6 @@ const compile = (
 		const removing = by(["put", "delete"])
 		const slotted = by(["insert", "put"])
 		const adding = [...new Set([...slotted, ...nested])]
-		/** The owners the additions draw: every family's of a member they append by slots, and a counted family's of a
-		 * member they append from a nesting, whose walk drew its sequences (write/family/additions.ts RowSource). */
-		const appendedOwners = ownersOfFamilies([
-			...new Set([
-				...slotFamilies(slotted),
-				...nested.flatMap((relation) =>
-					memberFamilies(relation, families).filter((f) => !isSequence(f))
-				)
-			])
-		])
 		/**
 		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
 		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
@@ -2025,33 +2016,58 @@ const compile = (
 						g.inputs.some((i) => i.kind === "single" && i.act.op === "put")
 				)
 		)
-		const recounted = [
-			...appendedOwners,
-			...put.filter((o) => !appendedOwners.some((a) => a.relation === o.relation))
-		]
+		/** The owners the stratum puts of `member`'s families, which the member's additions recount after the put. */
+		const putOf = (member: string) =>
+			ownersOfFamilies(
+				families.filter(
+					(f) =>
+						f.member.name === member &&
+						f.owner.mutable &&
+						f.members.kind !== "tree" &&
+						put.some((o) => o.relation === f.owner.name)
+				)
+			)
+		/** The owners `member`'s additions draw: every family's of its slots, a counted family's of its nested rows. */
+		const drawnOwners = (member: string) =>
+			ownersOfFamilies(
+				memberFamilies(member, families).filter(
+					(f) => !isTreeOf(f, member) && (slotted.includes(member) || !isSequence(f))
+				)
+			)
+		const recountedOnly = [
+			...new Set(families.flatMap((f) => (removing.includes(f.member.name) ? [f.member.name] : [])))
+		].filter((m) => !adding.includes(m))
 		return [
-			...(isNonEmpty(removing)
-				? [{ kind: "removals" as const, members: removing, owners: ownersOf(removing) }]
-				: []),
-			...(isNonEmpty(adding)
-				? [
-						{
-							kind: "additions" as const,
-							appends: "rows" as const,
-							members: adding,
-							owners: recounted
-						}
+			...removing.map((member) => ({
+				kind: "removals" as const,
+				member,
+				owners: ownersOf([member])
+			})),
+			...adding.map((member) => {
+				const drawn = drawnOwners(member)
+				return {
+					kind: "additions" as const,
+					appends: "rows" as const,
+					member,
+					owners: [
+						...drawn,
+						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
 					]
-				: isNonEmpty(recounted)
+				}
+			}),
+			...recountedOnly.flatMap((member) => {
+				const owners = putOf(member)
+				return isNonEmpty(owners)
 					? [
 							{
 								kind: "additions" as const,
 								appends: "nothing" as const,
-								members: [] as const,
-								owners: recounted
+								member,
+								owners
 							}
 						]
-					: [])
+					: []
+			})
 		]
 	}
 

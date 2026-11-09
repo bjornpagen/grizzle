@@ -49,43 +49,46 @@ export interface OwnerChanges {
 }
 
 /**
- * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members` and changes
- * the rows of `owners`; it appends rows, or, appending none, recounts the owners its stratum puts.
+ * One member relation's family additions in a stratum, one statement (write/family/additions.ts): it inserts rows of
+ * `member` and changes the rows of `owners`; or, appending none, it recounts the owners its stratum puts of `member`'s
+ * families. Each member relation's additions take their own place in the stratum's order, as its appends' keys need, so
+ * a member relation has one in a stratum.
  */
 export type FamilyAdditions =
 	| {
 			readonly kind: "additions"
 			readonly appends: "rows"
-			readonly members: NonEmptyReadonlyArray<string>
+			readonly member: string
 			readonly owners: ReadonlyArray<OwnerChanges>
 	  }
 	| {
 			readonly kind: "additions"
 			readonly appends: "nothing"
-			readonly members: readonly []
+			readonly member: string
 			readonly owners: NonEmptyReadonlyArray<OwnerChanges>
 	  }
 
 /**
- * A stratum's family removals as one statement (write/family/removals.ts): it deletes, re-places and updates in place
- * rows of `members`, and changes the rows of `owners` at the columns `changes` names of each, their counts and ends. Its
- * stratum's additions follow it.
+ * One member relation's family removals in a stratum, one statement (write/family/removals.ts): it deletes, re-places
+ * and updates in place rows of `member`, and changes the rows of `owners` at the columns `changes` names of each, their
+ * counts and ends. Its stratum's additions follow it.
  */
 export interface FamilyRemovals {
 	readonly kind: "removals"
-	readonly members: NonEmptyReadonlyArray<string>
-	readonly owners: ReadonlyArray<{
-		readonly relation: string
-		readonly changes: ReadonlyArray<string>
-	}>
+	readonly member: string
+	readonly owners: ReadonlyArray<OwnerChanges>
 }
 
-/** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions statement's
- * members and owners. */
+/** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions or removals
+ * statement's member, where it writes its rows, and owners. */
 export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 	node.kind === "additions" || node.kind === "removals"
-		? [...node.members, ...node.owners.map((o) => o.relation)]
+		? [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
 		: [node.relation]
+
+/** The member relation an additions or removals statement writes the rows of: its member, none where it appends none. */
+const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
+	node.kind === "additions" && node.appends === "nothing" ? [] : [node.member]
 
 /** A column PostgreSQL generates from its row, by key (write/family/fold.ts ColumnKey), with the keys of the columns it
  * reads. */
@@ -515,14 +518,15 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	references: ReadonlyArray<ImmediateReference>
 ): void => {
 	const a = action.action.relation
+	const members = writtenMembers(node)
 	if (
 		node.kind === "additions" &&
-		(node.members.some((m) => m === a) || node.owners.some((o) => o.relation === a))
+		(members.includes(a) || node.owners.some((o) => o.relation === a))
 	) {
 		y.follows.add(x)
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
-		if (node.members.some((m) => m === relation)) {
+		if (members.includes(relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
 				: { adds: true, removes: true, updates: true }
@@ -646,7 +650,8 @@ const cycleAmong = <A>(
 	throw defect("every remaining action follows an unplaced one, so the walk back meets one again")
 }
 
-/** Whether two family statements of a stratum are one: their kind, their relation and statement or their family. */
+/** Whether two family statements of a stratum are one: their kind, and their relation and statement, their family or
+ * their member. */
 export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
 	switch (a.kind) {
 		case "owners":
@@ -658,8 +663,8 @@ export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
 		case "rows":
 			return b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
 		case "additions":
-			return b.kind === "additions"
+			return b.kind === "additions" && a.member === b.member
 		case "removals":
-			return b.kind === "removals"
+			return b.kind === "removals" && a.member === b.member
 	}
 }
