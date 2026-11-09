@@ -120,8 +120,7 @@ export interface DbOf<R, P> extends QueryReader<R> {
 	): Effect.Effect<ApplyOutcome<Reads>, ApplyError>
 	/**
 	 * A query, ordered query or ChangeSet compiled once, run with each call's parameters through its handle: its
-	 * statements are server statements of the Db's pool, parsed on each session's first use, and they close, and the
-	 * compiled form drops, when the Scope ends.
+	 * compiled form drops when the Scope ends.
 	 */
 	compile<X extends CompilableProgram, A>(
 		program: CompileTarget<R, X, A>

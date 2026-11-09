@@ -6,7 +6,6 @@ import { isIP } from "node:net"
 import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
 import {
 	Array as Arr,
-	Brand,
 	Cause,
 	type Context,
 	Data,
@@ -15,12 +14,10 @@ import {
 	Effect,
 	Exit,
 	Formatter,
-	pipe,
 	Predicate,
 	Redacted,
 	Result,
-	type Scope,
-	String as Str
+	type Scope
 } from "effect"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
@@ -59,8 +56,7 @@ import {
 	messageMaxBytes,
 	nominal,
 	type OutputRows,
-	type Param,
-	sha256Hex
+	type Param
 } from "#compiler/plan/common.ts"
 
 /**
@@ -101,10 +97,8 @@ import {
  *   sent, and parameters are bound as untyped text. grizzle's own SQL never delivers NULL (absence is zero rows), so a
  *   result with a NULL cell is an unreadable answer: the statement ran, and its rows are none grizzle reads. Every row
  *   past this module is texts only.
- * - Statements. A statement runs as PostgreSQL's unnamed statement, parsed with each execution, unless it is one of the
- *   pool's server statements (ServerStatement): grizzle's fixed prologue, and the programs it compiled ahead and keeps
- *   for a stated lifetime. Each server statement has the pool's name for it, which a session parses on its first use and
- *   binds after (SessionStatements), and each runs as one role only, so its cached plan is never replanned for another.
+ * - Statements. Every statement runs as PostgreSQL's unnamed statement, parsed, bound and executed in its own
+ *   execution, so a session holds no statement between flights.
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
  *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
  *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup, within the connect
@@ -122,8 +116,7 @@ import {
  *   ask, pg's callback and the lease only in plain synchronous code, so no interruption at any step can drop one. A
  *   wait that is interrupted leaves nothing behind: a client that arrives for a lease abandoned while pg connected it
  *   goes back to the pool, and its permit with it. A lease of an ended pool is refused with LayerReleased, before pg is
- *   asked for a client. The sessions a release of server statements reaches are the open connections: a session joins
- *   them when its client is ready and leaves when its connection ends.
+ *   asked for a client.
  * - State. A session is open, retired or ended (SessionState), and moves only as sessionTransitions says: retired on an
  *   interruption with a statement in flight, a failure batch.ts cannot account for, or a transaction it could not end;
  *   ended once its connection ends, lost, ended by the server, or destroyed. A session that is not open is released
@@ -155,140 +148,6 @@ interface SessionSpec extends ParsedConnection {
 	/** The login role. */
 	readonly role: string
 	readonly startup: SessionKind
-}
-
-/**
- * A server statement: a SQL text every session parses once, under the name its text determines, and binds after. It is
- * minted (serverStatement) for what grizzle runs from a fixed list, a Db's prologue and the programs it compiled ahead,
- * each run as one role only; whoever minted it releases it (SessionPool.release), which closes it on every session that
- * parsed it. serverStatement is its one mint, so a name never stands beside another text: pg refuses to send a statement
- * under a name it parsed for another text, with a plain Error, and still sends the rest of its pipeline, COMMIT
- * included, which would commit the transaction without that statement.
- */
-export type ServerStatement = {
-	readonly name: string
-	readonly sql: EmittedText
-} & Brand.Brand<"ServerStatement">
-const mintServerStatement = Brand.nominal<ServerStatement>()
-
-/**
- * The hex digits of a server statement's name after `grizzle_`: the leading ones of its text's SHA-256, 160 bits, so
- * over n distinct texts two share a name with probability at most n(n - 1) / 2 / 2^160.
- *
- * @formatConstant a server statement's name: grizzle_ and 40 lowercase hex digits
- */
-const statementDigestHex = 40
-
-/** What every server statement's name begins with. */
-const statementNamePrefix = "grizzle_"
-
-/**
- * The bytes of every server statement's name, the one length a name a statement runs under has beside the unnamed
- * statement's empty one: its prefix and its digits, all ASCII.
- */
-export const serverStatementNameBytes = statementNamePrefix.length + statementDigestHex
-
-/**
- * The server statement of `sql`, named `grizzle_` and the first statementDigestHex hex digits of the text's SHA-256: one
- * name for one text on every session, whichever pool's Db minted it. Two programs of one text share the name;
- * releasing one closes it on every session that parsed it, and each session's parsed set, not the program, decides that
- * the other parses it again at its next use (SessionStatements.release).
- */
-export const serverStatement = (sql: EmittedText): ServerStatement =>
-	mintServerStatement({
-		name: `${statementNamePrefix}${pipe(sha256Hex(sql), Str.slice(0, statementDigestHex))}`,
-		sql
-	})
-
-/**
- * The name one execution of a statement runs under: none, PostgreSQL's unnamed statement; a server statement's name
- * this execution parses; or one an earlier execution on the session parsed, which this one binds.
- */
-export type StatementName =
-	| { readonly _tag: "unnamed" }
-	| { readonly _tag: "parsing"; readonly name: string }
-	| { readonly _tag: "parsed"; readonly name: string }
-
-export const unnamed: StatementName = { _tag: "unnamed" }
-
-/**
- * One flight's view of its session's statements while it is built: the names to close in front of it, and the name each
- * server statement runs under, as the session's parsed names and the flight's own earlier statements decide. A draft
- * changes nothing of the session; the session adopts it once its flight is written (SessionStatements.adopt), so a
- * flight refused before it is written leaves the session as it was.
- */
-export class StatementsDraft {
-	readonly #parsed: ReadonlySet<string>
-	readonly #parsing = new Set<string>()
-	/** The names the flight closes in front of its queries. */
-	readonly closes: ReadonlyArray<string>
-
-	constructor(parsed: ReadonlySet<string>, closing: ReadonlyArray<string>) {
-		this.#parsed = parsed
-		this.closes = closing.slice()
-	}
-
-	/** The name `statement` runs under in this execution: parsed now, on its first use, or bound to its earlier Parse. */
-	name(statement: ServerStatement): StatementName {
-		if (this.#parsed.has(statement.name) || this.#parsing.has(statement.name)) {
-			return { _tag: "parsed", name: statement.name }
-		}
-		this.#parsing.add(statement.name)
-		return { _tag: "parsing", name: statement.name }
-	}
-
-	/** The names the flight parses. */
-	get parsing(): ReadonlySet<string> {
-		return this.#parsing
-	}
-}
-
-/**
- * The server statements one session has parsed, by name, and the names to close in front of its next batch.
- *
- * A name whose Parse may not have run (the server skips every statement after a refused one), or that the server no
- * longer honors (26000, or 0A000 for a cached plan whose result type changed), is forgotten: closed in front of the next
- * batch, and parsed afresh at its next use. So is every name of a server statement its owner released. Closing a name
- * the server never parsed is no error.
- *
- * A flight is built over a draft (StatementsDraft) and adopted in the same synchronous step that writes it, so nothing
- * changes the session's names between the two: the names to close only grow until a flight adopts the ones it closed.
- */
-export class SessionStatements {
-	readonly #parsed = new Set<string>()
-	#closing: Array<string> = []
-
-	/** A draft of the next flight over these statements. */
-	draft(): StatementsDraft {
-		return new StatementsDraft(this.#parsed, this.#closing)
-	}
-
-	/** `draft`'s flight is written: the names it closed are closed, and the names it parses are parsed. */
-	adopt(draft: StatementsDraft): void {
-		this.#closing = this.#closing.slice(draft.closes.length)
-		for (const name of draft.parsing) {
-			this.#parsed.add(name)
-		}
-	}
-
-	/** Forgets `name`: closed in front of the next batch, and parsed again at its next use. */
-	forget(name: string): void {
-		this.#parsed.delete(name)
-		this.#closing.push(name)
-	}
-
-	/**
-	 * Forgets each of `statements` this session parsed: their owner released them. A name another live program still
-	 * runs (two programs of one text share it) is forgotten too, so that program's next use here parses it afresh behind
-	 * the Close: this set, not the program, decides whether a name is bound or parsed.
-	 */
-	release(statements: ReadonlyArray<ServerStatement>): void {
-		for (const statement of statements) {
-			if (this.#parsed.delete(statement.name)) {
-				this.#closing.push(statement.name)
-			}
-		}
-	}
 }
 
 /**
@@ -324,8 +183,6 @@ export type WireQuery =
 			readonly _tag: "statement"
 			readonly sql: SentText
 			readonly params: ReadonlyArray<Param>
-			/** The session's name for the statement in this execution. */
-			readonly name: StatementName
 	  }
 	| { readonly _tag: "control"; readonly control: TxControl }
 
@@ -356,17 +213,6 @@ const backendKeyOf = (client: PgClient): BackendKey | undefined => {
 	return Predicate.isNumber(processId) && Predicate.isNumber(secretKey)
 		? { processId, secretKey }
 		: undefined
-}
-
-/**
- * pg remembers every name it parsed on a connection, to skip the Parse when the name is bound again, in a map its
- * types leave out. A closed name is never bound again, so it leaves the map with its Close.
- */
-const forgetParsed = (client: PgClient, name: string): void => {
-	const parsed: unknown = Reflect.get(client.connection, "parsedStatements")
-	if (Predicate.isObjectKeyword(parsed)) {
-		Reflect.deleteProperty(parsed, name)
-	}
 }
 
 /** A result's rows whose every cell arrived as text: PostgreSQL's output texts, minted here, where they arrive. */
@@ -702,7 +548,6 @@ export const sessionTransitions: {
 export interface Session {
 	/** The login role the session logged in as, which its statements run as unless a prologue enters another. */
 	readonly role: string
-	readonly statements: SessionStatements
 	/**
 	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
 	 * waits on the statement it cancels.
@@ -729,15 +574,13 @@ export interface Session {
 	 */
 	readonly messageMaxBytes: number
 	/**
-	 * Writes `pipeline` in one corked write, behind a Close for each of `closes`, and reports each query's answer by its
-	 * index, then the pipeline's end: the ReadyForQuery after its last query, or the connection's end once every query
+	 * Writes `pipeline` in one corked write, and reports each query's answer by its index, then the pipeline's end: the ReadyForQuery after its last query, or the connection's end once every query
 	 * has failed. Its bytes, as pg writes them, are within flightMaxBytes, and each of its Parse and Bind messages within
 	 * messageMaxBytes. `onCut` reports, before any query fails for it,
 	 * a write that failed while its stream stood: the end of the pipeline's last message never left the process
 	 * (flightEnd).
 	 */
 	readonly send: (
-		closes: ReadonlyArray<string>,
 		pipeline: ReadonlyArray<WireQuery>,
 		onAnswer: (index: number, answer: Answer) => void,
 		onEnd: () => void,
@@ -746,29 +589,19 @@ export interface Session {
 }
 
 /**
- * A statement on the extended protocol, named or unnamed. pg sends a query without parameters or a name as a simple
- * Query message, which accepts several statements in one text, unless its `queryMode` is "extended", which pg's types
- * leave out. pg refuses a query before its bytes go out only for what this never builds: no text, parameters that are no
- * array or that its value mapper throws on (every parameter is a string, or a Uint8Array it sends in binary, a view of
- * the same bytes), or a name it parsed for another text (a
- * server statement's name is its text's, serverStatement). So a pipeline is written whole: no statement is skipped while
- * the ones after it, COMMIT included, are sent.
+ * A statement on the extended protocol, as the unnamed statement. pg sends a query without parameters or a name as a
+ * simple Query message, which accepts several statements in one text, unless its `queryMode` is "extended", which pg's
+ * types leave out. pg refuses a query before its bytes go out only for what this never builds: no text, or parameters
+ * that are no array or that its value mapper throws on (every parameter is a string, or a Uint8Array it sends in
+ * binary, a view of the same bytes). So a pipeline is written whole: no statement is skipped while the ones after it,
+ * COMMIT included, are sent.
  */
-const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }>) =>
-	query.name._tag === "unnamed"
-		? {
-				text: query.sql,
-				values: query.params.slice(),
-				rowMode: "array" as const,
-				queryMode: "extended" as const
-			}
-		: {
-				text: query.sql,
-				values: query.params.slice(),
-				rowMode: "array" as const,
-				queryMode: "extended" as const,
-				name: query.name.name
-			}
+const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }>) => ({
+	text: query.sql,
+	values: query.params.slice(),
+	rowMode: "array" as const,
+	queryMode: "extended" as const
+})
 
 const controlQuery = (sql: EmittedText) => ({ text: sql, rowMode: "array" as const })
 
@@ -791,7 +624,6 @@ const makeSession = (
 	spec: SessionSpec,
 	key: BackendKey
 ): Session => {
-	const statements = new SessionStatements()
 	let state: SessionState = "open"
 	const move = (event: SessionEvent): void => {
 		state = sessionTransitions[state][event]
@@ -801,7 +633,7 @@ const makeSession = (
 	}
 	client.on("error", end)
 	client.on("end", end)
-	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd, onCut) => {
+	const send: Session["send"] = (pipeline, onAnswer, onEnd, onCut) => {
 		const connection = client.connection
 		let answered = 0
 		let drained = false
@@ -821,10 +653,6 @@ const makeSession = (
 		client.on("end", drain)
 		connection.stream.cork()
 		const written = Result.try(() => {
-			for (const name of closes) {
-				connection.close({ type: "S", name }, false)
-				forgetParsed(client, name)
-			}
 			let next = 0
 			for (const query of pipeline) {
 				const index = next
@@ -856,7 +684,6 @@ const makeSession = (
 	}
 	return {
 		role: spec.role,
-		statements,
 		flightMaxBytes: flightMaxBytes.value,
 		messageMaxBytes: messageMaxBytes.value,
 		cancel: cancelRequest(spec, key),
@@ -1124,10 +951,6 @@ export interface SessionPool {
 	readonly size: Effect.Effect<number>
 	/** The sessions handed to a lease and not yet released; a connection still being established is none. */
 	readonly leased: Effect.Effect<number>
-	/** The sessions a release reaches: one for each connection pg's Pool connected that has not ended. */
-	readonly live: Effect.Effect<number>
-	/** Closes each of `statements` on every session that parsed it, in front of that session's next batch. */
-	readonly release: (statements: ReadonlyArray<ServerStatement>) => void
 }
 
 /**
@@ -1152,13 +975,11 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		const attemptServices: AttemptServices = { current: own, own }
 		/**
 		 * The session of each client pg's Pool connected, made when its client is ready, before anyone holds the
-		 * client, and kept beside it; a client with none had no BackendKeyData. `live` holds each session from then
-		 * until its connection ends, so it holds exactly the open ones, and an ended session goes with its client.
-		 * `wires` holds every client constructed, with the socket the transport opened for it, until it ends: what the
+		 * client, and kept beside it; a client with none had no BackendKeyData, and an ended session goes with its
+		 * client. `wires` holds every client constructed, with the socket the transport opened for it, until it ends: what the
 		 * pool's end destroys.
 		 */
 		const sessions = new WeakMap<PgClient, Session>()
-		const live = new Set<Session>()
 		const wires = new Map<PgClient, PgSocket>()
 		const handshakes: Handshakes = new WeakSet()
 		const ReleasingPool = releasingPool(spec.driver.Pool)
@@ -1175,10 +996,6 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 						return
 					}
 					sessions.set(client, session)
-					live.add(session)
-					client.once("end", () => {
-						live.delete(session)
-					})
 				}
 			}),
 			min: bounds.min,
@@ -1401,12 +1218,6 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			native,
 			lease: leaseWith(bounds.max),
 			size: Effect.sync(() => native.totalCount),
-			leased: Effect.sync(() => leased),
-			live: Effect.sync(() => live.size),
-			release: (statements) => {
-				for (const session of live) {
-					session.statements.release(statements)
-				}
-			}
+			leased: Effect.sync(() => leased)
 		}
 	})

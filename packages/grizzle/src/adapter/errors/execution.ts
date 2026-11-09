@@ -26,7 +26,6 @@ import {
 	ServerError,
 	SpanKeyChange,
 	type StaleReason,
-	StaleStatement,
 	TokenError,
 	type TransientReason,
 	UnreadableAnswer,
@@ -264,10 +263,9 @@ export class ReadFailure extends Data.TaggedError("ReadFailure")<{ readonly reas
 
 /**
  * The database refused this attempt for a reason outside the call's inputs, and the attempt changed nothing: a
- * concurrent transaction's work met it, or a server statement the session had named went stale. This is what retryable
- * means, and the only call error it applies to (Db.open's is OpenError's AdmissionTransient): the same call with the
- * same inputs may succeed if it runs again. grizzle
- * makes one attempt per call and never retries; a caller that wants another attempt runs the call again (Effect.retry
+ * concurrent transaction's work met it. This is what retryable means, and the only call error it applies to (Db.open's
+ * is OpenError's AdmissionTransient): the same call with the same inputs may succeed if it runs again. grizzle makes one
+ * attempt per call and never retries; a caller that wants another attempt runs the call again (Effect.retry
  * with its own Schedule, while the error is a TransientFailure). `reason` says what grizzle read the refusal as, and
  * `error` is the server's report of it.
  */
@@ -300,8 +298,6 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
 			return new UnseenOccupant({ relation: reason.relation, constraint: reason.constraint })
 		case "ConcurrentRefresh":
 			return new ConcurrentRefresh({ relation: reason.relation })
-		case "StaleStatement":
-			return new StaleStatement()
 	}
 }
 

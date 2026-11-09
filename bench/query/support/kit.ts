@@ -441,8 +441,7 @@ export interface Runtime {
 
 /**
  * An adapter session on a direct connection logged in as the login of `role` (fixture.world.app, or a role of a login
- * the gate installed), the session the runtime reads on as that role, its prologue's two statements server statements
- * and every other unnamed, as a Db's. Every statement its flights send is recorded with its text
+ * the gate installed), the session the runtime reads on as that role, with a Db's prologue. Every statement its flights send is recorded with its text
  * parameters, but the prologue's two statements that fence and enter the role (wire/batch.ts Prologue): they are no
  * statements of the delivery.
  */
@@ -478,19 +477,19 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	const recorded: Array<VariantStatement> = []
 	const recording: Session = {
 		...session,
-		send: (closes, pipeline, onAnswer, onEnd, onCut) => {
+		send: (pipeline, onAnswer, onEnd, onCut) => {
 			runtime.flights++
 			appendAll(
 				recorded,
 				Arr.filterMap(pipeline, (query) =>
 					query._tag === "statement" &&
-					query.sql !== prologue.fence.server.sql &&
-					query.sql !== prologue.enter.server.sql
+					query.sql !== prologue.fence.sql &&
+					query.sql !== prologue.enter.sql
 						? Result.succeed({ sql: query.sql, params: textsOfParams(query.params) })
 						: Result.failVoid
 				)
 			)
-			session.send(closes, pipeline, onAnswer, onEnd, onCut)
+			session.send(pipeline, onAnswer, onEnd, onCut)
 		}
 	}
 	const runtime: Runtime = { session: recording, prologue, recorded, flights: 0 }

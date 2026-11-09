@@ -748,7 +748,6 @@ type TransientReason =
 	| "SpanKeyChange"
 	| "UnseenOccupant"
 	| "ConcurrentRefresh"
-	| "StaleStatement"
 
 /** A read-back: a role relation over the post-change state, and the change's own delta on it. */
 export interface ReadBack {

@@ -524,12 +524,6 @@ describe("the session pool", () => {
 									c.note("idle churn closed a session")
 								}
 								const open = server.open.size
-								const live = yield* pool.live
-								assert.equal(
-									live,
-									open,
-									"the sessions a release reaches are exactly the open connections"
-								)
 								const size = yield* pool.size
 								assert.equal(size, open, "pg's Pool counts exactly the open connections")
 								assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
@@ -741,8 +735,6 @@ describe("the session pool", () => {
 							yield* Scope.close(poolScope, Exit.void)
 							yield* settle
 							assert.equal(server.open.size, 0, "the ended pool closed every connection")
-							const live = yield* pool.live
-							assert.equal(live, 0, "the ended pool keeps no session")
 						})
 				)
 			)

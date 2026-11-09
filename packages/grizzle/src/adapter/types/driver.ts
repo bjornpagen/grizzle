@@ -80,14 +80,12 @@ export interface PgPoolClient extends PgClient {
 }
 
 /**
- * A client's connection: the stream it writes a flight to, corked, and destroys; the Close of a server statement's
- * name; its `error` event, a failure of the client's own during startup; its `sslconnect`, once pg has upgraded its
- * stream to TLS and the handshake has begun; and its first ReadyForQuery, once the server has answered the startup and
+ * A client's connection: the stream it writes a flight to, corked, and destroys; its `error` event, a failure of the
+ * client's own during startup; its `sslconnect`, once pg has upgraded its stream to TLS and the handshake has begun; and its first ReadyForQuery, once the server has answered the startup and
  * sent its BackendKeyData.
  */
 interface PgConnection {
 	readonly stream: PgStream
-	close(message: { readonly type: "S"; readonly name: string }, more: boolean): void
 	on(event: "error", listener: () => void): unknown
 	once(event: "readyForQuery" | "sslconnect", listener: () => void): unknown
 }

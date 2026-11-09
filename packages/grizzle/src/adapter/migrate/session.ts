@@ -20,7 +20,6 @@ import {
 	type ApartAnswer,
 	type ApartFailure,
 	type BatchStatement,
-	type FlightStatement,
 	runAlongside,
 	runApart,
 	runTransaction,
@@ -59,7 +58,7 @@ export interface MigrationSession {
 	/** One step of statements apart in front of one transaction (batch.ts runAlongside): the answers of both. */
 	readonly alongside: (
 		apart: ReadonlyArray<BatchStatement>,
-		statements: ReadonlyArray<FlightStatement>,
+		statements: ReadonlyArray<BatchStatement>,
 		transaction: Uncommitting
 	) => Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge>
 	/**
@@ -92,7 +91,6 @@ export const apartRow = <Row>(
 export const decidingFailure = (failure: BatchFailure): StatementFailure => {
 	switch (failure._tag) {
 		case "BatchRefused":
-		case "StaleName":
 		case "CommitRefused":
 			return failure.failure
 		case "CommitLost":

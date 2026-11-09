@@ -5,7 +5,7 @@ import { makeReader, type ReaderValue, type ReadExecutor } from "#adapter/reader
 import {
 	asReadFailure,
 	type BatchOutcome,
-	type FlightStatement,
+	type BatchStatement,
 	runFramed
 } from "#adapter/wire/batch.ts"
 import * as EngineResult from "#compiler/core/result.ts"
@@ -44,7 +44,7 @@ const otherSide = (side: Side): Side => (side === "optimized" ? "conservative" :
 /** A side's flight waiting for the other's: its statements, and where its own outcomes are delivered. */
 interface Waiting {
 	readonly side: Side
-	readonly statements: ReadonlyArray<FlightStatement>
+	readonly statements: ReadonlyArray<BatchStatement>
 	readonly outcomes: Deferred.Deferred<ReadonlyArray<BatchOutcome>, ReadError>
 }
 
@@ -79,7 +79,7 @@ const arrivalAt = (meeting: Meeting, mine: Waiting): readonly [Arrival, Meeting]
 /** One flight's statements sent on a session leased from the Db's pool, in one transaction of its read frame. */
 const flown = (
 	ctx: DbContext,
-	statements: ReadonlyArray<FlightStatement>
+	statements: ReadonlyArray<BatchStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
 	Effect.scoped(
 		Effect.flatMap(
@@ -115,7 +115,7 @@ const arrive = (
 	ctx: DbContext,
 	meeting: Ref.Ref<Meeting>,
 	side: Side,
-	statements: ReadonlyArray<FlightStatement>
+	statements: ReadonlyArray<BatchStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
 	Effect.gen(function* () {
 		const mine: Waiting = {

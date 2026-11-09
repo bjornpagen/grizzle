@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Result, type Scope } from "effect"
+import { Effect, Result, type Scope } from "effect"
 import type { DbCapabilities } from "#adapter/admission/expectation.ts"
 import {
 	capabilityRefusal,
@@ -24,9 +24,8 @@ import {
 } from "#adapter/errors/execution.ts"
 import { HandleReleased } from "#adapter/errors/failures.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
-import { programTexts, whileLive } from "#adapter/reader/reader.ts"
+import { whileLive } from "#adapter/reader/reader.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
-import { mintNaming } from "#adapter/wire/naming.ts"
 import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
 export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/apply/compile.ts"
@@ -56,8 +55,7 @@ export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/
  *
  * db.compile(changes) compiles once, checks the capability and binds the ChangeSet's reads decoder, failing with
  * the CompileError itself; its handle's apply(params) runs step 2 with each call's parameters and the ChangeSet value's
- * own members. Every statement text the handle can send is a server statement of the Db's pool, parsed on each
- * session's first use and closed when the handle's Scope ends; a direct apply's run unnamed.
+ * own members.
  *
  * The outcome's reads are the ChangeSet's own reads decoder's record (write/changeset/value.ts), bound once per
  * artifact to the layout of the read-backs' Row (readback.ts); a binding it refuses fails the apply as a ChangeSet
@@ -154,8 +152,7 @@ export const apply = <R>(
 
 /**
  * A ChangeSet compiled once for a role and the contexts `claims` holds a fact of, ahead of the applies that run it: its
- * program, its read-backs' decoder bound, and a server statement name for every statement text it can send
- * (wire/naming.ts), each named from its text. db.compile compiles one for its Db's claims, and the layer one for each
+ * program and its read-backs' decoder bound. db.compile compiles one for its Db's claims, and the layer one for each
  * set of a workload ChangeSet's fill contexts.
  */
 export interface ChangeForm<R> {
@@ -171,20 +168,10 @@ export const compileChangeForm = <R>(
 	claims: ReadonlySet<string>
 ): Result.Result<ChangeForm<R>, CompileError> =>
 	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
-		Result.map(boundReads(compiled, "optimized", decoder), (bound): ChangeForm<R> => {
-			const artifact = compiled.program.artifacts.optimized
-			const naming = mintNaming([
-				...Arr.flatMap(artifact.statements, (s) =>
-					s.step.kind === "readBack"
-						? []
-						: s.forms.kind === "chosen"
-							? [s.spec.sql, s.forms.large.sql]
-							: [s.spec.sql]
-				),
-				...Arr.flatMap(bound.runs.runs, (run) => programTexts(run.program))
-			])
-			return { entry: { ...compiled, naming }, bound }
-		})
+		Result.map(boundReads(compiled, "optimized", decoder), (bound): ChangeForm<R> => ({
+			entry: compiled,
+			bound
+		}))
 	)
 
 /** The capability a change form needs that the admitted database lacks, if any. */
@@ -197,8 +184,8 @@ export const changeFormMissing = (
 const applyReleased = (): TransportFailure => new TransportFailure({ reason: new HandleReleased() })
 
 /**
- * The handle of a change form on a Db: each apply runs the form's program with that call's parameters under its
- * server statements, while `live` holds; an apply after it ends changed nothing: TransportFailure, HandleReleased.
+ * The handle of a change form on a Db: each apply runs the form's program with that call's parameters while `live`
+ * holds; an apply after it ends changed nothing: TransportFailure, HandleReleased.
  */
 export const changeHandle = <R>(
 	ctx: DbContext,
@@ -215,7 +202,7 @@ export const changeHandle = <R>(
 
 /**
  * db.compile of a ChangeSet: its change form for the Db's claims, refused with UnsupportedOperation for a capability
- * the database lacks; its server statements released when the Scope ends, after which an apply is refused.
+ * the database lacks; when the Scope ends its compiled form drops and an apply is refused.
  */
 export const compileChange = <R>(
 	ctx: DbContext,
@@ -234,7 +221,6 @@ export const compileChange = <R>(
 		yield* Effect.addFinalizer(() =>
 			Effect.sync(() => {
 				state.live = false
-				ctx.pool.release([...form.entry.naming.values()])
 			})
 		)
 		return changeHandle(ctx, form, () => state.live)

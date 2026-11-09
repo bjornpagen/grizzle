@@ -884,9 +884,6 @@ export type CursorFault = (typeof cursorFaultWords)[number]
  *   flight.
  * - `ConcurrentRefresh`: a refresh of the derived relation `relation`: another refresh of it committed after this
  *   transaction's snapshot.
- * - `StaleStatement`: a server statement the session had named no longer held on its backend (26000, or 0A000 when
- *   the cached plan changed its result type after a migration). The session has forgotten the name, so the next
- *   attempt parses the statement afresh.
  */
 export type TransientReason =
 	| { readonly _tag: "SerializationFailure" }
@@ -904,7 +901,6 @@ export type TransientReason =
 			readonly constraint: ConstraintName
 	  }
 	| { readonly _tag: "ConcurrentRefresh"; readonly relation: string }
-	| { readonly _tag: "StaleStatement" }
 export type TransientTag = TransientReason["_tag"]
 
 /**

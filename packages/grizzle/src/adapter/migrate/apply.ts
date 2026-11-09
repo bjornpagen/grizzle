@@ -416,8 +416,7 @@ const runFile = (
 			]),
 			(failure: BatchFailure | InputTooLarge) => {
 				switch (failure._tag) {
-					case "BatchRefused":
-					case "StaleName": {
+					case "BatchRefused": {
 						const index = failure.index - fence.length
 						return index < 0
 							? lockFailed(schema, at, failure.failure)
@@ -506,7 +505,6 @@ const recordFolderRow = (
 		(failure: BatchFailure | InputTooLarge) => {
 			switch (failure._tag) {
 				case "BatchRefused":
-				case "StaleName":
 					return failure.index < fence.length
 						? lockFailed(schema, at, failure.failure)
 						: failed(failure.failure)
@@ -564,8 +562,7 @@ const driftFailure = (
 	failure: BatchFailure
 ): ReplayRefused | StatementFailure => {
 	switch (failure._tag) {
-		case "BatchRefused":
-		case "StaleName": {
+		case "BatchRefused": {
 			const at = failure.index - replay.from
 			return at >= 0 && at < replay.count
 				? new ReplayRefused({ statement: at + 1, of: replay.count, failure: failure.failure })

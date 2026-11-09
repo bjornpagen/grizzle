@@ -105,8 +105,8 @@ const plannedStatements = (tap: Tap, window: WireWindow, prologue: Prologue): nu
 		}
 		const text = defined(parsed.get(bound), "a parsed statement")
 		if (
-			text !== prologue.fence.server.sql &&
-			text !== prologue.enter.server.sql &&
+			text !== prologue.fence.sql &&
+			text !== prologue.enter.sql &&
 			!regex("^\\s*CREATE\\b", "i").test(text) &&
 			!regex("^\\s*ANALYZE\\b", "i").test(text)
 		) {

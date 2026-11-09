@@ -86,12 +86,13 @@ const Entry = relation(
  * paths the queries need, and nothing else installs an index. The same fixture serves R05's keyset pages
  * (page.bench.ts), a file of its own, so a page failure records only R05's verdict:
  *
- * - R04: a range over the domain column with a closed-roster literal is an Index Cond, planned generic and planned
- *   custom, each tested separately, and the scan of Entry reads exactly the rows the query selects, the open entries
- *   in the range: the index serves the literal equality and the range, and no row is fetched to be filtered out.
+ * - R04: a range over the domain column with a closed-roster literal is an Index Cond in the plan the statement gets,
+ *   planned with its parameters as every unnamed statement is, and the scan of Entry reads exactly the rows the query
+ *   selects, the open entries in the range: the index serves the literal equality and the range, and no row is
+ *   fetched to be filtered out.
  * - R18: the range and prefix statements are single-assignment (each relation alias and each derived column defined
- *   once, read off the statement the runtime sends), and each one's server statement signature is exactly its
- *   parameter slots' types, the base type for a parameter compared with the domain column; the domain column keeps
+ *   once, read off the statement the runtime sends), and each one's statement signature is exactly its parameter
+ *   slots' types, the base type for a parameter compared with the domain column; the domain column keeps
  *   its index.
  * - R39: an equality prefix and a prefix's code-point interval (test/support/prefix.ts) are an Index Cond on both bounds, and agree
  *   with the pattern form, starts_with, on every prefix tried, supplementary-plane prefixes and a trailing U+10FFFF
@@ -199,10 +200,10 @@ type TypeListRow = readonly [types: ReadonlyArray<string>]
 type TextRow = readonly [text: string]
 
 /**
- * The parameter types PostgreSQL infers for `sql` as a server statement without declared types, which only its casts can fix (typed
- * parameters fix the server statement's signature).
+ * The parameter types PostgreSQL infers for `sql` parsed without declared types, as every statement grizzle sends is,
+ * which only its casts can fix (typed parameters fix the statement's signature): read off a PREPARE of the text.
  */
-const serverStatementTypes = Effect.fn("serverStatementTypes")(function* (
+const statementTypes = Effect.fn("statementTypes")(function* (
 	raw: RawSession,
 	sql: string,
 	name: string
@@ -215,7 +216,7 @@ const serverStatementTypes = Effect.fn("serverStatementTypes")(function* (
 	yield* raw.values(`DEALLOCATE ${name}`, [])
 	const [row] = trusted<ReadonlyArray<TypeListRow>>(rows)
 	if (row === undefined) {
-		throw new GateSetupError({ what: `no server statement ${name}` })
+		throw new GateSetupError({ what: `no prepared statement ${name}` })
 	}
 	return row[0]
 })
@@ -384,8 +385,8 @@ export default defineGate({
 	gates: ["R04", "R18", "R39"],
 	title: "Index-recognizable predicates, typed SQL and prefix search against handwritten SQL",
 	scope:
-		"A domain-typed range with a roster literal planned generic and custom (R04), the single-assignment and " +
-		"server-statement signature shape of the range and prefix statements (R18), and code-point prefix intervals against " +
+		"A domain-typed range with a roster literal planned with its parameters (R04), the single-assignment and " +
+		"statement signature shape of the range and prefix statements (R18), and code-point prefix intervals against " +
 		"starts_with over supplementary-plane text (R39). R05's keyset pages over the same fixture are page.bench.ts.",
 	phases: queryPhases,
 	options: {
@@ -429,7 +430,7 @@ export default defineGate({
 			const rangeValues = { lo: 1000n, hi: 3000n }
 			const rangeM = yield* measureQuery(runtime, raw, range, rangeValues, {
 				...measure,
-				serverPlans: ["generic", "custom"]
+				serverPlans: ["custom"]
 			})
 			const rangeHand = yield* measureVariant(
 				raw,
@@ -449,7 +450,6 @@ export default defineGate({
 				),
 				handOptions
 			)
-			const generic = serverStatementPlanOf(rangeM.generated, "generic", 0)
 			const custom = serverStatementPlanOf(rangeM.generated, "custom", 0)
 			/**
 			 * The Entry rows the query selects, open and in the range, counted once on the raw session: what a scan whose
@@ -511,8 +511,7 @@ export default defineGate({
 						Arr.map(indexes, (i) => `${i.name}(${Arr.join(i.columns, ", ")})`),
 						"; "
 					),
-					rowsReadCustom: rowsReadFrom(custom, entry),
-					rowsReadGeneric: rowsReadFrom(generic, entry)
+					rowsReadCustom: rowsReadFrom(custom, entry)
 				}
 			})
 			const r04: VerdictInput = {
@@ -523,14 +522,9 @@ export default defineGate({
 						outline(custom, 0)
 					),
 					mechanism(
-						"the generic plan's range is an Index Cond on amount",
-						amountCond(generic),
-						outline(generic, 0)
-					),
-					mechanism(
 						"the entry scan reads exactly the open entries in the range",
-						readsSelected(generic) && readsSelected(custom),
-						`${selectedRows} open entries in range; generic fetched ${rowsFetched(generic)}, custom ${rowsFetched(custom)}`
+						readsSelected(custom),
+						`${selectedRows} open entries in range; fetched ${rowsFetched(custom)}`
 					),
 					agrees("generated and conservative agree", rangeM),
 					equivalence(
@@ -674,7 +668,7 @@ export default defineGate({
 			for (const [i, { label, compiled, sql }] of judgedStatements.entries()) {
 				const statement = optimizedStatement(compiled, 0)
 				appendAll(structural, singleAssignment(label, statement))
-				const inferred = yield* serverStatementTypes(raw, sql, `gz_m15b_sig_${i}`)
+				const inferred = yield* statementTypes(raw, sql, `gz_m15b_sig_${i}`)
 				const cast: Array<string> = []
 				for (const slot of statement.params) {
 					const canonical = yield* canonicalType(raw, slotType(label, slot))
@@ -682,7 +676,7 @@ export default defineGate({
 				}
 				signatures.push(
 					mechanism(
-						`${label}: the server statement signature is the parameter slots' types`,
+						`${label}: the statement signature is the parameter slots' types`,
 						inferred.length === cast.length && Arr.every(inferred, (t, j) => t === cast[j]),
 						`${Arr.join(inferred, ", ")} vs ${Arr.join(cast, ", ")}`
 					)
@@ -692,8 +686,8 @@ export default defineGate({
 				checks: [
 					mechanism(
 						"the domain column keeps its index under a base-typed parameter",
-						amountCond(custom) && amountCond(generic),
-						`custom:\n${outline(custom, 0)}\ngeneric:\n${outline(generic, 0)}`
+						amountCond(custom),
+						outline(custom, 0)
 					),
 					...structural,
 					...signatures

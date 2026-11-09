@@ -37,7 +37,7 @@ import type {
 	Verify
 } from "#adapter/types/layer.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
-import { makePool, type SessionPool, serverStatement } from "#adapter/wire/session.ts"
+import { makePool, type SessionPool } from "#adapter/wire/session.ts"
 import { installationWitness } from "#adapter/witness/index.ts"
 import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
@@ -97,8 +97,8 @@ import { templateFor } from "#compiler/plan/read.ts"
  * snapshot's, or a program the snapshot does not record as it is, fails the layer with WorkloadUngenerated naming it;
  * the login's own PostgreSQL role; and the login's one session pool. Every session of the pool logs in as the login's
  * role (program/names.ts loginRoleName, the role roleNameOf names), which no Db outlives: each of a Db's transactions
- * enters the Db's own role by its prologue (wire/batch.ts runFramed), whose two statements are server statements of the
- * pool, named once per session. So one pool serves every role of the login. The pool lives as long as the layer, in its
+ * enters the Db's own role by its prologue (wire/batch.ts runFramed), two statements run as the login. So one pool
+ * serves every role of the login. The pool lives as long as the layer, in its
  * scope, never on globalThis. A snapshot that does not parse, a role or program that does not compile, or a login whose
  * role name the naming door refuses, a role past 63 bytes among them, fails the layer with its CompileError.
  *
@@ -162,7 +162,7 @@ export interface DbSessions {
 	readonly roles: Arr.NonEmptyReadonlyArray<LayerRole>
 	/** The one pool of the login's role. */
 	readonly pool: SessionPool
-	/** The prologue's two statements, server statements of the pool. */
+	/** The texts of the prologue's two statements. */
 	readonly prologue: PrologueStatements
 	readonly token: TokenCheck
 }
@@ -449,7 +449,7 @@ const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, 
  * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed, its codes read; the
  * login's base owned once and the login over it; then checked against the snapshot, which compiles the base's
  * artifacts once (startupCheck); every role's artifacts and programs over them; the login's role, its pool and the
- * prologue's server statements (see the header).
+ * prologue's statements (see the header).
  */
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
@@ -481,10 +481,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 		bounds: config.pool,
 		attachPool: config.attachPool
 	})
-	const prologue: PrologueStatements = {
-		fence: serverStatement(ledger.fence.text),
-		enter: serverStatement(ledger.enter.text)
-	}
+	const prologue: PrologueStatements = { fence: ledger.fence.text, enter: ledger.enter.text }
 	return {
 		login: config.login.desc,
 		loginRole,

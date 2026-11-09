@@ -22,7 +22,6 @@ import {
 	BatchRefused,
 	CommitRefused,
 	type ServerError,
-	StaleName,
 	StartupRefused
 } from "#adapter/errors/failures.ts"
 import { asReadFailure } from "#adapter/wire/batch.ts"
@@ -73,7 +72,7 @@ type DetailKind = "absent" | "empty" | "present"
 type NameKind = "absent" | "empty" | "named"
 /** A severity pg reports, a lowercase spelling of one that ends the session (no severity PostgreSQL sends), or none. */
 type Severity = "ERROR" | "FATAL" | "PANIC" | "WARNING" | "fatal" | "none"
-type Position = "statement" | "COMMIT" | "stale name"
+type Position = "statement" | "COMMIT"
 
 interface Report {
 	readonly codeKind: CodeKind
@@ -198,7 +197,7 @@ const reportGen: Gen<Report> = map(
 		severity: source.draw(
 			element<Severity>(["ERROR", "FATAL", "PANIC", "WARNING", "fatal", "none"])
 		),
-		position: source.draw(element<Position>(["statement", "COMMIT", "stale name"]))
+		position: source.draw(element<Position>(["statement", "COMMIT"]))
 	}),
 	(r): Report => ({
 		codeKind: r.code.kind,
@@ -250,8 +249,6 @@ const flightFailure = (position: Position, failure: ServerError) => {
 			return new BatchRefused({ index: 0, failure })
 		case "COMMIT":
 			return new CommitRefused({ failure })
-		case "stale name":
-			return new StaleName({ index: 0, failure })
 	}
 }
 
@@ -298,7 +295,6 @@ const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"severity none",
 	"position statement",
 	"position COMMIT",
-	"position stale name",
 	"class TransientFailure",
 	"class ReadFailure",
 	"admission transient",
@@ -403,13 +399,11 @@ describe("the failure vocabulary", () => {
 								"exactly one class"
 							)
 							const transient: TransientTag | undefined =
-								r.position === "stale name"
-									? "StaleStatement"
-									: r.code === serialization
-										? "SerializationFailure"
-										: r.code === deadlock
-											? "Deadlock"
-											: undefined
+								r.code === serialization
+									? "SerializationFailure"
+									: r.code === deadlock
+										? "Deadlock"
+										: undefined
 							if (read instanceof TransientFailure) {
 								c.note("class TransientFailure")
 								assert.ok(

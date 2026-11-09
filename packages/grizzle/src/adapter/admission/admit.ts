@@ -198,7 +198,6 @@ const fromResult = <A, E extends AdmissionFailure>(
 const flightFailure = (failure: BatchFailure): AdmissionFailure => {
 	switch (failure._tag) {
 		case "BatchRefused":
-		case "StaleName":
 		case "CommitRefused":
 			return failure.failure
 		case "ConnectionLost":

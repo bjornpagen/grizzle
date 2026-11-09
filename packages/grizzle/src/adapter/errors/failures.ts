@@ -224,8 +224,8 @@ export class LayerReleased extends Data.TaggedError("LayerReleased") {
 }
 
 /**
- * The db.compile handle was used after the Scope that compiled it ended, which released its server statements. No
- * connection was attempted.
+ * The db.compile handle was used after the Scope that compiled it ended, which dropped its compiled form. No connection
+ * was attempted.
  */
 export class HandleReleased extends Data.TaggedError("HandleReleased") {
 	override get message(): string {
@@ -765,17 +765,6 @@ export class ConcurrentRefresh extends Data.TaggedError("ConcurrentRefresh")<{
 }
 
 /**
- * A server statement the session had named no longer held on its backend (26000, or 0A000 when the cached plan
- * changed its result type after a migration). The session has forgotten the name, so the next attempt parses the
- * statement afresh.
- */
-export class StaleStatement extends Data.TaggedError("StaleStatement") {
-	override get message(): string {
-		return "a server statement the session had named went stale"
-	}
-}
-
-/**
  * Admission's transaction was refused for a reason outside Db.open's inputs, and it changed nothing: SERIALIZABLE found
  * no serial order of it and a concurrent transaction (40001), as it may for any transaction once it summarizes old
  * committed ones under load, or a deadlock (40P01). Retryable, as a call's TransientFailure is: the same Db.open may
@@ -791,9 +780,8 @@ export class AdmissionTransient extends Data.TaggedError("AdmissionTransient")<{
 }
 
 /**
- * Why a TransientFailure's attempt was refused: a concurrent transaction's work met it, or a server statement the session
- * had named went stale. Each reason carries the facts every occurrence of it has: the relation and the constraint
- * involved.
+ * Why a TransientFailure's attempt was refused: a concurrent transaction's work met it. Each reason carries the facts
+ * every occurrence of it has: the relation and the constraint involved.
  */
 export type TransientReason =
 	| SerializationFailure
@@ -803,7 +791,6 @@ export type TransientReason =
 	| SpanKeyChange
 	| UnseenOccupant
 	| ConcurrentRefresh
-	| StaleStatement
 
 /**
  * A migration holds the ledger's lock or waits for it (the lock's 55P03), or the ledger holds a folder unfinished, a run
@@ -835,20 +822,6 @@ export class BatchRefused extends Data.TaggedError("BatchRefused")<{
 	}
 }
 
-/**
- * Statement `index` ran under a name its session had parsed and the server no longer honors (26000: the backend lost
- * it; 0A000: its cached plan no longer has the statement's result type), and nothing committed. The session has
- * forgotten the name, so running the statement again parses it afresh.
- */
-export class StaleName extends Data.TaggedError("StaleName")<{
-	readonly index: number
-	readonly failure: ServerError
-}> {
-	override get message(): string {
-		return `statement ${this.index} ran under a name the server no longer honors: ${reportText(this.failure)}`
-	}
-}
-
 /** COMMIT was refused after every statement ran, and nothing committed. */
 export class CommitRefused extends Data.TaggedError("CommitRefused")<{
 	readonly failure: ServerError
@@ -859,12 +832,7 @@ export class CommitRefused extends Data.TaggedError("CommitRefused")<{
 }
 
 /** How a statement alone fails: it meets no COMMIT. */
-export type AloneFailure =
-	| BatchRefused
-	| StaleName
-	| ConnectionLost
-	| DriverFailure
-	| UnreadableAnswer
+export type AloneFailure = BatchRefused | ConnectionLost | DriverFailure | UnreadableAnswer
 
 /** How a flight fails. */
 export type BatchFailure = AloneFailure | CommitRefused | CommitLost

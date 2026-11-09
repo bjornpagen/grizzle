@@ -248,7 +248,6 @@ const refusedFeature = (reason: TransientTag): ReadonlyArray<DerivedFeature> => 
 		case "GeneratedSerialUnique":
 		case "SpanKeyChange":
 		case "UnseenOccupant":
-		case "StaleStatement":
 			return []
 	}
 }

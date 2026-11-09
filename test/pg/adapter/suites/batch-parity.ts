@@ -1,19 +1,18 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Cause, Effect, Exit, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type BatchOutcome,
 	type BatchStatement,
 	type FlightFailure,
-	type FlightStatement,
 	runFramed,
 	writeFrame
 } from "#adapter/wire/batch.ts"
-import { type ServerStatement, type SessionState, serverStatement } from "#adapter/wire/session.ts"
+import type { SessionState } from "#adapter/wire/session.ts"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, failureOf } from "#test/support/assert.ts"
@@ -32,10 +31,8 @@ import { outputRows, paramText } from "#test/support/wire.ts"
  */
 interface TappedSession {
 	readonly batch: (
-		statements: ReadonlyArray<FlightStatement>
+		statements: ReadonlyArray<BatchStatement>
 	) => Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure>
-	/** Releases server statements, as their owner does (wire/session.ts SessionPool.release). */
-	readonly release: (statements: ReadonlyArray<ServerStatement>) => void
 	readonly state: () => SessionState
 	readonly mark: () => number
 	readonly since: (mark: number) => WireWindow
@@ -77,7 +74,6 @@ const fixture = () =>
 		})
 		const session: TappedSession = {
 			batch: (statements) => runFramed(tapped.session, frame, statements),
-			release: (statements) => tapped.session.statements.release(statements),
 			state: () => tapped.session.state(),
 			mark: tapped.mark,
 			since: tapped.since,
@@ -133,9 +129,7 @@ const refusals = {
  *
  * The properties: N statements are one round trip and one transaction, each result in its place as its text; a refused
  * statement, at whichever protocol step the server refuses it (parse, bind, execute, a constraint), is named by its
- * index and SQLSTATE, the statements before it roll back and none after it runs; a statement runs unnamed unless it is
- * a server statement, which a session parses on its first use and binds after, closing and parsing afresh a name a
- * failed flight leaves uncertain or its owner releases. Interruption of a flight is test/pg/adapter/flight.test.ts's and suites/interrupt.ts's; a lease's wait for a pooled session, an
+ * index and SQLSTATE, the statements before it roll back and none after it runs. Interruption of a flight is test/pg/adapter/flight.test.ts's and suites/interrupt.ts's; a lease's wait for a pooled session, an
  * interrupted one included, is test/pg/serverless/pool.test.ts's.
  */
 export const batchParitySuite = (): void => {
@@ -336,157 +330,6 @@ export const batchParitySuite = (): void => {
 									)
 									assert.deepEqual(sequenceValue, outputRows([[String(before)]]))
 								})
-						)
-					}).pipe(Effect.scoped)
-				)
-		)
-
-		it.effect(
-			"parses a server statement on its first use and binds it after, closes what a failure or a release leaves, and runs the rest unnamed",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						/** The prologue's two statements, which every framed flight sends first (wire/batch.ts Prologue). */
-						const prologueStatements = 2
-						/** The server statements a session draws: two labels, and the refused statement; `c` runs unnamed. */
-						const servers: Readonly<Record<"a" | "b" | "boom", ServerStatement>> = {
-							a: serverStatement(testSql(`SELECT $1::text AS "a"`)),
-							b: serverStatement(testSql(`SELECT $1::text AS "b"`)),
-							boom: serverStatement(testSql("SELECT (1 / 0)::text"))
-						}
-						const unnamedSql = testSql(`SELECT $1::text AS "c"`)
-						type Label = "a" | "b" | "c" | "boom"
-						const statementOf = (label: Label): FlightStatement =>
-							label === "c"
-								? { sql: unnamedSql, params: [paramText(label)] }
-								: { server: servers[label], params: label === "boom" ? [] : [paramText(label)] }
-						/** One step: a flight of labelled statements, or the release of a label's server statement. */
-						type Step =
-							| { readonly kind: "flight"; readonly labels: ReadonlyArray<Label> }
-							| { readonly kind: "release"; readonly label: "a" | "b" }
-						/** The names of one session as its traffic shows them. */
-						const namesOf = (session: TappedSession) => {
-							/** Names parsed by a flight that succeeded, or before a failed flight's refusal, and not closed since. */
-							const live = new Set<string>()
-							/** Names a failed flight was parsing at or after its refusal, whose Parse may not have run. */
-							const uncertain = new Set<string>()
-							/** Names released and not closed since: the next flight closes each before anything else. */
-							const released = new Set<string>()
-							return (step: Step) =>
-								Effect.gen(function* () {
-									if (step.kind === "release") {
-										const server = servers[step.label]
-										session.release([server])
-										if (live.has(server.name)) {
-											released.add(server.name)
-										}
-										return
-									}
-									const batch = step.labels
-									const mark = session.mark()
-									const exit = yield* Effect.exit(session.batch(Arr.map(batch, statementOf)))
-									const window = session.since(mark)
-									const refused = batch.indexOf("boom")
-									if (refused < 0) {
-										assert.ok(
-											Exit.isSuccess(exit),
-											"a flight without the refused statement succeeds"
-										)
-										if (Exit.isSuccess(exit)) {
-											assert.deepEqual(
-												Arr.map(exit.value, (outcome) => outcome.rows),
-												Arr.map(batch, (label) => outputRows([[label]]))
-											)
-										}
-									} else {
-										assert.ok(Exit.isFailure(exit), "a flight with the refused statement fails")
-										const failure = Exit.isFailure(exit) ? Cause.findError(exit.cause) : undefined
-										assert.ok(failure !== undefined && Result.isSuccess(failure))
-										assert.equal(failure.success._tag, "BatchRefused")
-										if (failure.success._tag === "BatchRefused") {
-											assert.equal(failure.success.index, refused)
-										}
-									}
-									/**
-									 * Walk the flight's messages: the statement a Parse or Bind belongs to is the number of
-									 * Executes before it, the prologue's (the flight's first two, at -2 and -1) aside. A
-									 * statement binds a name it or an earlier statement of the flight parsed, or a live one.
-									 */
-									const parsedHere = new Set<string>()
-									let statement = -prologueStatements
-									for (const message of window.frontend) {
-										if (message.type === "E") {
-											statement++
-										}
-										if (message.type === "C") {
-											live.delete(message.name)
-											uncertain.delete(message.name)
-											released.delete(message.name)
-										}
-										if (message.type === "P" && message.name === "") {
-											assert.equal(
-												message.text,
-												unnamedSql,
-												"only a statement no server statement names runs unnamed"
-											)
-										}
-										if (message.type === "P" && message.name !== "") {
-											assert.ok(
-												!live.has(message.name) && !uncertain.has(message.name),
-												`${message.name} parsed again before its Close`
-											)
-											parsedHere.add(message.name)
-											if (refused >= 0 && statement >= refused) {
-												uncertain.add(message.name)
-											} else {
-												live.add(message.name)
-											}
-										}
-										if (message.type === "B" && message.name !== "") {
-											assert.ok(
-												live.has(message.name) || parsedHere.has(message.name),
-												`statement ${statement} binds ${message.name}, which was not parsed or was closed`
-											)
-										}
-									}
-									assert.equal(released.size, 0, "every released name is closed by the next flight")
-								})
-						}
-						const label = element<Label>(["a", "b", "c", "boom"])
-						const steps = array(
-							weighted<Step>([
-								[
-									4,
-									map(array(label, { min: 1, max: 4 }), (labels): Step => ({
-										kind: "flight",
-										labels
-									}))
-								],
-								[
-									1,
-									map(element<"a" | "b">(["a", "b"]), (l): Step => ({ kind: "release", label: l }))
-								]
-							]),
-							{ min: 4, max: 14 }
-						)
-						const tapped = yield* fixture()
-						const run = namesOf(tapped.session)
-						return yield* explore(
-							{
-								oracle: { kind: "unstated" },
-								suite: `pg/adapter/batch-parity/names`,
-								draw: drawn(steps),
-								literal: Formatter.format,
-								coverage: noCoverage,
-								kept: [],
-								runs: 8,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang
-							},
-							(drawnSteps) => Effect.forEach(drawnSteps, run, { discard: true })
 						)
 					}).pipe(Effect.scoped)
 				)

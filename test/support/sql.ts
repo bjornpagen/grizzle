@@ -1,5 +1,4 @@
 import { Array as Arr, Order, String as Str } from "effect"
-import type { FlightStatement } from "#adapter/wire/batch.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -49,10 +48,6 @@ export const testSql = nominal<string, EmittedText>()
  * (physical/ddl/names.ts) or the snapshot's codec.
  */
 export const testTypeSchema = nominal<string, TypeSchema>()
-
-/** The SQL text a flight statement runs: a server statement's, or the unnamed statement's own. */
-export const statementSql = (statement: FlightStatement): string =>
-	"server" in statement ? statement.server.sql : statement.sql
 
 /**
  * A key column of a closed relation built by hand (ClosedRelation): the int2 column, named `C`, that holds its code, and

@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, type Option, Record as Rec, Result, type Scope } from "effect"
+import { Effect, type Option, Result, type Scope } from "effect"
 import { type DbCapabilities, missingExtension } from "#adapter/admission/expectation.ts"
 import { type DbContext, dbReadFrame, type RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
@@ -11,7 +11,6 @@ import {
 } from "#adapter/errors/failures.ts"
 import { page as pageRuntime } from "#adapter/page/index.ts"
 import { compiledPageTemplate, type PageSource } from "#adapter/page/page.ts"
-import type { PageRuntime } from "#adapter/page/template.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
@@ -33,12 +32,10 @@ import type {
 	QueryResult
 } from "#adapter/types/db.ts"
 import { asReadFailure, type Flight, runFramed } from "#adapter/wire/batch.ts"
-import { mintNaming, nameStatements, type StatementNaming } from "#adapter/wire/naming.ts"
 import {
 	bindGroups,
 	type CompileError,
 	type CursorError,
-	type EmittedText,
 	Engine,
 	malformedDescription,
 	type ParamArg,
@@ -77,9 +74,8 @@ import {
  *   Option. get(key, values) builds the keyed lookup (key.ts) and reads it the same way, its row decoded by the keyed
  *   relation's fact decoder.
  * - compile(query, decoder), what db.compile runs for a query or ordered query, compiles its read form once
- *   (compileReadForm: the template and its parameters' codecs, the query's decoder bound, an ordered query's page
- *   template, and a server statement name for every statement text the handle can send, named from its text), checks
- *   its capability, and releases the names on every session that parsed them when its Scope ends. The layer compiles
+ *   (compileReadForm: the template and its parameters' codecs, the query's decoder bound, and an ordered query's page
+ *   template), checks its capability, and drops it when its Scope ends. The layer compiles
  *   the same read form for each query and key of the login's workloads, once (db/workload.ts). A form's handle
  *   (readHandle) executes, gets and pages with each call's parameters. Direct execute and a compiled handle run the
  *   same template, so the same SQL texts.
@@ -133,37 +129,6 @@ export const poolExecutor = (ctx: Pick<DbContext, "pool" | "prologue">): ReadExe
 			})
 		)
 })
-
-/**
- * An executor that runs each flight as a compiled program of `naming` runs it: every statement text the program named
- * under its server statement (wire/naming.ts), the rest unnamed.
- */
-const namingExecutor = (executor: ReadExecutor, naming: StatementNaming): ReadExecutor => ({
-	run: (flight) =>
-		executor.run({ statements: nameStatements(naming, flight.statements), read: flight.read })
-})
-
-/** Every statement text a run statement can send: its own form, and its large form when it has one. */
-const runTexts = (run: {
-	readonly spec: { readonly sql: EmittedText }
-	readonly forms:
-		| { readonly kind: "one" }
-		| { readonly kind: "chosen"; readonly large: { readonly spec: { readonly sql: EmittedText } } }
-}): ReadonlyArray<EmittedText> =>
-	run.forms.kind === "chosen" ? [run.spec.sql, run.forms.large.spec.sql] : [run.spec.sql]
-
-/** Every statement text a read program can send. */
-export const programTexts = (program: ReadProgram): ReadonlyArray<EmittedText> =>
-	Arr.flatMap(program.records, (r) => runTexts(r.run))
-
-/** Every statement text a page runtime template can send, for its every request variant and probe, of both artifacts. */
-const pageTexts = (runtime: PageRuntime): ReadonlyArray<EmittedText> =>
-	Arr.flatMap(Rec.values(runtime.artifacts), (artifact) => [
-		...Arr.flatMap(Rec.values(artifact.requests), (request) =>
-			Arr.flatMap(request.records, (r) => runTexts(r.run))
-		),
-		...Arr.flatMap(Rec.values(artifact.probes), (probe) => runTexts(probe.statement))
-	])
 
 /**
  * The readers are built under their public types (types/db QueryReader, QueryResult): makeReader's methods
@@ -335,9 +300,9 @@ const runBound = <A, X>(
 	})
 
 /**
- * `run` while the Scope of the compiled handle it belongs to holds, and `released` after it ends: the handle's server
- * statements are released with its Scope, and any reference can outlive a Scope, so a use after it is the caller's,
- * refused with HandleReleased before any SQL.
+ * `run` while the Scope of the compiled handle it belongs to holds, and `released` after it ends: the handle's compiled
+ * form drops with its Scope, and any reference can outlive a Scope, so a use after it is the caller's, refused with
+ * HandleReleased before any SQL.
  */
 export const whileLive = <X, E>(
 	live: () => boolean,
@@ -350,16 +315,14 @@ const readReleased = (): ReadFailure => new ReadFailure({ reason: new HandleRele
 
 /**
  * A query compiled once for a role, ahead of the reads that run it: its template and parameters' codecs, its decoder
- * bound, an ordered query's page template, whether get may read it, and a server statement name for every statement
- * text its reads can send (wire/naming.ts), each named from its text. db.compile compiles one for its Db, and the layer
- * one for each query and key of the login's workloads, for every role it runs on.
+ * bound, an ordered query's page template, and whether get may read it. db.compile compiles one for its Db, and the
+ * layer one for each query and key of the login's workloads, for every role it runs on.
  */
 export interface ReadForm<A> {
 	readonly query: unknown
 	readonly decoder: () => RowDecoder<A>
 	readonly bound: Bound<A>
 	readonly page: PageSource
-	readonly naming: StatementNaming
 	readonly eligible: ReturnType<typeof getEligibility>
 }
 
@@ -375,16 +338,11 @@ export const compileReadForm = <A>(
 		const page: PageSource = isOrderedValue(query)
 			? { kind: "compiled", page: yield* compiledPageTemplate(role, query) }
 			: { kind: "query" }
-		const naming = mintNaming([
-			...programTexts(compiled.program),
-			...(page.kind === "compiled" ? pageTexts(page.page.runtime) : [])
-		])
 		return {
 			query,
 			decoder,
 			bound,
 			page,
-			naming,
 			eligible: getEligibility(compiled.compiled.template)
 		}
 	})
@@ -400,8 +358,8 @@ export const readFormMissing = (
 		: undefined)
 
 /**
- * The handle of a read form on a Db: its reads run through `executor` under the form's server statements, while
- * `live` holds; a read after it ends is refused with HandleReleased.
+ * The handle of a read form on a Db: its reads run through `executor` while `live` holds; a read after it ends is
+ * refused with HandleReleased.
  */
 export const readHandle = <A>(
 	ctx: DbContext,
@@ -409,25 +367,24 @@ export const readHandle = <A>(
 	form: ReadForm<A>,
 	live: () => boolean
 ): CompiledRead<A> => {
-	const named = namingExecutor(executor, form.naming)
 	const alive = <X, E>(read: () => Effect.Effect<X, E>) =>
 		whileLive<X, E | ReadFailure>(live, readReleased, read)
 	const { bound, eligible } = form
 	return {
 		compiled: bound.compiled.compiled,
 		execute: (params) =>
-			alive(() => Effect.map(runBound(bound, params, named, programFlight), collected)),
+			alive(() => Effect.map(runBound(bound, params, executor, programFlight), collected)),
 		get: (params) =>
 			alive(() =>
 				Result.isFailure(eligible)
 					? Effect.fail(new ReadFailure({ reason: eligible.failure }))
-					: runBound(bound, params, named, programGetFlight)
+					: runBound(bound, params, executor, programGetFlight)
 			),
 		page: <Q>(params: ParamMap, request: unknown) =>
 			alive(() =>
 				pageRuntime<A, Q>({
 					ctx,
-					executor: named,
+					executor,
 					query: form.query,
 					decoder: form.decoder,
 					params,
@@ -550,8 +507,8 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 
 	/**
 	 * The compiled read of `query` for db.compile (see the header): its read form compiled once, refused with
-	 * UnsupportedOperation for a capability the database lacks; its server statements released when the Scope ends,
-	 * after which the handle's compiled form is dropped and a read of it is refused with HandleReleased.
+	 * UnsupportedOperation for a capability the database lacks; when the Scope ends the handle's compiled form is
+	 * dropped and a read of it is refused with HandleReleased.
 	 */
 	const compileRead = <A>(
 		query: unknown,
@@ -569,7 +526,6 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			yield* Effect.addFinalizer(() =>
 				Effect.sync(() => {
 					state.live = false
-					ctx.pool.release([...form.naming.values()])
 				})
 			)
 			return readHandle(ctx, executor, form, () => state.live)

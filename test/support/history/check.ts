@@ -27,7 +27,7 @@ export interface WitnessKey {
 
 /**
  * The TransientFailure reasons a law family's writes can meet, each from a concurrent transaction: no family writes
- * serial fields, migrates or refreshes, so GeneratedSerialUnique, StaleStatement and ConcurrentRefresh never apply.
+ * serial fields or refreshes, so GeneratedSerialUnique and ConcurrentRefresh never apply.
  */
 const concurrentReasons = [
 	"SerializationFailure",

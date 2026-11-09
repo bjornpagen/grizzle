@@ -8,7 +8,7 @@ import {
 	TransientFailure,
 	TransportFailure
 } from "#adapter/errors/execution.ts"
-import { ConcurrentRefresh, type ServerError, StaleStatement } from "#adapter/errors/failures.ts"
+import { ConcurrentRefresh, type ServerError } from "#adapter/errors/failures.ts"
 import {
 	concurrentRefreshPosition,
 	populatedParams,
@@ -116,10 +116,6 @@ const refreshFailure =
 			case "CommitRefused":
 			case "PrologueRefused":
 				return Effect.fail(classifyRefreshFailure(failure.failure))
-			case "StaleName":
-				return Effect.fail(
-					new TransientFailure({ reason: new StaleStatement(), error: failure.failure })
-				)
 			case "CommitLost":
 				return Effect.fail(new CommitUnknown())
 			case "ConnectionLost":

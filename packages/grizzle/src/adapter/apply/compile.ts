@@ -5,7 +5,6 @@ import type { RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
-import { type StatementNaming, unnamedNaming } from "#adapter/wire/naming.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
 import {
 	type CompiledWrite,
@@ -47,8 +46,6 @@ export interface WriteEntry {
 	readonly schema: SchemaFingerprint
 	readonly names: WriteNames
 	readonly violation: ViolationClassifier
-	/** The program's server statements: none for a program compiled for one apply, its own for db.compile's. */
-	readonly naming: StatementNaming
 	/** The read-backs of each artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBacks
 	/** The codecs of the program's declared parameters, which its read-backs read, built with the program. */
@@ -115,7 +112,6 @@ const writeEntry = (
 			schema: role.artifacts.fingerprint,
 			names: role.artifacts.names,
 			violation: role.witness.classify,
-			naming: unnamedNaming,
 			readBacks: readBacks(program, role.artifacts.names.codes),
 			codecs: paramCodecs(program.params, role.artifacts.names.codes),
 			bind: role.bind

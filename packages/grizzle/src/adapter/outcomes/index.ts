@@ -91,9 +91,9 @@ export type Classified =
 
 /**
  * Where in a write's flights the server raised what is classified, by its statement's index across them: a family's
- * stored-suffix read, which a write whose plan reads sends first, in a flight of its own in the same transaction
- * (write/family/statements.ts suffixReadSql); the write statement at `index`, an execution of its step, a family step's chunk;
- * a read-back statement, which follows the write statements; or the COMMIT.
+ * read of its stored members, which a write whose plan reads sends first, in a flight of its own in the same
+ * transaction; the write statement at `index`, an execution of its step, a family step's chunk; a read-back statement,
+ * which follows the write statements; or the COMMIT.
  */
 export type FailureOrigin =
 	| { readonly kind: "read"; readonly index: number; readonly family: FamilyId }

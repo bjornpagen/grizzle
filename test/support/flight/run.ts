@@ -99,10 +99,10 @@ const sessionOf = (
 				if (planned !== undefined) {
 					return answerOf(planned)
 				}
-				if (call.kind === "framed" && query.sql === flightPrologue.fence.server.sql) {
+				if (call.kind === "framed" && query.sql === flightPrologue.fence.sql) {
 					return prologueAnswerOf("lock", stepAnswer(call.prologue, "lock"))
 				}
-				if (call.kind === "framed" && query.sql === flightPrologue.enter.server.sql) {
+				if (call.kind === "framed" && query.sql === flightPrologue.enter.sql) {
 					return prologueAnswerOf("guard", stepAnswer(call.prologue, "guard"))
 				}
 				throw new Error(`the case sends no statement ${query.sql}`)
@@ -167,8 +167,7 @@ export const observationsOf = (
 			Arr.map(
 				Arr.filter(
 					session.committed(),
-					(sql) =>
-						sql !== flightPrologue.fence.server.sql && sql !== flightPrologue.enter.server.sql
+					(sql) => sql !== flightPrologue.fence.sql && sql !== flightPrologue.enter.sql
 				),
 				labelOf
 			),

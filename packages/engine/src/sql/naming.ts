@@ -89,8 +89,8 @@ const ordinalDigits = String(Number.MAX_SAFE_INTEGER).length
 /**
  * The hex digits of a carrier's types digest: the leading digits of SHA-256 over its column types' canonical text.
  * Collision arithmetic: n distinct column-type lists in one process share a digest with probability at most
- * n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one meet only PostgreSQL's refusal of a cached
- * plan whose result type changed (StaleStatement), and one program that holds both is refused at compile time
+ * n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one never meet, since a carrier lives in
+ * one transaction and every statement runs unnamed, and one program that holds both is refused at compile time
  * (write/carriers CarrierSupply).
  */
 export const carrierDigestHex = derived({

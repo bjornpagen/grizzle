@@ -1029,7 +1029,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
 - **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts and prepares them on each connection, and `grizzle generate` derives the indexes they need.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts, and `grizzle generate` derives the indexes they need.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
@@ -1165,7 +1165,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
-| `workload(...)` | the indexes and extended statistics its programs need; the programs compiled when the app starts and prepared on each connection |
+| `workload(...)` | the indexes and extended statistics its programs need; the programs compiled when the app starts |
 | `derived(...)` | nothing: every query that matches it and every rule over it reads its definition |
 | `derived.materialized(...)` | a materialized view, uniquely indexed on the keys it provably has |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
@@ -2330,9 +2330,9 @@ Every read takes a query and its parameters and runs in one READ ONLY transactio
 - **`db.get(target, params)`** gives an `Option` of one row: of a table by its primary key, `db.get(Post, { id })`; of a candidate key or a closed relation by its key values; or of a query that returns at most one row.
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`, `{ first, after }`, `{ last }` or `{ last, before }`. A size is any safe integer of at least 1, with no default and no largest.
 - **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, in the order the program's statements would run, never EXPLAIN ANALYZE; a ChangeSet's are taken in a transaction that is rolled back. A plan node holds only its node type, estimated startup and total cost, rows, width and children; the relation and index names and conditions PostgreSQL reports are dropped.
-- **`db.workload.<name>`** is a program in the login's workloads, compiled when the layer was built, with exactly the operations it allows. Its statements are prepared on each connection's first use and kept for the pool's life.
+- **`db.workload.<name>`** is a program in the login's workloads, compiled when the layer was built, with exactly the operations it allows.
 - **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send it as unnamed statements, with no index promised for it.
-- **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its prepared statements close, and its compiled form drops, when the handle's `Scope` ends.
+- **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its compiled form drops when the handle's `Scope` ends.
 
 ## Writes
 
@@ -2794,8 +2794,7 @@ direct writer's refusal by the check names it, so take it from grizzle and never
   Effect fails with `CredentialError`, and your `verify` with `TokenError`.
 - **`TransientFailure`**: the attempt changed nothing and may succeed if run again. Its reason is `SerializationFailure`
   (40001), `Deadlock` (40P01), a concurrent transaction's work the statement met (`PutTargetConflict`,
-  `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`), or `StaleStatement`, a prepared
-  statement the server no longer honors; `error` is the server's report. grizzle never retries: use `Effect.retry` with
+  `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`); `error` is the server's report. grizzle never retries: use `Effect.retry` with
   your own `Schedule`. `Db.open`'s retryable case is an `OpenError` with reason `AdmissionTransient`: open again.
 - **`CommitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
   running it again. A write the socket failed before COMMIT's last byte left the process is `TransportFailure`
@@ -3198,7 +3197,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone, a family write's included: one copy of each value, made as the call is sent, after its member is measured from its values' lengths.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
 - **A call's flight is at most 1,908,342,784 bytes** (`flightMaxBytes`): every message the driver writes for it, its statements' texts and parameters among them, in the one write a round trip is. Node hands that write to one `SSL_write`, whose length is a C int, and its ciphertext to one send, which macOS refuses past 2,147,483,647 bytes, so the bound is the whole TLS 1.2 records whose largest ciphertext fits one send. A longer flight is `InputTooLarge` (`flight`) before any byte is written: grizzle never splits a call into more round trips, so split the input across calls. Without the bound such a write fails whole, the connection ends with a transaction open, and a write would report `CommitLost` though nothing committed.
-- **A statement's Parse message is at most 1,073,741,822 bytes** (`messageMaxBytes`): its text, its name (none, or a server statement's 48 bytes) and 8 bytes of fields, as the driver writes it. A longer one is `InputTooLarge` (`parse`) before any byte of its flight is written, where the server would end the connection at it.
+- **A statement's Parse message is at most 1,073,741,822 bytes** (`messageMaxBytes`): its text and 8 bytes of fields, as the driver writes it. A longer one is `InputTooLarge` (`parse`) before any byte of its flight is written, where the server would end the connection at it.
 - **A generated text is at most 536,870,888 UTF-16 code units**, about 512 MiB of ASCII: each SQL statement, migration file, `snapshot.json` and fingerprint text. `generate` and `check` refuse a schema past it with `ResourceBound`.
 - **A closed relation is as large as its key's code space**: a cell per combination of its key fields' codes, written in its migration as one hex literal of a digit per four bits of code space times its cell's bits, whatever its rows. Prefer dense coordinates, such as slots, whose space is each owner's counts, to a sparse product of rosters ([Closed relations](#closed-relations)). Its constant has at most 2,147,483,640 bits, PostgreSQL's longest bit string, payload codes whose product is at most 2,147,483,647, the most a cell read as an integer holds, and a literal of at most 536,870,888 digits. Past any, the schema is `ResourceBound` when it compiles, the literal's as `stringLength`. `grizzle check` refuses a literal its comment or its function's name does not digest, naming the first cell that differs from the declared rows, and that cell's key.
 - **PostgreSQL's own limits are `ResourceBound` where grizzle emits what they bound**: a table's 1,600 columns, a relation's generated rule columns included (checked when its schema compiles), as for a view, a derived table or a write's temporary table; a select list's 1,664 entries; and a statement's 1,073,741,822 bytes and 65,535 parameters (a 16-bit count). Dropped columns count toward the 1,600, so PostgreSQL itself refuses an added column past them. A row must fit one 8 KB heap page once its long values are stored out of line, which PostgreSQL checks when it writes the row.

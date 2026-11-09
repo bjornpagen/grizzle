@@ -11,7 +11,6 @@ import {
 	type ApplyError,
 	CommitUnknown,
 	ExecutionFailure,
-	TransientFailure,
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import {
@@ -20,7 +19,6 @@ import {
 	literalBound,
 	messageBound,
 	type MissingCapability,
-	StaleStatement,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
@@ -38,13 +36,11 @@ import {
 	type BatchStatement,
 	bindFrame,
 	type FlightFailure,
-	type FlightStatement,
 	type Frame,
 	joinFlights,
 	runFramed,
 	runFramedTwice
 } from "#adapter/wire/batch.ts"
-import { nameStatements } from "#adapter/wire/naming.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
 import {
@@ -344,10 +340,6 @@ const flightFailure = <R>(
 			return outcomeOf(
 				classifyServerError(failure.failure, { ...context, origin: { kind: "commit" } })
 			)
-		case "StaleName":
-			return Effect.fail(
-				new TransientFailure({ reason: new StaleStatement(), error: failure.failure })
-			)
 		case "CommitLost":
 			return Effect.fail(new CommitUnknown())
 		case "ConnectionLost":
@@ -454,11 +446,11 @@ export const runWrite = <R>(
 		const closing = (
 			chunks: Chunks,
 			before: ReadonlyArray<SentStatement>
-		): Result.Result<ReadonlyArray<FlightStatement>, InputFailure> =>
+		): Result.Result<ReadonlyArray<BatchStatement>, InputFailure> =>
 			Result.map(writeStatements(artifact, inputs, chunks), (w) => {
 				sent = [...before, ...w.sent]
 				written = sent.length
-				return nameStatements(entry.naming, [...w.statements, ...backs.statements])
+				return [...w.statements, ...backs.statements]
 			})
 		let ran: Result.Result<
 			ReadonlyArray<BatchOutcome>,
@@ -484,10 +476,7 @@ export const runWrite = <R>(
 				runFramedTwice(
 					session,
 					frame,
-					nameStatements(
-						entry.naming,
-						Arr.map(flights.reads, (r): BatchStatement => ({ sql: r.sql, params: r.params }))
-					),
+					Arr.map(flights.reads, (r): BatchStatement => ({ sql: r.sql, params: r.params })),
 					(outcomes) => {
 						sent = read
 						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))
@@ -495,7 +484,7 @@ export const runWrite = <R>(
 							stated = filled.value.stated
 						}
 						const second: Result.Result<
-							ReadonlyArray<FlightStatement>,
+							ReadonlyArray<BatchStatement>,
 							InputFailure | GeneratedRejection
 						> = filled.ok
 							? closing(filled.value.chunks, read)

@@ -10,7 +10,6 @@ import {
 	type SessionEvent,
 	type SessionPool,
 	type SessionState,
-	SessionStatements,
 	sessionTransitions,
 	type TxControl
 } from "#adapter/wire/session.ts"
@@ -95,7 +94,6 @@ export interface Delivered {
 }
 
 export interface SentFlight {
-	readonly closes: ReadonlyArray<string>
 	readonly pipeline: ReadonlyArray<WireQuery>
 	/** The answers delivered so far, by pipeline position. */
 	readonly delivered: ReadonlyArray<Delivered | undefined>
@@ -225,7 +223,6 @@ interface Running {
  */
 export const scriptedSession = (script: Script, options: ScriptedOptions): ScriptedSession => {
 	const delivery = options.delivery
-	const statements = new SessionStatements()
 	const flights: Array<SentFlight> = []
 	const committed: Array<string> = []
 	/**
@@ -452,7 +449,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		}
 	}
 
-	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd) => {
+	const send: Session["send"] = (pipeline, onAnswer, onEnd) => {
 		const flight: Running = {
 			pipeline,
 			delivered: Array.from({ length: pipeline.length }, (): Delivered | undefined => undefined),
@@ -465,7 +462,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			onAnswer,
 			onEnd
 		}
-		flights.push({ closes, pipeline, delivered: flight.delivered, made: flight.made })
+		flights.push({ pipeline, delivered: flight.delivered, made: flight.made })
 		running = flight
 		if (pipeline.length === 0) {
 			running = undefined
@@ -550,7 +547,6 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	return {
 		role: scriptedRole,
-		statements,
 		flightMaxBytes: flightMaxBytes.value,
 		messageMaxBytes: messageMaxBytes.value,
 		cancel,
@@ -583,11 +579,6 @@ export const firstCells = (outcomes: ReadonlyArray<BatchOutcome>): ReadonlyArray
 const unused = (member: string): Effect.Effect<never> =>
 	Effect.die(new Error(`scripted: ${member} is unused`))
 
-/** The defect of a function member the scenario does not use. */
-const unusedCall = (member: string) => (): never => {
-	throw new Error(`scripted: ${member} is unused`)
-}
-
 /** A session pool whose members are the overrides, every other one dying when used. */
 export const scriptedPool = (overrides: Partial<SessionPool>): SessionPool => ({
 	role: "main",
@@ -595,7 +586,5 @@ export const scriptedPool = (overrides: Partial<SessionPool>): SessionPool => ({
 	lease: unused("lease"),
 	size: Effect.succeed(0),
 	leased: Effect.succeed(0),
-	live: Effect.succeed(0),
-	release: unusedCall("release"),
 	...overrides
 })

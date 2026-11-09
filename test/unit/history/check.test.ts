@@ -10,7 +10,7 @@
  * - the committed state holds the key;
  * - every abort, and every discarded attempt of a grizzle operation, has an operation overlapping it in real time, and
  *   a cause a concurrent transaction gives: a direct writer's 40001 or 40P01, a discarded attempt's TransientFailure of
- *   a concurrent reason (never StaleStatement nor GeneratedSerialUnique). Only a direct writer aborts: a grizzle writer
+ *   a concurrent reason (never GeneratedSerialUnique). Only a direct writer aborts: a grizzle writer
  *   calls again after each TransientFailure until a call answers;
  * - a grizzle operation refused as its ChangeSet compiled (UnorderableStratum) is one its writer's model refuses so,
  *   whatever the state: in this box, whose every operation writes one fact, never;
@@ -120,7 +120,6 @@ const discardReasons: ReadonlyArray<TransientTag> & Readonly<{ 0: TransientTag }
 	"SerializationFailure",
 	"Deadlock",
 	"UnseenOccupant",
-	"StaleStatement",
 	"GeneratedSerialUnique"
 ]
 

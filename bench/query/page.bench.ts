@@ -43,7 +43,6 @@ import {
 	indexAccessOn,
 	outline,
 	planOf,
-	serverStatementPlanOf,
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
@@ -61,8 +60,8 @@ import { paramText } from "#test/support/wire.ts"
  * alone and never erases R04's, R18's or R39's.
  *
  * - The page after a cursor is a native row comparison in the index condition of the index whose key leads with the
- *   seek's columns, reading the page and its lookahead with no filter, custom and generic alike, where the handwritten
- *   OR expansion filters every entry before the boundary.
+ *   seek's columns, reading the page and its lookahead with no filter, where the handwritten OR expansion filters every
+ *   entry before the boundary.
  * - A page over a key-dropping projection repeats no answer.
  */
 interface Options extends Readonly<Record<string, unknown>> {
@@ -145,7 +144,7 @@ export default defineGate({
 				warmup: 1,
 				explainSamples: 1,
 				explain: plainExplain,
-				serverPlans: ["generic"]
+				serverPlans: []
 			})
 			const seekConservative = yield* measureVariant(
 				raw,
@@ -181,7 +180,6 @@ export default defineGate({
 				handOptions
 			)
 			const seekPlan = planOf(seek, 0)
-			const genericSeekPlan = serverStatementPlanOf(seek, "generic", 0)
 			const dropped = compile(fx, amountsOf, pageReading)
 			const droppedPages = pageRuntime(dropped)
 			const droppedCall = {
@@ -299,11 +297,6 @@ export default defineGate({
 						"the seek reads the page and its lookahead",
 						rowsReadFrom(seekPlan, entry) <= pageSize + 1,
 						`${rowsReadFrom(seekPlan, entry)} rows`
-					),
-					mechanism(
-						"the generic plan keeps the seek",
-						seeks(genericSeekPlan),
-						outline(genericSeekPlan, 0)
 					),
 					equivalence(
 						"the generated page equals the conservative page",

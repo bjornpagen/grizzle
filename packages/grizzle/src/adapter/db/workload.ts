@@ -206,8 +206,7 @@ const variantOf = (ctx: DbContext, variants: ChangeVariants): ChangeForm<unknown
 
 /**
  * The record of a Db's workload handles: each program the layer compiled for the Db's role, under its name, its
- * operations db.compile's (db.ts CompiledOps), run on the Db's pool through the program's server statements, named
- * from their texts and kept for the pool's life. A ChangeSet runs its variant for the Db's claims.
+ * operations db.compile's (db.ts CompiledOps), run on the Db's pool. A ChangeSet runs its variant for the Db's claims.
  */
 export const workloadHandles = (ctx: DbContext, forms: ReadonlyArray<WorkloadForm>): object => {
 	const handles: Record<string, object> = {}

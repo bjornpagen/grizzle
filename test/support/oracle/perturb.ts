@@ -303,19 +303,14 @@ const plannerSelect = (p: Perturbation): EmittedText => {
  */
 const plannedSession = (session: Session, statement: EmittedText): Session => ({
 	...session,
-	send: (closes, pipeline, onAnswer, onEnd, onCut) => {
+	send: (pipeline, onAnswer, onEnd, onCut) => {
 		const [begin, ...rest] = pipeline
 		if (begin?._tag !== "control" || begin.control.kind !== "begin") {
-			session.send(closes, pipeline, onAnswer, onEnd, onCut)
+			session.send(pipeline, onAnswer, onEnd, onCut)
 			return
 		}
 		session.send(
-			closes,
-			[
-				begin,
-				{ _tag: "statement", sql: statement, params: [], name: { _tag: "unnamed" } },
-				...rest
-			],
+			[begin, { _tag: "statement", sql: statement, params: [] }, ...rest],
 			(index, answer) => {
 				if (index !== 1) {
 					onAnswer(index === 0 ? 0 : index - 1, answer)

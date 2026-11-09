@@ -59,7 +59,6 @@ export {
 	SocketFailed,
 	SpanKeyChange,
 	type StaleReason,
-	StaleStatement,
 	StartupRefused,
 	type TlsFault,
 	TlsRefused,

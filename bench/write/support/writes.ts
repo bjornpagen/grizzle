@@ -519,15 +519,7 @@ const probeSession = (session: Session): ProbeSession => ({
 		Effect.callback<ReadonlyArray<ReadonlyArray<unknown>>, ProbeFailure>((resume) => {
 			let answer: Answer | undefined
 			session.send(
-				[],
-				[
-					{
-						_tag: "statement",
-						sql: testSql(sql),
-						params: Arr.map(params, paramText),
-						name: { _tag: "unnamed" }
-					}
-				],
+				[{ _tag: "statement", sql: testSql(sql), params: Arr.map(params, paramText) }],
 				(...[, answered]) => {
 					answer = answered
 				},
@@ -626,7 +618,7 @@ const observedSession = (
 					}
 		)
 	}
-	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd, onCut) => {
+	const send: Session["send"] = (pipeline, onAnswer, onEnd, onCut) => {
 		const commitAt = pipeline.length - 1
 		const last = pipeline[commitAt]
 		if (
@@ -636,7 +628,6 @@ const observedSession = (
 			last.control.end !== "COMMIT"
 		) {
 			return session.send(
-				closes,
 				pipeline,
 				(index, answer) => {
 					note(pipeline[index], answer)
@@ -649,7 +640,6 @@ const observedSession = (
 		const probe = beforeCommit.run
 		let clean = true
 		session.send(
-			closes,
 			pipeline.slice(0, commitAt),
 			(index, answer) => {
 				if (answer._tag !== "result") {
@@ -661,7 +651,6 @@ const observedSession = (
 			() => {
 				const ending = (end: "COMMIT" | "ROLLBACK", failure: ServerError | undefined) =>
 					session.send(
-						[],
 						[{ _tag: "control", control: { kind: "end", end } }],
 						(...[, answer]) => {
 							const reported: Answer =

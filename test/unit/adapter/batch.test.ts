@@ -1,25 +1,21 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, type Reached, required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, int } from "@grizzle/testing/gen"
 import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type BatchStatement,
 	type Flight,
-	type FlightStatement,
 	joinFlights,
 	runFramed,
-	runTransaction,
 	writeFrame
 } from "#adapter/wire/batch.ts"
-import { serverStatement, type StatementName } from "#adapter/wire/session.ts"
 import { indices } from "#compiler/core/array.ts"
-import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { type CaseSpace, caseGen, smallCases } from "#test/support/flight/cases.ts"
 import type { Timing } from "#test/support/flight/drive.ts"
 import {
@@ -40,12 +36,10 @@ import {
 	answeringScript,
 	firstCells,
 	immediateDelivery,
-	refusedAnswer,
-	rows,
 	scriptedSession
 } from "#test/support/flight/scripted.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { statementSql, testSql } from "#test/support/sql.ts"
+import { testSql } from "#test/support/sql.ts"
 
 /**
  * Flights (packages/grizzle/src/adapter/wire/batch.ts) against their contract, at every interruption point.
@@ -63,11 +57,7 @@ import { statementSql, testSql } from "#test/support/sql.ts"
  * Every case of one statement per part is checked exhaustively; larger cases are drawn, each statement failing in a
  * way the case's swarm allows.
  *
- * Also here: over drawn sequences of flights on one session, a statement runs under the name the session's parsed set
- * gives it, a name whose Parse may not have run (a refusal of the statement parsing it) or that went stale (26000, or
- * 0A000 on a name bound to an earlier Parse, StaleName) is forgotten, closed in front of the next flight and parsed
- * afresh, a refusal of another kind keeps a bound name, and none retires the session; and joined flights hand each
- * part its own outcomes.
+ * Also here: joined flights hand each part its own outcomes.
  */
 const statement = (sql: string): BatchStatement => ({ sql: testSql(sql), params: [] })
 
@@ -255,47 +245,6 @@ const space: CaseSpace = {
 	serverFaults: true
 }
 
-/** What the server answers a flight's statement: its rows, or a refusal of one of the SQLSTATEs the names turn on. */
-type NameAnswer = "rows" | Sqlstate
-
-/** One flight of the name property: its statement under the server statement's name or unnamed, and the answer. */
-interface FlightOfNames {
-	readonly named: boolean
-	readonly answer: NameAnswer
-}
-
-const flightOfNamesGen: Gen<FlightOfNames> = (source) => ({
-	named: source.draw(
-		weighted([
-			[4, constant(true)],
-			[1, constant(false)]
-		])
-	),
-	answer: source.draw(
-		weighted<NameAnswer>([
-			[3, constant("rows")],
-			[
-				2,
-				element<Sqlstate>([
-					sqlstates.invalidSqlStatementName,
-					sqlstates.featureNotSupported,
-					sqlstates.insufficientPrivilege
-				])
-			]
-		])
-	)
-})
-
-type NameFeature =
-	| "unnamed"
-	| "parsed afresh"
-	| "bound to an earlier Parse"
-	| "stale 26000"
-	| "stale 0A000"
-	| "a name being parsed refused"
-	| "a parsed name refused for another reason"
-	| "a forgotten name closed in front of a flight"
-
 describe("a flight", () => {
 	it.effect(
 		"keeps its contract at every interruption point of every flight of one statement per part",
@@ -345,124 +294,6 @@ describe("a flight", () => {
 			)
 		)
 	)
-
-	it.effect(
-		"names each statement as the session's parsed set says, forgets a name whose Parse may not have run or that went stale, and closes it in front of the next flight",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/adapter/stale-name",
-						draw: drawn(array(flightOfNamesGen, { min: 1, max: 8 })),
-						literal: Formatter.format,
-						oracle: {
-							kind: "specification",
-							name: "the session's parsed set (wire/session.ts SessionStatements), restated over the flights a session runs"
-						},
-						coverage: required<NameFeature>(
-							[
-								"unnamed",
-								"parsed afresh",
-								"bound to an earlier Parse",
-								"stale 26000",
-								"stale 0A000",
-								"a name being parsed refused",
-								"a parsed name refused for another reason",
-								"a forgotten name closed in front of a flight"
-							],
-							{ cases: 300, sense: notesOnly }
-						),
-						kept: [],
-						runs: 200,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(flights, k) =>
-						Effect.gen(function* () {
-							const whole = { access: "readWrite", end: "COMMIT" } as const
-							const server = serverStatement(testSql("a"))
-							let answer: NameAnswer = "rows"
-							const session = scriptedSession(
-								{
-									...answeringScript,
-									statement: (query) =>
-										answer === "rows" ? rows([[query.sql]]) : refusedAnswer(answer)
-								},
-								immediateDelivery
-							)
-							/** The model: whether the session holds the name parsed, and the names it closes next. */
-							let parsed = false
-							let closing: ReadonlyArray<string> = []
-							for (const [index, flight] of flights.entries()) {
-								answer = flight.answer
-								const sentStatement: FlightStatement = flight.named
-									? { server, params: [] }
-									: statement("a")
-								const name: StatementName = !flight.named
-									? { _tag: "unnamed" }
-									: parsed
-										? { _tag: "parsed", name: server.name }
-										: { _tag: "parsing", name: server.name }
-								const closes = closing
-								closing = []
-								const exit = yield* Effect.exit(runTransaction(session, [sentStatement], whole))
-								const sent = defined(session.flights()[index], "the flight sent")
-								assert.deepEqual(sent.closes, closes, "the names closed in front of the flight")
-								assert.deepEqual(
-									sent.pipeline[1],
-									{ _tag: "statement", sql: testSql("a"), params: [], name },
-									"the statement's name"
-								)
-								assert.equal(session.state(), "open", "a refusal retires nothing")
-								if (closes.length > 0) {
-									k.note("a forgotten name closed in front of a flight")
-								}
-								if (name._tag === "unnamed") {
-									k.note("unnamed")
-								} else if (name._tag === "parsing") {
-									k.note("parsed afresh")
-									parsed = true
-								} else {
-									k.note("bound to an earlier Parse")
-								}
-								if (flight.answer === "rows") {
-									assert.ok(Exit.isSuccess(exit), "an answered flight succeeds")
-									continue
-								}
-								const failure = Option.getOrUndefined(Exit.findErrorOption(exit))
-								const stale =
-									name._tag === "parsed" &&
-									(flight.answer === sqlstates.invalidSqlStatementName ||
-										flight.answer === sqlstates.featureNotSupported)
-								assert.deepEqual(
-									failure?._tag === "StaleName" || failure?._tag === "BatchRefused"
-										? { tag: failure._tag, index: failure.index }
-										: failure,
-									{ tag: stale ? "StaleName" : "BatchRefused", index: 0 }
-								)
-								if (stale) {
-									k.note(
-										flight.answer === sqlstates.invalidSqlStatementName
-											? "stale 26000"
-											: "stale 0A000"
-									)
-								} else if (name._tag === "parsing") {
-									k.note("a name being parsed refused")
-								} else if (name._tag === "parsed") {
-									k.note("a parsed name refused for another reason")
-								}
-								if (name._tag !== "unnamed" && (stale || name._tag === "parsing")) {
-									parsed = false
-									closing = [server.name]
-								}
-							}
-						})
-				)
-			)
-	)
 })
 
 /** A part of a joined flight: `width` statements named for the part, reading their outcomes' first cells. */
@@ -498,7 +329,10 @@ describe("joined flights", () => {
 							const expected = Arr.map(widths, (width, p) =>
 								Arr.map(indices(width), (i) => `p${p}.${i}`)
 							)
-							assert.deepEqual(Arr.map(joined.statements, statementSql), expected.flat())
+							assert.deepEqual<ReadonlyArray<string>>(
+								Arr.map(joined.statements, (s) => s.sql),
+								expected.flat()
+							)
 							const values = yield* Effect.flatMap(
 								runFramed(session, writeFrame(flightPrologue), joined.statements),
 								joined.read

@@ -805,9 +805,9 @@ const refusalOf = (fault: Extract<RefreshFault, { readonly kind: "refused" }>) =
 
 /** Which statement of the flight a query is, by its text. */
 const whereOf = (sql: string): Exclude<Where, "COMMIT"> =>
-	sql === asRefresher.fence.server.sql
+	sql === asRefresher.fence.sql
 		? "the fence"
-		: sql === asRefresher.enter.server.sql
+		: sql === asRefresher.enter.sql
 			? "the role's entry"
 			: sql === populatedSql
 				? "the populated read"
@@ -946,8 +946,8 @@ describe("how a refresh ends", () => {
 								assert.deepEqual(rest, [], "one flight")
 								assert.deepEqual(texts(only), [
 									"BEGIN ISOLATION LEVEL SERIALIZABLE",
-									asRefresher.fence.server.sql,
-									asRefresher.enter.server.sql,
+									asRefresher.fence.sql,
+									asRefresher.enter.sql,
 									...Arr.map(
 										Arr.dedupe(Arr.map(targets, (t) => t.view.schema)),
 										() => populatedSql

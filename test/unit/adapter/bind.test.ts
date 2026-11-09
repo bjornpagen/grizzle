@@ -3,23 +3,13 @@ import { Duplex } from "node:stream"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	codePoint,
-	element,
-	type Gen,
-	int,
-	string,
-	weighted
-} from "@grizzle/testing/gen"
+import { array, codePoint, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Connection } from "pg"
-import { bindLength, bindOverrun, type FlightStatement } from "#adapter/wire/batch.ts"
-import { serverStatement } from "#adapter/wire/session.ts"
+import { bindLength, bindOverrun, type BatchStatement } from "#adapter/wire/batch.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -37,7 +27,7 @@ import { paramText, textsOfParams } from "#test/support/wire.ts"
  */
 
 /** The Bind message pg writes for one execution of `statement`, as the bytes it sends. */
-const pgBind = (statement: FlightStatement): Buffer => {
+const pgBind = (statement: BatchStatement): Buffer => {
 	const written: Array<Buffer> = []
 	const wire = new Duplex({
 		read: () => undefined,
@@ -47,12 +37,7 @@ const pgBind = (statement: FlightStatement): Buffer => {
 		}
 	})
 	const connection = new Connection({ stream: () => wire })
-	connection.bind(
-		"server" in statement
-			? { statement: statement.server.name, values: [...textsOfParams(statement.params)] }
-			: { values: [...textsOfParams(statement.params)] },
-		false
-	)
+	connection.bind({ values: [...textsOfParams(statement.params)] }, false)
 	return Buffer.concat(written)
 }
 
@@ -65,12 +50,11 @@ const text = string(
 	{ min: 0, max: 40 }
 )
 
-/** A statement of a flight: run under a server statement's name or unnamed, with its parameters' texts. */
-const statementGen: Gen<FlightStatement> = (source) => {
-	const sql = testSql("SELECT $1::text")
-	const params = Arr.map(source.draw(array(text, { min: 0, max: 6 })), paramText)
-	return source.draw(boolean) ? { server: serverStatement(sql), params } : { sql, params }
-}
+/** A statement of a flight, run unnamed, with its parameters' texts. */
+const statementGen: Gen<BatchStatement> = (source) => ({
+	sql: testSql("SELECT $1::text"),
+	params: Arr.map(source.draw(array(text, { min: 0, max: 6 })), paramText)
+})
 
 /**
  * Where the limit falls: one byte short of a drawn statement's message, exactly at it, or a drawn distance past it, so
@@ -79,7 +63,7 @@ const statementGen: Gen<FlightStatement> = (source) => {
 type LimitAt = "short of" | "at" | "past"
 
 interface BindCase {
-	readonly statements: Arr.NonEmptyReadonlyArray<FlightStatement>
+	readonly statements: Arr.NonEmptyReadonlyArray<BatchStatement>
 	readonly at: number
 	readonly limit: LimitAt
 	readonly past: number
@@ -96,8 +80,6 @@ const caseGen: Gen<BindCase> = (source) => {
 }
 
 type BindFeature =
-	| "an unnamed statement"
-	| "a named statement"
 	| "refused at the first statement"
 	| "refused at a later statement"
 	| "admitted at exactly the limit"
@@ -120,8 +102,6 @@ describe("a statement's Bind message", () => {
 						},
 						coverage: required<BindFeature>(
 							[
-								"an unnamed statement",
-								"a named statement",
 								"refused at the first statement",
 								"refused at a later statement",
 								"admitted at exactly the limit",
@@ -148,7 +128,6 @@ describe("a statement's Bind message", () => {
 									"its length word counts all but its type byte"
 								)
 								assert.equal(bindLength(statement), declared)
-								k.note("server" in statement ? "a named statement" : "an unnamed statement")
 								return declared
 							})
 							const chosen = defined(

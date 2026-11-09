@@ -127,7 +127,6 @@ const constructors: {
 	SocketFailed: Public.SocketFailed,
 	SpanKeyChange: Public.SpanKeyChange,
 	StaleSnapshot: Public.StaleSnapshot,
-	StaleStatement: Public.StaleStatement,
 	StartupRefused: Public.StartupRefused,
 	TlsRefused: Public.TlsRefused,
 	TokenError: Public.TokenError,
@@ -325,8 +324,7 @@ const transientGen: Gen<DrawnReason> = (source) => {
 			{ _tag: "GeneratedSerialUnique", relation, constraint },
 			{ _tag: "SpanKeyChange", relation },
 			{ _tag: "UnseenOccupant", relation, constraint },
-			{ _tag: "ConcurrentRefresh", relation },
-			{ _tag: "StaleStatement" }
+			{ _tag: "ConcurrentRefresh", relation }
 		])
 	)
 }
@@ -498,8 +496,6 @@ const publicReason = (reason: DrawnReason): Public.TransientReason => {
 		}
 		case "ConcurrentRefresh":
 			return new Public.ConcurrentRefresh({ relation: reason.relation })
-		case "StaleStatement":
-			return new Public.StaleStatement()
 	}
 }
 
@@ -518,7 +514,6 @@ const engineReason = (reason: DrawnReason): EngineReason => {
 		case "PutTargetConflict":
 		case "SpanKeyChange":
 		case "ConcurrentRefresh":
-		case "StaleStatement":
 			return reason
 	}
 }
@@ -586,7 +581,6 @@ const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"transient SpanKeyChange",
 	"transient UnseenOccupant",
 	"transient ConcurrentRefresh",
-	"transient StaleStatement",
 	"bound MessageBound",
 	"bound LiteralBound",
 	"outcome accepted",

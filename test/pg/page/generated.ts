@@ -88,7 +88,6 @@ import { factSet, inputText, oracleCheck, PropertyFailed } from "#test/support/o
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { everyColumnCarried } from "#test/support/spine.ts"
-import { statementSql } from "#test/support/sql.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
@@ -700,7 +699,7 @@ const flightOn =
 	<A>(flight: Flight<A, UnreadableAnswer>): Effect.Effect<A, ReadError> =>
 		Effect.flatMap(
 			Effect.forEach(flight.statements, (statement) =>
-				Effect.mapBoth(session.queryValues(statementSql(statement), statement.params), {
+				Effect.mapBoth(session.queryValues(statement.sql, statement.params), {
 					onFailure: readFailureOf,
 					onSuccess: (rows): BatchOutcome => ({
 						command: "SELECT",

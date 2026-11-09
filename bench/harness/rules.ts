@@ -106,7 +106,7 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		title: "Make predicates recognizable to indexes",
 		owner: "query",
 		gate: stated(
-			"require Index Cond/Order By access conditions where the admitted fast shape needs them. An index scan followed by a huge filter is not sufficient evidence."
+			"require Index Cond/Order By access conditions where the admitted fast shape needs them. An index scan followed by a huge filter is not sufficient evidence. Every statement runs as the unnamed statement, planned with its parameters, so the custom plan is the one gated: no statement is prepared, and a generic plan has no subject."
 		)
 	},
 	R05: {

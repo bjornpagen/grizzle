@@ -19,13 +19,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 
-import {
-	type Answer,
-	controlText,
-	type WireQuery,
-	type Session,
-	serverStatement
-} from "#adapter/wire/session.ts"
+import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import {
 	type LedgerStatements,
@@ -119,8 +113,8 @@ export const fenceSql = (schema: string, grantee: string): ReadonlyArray<string>
 }
 
 /**
- * The prologue of a Db of `role` with `claims` at `snapshot` over a schema's ledger statements, its two statements
- * server statements, as a layer mints them (pool/registry.ts).
+ * The prologue of a Db of `role` with `claims` at `snapshot` over a schema's ledger statements, as a layer builds it
+ * (pool/registry.ts).
  */
 export const ledgerPrologue = (
 	ledger: Pick<LedgerStatements, "fence" | "enter">,
@@ -128,12 +122,7 @@ export const ledgerPrologue = (
 	claims: string,
 	snapshot: SchemaFingerprint
 ): Prologue =>
-	prologueOf(
-		{ fence: serverStatement(ledger.fence.text), enter: serverStatement(ledger.enter.text) },
-		role,
-		claims,
-		snapshot
-	)
+	prologueOf({ fence: ledger.fence.text, enter: ledger.enter.text }, role, claims, snapshot)
 
 /** The prologue of a framed call over the fence `fenceSql` installs in `schema`. */
 export const prologueIn = (schema: string): Prologue => {
@@ -332,7 +321,6 @@ export type Ending =
 const failureData = (failure: FlightFailure | ConnectionLost | DriverFailure): Failure => {
 	switch (failure._tag) {
 		case "BatchRefused":
-		case "StaleName":
 			return { tag: failure._tag, index: failure.index, sqlstate: failure.failure.sqlstate }
 		case "CommitRefused":
 		case "PrologueRefused":

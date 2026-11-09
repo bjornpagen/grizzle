@@ -12,7 +12,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
-import { statementSql } from "#test/support/sql.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 
 /**
@@ -327,7 +326,7 @@ export const countingExecutor = (
 				for (const statement of flight.statements) {
 					counts.statements++
 					counts.sent.push({
-						sql: statementSql(statement),
+						sql: statement.sql,
 						params: textsOfParams(statement.params)
 					})
 				}
