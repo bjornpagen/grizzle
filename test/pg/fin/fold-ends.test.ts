@@ -46,6 +46,7 @@ import {
 } from "#test/support/families/ends.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
@@ -668,7 +669,7 @@ const judgeRefused = (
 	switch (outcome.refused.kind) {
 		case "every":
 		case "first":
-			for (const law of outcome.refused.laws) {
+			for (const law of refusedLaws(outcome.refused)) {
 				assert.ok(
 					breaks(law),
 					`the refusal names a rule its rows break, not ${Formatter.format(law)}`
@@ -677,13 +678,13 @@ const judgeRefused = (
 			break
 		case "some":
 			assert.ok(
-				Arr.some(outcome.refused.laws, breaks),
-				`a refusal that names some of ${Formatter.format(outcome.refused.laws)} names one its rows break`
+				Arr.some(refusedLaws(outcome.refused), breaks),
+				`a refusal that names some of ${Formatter.format(refusedLaws(outcome.refused))} names one its rows break`
 			)
 			break
 	}
 	const named = Arr.filter(broken, (b) =>
-		Arr.some(outcome.refused.laws, (law) => deepEquals(b.law, law))
+		Arr.some(refusedLaws(outcome.refused), (law) => deepEquals(b.law, law))
 	)
 	const stated = statedRows(s, w)
 	const statedBroken = Arr.filter(named, (b) =>
@@ -710,7 +711,7 @@ const judgeRefused = (
 		`the witness ${Formatter.format(witness)} is a stated row whose value breaks a rule the refusal names: ${Formatter.format(statedBroken)}`
 	)
 	if (outcome.refused.kind === "every") {
-		for (const law of outcome.refused.laws) {
+		for (const law of refusedLaws(outcome.refused)) {
 			assert.ok(
 				Arr.some(named, (b) => atWitness(b) && deepEquals(b.law, law)),
 				`the witnessed row breaks every rule the refusal decides, ${Formatter.format(law)} among them`

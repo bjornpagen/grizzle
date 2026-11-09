@@ -343,15 +343,25 @@ changes. The answer is:
 ```text
 {
   kind: "invariant-rejected",
-  refused: { kind: "every", laws: [{ kind: "check", relation: "Subscription", name: "WithinPlan" }] },
+  refused: {
+    kind: "every",
+    laws: [
+      {
+        law: { kind: "check", relation: "Subscription", name: "WithinPlan" },
+        id: "__subscription_check_within_plan_dlbf4oactg",
+        by: { kind: "constraint", table: "subscription", name: "within_plan" }
+      }
+    ]
+  },
   witness: { kind: "key", relation: "Subscription", values: { org: "org_2abc" } }
 }
 ```
 
-`refused.laws` names each broken rule as you declared it, never as a message to parse, so
-`law.kind === "check" && law.name === "WithinPlan"` recognizes this one. `every` means grizzle judged each rule named
-there broken, and the witness is the key of the fact that broke it. psql gets the same refusal from PostgreSQL, SQLSTATE
-23514 on the constraint `within_plan`.
+Each entry of `refused.laws` names a broken rule as you declared it, its `law`, never as a message to parse, so
+`entry.law.kind === "check" && entry.law.name === "WithinPlan"` recognizes this one. Its `id` is the rule's identity,
+the one the snapshot records, and `by` the installed object that refused it. `every` means grizzle judged each rule
+named there broken, and the witness is the key of the fact that broke it. psql gets the same refusal from PostgreSQL,
+SQLSTATE 23514 on the constraint `within_plan`.
 
 An error is something else. A dropped connection or a serialization failure fails the Effect with a tagged error. A
 `TransientFailure` changed nothing, so your code may run the write again; grizzle never does. [Errors and outcomes](#errors-and-outcomes)
@@ -810,12 +820,21 @@ Every transaction is SERIALIZABLE: the first migration makes it the database's d
 ```text
 {
   kind: "invariant-rejected",
-  refused: { kind: "first", laws: [{ kind: "check", relation: "Grant", name: "WithinGrant" }] },
+  refused: {
+    kind: "first",
+    laws: [
+      {
+        law: { kind: "check", relation: "Grant", name: "WithinGrant" },
+        id: "__grant_check_within_grant_ktgwkg3utk",
+        by: { kind: "constraint", table: "grant", name: "within_grant" }
+      }
+    ]
+  },
   witness: { kind: "unreported" }
 }
 ```
 
-`refused.laws` names rules as your schema states them, and is never empty. Here it is `first` and the witness `unreported`: `WithinGrant` reads `spent`, which grizzle fills on the grant from its debits, so the refused grant row is not one your ChangeSet states, and the check PostgreSQL tried first is all grizzle knows. A row check over a row you state names that row's key, and `every` rule of its table the row breaks ([Errors and outcomes](#errors-and-outcomes)).
+`refused.laws` names rules as your schema states them, each entry's `law`, and is never empty. Here it is `first` and the witness `unreported`: `WithinGrant` reads `spent`, which grizzle fills on the grant from its debits, so the refused grant row is not one your ChangeSet states, and the check PostgreSQL tried first is all grizzle knows. A row check over a row you state names that row's key, and `every` rule of its table the row breaks ([Errors and outcomes](#errors-and-outcomes)).
 
 ### 6. Books that always balance
 
@@ -2700,8 +2719,11 @@ A broken rule is an outcome, not an error. Errors are tagged classes in the Effe
 
 - **`accepted`**: each written table's counts, and the read-backs.
 - **`no-change`**: the read-backs.
-- **`invariant-rejected`**: `refused`, the broken rules as your schema states them, and `witness`. Match a rule
-  directly: `{ kind: "check", relation: "Grant", name: "WithinGrant" }`.
+- **`invariant-rejected`**: `refused`, the broken rules, and `witness`. Each entry of `refused.laws` is `{ law, id,
+  by }`: the rule as your schema states it, which you match directly, `law` being
+  `{ kind: "check", relation: "Grant", name: "WithinGrant" }`; its identity, the one the snapshot records; and the
+  installed object that refused it, a table's `constraint` or a `domain`'s by table or domain and name, a write
+  `statement`, or a generated column's `notNull`.
 - **`outside-world`**: the role's table a row cannot belong to.
 
 `ApplyOutcome.committed(counts, reads)`, `ApplyOutcome.invariantRejected(refused, witness)` and

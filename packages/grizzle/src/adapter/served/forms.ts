@@ -321,7 +321,7 @@ const writeEntry = (
 					compiled: program,
 					schema: artifacts.fingerprint,
 					names: artifacts.names,
-					violation: witness.classify,
+					witness,
 					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), artifacts.names.codes),
 					codecs: paramCodecs(program.params, artifacts.names.codes),
 					bind: role.bind,

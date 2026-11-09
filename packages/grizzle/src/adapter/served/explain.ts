@@ -205,7 +205,7 @@ const explainChange = Effect.fn("explainChange")(function* (
 		(reason) => new ReadFailure({ reason })
 	)
 	if (inputs.kind === "rejected") {
-		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
+		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 	}
 	const skip = inputs.bound.skip
 	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {

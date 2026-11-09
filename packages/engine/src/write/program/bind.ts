@@ -310,6 +310,7 @@ export type BindResult =
 	| BoundWrite
 	| {
 			readonly kind: "invariant-rejected"
+			readonly relation: string
 			readonly law: LawId
 			readonly described: Law
 			readonly witness: Witness
@@ -414,6 +415,7 @@ export const bindWrite = (
 	if (normalized.kind === "keyConflict") {
 		return Result.ok({
 			kind: "invariant-rejected",
+			relation: normalized.relation,
 			law: normalized.law,
 			described: normalized.described,
 			witness: keyWitness(normalized.relation, normalized.values)

@@ -103,6 +103,7 @@ import { loginLayer } from "#test/support/worlds.ts"
 
 import { regex } from "arkregex"
 import { compiledOpen } from "#adapter/db/open.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 /**
  * The platform's concurrency races: the application's writes of the usage-billing platform, raced by grizzle writers
  * and direct psql writers over one installation, every transaction SERIALIZABLE, every run of the one concurrency
@@ -243,7 +244,7 @@ export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
 		case "invariant-rejected":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(refusedLaws(outcome.refused), (law) => platformNames.reported(law))
 			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }

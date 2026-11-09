@@ -21,6 +21,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
@@ -197,14 +198,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											c.note(situationOf(broken))
 											return
 										}
+										const refusal = `${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
+										assert.ok(outcome.kind === "invariant-rejected", refusal)
+										assert.equal(outcome.refused.kind, "every", refusal)
+										assert.deepEqual(refusedLaws(outcome.refused), named, refusal)
 										assert.deepEqual(
-											outcome,
-											{
-												kind: "invariant-rejected",
-												refused: { kind: "every", laws: named },
-												witness: { kind: "key", relation: "R", values: { id: 1 } }
-											},
-											`${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
+											outcome.witness,
+											{ kind: "key", relation: "R", values: { id: 1 } },
+											refusal
 										)
 										c.note(situationOf(broken))
 									})

@@ -112,6 +112,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { applyValue, type PutRealization, putRealizations } from "#test/support/oracle/write/run.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
@@ -939,13 +940,13 @@ const grizzleAnswer = (
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "invariant-rejected": {
-			const [law, ...more] = value.refused.laws
+			const [law, ...more] = refusedLaws(value.refused)
 			return more.length === 0
 				? { kind: "invariant-rejected", law: reportedLawId(described, law) }
 				: {
 						kind: "failed",
-						what: `a refusal naming ${Arr.length(value.refused.laws)} laws: ${Arr.join(
-							Arr.map(value.refused.laws, (l) => reportedLawId(described, l)),
+						what: `a refusal naming ${Arr.length(refusedLaws(value.refused))} laws: ${Arr.join(
+							Arr.map(refusedLaws(value.refused), (l) => reportedLawId(described, l)),
 							", "
 						)}`
 					}

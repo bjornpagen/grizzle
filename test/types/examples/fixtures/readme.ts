@@ -1232,10 +1232,13 @@ export type LaunchOutcomeKind = Expect<
 	>
 >
 
-/** "refused.laws names each broken rule as you declared it: law.kind === "check" && law.name === "WithinPlan"". */
-type LaunchLaw = Extract<
+/**
+ * "Each entry of refused.laws names a broken rule as you declared it, its law: entry.law.kind === "check" &&
+ * entry.law.name === "WithinPlan"".
+ */
+type LaunchRefusal = Extract<
 	Effect.Success<ReturnType<typeof launch>>,
 	{ readonly kind: "invariant-rejected" }
 >["refused"]["laws"][number]
-export const overPlan = (law: LaunchLaw): boolean =>
-	law.kind === "check" && law.name === "WithinPlan"
+export const overPlan = (entry: LaunchRefusal): boolean =>
+	entry.law.kind === "check" && entry.law.name === "WithinPlan"

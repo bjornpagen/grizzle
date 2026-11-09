@@ -66,6 +66,7 @@ import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -666,7 +667,7 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 												} else {
 													const laws: ReadonlyArray<string> =
 														outcome.kind === "invariant-rejected"
-															? Arr.map(outcome.refused.laws, (l) => l.kind)
+															? Arr.map(refusedLaws(outcome.refused), (l) => l.kind)
 															: []
 													assert.deepEqual(
 														[outcome.kind, ...laws],

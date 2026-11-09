@@ -15,12 +15,11 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter, Layer, pipe, Result, String as Str } from "effect"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { Array as Arr, Effect, Formatter, Layer, pipe, Result, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
-import { ChangeSet, type Witness } from "#compiler/public/changeset.ts"
+import { ChangeSet, type Law, type Witness } from "#compiler/public/changeset.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	Club,
@@ -47,6 +46,7 @@ import { regex } from "arkregex"
 import { compiledOpen } from "#adapter/db/open.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
@@ -97,13 +97,15 @@ const failingStatement = (session: RawSession, sql: string, params: ReadonlyArra
 		return serverFields(error)
 	})
 
-/** The outcome db.apply reports for a change of an empty ChangeSet's reads. */
-type Applied = ApplyOutcome<Readonly<Record<string, never>>>
+/** A refusal's laws as the installation describes them, and its witness. */
+interface Refusal {
+	readonly laws: Arr.NonEmptyReadonlyArray<Law>
+	readonly witness: Witness
+}
 
 /** The refusal by `law` alone, as the installation describes it, with `witness`: no law of Clubs merges into another. */
-const refusedBy = (at: Installed, law: LawId, witness: Witness): Applied => ({
-	kind: "invariant-rejected",
-	refused: { kind: "every", laws: [namesOf(at).described(law)] },
+const refusedBy = (at: Installed, law: LawId, witness: Witness): Refusal => ({
+	laws: [namesOf(at).described(law)],
 	witness
 })
 
@@ -507,7 +509,11 @@ export const witnessSuite = (): void => {
 										}
 										const applied = yield* Effect.result(p.applied)
 										assert.ok(Result.isSuccess(applied), k.kind)
-										assert.deepEqual(applied.success, p.expected, k.kind)
+										const outcome = applied.success
+										assert.ok(outcome.kind === "invariant-rejected", `${k.kind}: ${outcome.kind}`)
+										assert.equal(outcome.refused.kind, "every", k.kind)
+										assert.deepEqual(refusedLaws(outcome.refused), p.expected.laws, k.kind)
+										assert.deepEqual(outcome.witness, p.expected.witness, k.kind)
 										c.note(`refused by ${k.kind}`)
 									})
 							)

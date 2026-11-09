@@ -24,6 +24,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -483,7 +484,7 @@ export const everyLawSuite = (): void => {
 													`${naming}: the reported rule alone`
 												)
 												assert.deepEqual(
-													Arr.map(outcome.refused.laws, (law) => ruleOf(naming, law)),
+													Arr.map(refusedLaws(outcome.refused), (law) => ruleOf(naming, law)),
 													[reported],
 													`${naming}: the rule PostgreSQL reports`
 												)
@@ -495,7 +496,9 @@ export const everyLawSuite = (): void => {
 											if (outcome.refused.kind !== "every") {
 												return assert.fail("a stated cell's refusal names every law it breaks")
 											}
-											const named = Arr.map(outcome.refused.laws, (law) => ruleOf(naming, law))
+											const named = Arr.map(refusedLaws(outcome.refused), (law) =>
+												ruleOf(naming, law)
+											)
 											assert.deepEqual(
 												Arr.filter(rules, (rule) => named.includes(rule)),
 												broken,

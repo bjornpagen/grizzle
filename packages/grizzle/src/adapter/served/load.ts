@@ -207,17 +207,17 @@ const loadPage = (
 		}
 	})
 
-/** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, classified by its role's `violation`. */
+/** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, read by its role's `witness`. */
 const loadChange = (
 	change: ServedChange,
-	violation: WriteEntry["violation"],
+	witness: WriteEntry["witness"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
 	const entry: WriteEntry = {
 		program: { kind: "flight", flight: loadWrite(program, codes) },
-		violation,
+		witness,
 		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes),
 		bind
@@ -232,20 +232,20 @@ const loadChange = (
 /** A ChangeSet's variants, each leaf loaded. */
 const loadVariants = (
 	variants: ServedVariants,
-	violation: WriteEntry["violation"],
+	witness: WriteEntry["witness"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedVariants, CompileError> => {
 	switch (variants.kind) {
 		case "change":
 			return Result.map(
-				loadChange(variants.change, violation, codes, bind),
+				loadChange(variants.change, witness, codes, bind),
 				(change): LoadedVariants => ({ kind: "change", change })
 			)
 		case "split":
 			return Result.gen(function* () {
-				const holding = yield* loadVariants(variants.holding, violation, codes, bind)
-				const lacking = yield* loadVariants(variants.lacking, violation, codes, bind)
+				const holding = yield* loadVariants(variants.holding, witness, codes, bind)
+				const lacking = yield* loadVariants(variants.lacking, witness, codes, bind)
 				return { kind: "split", context: variants.context, holding, lacking }
 			})
 	}
@@ -254,7 +254,7 @@ const loadVariants = (
 /** One member of a role's workload, loaded. */
 const loadMember = (
 	member: ServedMember,
-	violation: WriteEntry["violation"],
+	witness: WriteEntry["witness"],
 	codes: Codebook,
 	bind: BindContext
 ): Result.Result<LoadedMember, CompileError> => {
@@ -280,7 +280,7 @@ const loadMember = (
 			})
 		case "change":
 			return Result.map(
-				loadVariants(member.variants, violation, codes, bind),
+				loadVariants(member.variants, witness, codes, bind),
 				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
 			)
 		case "refresh":
@@ -296,10 +296,10 @@ const loadRole = (
 	bind: BindContext
 ): Result.Result<LoadedRole, CompileError> =>
 	Result.gen(function* () {
-		const violation = servedWitness(role.refusals, file.above, codes).classify
+		const witness = servedWitness(role.refusals, file.above, codes)
 		const members: Array<LoadedMember> = []
 		for (const member of role.members) {
-			members.push(yield* loadMember(member, violation, codes, bind))
+			members.push(yield* loadMember(member, witness, codes, bind))
 		}
 		return {
 			name: role.name,

@@ -494,9 +494,12 @@ The command line's own refusals, by stage:
   `Sqlstate.parse(code)`, which is `undefined` for a code that is no SQLSTATE; and `ApplyOutcome.committed(counts,
   reads)`, `invariantRejected(refused, witness)` and `outsideWorld(relation)` build what `db.apply` answers.
 - A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
-  `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
-  as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's
-  name. A pattern's law names its field, `{ kind: "pattern", relation, field, patterns }`, each `{ source, flags }`
+  `{ kind: "every" | "first" | "some", laws }`, whose `laws` are never empty, each `{ law, id, by }`: `law` the law as
+  the schema states it, such as `{ kind: "check", relation: "Grant", name: "WithinGrant" }`, which you match on
+  directly, never on a constraint's name; `id` its identity, a LawId, or a GeneratedLawId for a generated field's law;
+  and `by` the installed object that refused it, `{ kind: "constraint", table, name }`, `{ kind: "domain", domain,
+  name }`, `{ kind: "statement" }` for a write statement's refusal, or `{ kind: "notNull", table, column }` for a
+  generated column. A pattern's law names its field, `{ kind: "pattern", relation, field, patterns }`, each `{ source, flags }`
   spelled as that field spells it, every pattern of a `str.and` in order and one law for the field all the same, so two
   fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
   each once, as an outcome names it: each table's primary key, each statement's laws, each contract's, each stored

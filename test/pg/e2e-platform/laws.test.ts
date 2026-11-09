@@ -75,6 +75,7 @@ import {
 	stateOf
 } from "#test/support/platform/laws.ts"
 import { coveredBy, platformSpan, type TokenKind } from "#test/support/platform/model.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The platform's law names, through the naming door. */
@@ -149,7 +150,7 @@ const decided = (outcome: ApplyOutcome<unknown>): Decided => {
 		case "invariant-rejected":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(refusedLaws(outcome.refused), (law) => platformNames.reported(law))
 			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }

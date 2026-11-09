@@ -55,6 +55,7 @@ import { assert } from "#test/support/assert.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -1129,10 +1130,10 @@ const verdict = (
 	if (outcome.kind !== "invariant-rejected") {
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
-	assert.equal(outcome.refused.laws.length, 1, `${where} breaks one law`)
+	assert.equal(refusedLaws(outcome.refused).length, 1, `${where} breaks one law`)
 	assert.ok(
-		Arr.every(outcome.refused.laws, (law) => namesLaw(law, relation)),
-		`${where} is refused by ${relation}'s law, not ${Formatter.format(outcome.refused.laws)}`
+		Arr.every(refusedLaws(outcome.refused), (law) => namesLaw(law, relation)),
+		`${where} is refused by ${relation}'s law, not ${Formatter.format(refusedLaws(outcome.refused))}`
 	)
 }
 

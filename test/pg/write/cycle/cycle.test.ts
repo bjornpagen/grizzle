@@ -14,6 +14,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -202,9 +203,9 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 											return assert.fail(`a refusal by a reference, not ${outcome.kind}`)
 										}
 										assert.ok(
-											outcome.refused.laws.length > 0 &&
+											refusedLaws(outcome.refused).length > 0 &&
 												Arr.every(
-													outcome.refused.laws,
+													refusedLaws(outcome.refused),
 													(law) =>
 														(brokenA && deepEquals(law, laws.a)) ||
 														(brokenB && deepEquals(law, laws.b))

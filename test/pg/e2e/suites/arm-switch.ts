@@ -19,6 +19,7 @@ import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { recordEntryOf } from "#test/support/oracle/pick.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
@@ -357,7 +358,9 @@ export const armSwitchSuite = (): void => {
 											}
 											if (kind === "automatic") {
 												assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-												assert.deepEqual(outcome.refused.laws, [names.described(automaticArm)])
+												assert.deepEqual(refusedLaws(outcome.refused), [
+													names.described(automaticArm)
+												])
 												assert.deepEqual(outcome.witness, { kind: "unreported" })
 												unchanged()
 												c.note(`${w.form} ${kind} rejected`)
@@ -399,7 +402,7 @@ export const armSwitchSuite = (): void => {
 												return
 											}
 											assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-											assert.deepEqual(outcome.refused.laws, [
+											assert.deepEqual(refusedLaws(outcome.refused), [
 												{
 													kind: "primaryKey",
 													relation: "ManualTask",

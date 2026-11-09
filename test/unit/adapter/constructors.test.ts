@@ -35,6 +35,7 @@ import {
 import { CompileError, CursorError, EncodingFailure, Sqlstate } from "#compiler/public/errors.ts"
 import * as Public from "#index.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
@@ -283,10 +284,32 @@ const lawGen: Gen<Public.Law> = oneOf<Public.Law>([
 	)
 ])
 
+const refusingGen: Gen<Public.RefusingObject> = oneOf<Public.RefusingObject>([
+	map(
+		(source) => ({ table: source.draw(nameGen), name: wild.constraint(source.draw(nameGen)) }),
+		(o): Public.RefusingObject => ({ kind: "constraint", table: o.table, name: o.name })
+	),
+	map(
+		(source) => ({ domain: source.draw(nameGen), name: wild.constraint(source.draw(nameGen)) }),
+		(o): Public.RefusingObject => ({ kind: "domain", domain: o.domain, name: o.name })
+	),
+	constant({ kind: "statement" }),
+	map(
+		(source) => ({ table: source.draw(nameGen), column: source.draw(nameGen) }),
+		(o): Public.RefusingObject => ({ kind: "notNull", table: o.table, column: o.column })
+	)
+])
+
+const refusedLawGen: Gen<Public.RefusedLaw> = (source) => ({
+	law: source.draw(lawGen),
+	id: wild.lawId(source.draw(nameGen)),
+	by: source.draw(refusingGen)
+})
+
 const refusedGen: Gen<Public.Refused> = (source) => {
-	const first = source.draw(lawGen)
-	const second = source.draw(lawGen)
-	const rest = source.draw(array(lawGen, { min: 0, max: 2 }))
+	const first = source.draw(refusedLawGen)
+	const second = source.draw(refusedLawGen)
+	const rest = source.draw(array(refusedLawGen, { min: 0, max: 2 }))
 	return source.draw(
 		element<Public.Refused>([
 			{ kind: "every", laws: [first, ...rest] },

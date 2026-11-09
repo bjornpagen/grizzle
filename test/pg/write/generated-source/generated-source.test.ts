@@ -36,6 +36,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -333,7 +334,7 @@ layer(Substrate.layer)(
 													`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
 												)
 											}
-											const [law] = outcome.refused.laws
+											const [law] = refusedLaws(outcome.refused)
 											assert.ok(
 												expected.laws.includes(law.kind),
 												`the refusal names one of ${Arr.join(expected.laws, ", ")}, not ${Formatter.format(law)}`

@@ -47,6 +47,7 @@ import {
 } from "#test/support/fixtures/golden/payroll.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { applyRuntime } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -757,7 +758,7 @@ const runGrizzle = (c: Case, law: LawId, attempt: Attempt) =>
 	Effect.gen(function* () {
 		const outcome = yield* attempt.outcome
 		assert.ok(outcome.kind === "invariant-rejected", `${c.change}: ${text(outcome)}`)
-		assert.deepEqual(outcome.refused.laws, [L.described(law)], c.change)
+		assert.deepEqual(refusedLaws(outcome.refused), [L.described(law)], c.change)
 		containsEqual(c.witnesses, outcome.witness, c.change)
 	})
 

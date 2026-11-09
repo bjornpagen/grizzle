@@ -51,7 +51,7 @@ import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import type { Refuser, StatementAt } from "#compiler/runtime/write/witness.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { KeyHost, Law, RefusingObject, Witness } from "#compiler/types/changeset/changeset.ts"
 import { awkwardCode, Clubs } from "#test/pg/laws/outcomes/schemas.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -59,6 +59,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
 /**
@@ -1277,7 +1278,34 @@ describe("a server error at a write", () => {
 										meaning.laws.length === 1 ? "every" : "some",
 										"laws the host does not narrow: the one decided, or some of several"
 									)
-									unorderedEqual(classified.refused.laws, meaning.laws, "the laws")
+									unorderedEqual(refusedLaws(classified.refused), meaning.laws, "the laws")
+									const by: RefusingObject =
+										reported.sqlstate === sqlstates.notNullViolation
+											? {
+													kind: "notNull",
+													table: defined(reported.table, "the reported table"),
+													column: defined(reported.column, "the reported column")
+												}
+											: reported.sqlstate === sqlstates.integrityConstraintViolation
+												? { kind: "statement" }
+												: reported.table !== undefined
+													? {
+															kind: "constraint",
+															table: reported.table,
+															name: defined(chosen.name, "the reported constraint")
+														}
+													: {
+															kind: "domain",
+															domain: defined(reported.dataType, "the reported data type"),
+															name: defined(chosen.name, "the reported constraint")
+														}
+									for (const r of classified.refused.laws) {
+										assert.deepEqual(
+											r.by,
+											by,
+											"each law is refused by the object the server reported"
+										)
+									}
 									assert.deepEqual(classified.witness, meaning.witness)
 									if (reported.sqlstate === sqlstates.notNullViolation) {
 										k.note("rejected under a generated column")

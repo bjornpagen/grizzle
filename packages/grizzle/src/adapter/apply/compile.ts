@@ -1,6 +1,6 @@
 import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
-import type { ViolationClassifier } from "#adapter/witness/classify.ts"
+import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { CompiledWrite, ParsedChangeSet, RunnableWrite } from "#compiler/plan/change.ts"
 import type { BindContext } from "#compiler/plan/common.ts"
 
@@ -14,15 +14,16 @@ import type { BindContext } from "#compiler/plan/common.ts"
  * (write/frontend/entry.ts), in the transaction evidence context. Every db.apply compiles its ChangeSet: grizzle keeps
  * no cache of programs, and a caller that applies one again keeps its compiled form itself (the workload, db.compile).
  *
- * A program carries what running it needs besides itself: the installation's violation classifier
- * (packages/grizzle/src/adapter/witness), which decodes an integrity violation a statement or its COMMIT reports into a
- * law and its witness through the installation's key-law map, a superset of the program's own (outcomes/index.ts), its
- * read-backs and its parameters' codecs. The layer builds each once, when it loads its served file (served/load.ts).
+ * A program carries what running it needs besides itself: the installation's witness
+ * (packages/grizzle/src/adapter/witness), whose classifier decodes an integrity violation a statement or its COMMIT
+ * reports into a law and its witness through the installation's key-law map, a superset of the program's own
+ * (outcomes/index.ts), and whose key-law map names the object a refusal the host decides would meet (keylaw.ts
+ * HostRefusal); its read-backs and its parameters' codecs. The layer builds each once, when it loads its served file (served/load.ts).
  */
 export interface WriteEntry {
 	/** The program as an application runs it, loaded as a served one is (write/program/bind.ts RunnableWrite). */
 	readonly program: RunnableWrite
-	readonly violation: ViolationClassifier
+	readonly witness: InstallationWitness
 	/** The read-backs of the program's artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBackRuns
 	/** The codecs of the program's declared parameters, which its read-backs read, built with the program. */

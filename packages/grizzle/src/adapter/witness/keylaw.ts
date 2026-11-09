@@ -1,5 +1,5 @@
 import { Array as Arr } from "effect"
-import type { Law } from "#compiler/plan/change.ts"
+import type { Law, RefusedLaw } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
 	type ColumnIdent,
@@ -89,12 +89,29 @@ export interface KeyLaws {
 	/** The roster domain `domain` is, the installation's; undefined for any other domain. */
 	readonly rosterDomainOf: (domain: DomainName) => RosterDomain | undefined
 	/**
-	 * The generated field a column of a table is, as an outcome names its law (types/changeset Law `generated`): what
-	 * a NOT NULL violation on it, which only its generation expression's NULL raises, breaks; undefined for any other
-	 * column.
+	 * The generated field a column of a table is, as an outcome names its law (types/changeset Law `generated`), with
+	 * its identity, refused by the column's NOT NULL: what a NOT NULL violation on it, which only its generation
+	 * expression's NULL raises, breaks; undefined for any other column.
 	 */
-	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => Law | undefined
+	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => RefusedLaw | undefined
+	/** A refusal the host decides, named as PostgreSQL's refusal of the same write would name it (HostRefusal). */
+	readonly hostRefused: (refusal: HostRefusal) => RefusedLaw
 }
+
+/**
+ * A refusal the host decides before any write statement, as PostgreSQL would refuse the same write: a same-key conflict
+ * among the facts a ChangeSet adds to a stored relation, by the relation's declared name and the key's law, which the
+ * key's UNIQUE constraint on the relation's table refuses; or a row whose generated field has no value, by the
+ * relation's and the field's declared names, which the field's column's NOT NULL refuses.
+ */
+export type HostRefusal =
+	| {
+			readonly kind: "key"
+			readonly relation: string
+			readonly law: LawId
+			readonly described: Law
+	  }
+	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
 
 /**
  * Every law one native constraint's violation can report, each described, in the order the installation lists them;
@@ -201,18 +218,65 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		rosters.set(code, { carrier: "code", codec })
 		rosters.set(bits, { carrier: "bits", codec })
 	}
-	const generated = new Map<RelationIdent, Map<ColumnIdent, Law>>()
-	for (const { table, column, law } of data.generated) {
-		const columns = generated.get(table) ?? new Map<ColumnIdent, Law>()
-		columns.set(column, law)
+	const generated = new Map<RelationIdent, Map<ColumnIdent, RefusedLaw>>()
+	const generatedFields = new Map<string, Map<string, RefusedLaw>>()
+	for (const { table, column, law, id } of data.generated) {
+		const refused: RefusedLaw = { law, id, by: { kind: "notNull", table, column } }
+		const columns = generated.get(table) ?? new Map<ColumnIdent, RefusedLaw>()
+		columns.set(column, refused)
 		generated.set(table, columns)
+		const fields = generatedFields.get(law.relation) ?? new Map<string, RefusedLaw>()
+		fields.set(law.field, refused)
+		generatedFields.set(law.relation, fields)
+	}
+	/** Each table constraint's name by its table and each law it discharges, the first the installation lists. */
+	const discharging = new Map<RelationIdent, Map<LawId, ConstraintName>>()
+	for (const c of data.constraintLaws) {
+		if (c.kind === "constraint") {
+			const byLaw = discharging.get(c.owner) ?? new Map<LawId, ConstraintName>()
+			for (const { law } of c.laws) {
+				if (!byLaw.has(law)) {
+					byLaw.set(law, c.name)
+				}
+			}
+			discharging.set(c.owner, byLaw)
+		}
 	}
 	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
 	const aboveLaw = (id: LawId): NativeLaws | undefined => {
 		const law = above.laws.get(id)
 		return law === undefined ? undefined : { laws: [{ law: id, described: law }], uses: noUses }
 	}
-	const tableOf = data.tables
+	const tableOf = (relation: string): RelationIdent => {
+		const table = data.tables.get(relation)
+		if (table === undefined) {
+			throw defect(`the installation stores relation ${relation}, which a write statement wrote`)
+		}
+		return table
+	}
+	const hostRefused = (refusal: HostRefusal): RefusedLaw => {
+		switch (refusal.kind) {
+			case "key": {
+				const table = tableOf(refusal.relation)
+				const name = discharging.get(table)?.get(refusal.law)
+				if (name === undefined) {
+					throw defect(
+						`the installation installs a constraint of ${table} for its key law ${refusal.law}`
+					)
+				}
+				return { law: refusal.described, id: refusal.law, by: { kind: "constraint", table, name } }
+			}
+			case "generated": {
+				const refused = generatedFields.get(refusal.relation)?.get(refusal.field)
+				if (refused === undefined) {
+					throw defect(
+						`the installation holds the generated field ${refusal.relation}.${refusal.field}, whose row the host filled`
+					)
+				}
+				return refused
+			}
+		}
+	}
 	return {
 		schemas: new Set([...data.schemas, ...above.schemas]),
 		lawsOf: (constraint, owner) => {
@@ -226,13 +290,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 			const id = constraintLaw(above.constraints, owner, constraint)
 			return id === undefined ? undefined : aboveLaw(id)
 		},
-		tableOf: (relation) => {
-			const table = tableOf.get(relation)
-			if (table === undefined) {
-				throw defect(`the installation stores relation ${relation}, which a write statement wrote`)
-			}
-			return table
-		},
+		tableOf,
 		raised: new Map([
 			...Arr.map([...above.laws], ([id, described]): readonly [ConstraintName, DescribedLaw] => [
 				id,
@@ -241,6 +299,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 			...Arr.map(data.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
 		]),
 		rosterDomainOf: (domain) => rosters.get(domain),
-		generatedOf: (table, column) => generated.get(table)?.get(column)
+		generatedOf: (table, column) => generated.get(table)?.get(column),
+		hostRefused
 	}
 }

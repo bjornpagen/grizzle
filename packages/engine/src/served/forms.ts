@@ -4,6 +4,7 @@ import type { DeclaredName } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	DomainName,
+	GeneratedLawId,
 	LawId,
 	RelationIdent,
 	SchemaFingerprint
@@ -237,7 +238,7 @@ export type ServedVariants =
  * The key-law tables of a role's installation as data (adapter witness/keylaw.ts KeyLaws), cut to what the role's
  * members may meet, the laws of the levels above the role's own the file's (ServedFile above): its levels' PostgreSQL
  * schemas; every installed constraint a member's statement may meet, with its owner and laws; every law of the theory under its identity; each stored relation's table; each roster's two
- * domains; and each generated field's law by its table and column.
+ * domains; and each generated field's law, with its identity, by its table and column.
  */
 export interface ServedKeyLaws {
 	readonly schemas: ReadonlyArray<string>
@@ -252,7 +253,8 @@ export interface ServedKeyLaws {
 	readonly generated: ReadonlyArray<{
 		readonly table: RelationIdent
 		readonly column: ColumnIdent
-		readonly law: Law
+		readonly law: Extract<Law, { readonly kind: "generated" }>
+		readonly id: GeneratedLawId
 	}>
 }
 

@@ -31,6 +31,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
@@ -297,7 +298,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													if (
 														outcome.kind !== "invariant-rejected" ||
 														outcome.witness.kind !== "unreported" ||
-														!namesExactly(outcome, outcome.refused.laws, above)
+														!namesExactly(outcome, refusedLaws(outcome.refused), above)
 													) {
 														return yield* disagreed(
 															`deleting held item ${op.id} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(above)}`
@@ -334,7 +335,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														!namesExactly(
 															outcome,
 															outcome.kind === "invariant-rejected"
-																? outcome.refused.laws
+																? refusedLaws(outcome.refused)
 																: undefined,
 															containment
 														)

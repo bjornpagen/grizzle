@@ -25,6 +25,7 @@ import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -377,7 +378,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (outcome.kind !== "invariant-rejected") {
 												return assert.fail(`a refusal by the span key, not ${outcome.kind}`)
 											}
-											assert.deepEqual(outcome.refused.laws, [
+											assert.deepEqual(refusedLaws(outcome.refused), [
 												names.described(names.primaryKeyLaw(R))
 											])
 											const witness = outcome.witness

@@ -1,5 +1,6 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
+import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
 import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
@@ -1089,7 +1090,8 @@ export type Witness =
 	| { readonly kind: "unreported" }
 
 /**
- * Which laws an `invariant-rejected` outcome names, and how grizzle decided them:
+ * Which laws an `invariant-rejected` outcome names, each with its identity and the object that refused it (RefusedLaw),
+ * and how grizzle decided them:
  *
  * - `every`: what grizzle decides refused the write, each rule judged broken. For a CHECK that refused a row the
  *   ChangeSet states, every rule of that row's table's CHECKs the row breaks as the write fills it, each once, in the
@@ -1108,9 +1110,39 @@ export type Witness =
  *   stated row whole. Two rules at least: an object of one rule is `every`, so `some` never names a decided rule.
  */
 export type Refused =
-	| { readonly kind: "every"; readonly laws: readonly [Law, ...Array<Law>] }
-	| { readonly kind: "first"; readonly laws: readonly [Law, ...Array<Law>] }
-	| { readonly kind: "some"; readonly laws: readonly [Law, Law, ...Array<Law>] }
+	| { readonly kind: "every" | "first"; readonly laws: readonly [RefusedLaw, ...Array<RefusedLaw>] }
+	| {
+			readonly kind: "some"
+			readonly laws: readonly [RefusedLaw, RefusedLaw, ...Array<RefusedLaw>]
+	  }
+
+/**
+ * One law a refusal names: the law as the schema states it (`law`), its identity (`id`), a theory law's or a text
+ * pattern's the key of the snapshot's theory.laws and a generated field's the one its derived facts hold, and the
+ * installed object that refused it (`by`).
+ */
+export interface RefusedLaw {
+	readonly law: Law
+	readonly id: LawId | GeneratedLawId
+	readonly by: RefusingObject
+}
+
+/**
+ * The installed object that refused a law, as the snapshot's constraintToLaw names it. A refusal the host decides, a
+ * same-key conflict or a NULL a generated column would hold, names the object PostgreSQL would have refused with.
+ *
+ * - `constraint`: a table's CHECK, key, foreign key or exclusion constraint, by its table's installed name and its
+ *   own;
+ * - `domain`: a domain's CHECK, by the domain's installed name and the constraint's;
+ * - `statement`: a write statement or a rule over a query's trigger, which raises the law under its identity and
+ *   installs no constraint for it;
+ * - `notNull`: a generated column's NOT NULL, the generated law, by its table's and its column's installed names.
+ */
+export type RefusingObject =
+	| { readonly kind: "constraint"; readonly table: string; readonly name: ConstraintName }
+	| { readonly kind: "domain"; readonly domain: string; readonly name: ConstraintName }
+	| { readonly kind: "statement" }
+	| { readonly kind: "notNull"; readonly table: string; readonly column: string }
 
 /**
  * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.

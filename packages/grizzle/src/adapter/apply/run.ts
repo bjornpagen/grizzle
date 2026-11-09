@@ -50,9 +50,9 @@ import {
 	hostJudgement,
 	inForce,
 	interpretRows,
-	type Law,
 	type MemberFacts,
 	type Raw,
+	type RefusedLaw,
 	type StatementAt,
 	statementRelations,
 	type Transport,
@@ -81,7 +81,7 @@ const noRows: Raw = []
  * (runtime/write/witness.ts statementRelations, hostJudgement).
  */
 interface WitnessContext {
-	readonly violation: WriteEntry["violation"]
+	readonly violation: WriteEntry["witness"]["classify"]
 	readonly statement: (at: StatementAt) => WrittenAt
 }
 
@@ -96,7 +96,7 @@ interface BoundInputs extends ExecutionInputs {
 
 type HostInputs =
 	| BoundInputs
-	| { readonly kind: "rejected"; readonly law: Law; readonly witness: Witness }
+	| { readonly kind: "rejected"; readonly refused: RefusedLaw; readonly witness: Witness }
 
 /**
  * How readying an application's inputs fails, before any SQL: a codec refused an input, an input's texts are past a
@@ -273,15 +273,25 @@ export const hostInputs = (
 		if (bound.value.kind === "invariant-rejected") {
 			return {
 				kind: "rejected",
-				law: bound.value.described,
+				refused: entry.witness.laws.hostRefused({
+					kind: "key",
+					relation: bound.value.relation,
+					law: bound.value.law,
+					described: bound.value.described
+				}),
 				witness: bound.value.witness
 			} as const
 		}
 		if (bound.value.kind === "generated-rejected") {
+			const { law, witness } = bound.value.rejection
 			return {
 				kind: "rejected",
-				law: bound.value.rejection.law,
-				witness: bound.value.rejection.witness
+				refused: entry.witness.laws.hostRefused({
+					kind: "generated",
+					relation: law.relation,
+					field: law.field
+				}),
+				witness
 			} as const
 		}
 		const ready = executionInputs(entry.codecs, host)
@@ -444,7 +454,7 @@ export const runWrite = <R>(
 		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
 		let stated = inputs.bound.unplanned
 		const context: WitnessContext = {
-			violation: entry.violation,
+			violation: entry.witness.classify,
 			statement: (at) => ({
 				relations: statementRelations(flight.prepared.witness, at),
 				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser)
@@ -520,7 +530,16 @@ export const runWrite = <R>(
 			const failure = ran.failure
 			if (failure._tag === "GeneratedRejection") {
 				return applyOutcome.invariantRejected(
-					{ kind: "every", laws: [failure.law] },
+					{
+						kind: "every",
+						laws: [
+							entry.witness.laws.hostRefused({
+								kind: "generated",
+								relation: failure.law.relation,
+								field: failure.law.field
+							})
+						]
+					},
 					failure.witness
 				)
 			}

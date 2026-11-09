@@ -193,7 +193,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		(reason) => new ReadFailure({ reason })
 	)
 	if (inputs.kind === "rejected") {
-		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.law }) })
+		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 	}
 	const skip = inputs.bound.skip
 	/**

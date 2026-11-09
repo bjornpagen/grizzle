@@ -24,6 +24,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -340,7 +341,7 @@ export const hostWitnessSuite = (): void => {
 											"every account is stated, so the host judges the refused one"
 										)
 										const named: ReadonlyArray<Broken> = Arr.map(
-											outcome.refused.laws,
+											refusedLaws(outcome.refused),
 											(law): Broken => {
 												const rule = brokenOf(law)
 												if (rule === undefined) {

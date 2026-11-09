@@ -30,6 +30,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
@@ -560,10 +561,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (outcome.kind === "invariant-rejected") {
 												const laws = Arr.map(broken, lawOf)
 												assert.ok(
-													Arr.some(outcome.refused.laws, (law) =>
+													Arr.some(refusedLaws(outcome.refused), (law) =>
 														laws.includes(names.reported(law))
 													),
-													`${label}: refused by ${Formatter.format(outcome.refused.laws)}, a law the model finds broken`
+													`${label}: refused by ${Formatter.format(refusedLaws(outcome.refused))}, a law the model finds broken`
 												)
 											}
 											n.note("an unlawful write refused with a law it breaks")

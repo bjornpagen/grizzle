@@ -87,6 +87,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { attempt, momentText, refusalOf, refusalText } from "#test/support/substrate.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
@@ -1157,7 +1158,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 											const named =
 												outcome.kind === "invariant-rejected"
-													? Arr.map(outcome.refused.laws, ruleOf)
+													? Arr.map(refusedLaws(outcome.refused), ruleOf)
 													: []
 											const broke = (r: Rule | undefined): boolean =>
 												r !== undefined && breaks.includes(r)

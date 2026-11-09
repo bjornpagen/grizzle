@@ -103,6 +103,7 @@ import {
 	worldSql
 } from "#test/support/null/language.ts"
 import { owning } from "#test/support/policy.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { dbRuntime } from "#test/support/runtime-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -600,7 +601,7 @@ const verdict = (
 		return assert.fail(`${where} breaks ${Arr.join(broken, ", ")}, so refused, not ${outcome.kind}`)
 	}
 	const named: ReadonlyArray<string> = Arr.sort(
-		Arr.map(outcome.refused.laws, lawName),
+		Arr.map(refusedLaws(outcome.refused), lawName),
 		Order.String
 	)
 	assert.deepEqual(

@@ -38,6 +38,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -519,8 +520,8 @@ const verdict = (
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
 	assert.ok(
-		Arr.every(outcome.refused.laws, (law) => namesLaw(law, relation)),
-		`${where} is refused by ${relation}'s law, not ${Formatter.format(outcome.refused.laws)}`
+		Arr.every(refusedLaws(outcome.refused), (law) => namesLaw(law, relation)),
+		`${where} is refused by ${relation}'s law, not ${Formatter.format(refusedLaws(outcome.refused))}`
 	)
 }
 

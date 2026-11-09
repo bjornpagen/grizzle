@@ -43,6 +43,7 @@ import { key, mutable, on, relation as defineRelation, schema } from "#compiler/
 import type { Insert } from "#compiler/sql/ast.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -433,7 +434,7 @@ export default defineGate({
 						conflict:
 							conflict.value.kind === "invariant-rejected"
 								? `invariant-rejected ${Arr.join(
-										Arr.map(conflict.value.refused.laws, (l) => l.kind),
+										Arr.map(refusedLaws(conflict.value.refused), (l) => l.kind),
 										", "
 									)}`
 								: conflict.value.kind,
@@ -576,7 +577,7 @@ export default defineGate({
 					equivalence(
 						"a committed different payload is a conflict, invariant-rejected with the key law",
 						conflict.value.kind === "invariant-rejected" &&
-							Arr.every(conflict.value.refused.laws, (l) => reported(l) === itemKey),
+							Arr.every(refusedLaws(conflict.value.refused), (l) => reported(l) === itemKey),
 						outcomeText(conflict)
 					),
 					equivalence(

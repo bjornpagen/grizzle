@@ -100,6 +100,7 @@ import {
 } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { applyRuntime } from "#test/support/runtime-db.ts"
 import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -1241,7 +1242,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											)
 										}
 										assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
-										const named = Arr.map(outcome.refused.laws, names.reported)
+										const named = Arr.map(refusedLaws(outcome.refused), names.reported)
 										const [first] = named
 										const met = Arr.findFirst(expected.violations, (v) => v.law === first)
 										if (Option.isNone(met)) {
@@ -1388,7 +1389,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												assert.ok(
 													outcome.kind === "outside-world" ||
 														(outcome.kind === "invariant-rejected" &&
-															Arr.every(outcome.refused.laws, (l) => l.kind === "pattern")),
+															Arr.every(refusedLaws(outcome.refused), (l) => l.kind === "pattern")),
 													`a label outside Low whose text the pattern refuses is outside the world or the pattern's, not ${outcome.kind}`
 												)
 												assert.deepEqual(after, before, "a refused write changes nothing")
@@ -1406,7 +1407,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													return assert.fail(`an unmatched text is refused, not ${outcome.kind}`)
 												}
 												assert.deepEqual(
-													Arr.map(outcome.refused.laws, (l) => l.kind),
+													Arr.map(refusedLaws(outcome.refused), (l) => l.kind),
 													["pattern"],
 													"the pattern's law"
 												)
@@ -1443,7 +1444,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													)
 												}
 												assert.deepEqual(after, before, "a refused write changes nothing")
-												const [law, ...more] = Arr.map(outcome.refused.laws, names.reported)
+												const [law, ...more] = Arr.map(refusedLaws(outcome.refused), names.reported)
 												assert.deepEqual(more, [], "a key's refusal names its one law")
 												const broken =
 													law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined

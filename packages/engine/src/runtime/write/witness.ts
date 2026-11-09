@@ -3,6 +3,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
+	DomainName,
 	LawId,
 	ParamId,
 	RelationIdent
@@ -50,7 +51,13 @@ import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
-import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
+import type {
+	KeyHost,
+	Law,
+	RefusedLaw,
+	RefusingObject,
+	Witness
+} from "#compiler/types/changeset/changeset.ts"
 
 /** A fact as the host states it: each field it carries, by name, its codec's admitted host value. */
 type HostFact = { readonly [field: string]: unknown }
@@ -206,13 +213,18 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
 
 /**
  * What refused a statement, as PostgreSQL reported it on an object of the installation: a table constraint by its
- * owner and name; a domain's CHECK by the columns it types in the tables the statement writes, each with the law its
- * field states of it (DomainUse), none where the statement writes none of them, since PostgreSQL names the domain and
- * never the column; or a generated column's NOT NULL.
+ * owner and name; a domain's CHECK by the domain and the constraint's name, and the columns it types in the tables the
+ * statement writes, each with the law its field states of it (DomainUse), none where the statement writes none of them,
+ * since PostgreSQL names the domain and never the column; or a generated column's NOT NULL.
  */
 export type Refuser =
 	| { readonly kind: "constraint"; readonly owner: RelationIdent; readonly name: ConstraintName }
-	| { readonly kind: "domain"; readonly uses: ReadonlyArray<DomainUse> }
+	| {
+			readonly kind: "domain"
+			readonly domain: DomainName
+			readonly name: ConstraintName
+			readonly uses: ReadonlyArray<DomainUse>
+	  }
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
 
 /**
@@ -244,7 +256,9 @@ export type StatementAt =
  * - every: a table CHECK's refusal of a row the ChangeSet states, every one of whose table's law-stating CHECKs the host
  *   judges: every law of them the row breaks, in the theory's order of laws (its primary keys', then its statements' in
  *   canonical order), whichever of them PostgreSQL tried first; or a domain's refusal of a row the ChangeSet states,
- *   every one of whose columns the domain types the host judges: the law of each of them whose value it refuses;
+ *   every one of whose columns the domain types the host judges: the law of each of them whose value it refuses; each
+ *   law with its identity and the object that refused it, the law-stating CHECK of the row's table that states it, or
+ *   the refusing domain's CHECK;
  * - first: a table CHECK's refusal where no stated row breaks it, or where the row that breaks it has a law CHECK the
  *   host leaves unjudged, which the row may break too: the laws of the CHECK PostgreSQL tried first, which it orders
  *   by the CHECKs' installed names, an order no version keeps;
@@ -253,7 +267,7 @@ export type StatementAt =
  *   decided where there is one and `some` where there are several.
  */
 export type RefusedLaws =
-	| { readonly kind: "every"; readonly laws: NonEmptyReadonlyArray<Law> }
+	| { readonly kind: "every"; readonly laws: NonEmptyReadonlyArray<RefusedLaw> }
 	| { readonly kind: "first" }
 	| { readonly kind: "object" }
 
@@ -907,31 +921,49 @@ const refusedLaws = (
 				kind: "every",
 				laws: brokenLaws(
 					w,
+					relation,
 					refusing,
 					judged.flatMap((j) => (j.verdict === "breaks" ? [j.check] : []))
 				)
 			}
 }
 
-/** The laws of `broken`, a row's broken law CHECKs, and of `refusing`, each once, in the theory's order of laws. */
+/** A law a law CHECK states, with the CHECK's installed name. */
+interface StatedLaw {
+	readonly law: ConstraintLawOf
+	readonly check: ConstraintName
+}
+
+/** The laws `check` states, each with its name. */
+const statedLaws = (check: LawCheck): NonEmptyReadonlyArray<StatedLaw> =>
+	mapNonEmpty(check.laws, (law) => ({ law, check: check.name }))
+
+/**
+ * The laws of `broken`, a row's broken law CHECKs of `relation`'s table, and of `refusing`, each once, in the theory's
+ * order of laws, each refused by the first of those CHECKs that states it.
+ */
 const brokenLaws = (
 	w: Witnessing,
+	relation: WitnessTable,
 	refusing: LawCheck,
 	broken: ReadonlyArray<LawCheck>
-): NonEmptyReadonlyArray<Law> => {
+): NonEmptyReadonlyArray<RefusedLaw> => {
 	const order = (law: LawId): number =>
 		defined(w.data.lawOrder.get(law), `the place of law ${law} in the theory's order`)
-	const [head, ...rest] = concatNonEmpty(
-		broken.flatMap((c) => c.laws),
-		refusing.laws
-	)
-	const once: NonEmptyReadonlyArray<ConstraintLawOf> = [
+	const [head, ...rest] = concatNonEmpty(broken.flatMap(statedLaws), statedLaws(refusing))
+	const once: NonEmptyReadonlyArray<StatedLaw> = [
 		head,
-		...rest.filter((l, i) => l.law !== head.law && rest.findIndex((m) => m.law === l.law) === i)
+		...rest.filter(
+			(l, i) => l.law.law !== head.law.law && rest.findIndex((m) => m.law.law === l.law.law) === i
+		)
 	]
 	return mapNonEmpty(
-		sortNonEmpty(once, (a, b) => order(a.law) - order(b.law)),
-		(l) => l.described
+		sortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),
+		({ law, check }) => ({
+			law: law.described,
+			id: law.law,
+			by: { kind: "constraint", table: relation.ident, name: check }
+		})
 	)
 }
 
@@ -984,21 +1016,21 @@ interface RefuserJudge {
 }
 
 /**
- * How the host judges a stated row of `relation` against a refusing domain, `uses` the columns it types in the tables
- * the statement writes: each of the row's columns among them at the level of its type its law states (levelStates), a
+ * How the host judges a stated row of `relation` against a refusing domain, `refuser`, whose uses are the columns it
+ * types in the tables the statement writes: each of the row's columns among them at the level of its type its law states (levelStates), a
  * generated field at the value PostgreSQL generates into its domain from the row (domainValue). The row breaks the
  * domain where one of them breaks. Where the host judges every one of them, the refusal names `every` law of those
- * that break, each once, in the domain's order of its uses; where it leaves one unjudged, which the row may break too,
+ * that break, each once, in the domain's order of its uses, each refused by the domain's CHECK; where it leaves one unjudged, which the row may break too,
  * the laws of the one object, which the classifier names.
  */
 const domainRow = (
 	judge: Judge,
 	relation: WitnessTable,
-	uses: ReadonlyArray<DomainUse>,
+	refuser: Extract<Refuser, { readonly kind: "domain" }>,
 	row: JudgedRow
 ): RowJudgement => {
 	const typed = new Map(
-		uses.flatMap((use, order) =>
+		refuser.uses.flatMap((use, order) =>
 			use.table === relation.ident ? [[use.column, { use, order }] as const] : []
 		)
 	)
@@ -1036,7 +1068,11 @@ const domainRow = (
 		head,
 		...rest.filter((l, i) => l.law !== head.law && rest.findIndex((m) => m.law === l.law) === i)
 	]
-	return { kind: "breaks", laws: { kind: "every", laws: mapNonEmpty(once, (l) => l.described) } }
+	const by: RefusingObject = { kind: "domain", domain: refuser.domain, name: refuser.name }
+	return {
+		kind: "breaks",
+		laws: { kind: "every", laws: mapNonEmpty(once, (l) => ({ law: l.described, id: l.law, by })) }
+	}
 }
 
 /** How the host judges stated rows against `refuser` (RefuserJudge). */
@@ -1063,7 +1099,7 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 			}
 		case "domain":
 			return {
-				row: (relation, row) => domainRow(judge, relation, refuser.uses, row),
+				row: (relation, row) => domainRow(judge, relation, refuser, row),
 				none: refusedByObject
 			}
 		case "constraint": {

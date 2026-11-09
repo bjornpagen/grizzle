@@ -42,7 +42,8 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 		Arr.map(generatedFieldLaws([r]), (g) => ({
 			table: r.ident,
 			column: g.field.column,
-			law: g.law
+			law: g.law,
+			id: g.id
 		}))
 	)
 })

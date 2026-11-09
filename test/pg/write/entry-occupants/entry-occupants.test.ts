@@ -27,6 +27,7 @@ import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -342,7 +343,9 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 												)} and answered ${outcome.kind}`
 											)
 										}
-										const [law, ...more] = Arr.map(outcome.refused.laws, (l) => names.reported(l))
+										const [law, ...more] = Arr.map(refusedLaws(outcome.refused), (l) =>
+											names.reported(l)
+										)
 										assert.deepEqual(more, [], "a key's refusal names its one law")
 										const object = Option.getOrThrowWith(
 											Arr.findFirst(met, (o) => lawOf[o.name] === law),

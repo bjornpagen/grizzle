@@ -10,19 +10,22 @@ import {
 	type ConcurrentChange,
 	type HostJudgement,
 	type KeyDecoder,
-	type Law,
 	type LawDetail,
 	readChangeDetail,
 	readLawDetail,
 	type Refused,
+	type RefusedLaw,
 	type RefusedLaws,
 	type Refuser,
+	type RefusingObject,
 	type Witness
 } from "#compiler/plan/change.ts"
 import {
 	defect,
 	type DomainName,
 	jsonText,
+	type ConstraintName,
+	type ConstraintOwner,
 	type RelationIdent,
 	sqlstateClass,
 	sqlstates
@@ -41,7 +44,9 @@ type ViolationFields = Pick<
 
 /**
  * Classifying one integrity violation or write refusal PostgreSQL reported into the laws it broke, as an outcome names
- * them (types/changeset Law), and its witness, or a concurrent change.
+ * them (types/changeset RefusedLaw: each law as the schema states it, its identity, and the installed object that
+ * refused it, the reported constraint or domain, or the write statement that raised it), and its witness, or a
+ * concurrent change.
  *
  * The witness of `invariant-rejected` is built only from fields grizzle controls, for a statement or a COMMIT that
  * PostgreSQL refused, in the cases decided here:
@@ -175,6 +180,9 @@ export const rosterDomainDefect = (
 	)
 }
 
+/** The write statement that raised a law it refused under its identity (write/refusal.ts). */
+const byStatement: RefusingObject = Object.freeze({ kind: "statement" })
+
 /**
  * The rejection of `law` by a write statement's refusal, from its DETAIL; undefined when the DETAIL names a relation,
  * field or key value that is not this installation's.
@@ -187,7 +195,14 @@ const refusalRejection = (
 	const witness = decoder.fromRefusal(refusal.relation, refusal.key)
 	return witness === undefined
 		? undefined
-		: { kind: "rejected", refused: { kind: "every", laws: [law.described] }, witness }
+		: {
+				kind: "rejected",
+				refused: {
+					kind: "every",
+					laws: [{ law: law.described, id: law.law, by: byStatement }]
+				},
+				witness
+			}
 }
 
 /**
@@ -204,26 +219,37 @@ const concurrentChange = (
 		: { kind: "aborted", reason: { _tag: read.reason, relation: read.relation } }
 }
 
+/** The installed object a native violation reports, `constraint` under `owner`, as an outcome names it. */
+const nativeObject = (constraint: ConstraintName, owner: ConstraintOwner): RefusingObject =>
+	owner.kind === "table"
+		? { kind: "constraint", table: owner.name, name: constraint }
+		: { kind: "domain", domain: owner.name, name: constraint }
+
 /**
- * The laws a native violation can name (see the header): a domain's, of the columns it types in the tables `written`,
- * when it types any there; every law the object discharges otherwise.
+ * The laws a native violation can name (see the header), each refused by `by`, the object that reported it: a domain's,
+ * of the columns it types in the tables `written`, when it types any there; every law the object discharges otherwise.
  */
 const nativeLaws = (
 	native: NativeLaws,
-	written: ReadonlySet<RelationIdent>
-): Arr.NonEmptyReadonlyArray<Law> => {
+	written: ReadonlySet<RelationIdent>,
+	by: RefusingObject
+): Arr.NonEmptyReadonlyArray<RefusedLaw> => {
 	const coerced = new Set(
 		Arr.flatMap(native.uses, (use) => (written.has(use.table) ? [use.law.law] : []))
 	)
 	const broken = Arr.filter(native.laws, (l) => coerced.has(l.law))
-	return Arr.map(Arr.isReadonlyArrayNonEmpty(broken) ? broken : native.laws, (l) => l.described)
+	return Arr.map(Arr.isReadonlyArrayNonEmpty(broken) ? broken : native.laws, (l) => ({
+		law: l.described,
+		id: l.law,
+		by
+	}))
 }
 
 /**
  * The laws an object's refusal names where nothing grizzle holds decides among them: its one law, decided, or `some`
  * of its several, at least one of which the row broke.
  */
-const objectRefused = (laws: Arr.NonEmptyReadonlyArray<Law>): Refused => {
+const objectRefused = (laws: Arr.NonEmptyReadonlyArray<RefusedLaw>): Refused => {
 	const [first, ...rest] = laws
 	const [second, ...more] = rest
 	return second === undefined
@@ -237,7 +263,7 @@ const objectRefused = (laws: Arr.NonEmptyReadonlyArray<Law>): Refused => {
  * where no stated row breaks it or the host leaves one of its table's CHECKs unjudged; and for any other refusal the
  * laws its one object discharges that the statement can break, `broken`, decided where it is one.
  */
-const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<Law>): Refused => {
+const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<RefusedLaw>): Refused => {
 	switch (laws.kind) {
 		case "every":
 			return { kind: "every", laws: laws.laws }
@@ -329,11 +355,16 @@ export const violationClassifier =
 			return undefined
 		}
 		const tables = new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
-		const broken = nativeLaws(native, tables)
+		const broken = nativeLaws(native, tables, nativeObject(constraint, owner))
 		const judged = written.judge(
 			owner.kind === "table"
 				? { kind: "constraint", owner: owner.name, name: constraint }
-				: { kind: "domain", uses: Arr.filter(native.uses, (use) => tables.has(use.table)) }
+				: {
+						kind: "domain",
+						domain: owner.name,
+						name: constraint,
+						uses: Arr.filter(native.uses, (use) => tables.has(use.table))
+					}
 		)
 		return { kind: "rejected", refused: refusedBy(judged.laws, broken), witness: judged.witness }
 	}

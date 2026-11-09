@@ -89,7 +89,10 @@ const applyBound = <R>(
 			inputApplyError
 		)
 		if (inputs.kind === "rejected") {
-			return applyOutcome.invariantRejected({ kind: "every", laws: [inputs.law] }, inputs.witness)
+			return applyOutcome.invariantRejected(
+				{ kind: "every", laws: [inputs.refused] },
+				inputs.witness
+			)
 		}
 		return yield* Effect.scoped(
 			Effect.flatMap(

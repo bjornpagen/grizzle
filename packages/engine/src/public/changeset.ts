@@ -38,10 +38,13 @@ export type {
 	LawSide,
 	Member,
 	Refused,
+	RefusedLaw,
+	RefusingObject,
 	Witness,
 	WritableOf,
 	Written
 } from "#compiler/types/changeset/changeset.ts"
+export type { GeneratedLawId, LawId } from "#compiler/core/ids.ts"
 
 /**
  * sameLaw(a, b): whether two laws, as an `invariant-rejected` outcome or lawsOf names them, are one law of a schema:

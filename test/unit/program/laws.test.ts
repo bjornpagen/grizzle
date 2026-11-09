@@ -657,8 +657,11 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 	const ofColumn = (table: ObjectName, column: ColumnDef): ReadonlyArray<Law> =>
 		installed(table)
 			? Option.toArray(
-					Option.fromNullishOr(
-						map.generatedOf(admittedIdentifier(table.name), admittedIdentifier(column.name))
+					Option.map(
+						Option.fromNullishOr(
+							map.generatedOf(admittedIdentifier(table.name), admittedIdentifier(column.name))
+						),
+						(refused) => refused.law
 					)
 				)
 			: []
