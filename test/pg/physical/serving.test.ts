@@ -63,8 +63,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The index engine (physical/indexes/engine.ts) claims, for every request it plans, an index that serves it, and it
  * creates an index only for a request nothing installed serves. PostgreSQL is the judge of both claims (serving.ts):
  * every request's probe must run through an index the installation planned, with an index condition, one descent, no
- * filtered row, no sort and a bounded count of touched buffers, and every created index must be needed, some request it
- * holds going unserved once it is dropped. The serving rule is never restated here.
+ * sort and a bounded count of touched buffers, and through its own index alone searching every condition it states, so
+ * no filtered row; and every created index must be needed, some request it holds going unserved once it is dropped. The
+ * serving rule is never restated here.
  *
  * Three populations, each installed by the fresh-install compiler and loaded at volume (serving.ts volumeRows):
  *
@@ -77,15 +78,21 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   index to tell from a scan, and is not judged (serving.ts). A workload whose access path PostgreSQL could not index
  *   (an unbounded text or numeric key) is refused as UnrepresentableKey, a named outcome. Its kept cases: an equality
  *   lookup on a boolean key column, whose answer is half its relation, beside a span predicate that a GiST index led by
- *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; and a join key on a key column
+ *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; a join key on a key column
  *   and a column of many values, beside span predicates whose GiST index holds both after its lead, which PostgreSQL
  *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
- *   about once in 200 cases.
+ *   about once in 200 cases; and a span predicate on a field of a two-field key and a span, beside a take seek whose
+ *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
+ *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
+ *   needed still, since the B-tree does not search the span by overlap (serving.ts).
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
  *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
- *   with any of Booking's scalars. Its kept case plants the requests a planner is tempted to serve wrongly: an equality
- *   pair beside a range over the same two columns in the other order, which one index serves.
+ *   with any of Booking's scalars. Its kept cases plant the requests a planner is tempted to serve wrongly: an equality
+ *   pair beside a range over the same two columns in the other order, which one index serves; and law probes on Event's
+ *   (tenant, account) and (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through
+ *   the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair, its choice and not
+ *   the engine's claim (serving.ts).
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
@@ -534,6 +541,26 @@ const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, RequestFeature>> = 
 		],
 		draws: "",
 		reaches: ["range probe served"]
+	},
+	{
+		note: "law probes on (tenant, account) and on (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair",
+		sketch: Arr.map(
+			[
+				["tenant", "account"],
+				["tenant", "account", "id"]
+			] as const,
+			(columns): Intent => ({
+				kind: "law",
+				relation: "Event",
+				keys: Arr.map(columns, (column) => ({ column, desc: false }))
+			})
+		),
+		draws: "",
+		reaches: [
+			"served by a key or enforcement index",
+			"read through another planned index that does not search every condition of its probe",
+			"a created index needed"
+		]
 	}
 ]
 
@@ -1696,6 +1723,255 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"a workload installed",
 			"read through another planned index than the engine's",
 			"swept through another index, awaiting upstream/gist-costestimate-column-position"
+		]
+	},
+	{
+		note: "a span predicate on Timestamptztypmodin's (PolyOverleft, span80) beside a take seek whose B-tree holds both, PolyOverleft a field of the two-field key the load makes unique on its own: without the predicate's GiST index PostgreSQL finds its one row through the B-tree, whose filter on span80 removes none, yet the B-tree does not search span80 by overlap, so the GiST index is needed",
+		sketch: {
+			population: "delivered",
+			swarm: {
+				"bind fresh": 3,
+				"bind parent": 3,
+				"compare literal": 1,
+				take: 3,
+				"attached take": 2,
+				ordered: 2,
+				attach: 3,
+				nested: 1,
+				dense: 3,
+				"candidate key": 1,
+				probe: 1,
+				spelled: 3,
+				"full head": 3,
+				ungrouped: 3,
+				"stated delivery": 3,
+				"keyed child": 3,
+				"reflexive child": 3,
+				"arm child": 3,
+				"handle field": 3,
+				import: 2,
+				"import bound": 1,
+				named: 2,
+				"computed head": 2,
+				"computed group key": 3,
+				between: 1,
+				"in set": 3,
+				connective: 3,
+				"relation param": 3,
+				recursive: 3,
+				"contract param": 3,
+				"typmod param": 1,
+				allen: 3,
+				"point in": 3,
+				"literal head": 1
+			},
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"enable_mergejoin = off",
+					"debug_parallel_query = regress",
+					"plan_cache_mode = force_generic_plan"
+				],
+				multiplier: 1
+			},
+			ambient: {
+				path: { kind: "grizzleFirst" },
+				settings: [
+					{ parameter: "extra_float_digits", value: "-15" },
+					{ parameter: "TimeZone", value: "Pacific/Chatham" },
+					{ parameter: "DateStyle", value: "SQL, DMY" },
+					{ parameter: "IntervalStyle", value: "sql_standard" },
+					{ parameter: "bytea_output", value: "escape" }
+				]
+			},
+			restorage: { shift: 61, respell: 748 },
+			roster: 13788,
+			span: 64309,
+			relations: [
+				{
+					name: 14540,
+					fields: [
+						{ name: 6761, kind: 9515, key: 53999 },
+						{ name: 13648, kind: 9010, key: 62444 }
+					],
+					candidate: 25300,
+					facts: []
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 30135,
+								derived: 65298,
+								attached: 31128,
+								binds: [
+									{ how: 121, pick: 55830, value: { cls: 65523, sp: 2761 } },
+									{ how: 38604, pick: 0, value: { cls: 22918, sp: 24697 } },
+									{ how: 15395, pick: 254, value: { cls: 7269, sp: 33407 } },
+									{ how: 19325, pick: 17258, value: { cls: 41803, sp: 40735 } },
+									{ how: 47758, pick: 15164, value: { cls: 65535, sp: 42196 } },
+									{ how: 4707, pick: 38995, value: { cls: 63845, sp: 8017 } },
+									{ how: 65345, pick: 6608, value: { cls: 58331, sp: 23794 } }
+								]
+							},
+							{
+								source: 14786,
+								derived: 0,
+								attached: 5978,
+								binds: [
+									{ how: 30177, pick: 15012, value: { cls: 5746, sp: 1788 } },
+									{ how: 7942, pick: 12565, value: { cls: 8847, sp: 54179 } },
+									{ how: 26710, pick: 38706, value: { cls: 29770, sp: 61258 } },
+									{ how: 106, pick: 29890, value: { cls: 25414, sp: 39200 } },
+									{ how: 61392, pick: 47845, value: { cls: 65513, sp: 48628 } },
+									{ how: 24779, pick: 4001, value: { cls: 59158, sp: 139 } },
+									{ how: 3, pick: 5, value: { cls: 27493, sp: 51189 } }
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [{ left: 55062, values: [{ cls: 25487, sp: 17 }] }],
+						allen: [{ left: 1339, mask: 55344, right: 63875 }],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 54287, picks: [9723, 31047] },
+						head: {
+							vars: [],
+							names: [32943, 53145, 9774, 51476, 8658, 1549],
+							folds: [{ fn: 10317, arg: 6765, padded: 25164, scale: 21778 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 535,
+									derived: 47660,
+									attached: 54108,
+									binds: [
+										{ how: 424, pick: 20268, value: { cls: 11730, sp: 31648 } },
+										{ how: 61648, pick: 41888, value: { cls: 40297, sp: 4069 } },
+										{ how: 35235, pick: 12986, value: { cls: 12314, sp: 6965 } },
+										{ how: 61907, pick: 64414, value: { cls: 47619, sp: 10371 } },
+										{ how: 30067, pick: 19682, value: { cls: 17327, sp: 65528 } },
+										{ how: 38017, pick: 34694, value: { cls: 7456, sp: 41804 } },
+										{ how: 22945, pick: 16948, value: { cls: 15143, sp: 33410 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 54001, picks: [36738, 16756] },
+							head: {
+								vars: [],
+								names: [15679, 18021, 65467, 3001, 55682, 41010],
+								folds: [{ fn: 20339, arg: 47319, padded: 17833, scale: 11505 }]
+							}
+						}
+					},
+					take: { rotate: 28110, dirs: [0, 10130, 5151], size: 17417, ties: 30585 },
+					literalHead: { name: 2897, kind: 18854, arms: 1657, values: [10263, 57710, 53144] },
+					importable: 64472,
+					bindImport: 60259,
+					named: 6648,
+					relationParam: { relation: 51347, facts: [] },
+					closure: { relation: 19894, pair: 44410, name: 25979 },
+					attachments: [],
+					order: { rotate: 32861, dirs: [28780, 55012, 6700], size: 4081 },
+					probe: { kind: 16283, pick: 50564 },
+					key: { relation: 54720, which: 43671, fact: 11342, absent: 42834, roster: 14268 }
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 54299,
+								derived: 57816,
+								attached: 20157,
+								binds: [
+									{ how: 1220, pick: 26790, value: { cls: 65481, sp: 3296 } },
+									{ how: 19798, pick: 65534, value: { cls: 59122, sp: 45813 } },
+									{ how: 32785, pick: 21577, value: { cls: 18669, sp: 13920 } },
+									{ how: 62554, pick: 30027, value: { cls: 43460, sp: 65529 } },
+									{ how: 21870, pick: 60252, value: { cls: 47070, sp: 45380 } },
+									{ how: 0, pick: 42373, value: { cls: 51988, sp: 23053 } },
+									{ how: 29945, pick: 55303, value: { cls: 26379, sp: 41781 } }
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 29455, picks: [29854, 0] },
+						head: {
+							vars: [],
+							names: [36471, 4, 45665, 25760, 0, 53021],
+							folds: [{ fn: 42660, arg: 42543, padded: 48620, scale: 21725 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 62166,
+									derived: 0,
+									attached: 65534,
+									binds: [
+										{ how: 39871, pick: 40986, value: { cls: 51479, sp: 19380 } },
+										{ how: 64882, pick: 10324, value: { cls: 65524, sp: 52233 } },
+										{ how: 65521, pick: 40551, value: { cls: 1582, sp: 57813 } },
+										{ how: 53731, pick: 36072, value: { cls: 26998, sp: 65474 } },
+										{ how: 28049, pick: 49663, value: { cls: 59118, sp: 2 } },
+										{ how: 47382, pick: 55238, value: { cls: 39034, sp: 20487 } },
+										{ how: 19953, pick: 11290, value: { cls: 11136, sp: 65535 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 10425, picks: [902, 25551] },
+							head: {
+								vars: [],
+								names: [64942, 60503, 24, 21781, 29991, 63427],
+								folds: [{ fn: 30749, arg: 47950, padded: 43523, scale: 6650 }]
+							}
+						}
+					},
+					take: { rotate: 3166, dirs: [57139, 51031, 46939], size: 42621, ties: 22937 },
+					literalHead: { name: 49732, kind: 55390, arms: 12126, values: [2037, 52486, 37194] },
+					importable: 0,
+					bindImport: 1959,
+					named: 441,
+					relationParam: { relation: 62406, facts: [] },
+					closure: { relation: 65494, pair: 12695, name: 61772 },
+					attachments: [],
+					order: { rotate: 27241, dirs: [16515, 7745, 2059], size: 37029 },
+					probe: { kind: 579, pick: 55791 },
+					key: { relation: 7240, which: 47464, fact: 16069, absent: 63666, roster: 2267 }
+				}
+			],
+			planted: {
+				names: [
+					45480, 58728, 16152, 16285, 34604, 59149, 23836, 13179, 36374, 59908, 50118, 21539, 54857,
+					53932, 21986, 26527, 41699, 24620, 39561, 18190, 57862, 13992, 36787, 55450, 59508, 22525,
+					49956, 63876, 14958, 58258, 12498, 20229, 3741, 16896, 37, 27263, 47063, 63782, 13996,
+					17645, 0, 57761, 34782, 56883, 8500, 0, 1
+				],
+				value: { cls: 2, sp: 1 },
+				handle: 0,
+				padding: 2,
+				side: { kind: 0, values: [0, 2, 0] }
+			}
+		},
+		draws: "0.0.1.0.0.0.0.0.1.0.0.0.2.0.0.1.0.0.0.0.0.0.0.0.0.0",
+		reaches: [
+			"a workload installed",
+			"overlap probe served",
+			"ordered probe served",
+			"served by a created index",
+			"a created index needed"
 		]
 	}
 ]

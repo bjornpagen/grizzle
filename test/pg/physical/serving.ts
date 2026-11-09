@@ -16,7 +16,7 @@ import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
@@ -58,15 +58,6 @@ const lawShape: Readonly<Record<IndexRequest["method"], Shape>> = {
 
 const shapeOf = (r: IndexRequest): Shape =>
 	r.role === "access" ? accessShape[r.use] : lawShape[r.method]
-
-/** Whether a shape fixes a column, so its scan must carry an index condition. */
-const conditioned: Readonly<Record<Shape, boolean>> = {
-	equality: true,
-	range: true,
-	ordered: false,
-	overlap: true,
-	nearest: false
-}
 
 /**
  * The fields among a request's `fields`, in key order, one of which leads, among its keys of many values (`many`), every
@@ -128,12 +119,28 @@ const descentPages: Readonly<Record<PlannedIndex["method"], number>> = {
 }
 
 /**
- * What the judgment reads of a planned index: its access method, the fields its keys hold, whether it is unique, its
- * pages, and its entries, a row each.
+ * An operator a probe's condition on a key applies, by its name as pg_operator holds it: equality, a range's bounds, or
+ * a span's overlap.
+ */
+type KeyOperator = "=" | ">=" | "<=" | "&&"
+
+/**
+ * One key of a planned index: the field it holds, and the operators its column's operator family searches it by
+ * (pg_amop's search operators), as PostgreSQL's catalog states them. A condition on the field by another operator, a
+ * B-tree's or a hash index's on a span by overlap, or a GiST index's on a span by a bound, is no index condition of it.
+ */
+interface SearchedKey {
+	readonly field: string
+	readonly searches: ReadonlySet<string>
+}
+
+/**
+ * What the judgment reads of a planned index: its access method, its keys and what it searches each by, whether it is
+ * unique, its pages, and its entries, a row each.
  */
 export interface IndexFacts {
 	readonly method: PlannedIndex["method"]
-	readonly fields: ReadonlySet<string>
+	readonly keys: ReadonlyArray<SearchedKey>
 	readonly unique: boolean
 	readonly pages: number
 	readonly entries: number
@@ -210,6 +217,16 @@ const requestKeys = (
 /** An index key's column as text: a field's name, or a law column's identifier. */
 const keyText = (key: { readonly column: IndexColumn }): string =>
 	key.column.kind === "field" ? key.column.field : key.column.column
+
+/** The installed column an index key of `relation` holds: a field's, or a law column, its identifier its column's name. */
+const keyColumn = (
+	installed: Judged,
+	relation: string,
+	key: { readonly column: IndexColumn }
+): string =>
+	key.column.kind === "field"
+		? installed.installation.names.column(relation, key.column.field)
+		: key.column.column
 
 /** A stored relation's field as the law model holds it, which a law's request names its key columns by. */
 type FieldOf = (relation: string, field: string) => LawField
@@ -368,8 +385,20 @@ const tableOf = (installed: Judged, relation: string) =>
 		} satisfies Table
 	})
 
-/** Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table. */
-const indexFacts = (indexes: ReadonlyArray<PlannedIndex>, tableFor: (relation: string) => Table) =>
+/** Each key column of an index, by name, with an operator its operator family searches it by, a row each. */
+type ColumnSearches = ReadonlyArray<readonly [string, string]>
+
+const columnSearchesOf = (rows: unknown): ColumnSearches => trusted<ColumnSearches>(rows)
+
+/**
+ * Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table, and each key is
+ * searched by the operators its column's operator family searches by.
+ */
+const indexFacts = (
+	installed: Judged,
+	indexes: ReadonlyArray<PlannedIndex>,
+	tableFor: (relation: string) => Table
+) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const facts = new Map<string, IndexFacts>()
@@ -389,9 +418,31 @@ const indexFacts = (indexes: ReadonlyArray<PlannedIndex>, tableFor: (relation: s
 			if (pages === undefined) {
 				return assert.fail(`no index ${i.index.name} in ${table.schema}`)
 			}
+			const searches = yield* Effect.map(
+				admin.queryValues(
+					"SELECT a.attname::text, o.oprname::text FROM pg_catalog.pg_class AS c " +
+						"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_index AS x ON x.indexrelid = c.oid " +
+						"CROSS JOIN LATERAL ROWS FROM (pg_catalog.unnest(x.indkey::pg_catalog.int2[]), pg_catalog.unnest(x.indclass::pg_catalog.oid[])) AS k(attnum, opclass) " +
+						"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = x.indrelid AND a.attnum = k.attnum " +
+						"JOIN pg_catalog.pg_opclass AS oc ON oc.oid = k.opclass " +
+						"JOIN pg_catalog.pg_amop AS m ON m.amopfamily = oc.opcfamily AND m.amoppurpose = 's'::\"char\" " +
+						"JOIN pg_catalog.pg_operator AS o ON o.oid = m.amopopr " +
+						"WHERE n.nspname = $1::text AND c.relname = $2::text",
+					[table.schema, i.index.name]
+				),
+				columnSearchesOf
+			)
 			facts.set(i.index.name, {
 				method: i.method,
-				fields: new Set(Arr.map(i.keys, keyText)),
+				keys: Arr.map(i.keys, (k): SearchedKey => {
+					const column = keyColumn(installed, i.relation, k)
+					return {
+						field: keyText(k),
+						searches: new Set(
+							Arr.flatMap(searches, ([name, operator]) => (name === column ? [operator] : []))
+						)
+					}
+				}),
 				unique: i.unique,
 				pages: Number(pages),
 				entries: table.rows
@@ -411,7 +462,7 @@ export const plannedFacts = (
 			const table = yield* tableOf(installed, r)
 			tables.set(r, table)
 		}
-		return yield* indexFacts(indexes, (relation) => {
+		return yield* indexFacts(installed, indexes, (relation) => {
 			const t = tables.get(relation)
 			return t ?? assert.fail(`no table read for ${relation}`)
 		})
@@ -486,17 +537,43 @@ export const loadRows = (
 		}
 	})
 
+/** A condition a probe states on a key: the field, the operator it applies, and the value's literal. */
+interface KeyCondition {
+	readonly field: string
+	readonly operator: KeyOperator
+	readonly value: string
+}
+
+/** A probe's statement: the conditions it states on its keys, and what follows its WHERE clause. */
+interface Statement {
+	readonly conditions: ReadonlyArray<KeyCondition>
+	readonly tail: string
+}
+
 /**
- * One request's probe: the statement, its shape, its relation's table, what the report calls it, and the fields its key
- * conditions bind (every key of a shape that fixes its columns, none of an order's).
+ * One request's probe: the statement, its shape, its relation's table, what the report calls it, and the conditions it
+ * states on its keys (every key's for a shape that fixes its columns, none for an order or the nearest vectors).
  */
 interface Probe {
 	readonly label: string
 	readonly shape: Shape
 	readonly table: Table
 	readonly sql: string
-	readonly bound: ReadonlyArray<string>
+	readonly conditions: ReadonlyArray<KeyCondition>
 }
+
+/** The fields a probe's conditions fix, in key order, each once. */
+const boundOf = (probe: Probe): ReadonlyArray<string> =>
+	Arr.dedupe(Arr.map(probe.conditions, (c) => c.field))
+
+/** Whether a key of an index searches a condition: it holds the condition's field under an operator family that
+ * searches by its operator. */
+const searchedBy = (k: SearchedKey, c: KeyCondition): boolean =>
+	k.field === c.field && k.searches.has(c.operator)
+
+/** The conditions of a probe that no key of an index searches, so that a filter rechecks them on what the index finds. */
+const unsearchedOf = (scanned: IndexFacts, probe: Probe): ReadonlyArray<KeyCondition> =>
+	Arr.filter(probe.conditions, (c) => !Arr.some(scanned.keys, (k) => searchedBy(k, c)))
 
 type Texts = ReadonlyArray<ReadonlyArray<string>>
 
@@ -546,16 +623,17 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 				: quoteString(v)
 		}
 		/** `op` between two values of a key's column: the extension's qualified operator over a vector. */
-		const operator = (field: string, op: "=" | "<=" | ">="): string =>
+		const operator = (field: string, op: KeyOperator): string =>
 			table.vectors.has(installed.installation.names.column(request.relation, field))
 				? `OPERATOR(${quoteIdent(installed.installation.names.vectorSchema)}.${op})`
 				: op
 		/** Each of the first `count` keys equal to its sampled value. */
-		const equal = (count: number): ReadonlyArray<string> =>
-			Arr.map(
-				keys.slice(0, count),
-				(k, at) => `${column(k.field)} ${operator(k.field, "=")} ${value(at)}`
-			)
+		const equal = (count: number): ReadonlyArray<KeyCondition> =>
+			Arr.map(keys.slice(0, count), (k, at): KeyCondition => ({
+				field: k.field,
+				operator: "=",
+				value: value(at)
+			}))
 		/**
 		 * A range probe's bounds on its last key: after an equality prefix, the half of the column's extent that holds
 		 * the sampled value, from its least value to its median or from its median to its greatest, so the prefix's
@@ -586,7 +664,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 						}
 					)
 		/** The probe's conditions on its keys and what follows its WHERE clause, by its shape. */
-		const statement = yield* Effect.suspend(() => {
+		const statement = yield* Effect.suspend((): Effect.Effect<Statement, SqlError> => {
 			switch (shape) {
 				case "equality":
 					return Effect.succeed({ conditions: equal(keys.length), tail: "" })
@@ -597,23 +675,29 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 						return assert.fail(`${label}: a range request with no key`)
 					}
 					const c = column(bounded.field)
-					const le = operator(bounded.field, "<=")
-					return Effect.map(rangeBounds(last, c, le), ({ lo, hi }) => ({
-						conditions: [
-							...equal(last),
-							`${c} ${operator(bounded.field, ">=")} ${lo}`,
-							`${c} ${le} ${hi}`
-						],
-						tail: ""
-					}))
+					return Effect.map(
+						rangeBounds(last, c, operator(bounded.field, "<=")),
+						({ lo, hi }): Statement => ({
+							conditions: [
+								...equal(last),
+								{ field: bounded.field, operator: ">=", value: lo },
+								{ field: bounded.field, operator: "<=", value: hi }
+							],
+							tail: ""
+						})
+					)
 				}
 				case "overlap":
 					return Effect.succeed({
-						conditions: Arr.map(
-							keys,
-							(k, at) =>
-								`${column(k.field)} ${table.spans.has(installed.installation.names.column(request.relation, k.field)) ? "&&" : operator(k.field, "=")} ${value(at)}`
-						),
+						conditions: Arr.map(keys, (k, at): KeyCondition => ({
+							field: k.field,
+							operator: table.spans.has(
+								installed.installation.names.column(request.relation, k.field)
+							)
+								? "&&"
+								: "=",
+							value: value(at)
+						})),
 						tail: ""
 					})
 				case "ordered":
@@ -637,9 +721,13 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 				}
 			}
 		})
-		const sql = `SELECT 1 FROM ${table.quoted}${where(statement.conditions)}${statement.tail}`
-		const bound = conditioned[shape] ? Arr.map(keys, (k) => k.field) : []
-		return { label, shape, table, sql, bound } satisfies Probe
+		const { conditions } = statement
+		const stated = Arr.map(
+			conditions,
+			(k) => `${column(k.field)} ${operator(k.field, k.operator)} ${k.value}`
+		)
+		const sql = `SELECT 1 FROM ${table.quoted}${where(stated)}${statement.tail}`
+		return { label, shape, table, sql, conditions } satisfies Probe
 	})
 
 /**
@@ -754,7 +842,9 @@ export const overBound = (
 /**
  * The verdict on a probe's plan (see the header), `planned` the indexes the installation planned on the probe's
  * relation, by name, `facts` every planned index's facts, and `claimed` whether a scan of an index is held to the
- * engine's claim, every condition the probe states on its keys the index's.
+ * engine's claim, every condition the probe states on its keys the index's: the index searches each, or, unique, it
+ * searches a condition on each of its keys and finds the rows of one key, on which a filter rechecks the rest. A scan of
+ * an index not held to the claim, one PostgreSQL chose by its cost over the request's own, is held to what it read.
  */
 const verdictOf = (
 	probe: Probe,
@@ -772,7 +862,7 @@ const verdictOf = (
 	if (scan === undefined || more.length > 0) {
 		return { kind: "unserved", why: `${scans.length} scans of the relation` }
 	}
-	const read = plannedScan(scan, planned, conditioned[probe.shape])
+	const read = plannedScan(scan, planned, Arr.isReadonlyArrayNonEmpty(probe.conditions))
 	if (Result.isFailure(read)) {
 		return { kind: "unserved", why: read.failure }
 	}
@@ -782,19 +872,25 @@ const verdictOf = (
 	if (scanned === undefined) {
 		return assert.fail(`${probe.label}: no facts read for ${index}`)
 	}
-	const unheld = Arr.filter(probe.bound, (field) => !scanned.fields.has(field))
-	const keyed =
-		scanned.unique && Arr.every([...scanned.fields], (field) => probe.bound.includes(field))
-	if (claimed(index) && Arr.isReadonlyArrayNonEmpty(unheld) && !keyed) {
-		return {
-			kind: "unserved",
-			why: `a scan of ${index}, which does not hold ${Arr.join(unheld, ", ")}, so a filter rechecks them`
+	if (claimed(index)) {
+		const unsearched = unsearchedOf(scanned, probe)
+		const keyed =
+			scanned.unique &&
+			Arr.every(scanned.keys, (k) => Arr.some(probe.conditions, (c) => searchedBy(k, c)))
+		if (Arr.isReadonlyArrayNonEmpty(unsearched) && !keyed) {
+			return {
+				kind: "unserved",
+				why: `a scan of ${index}, which does not search ${Arr.join(
+					Arr.map(unsearched, (c) => `${c.field} by ${c.operator}`),
+					", "
+				)}, so a filter rechecks them`
+			}
 		}
-	}
-	if (scan.rowsRemovedByFilter > 0) {
-		return {
-			kind: "unserved",
-			why: `a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter`
+		if (scan.rowsRemovedByFilter > 0) {
+			return {
+				kind: "unserved",
+				why: `a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter`
+			}
 		}
 	}
 	if (orderedShape[probe.shape] && Arr.some(nodes, (n) => sorts.has(n.nodeType))) {
@@ -865,6 +961,7 @@ export type ServingFeature =
 	| "served by a key or enforcement index"
 	| "served by a created index"
 	| "read through another planned index than the engine's"
+	| "read through another planned index that does not search every condition of its probe"
 	| `swept through another index, awaiting upstream/${UpstreamNote}`
 	| "swept through another B-tree in no more buffers than its own index alone"
 	| "a GiST index serving a B-tree request"
@@ -894,16 +991,19 @@ const residueFeature = (residue: Residue): ServingFeature => {
  * when it is another, the probe runs again through the request's own alone, every other index of the relation dropped
  * in a transaction rolled back, and must be served there too, so the engine's claim is judged on the index it names:
  *
- * - with an index condition, when the probe fixes a column (every shape but an order);
+ * - with an index condition, when the probe fixes a column (every shape but an order and the nearest vectors);
  * - in one descent of the index (Index Searches at most 1), so a B-tree skip scan over a leading column the request
  *   does not fix does not serve it, as the engine states;
  * - through the request's own index, and through any index the needed check below reads, with every condition the
- *   probe states on its keys the index's: the index holds every field the probe fixes, so no filter rechecks one,
- *   however few rows the data lets that filter remove, but for a unique index all of whose keys the probe fixes, which
- *   finds the rows of one key, on which PostgreSQL rechecks the rest (physical/indexes/engine.ts: a unique index's
- *   keyed and pinned placements). Another index PostgreSQL chooses for its statistics, a column the load fills with
- *   distinct values say, is held to what it read, as the two rules below hold it;
- * - removing no row by a filter;
+ *   probe states on its keys the index's: the index searches each, holding its field under an operator family that
+ *   searches by the condition's operator (pg_amop's search operators, PostgreSQL's own catalog), so no filter rechecks
+ *   one, however few rows the data lets that filter remove; but for a unique index that searches a condition on each of
+ *   its keys, which finds the rows of one key, on which PostgreSQL rechecks the rest (physical/indexes/engine.ts: a
+ *   unique index's keyed placements). Holding a field is not searching it: a B-tree holds a span and never searches it
+ *   by overlap. The load makes each field of a key of two fields unique on its own, so a B-tree on (key, other, span)
+ *   that a take seek creates finds the one row of a span predicate on (key, span), and its filter on the span removes
+ *   none; it still does not serve the predicate, and the GiST index on (key, span) the predicate creates is needed;
+ * - through those indexes, removing no row by a filter;
  * - with no sort above it, when the probe asks for an order;
  * - touching at most the buffers its result requires (shared hit and read, PostgreSQL's own count): the result's share of
  *   the index's pages, its entries (the rows it returned and those its filter rechecked) over the index's entries times
@@ -917,6 +1017,14 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *   alone, and 93 for one on during alone; a primary key of 139 pages led by a boolean touches 69 for the 10,000 rows of
  *   an equality on it, half its entries, against a bound of 74. A nearest-vector probe has no such bound: HNSW reads a
  *   neighbourhood of its graph whatever the result.
+ *
+ * Another planned index PostgreSQL reads a probe through, by its cost over the request's own, is not held to the claim
+ * but to what it read: one descent, no sort, and the buffers its result requires, the rows its filter rechecks among its
+ * entries. What its filter removes is the cost model's choice and the data's draw, not the plan: law probes on Event's
+ * (tenant, account) and (tenant, account, id) cost 8.31 through the primary key on id and through the index on (tenant,
+ * account) alike, both estimating one row, and PostgreSQL reads the second through the index on (tenant, account),
+ * which finds the 5 rows of its sampled pair and rechecks id on them. No plan the engine makes avoids it: the index on
+ * (tenant, account) is needed, and holding id too would serve only a request the primary key serves.
  *
  * A sweep of another planned index than the request's own is excused (residueOf) only where no plan the engine makes
  * avoids it, and only by the PostgreSQL behaviour behind it (Residue); the request's own index alone must still serve
@@ -983,7 +1091,7 @@ export const judgeServing = (
 		if (judged.length < indexes.length) {
 			note("a relation its key bounds below the load, not judged")
 		}
-		const facts = yield* indexFacts(judged, tableFor)
+		const facts = yield* indexFacts(installed, judged, tableFor)
 		const probes = new Map<IndexRequest, Probe>()
 		for (const i of judged) {
 			for (const r of i.requests) {
@@ -1010,7 +1118,8 @@ export const judgeServing = (
 		 */
 		const keyOrdersConflict = (through: PlannedIndex, probe: Probe): boolean => {
 			const many = (fields: ReadonlyArray<string>) => manyOf(through.relation, fields)
-			const leads = leadsOf[probe.shape](probe.bound, many)
+			const bound = boundOf(probe)
+			const leads = leadsOf[probe.shape](bound, many)
 			const constraining = Arr.filter(
 				Arr.map(through.requests, (r) =>
 					leadsOf[shapeOf(r)](
@@ -1022,7 +1131,7 @@ export const judgeServing = (
 			)
 			return (
 				Arr.isReadonlyArrayNonEmpty(leads) &&
-				Arr.every(probe.bound, (field) => Arr.some(through.keys, (k) => keyText(k) === field)) &&
+				Arr.every(bound, (field) => Arr.some(through.keys, (k) => keyText(k) === field)) &&
 				!Arr.some(leads, (field) => Arr.every(constraining, (led) => led.includes(field)))
 			)
 		}
@@ -1155,6 +1264,15 @@ export const judgeServing = (
 					)
 					if (verdict.through.index.name !== host.index.name) {
 						note("read through another planned index than the engine's")
+						const other = defined(
+							facts.get(verdict.through.index.name),
+							`the facts of ${verdict.through.index.name}`
+						)
+						if (Arr.isReadonlyArrayNonEmpty(unsearchedOf(other, probe))) {
+							note(
+								"read through another planned index that does not search every condition of its probe"
+							)
+						}
 					}
 					if (Option.isSome(read.success)) {
 						note(residueFeature(read.success.value))
