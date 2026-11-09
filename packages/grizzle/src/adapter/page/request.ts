@@ -1,8 +1,9 @@
 import { Array as Arr, Predicate, Record as Rec, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
-import { catchCompileError, type CursorError } from "#compiler/plan/common.ts"
-import { cursorError, hostArguments, type PageVariant } from "#compiler/plan/read.ts"
+import type { CursorError } from "#compiler/plan/common.ts"
+import { cursorError, type PageVariant } from "#compiler/plan/read.ts"
+import { noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
 
 /**
  * Page request validation.
@@ -12,7 +13,7 @@ import { cursorError, hostArguments, type PageVariant } from "#compiler/plan/rea
  * as a size or a cursor taken from an end user's request, before anything else of the page happens, so a refused
  * request compiles nothing and sends no SQL:
  *
- * - the request is the caller's value, read once as data at the builder's boundary (query/build/host.ts hostArguments):
+ * - the request is the caller's value, read once as data at the runtime's boundary (core/host.ts readsAsData):
  *   one whose reading throws (a refusing proxy), or that holds a getter or a setter, is refused, so every later read of
  *   it runs no caller code;
  * - the request is an object whose own properties are control properties of exactly one direction: `first` with an
@@ -74,11 +75,7 @@ export const pageRequest = (
 	if (!Predicate.isObject(request)) {
 		return Result.fail(shapeError())
 	}
-	if (
-		!catchCompileError(() => {
-			hostArguments("reader.page", [request])
-		}).ok
-	) {
+	if (!readsAsData([request], noOpaque)) {
 		return Result.fail(shapeError())
 	}
 	const own = Reflect.ownKeys(request)

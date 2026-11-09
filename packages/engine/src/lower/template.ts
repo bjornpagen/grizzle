@@ -17,12 +17,12 @@ import {
 	type PlainQuery,
 	textColumn
 } from "#compiler/lower/delivery.ts"
-import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import type {
 	FusedStatement,
 	OptimizedStatement,
 	RelationChoice
 } from "#compiler/lower/shapes/index.ts"
+import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import {
 	mapTree,

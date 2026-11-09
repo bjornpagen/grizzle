@@ -48,7 +48,7 @@ export {
 	accessDriftText,
 	compileWorkload
 } from "#compiler/program/workload/compile.ts"
-export { servedRosters, servedSession } from "#compiler/program/served.ts"
+export { servedRosters } from "#compiler/program/served.ts"
 export { servedDifference, type ServedPart, servedPartText } from "#compiler/served/difference.ts"
 export { servedText } from "#compiler/served/json.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"

@@ -45,7 +45,6 @@ import {
 import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
-import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import {
 	attachmentRowsIdentity,
 	boundTimes,
@@ -81,6 +80,7 @@ import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
+import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
 import {
 	type AttachedTree,
 	mapTree,
@@ -836,7 +836,7 @@ export class OptimizedDelivery<
 	 *   stitches children onto parents by key;
 	 * - fused: the child inside the parent statement as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly
 	 *   for a single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec
-	 *   (attach/decode.ts), a child whose correlated columns the parent row supplies included.
+	 *   (runtime/lower/fused.ts), a child whose correlated columns the parent row supplies included.
 	 *
 	 * A LEFT JOIN with padded columns is never emitted. Parent predicates stay on the parent and are never pushed into a
 	 * child, which correlates to delivered parents only: the fused column is computed over the parent's delivered rows,

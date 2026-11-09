@@ -31,12 +31,12 @@ import {
 	type OptimizedProgram,
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
-import { type FusedAttachment, fusedElement } from "#compiler/lower/shapes/attach/decode.ts"
 import {
 	deliveredAsOptimized,
 	type FusedStatement,
 	type OptimizedStatement
 } from "#compiler/lower/shapes/index.ts"
+import { type FusedAttachment, fusedElement } from "#compiler/runtime/lower/fused.ts"
 
 import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -966,7 +966,7 @@ const runDifferential = (
  * then the child's heading, so the comparison stays structural: each element of the array is the child value's result
  * text cast inside the array (codec resultTextCasts: `::text`, money through numeric), the text capture reads for an
  * ordinary column; a child column correlated to a parent column the array leaves out is the parent row's text
- * (shapes/attach/decode.ts). Two parent rows with equal parent key columns must carry equal arrays, and an array
+ * (runtime/lower/fused.ts). Two parent rows with equal parent key columns must carry equal arrays, and an array
  * that repeats an element is a repeated row of the unfused statement.
  *
  * runDifferential, with a failure to lower or run either artifact reported as a failed property carrying the case in

@@ -191,7 +191,7 @@ export default defineConfig(
 					},
 					{
 						doors: [
-							"packages/engine/src/lower/shapes/attach/decode.ts",
+							"packages/engine/src/runtime/lower/fused.ts",
 							"packages/engine/src/scalar/values/convert.ts",
 							"packages/engine/src/write/refusal.ts",
 							"test/support/wire.ts"

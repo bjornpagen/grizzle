@@ -157,14 +157,6 @@ export const lawsAbove = (
 	)
 })
 
-/**
- * The key-law tables of an installation as data (served ServedKeyLaws): its levels' PostgreSQL schemas, every installed
- * constraint with its owner and laws, every law of the theory under its identity, each stored relation's table, each
- * roster's two domains, and each generated field's law by its table and column. A served file holds it per role, and
- * the compile builds it from the role's artifacts (adapter/served/refusals.ts keyLawsData).
- */
-export type KeyLawsData = ServedKeyLaws
-
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
 const ownedBy = <O>(
 	byOwner: Map<O, Map<ConstraintName, NativeLaws>>,
@@ -186,7 +178,7 @@ const noUses: ReadonlyArray<DomainUse> = Object.freeze([])
  * the installation holds `codes`, which each roster domain carries: the one constructor of KeyLaws, which a layer runs
  * over a served file's tables and the compile over the tables it draws from a role's artifacts.
  */
-export const keyLawsOf = (data: KeyLawsData, above: LawsAbove, codes: Codebook): KeyLaws => {
+export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook): KeyLaws => {
 	const tables = new Map<RelationIdent, Map<ConstraintName, NativeLaws>>()
 	const domains = new Map<DomainName, Map<ConstraintName, NativeLaws>>()
 	for (const c of data.constraintLaws) {

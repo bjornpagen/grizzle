@@ -22,7 +22,7 @@ import {
 	type FusedLayout,
 	fusedElement,
 	fusedTexts
-} from "#compiler/lower/shapes/attach/decode.ts"
+} from "#compiler/runtime/lower/fused.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -34,7 +34,7 @@ import { outputTextOf } from "#compiler/core/decoder.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
 /**
- * The attachment shape's converter, which reads a fused column back (attach/decode.ts fusedTexts, arrayElements): over
+ * The attachment shape's converter, which reads a fused column back (runtime/lower/fused.ts fusedTexts, arrayElements): over
  * drawn layouts and children, a fused column as PostgreSQL writes it (array_out over the element texts, or over
  * jsonb_out objects keyed f1..fn, or one `true` per child of correlated columns only) reads back as each child's texts
  * in the child heading's order, the correlated ones copied from the parent row; and arrayElements reads every

@@ -1,10 +1,10 @@
 import { Array as Arr } from "effect"
 import { type InstallationWitness, servedWitness } from "#adapter/witness/index.ts"
-import type { KeyLawsData, LawsAbove } from "#adapter/witness/keylaw.ts"
+import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import type { InstallNames } from "#compiler/plan/catalog.ts"
 import { generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
 import { type CheckedEntry, identifierOf, type SchemaArtifacts } from "#compiler/plan/common.ts"
-import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
+import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
  * The refusals of a role's installation as data, what a served file holds of them, drawn from the role's artifacts at
@@ -25,8 +25,8 @@ interface KeyLawInput {
 	readonly relations: ReadonlyArray<TableRelation>
 }
 
-/** The key-law tables of an installation (witness/keylaw.ts KeyLawsData), drawn from its compile. */
-export const keyLawsData = (input: KeyLawInput): KeyLawsData => ({
+/** The key-law tables of an installation (served/forms.ts ServedKeyLaws, which witness/keylaw.ts keyLawsOf reads), drawn from its compile. */
+export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	schemas: Arr.map(input.names.levels, identifierOf),
 	constraintLaws: input.constraintLaws,
 	theoryLaws: input.theoryLaws,

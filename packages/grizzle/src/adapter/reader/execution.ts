@@ -80,7 +80,7 @@ import type {
  *   cell is read as its carrier's cell text (codec/read.ts cellText), one text per value, so of two parent rows whose
  *   keys are equal but print differently (1.0 and 1.00, -0 and 0) both own the children the statement delivers under
  *   its one spelling. Attachments nest: a child row's own attachments are grouped under it the same way. A fused attachment's
- *   column is parsed into its children's texts (lower/shapes/attach/decode.ts), its correlated columns copied from the
+ *   column is parsed into its children's texts (runtime/lower/fused.ts), its correlated columns copied from the
  *   parent row's texts.
  * - Layouts. A statement's layout names each public column's position (a rows statement's whole heading, an attachment
  *   statement's columns after its parent key that its delivered child carries, analysis.ts, none for a zero-column
@@ -254,7 +254,7 @@ interface ChildPlan<Run> {
 
 /**
  * A fused attachment column of a statement's rows: its position after the heading, and its parse into its children's
- * texts (lower/shapes/attach/decode.ts).
+ * texts (runtime/lower/fused.ts).
  */
 interface FusedPlan {
 	readonly position: number

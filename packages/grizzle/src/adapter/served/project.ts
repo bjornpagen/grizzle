@@ -10,9 +10,10 @@ import {
 	defect,
 	levelChain,
 	type LoginDesc,
-	loginRoleName
+	loginRoleName,
+	servedSession
 } from "#compiler/plan/common.ts"
-import { servedRosters, servedSession } from "#compiler/plan/migration.ts"
+import { servedRosters } from "#compiler/plan/migration.ts"
 import { servedRead } from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,

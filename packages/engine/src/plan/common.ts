@@ -129,6 +129,7 @@ export {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 export { loginRoleName } from "#compiler/program/names.ts"
+export { servedSession } from "#compiler/program/served.ts"
 export {
 	baseArtifacts,
 	type BuiltSchema,

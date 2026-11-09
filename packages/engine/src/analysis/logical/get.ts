@@ -1,8 +1,9 @@
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { KeyProof } from "#compiler/ir/keys.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { getRefusal } from "#compiler/runtime/read/get.ts"
 
 /**
  * The proof that the query rooted at `root`, a node of its analyzed DAG, has at most one row per parameter binding, its empty key, when get may read
@@ -24,13 +25,3 @@ export const requireGet = (
 	}
 	return Result.err(getRefusal(loc))
 }
-
-/**
- * get's refusal at `loc` of a query not proved at most one row per parameter binding: what requireGet fails with, and
- * what a served read whose template proved none answers get with.
- */
-export const getRefusal = (loc: SourceLoc): CompileError =>
-	unsupported(
-		loc,
-		"get: a query proved at most one row per parameter binding, by a key its bindings cover, a take(1), or an aggregate whose group the parameters fix"
-	)

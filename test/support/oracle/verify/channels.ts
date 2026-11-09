@@ -19,12 +19,12 @@ import {
 	type StatementTree
 } from "#compiler/runtime/lower/tree.ts"
 
+import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import {
 	type FusedAttachment,
 	type FusedLayout,
 	fusedElement
-} from "#compiler/lower/shapes/attach/decode.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+} from "#compiler/runtime/lower/fused.ts"
 import type { SelectBody, Target, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { type Lexed, lex } from "#compiler/sql/lexer.ts"

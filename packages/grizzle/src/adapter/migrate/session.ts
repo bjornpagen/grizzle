@@ -30,7 +30,7 @@ import {
 import type { ParsedConnection } from "#adapter/connection/config.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
-import { servedSession } from "#compiler/plan/migration.ts"
+import { servedSession } from "#compiler/plan/common.ts"
 
 /**
  * The migration identity's session.

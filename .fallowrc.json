@@ -100,7 +100,8 @@
 					"packages/grizzle/src/adapter/public/compile.ts",
 					"packages/grizzle/src/adapter/served/compile.ts",
 					"packages/grizzle/src/adapter/served/explain.ts",
-					"packages/grizzle/src/adapter/served/project.ts"
+					"packages/grizzle/src/adapter/served/project.ts",
+					"packages/grizzle/src/compile.ts"
 				]
 			},
 			{
@@ -237,6 +238,7 @@
 					"lower",
 					"query",
 					"reader",
+					"runtime",
 					"scalar",
 					"schema",
 					"sql",
@@ -288,16 +290,20 @@
 					"plan",
 					"program",
 					"query",
+					"runtime",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"types",
 					"write"
 				]
 			},
 			{
+				// The runtime names the compiled forms it runs by type alone; its witness decode site is the decode zone's.
 				"from": "runtime",
-				"allow": ["codec", "core", "ir", "scalar"]
+				"allow": ["codec", "core", "decode", "ir", "scalar"],
+				"allowTypeOnly": ["lower", "sql", "write"]
 			},
 			{
 				"from": "core",
@@ -337,7 +343,7 @@
 			},
 			{
 				"from": "schema",
-				"allow": ["codec", "core", "ir", "scalar", "sql", "text", "types"]
+				"allow": ["codec", "core", "ir", "runtime", "scalar", "sql", "text", "types"]
 			},
 			{
 				"from": "check",
@@ -345,7 +351,7 @@
 			},
 			{
 				"from": "analysis",
-				"allow": ["check", "core", "ir", "logical", "scalar", "schema", "text", "types"]
+				"allow": ["check", "core", "ir", "logical", "runtime", "scalar", "schema", "text", "types"]
 			},
 			{
 				// The law model attaches the described public Law to each constraint it plans: Law is plain data, so naming
@@ -480,8 +486,10 @@
 					"program",
 					"query",
 					"reader",
+					"runtime",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"types",
 					"write"
@@ -504,8 +512,10 @@
 					"plan",
 					"program",
 					"query",
+					"runtime",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"types",
 					"write"
@@ -523,7 +533,9 @@
 					"physical",
 					"plan",
 					"program",
+					"runtime",
 					"schema",
+					"served",
 					"sql",
 					"types"
 				]

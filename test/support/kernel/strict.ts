@@ -638,7 +638,7 @@ const bare = (text: string, i: number, end: number): Result.Result<ArrayElement,
  * The elements of a one-dimensional array's text output (array_out), read strictly: `{}` when empty, elements separated
  * by commas, an element double-quoted when it is empty, holds a delimiter, brace, quote, backslash or whitespace, or
  * spells NULL, with `\"` and `\\` escaped inside quotes; an unquoted NULL is a NULL element, `null` here. Any other
- * text is a syntax fault. src reads a fused attachment's array without a check (lower/shapes/attach/decode.ts
+ * text is a syntax fault. src reads a fused attachment's array without a check (runtime/lower/fused.ts
  * arrayElements), and must agree with this reading on every text PostgreSQL writes.
  */
 export const strictArrayText = (

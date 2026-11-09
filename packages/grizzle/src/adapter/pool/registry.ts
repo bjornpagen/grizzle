@@ -40,9 +40,9 @@ import {
 	ownServed,
 	queryUses,
 	type RoleDesc,
+	servedSession,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { servedSession } from "#compiler/plan/migration.ts"
 import { ledgerStatements, type ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /**

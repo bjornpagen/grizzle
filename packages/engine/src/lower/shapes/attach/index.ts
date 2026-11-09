@@ -27,14 +27,10 @@ import {
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
-import {
-	type FusedColumn,
-	type FusedLayout,
-	fusedElement
-} from "#compiler/lower/shapes/attach/decode.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
+import { type FusedColumn, type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import type { Expr, OperandSelect, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
 import {
 	asc,
