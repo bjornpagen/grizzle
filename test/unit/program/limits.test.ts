@@ -13,8 +13,9 @@ import {
 	statementMaxParams,
 	tableMaxColumns
 } from "#compiler/core/limits.ts"
-import type * as Engine from "#compiler/core/result.ts"
+import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -25,14 +26,16 @@ import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { ownedInput } from "#test/support/policy.ts"
 
 /**
  * PostgreSQL's limits where grizzle meets them (core/limits.ts), each drawn on both sides of it:
  *
  * - a stored relation's table holds at most tableMaxColumns columns: a relation of that many fields is admitted when its
- *   schema is compiled, and one of a field more is refused there, as ResourceBound (tableColumns) naming the table;
+ *   installation is compiled, where its table is created, and one of a field more is refused there, as ResourceBound
+ *   (tableColumns) naming the table;
  * - a select list holds at most selectMaxEntries entries, refused as ResourceBound (selectList) when it is printed;
  * - a statement binds at most statementMaxParams placeholders, refused as ResourceBound (statementParams) when it is
  *   printed;
@@ -62,6 +65,12 @@ const wideSchema = (columns: number) =>
 			)
 		},
 		[]
+	)
+
+/** The installation of a schema of one relation of `columns` integer fields (`wideSchema`). */
+const wideInstallation = (columns: number) =>
+	Engine.flatMap(ownedInput(wideSchema(columns)), (owned) =>
+		compileInstallation(owned, installOptions(owned, "owner"))
 	)
 
 /** SELECT of `entries` integer literals. */
@@ -95,12 +104,10 @@ const limits: {
 } = {
 	tableColumns: {
 		limit: tableMaxColumns,
-		compile: (count) => testArtifacts(wideSchema(count), testCompile),
+		compile: wideInstallation,
 		bound: (count) => ({
 			kind: "tableColumns",
-			table: printObjectName(
-				succeeded(testArtifacts(wideSchema(1), testCompile), "one column").names.relation("Wide")
-			),
+			table: printObjectName(succeeded(wideInstallation(1), "one column").names.relation("Wide")),
 			limit: tableMaxColumns.value,
 			needed: count
 		})
