@@ -15,8 +15,12 @@ post-beta swarm's fixes for the next release.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
   - test/pg/world-model/inductive hangs over 1h (TEST_SEED=3194260561; the old token no longer reproduces). Suspect the
     lead look-ahead in test/support/worlds/generate/action.ts waysOf; profile it under --inspect.
-  - test/pg/physical/world-serving: witness precheck reads 42 buffers over its 32 bound (TEST_SEED=221355609), and its
-    readingOf holds a cost-chosen index to the filter-count rule serving.ts dropped in 4c5d869d.
+  - test/pg/physical/world-serving: witness precheck reads 42 buffers over its 32 bound. The cause: since dc942ebc the
+    world functions' first calls per session are custom-planned, and their planning buffers count in the caller; the
+    judge must allow each body's planning buffers. Its readingOf also holds a cost-chosen index to the filter-count
+    rule. A shared judgeScan is drafted: ~/.cache/grizzle-release/INDEXSERVE/worldW2.patch (against c0a7b1c7) and
+    msgW.txt. Separately, with the DocsLevel base a role's view read fails `column "user" does not exist`
+    (TEST_SEED=1723739030, replay in the lane's report).
   - test/pg/api-errors/apply-errors: a planted parameter's EncodingFailure has place Fact, expected Slot (fails before
     8e6635ee too).
   - Tests cull: the deferred test-only exports (CompileReasonTag, TransientTag, queryValueDesc, continued,
