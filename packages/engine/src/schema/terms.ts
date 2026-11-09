@@ -1,12 +1,11 @@
 import { codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import {
 	type CompareOp,
 	connectiveExpr,
-	decodeDesc,
 	type ExprDesc,
 	type FieldDesc,
 	type Located,
@@ -28,7 +27,6 @@ import {
 	type HeadingTyping,
 	isParam,
 	malformed,
-	orThrow,
 	type PredicateValue,
 	predicateValue
 } from "#compiler/schema/protocol.ts"
@@ -341,19 +339,161 @@ export const derivedRowScalars = (
 
 /**
  * The ExprDesc a check's callback returned, refusing anything but a predicate and any input a row check cannot have:
- * a parameter, a query variable, a parent column, a contract's VALUE or a relational negation. What remains holds no
- * builder reference, so it parses as a Description's expression.
+ * a parameter, a query variable, a parent column, a contract's VALUE or a relational negation. Its builders checked
+ * every node where they made it (scalar/compute/term.ts), so what remains is read as it is, its references closed
+ * (rowExpr), never decoded again.
  */
 export const checkPredicate = (built: unknown, label: string): ExprDesc => {
 	const expr = predicateExpr(built)
 	if (expr === undefined) {
 		throw malformed(label, "a predicate built from the row's comparisons")
 	}
-	const foreign = foreignInput(expr)
-	if (foreign !== undefined) {
-		throw malformed(label, `a predicate over the row's own fields only, not ${foreign}`)
+	const closed = rowExpr(expr)
+	if (closed instanceof ForeignInput) {
+		throw malformed(label, `a predicate over the row's own fields only, not ${closed.what}`)
 	}
-	return orThrow(decodeDesc("expr", expr))
+	return closed
+}
+
+/** An input a row check cannot have, named as checkPredicate refuses it. */
+class ForeignInput {
+	readonly what: string
+
+	constructor(what: string) {
+		this.what = what
+	}
+}
+
+/**
+ * A row predicate's open expression as a Description's: a field or a literal as its builder made it, frozen, and every
+ * other node rebuilt over its operands', so the expression's references are closed; or the first input a row check
+ * cannot have, found in foreignInput's order.
+ */
+const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
+	switch (expr.kind) {
+		case "field":
+		case "literal":
+			return Object.freeze(expr)
+		case "var":
+			return new ForeignInput("a query variable")
+		case "param":
+			return new ForeignInput("a parameter")
+		case "parent":
+			return new ForeignInput("a parent column")
+		case "value":
+			return new ForeignInput("a contract's value")
+		case "absent":
+			return new ForeignInput("a relational negation")
+		case "compute": {
+			const args = rowExprs(expr.args)
+			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
+		}
+		case "cast":
+		case "base":
+		case "not":
+		case "in": {
+			const arg = rowExpr(expr.arg)
+			return arg instanceof ForeignInput ? arg : Object.freeze({ ...expr, arg })
+		}
+		case "cond": {
+			const pred = rowExpr(expr.pred)
+			if (pred instanceof ForeignInput) {
+				return pred
+			}
+			const onTrue = rowExpr(expr.onTrue)
+			if (onTrue instanceof ForeignInput) {
+				return onTrue
+			}
+			const onFalse = rowExpr(expr.onFalse)
+			return onFalse instanceof ForeignInput
+				? onFalse
+				: Object.freeze({ ...expr, pred, onTrue, onFalse })
+		}
+		case "when": {
+			const subject = rowExpr(expr.subject)
+			if (subject instanceof ForeignInput) {
+				return subject
+			}
+			const proved = rowExpr(expr.proved)
+			if (proved instanceof ForeignInput) {
+				return proved
+			}
+			const otherwise = rowExpr(expr.otherwise)
+			return otherwise instanceof ForeignInput
+				? otherwise
+				: Object.freeze({ ...expr, subject, proved, otherwise })
+		}
+		case "compare":
+		case "allen": {
+			const left = rowExpr(expr.left)
+			if (left instanceof ForeignInput) {
+				return left
+			}
+			const right = rowExpr(expr.right)
+			return right instanceof ForeignInput ? right : Object.freeze({ ...expr, left, right })
+		}
+		case "between": {
+			const arg = rowExpr(expr.arg)
+			if (arg instanceof ForeignInput) {
+				return arg
+			}
+			const low = rowExpr(expr.low)
+			if (low instanceof ForeignInput) {
+				return low
+			}
+			const high = rowExpr(expr.high)
+			return high instanceof ForeignInput ? high : Object.freeze({ ...expr, arg, low, high })
+		}
+		case "pointIn": {
+			const point = rowExpr(expr.point)
+			if (point instanceof ForeignInput) {
+				return point
+			}
+			const span = rowExpr(expr.span)
+			return span instanceof ForeignInput ? span : Object.freeze({ ...expr, point, span })
+		}
+		case "and":
+		case "or":
+		case "closedAt":
+		case "closedHas": {
+			const args = rowExprsNonEmpty(expr.args)
+			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
+		}
+		case "closedRow": {
+			const args = rowExprs(expr.args)
+			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
+		}
+	}
+}
+
+/** Each of `exprs` as rowExpr reads it, in order, frozen, or the first foreign input among them. */
+const rowExprs = (exprs: ReadonlyArray<OpenExpr>): ReadonlyArray<ExprDesc> | ForeignInput => {
+	const out: Array<ExprDesc> = []
+	for (const e of exprs) {
+		const closed = rowExpr(e)
+		if (closed instanceof ForeignInput) {
+			return closed
+		}
+		out.push(closed)
+	}
+	return Object.freeze(out)
+}
+
+/** rowExprs over a nonempty list, still nonempty. */
+const rowExprsNonEmpty = (
+	exprs: NonEmptyReadonlyArray<OpenExpr>
+): NonEmptyReadonlyArray<ExprDesc> | ForeignInput => {
+	const [head, ...tail] = exprs
+	const first = rowExpr(head)
+	if (first instanceof ForeignInput) {
+		return first
+	}
+	const rest = rowExprs(tail)
+	if (rest instanceof ForeignInput) {
+		return rest
+	}
+	const out: NonEmptyReadonlyArray<ExprDesc> = [first, ...rest]
+	return Object.freeze(out)
 }
 
 export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string | undefined => {
