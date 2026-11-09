@@ -116,6 +116,12 @@ post-beta swarm's fixes for the next release.
   pages, and catches that plant.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
   Reconcile them, then copy the library into edullm with the shared lint standard.
+- **The swarm core's shared-field column (ONERTT-WRITE2, 2026-11-09):** the core test/support/families/fill.ts gives
+  each family a group column of its own, so the families swarm never draws pantry's importWrite shape: a family
+  member's group field that a containment also reads, at every field of its target, which makes that containment's
+  foreign key immediate and puts the member's insert before one owner's insert and another member's after it
+  (AssembledReference contained in TestReference, beside its PlacedReference members). test/pg/write/stratum-order
+  draws that shape alone (option b). When the core grows, give it such a shared-field column so the swarm draws it.
 
 ## Upstream, for the owner to file
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
