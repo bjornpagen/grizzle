@@ -4,9 +4,11 @@ import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
 import type {
 	AlterDefaultPrivileges,
 	CreatePolicy,
+	Grant,
 	GrantObjects,
 	Grantee,
-	Privilege
+	Privilege,
+	Revoke
 } from "#compiler/sql/ast.ts"
 import {
 	printFunctionSignature,
@@ -205,6 +207,39 @@ const grantedTo = (s: ManifestStatement, role: string): ReadonlyArray<ExpectedPr
 /** The privileges `s` revokes from `role`. */
 const revokedFrom = (s: ManifestStatement, role: string): ReadonlyArray<ExpectedPrivilege> =>
 	s.kind === "revoke" && namesRole(s.from, role) ? privilegesOn(s.on, s.privileges) : []
+
+/**
+ * The schemas the manifest's grants and revocations `statements`, in its order, leave each role USAGE on, by the role:
+ * a grant of USAGE (or ALL) on a schema to it adds the schema, a revocation of it removes the schema, as privilegesOf
+ * judges the schema family's USAGE. What a Db reads of its role's privileges: the schemas a query's extension may be
+ * reached in.
+ */
+export const usableSchemas = (
+	statements: ReadonlyArray<Grant | Revoke>
+): ReadonlyMap<string, ReadonlySet<string>> => {
+	const usable = new Map<string, Set<string>>()
+	for (const s of statements) {
+		if (s.on.kind !== "SCHEMA") {
+			continue
+		}
+		const usage = privilegesOn(s.on, s.privileges).filter((p) => p.privilege === "USAGE")
+		for (const grantee of s.kind === "grant" ? s.to : s.from) {
+			if (grantee.kind !== "role") {
+				continue
+			}
+			const schemas = usable.get(grantee.name) ?? new Set<string>()
+			for (const p of usage) {
+				if (s.kind === "grant") {
+					schemas.add(p.name)
+				} else {
+					schemas.delete(p.name)
+				}
+			}
+			usable.set(grantee.name, schemas)
+		}
+	}
+	return usable
+}
 
 /** The privileges the manifest's statements leave `role`, in order: a grant adds its privileges, a revocation removes
  * them. */

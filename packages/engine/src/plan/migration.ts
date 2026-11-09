@@ -54,8 +54,10 @@ export {
 	rosterFates,
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
+export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
 export {
 	type DeploySnapshot,
+	type ServedSnapshot,
 	type SnapshotLevel,
 	snapshotFileName
 } from "#compiler/deploy/snapshot/types.ts"

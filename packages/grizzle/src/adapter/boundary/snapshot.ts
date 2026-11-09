@@ -10,7 +10,12 @@ import {
 	noRevivers,
 	trusted
 } from "#compiler/plan/common.ts"
-import { type DeploySnapshot, snapshotFingerprint } from "#compiler/plan/migration.ts"
+import {
+	type DeploySnapshot,
+	type ServedSnapshot,
+	servedSnapshot,
+	snapshotFingerprint
+} from "#compiler/plan/migration.ts"
 
 /**
  * The snapshot a revived JSON value is: the value itself, trusted once its recorded fingerprint is the digest of its
@@ -45,17 +50,17 @@ const sealedSnapshot = (value: unknown): Result.Result<DeploySnapshot, CompileEr
 	)
 }
 
-/** Parses the snapshot DbLayer.make is given, the value JSON.parse or a JSON import of snapshot.json yields: read once
- * at the boundary (readHost), so a getter or a proxy that throws refuses it, and its canonical tags revived as it is read
- * (`fromJson`, which refuses what JSON never holds, so a DeploySnapshot already revived is refused: a bigint is no JSON
- * value); then trusted as the snapshot `grizzle generate` wrote, its recorded fingerprint the one every Db's prologue
- * guards the database's ledger with. Nothing after it reads the caller's value. Whether its content is that
- * fingerprint's is checked where the file is read to draft, check or migrate (readSnapshot), never when an application
- * starts. */
-export const parseSnapshot = (json: unknown): Result.Result<DeploySnapshot, CompileError> =>
+/** Parses the snapshot DbLayer.make is given, the value JSON.parse or a JSON import of snapshot.json yields, into what
+ * the layer and its Dbs read of it (served.ts servedSnapshot): its recorded fingerprint, the one every Db's prologue
+ * guards the database's ledger with, trusted as `grizzle generate` wrote it; its levels, constraint-to-law map and
+ * rosters' codes, their canonical tags revived; and each role's schemas of USAGE, read off the manifest's grants and
+ * revocations. Nothing else of it is read or revived. It is read once at the boundary (readHost), so a getter or a proxy
+ * that throws refuses it, and nothing after it reads the caller's value. Whether its content is that fingerprint's is
+ * checked where the file is read to draft, check or migrate (readSnapshot), never when an application starts. */
+export const parseSnapshot = (json: unknown): Result.Result<ServedSnapshot, CompileError> =>
 	readHost(
 		malformedArtifact("snapshot", [], "a snapshot read as data, as an import of snapshot.json yields it"),
-		() => Result.map(toResult(fromJson(json, noRevivers)), (value) => trusted<DeploySnapshot>(value))
+		() => toResult(servedSnapshot(json))
 	)
 
 /** Reads snapshot.json's text: its JSON parsed and its canonical tags revived (`decode`), then trusted once its

@@ -67,11 +67,10 @@ import {
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
-	codebookOf,
-	type DeploySnapshot,
 	installBasis,
 	type InstallBasis,
-	ledgerStatements
+	ledgerStatements,
+	type ServedSnapshot
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
 
@@ -81,7 +80,7 @@ import { templateFor } from "#compiler/plan/read.ts"
  *
  * DbLayer.make(config) builds this service once per instance, for the login the config names, and computes there,
  * once, what every Db of the login reads: the snapshot, parsed (boundary/snapshot.ts parseSnapshot), and the
- * installation's codes it records (deploy/snapshot/build.ts codebookOf), the codes of every closed id and set a Db
+ * installation's codes it records (deploy/snapshot/served.ts rosterCodebook), the codes of every closed id and set a Db
  * writes or reads, since a roster's codes are its history and no schema alone determines them; each role's artifacts
  * (program/schema.ts schemaArtifacts), compiled under those codes, which compile every program a Db of the role runs;
  * every program of the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload); the
@@ -148,8 +147,8 @@ export interface DbSessions {
 	readonly login: LoginDesc
 	/** The login's PostgreSQL role, which every session of the pool logs in as (program/names.ts loginRoleName). */
 	readonly loginRole: string
-	/** The snapshot the layer was given, parsed once: what every Db's admission compares the catalog with. */
-	readonly snapshot: DeploySnapshot
+	/** What the layer and its Dbs read of the snapshot it was given, parsed once (boundary/snapshot.ts parseSnapshot). */
+	readonly snapshot: ServedSnapshot
 	/** Each role of the login, in the login's order. */
 	readonly roles: Arr.NonEmptyReadonlyArray<LayerRole>
 	/** The one pool of the login's role. */
@@ -399,7 +398,7 @@ export const loginRoles = (
  * The snapshot the config gives, parsed once: the JSON value an import of snapshot.json yields, read as the generator
  * wrote it, its recorded fingerprint trusted (boundary/snapshot.ts parseSnapshot).
  */
-const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> =>
+const layerSnapshot = (given: object): Effect.Effect<ServedSnapshot, OpenError> =>
 	Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) => new OpenError({ reason }))
 
 /** An engine result as the layer's: a refusal is OpenError with the compiler's reason. */
@@ -417,7 +416,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<DbSessions, OpenError, Scope.Scope> {
 	const snapshot = yield* layerSnapshot(config.snapshot)
-	const codes = codebookOf(snapshot)
+	const codes = snapshot.codes
 	const base = yield* openStage(own(config.login.base.desc))
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))

@@ -1,5 +1,6 @@
 import type { ColumnIdent, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ConstraintLaws,
 	InstallationManifest,
@@ -138,6 +139,24 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	/** Each login the installation creates, by its declared name. */
 	readonly logins: Readonly<Record<string, SnapshotLogin>>
 	readonly workload: WorkloadAccess
+}
+
+/**
+ * What an application's DbLayer and the Dbs it serves read of the committed snapshot, parsed once where the layer is
+ * built (served.ts servedSnapshot): the recorded fingerprint, which every Db's prologue guards the database's ledger
+ * with; the levels and the constraint-to-law map, which name a refusal by a law of a level above a Db's own
+ * (witness/keylaw.ts lawsAbove); the installation's codes (codebookOf), its rosters' history, which no schema alone
+ * determines; and what a Db's statements can name outside its own schemas: each extension the manifest creates, by name, with its schema, and, by
+ * PostgreSQL role, the schemas the manifest grants the role USAGE on. Nothing else of a snapshot reaches an
+ * application: `grizzle generate`, `grizzle check` and `grizzle migrate` read the whole DeploySnapshot.
+ */
+export interface ServedSnapshot {
+	readonly fingerprint: SchemaFingerprint
+	readonly levels: ReadonlyArray<SnapshotLevel>
+	readonly constraintToLaw: ConstraintLaws
+	readonly codes: Codebook
+	readonly installedExtensions: ReadonlyMap<string, string>
+	readonly usableSchemas: ReadonlyMap<string, ReadonlySet<string>>
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

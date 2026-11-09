@@ -1,6 +1,6 @@
-import { Array as Arr } from "effect"
-import { C, type ManifestStatement, type RoleExpectation } from "#compiler/plan/catalog.ts"
+import { C } from "#compiler/plan/catalog.ts"
 import { maxStackDepth, type TemplateRequirements } from "#compiler/plan/common.ts"
+import type { ServedSnapshot } from "#compiler/plan/migration.ts"
 
 const settings = C.from("pg_settings", "s")
 
@@ -38,19 +38,16 @@ export interface DbCapabilities {
 	readonly usableSchemas: ReadonlySet<string>
 }
 
-/** The capabilities of a Db of `expected`'s role, its snapshot's manifest being `statements`. */
+/** No schema: the usable schemas of a role the manifest grants USAGE on none. */
+const noSchemas: ReadonlySet<string> = new Set()
+
+/** The capabilities of a Db of the PostgreSQL role `role`, as the snapshot its layer serves installs and grants them. */
 export const capabilitiesOf = (
-	statements: ReadonlyArray<ManifestStatement>,
-	expected: RoleExpectation
+	snapshot: Pick<ServedSnapshot, "installedExtensions" | "usableSchemas">,
+	role: string
 ): DbCapabilities => ({
-	installedExtensions: new Map(
-		Arr.flatMap(statements, (s) => (s.kind === "createExtension" ? [[s.name, s.schema] as const] : []))
-	),
-	usableSchemas: new Set(
-		Arr.flatMap(expected.privileges, (p) =>
-			p.family === "schema" && p.privilege === "USAGE" ? [p.name] : []
-		)
-	)
+	installedExtensions: snapshot.installedExtensions,
+	usableSchemas: snapshot.usableSchemas.get(role) ?? noSchemas
 })
 
 /**

@@ -25,9 +25,7 @@ import {
 	malformedDescription,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { manifestStatements, roleExpectation } from "#compiler/plan/catalog.ts"
 import { hostArguments } from "#compiler/plan/read.ts"
-import { toResult } from "#adapter/engine.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 
@@ -174,14 +172,7 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 	const desc = schema.desc
 	const snapshot = sessions.snapshot
 	const claims = yield* dbClaims(sessions, contexts, token)
-	const statements = yield* Effect.mapError(
-		Effect.fromResult(toResult(manifestStatements(snapshot))),
-		(reason) => new OpenError({ reason })
-	)
-	const capabilities = capabilitiesOf(
-		statements,
-		roleExpectation(statements, artifacts.names.schema, theory)
-	)
+	const capabilities = capabilitiesOf(snapshot, theory)
 	const ctx: DbContext = {
 		schema,
 		declared,

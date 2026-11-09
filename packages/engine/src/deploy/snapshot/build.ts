@@ -307,25 +307,14 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 	return { schema: owned.fingerprint, relations, laws }
 }
 
-/**
- * The codebook a snapshot records: each roster's codes, by its declared name. The empty snapshot holds none. A snapshot
- * is read only once its fingerprint holds, so a roster recorded under a name the declared-name rule refuses is a defect
- * of the compiler that wrote it.
- */
-export const codebookOf = (snapshot: DeploySnapshot): Codebook => {
-	const rosters = new Map<DeclaredName, RosterCodec>()
-	for (const [name, r] of Object.entries(snapshot.theory.relations)) {
-		if (r.kind !== "closed") {
-			continue
-		}
-		const roster = parseDeclaredName(name)
-		if (!roster.ok) {
-			throw defect(`the snapshot records roster ${JSON.stringify(name)} under a declared name`)
-		}
-		rosters.set(roster.value, rosterCodec(roster.value, r.codes))
-	}
-	return rosters.size === 0 ? emptyCodebook : Object.freeze({ rosters })
-}
+/** The codebook a snapshot records: each roster's codes, by its declared name (served.ts rosterCodebook). The empty
+ * snapshot holds none. */
+export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
+	rosterCodebook(
+		Object.entries(snapshot.theory.relations).flatMap(([name, r]) =>
+			r.kind === "closed" ? [[name, r.codes] as const] : []
+		)
+	)
 
 /** The columns a migration adds to each table, by its name: each ADD COLUMN its plan drafts, and each column of a
  * CREATE TABLE. */

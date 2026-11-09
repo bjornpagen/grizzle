@@ -4,8 +4,13 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import { finishSnapshot, targetState, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
+import {
+	codebookOf,
+	finishSnapshot,
+	targetState,
+	writeSnapshot
+} from "#compiler/deploy/snapshot/build.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -18,6 +23,7 @@ import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { snapshotJson } from "#test/support/snapshot-json.ts"
 
 /**
  * snapshot.json records each level's laws as an outcome names them (deploy/snapshot/types.ts SnapshotLevel), so a law
@@ -29,7 +35,9 @@ import { caseHang } from "#test/support/limits.ts"
  * a text, a boolean, a uuid, a closed id over the root's roster) with a literal of it, R declared at the root or at a
  * level over it, which records the key among the upper level's laws. The oracle is the snapshot itself: the text writeSnapshot writes reads back
  * (boundary/snapshot.ts readSnapshot, which refuses a text whose content is not its recorded fingerprint) as a snapshot
- * of the fingerprint written, every level recording the laws written.
+ * of the fingerprint written, every level recording the laws written; and what DbLayer.make serves of the file's JSON
+ * value (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads back as: its fingerprint,
+ * its levels, its constraint-to-law map and its codes.
  */
 const Kind = closed("Kind", ["One", "Two"])
 const R = relation(
@@ -158,12 +166,19 @@ describe("snapshot.json", () => {
 							const snapshot = succeeded(
 								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 							)
-							const read = succeeded(readSnapshot(succeeded(writeSnapshot(snapshot))))
+							const text = succeeded(writeSnapshot(snapshot))
+							const read = succeeded(readSnapshot(text))
+							const served = succeeded(parseSnapshot(snapshotJson(text)))
+							const lawsOf = (levels: typeof snapshot.levels) =>
+								Arr.map(levels, (l) => Arr.map(l.laws, (law) => law.law))
+							const codesOf = (book: ReturnType<typeof codebookOf>) =>
+								Arr.map([...book.rosters.values()], (codec) => [codec.roster, codec.codes])
 							assert.equal(read.fingerprint, snapshot.fingerprint)
-							assert.deepEqual(
-								Arr.map(read.levels, (l) => Arr.map(l.laws, (law) => law.law)),
-								Arr.map(snapshot.levels, (l) => Arr.map(l.laws, (law) => law.law))
-							)
+							assert.deepEqual(lawsOf(read.levels), lawsOf(snapshot.levels))
+							assert.equal(served.fingerprint, read.fingerprint)
+							assert.deepEqual(served.levels, read.levels)
+							assert.deepEqual(served.constraintToLaw, read.constraintToLaw)
+							assert.deepEqual(codesOf(served.codes), codesOf(codebookOf(read)))
 							k.note(c.placement)
 						})
 				)
