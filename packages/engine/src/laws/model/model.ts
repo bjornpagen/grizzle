@@ -39,6 +39,7 @@ import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
 import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
+import type { ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import {
 	type ExprSpec,
 	identityValueOf,
@@ -74,6 +75,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 
+import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import {
 	type CheckPredicate,
 	type LawColumnPlan,
@@ -329,6 +331,9 @@ export interface LawModel {
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
 	/** The laws whose containment evidence holds at every statement (an immediate foreign key or a CHECK). */
 	readonly immediate: ReadonlySet<LawId>
+	/** Each containment's existence evidence a query may rely on, with the native object that enforces it (catalog.ts
+	 * existenceConstraints): what every evidence catalog over the model reads. */
+	readonly existence: ReadonlyArray<ExistenceConstraint>
 	/**
 	 * The laws that read closed relations only, in law order, discharged once by the migration that installs them: each
 	 * runs as its theory law's violation query (NormalizedLaw.violation), which reads the closed relations' rows and no
@@ -1035,13 +1040,14 @@ class Specializer {
 		for (const { plan, objects } of nativeObjects) {
 			lowered[plan.law.id] = Object.freeze({ natives: [...new Set(objects)] })
 		}
+		const evidence = theoryEvidence(this.theory.laws, immediate)
 		return {
 			owned: this.owned,
 			theory: Object.freeze({
 				...this.theory,
 				dag: merged.dag,
 				lowerings: Object.freeze(lowered),
-				evidence: theoryEvidence(this.theory.laws, immediate)
+				evidence
 			}),
 			natives,
 			families: this.theory.families,
@@ -1049,6 +1055,7 @@ class Specializer {
 			constraintToLaw: constraintLawMap(constraints),
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
+			existence: existenceConstraints(evidence.containments, natives),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,
 			relations: relationLaws(keyed, natives),
