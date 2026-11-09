@@ -5,9 +5,7 @@ import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import type { GuardDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
-import { scalarTypeShape } from "#compiler/ir/scalar-shape.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { conformWith } from "#compiler/ir/shape.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 
 export interface PredicateValue extends Built {
@@ -110,7 +108,8 @@ const registered = new WeakMap<object, Registered>()
 
 /**
  * Registers `value`, a frozen typed term a builder made over `expr`, and returns it. Its type is one this package
- * built, so it is conformed once, here, never decoded as input.
+ * built, frozen by its constructor (ir/scalar.ts, scalar/registry.ts scalarTypeOf), so it is kept as it is, never
+ * decoded again.
  */
 export const registerTerm = <V extends Built & TermCarrier>(
 	value: V,
@@ -120,7 +119,7 @@ export const registerTerm = <V extends Built & TermCarrier>(
 	registered.set(value, {
 		kind: "typed",
 		expr,
-		scalarType: conformWith(scalarTypeShape, scalarType, "scalar type"),
+		scalarType,
 		carrier: value
 	})
 	return value
