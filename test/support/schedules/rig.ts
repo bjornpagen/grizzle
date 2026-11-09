@@ -1,9 +1,9 @@
 import { Array as Arr, type Context, Effect, Layer, type Scope } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import type { DbContext, ServedDbContext } from "#adapter/db/context.ts"
 import type { OpenedDb } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
+import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
@@ -15,6 +15,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { dbRuntime } from "#test/support/runtime-db.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -39,12 +40,21 @@ export interface Writer<R, P> {
 	readonly actor: GrizzleActor
 }
 
+/** A grizzle writer of the served login: its role's Db and the context it reads, and its actor. */
+export interface ServedWriter<R, P> {
+	readonly db: Db<R, P>
+	readonly ctx: ServedDbContext
+	readonly actor: GrizzleActor
+}
+
 export interface Rig<W extends RigWorlds> {
 	readonly installed: Installed
 	/**
 	 * The schema and its worlds rebuilt under the installed name: ChangeSets and queries over them are the Dbs' own.
 	 */
 	readonly worlds: W
+	/** The login `server` as an application serves it: the roles a served writer opens are reached through it. */
+	readonly served: ServedLogin<W["server"]>
 	/** The role `direct` as a direct SQL actor takes it on (ActorSpec). */
 	readonly direct: SubstrateWorld
 	readonly env: ExploreEnv
@@ -73,6 +83,20 @@ export interface Rig<W extends RigWorlds> {
 			context: Context.Context<DbLayerOf<W["server"]>>
 		) => Effect.Effect<OpenedDb<R, P>, OpenError>
 	) => Effect.Effect<Writer<R, P>, OpenError, Substrate | Scope.Scope>
+	/**
+	 * Builds a DbLayer of the served login `server` of its own, opens a role's Db over it with `open` (the caller's
+	 * openServed(served.roles.<role>, {}), provided the layer's context), as an application opens it, runs `first` on
+	 * the Db, one call of its workload (the empty ChangeSet the schedule's login serves), which leases the Db's session,
+	 * and resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of the
+	 * rig holds.
+	 */
+	readonly servedWriter: <R, P, E>(
+		name: string,
+		open: (
+			context: Context.Context<DbLayerOf<W["server"]>>
+		) => Effect.Effect<{ readonly db: Db<R, P>; readonly ctx: ServedDbContext }, OpenError>,
+		first: (db: Db<R, P>) => Effect.Effect<unknown, E>
+	) => Effect.Effect<ServedWriter<R, P>, OpenError, Substrate | Scope.Scope>
 }
 
 /**
@@ -107,6 +131,7 @@ export const openRig = <W extends RigWorlds>(
 			extensions: []
 		})
 		const worlds = build(installed.declared)
+		const fixture = yield* Effect.orDie(servedFixture<W["server"]>(installed, worlds.server))
 		const env = yield* exploreEnv(s)
 		/**
 		 * The backends of the writers opened so far: a new writer's actor is the one session of the login beside them.
@@ -115,6 +140,7 @@ export const openRig = <W extends RigWorlds>(
 		return {
 			installed,
 			worlds,
+			served: fixture.login,
 			direct: installed.world(worlds.direct),
 			env,
 			owner: (sql) => transaction(s.admin, sql),
@@ -131,6 +157,19 @@ export const openRig = <W extends RigWorlds>(
 					const { db, ctx } = yield* open(context)
 					const first = dbRuntime(ctx).methods.apply(ChangeSet.empty(worlds.schema), {})
 					const actor = yield* grizzleActor(actorName, installed.as(login).role, first, opened)
+					opened.push(actor.pid)
+					return { db, ctx, actor }
+				}),
+			servedWriter: (actorName, open, first) =>
+				Effect.gen(function* () {
+					const context = yield* Layer.build(fixture.layer)
+					const { db, ctx } = yield* open(context)
+					const actor = yield* grizzleActor(
+						actorName,
+						installed.as(worlds.server).role,
+						first(db),
+						opened
+					)
 					opened.push(actor.pid)
 					return { db, ctx, actor }
 				})
