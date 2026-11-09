@@ -1461,10 +1461,10 @@ const oppositeOf = (d: Drawing, left: Var, bound: ReadonlyArray<Var>): Term =>
 	])
 
 /** Each position of maskNames, from which a mask's first name is drawn. */
-const maskPositions = Arr.map(maskNames, (_name, i) => i)
+const maskPositions: Arr.NonEmptyReadonlyArray<number> = Arr.map(maskNames, (_name, i) => i)
 
 /** How far past the first name a second one is, wrapping around maskNames: never at the first. */
-const maskOffsets = Arr.range(1, maskNames.length - 1)
+const maskOffsets: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, maskNames.length - 1)
 
 /** The name at a position of maskNames, wrapping around. */
 const maskNameAt = (position: number): MaskName =>
