@@ -12,6 +12,7 @@ import { type Codebook, emptyCodebook, type RosterCodec, rosterCodec } from "#co
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
+import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 
 /**
@@ -73,15 +74,20 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	}
 	const closed = derived["closed"]
 	const fkCycles = derived["fkCycles"]
+	const textDomains = derived["textDomains"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
 	if (!isList(fkCycles)) {
 		return Result.err(underived(["derived", "fkCycles"]))
 	}
+	if (!isRecord(textDomains)) {
+		return Result.err(underived(["derived", "textDomains"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
-		fkCycles: trusted<FkCycles>(fkCycles)
+		fkCycles: trusted<FkCycles>(fkCycles),
+		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains)))
 	})
 }
 

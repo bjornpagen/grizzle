@@ -63,6 +63,7 @@ import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
+import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -519,7 +520,8 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
  * cycles, its law model's, which planned them from every law. */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	closed: installation.closed,
-	fkCycles: installation.laws.fkCycles
+	fkCycles: installation.laws.fkCycles,
+	textDomains: storedTextDomains(installation.owned, installation.laws.theory)
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
@@ -817,7 +819,8 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 /** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
-	fkCycles: d.fkCycles
+	fkCycles: d.fkCycles,
+	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b)))
 })
 
 const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): FormOf<S> =>

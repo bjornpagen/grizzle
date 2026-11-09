@@ -9,6 +9,7 @@ import type {
 } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
+import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
@@ -207,6 +208,13 @@ export interface SnapshotDerived {
 	 * law; DbLayer.make reads them here and plans no law its slice does not name.
 	 */
 	readonly fkCycles: FkCycles
+	/**
+	 * Each structural text domain the installation's stored fields declare, by its pattern language's key, with the digest
+	 * that names it (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by
+	 * whatever relations its slice reads. generate plans them from every stored field; DbLayer.make reads them here and
+	 * types no field its slice does not read.
+	 */
+	readonly textDomains: TextDomainNames
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

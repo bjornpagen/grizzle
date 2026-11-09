@@ -362,6 +362,23 @@ export const planTextDomains = (
 		})
 }
 
+/**
+ * Each structural text domain an installation's stored fields declare, by its pattern language's key (RegexRef.key),
+ * with the digest of its domain's definition, which names it (textDomainIdentity): what every compile over the
+ * installation names a refined text's domain by, whatever relations its slice reads.
+ */
+export type TextDomainNames = ReadonlyMap<string, DomainDigest>
+
+/** The names of planned text domains (planTextDomains), each by its pattern language's key. */
+export const textDomainNames = (plans: ReadonlyArray<TextDomainPlan>): TextDomainNames =>
+	new Map(plans.map((p) => [p.key, p.domain.digest] as const))
+
+/** The text domain names the stored fields of `theory`'s relations declare, with no other column's: the installation's
+ * own over its whole schema's theory, which generate records in snapshot.json (deploy/snapshot/types.ts
+ * SnapshotDerived) and a Db reads there. */
+export const storedTextDomains = (owned: Owned, theory: Theory): TextDomainNames =>
+	textDomainNames(planTextDomains(owned, theory, []))
+
 /** The structural text domains as objects in Setup, each after the schema, each definition once: their names, in
  * order. A pattern whose definition another's domain already holds adds its reason to that domain. */
 export const addTextDomains = (

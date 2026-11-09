@@ -986,7 +986,7 @@ describe("a compile's law model", () => {
 						const whole = wholeArtifacts.laws
 						const sliced = succeeded(
 							Result.flatMap(
-								planBasis(owned, codes, slice, installed.closed, {
+								planBasis(owned, codes, slice, installed.closed, installed.textDomains, {
 									kind: "recorded",
 									cycles: whole.fkCycles
 								}),

@@ -340,7 +340,7 @@ const artifactsUnder = (
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>
 		Engine.flatMap(
-			planBasis(base, codes, sliced, derived.closed, {
+			planBasis(base, codes, sliced, derived.closed, derived.textDomains, {
 				kind: "recorded",
 				cycles: derived.fkCycles
 			}),
@@ -426,9 +426,7 @@ const layerRole = Effect.fn("layerRole")(function* (
 		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
 	}
 	const own: SliceArtifacts = { artifacts, witness: installationWitness(artifacts, above) }
-	const programArtifacts = (
-		program: ProgramDesc
-	): Engine.Result<SliceArtifacts, CompileError> => {
+	const programArtifacts = (program: ProgramDesc): Engine.Result<SliceArtifacts, CompileError> => {
 		const slice = sliceOf(owned.base, [{ role: ownedRole, program }])
 		return within(slice, layer.slice)
 			? Engine.ok(own)

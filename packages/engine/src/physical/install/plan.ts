@@ -42,8 +42,11 @@ import {
 	type FieldPatternLaw,
 	fieldPatternLaws,
 	planTextDomains,
+	storedTextDomains,
 	type TextColumnUse,
 	type TextDomain,
+	type TextDomainNames,
+	textDomainNames,
 	type TextDomainPlan
 } from "#compiler/physical/ddl/domains.ts"
 import {
@@ -70,11 +73,13 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws) for a
- * slice, which reads the schema alone, the installation's codes, and each closed relation's constants as readers address
- * them under those codes (physical/ddl/constants.ts NamedClosed). A login's runtime compiles its law model for its
- * roles' writes alone (schema/reach.ts loginSlice) and reads the constants' names from its snapshot, which recorded them
- * when the installation was generated (planBasis); generate, check and every installation compile it over every relation
- * (everySlice), plan the foreign key cycles from every law, and plan the constants from the closed relations' rows
+ * slice, which reads the schema alone, the installation's codes, each closed relation's constants as readers address
+ * them under those codes (physical/ddl/constants.ts NamedClosed), and the text domains its stored fields declare
+ * (physical/ddl/domains.ts TextDomainNames), which name a refined text's domain whatever the slice reads. A login's
+ * runtime compiles its law model for its roles' writes alone (schema/reach.ts loginSlice) and reads the constants' and
+ * the text domains' names from its snapshot, which recorded them when the installation was generated (planBasis);
+ * generate, check and every installation compile it over every relation (everySlice), plan the foreign key cycles from
+ * every law, plan the constants from the closed relations' rows and the text domains from every stored field
  * (installBasis).
  */
 export interface PlanBasis {
@@ -82,6 +87,7 @@ export interface PlanBasis {
 	readonly model: LawModel
 	readonly codes: Codebook
 	readonly closed: ClosedNames
+	readonly textDomains: TextDomainNames
 }
 
 /**
@@ -111,24 +117,34 @@ export const installBasis = (
 				),
 				codes
 			)
-			return { owned, model, codes, closed: closedNames(planned), planned }
+			return {
+				owned,
+				model,
+				codes,
+				closed: closedNames(planned),
+				textDomains: storedTextDomains(owned, model.theory),
+				planned
+			}
 		})
 	)
 
 /** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice` under `cycles`,
- * each closed relation's constants named as `closed` records them: a Db's, from its snapshot, which packs no cell. */
+ * each closed relation's constants named as `closed` records them and its text domains as `textDomains` does: a Db's,
+ * from its snapshot, which packs no cell and types no field its slice does not read. */
 export const planBasis = (
 	owned: Owned,
 	codes: Codebook,
 	slice: Slice,
 	closed: ClosedNames,
+	textDomains: TextDomainNames,
 	cycles: CycleSource
 ): Result.Result<PlanBasis, CompileError> =>
 	Result.map(compileLaws(owned, slice, cycles), (model): PlanBasis => ({
 		owned,
 		model,
 		codes,
-		closed
+		closed,
+		textDomains
 	}))
 
 /** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
@@ -389,7 +405,7 @@ export const planInstallation = (
 			owned,
 			levels: settings.levels,
 			vectorSchema: settings.vectorSchema,
-			textDomains: new Map(textPlans.map((p) => [p.key, p.domain.digest] as const)),
+			textDomains: new Map([...textDomainNames(textPlans), ...basis.textDomains]),
 			contracts,
 			define: contractDigest,
 			codes,
