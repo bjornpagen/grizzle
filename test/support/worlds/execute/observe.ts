@@ -98,7 +98,6 @@ export const applyFailed = (error: ApplyError): Effect.Effect<Observation> => {
 				case "ServerError":
 					return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.sqlstate) })
 				case "CompileError":
-				case "MissingCapability":
 					return Effect.succeed({ kind: "compile-refused" })
 				case "InputTooLarge":
 					return Effect.succeed({ kind: "resource-bound" })
@@ -122,7 +121,6 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 		case "ServerError":
 			return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.sqlstate) })
 		case "CompileError":
-		case "MissingCapability":
 		case "PageRequestRefused":
 			return Effect.succeed({ kind: "compile-refused" })
 		case "EncodingFailure":

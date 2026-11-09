@@ -181,7 +181,7 @@ const roleReadsContext = (role: RoleDesc): boolean =>
 export const dbSessions = <R>(
 	login: AnyLogin,
 	role: string
-): Effect.Effect<DbSessions, OpenError<RoleOutsideLayers>, DbLayerService<R>> =>
+): Effect.Effect<DbSessions, OpenError, DbLayerService<R>> =>
 	Effect.flatMap(Effect.context<DbLayerService<R>>(), (context) => {
 		const desc = loginDescOf(login)
 		const found =
@@ -399,7 +399,10 @@ export const loginRoles = (
  * wrote it, its recorded fingerprint trusted (boundary/snapshot.ts parseSnapshot).
  */
 const layerSnapshot = (given: object, level: number): Effect.Effect<ServedSnapshot, OpenError> =>
-	Effect.mapError(Effect.fromResult(parseSnapshot(given, level)), (reason) => new OpenError({ reason }))
+	Effect.mapError(
+		Effect.fromResult(parseSnapshot(given, level)),
+		(reason) => new OpenError({ reason })
+	)
 
 /** An engine result as the layer's: a refusal is OpenError with the compiler's reason. */
 const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, OpenError> =>

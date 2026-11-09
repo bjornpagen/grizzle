@@ -1,7 +1,6 @@
 export {
 	type ApplyError,
 	CommitUnknown,
-	type DbOpenReason,
 	ExecutionFailure,
 	type ExecutionReason,
 	OpenError,
@@ -44,7 +43,6 @@ export {
 	LayerReleased,
 	Migrated,
 	Migrating,
-	MissingCapability,
 	NoCancelKey,
 	PageRequestRefused,
 	PutTargetConflict,

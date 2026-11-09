@@ -1,16 +1,10 @@
 import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
-import { capabilitiesOf } from "#adapter/admission/expectation.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
-import { workloadHandles, workloadMissing } from "#adapter/db/workload.ts"
-import { type DbOpenReason, OpenError } from "#adapter/errors/execution.ts"
-import {
-	type ClaimRefused,
-	MissingCapability,
-	RoleOutsideLayers,
-	TokenError
-} from "#adapter/errors/failures.ts"
+import { workloadHandles } from "#adapter/db/workload.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
+import { RoleOutsideLayers, TokenError } from "#adapter/errors/failures.ts"
 import { type DbSessions, dbSessions } from "#adapter/pool/registry.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, Verify } from "#adapter/types/layer.ts"
@@ -18,7 +12,6 @@ import { prologueOf } from "#adapter/wire/batch.ts"
 import {
 	type AnyRole,
 	catchCompileError,
-	type CompileError,
 	defect,
 	type LoginRole,
 	loginRoleOf,
@@ -29,7 +22,7 @@ import { hostArguments } from "#compiler/plan/read.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 
-const refusedOption = (capability: string): OpenError<CompileError> =>
+const refusedOption = (capability: string): OpenError =>
 	new OpenError({ reason: malformedDescription(openLoc, capability) })
 
 /**
@@ -66,7 +59,7 @@ const dbClaims = (
 	sessions: DbSessions,
 	contexts: ReadonlyArray<TypedContext>,
 	token: Option.Option<string>
-): Effect.Effect<Claims, OpenError<TokenError | ClaimRefused>> => {
+): Effect.Effect<Claims, OpenError> => {
 	const check = sessions.token
 	if (Option.isNone(token) || check.kind === "none") {
 		return Effect.succeed(noClaims)
@@ -93,9 +86,7 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
  * a getter or a setter, and a token that is no string are each refused at stage schema. The types require the options
  * and type the token, so only a JavaScript caller meets a refusal here.
  */
-export const openToken = (
-	options: unknown
-): Result.Result<Option.Option<string>, OpenError<CompileError>> => {
+export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
 	if (!isRecord(options)) {
 		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
 	}
@@ -144,8 +135,9 @@ export interface OpenedDb<R, P> {
  *    "token"} whose reason is verify's TokenError, or ClaimRefused for a payload that does not decode. A Db opened
  *    without one, or on a layer whose login reads no context, has no context facts. PostgreSQL judges a claim of a
  *    refined field where a statement reads it, by its field's domain.
- * 5. The workload. The capabilities a Db can name are its snapshot's (admission/expectation.ts capabilitiesOf): a
- *    workload program needing an extension the snapshot does not install is OpenError{stage: "capability"}.
+ *
+ * A statement that names an extension's type the database does not install, or in a schema the role holds no USAGE
+ * on, is PostgreSQL's to refuse at the call, with its ServerError.
  *
  * The Db's workload handles (`db.workload`) are built here over the programs the layer compiled for the role, each
  * ChangeSet's for the contexts the Db's claims hold a fact of.
@@ -153,7 +145,7 @@ export interface OpenedDb<R, P> {
 export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	role: LoginRole<R, P>,
 	options: OpenOptions<R>
-): Effect.fn.Return<OpenedDb<R, P>, OpenError<DbOpenReason>, DbLayerService<R>> {
+): Effect.fn.Return<OpenedDb<R, P>, OpenError, DbLayerService<R>> {
 	const reached = loginRoleOf(role)
 	if (reached === undefined) {
 		return yield* refusedOption("a role reached through its login: Db.open(Web.roles.member, ...)")
@@ -172,7 +164,6 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 	const desc = schema.desc
 	const snapshot = sessions.snapshot
 	const claims = yield* dbClaims(sessions, contexts, token)
-	const capabilities = capabilitiesOf(snapshot, theory)
 	const ctx: DbContext = {
 		schema,
 		declared,
@@ -183,14 +174,7 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 		compile,
 		witness,
 		bind,
-		pool: sessions.pool,
-		...capabilities
-	}
-	const missing = workloadMissing(workload, capabilities)
-	if (Option.isSome(missing)) {
-		return yield* new OpenError({
-			reason: new MissingCapability({ capability: missing.value })
-		})
+		pool: sessions.pool
 	}
 	const handles: object = workloadHandles(ctx, workload)
 	if (

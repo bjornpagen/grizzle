@@ -1,16 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	shuffled,
-	weighted
-} from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
@@ -27,7 +18,6 @@ import {
 	Stream,
 	String as Str
 } from "effect"
-import { missingExtension } from "#adapter/admission/expectation.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
@@ -624,118 +614,6 @@ describe("a read's relation input", () => {
 							}
 							if (Arr.some(c.order, (position, i) => position !== i)) {
 								k.note("columns read in another order")
-							}
-						})
-				)
-			)
-	)
-})
-
-/**
- * Whether a template's extensions are installed where its role can name them (admission/expectation.ts
- * missingExtension), over the box of every requirement on two extensions, each needed or not and needed in a schema or
- * anywhere, against every installation of them, each absent or installed in one of two schemas, and every set of those
- * schemas the role holds USAGE on. The oracle is the rule: the first needed extension, in the requirement's order, not
- * installed, installed elsewhere than the schema it is needed in, or installed in a schema the role cannot use, is the
- * capability the template lacks.
- */
-type Need = "not needed" | "anywhere" | "in s1" | "in s2"
-type Installed = "absent" | "in s1" | "in s2"
-const extensionNames = ["vector", "other"] as const
-
-type CapabilityFeature =
-	| "every one installed"
-	| "one absent"
-	| "one in another schema"
-	| "one in a schema the role cannot use"
-	| "one needed anywhere"
-
-describe("capabilities found after admission", () => {
-	it.effect(
-		"refuse a template needing an extension not installed in the schema its compiled names place it in, or in one its role cannot use",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/adapter/reader-capability",
-						generator: (source) => ({
-							extensions: Arr.map(extensionNames, (name) => ({
-								name,
-								need: source.draw(element<Need>(["not needed", "anywhere", "in s1", "in s2"])),
-								installed: source.draw(element<Installed>(["absent", "in s1", "in s2"]))
-							})),
-							usable: { s1: source.draw(boolean), s2: source.draw(boolean) }
-						}),
-						literal: Formatter.format,
-						limit: 576,
-						coverage: requiredInSpace<CapabilityFeature>([
-							"every one installed",
-							"one absent",
-							"one in another schema",
-							"one in a schema the role cannot use",
-							"one needed anywhere"
-						]),
-						box: "two extensions, each not needed, needed anywhere or in one of two schemas, and absent or installed in one of two schemas, under every set of those schemas the role holds USAGE on",
-						oracle: {
-							kind: "specification",
-							name: "the first needed extension not installed where it is needed, or where the role cannot use it"
-						},
-						caseHang
-					},
-					({ extensions, usable }, c) =>
-						Effect.sync(() => {
-							const needed = Arr.filter(extensions, (e) => e.need !== "not needed")
-							const schemaOf = (where: "in s1" | "in s2"): "s1" | "s2" =>
-								where === "in s1" ? "s1" : "s2"
-							const requirements = {
-								extensions: Arr.map(needed, (e) => e.name),
-								extensionSchemas: Rec.fromEntries(
-									Arr.flatMap(needed, (e): ReadonlyArray<readonly [string, string]> =>
-										e.need === "in s1" || e.need === "in s2" ? [[e.name, schemaOf(e.need)]] : []
-									)
-								)
-							}
-							const installedExtensions = new Map(
-								Arr.flatMap(extensions, (e): ReadonlyArray<readonly [string, string]> =>
-									e.installed === "absent" ? [] : [[e.name, schemaOf(e.installed)]]
-								)
-							)
-							const usableSchemas = new Set(
-								Arr.filter(["s1", "s2"] as const, (schema) => usable[schema])
-							)
-							const lacking = Arr.findFirst(
-								needed,
-								(e) =>
-									e.installed === "absent" ||
-									(e.need !== "anywhere" && e.need !== e.installed) ||
-									!usable[schemaOf(e.installed)]
-							)
-							assert.equal(
-								missingExtension(requirements, { installedExtensions, usableSchemas }),
-								Option.match(lacking, {
-									onNone: () => undefined,
-									onSome: (e) =>
-										e.installed !== "absent" && (e.need === "anywhere" || e.need === e.installed)
-											? `USAGE on schema ${schemaOf(e.installed)}`
-											: e.need === "anywhere"
-												? `extension ${e.name}`
-												: `extension ${e.name} in schema ${e.need === "in s1" ? "s1" : "s2"}`
-								})
-							)
-							c.note(
-								Option.match(lacking, {
-									onNone: () => "every one installed",
-									onSome: (e) =>
-										e.installed === "absent"
-											? "one absent"
-											: e.need === "anywhere" || e.need === e.installed
-												? "one in a schema the role cannot use"
-												: "one in another schema"
-								})
-							)
-							if (Arr.some(needed, (e) => e.need === "anywhere" && e.installed !== "absent")) {
-								c.note("one needed anywhere")
 							}
 						})
 				)

@@ -1,9 +1,7 @@
 import { Brand, Effect, Option, Result } from "effect"
-import { missingExtension } from "#adapter/admission/expectation.ts"
 import type { DbContext, RoleContext } from "#adapter/db/context.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
 import { pageRequest } from "#adapter/page/request.ts"
 import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
@@ -44,8 +42,7 @@ import {
  *    value still inside its attachment; then its page runtime template (template.ts: the page compiler's statements
  *    and the cursor codec). As
  *    for every direct read, a query that does not compile is a ReadFailure whose reason is its CompileError (stage
- *    compile), and a capability the admitted database lacks one whose reason is MissingCapability (stage capability),
- *    never a parameter value. A handle db.compile compiled an ordered query into holds its page template, compiled
+ *    compile), never a parameter value. A handle db.compile compiled an ordered query into holds its page template, compiled
  *    the same way when the handle was.
  * 3. The parameters are made ready as a read's are: Streams collected and relation inputs normalized
  *    (reader/params.ts, reader/relations.ts), a refusal being an EncodingFailure (stage encode) or InputTooLarge
@@ -93,8 +90,7 @@ export interface CompiledPage {
 }
 
 /**
- * The page template of an ordered query for a Db's reader, in the `snapshot` context, or the compile error, or the
- * missing capability.
+ * The page template of an ordered query for a Db's reader, in the `snapshot` context, or the compile error.
  *
  * A query value whose rules still read an attachment's parent variables is a child read outside its attachment:
  * the builder keeps it inside the attachment and describes it to no one (query/build/state.ts
@@ -103,25 +99,13 @@ export interface CompiledPage {
 export const compilePageTemplate = (
 	ctx: DbContext,
 	query: unknown
-): Result.Result<CompiledPage, ReadFailure> => {
-	const compiled = Result.mapError(
-		compiledPageTemplate(ctx, query),
-		(reason) => new ReadFailure({ reason })
-	)
-	if (Result.isFailure(compiled)) {
-		return compiled
-	}
-	const missing = missingExtension(compiled.success.compiled.template.requirements, ctx)
-	if (missing !== undefined) {
-		return Result.fail(new ReadFailure({ reason: new MissingCapability({ capability: missing }) }))
-	}
-	return Result.succeed(compiled.success)
-}
+): Result.Result<CompiledPage, ReadFailure> =>
+	Result.mapError(compiledPageTemplate(ctx, query), (reason) => new ReadFailure({ reason }))
 
 /**
  * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or
  * its CompileError: what a page compiles for its call, and what db.compile and the layer's workload hold for an
- * ordered query, whose callers check its capability against the admitted database.
+ * ordered query.
  */
 export const compiledPageTemplate = (
 	role: RoleContext,

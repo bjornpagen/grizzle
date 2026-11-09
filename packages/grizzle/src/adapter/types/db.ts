@@ -1,5 +1,5 @@
 import type { Array as Arr, Effect, Option, Scope } from "effect"
-import type { ApplyError, DbOpenReason, OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService } from "#adapter/types/layer.ts"
 import type {
 	AnyChangeSet,
@@ -76,7 +76,7 @@ export interface DbConstructor {
 	open<R extends AnyRole, P>(
 		role: LoginRole<R, P>,
 		options: OpenOptions<R>
-	): Effect.Effect<DbOf<R, P>, OpenError<DbOpenReason>, DbLayerService<R>>
+	): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>>
 }
 
 /** A ChangeSet's writes lie within the role's write list. */

@@ -13,7 +13,6 @@ import {
 	HandleReleased,
 	InputTooLarge,
 	LawRejected,
-	MissingCapability,
 	PageRequestRefused,
 	PutTargetConflict,
 	RoleOutsideLayers,
@@ -54,7 +53,7 @@ import {
  * use, or an environment that sets a connection option grizzle cannot override; a role no provided layer serves; a
  * token verify refused or threw, or claims that do not decode through the role's contexts; a schema, login, snapshot or
  * option value that does not compile or parse (CompileError), a login whose role name the naming door refuses
- * included; a workload out of step with the snapshot, or one needing an extension the snapshot does not install.
+ * included.
  */
 export type OpenReason =
 	| DbConfigRefused
@@ -63,27 +62,13 @@ export type OpenReason =
 	| TokenError
 	| ClaimRefused
 	| CompileError
-	| MissingCapability
-
-/**
- * Why Db.open refused, which it judges on the host alone: a role no provided layer serves; a token verify refused or
- * threw, or claims that do not decode; a value that does not compile; or a workload program needing an extension the
- * snapshot does not install.
- */
-export type DbOpenReason =
-	| RoleOutsideLayers
-	| TokenError
-	| ClaimRefused
-	| CompileError
-	| MissingCapability
 
 /**
  * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
  * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
- * or whose claims do not decode; `schema`, a value that does not compile or parse; or `capability`, a workload program
- * needing an extension the snapshot does not install.
+ * or whose claims do not decode; or `schema`, a value that does not compile or parse.
  */
-export type OpenStage = "config" | "role" | "token" | "schema" | "capability"
+export type OpenStage = "config" | "role" | "token" | "schema"
 
 const openStage = (reason: OpenReason): OpenStage => {
 	switch (reason._tag) {
@@ -97,17 +82,12 @@ const openStage = (reason: OpenReason): OpenStage => {
 			return "token"
 		case "CompileError":
 			return "schema"
-		case "MissingCapability":
-			return "capability"
 	}
 }
 
-/**
- * Opening a Db or building a DbLayer failed for `reason`, at the stage that reason fails at. `R` is the reasons where it
- * is raised can give: Db.open's DbOpenReason, every reason for DbLayer.make.
- */
-export class OpenError<out R extends OpenReason = OpenReason> extends Data.TaggedError("OpenError")<{
-	readonly reason: R
+/** Opening a Db or building a DbLayer failed for `reason`, at the stage that reason fails at. */
+export class OpenError extends Data.TaggedError("OpenError")<{
+	readonly reason: OpenReason
 }> {
 	get stage(): OpenStage {
 		return openStage(this.reason)
@@ -121,8 +101,7 @@ export class OpenError<out R extends OpenReason = OpenReason> extends Data.Tagge
 /**
  * Why a read failed: the server refused its statement (ServerError); its session was not acquired (AcquireRefusal), or
  * its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot
- * read); the compiler refused it before any SQL, for a query that does not compile for this Db or needs a capability
- * the Db's snapshot does not grant; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
+ * read); the compiler refused it before any SQL, for a query that does not compile for this Db; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
  * law rejects (db.explain), parameters past a bound of their transport, or a page request.
  */
 export type ReadReason =
@@ -134,7 +113,6 @@ export type ReadReason =
 	| DriverFailure
 	| UnreadableAnswer
 	| CompileError
-	| MissingCapability
 	| EncodingFailure
 	| LawRejected
 	| InputTooLarge
@@ -151,7 +129,6 @@ export type ReadStage =
 	| "encode"
 	| "request"
 	| "compile"
-	| "capability"
 
 /** The SQLSTATEs of a runtime resource failure, never a truncated result. */
 const resourceStates: ReadonlySet<string> = new Set([
@@ -183,8 +160,6 @@ const readStage = (reason: ReadReason): ReadStage => {
 			return "decode"
 		case "CompileError":
 			return "compile"
-		case "MissingCapability":
-			return "capability"
 		case "EncodingFailure":
 		case "LawRejected":
 			return "encode"
@@ -197,8 +172,9 @@ const readStage = (reason: ReadReason): ReadStage => {
 
 /**
  * A read failed for `reason`. Its stage follows: a server's refusal is at stage `resource` when its SQLSTATE is a
- * runtime resource failure and at `execute` otherwise, an acquisition's and a released handle's at `acquire`, a session's at `transport`,
- * `driver` or `decode`, the compiler's at `compile` or `capability`, the host's at `encode`, `resource` or `request`.
+ * runtime resource failure and at `execute` otherwise, an acquisition's and a released handle's at `acquire`, a
+ * session's at `transport`, `driver` or `decode`, the compiler's at `compile`, the host's at `encode`, `resource` or
+ * `request`.
  */
 export class ReadFailure extends Data.TaggedError("ReadFailure")<{ readonly reason: ReadReason }> {
 	get stage(): ReadStage {
@@ -255,9 +231,7 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
  * order, or 40P01, a deadlock; undefined for any other report: the one reading of it, a call's TransientFailure
  * (serializationRefusal).
  */
-export const serializableRefusal = (
-	error: ServerError
-): SerializationFailure | Deadlock | undefined =>
+const serializableRefusal = (error: ServerError): SerializationFailure | Deadlock | undefined =>
 	error.sqlstate === sqlstates.serializationFailure
 		? new SerializationFailure()
 		: error.sqlstate === sqlstates.deadlockDetected
@@ -334,16 +308,10 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 
 /**
  * Why a write or refresh failed at execution, or was refused before any SQL: the server refused a statement
- * (ServerError); the compiler refused the program, which does not compile for this Db or needs a capability the
- * database lacks; a relation input is past the size limit; or a statement answered rows grizzle cannot read, with what
+ * (ServerError); the compiler refused the program, which does not compile for this Db; a relation input is past the size limit; or a statement answered rows grizzle cannot read, with what
  * its transaction then did.
  */
-export type ExecutionReason =
-	| ServerError
-	| CompileError
-	| MissingCapability
-	| InputTooLarge
-	| UnreadableAnswer
+export type ExecutionReason = ServerError | CompileError | InputTooLarge | UnreadableAnswer
 
 /** A write or refresh failed at execution, or the host refused it before any SQL was sent, for `reason`. */
 export class ExecutionFailure extends Data.TaggedError("ExecutionFailure")<{

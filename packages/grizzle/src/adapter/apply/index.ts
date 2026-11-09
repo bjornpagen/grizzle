@@ -1,16 +1,9 @@
 import { Effect, Result, type Scope } from "effect"
-import type { DbCapabilities } from "#adapter/admission/expectation.ts"
-import {
-	capabilityRefusal,
-	type CompiledChange,
-	compiledWrite,
-	missingCapability
-} from "#adapter/apply/compile.ts"
+import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
 import type { ArtifactKind } from "#adapter/apply/readback.ts"
 import {
 	type BoundReads,
 	boundReads,
-	capabilityFailure,
 	compileFailure,
 	inputApplyError,
 	hostInputs,
@@ -28,16 +21,16 @@ import { whileLive } from "#adapter/reader/reader.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
-export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/apply/compile.ts"
+export { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
 /**
  * db.apply and db.compile(changes): a ChangeSet applied in one transaction. Commit is typed work.
  *
  * One transaction of the Db's role on one session, its statements, its read-backs and COMMIT in one flight (run.ts
  * runWrite). Each application:
  *
- * 1. compiles the ChangeSet for this Db (compile.ts): a CompileError, which an
- *    apply's error channel cannot carry, is the ExecutionFailure whose reason it is, and a capability the admitted
- *    database lacks the ExecutionFailure whose reason is MissingCapability, both before any SQL;
+ * 1. compiles the ChangeSet for this Db (compile.ts): a CompileError, which an apply's error channel cannot carry, is
+ *    the ExecutionFailure whose reason it is, before any SQL. A statement naming an extension's type the database or
+ *    the role cannot use is refused by PostgreSQL, the ExecutionFailure whose reason is its ServerError;
  * 2. makes one attempt: it readies its inputs on the host (run.ts hostInputs: Stream members collected,
  *    normalization), and, unless the host already refused a same-key pair, runs the
  *    transaction (run.ts runWrite), whose outcome is `accepted` or `no-change` with its counts and reads once COMMIT
@@ -53,7 +46,7 @@ export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/
  * its frame alone meets the fence and the snapshot check, so a stale Db fails with StaleSnapshot, and it is `no-change`
  * only once COMMIT committed.
  *
- * db.compile(changes) compiles once, checks the capability and binds the ChangeSet's reads decoder, failing with
+ * db.compile(changes) compiles once and binds the ChangeSet's reads decoder, failing with
  * the CompileError itself; its handle's apply(params) runs step 2 with each call's parameters and the ChangeSet value's
  * own members.
  *
@@ -129,11 +122,9 @@ const applicable = (
 ): Effect.Effect<CompiledChange, ExecutionFailure> =>
 	Effect.suspend(() => {
 		const compiled = compiledWrite(ctx, changes, ctx.claims)
-		if (Result.isFailure(compiled)) {
-			return compileFailure(compiled.failure)
-		}
-		const missing = missingCapability(compiled.success, ctx)
-		return missing === undefined ? Effect.succeed(compiled.success) : capabilityFailure(missing)
+		return Result.isFailure(compiled)
+			? compileFailure(compiled.failure)
+			: Effect.succeed(compiled.success)
 	})
 
 /**
@@ -174,12 +165,6 @@ export const compileChangeForm = <R>(
 		}))
 	)
 
-/** The capability a change form needs that the admitted database lacks, if any. */
-export const changeFormMissing = (
-	form: ChangeForm<unknown>,
-	capabilities: DbCapabilities
-): string | undefined => missingCapability(form.entry, capabilities)?.capability
-
 /** An apply of a handle whose Scope ended. */
 const applyReleased = (): TransportFailure => new TransportFailure({ reason: new HandleReleased() })
 
@@ -201,8 +186,8 @@ export const changeHandle = <R>(
 	})
 
 /**
- * db.compile of a ChangeSet: its change form for the Db's claims, refused with UnsupportedOperation for a capability
- * the database lacks; when the Scope ends its compiled form drops and an apply is refused.
+ * db.compile of a ChangeSet: its change form for the Db's claims; when the Scope ends its compiled form drops and an
+ * apply is refused.
  */
 export const compileChange = <R>(
 	ctx: DbContext,
@@ -213,10 +198,6 @@ export const compileChange = <R>(
 		const form = yield* Effect.suspend(() =>
 			Effect.fromResult(compileChangeForm(ctx, changes, decoder, ctx.claims))
 		)
-		const missing = missingCapability(form.entry, ctx)
-		if (missing !== undefined) {
-			return yield* Effect.fail(capabilityRefusal(missing))
-		}
 		const state = { live: true }
 		yield* Effect.addFinalizer(() =>
 			Effect.sync(() => {

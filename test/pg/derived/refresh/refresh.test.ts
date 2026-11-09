@@ -200,8 +200,6 @@ const raisedOf = (outcome: Result.Result<unknown, unknown>): unknown => {
 	switch (reason._tag) {
 		case "CompileError":
 			return { by: "compiler", stage: "compile" }
-		case "MissingCapability":
-			return { by: "compiler", stage: "capability" }
 		case "ServerError":
 			return { by: "server", sqlstate: reason.sqlstate }
 		case "InputTooLarge":

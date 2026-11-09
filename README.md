@@ -2830,7 +2830,6 @@ throws `CompileError` for a rule that is no check of the schema.
 | `role`       | `RoleOutsideLayers`                                                                                                                                     |
 | `token`      | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts        |
 | `schema`     | `CompileError`                                                                                                                                          |
-| `capability` | `MissingCapability`, a workload program needing an extension the snapshot does not install                                                             |
 
 `Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.
 
@@ -2843,10 +2842,10 @@ throws `CompileError` for a rule that is no check of the schema.
 | `transport`           | `ConnectionLost`, `CommitLost`                                                                                         |
 | `driver`              | `DriverFailure`                                                                                                        |
 | `decode`              | `UnreadableAnswer`: rows grizzle cannot read, or rows its compiled proof says the query cannot deliver                 |
-| before any SQL        | `CompileError` (`compile`), `MissingCapability` (`capability`), `EncodingFailure` or `LawRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
+| before any SQL        | `CompileError` (`compile`), `EncodingFailure` or `LawRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
 
 **`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
-**`ExecutionFailure`**: `ServerError`, `CompileError`, `MissingCapability`, `InputTooLarge` or `UnreadableAnswer`.
+**`ExecutionFailure`**: `ServerError`, `CompileError`, `InputTooLarge` or `UnreadableAnswer`.
 
 **`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
 
@@ -2958,10 +2957,10 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
 
 A value that is not a role reached through its login is refused at stage `schema`. Otherwise `Db.open`'s refusal is an
 `OpenError` at the first stage that fails: `role` (no provided layer holds its login), `schema` (the token is not a
-string), `token` (`verify` refused or threw, or the payload does not decode through the role's contexts) and
-`capability` (a workload program needs an extension the snapshot does not install). A claim of a refined field is
-judged by the field's domain where a statement reads it: one PostgreSQL refuses fails that call with the server's
-`ServerError`.
+string) and `token` (`verify` refused or threw, or the payload does not decode through the role's contexts). A claim of
+a refined field is judged by the field's domain where a statement reads it: one PostgreSQL refuses fails that call
+with the server's `ServerError`, as does a statement naming an extension's type the role holds no USAGE on, or that
+the database does not install.
 
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call

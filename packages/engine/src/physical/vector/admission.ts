@@ -8,12 +8,11 @@ interface ExtensionExpectation {
 	readonly schema: string
 }
 
-/** What admission verifies of the vector extension. A schema that uses vectors requires pgvector at its pinned version, installed in the schema the installation names
- * for it: `vector` 0.8.7 in `vector_ext` on the local cluster. The expectation is pure data; the catalog read and the
- * comparison with `pg_extension.extversion` and the namespace of `pg_extension.extnamespace` belong to Db.open's
- * minimal admission, which pins the same `vectorExtension` and turns a refusal
- * into `OpenError{stage: "capability"}`. A schema without vectors expects nothing and admits any host,
- * with or without the extension. */
+/** The vector extension a schema's installation expects. A schema that uses vectors requires pgvector at its pinned
+ * version, installed in the schema the installation names for it: `vector` 0.8.7 in `vector_ext` on the local cluster;
+ * a schema without vectors expects nothing. The expectation is pure data, which a page cursor's generation names the
+ * version of; nothing at runtime compares it with the database, which PostgreSQL judges where a statement names the
+ * extension's type. */
 export const vectorExpectations = (
 	owned: Owned,
 	vectorSchema: string

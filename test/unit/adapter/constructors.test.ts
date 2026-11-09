@@ -110,7 +110,6 @@ const constructors: {
 	LayerReleased: Public.LayerReleased,
 	Migrated: Public.Migrated,
 	Migrating: Public.Migrating,
-	MissingCapability: Public.MissingCapability,
 	NoCancelKey: Public.NoCancelKey,
 	OpenError: Public.OpenError,
 	PageRequestRefused: Public.PageRequestRefused,

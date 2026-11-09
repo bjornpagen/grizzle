@@ -1,12 +1,10 @@
 import { Effect, type Option, Result, type Scope } from "effect"
-import { type DbCapabilities, missingExtension } from "#adapter/admission/expectation.ts"
 import { type DbContext, dbReadFrame, type RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	HandleReleased,
 	type InputTooLarge,
-	MissingCapability,
 	type UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import { page as pageRuntime } from "#adapter/page/index.ts"
@@ -42,8 +40,7 @@ import {
 	type ParamMap,
 	type Row,
 	type RowDecoder,
-	SourceLoc,
-	unsupported
+	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
 	type CompiledTemplate,
@@ -92,10 +89,9 @@ import {
  * server's report, and a session's failure one whose reason is the wire's classification (wire/batch.ts asReadFailure).
  * A query that does not compile for this Db on a direct read, its decoder's binding included, is a ReadFailure whose
  * reason is the CompileError, at stage compile, as compile surfaces it; a CompileError names a location and a
- * capability, never a parameter value. A template that needs a capability the admitted database lacks, such as an
- * extension a relation parameter's heading names that is not installed in its compiled schema, is found before any
- * SQL: a direct read fails with the MissingCapability reason, at stage capability, and compile with CompileError
- * UnsupportedOperation naming that capability. A relation input the codec refuses is a ReadFailure whose reason is the
+ * capability, never a parameter value. A statement that names an extension's type the database does not install, or in
+ * a schema the role holds no USAGE on, is PostgreSQL's to refuse: a ReadFailure whose reason is its ServerError. A
+ * relation input the codec refuses is a ReadFailure whose reason is the
  * EncodingFailure that names it, at stage encode, and parameters past a bound of their transport InputTooLarge, at
  * stage resource, both before any SQL is sent (relations.ts, wire/batch.ts). An acquisition that fails on a direct read
  * is its refusal, at stage acquire.
@@ -264,14 +260,6 @@ const bindArtifacts = <A>(
 		read
 	}))
 
-/**
- * The capability a template needs that the admitted database lacks, if any: an extension a relation parameter's
- * heading or a stored relation needs, installed nowhere or in another schema than its compiled names expect. Found
- * before any of the template's SQL is sent.
- */
-const missingOf = (compiled: ReadArtifacts, capabilities: DbCapabilities): string | undefined =>
-	missingExtension(compiled.compiled.template.requirements, capabilities)
-
 /** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
 type Delivery<A, X> = (
 	program: ReadProgram,
@@ -346,16 +334,6 @@ export const compileReadForm = <A>(
 		}
 	})
 
-/** The capability a read form needs that the admitted database lacks, if any: its template's, or its page's. */
-export const readFormMissing = (
-	form: ReadForm<unknown>,
-	capabilities: DbCapabilities
-): string | undefined =>
-	missingOf(form.bound.compiled, capabilities) ??
-	(form.page.kind === "compiled"
-		? missingExtension(form.page.page.compiled.template.requirements, capabilities)
-		: undefined)
-
 /**
  * The handle of a read form on a Db: its reads run through `executor` while `live` holds; a read after it ends is
  * refused with HandleReleased.
@@ -423,7 +401,7 @@ const readQueryAt = <Q>(query: Q, entry: string) =>
 export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S> => {
 	/**
 	 * A direct read's template and bound decoder: a query that does not compile, or whose decoder does not bind, is
-	 * refused with its CompileError, and a capability the database lacks with MissingCapability.
+	 * refused with its CompileError.
 	 */
 	const readable = <A>(
 		query: unknown,
@@ -433,12 +411,6 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			const compiled = compileArtifacts(ctx, query)
 			if (Result.isFailure(compiled)) {
 				return Effect.fail(new ReadFailure({ reason: compiled.failure }))
-			}
-			const missing = missingOf(compiled.success, ctx)
-			if (missing !== undefined) {
-				return Effect.fail(
-					new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
-				)
 			}
 			return Effect.mapError(
 				Effect.fromResult(bindArtifacts(ctx, compiled.success, decoder)),
@@ -517,10 +489,6 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			const form = yield* Effect.suspend(() =>
 				Effect.fromResult(compileReadForm(ctx, query, decoder))
 			)
-			const missing = readFormMissing(form, ctx)
-			if (missing !== undefined) {
-				return yield* Effect.fail(unsupported(SourceLoc("db.compile", []), missing))
-			}
 			const state = { live: true }
 			yield* Effect.addFinalizer(() =>
 				Effect.sync(() => {

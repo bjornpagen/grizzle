@@ -66,7 +66,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  *   a compiled handle's execute included, and every refusal before SQL is still the same refusal.
  *
  * The model is whether the pool is disposed and how many handles are compiled. Every refusal before SQL (the stages
- * encode, compile, request and capability, and a CursorError) is checked to send zero frontend messages, and after every
+ * encode, compile and request, and a CursorError) is checked to send zero frontend messages, and after every
  * command the pool holds no leased session. A refusal is read from the error's typed fields, never from its text.
  */
 interface Model {
@@ -87,13 +87,7 @@ const refusalOf = (error: unknown): Refusal | undefined =>
 				: undefined
 
 /** The refusals before any SQL. */
-const beforeSql: ReadonlyArray<Refusal> = [
-	"CursorError",
-	"encode",
-	"compile",
-	"request",
-	"capability"
-]
+const beforeSql: ReadonlyArray<Refusal> = ["CursorError", "encode", "compile", "request"]
 
 /** The calls a live and a wild value reach. */
 type LiveCall = "execute" | "get" | "page"

@@ -1,9 +1,7 @@
 import { Result } from "effect"
-import { type DbCapabilities, missingExtension } from "#adapter/admission/expectation.ts"
 import { type ReadBacks, readBacks } from "#adapter/apply/readback.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
-import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
 import {
@@ -20,8 +18,7 @@ import {
 	malformedDescription,
 	parseSchemaInput,
 	type SchemaFingerprint,
-	SourceLoc,
-	unsupported
+	SourceLoc
 } from "#compiler/plan/common.ts"
 
 /**
@@ -135,20 +132,3 @@ export const compiledWrite = (
 			change
 		}))
 	)
-
-/**
- * The capability a program needs that the admitted Db lacks, found after admission and before any of its SQL is sent:
- * an extension its statements name, installed nowhere, in another schema than its compiled names expect, or in one the
- * role holds no USAGE on.
- */
-export const missingCapability = (
-	entry: WriteEntry,
-	capabilities: DbCapabilities
-): MissingCapability | undefined => {
-	const missing = missingExtension(entry.program.requirements, capabilities)
-	return missing === undefined ? undefined : new MissingCapability({ capability: missing })
-}
-
-/** A missing capability as the CompileError db.compile's channel carries. */
-export const capabilityRefusal = (missing: MissingCapability): CompileError =>
-	unsupported(SourceLoc("db.apply", []), missing.capability)

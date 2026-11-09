@@ -415,18 +415,6 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 }
 
 /**
- * The capability a program needs and the admitted database lacks, such as an extension (`capability`), found before
- * any SQL.
- */
-export class MissingCapability extends Data.TaggedError("MissingCapability")<{
-	readonly capability: string
-}> {
-	override get message(): string {
-		return `the database lacks ${this.capability}`
-	}
-}
-
-/**
  * db.explain of a ChangeSet whose input `law` rejects before any SQL: two facts of one relation input share a key and
  * differ in payload.
  */

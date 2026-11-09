@@ -1,14 +1,8 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
-import { missingExtension } from "#adapter/admission/expectation.ts"
-import {
-	compiledWrite,
-	hostInputs,
-	missingCapability,
-	valuesFailure
-} from "#adapter/apply/index.ts"
+import { compiledWrite, hostInputs, valuesFailure } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { LawRejected, MissingCapability, UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { decodePlan } from "#adapter/explain/plan.ts"
 import { executionOf, formFor, readBinding } from "#adapter/reader/execution.ts"
 import { hostParams } from "#adapter/reader/params.ts"
@@ -145,10 +139,6 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	}
 	const read = compiled.value
 	const template = read.template
-	const missing = missingExtension(template.requirements, ctx)
-	if (missing !== undefined) {
-		return yield* new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
-	}
 	const values = yield* hostParams(template.params, params)
 	const ready = executionInputs(paramCodecs(template.params, ctx.artifacts.names.codes), values)
 	if (Result.isFailure(ready)) {
@@ -178,10 +168,6 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		return yield* new ReadFailure({ reason: compiled.failure })
 	}
 	const entry = compiled.success
-	const missing = missingCapability(entry, ctx)
-	if (missing !== undefined) {
-		return yield* new ReadFailure({ reason: missing })
-	}
 	const inputs = yield* Effect.mapError(
 		hostInputs(entry, params),
 		(reason) => new ReadFailure({ reason })
@@ -276,12 +262,11 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
  * enumerated member skips is not emitted and has no plan.
  *
  * Failures are a read's, a ReadFailure with its reason: a program that does not compile for this Db, a ChangeSet's
- * binding of its inputs included, its CompileError (stage compile), and a capability it lacks MissingCapability (stage
- * capability); an input the codec refuses its EncodingFailure, and a same-key pair host normalization refuses
- * LawRejected (stage encode); parameters past a bound of their transport InputTooLarge (stage resource); an
- * acquisition failure its
- * refusal (stage acquire); a statement PostgreSQL refuses to plan the server's report (wire/batch.ts asReadFailure),
- * and a plan that does not decode UnreadableAnswer (stage decode).
+ * binding of its inputs included, its CompileError (stage compile); an input the codec refuses its EncodingFailure, and
+ * a same-key pair host normalization refuses LawRejected (stage encode); parameters past a bound of their transport
+ * InputTooLarge (stage resource); an acquisition failure its refusal (stage acquire); a statement PostgreSQL refuses to
+ * plan the server's report (wire/batch.ts asReadFailure), a type the role cannot use among them, and a plan that does
+ * not decode UnreadableAnswer (stage decode).
  *
  * `program` is a query, an ordered query or a ChangeSet over a level of the Db's schema.
  *

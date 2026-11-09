@@ -86,8 +86,6 @@ interface DefaultChange {
 	readonly value: Option.Option<string>
 }
 
-type PolicyFeature = "the stored policy fills the read"
-
 /** Loads the vector library in the admin session, so its `hnsw.*` parameters are known there. */
 const loadVectorLibrary = Effect.flatMap(Substrate, (s) =>
 	s.admin.query(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
@@ -157,7 +155,9 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 								kind: "specification",
 								name: "the login's stored defaults are the policy's, and a Db's typed approximateNearest read fills its request under them"
 							},
-							coverage: requiredInSpace<PolicyFeature>(["the stored policy fills the read"]),
+							coverage: requiredInSpace<"the stored policy fills the read">([
+								"the stored policy fills the read"
+							]),
 							caseHang
 						},
 						(change, k) =>

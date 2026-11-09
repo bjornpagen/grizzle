@@ -18,7 +18,6 @@ import {
 	type InputTooLarge,
 	literalBound,
 	messageBound,
-	type MissingCapability,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
@@ -185,11 +184,6 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  */
 export const compileFailure = (refusal: CompileError): Effect.Effect<never, ExecutionFailure> =>
 	Effect.fail(new ExecutionFailure({ reason: refusal }))
-
-/** A capability found absent after admission, on an apply, before any SQL. */
-export const capabilityFailure = (
-	missing: MissingCapability
-): Effect.Effect<never, ExecutionFailure> => Effect.fail(new ExecutionFailure({ reason: missing }))
 
 /** A Stream relation parameter collected on the host, whole: one that fails encodes nothing. */
 const collectParam = (

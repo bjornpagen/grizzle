@@ -9,9 +9,8 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { MissingCapability, ServerError } from "#adapter/errors/failures.ts"
+import { ServerError } from "#adapter/errors/failures.ts"
 import { makeReader, poolExecutor, type ReaderValue } from "#adapter/reader/reader.ts"
-import { isCompileError } from "#compiler/core/errors.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -123,7 +122,7 @@ type OpenFeature =
 	| "Search read"
 	| "a read refused at the fence, the database without the schema's ledger"
 	| "a vector probe answered"
-	| "a vector probe refused before any SQL"
+	| "a vector probe refused by PostgreSQL"
 
 const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
 	...Arr.flatMap(["reset", "wrong"] as const, (change) =>
@@ -133,7 +132,7 @@ const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
 	"Search read",
 	"a read refused at the fence, the database without the schema's ledger",
 	"a vector probe answered",
-	"a vector probe refused before any SQL"
+	"a vector probe refused by PostgreSQL"
 ]
 
 /** Whether a case's database holds its schema's installation. */
@@ -150,11 +149,11 @@ const holdsSchema = (c: OpenCase): boolean =>
  * Db, whatever the database or the login's stored defaults. A read through it on a database that holds the schema's
  * installation answers as the facts loaded there say, under every stored default, since every session of the login's
  * pool sends the defaults again as its startup options; on a database that holds none, the read's fence refuses it, the
- * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector needs
- * pgvector installed by the snapshot in the vector schema: a Search Db, whose snapshot installs it, answers one where its
- * schema is installed; a Work Db, whose snapshot does not, is refused one at its compile, before any SQL: execute and
- * get ReadFailure {capability} with MissingCapability, db.compile its CompileError, and the database's sessions as they
- * were.
+ * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector names
+ * pgvector's type in the vector schema, which grizzle checks nothing of: a Search Db, whose role holds USAGE on it,
+ * answers one where its schema is installed; a Work Db compiles one (db.compile) and PostgreSQL refuses it at the call,
+ * a ReadFailure with the server's ServerError: where pgvector is installed the role holds no USAGE on its schema
+ * (42501), and where it is not the schema does not exist (3F000).
  *
  * The opens a role, token or claims refuse are the worlds model's (test/pg/world-model); a password Effect's failure is
  * the connection suite's.
@@ -162,12 +161,11 @@ const holdsSchema = (c: OpenCase): boolean =>
 export const openSuite = (): void => {
 	layer(Substrate.layer)("Db.open", (it) => {
 		it.effect(
-			"yields a Db whatever the database, whose reads meet the fence, the stored defaults pinned by the startup options, and their capability before any SQL",
+			"yields a Db whatever the database, whose reads meet the fence, the stored defaults pinned by the startup options, and PostgreSQL's judgement of the types they name",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const s = yield* Substrate
 						const work = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const searching = yield* installed(search.Search, {}, { label: "real", extensions: [] })
 						const libc = yield* bareDatabase(
@@ -209,7 +207,7 @@ export const openSuite = (): void => {
 								caseHang,
 								oracle: {
 									kind: "specification",
-									name: "Db.open yields a Db whatever the database; its reads meet the fence and their capability"
+									name: "Db.open yields a Db whatever the database; its reads meet the fence and PostgreSQL's judgement of the types they name"
 								}
 							},
 							(c, k) =>
@@ -235,7 +233,6 @@ export const openSuite = (): void => {
 											({ db, ctx: context }) =>
 												Effect.gen(function* () {
 													const reader: ReaderValue = makeReader(context, poolExecutor(context))
-													assert.equal(context.installedExtensions.has("vector"), false)
 													const found = yield* Effect.result(reader.get(W.Task, { id: t1 }))
 													if (holdsSchema(c)) {
 														assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
@@ -252,29 +249,27 @@ export const openSuite = (): void => {
 															"a read refused at the fence, the database without the schema's ledger"
 														)
 													}
-													const activity = s.admin.queryValues(
-														"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
-														[database, loginRole]
-													)
-													const before = yield* activity
+													yield* Effect.scoped(db.compile(vectorProbe))
+													if (!holdsSchema(c)) {
+														return
+													}
+													/**
+													 * The probe names vector_ext.vector(3): where pgvector is installed the role holds no USAGE
+													 * on its schema (42501), and where it is not the schema does not exist (3F000).
+													 */
+													const refusedBy =
+														c.database === "installed"
+															? sqlstates.insufficientPrivilege
+															: sqlstates.invalidSchemaName
 													const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
 													assertInstanceOf(read, ReadFailure)
-													assertInstanceOf(read.reason, MissingCapability)
-													assert.equal(read.stage, "capability")
+													assertInstanceOf(read.reason, ServerError)
+													assert.equal(read.reason.sqlstate, refusedBy)
 													const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
 													assertInstanceOf(got, ReadFailure)
-													assertInstanceOf(got.reason, MissingCapability)
-													assert.equal(got.stage, "capability")
-													const compiled = yield* Effect.flip(
-														Effect.scoped(db.compile(vectorProbe))
-													)
-													if (!isCompileError(compiled)) {
-														return assert.fail("the probe's compile fails with a CompileError")
-													}
-													assert.equal(compiled.reason._tag, "UnsupportedOperation")
-													const after = yield* activity
-													assert.deepEqual(after, before)
-													k.note("a vector probe refused before any SQL")
+													assertInstanceOf(got.reason, ServerError)
+													assert.equal(got.reason.sqlstate, refusedBy)
+													k.note("a vector probe refused by PostgreSQL")
 												})
 										).pipe(
 											Effect.orDie,
