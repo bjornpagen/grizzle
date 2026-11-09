@@ -36,6 +36,15 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
     0.33 s with native foreign keys), though each probe alone is index lookups.
+  - A when-guard's text analysis on every lowering (REGEX, 2026-11-09; kept, as no carrier exists). Lowering
+    Compute.when(Compute.matches(x, p), ...) types its branch's subject by analyzing x's patterns and p together
+    (scalar/compute/lower.ts whenGuard, textWithin, then text/refinement.ts analyzeText): each member's admission,
+    minimal DFA and ARE, then their intersection, again on every lowering and for every guard over the same patterns.
+    That was about 0.33 of 36.4 profile-seconds on the kit's layer at 1ab38472 (the theory's and the law model's
+    lowerings). The members' analyses are proved when their text descriptors are registered, but the checker rebuilds a
+    ScalarType from the field's Description (scalarTypeOf over the decoded FieldDesc), which persists only the
+    language's key and check, never a member's DFA. Carrying them would need the Description to hold non-data, or a
+    registry keyed by the FieldDesc, which is a cache; both are refused.
   - A Compute.matches pattern as a value (REGEX's proposal, 2026-11-09; not built, under main's 0.3 s bar).
     Compute.matches takes its pattern as a raw string, and its builder admits it on every call (scalar/compute/
     builders.ts matches, then regex/admit.ts matchPattern) and keeps only the refusal: Qti's build makes 121 such
