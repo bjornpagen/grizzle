@@ -32,7 +32,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
-	cellFold,
+	cellTable,
 	dagDigest,
 	emptyDag,
 	finishCells,
@@ -366,8 +366,10 @@ describe("traversals of generated DAGs", () => {
 							assert.equal(below.of(last), depth)
 							assert.equal(nodeScopes(built).of(last).outer.size, 0)
 							const cells: Array<Cell> = []
-							const cellOf = cellFold((cell) => cells.push(cell))
-							const finished = succeeded(finishCells(built.roots, (root) => cellOf.of(root)))
+							const cellOf = cellTable(built.roots, (cell) => cells.push(cell))
+							const finished = succeeded(
+								finishCells(built.roots, (root) => defined(cellOf.get(root), "a root's cell"))
+							)
 							assert.equal(cells.length, depth + 1)
 							assert.equal(
 								succeeded(dagDigest(finished.dag, "dag")),

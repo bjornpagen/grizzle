@@ -523,17 +523,25 @@ export const nodeScopes = (dag: RelDag): Fold<RelNode, NodeScope> => {
 }
 
 /**
- * The cells of a DAG's nodes, each made on demand from its node (`cellFold(made).of(node)`): its label, and its edit
- * form, whose inputs are its inputs' cells and whose metadata is what the node states (rel.ts metaSpecOf). `made`
- * receives every cell as it is made, inputs first, so an editor keeps them in creation order.
+ * The cell of each node `roots` reach, and of no other: its label, and its edit form, whose inputs are its inputs'
+ * cells and whose metadata is what the node states (rel.ts metaSpecOf). The cells are made inputs first from each root
+ * in turn, and `made` receives every cell as it is made, so an editor keeps them in creation order.
  */
-export const cellFold = (made: (cell: Cell) => void): Fold<RelNode, Cell> =>
-	new Fold<RelNode, Cell>(function* (node) {
+export const cellTable = (
+	roots: ReadonlyArray<RelNode>,
+	made: (cell: Cell) => void
+): ReadonlyMap<RelNode, Cell> => {
+	const cells = new Fold<RelNode, Cell>(function* (node) {
 		const current = yield* mapNode<LiveRefs, EditRefs>(node, { ...keptRefs, meta: metaSpecOf })
 		const cell: Cell = { id: node.id, current }
 		made(cell)
 		return cell
 	})
+	for (const root of roots) {
+		cells.of(root)
+	}
+	return new Map(postorder(roots, (node) => inputsOf(node)).map((node) => [node, cells.of(node)]))
+}
 
 /**
  * The first cell that reaches itself through its current inputs, by an iterative depth-first search from each of

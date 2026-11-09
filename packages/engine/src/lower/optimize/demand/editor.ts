@@ -1,6 +1,7 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { cellFold, cellOrder, type FinishedCells, finishCells } from "#compiler/ir/dag.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import { cellOrder, cellTable, type FinishedCells, finishCells } from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
 	type ColumnRef,
@@ -250,7 +251,7 @@ export class DagEditor<R extends Roots = Roots> {
 	/** Every cell, in creation order: the base's, each after its inputs, then each one a rewrite added. */
 	readonly #cells: Array<Cell> = []
 	/** The cell of each node of the base, made when the editor starts. */
-	readonly #cellOf: Fold<RelNode, Cell>
+	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	/**
 	 * Each root of the base a redirection moved, to the cell it stands at now; a root no redirection moved stands at its
 	 * own cell.
@@ -275,13 +276,10 @@ export class DagEditor<R extends Roots = Roots> {
 
 	constructor(dag: ValidDag<R>) {
 		this.base = dag
-		this.#cellOf = cellFold((cell) => {
+		this.#cellOf = cellTable(dag.roots, (cell) => {
 			this.#cells.push(cell)
 			this.#note(cell.id, cell.current)
 		})
-		for (const root of dag.roots) {
-			this.#cellOf.of(root)
-		}
 		for (const e of exprClosure(this.#cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
 		}
@@ -310,7 +308,7 @@ export class DagEditor<R extends Roots = Roots> {
 	}
 
 	#rootCell(root: RelNode): Cell {
-		return this.#moved.get(root) ?? this.#cellOf.of(root)
+		return this.#moved.get(root) ?? this.cellOf(root)
 	}
 
 	/**
@@ -318,7 +316,7 @@ export class DagEditor<R extends Roots = Roots> {
 	 * with `finished().node`, a node's counterpart in the edited DAG.
 	 */
 	cellOf(node: RelNode): Cell {
-		return this.#cellOf.of(node)
+		return defined(this.#cellOf.get(node), "a node of the DAG the editor started from")
 	}
 
 	/** The base's roots, each at the cell it stands at now. */

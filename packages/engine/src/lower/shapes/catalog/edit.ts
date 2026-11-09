@@ -1,9 +1,9 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { cellFold, type FinishedCells, finishCells, topoOrder } from "#compiler/ir/dag.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import { cellTable, type FinishedCells, finishCells, topoOrder } from "#compiler/ir/dag.ts"
 import { builtExpr, type ExprSpec, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { Fold } from "#compiler/ir/fold.ts"
 import {
 	type Cell,
 	type EditNode,
@@ -83,19 +83,16 @@ export class CatalogEditor<R extends Roots = Roots> {
 	/** Every cell, in creation order: the base's, each after its inputs, then each one a rewrite added. */
 	readonly #cells: Array<Cell> = []
 	/** The cell of each node of the base, made when the editor starts. */
-	readonly #cellOf: Fold<RelNode, Cell>
+	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	readonly #fresh: Readonly<Record<Kind, FreshIds>>
 	/** The undo log: each redefined cell with the body it had, in the order of the redefinitions. */
 	readonly #log: Array<{ readonly cell: Cell; readonly previous: EditNode }> = []
 
 	constructor(dag: ValidDag<R>) {
 		this.base = dag
-		this.#cellOf = cellFold((cell) => {
+		this.#cellOf = cellTable(dag.roots, (cell) => {
 			this.#cells.push(cell)
 		})
-		for (const root of dag.roots) {
-			this.#cellOf.of(root)
-		}
 		const used = usedIds(dag)
 		this.#fresh = {
 			node: new FreshIds(allocatedKinds.node, used.node),
@@ -108,16 +105,16 @@ export class CatalogEditor<R extends Roots = Roots> {
 
 	/** The cell a node of the base DAG became when the editor started. */
 	cellOf(node: RelNode): Cell {
-		return this.#cellOf.of(node)
+		return defined(this.#cellOf.get(node), "a node of the DAG the editor started from")
 	}
 
 	/** The base's roots' cells: a catalog rewrite redefines a cell in place, so a root never moves. */
 	get roots(): ReadonlyArray<Cell> {
-		return this.base.roots.map((root) => this.#cellOf.of(root))
+		return this.base.roots.map((root) => this.cellOf(root))
 	}
 
 	isRoot(cell: Cell): boolean {
-		return this.base.roots.some((root) => this.#cellOf.of(root) === cell)
+		return this.base.roots.some((root) => this.cellOf(root) === cell)
 	}
 
 	/** Every cell, in creation order, those no root reaches any more included. */
@@ -190,7 +187,7 @@ export class CatalogEditor<R extends Roots = Roots> {
 	 * structural field computed. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
 	finished(): FinishedCells<R> {
-		const done = finishCells(this.base.roots, (root) => this.#cellOf.of(root))
+		const done = finishCells(this.base.roots, (root) => this.cellOf(root))
 		if (!done.ok) {
 			throw new Refusal(done.error)
 		}
