@@ -9,13 +9,14 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { apply, compileChange, runApplication } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { openDbContext } from "#adapter/db/open.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { compiledWrite } from "#adapter/served/forms.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"

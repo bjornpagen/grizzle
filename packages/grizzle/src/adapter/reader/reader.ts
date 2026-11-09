@@ -1,6 +1,5 @@
 import { Effect, type Option, Result, type Scope } from "effect"
-import { type DbContext, dbReadFrame, type RoleContext } from "#adapter/db/context.ts"
-import { toResult } from "#adapter/engine.ts"
+import { type DbContext, dbReadFrame } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	HandleReleased,
@@ -8,18 +7,13 @@ import {
 	type UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import { page as pageRuntime } from "#adapter/page/index.ts"
-import { compiledPageTemplate, type PageSource } from "#adapter/page/page.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
+import type { PageSource } from "#adapter/page/page.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
-import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
-import {
-	programFlight,
-	programGetFlight,
-	type ReadProgram,
-	templateProgram
-} from "#adapter/reader/run.ts"
+import { executionInputs, type ParamCodecs } from "#adapter/reader/relations.ts"
+import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
+import { bindArtifacts, compileArtifacts, compileReadForm } from "#adapter/served/forms.ts"
 import type {
 	Decoding,
 	GetArg,
@@ -31,10 +25,8 @@ import type {
 } from "#adapter/types/db.ts"
 import { asReadFailure, type Flight, runFramed } from "#adapter/wire/batch.ts"
 import {
-	bindGroups,
 	type CompileError,
 	type CursorError,
-	Engine,
 	malformedDescription,
 	type ParamArg,
 	type ParamMap,
@@ -50,8 +42,7 @@ import {
 	type Page,
 	type PageRequest,
 	type ParamsOf,
-	type QueryBase,
-	queryInput
+	type QueryBase
 } from "#compiler/plan/read.ts"
 
 /**
@@ -180,20 +171,17 @@ export interface CompiledReadValue {
 const collected = <A>(rows: ReadonlyArray<A>): QueryResult<A> => ({ collect: Effect.succeed(rows) })
 
 /** A compiled read: its template, the program its rows are delivered through, and its parameters' codecs. */
-interface ReadArtifacts {
+export interface ReadArtifacts {
 	readonly compiled: CompiledTemplate
 	readonly program: ReadProgram
 	readonly codecs: ParamCodecs
 }
 
 /** A compiled read and its decoder bound to the program's layouts: each delivered Row read to a record of type A. */
-interface Bound<A> {
+export interface Bound<A> {
 	readonly compiled: ReadArtifacts
 	readonly read: (row: Row) => A
 }
-
-/** The evidence context every read's template is compiled for. */
-const context = "snapshot"
 
 /**
  * The decoder of a get target's rows: a query's rows decoder, or the keyed relation's fact decoder. The target is
@@ -221,44 +209,6 @@ export interface Reader<S> {
 		decoder: () => RowDecoder<A>
 	) => Effect.Effect<CompiledRead<A>, CompileError, Scope.Scope>
 }
-
-/**
- * The template of a query compiled for `role` and the program its rows are delivered through (run.ts), whose
- * attachments the analysis describes (analysis.ts), with its parameters' codecs. The caller's value is parsed here, once
- * (program/compile.ts queryInput), and the compiler takes the parsed query.
- */
-const compileArtifacts = (
-	role: RoleContext,
-	query: unknown
-): Result.Result<ReadArtifacts, CompileError> =>
-	Result.map(
-		toResult(
-			Engine.flatMap(queryInput(query), (input) => role.compile(input, { context, read: "rows" }))
-		),
-		({ compiled }): ReadArtifacts => ({
-			compiled,
-			program: templateProgram(
-				compiled.template,
-				attachmentHeads(compiled.desc),
-				role.artifacts.names.codes
-			),
-			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
-		})
-	)
-
-/**
- * A decoder bound to a compiled read's layouts under `role`'s bind context, once per template and artifact. The decoder
- * is read once the query compiled, since a JavaScript caller's value may be no query.
- */
-const bindArtifacts = <A>(
-	role: RoleContext,
-	compiled: ReadArtifacts,
-	decoder: () => RowDecoder<A>
-): Result.Result<Bound<A>, CompileError> =>
-	Result.map(toResult(bindGroups(decoder(), compiled.program.layouts, role.bind)), (read) => ({
-		compiled,
-		read
-	}))
 
 /** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
 type Delivery<A, X> = (
@@ -319,35 +269,6 @@ export interface RowsForm<A> {
 export interface ReadForm<A> extends RowsForm<A> {
 	readonly page: PageSource
 }
-
-/** The rows form of `query` for `role`, its rows read by `decoder`: a query that does not compile is its CompileError. */
-export const compileRowsForm = <A>(
-	role: RoleContext,
-	query: unknown,
-	decoder: () => RowDecoder<A>
-): Result.Result<RowsForm<A>, CompileError> =>
-	Result.gen(function* () {
-		const compiled = yield* compileArtifacts(role, query)
-		const bound = yield* bindArtifacts(role, compiled, decoder)
-		return { query, decoder, bound, eligible: getEligibility(compiled.compiled.template) }
-	})
-
-/**
- * The read form of `query` for `role`, its rows read by `decoder` (compileRowsForm) and an ordered query's page
- * template compiled beside them: a query that does not compile is its CompileError.
- */
-export const compileReadForm = <A>(
-	role: RoleContext,
-	query: unknown,
-	decoder: () => RowDecoder<A>
-): Result.Result<ReadForm<A>, CompileError> =>
-	Result.gen(function* () {
-		const rows = yield* compileRowsForm(role, query, decoder)
-		const page: PageSource = isOrderedValue(query)
-			? { kind: "compiled", page: yield* compiledPageTemplate(role, query) }
-			: { kind: "query" }
-		return { ...rows, page }
-	})
 
 /** A compiled read's operations but page: what a workload member that does not page offers. */
 export type RowsRead<A> = Omit<CompiledRead<A>, "page">

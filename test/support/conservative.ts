@@ -7,7 +7,6 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import {
-	compileReadForm,
 	type CompiledReadValue,
 	makeReader,
 	type ReaderValue,
@@ -15,6 +14,7 @@ import {
 	type ReadForm,
 	readHandle
 } from "#adapter/reader/reader.ts"
+import { compileReadForm } from "#adapter/served/forms.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

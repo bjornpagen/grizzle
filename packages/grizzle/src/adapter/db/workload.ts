@@ -1,36 +1,24 @@
-import { Array as Arr, Effect, Option, Result } from "effect"
-import { changeHandle, type ChangeForm, compileChangeForm } from "#adapter/apply/index.ts"
-import type { DbContext, RoleContext } from "#adapter/db/context.ts"
+import { Effect, type Option, Result } from "effect"
+import { changeHandle, type ChangeForm } from "#adapter/apply/index.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, changeOps, readOps, rowsOps, typedCompiled } from "#adapter/db/db.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import {
-	compileReadForm,
-	compileRowsForm,
 	poolExecutor,
 	type ReadForm,
 	readHandle,
 	type RowsForm,
 	rowsHandle
 } from "#adapter/reader/reader.ts"
-import { type ChangeSetValue, fillContexts } from "#compiler/plan/change.ts"
-import {
-	type AnyWorkload,
-	type CompileError,
-	levelSchema,
-	malformedDescription,
-	type OwnedRole,
-	type ParamMap,
-	SourceLoc
-} from "#compiler/plan/common.ts"
-import { keyQuery, workloadState } from "#compiler/plan/read.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 
 /**
  * A ChangeSet of a role's workloads compiled for every set of the contexts its compilation depends on (fillContexts)
  * that may hold a fact: a decision over those contexts, each split by whether the Db's claims hold a fact of it, whose
  * leaves are the forms compiled for the contexts the path holds.
  */
-type ChangeVariants =
+export type ChangeVariants =
 	| { readonly kind: "form"; readonly form: ChangeForm<unknown> }
 	| {
 			readonly kind: "split"
@@ -55,110 +43,6 @@ export type WorkloadForm = { readonly name: string } & (
 	  }
 	| { readonly kind: "change"; readonly variants: ChangeVariants }
 )
-
-const loc = SourceLoc("DbLayer.make", [])
-
-/**
- * The variants of `changes` over the fill contexts `undecided`, the contexts after them already decided to hold or
- * lack a fact, `holding` those that hold one, in the fill contexts' order. The last undecided context splits first and
- * each split compiles its lacking side first, so the forms compile in the order of the subsets of the fill contexts
- * counted with the first context as the lowest digit.
- */
-const changeVariants = (
-	role: RoleContext,
-	changes: ChangeSetValue,
-	undecided: ReadonlyArray<string>,
-	holding: ReadonlyArray<string>
-): Result.Result<ChangeVariants, CompileError> => {
-	if (!Arr.isReadonlyArrayNonEmpty(undecided)) {
-		return Result.map(
-			compileChangeForm(role, changes, changes.reads, new Set(holding)),
-			(form): ChangeVariants => ({ kind: "form", form })
-		)
-	}
-	const context = Arr.lastNonEmpty(undecided)
-	const before = Arr.initNonEmpty(undecided)
-	return Result.gen(function* () {
-		const lacking = yield* changeVariants(role, changes, before, holding)
-		const held = yield* changeVariants(role, changes, before, [context, ...holding])
-		return { kind: "split", context, holding: held, lacking }
-	})
-}
-
-/** A program of a workload, as the layer compiles it (program/workload/value.ts). */
-type WorkloadProgram = NonNullable<ReturnType<typeof workloadState>>["programs"][number]
-
-/**
- * The programs of the login's workloads that run on a role, in the workloads' order, each one's programs in its record's
- * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a full
- * role, whose levels hold the base (program/schema.ts levelSchema), and on no partial one. A workload value no
- * workload(...) built is refused.
- */
-export const programsOn = (
-	role: RoleContext["schema"],
-	workloads: ReadonlyArray<AnyWorkload>
-): Result.Result<ReadonlyArray<WorkloadProgram>, CompileError> =>
-	Result.gen(function* () {
-		const running: Array<ReadonlyArray<WorkloadProgram>> = []
-		for (const workload of workloads) {
-			const state = workloadState(workload)
-			if (state === undefined) {
-				return yield* Result.fail(malformedDescription(loc, "a workload built by workload(...)"))
-			}
-			const over = state.schema
-			const runs =
-				over.kind === "role" ? over.value === role.value : levelSchema(over, role, loc).ok
-			if (runs) {
-				running.push(state.programs)
-			}
-		}
-		return Arr.flatten(running)
-	})
-
-/**
- * The workload of a role: every program of the login's workloads that runs on the role (programsOn), compiled once for
- * the role. A program that does not compile for the role is its CompileError, which fails the layer, and so is a
- * workload value no workload(...) built: the login's workloads are the DbConfig's, read here.
- */
-export const compileRoleWorkload = (
-	role: RoleContext,
-	owned: OwnedRole,
-	workloads: ReadonlyArray<AnyWorkload>
-): Result.Result<ReadonlyArray<WorkloadForm>, CompileError> =>
-	Result.gen(function* () {
-		const forms: Array<WorkloadForm> = []
-		for (const program of yield* programsOn(role.schema, workloads)) {
-			switch (program.kind) {
-				case "query":
-				case "ordered": {
-					const query = program.value
-					const form = yield* compileRowsForm(role, query, () => query.rows)
-					forms.push({ name: program.name, kind: "read", form })
-					break
-				}
-				case "paged": {
-					const query = program.value
-					const form = yield* compileReadForm(role, query, () => query.rows)
-					forms.push({ name: program.name, kind: "paged", form })
-					break
-				}
-				case "key": {
-					const target = program.target
-					const fact = target.relation.fact
-					const form = yield* compileRowsForm(role, keyQuery(role.schema.value, target), () => fact)
-					forms.push({ name: program.name, kind: "key", fields: target.fields, form })
-					break
-				}
-				case "changeSet": {
-					const fill = fillContexts(owned.writes, program.desc.changeSet)
-					const variants = yield* changeVariants(role, program.value, fill, [])
-					forms.push({ name: program.name, kind: "change", variants })
-					break
-				}
-			}
-		}
-		return forms
-	})
 
 /** A workload program's handle never ends: it lives as long as the layer that compiled it. */
 const alwaysLive = (): boolean => true

@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
-import { compiledWrite, hostInputs, valuesFailure } from "#adapter/apply/index.ts"
+import { hostInputs, valuesFailure } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
@@ -8,6 +8,7 @@ import { executionOf, formFor, readBinding } from "#adapter/reader/execution.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, templateStatements } from "#adapter/reader/run.ts"
+import { compiledWrite } from "#adapter/served/forms.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import {
 	asReadFailure,

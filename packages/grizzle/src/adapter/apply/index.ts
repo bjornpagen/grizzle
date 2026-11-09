@@ -1,5 +1,5 @@
 import { Effect, Result, type Scope } from "effect"
-import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
+import type { CompiledChange } from "#adapter/apply/compile.ts"
 import {
 	type BoundReads,
 	boundReads,
@@ -8,7 +8,7 @@ import {
 	hostInputs,
 	runWrite
 } from "#adapter/apply/run.ts"
-import { type DbContext, dbWriteFrame, type RoleContext } from "#adapter/db/context.ts"
+import { type DbContext, dbWriteFrame } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
 	type ExecutionFailure,
@@ -17,10 +17,11 @@ import {
 import { HandleReleased } from "#adapter/errors/failures.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { whileLive } from "#adapter/reader/reader.ts"
+import { compileChangeForm, compiledWrite } from "#adapter/served/forms.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
-export { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
+export type { CompiledChange } from "#adapter/apply/compile.ts"
 /**
  * db.apply and db.compile(changes): a ChangeSet applied in one transaction. Commit is typed work.
  *
@@ -145,20 +146,6 @@ export interface ChangeForm<R> {
 	readonly entry: CompiledChange
 	readonly bound: BoundReads<R>
 }
-
-/** The change form of `changes` for `role` under `claims`: a ChangeSet that does not compile is its CompileError. */
-export const compileChangeForm = <R>(
-	role: RoleContext,
-	changes: unknown,
-	decoder: RowDecoder<R>,
-	claims: ReadonlySet<string>
-): Result.Result<ChangeForm<R>, CompileError> =>
-	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
-		Result.map(boundReads(compiled, decoder), (bound): ChangeForm<R> => ({
-			entry: compiled,
-			bound
-		}))
-	)
 
 /** An apply of a handle whose Scope ended. */
 const applyReleased = (): TransportFailure => new TransportFailure({ reason: new HandleReleased() })

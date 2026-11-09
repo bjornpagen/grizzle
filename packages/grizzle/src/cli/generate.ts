@@ -10,7 +10,7 @@ import {
 	Result
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { artifactsOver, loginRoles } from "#adapter/pool/registry.ts"
+import { artifactsOver, loginRoles } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
@@ -205,7 +205,7 @@ type SchemaDraft = (
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
  * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
- * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
+ * DbLayer.make compiles it (adapter/served/login.ts loginRoles), so a program the layer would refuse refuses the draft.
  * The schema's basis is compiled once: the artifacts the programs read and the installation the draft installs share
  * one law model and one plan of the closed constants (physical/install/plan.ts installBasis), and every login and
  * role reads the one artifacts.
@@ -279,7 +279,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 					},
 					noLevelAbove
 				),
-				refusedAt("workload")
+				(refused) => refusedAt("workload")(refused.error)
 			)
 		}
 	}

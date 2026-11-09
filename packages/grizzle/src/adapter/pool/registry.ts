@@ -1,13 +1,4 @@
-import {
-	Array as Arr,
-	Context,
-	Effect,
-	Layer,
-	Option,
-	Record as Rec,
-	Result,
-	type Scope
-} from "effect"
+import { Array as Arr, Context, Effect, Layer, Option, Result, type Scope } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	loginSettings,
@@ -15,17 +6,22 @@ import {
 	parseConnection
 } from "#adapter/connection/config.ts"
 import { startupVariableSet } from "#adapter/connection/environment.ts"
-import { theoryRole } from "#adapter/connection/role.ts"
-import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
-import type { SliceArtifacts, RoleContext, RoleInput } from "#adapter/db/context.ts"
-import { compileRoleWorkload, programsOn, type WorkloadForm } from "#adapter/db/workload.ts"
-import { fromEngine, readHost, rowOptions } from "#adapter/engine.ts"
+import { fromEngine, readHost } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
 	RoleOutsideLayers
 } from "#adapter/errors/failures.ts"
+import {
+	artifactsUnder,
+	type BuiltLogin,
+	builtLogin,
+	type LayerRole,
+	loginRoles,
+	ownLoginOver,
+	workloadSlice
+} from "#adapter/served/login.ts"
 import type {
 	ConnectionPool,
 	DbConfigShape,
@@ -36,17 +32,9 @@ import type {
 } from "#adapter/types/layer.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool } from "#adapter/wire/session.ts"
-import { installationWitness } from "#adapter/witness/index.ts"
-import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
+import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type AnyLogin,
-	type AnyWorkload,
-	baseArtifacts,
-	type BindContext,
-	type BuiltSchema,
-	catchRefusal,
-	type Codebook,
-	codeNames,
 	type CompileError,
 	Engine,
 	levelChain,
@@ -54,33 +42,12 @@ import {
 	loginDescOf,
 	loginRoleName,
 	malformedDescription,
-	ownBuiltLogin,
-	type Owned,
-	ownedEntry,
-	type OwnedLogin,
 	ownServed,
-	type OwnedRole,
-	parseBuiltSchema,
-	parseSchemaInput,
-	type ProgramDesc,
 	queryUses,
-	roleArtifacts,
 	type RoleDesc,
-	type SchemaArtifacts,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { templateFor } from "#compiler/plan/read.ts"
-import {
-	ledgerStatements,
-	type PlanBasis,
-	planBasis,
-	type RoleProgram,
-	type ServedSnapshot,
-	type Slice,
-	sliceOf,
-	type SnapshotDerived,
-	within
-} from "#compiler/plan/serve.ts"
+import { ledgerStatements, type ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /**
  * The DbLayer service: one login's connection settings, its verify, its snapshot, its workloads compiled, and its one
@@ -115,39 +82,6 @@ import {
 export type TokenCheck =
 	| { readonly kind: "none" }
 	| { readonly kind: "verify"; readonly verify: Verify }
-
-/**
- * One role of the layer's login, as every Db of it reads it: the role value the login holds, its compilation context
- * (db/context.ts RoleContext); the PostgreSQL role a Db of it enters; the contexts its relations read, typed, which a
- * token's claims decode through; and the programs of the login's workloads over it, compiled.
- */
-export interface LayerRole extends RoleContext {
-	readonly value: object
-	readonly theory: string
-	readonly contexts: ReadonlyArray<TypedContext>
-	readonly workload: ReadonlyArray<WorkloadForm>
-}
-
-/**
- * The contexts the role's relations read (schema/own.ts OwnedRole.contexts), their fields typed against the base, each
- * with its codec under the installation's codes: a contract or roster a context names is the base's.
- */
-const typedContexts = (
-	artifacts: SchemaArtifacts
-): Engine.Result<ReadonlyArray<TypedContext>, CompileError> => {
-	const world = artifacts.world
-	const contexts = world.kind === "role" ? Rec.values(world.role.contexts) : []
-	const checked = artifacts.derived.schema
-	return catchRefusal(() =>
-		Arr.map(contexts, (context) =>
-			typedContext(
-				context,
-				(field) => checked.fieldType(field, SourceLoc(`context ${context.name}`, [])),
-				artifacts.names.codes
-			)
-		)
-	)
-}
 
 /** The layer's service, provided as DbLayer<R> for each role R of its login: what every Db of the login shares. */
 export interface DbSessions {
@@ -283,203 +217,6 @@ const parseDbConfig = <L extends AnyLogin>(
 		refusedConfig
 	)
 
-const makeLoc = SourceLoc("DbLayer.make", [])
-
-/**
- * A login value login(...) built, read once where it is given: its Description, its base's built schema, its role
- * values in its order, and its workloads, as login(...) admitted them. login(...) held each role to the base, by
- * content (schema/world.ts admitLogin), so every role is compiled over the base the login's compilation owns once.
- */
-export interface BuiltLogin {
-	readonly desc: LoginDesc
-	readonly base: BuiltSchema
-	readonly roles: ReadonlyArray<unknown>
-	readonly workload: ReadonlyArray<AnyWorkload>
-}
-
-/** The built login a value is, undefined for a value login(...) did not build. */
-export const builtLogin = (value: unknown): BuiltLogin | undefined => {
-	const entry = ownedEntry(value, "login")
-	if (entry === undefined) {
-		return undefined
-	}
-	const base = parseBuiltSchema(entry.value.base, makeLoc)
-	return base.ok
-		? {
-				desc: entry.desc,
-				base: base.value,
-				roles: Arr.map(Rec.values(entry.value.roles), (r) => r.role),
-				workload: entry.value.workload
-			}
-		: undefined
-}
-
-/**
- * What every program of a login compiles against: a slice (schema/reach.ts Slice), the base's artifacts over it, under
- * its own installation and vector schema (program/schema.ts baseArtifacts), and how the base's artifacts over any other
- * slice are compiled, as those are. A program whose own slice the slice holds compiles against those artifacts, read
- * through its role's views; any other against its own slice's, compiled at its call (layerRole).
- */
-export interface LayerArtifacts {
-	readonly slice: Slice
-	readonly artifacts: SchemaArtifacts
-	readonly over: (slice: Slice) => Engine.Result<SchemaArtifacts, CompileError>
-}
-
-/**
- * The artifacts of a login's base over `slice`, its law model compiled under the installation's codes `codes` and the
- * facts `derived` its snapshot records (physical/install/plan.ts planBasis): the closed relations' constant names, so
- * no closed relation's cells are packed, and the foreign key graph's cycles, so the law model plans only the laws the
- * slice names.
- */
-const artifactsUnder = (
-	base: Owned,
-	codes: Codebook,
-	derived: SnapshotDerived,
-	slice: Slice
-): Engine.Result<LayerArtifacts, CompileError> =>
-	layerOver(slice, (sliced) =>
-		Engine.flatMap(
-			planBasis(base, codes, sliced, derived.closed, derived.textDomains, {
-				kind: "recorded",
-				cycles: derived.fkCycles
-			}),
-			artifactsOver
-		)
-	)
-
-/** The layer's artifacts over `slice`, compiled by `over`, which compiles them over any other slice alike. */
-export const layerOver = (
-	slice: Slice,
-	over: (slice: Slice) => Engine.Result<SchemaArtifacts, CompileError>
-): Engine.Result<LayerArtifacts, CompileError> =>
-	Engine.map(over(slice), (artifacts) => ({ slice, artifacts, over }))
-
-/** A login's role value parsed, with the owned role of its login of its name, refused when it is no role of it. */
-const roleOf = Effect.fn("roleOf")(function* (
-	value: unknown,
-	owned: OwnedLogin
-): Effect.fn.Return<{ readonly input: RoleInput; readonly owned: OwnedRole }, CompileError> {
-	const input = yield* fromEngine(parseSchemaInput(value))
-	const ownedRole =
-		input.kind === "role"
-			? Arr.findFirst(owned.roles, (r) => r.name === input.desc.name)
-			: Option.none()
-	if (input.kind !== "role" || Option.isNone(ownedRole)) {
-		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
-	}
-	return { input, owned: ownedRole.value }
-})
-
-/**
- * The slice of a login's workloads (schema/reach.ts sliceOf): every program of them over each role of the login it runs
- * on (db/workload.ts programsOn). A role value no role(...) built, or a workload value no workload(...) built, is
- * refused, as compiling the login's roles refuses it.
- */
-export const workloadSlice = Effect.fn("workloadSlice")(function* (
-	login: BuiltLogin,
-	owned: OwnedLogin
-): Effect.fn.Return<Slice, CompileError> {
-	const programs: Array<RoleProgram> = []
-	for (const value of login.roles) {
-		const role = yield* roleOf(value, owned)
-		for (const program of yield* Effect.fromResult(programsOn(role.input, login.workload))) {
-			programs.push({ role: role.owned, program: program.desc })
-		}
-	}
-	return sliceOf(owned.base, programs)
-})
-
-/** The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation. */
-export const artifactsOver = (basis: PlanBasis): Engine.Result<SchemaArtifacts, CompileError> =>
-	baseArtifacts(basis)
-
-/** A built login owned over its base's Owned, which login(...) held each of its roles to. */
-export const ownLoginOver = (
-	login: BuiltLogin,
-	base: Owned
-): Engine.Result<OwnedLogin, CompileError> => ownBuiltLogin(login.desc, base)
-
-/**
- * One role of the login, parsed, its artifacts read over the layer's (program/schema.ts roleArtifacts) and the programs
- * of the login's workloads over it compiled, its decoders bound under `bind`: a role or program that does not compile is
- * its CompileError. A program the layer did not compile ahead compiles at its call against the role's artifacts over
- * the layer's slice when that slice holds its own (schema/reach.ts within), and else against the role's artifacts over
- * its own slice, compiled then: either reads, of each relation the program names, exactly what the installation's law
- * model states.
- */
-const layerRole = Effect.fn("layerRole")(function* (
-	value: unknown,
-	owned: OwnedLogin,
-	layer: LayerArtifacts,
-	workload: ReadonlyArray<AnyWorkload>,
-	bind: BindContext,
-	above: LawsAbove
-): Effect.fn.Return<LayerRole, CompileError> {
-	const { input, owned: ownedRole } = yield* roleOf(value, owned)
-	if (typeof value !== "object" || value === null) {
-		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
-	}
-	const artifacts = yield* fromEngine(roleArtifacts(ownedRole, layer.artifacts))
-	const theory = theoryRole(artifacts)
-	if (theory === undefined) {
-		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
-	}
-	const own: SliceArtifacts = { artifacts, witness: installationWitness(artifacts, above) }
-	const programArtifacts = (program: ProgramDesc): Engine.Result<SliceArtifacts, CompileError> => {
-		const slice = sliceOf(owned.base, [{ role: ownedRole, program }])
-		return within(slice, layer.slice)
-			? Engine.ok(own)
-			: Engine.map(
-					Engine.flatMap(layer.over(slice), (base) => roleArtifacts(ownedRole, base)),
-					(sliced): SliceArtifacts => ({
-						artifacts: sliced,
-						witness: installationWitness(sliced, above)
-					})
-				)
-	}
-	const role: RoleContext = {
-		schema: input,
-		declared: input.desc.base.name,
-		role: input.desc,
-		artifacts,
-		compile: (query, request) =>
-			Engine.flatMap(programArtifacts({ kind: "query", query: query.desc }), (program) =>
-				Engine.map(templateFor(query, input, program.artifacts, request), (compiled) => ({
-					compiled,
-					artifacts: program.artifacts
-				}))
-			),
-		programArtifacts,
-		bind
-	}
-	const contexts = yield* fromEngine(typedContexts(artifacts))
-	const forms = yield* Effect.fromResult(compileRoleWorkload(role, ownedRole, workload))
-	return { ...role, value, theory, contexts, workload: forms }
-})
-
-/**
- * Every role of a login, each parsed, its artifacts read over the layer's artifacts `layer` and every program of the
- * login's workloads over it compiled, as every Db of the login runs it (layerRole): the one compilation of a login's
- * programs. DbLayer.make runs it at startup under the snapshot's codes over its workloads' slice (workloadSlice), and
- * `grizzle generate` and `grizzle check` run it under the codes they draft before they draft, over every relation
- * (cli/generate.ts draftInput), so a program generate admits is one the layer compiles. Nothing here owns or installs the
- * base again: the login is owned over the base's Owned (ownLoginOver) and every role reads the one installation. A role
- * or program that does not compile is its CompileError. Every role reads the one installation's codes, so the roles
- * share one bind context, each roster's names in code order.
- */
-export const loginRoles = (
-	login: BuiltLogin,
-	owned: OwnedLogin,
-	layer: LayerArtifacts,
-	above: LawsAbove
-): Effect.Effect<ReadonlyArray<LayerRole>, CompileError> => {
-	const bind: BindContext = { options: rowOptions, names: codeNames(layer.artifacts.names.codes) }
-	return Effect.forEach(login.roles, (value) =>
-		layerRole(value, owned, layer, login.workload, bind, above)
-	)
-}
-
 /**
  * The snapshot the config gives, parsed once: the JSON value an import of snapshot.json yields, read as the generator
  * wrote it, its recorded fingerprint trusted (boundary/snapshot.ts parseSnapshot).
@@ -516,16 +253,18 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
 	const slice = yield* Effect.mapError(
 		workloadSlice(config.login, owned),
-		(reason) => new OpenError({ reason })
+		(refused) => new OpenError({ reason: refused.error })
 	)
 	const layer = yield* openStage(artifactsUnder(owned.base, codes, snapshot.derived, slice))
 	const above = lawsAbove(snapshot)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, layer, above),
-		(reason) => new OpenError({ reason })
+		(refused) => new OpenError({ reason: refused.error })
 	)
 	if (!Arr.isReadonlyArrayNonEmpty(roles)) {
-		return yield* new OpenError({ reason: malformedDescription(makeLoc, "a login with a role") })
+		return yield* new OpenError({
+			reason: malformedDescription(SourceLoc("DbLayer.make", []), "a login with a role")
+		})
 	}
 	const [first] = roles
 	const ledger = yield* openStage(ledgerStatements(first.artifacts.names.schema))

@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Path, Record as Rec, Result } from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
-import { type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/pool/registry.ts"
+import { type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,

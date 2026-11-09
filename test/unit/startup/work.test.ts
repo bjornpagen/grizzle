@@ -101,7 +101,7 @@ const sites = {
 		file: "packages/engine/src/physical/install/compile.ts",
 		name: "installationOver"
 	},
-	loginRoles: { file: "packages/grizzle/src/adapter/pool/registry.ts", name: "loginRoles" },
+	loginRoles: { file: "packages/grizzle/src/adapter/served/login.ts", name: "loginRoles" },
 	connect: {
 		file: "packages/grizzle/src/adapter/migrate/session.ts",
 		name: "openMigrationSession"

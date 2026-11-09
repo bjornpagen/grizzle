@@ -1,32 +1,22 @@
 import { Brand, Effect, Option, Result } from "effect"
-import type { DbContext, RoleContext } from "#adapter/db/context.ts"
-import { fromEngine, toResult } from "#adapter/engine.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { fromEngine } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
 import { pageRequest } from "#adapter/page/request.ts"
-import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import type { ReadExecutor } from "#adapter/reader/reader.ts"
-import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
+import { executionInputs, type ParamCodecs } from "#adapter/reader/relations.ts"
+import { compiledPageTemplate } from "#adapter/served/forms.ts"
 import {
 	bindGroups,
-	CompileError,
 	type CursorError,
-	Engine,
 	type ParamMap,
-	prose,
 	type Row,
-	type RowDecoder,
-	SourceLoc
+	type RowDecoder
 } from "#compiler/plan/common.ts"
-import {
-	type CompiledTemplate,
-	type Page,
-	type PageCursor,
-	type PageEdge,
-	queryInput,
-	queryState
-} from "#compiler/plan/read.ts"
+import type { CompiledTemplate, Page, PageCursor, PageEdge } from "#compiler/plan/read.ts"
 
 /**
  * QueryReader.page and Compiled.page.
@@ -101,51 +91,6 @@ export const compilePageTemplate = (
 	query: unknown
 ): Result.Result<CompiledPage, ReadFailure> =>
 	Result.mapError(compiledPageTemplate(ctx, query), (reason) => new ReadFailure({ reason }))
-
-/**
- * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or
- * its CompileError: what a page compiles for its call, and what db.compile and the layer's workload hold for an
- * ordered query.
- */
-export const compiledPageTemplate = (
-	role: RoleContext,
-	query: unknown
-): Result.Result<CompiledPage, CompileError> => {
-	if ((queryState(query)?.pending.size ?? 0) > 0) {
-		return Result.fail(
-			CompileError.make(
-				prose(
-					"AttachedPage",
-					SourceLoc("page", []),
-					"a page over a query read by an attachment: its rules read a parent variable, and a long child list is its own top-level query keyed by the parent"
-				)
-			)
-		)
-	}
-	return Result.flatMap(
-		toResult(
-			Engine.flatMap(queryInput(query), (input) =>
-				role.compile(input, {
-					context: "snapshot",
-					read: "page"
-				})
-			)
-		),
-		({ compiled, artifacts }) =>
-			Result.map(
-				pageTemplateFor({
-					template: compiled.template,
-					desc: compiled.desc,
-					artifacts
-				}),
-				(runtime): CompiledPage => ({
-					compiled,
-					runtime,
-					codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
-				})
-			)
-	)
-}
 
 /** The page's template: compiled for this page, or the compiled handle's. */
 const pageTemplateOf = <A>(run: PageRun<A>): Effect.Effect<CompiledPage, ReadError> =>

@@ -6,8 +6,8 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
@@ -33,7 +33,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 /**
  * `grizzle generate` compiles every program of a login's workloads exactly as DbLayer.make does, through the one
- * function the layer runs at startup (adapter/pool/registry.ts loginRoles), so a program generate admits is one the
+ * function the layer runs at startup (adapter/served/login.ts loginRoles), so a program generate admits is one the
  * layer opens, and one the layer would refuse refuses the draft first, with the same CompileError.
  *
  * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
@@ -123,7 +123,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 						box: "a program's head on PostgreSQL's select list's bound and one entry past it",
 						oracle: {
 							kind: "second-implementation",
-							name: "DbLayer.make's own compilation of the login's programs (registry.ts loginRoles), and the select list's bound"
+							name: "DbLayer.make's own compilation of the login's programs (served/login.ts loginRoles), and the select list's bound"
 						}
 					},
 					(head: Head, c: Case<Width>) =>
@@ -153,19 +153,27 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
 							const compiled = yield* Effect.result(
-								Effect.flatMap(workloadSlice(compiledLogin.login, compiledLogin.owned), (slice) =>
-									Effect.flatMap(
-										fromEngine(
-											layerOver(slice, (sliced) =>
-												Engine.flatMap(
-													installBasis(compiledLogin.owned.base, codes, sliced),
-													artifactsOver
+								Effect.flatMap(
+									Effect.mapError(
+										workloadSlice(compiledLogin.login, compiledLogin.owned),
+										(refused) => refused.error
+									),
+									(slice) =>
+										Effect.flatMap(
+											fromEngine(
+												layerOver(slice, (sliced) =>
+													Engine.flatMap(
+														installBasis(compiledLogin.owned.base, codes, sliced),
+														artifactsOver
+													)
 												)
-											)
-										),
-										(layer) =>
-											loginRoles(compiledLogin.login, compiledLogin.owned, layer, noLevelAbove)
-									)
+											),
+											(layer) =>
+												Effect.mapError(
+													loginRoles(compiledLogin.login, compiledLogin.owned, layer, noLevelAbove),
+													(refused) => refused.error
+												)
+										)
 								)
 							)
 							assert.equal(
