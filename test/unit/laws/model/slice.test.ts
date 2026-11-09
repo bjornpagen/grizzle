@@ -182,6 +182,10 @@ const familiesOf = (draws: ReadonlyArray<FamilyDraw>): ReadonlyArray<FamilyDraw>
 
 const distinct = <A>(xs: ReadonlyArray<A>): ReadonlyArray<A> => [...new Set(xs)]
 
+/** `f` of 0 to n - 1: none for n = 0, where Arr.makeBy makes one. */
+const upTo = <A>(n: number, f: (i: number) => A): ReadonlyArray<A> =>
+	n === 0 ? [] : Arr.makeBy(n, f)
+
 const caseGen: Gen<SliceCase> = (s) => {
 	const roots = s.draw(int(2, 4))
 	const tops = s.draw(int(0, 2))
@@ -225,7 +229,7 @@ const caseGen: Gen<SliceCase> = (s) => {
 		(t) => {
 			const options: ReadonlyArray<Read> = [
 				...Arr.makeBy(roots, (at): Read => ({ kind: "root", at })),
-				...Arr.makeBy(tops, (at): Read => ({ kind: "top", at })),
+				...upTo(tops, (at): Read => ({ kind: "top", at })),
 				...Arr.map(derived, (at): Read => ({ kind: "derived", at })),
 				...Arr.map(chained, (at): Read => ({ kind: "chained", at })),
 				...Arr.map(r.worlds, (at): Read => ({ kind: "world", at })),
@@ -414,7 +418,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 	const top: SchemaDesc = {
 		name: "SliceTop",
 		relations: [
-			...Arr.makeBy(c.tops, (i) =>
+			...upTo(c.tops, (i) =>
 				relation(topName(i), { id: f.integer, a: f.integer, r: f.integer, s: refined }, ["id"])
 			),
 			...Arr.map(c.derived, (i) => derivedOf(c, derivedName(i), 1, derivedDefinition(i)))
@@ -1221,7 +1225,7 @@ describe("a compile's law model", () => {
 									if (
 										u.casts &&
 										u.reads[0]?.kind === "root" &&
-										!Arr.some(Arr.makeBy(c.tops, topName), (t) => names.has(t))
+										!Arr.some(upTo(c.tops, topName), (t) => names.has(t))
 									) {
 										k.note("a query casting into a refinement no named relation declares")
 									}
