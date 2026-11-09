@@ -177,6 +177,9 @@ export interface RoleWorld {
 	readonly writes: ReadonlyMap<string, RoleWrite>
 }
 
+/** The descriptor registry's environment of a schema (scalar/registry.ts ScalarEnv), which lowers contract predicates. */
+type SchemaEnv = Extract<ScalarEnv, { readonly kind: "schema" }>
+
 /** Reality's world: the relations and statements of an owned schema's closure over a slice (analysis/closure.ts). */
 interface RealityWorld {
 	readonly kind: "reality"
@@ -368,6 +371,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	/** A role's query entries, by name. */
 	readonly #worlds: ReadonlyMap<string, WorldRelation>
 	readonly #rosters = new Map<string, Roster>()
+	/**
+	 * Each contract the schema declares with a predicate (Owned.contracts), by name, with its predicate's table, lowered
+	 * once where the schema is checked and kept as it came, a refusal included: every typing of a field, a column or a
+	 * parameter of the contract reads it (`#env`). A role's are its base's. A contract only a query or a context declares
+	 * is lowered where it is typed.
+	 */
+	readonly #predicates: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
 
 	/**
 	 * Reality holds its closure's stored relations: its rosters and closed relations first, which a generated field's
@@ -385,6 +395,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				this.#rosters.set(r.name, r.roster)
 			}
 		}
+		this.#predicates = world.kind === "role" ? world.base.#predicates : this.#declaredPredicates()
 		const relations = new Map<string, RelationInfo>()
 		const closed = new Map<string, ClosedRelation>()
 		const held = new Map<string, BaseRelation>()
@@ -896,9 +907,15 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		)
 	}
 
-	/** The descriptor registry's reading of the schema, its contracts' predicates typed by `patterns`. */
-	#env(patterns: PatternAutomata): ScalarEnv {
-		const env: ScalarEnv = {
+	/**
+	 * The descriptor registry's reading of the schema: a declared contract's predicate is the table `declared` holds, any
+	 * other contract's lowered here, typed by `patterns`.
+	 */
+	#env(
+		patterns: PatternAutomata,
+		declared: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
+	): SchemaEnv {
+		const env: SchemaEnv = {
 			kind: "schema",
 			roster: (name) => this.#rosters.get(name),
 			contractPredicate: (
@@ -907,6 +924,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				contract,
 				facts
 			): Result.Result<ExprTable, CompileError> =>
+				declared.get(contract) ??
 				contractPredicateTable(predicate, base, contract, facts, {
 					loc: SourceLoc(`contract ${contract}`, []),
 					fieldType: (d, at) => scalarTypeOf(d, env, at),
@@ -917,9 +935,26 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		return env
 	}
 
+	/**
+	 * Each declared contract's predicate table (`#predicates`), lowered over its base as a field of the contract types
+	 * it; a contract whose base does not type is refused there, where every field of it is, and holds none.
+	 */
+	#declaredPredicates(): ReadonlyMap<string, Result.Result<ExprTable, CompileError>> {
+		const env = this.#env(new CompilePatterns(), new Map())
+		const out = new Map<string, Result.Result<ExprTable, CompileError>>()
+		for (const c of Object.values(this.owned.contracts)) {
+			const predicate = c.desc.predicate
+			const base = scalarTypeOf(c.desc.base, env, c.loc)
+			if (predicate !== undefined && base.ok) {
+				out.set(c.name, env.contractPredicate(predicate, base.value, c.name, c.desc.facts))
+			}
+		}
+		return out
+	}
+
 	/** The ScalarType of a descriptor, by the admitted patterns of the caller's compile. */
 	#typeOf(desc: FieldDesc, loc: SourceLoc, patterns: PatternAutomata): ScalarType {
-		return unwrap(scalarTypeOf(desc, this.#env(patterns), loc))
+		return unwrap(scalarTypeOf(desc, this.#env(patterns, this.#predicates), loc))
 	}
 
 	/** The ScalarType of a schema descriptor, typed as a compile of its own. */
