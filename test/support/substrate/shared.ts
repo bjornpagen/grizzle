@@ -326,13 +326,21 @@ const dropDatabase = (admin: PgConnection, name: string): Effect.Effect<void, Sq
 const ended = (pid: number): boolean => pid === process.pid || !running(pid)
 
 /**
+ * The sweep's lock: a session-level advisory lock in the owner's own database, which each sweep holds on its session
+ * from its first read to its end.
+ */
+const sweepKey = 1735289962
+
+/**
  * Drops what ended test processes left on the cluster: their gz_t_ and gz_doctor_ databases, their `<schema>__<access>`
  * roles, and every unclaimed shared database that is not clean. A run in progress is never touched: its processes are
  * running, and its shared databases are claimed. It is the one place a database is dropped, and its callers call it
  * only when no test file of their own runs: the network run's global setup, before any file starts, and its teardown,
  * once every file has ended (pg-global-setup.ts), both in Vitest's own process, whose test files each ran in a process
- * of their own; and a bench runner when its last gate has run, its own databases then ended too. `dropRole` is the
- * substrate's.
+ * of their own; and a bench runner when its last gate has run, its own databases then ended too. Runs beside each other
+ * sweep at once, and an ended process's leftovers are every sweep's to drop, so each sweep waits for the sweep lock
+ * (sweepKey) before it reads: sweeps run one at a time, each leftover is dropped by exactly one of them, and the next
+ * reads it gone. `dropRole` is the substrate's.
  */
 export const sweep = (
 	dropRole: (admin: PgConnection, role: string) => Effect.Effect<void, SqlError>
@@ -341,6 +349,7 @@ export const sweep = (
 		Effect.gen(function* () {
 			const cluster = yield* InitializedCluster
 			const admin = yield* devSession(cluster, Option.none())
+			yield* admin.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int8)", [sweepKey])
 			const databases = yield* admin.queryValues(
 				"SELECT datname::text FROM pg_catalog.pg_database WHERE datname::text ~ '^gz_(t|doctor|shared)_' ORDER BY 1",
 				[]
