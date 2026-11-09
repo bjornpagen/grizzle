@@ -226,40 +226,80 @@ interface Judged {
 	readonly submitted: ReadonlyArray<HostFact>
 	/** The CHECK laws of the law domains its values break, each refusing the statement as it casts them. */
 	readonly checks: ReadonlyArray<LawId>
-	/** The first draw after the draws of its facts' serial fields. */
-	readonly next: number
 }
 
 /** The facts of a list, without its holes. */
 const defined = (xs: ReadonlyArray<HostFact | undefined>): ReadonlyArray<HostFact> =>
 	Arr.flatMap(xs, (f) => (f === undefined ? [] : [f]))
 
+/** A fill and its fact with each serial field the caller left out holding a draw (draws.ts withSerial). */
+interface Named {
+	readonly fill: HostFact
+	readonly drawn: HostFact
+}
+
+/** An op of a stratum with its facts named: each distinct fact's, where every context it is filled from holds a fact. */
+interface NamedOp {
+	readonly checked: Checked
+	readonly named: ReadonlyArray<Named | undefined>
+}
+
 /**
- * An op judged: each fact's fill (a whole entry's fact itself), where every context it is filled from holds a fact,
- * with each serial field the caller left out holding a draw numbered from `first` (draws.ts withSerial); a query
- * entry's fill inside the entry when it is a member, judged before the identity draws.
+ * A stratum's ops with their facts named, each fact's fill (a whole entry's fact itself) holding draws numbered from
+ * `first` in op and fact order, and the first draw after them. Equal facts are one, and so are equal fills of a
+ * target's ops of one kind: the frontend makes those ops one action over the union of their sources
+ * (packages/engine/src/write/frontend/compile.ts draftsByStratum), so equal generated additions are one requested
+ * addition, drawn once (README "Serial columns": equal such rows are one new row).
  */
+const nameStratum = (
+	base: BaseSpec,
+	facts: ContextFacts,
+	ops: ReadonlyArray<Checked>,
+	first: number
+): { readonly ops: ReadonlyArray<NamedOp>; readonly next: number } => {
+	let next = first
+	const rows: Array<{
+		readonly target: string
+		readonly kind: EntryOp["kind"]
+		readonly named: Named
+	}> = []
+	const named = Arr.map(ops, (checked): NamedOp => {
+		const { op, written } = checked
+		return {
+			checked,
+			named: Arr.map(Arr.dedupeWith(op.facts, sameValues), (f): Named | undefined => {
+				const fill = written.kind === "whole" ? f : fillOf(written, f, facts)
+				if (fill === undefined) {
+					return undefined
+				}
+				const row = Arr.findFirst(
+					rows,
+					(r) => r.target === written.target && r.kind === op.kind && sameValues(r.named.fill, fill)
+				)
+				if (Option.isSome(row)) {
+					return row.value.named
+				}
+				const drew = withSerial(base, written.target, fill, next)
+				next = drew.next
+				const n = { fill, drawn: drew.fact }
+				rows.push({ target: written.target, kind: op.kind, named: n })
+				return n
+			})
+		}
+	})
+	return { ops: named, next }
+}
+
+/** An op judged over its named facts (nameStratum): a query entry's fill inside the entry when it is a member. */
 const judge = (
 	state: ModelState,
 	role: string,
 	facts: ContextFacts,
-	{ op, written, checks }: Checked,
-	first: number
+	{ checked: { op, written, checks }, named }: NamedOp
 ): Judged => {
-	let next = first
-	/** Equal facts are one: equal generated additions one requested addition, drawn once. */
-	const named = Arr.map(Arr.dedupeWith(op.facts, sameValues), (f) => {
-		const fill = written.kind === "whole" ? f : fillOf(written, f, facts)
-		if (fill === undefined) {
-			return undefined
-		}
-		const drew = withSerial(state.install.base, written.target, fill, next)
-		next = drew.next
-		return { fill, drawn: drew.fact }
-	})
 	const submitted = defined(Arr.map(named, (n) => n?.drawn))
 	if (written.kind === "whole") {
-		return { op, written, inside: submitted, outside: false, submitted, checks, next }
+		return { op, written, inside: submitted, outside: false, submitted, checks }
 	}
 	const members = Arr.map(named, (n) =>
 		n !== undefined && isMember(state, role, written.entry, facts, n.fill) ? n.drawn : undefined
@@ -270,8 +310,7 @@ const judge = (
 		inside: defined(members),
 		outside: op.kind !== "delete" && Arr.some(members, (f) => f === undefined),
 		submitted,
-		checks,
-		next
+		checks
 	}
 }
 
@@ -447,7 +486,8 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
  * the terms it was written in. A key is compared on the fields the relation it is written through carries
  * (write/frontend/entry.ts entryFacts): a query entry's fixed fields are one value for the whole stratum, so they take
  * no part, and a span key whose span the entry does not carry is not checked here. A generated addition takes part on
- * no key holding its serial field.
+ * no key holding its serial field. Equal facts are one, as normalize.ts collapses them before it compares keys, so
+ * equal generated additions are one addition, drawn once.
  */
 const keyConflictOf = (
 	state: ModelState,
@@ -461,7 +501,7 @@ const keyConflictOf = (
 				? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
 				: []
 		)
-	const submitted = listed(false)
+	const submitted = Arr.dedupeWith(listed(false), (a, b) => sameValues(a.fact, b.fact))
 	const drawn = withSerials(
 		base,
 		target,
@@ -797,12 +837,9 @@ export const applyCall = (
 		let draws = nextDraw(state)
 		for (const ops of checked) {
 			const at: ModelState = { ...state, reality: now }
-			const judged: Array<Judged> = []
-			for (const w of ops) {
-				const j = judge(at, role.name, session.facts, w, draws)
-				draws = j.next
-				judged.push(j)
-			}
+			const stratum = nameStratum(base, session.facts, ops, draws)
+			draws = stratum.next
+			const judged = Arr.map(stratum.ops, (named) => judge(at, role.name, session.facts, named))
 			for (const j of judged) {
 				for (const fact of j.inside) {
 					submitted.push({ relation: j.written.target, fact, terms: termsOf(base, j.written) })
