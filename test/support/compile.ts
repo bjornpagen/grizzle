@@ -29,7 +29,7 @@ import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 import {
@@ -154,7 +154,7 @@ const allocatedArtifacts = (
 	codes: Codebook
 ): Result.Result<SchemaArtifacts, CompileError> => {
 	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, codes, everyWrite(owned)), baseArtifacts)
+		Result.flatMap(installBasis(owned, codes, everySlice(owned)), baseArtifacts)
 	return input.kind === "role"
 		? Result.flatMap(
 				ownRole({ ...input.desc, base: allocatedDesc(input.desc.base, allocated) }),

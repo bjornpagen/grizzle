@@ -44,7 +44,7 @@ import { refinedConstantsExtension } from "#compiler/physical/refined/constants.
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
@@ -143,7 +143,7 @@ export const compileInstallation = (
 	owned: Owned,
 	options: InstallOptions
 ): Result.Result<Installation, CompileError> =>
-	Result.flatMap(installBasis(owned, options.codes, everyWrite(owned)), (basis) =>
+	Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
 		installationOver(basis, options)
 	)
 

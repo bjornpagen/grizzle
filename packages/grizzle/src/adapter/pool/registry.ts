@@ -70,7 +70,7 @@ import {
 	installBasis,
 	type InstallBasis,
 	ledgerStatements,
-	loginWrites,
+	loginSlice,
 	type ServedSnapshot
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
@@ -310,13 +310,13 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
 /**
  * The artifacts of a login's base, owned once, compiled once under the installation's codes `codes`, under its own
  * installation and vector schema (program/schema.ts baseArtifacts), its law model for the writes of the login's roles
- * (schema/reach.ts loginWrites), which the database holds every write of the login to: what every one of its roles reads.
+ * (schema/reach.ts loginSlice), which the database holds every write of the login to: what every one of its roles reads.
  */
 export const artifactsUnder = (
 	login: OwnedLogin,
 	codes: Codebook
 ): Engine.Result<SchemaArtifacts, CompileError> =>
-	Engine.flatMap(installBasis(login.base, codes, loginWrites(login)), artifactsOver)
+	Engine.flatMap(installBasis(login.base, codes, loginSlice(login)), artifactsOver)
 
 /** The artifacts of a base over its basis (physical/install/plan.ts installBasis), under its own installation. */
 export const artifactsOver = (basis: InstallBasis): Engine.Result<SchemaArtifacts, CompileError> =>

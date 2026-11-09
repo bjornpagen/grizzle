@@ -102,7 +102,7 @@ import {
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import type { WriteReach } from "#compiler/schema/reach.ts"
+import type { Slice } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The native objects installed as a table constraint: keys, CHECKs and references. */
@@ -349,8 +349,8 @@ export interface LawModel {
 	readonly migrationLaws: ReadonlyArray<LawId>
 	/** The rules over queries, in law order, with the triggers that discharge them at every COMMIT. */
 	readonly rules: ReadonlyArray<RuleTrigger>
-	/** Each ordinary relation of the model's reach by name, with its primary key and the unique objects its natives
-	 * install (uniques.ts relationLaws): one per primary key the model seeds, so one per relation of its reach. */
+	/** Each ordinary relation its slice writes by name, with its primary key and the unique objects its natives install
+	 * (uniques.ts relationLaws): one per primary key the model seeds, so one per relation its slice writes. */
 	readonly relations: ReadonlyMap<string, RelationLaws>
 	/** The checker's reading of the owned schema, whose relation handles the theory's laws read. */
 	readonly checked: CheckedSchema
@@ -363,8 +363,8 @@ export interface LawModel {
 
 /**
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated
- * expressions of every stored relation of its reach, which are the relations a write's rows are of, every family fold's
- * selections, and every constraint native's predicates the witness judges (write/family/fold.ts hostEvaluator,
+ * expressions of every stored relation its slice writes, which are the relations a write's rows are of, every family
+ * fold's selections, and every constraint native's predicates the witness judges (write/family/fold.ts hostEvaluator,
  * write/program/witness.ts).
  */
 const lawPatterns = (
@@ -920,8 +920,8 @@ class Specializer {
 	readonly theory: Theory
 	readonly checked: CheckedSchema
 	readonly owned: Owned
-	/** The ordinary relations whose writes the model serves (schema/reach.ts). */
-	readonly reach: WriteReach
+	/** The ordinary relations whose writes the model serves (schema/reach.ts Slice.writes). */
+	readonly writes: ReadonlySet<string>
 	readonly recognizer: Recognizer
 	/** The typing environment every lowering of the model reads, each text pattern analyzed once in it. */
 	readonly #typing: ReturnType<typeof typingEnv>
@@ -931,11 +931,11 @@ class Specializer {
 	/** Every law by its id, a primary key's included: what a constraint's every law is described by. */
 	readonly #laws: ReadonlyMap<LawId, TheoryLaw>
 
-	constructor(theory: Theory, checked: CheckedSchema, reach: WriteReach) {
+	constructor(theory: Theory, checked: CheckedSchema, slice: Slice) {
 		this.theory = theory
 		this.checked = checked
 		this.owned = checked.owned
-		this.reach = reach
+		this.writes = slice.writes
 		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([
@@ -1055,7 +1055,7 @@ class Specializer {
 		 * seen first, with its own law: a primary key merges only with a plan of the same key. */
 		const byKey = new Map<string, Merged>()
 		for (const pk of this.theory.primaryKeys) {
-			if (this.reach.has(pk.relation.name)) {
+			if (this.writes.has(pk.relation.name)) {
 				this.#seed(byKey, pk)
 			}
 		}
@@ -1109,7 +1109,7 @@ class Specializer {
 		}
 
 		const rules = plans.flatMap((plan) =>
-			plan.discharge === "trigger" && plan.law.reads.some((r) => this.reach.has(r))
+			plan.discharge === "trigger" && plan.law.reads.some((r) => this.writes.has(r))
 				? [this.#ruleTrigger(plan.law)]
 				: []
 		)
@@ -1141,7 +1141,7 @@ class Specializer {
 			relations: relationLaws(keyed, natives),
 			checked: this.checked,
 			patterns: lawPatterns(
-				this.checked.stored.filter((r) => this.reach.has(r.name)),
+				this.checked.stored.filter((r) => this.writes.has(r.name)),
 				this.theory.families,
 				natives
 			)
@@ -1151,18 +1151,18 @@ class Specializer {
 	/**
 	 * Whether the model holds a planned native, decided by what the native is, so every plan of one object decides it
 	 * alike and a held object discharges every law any plan gives it, as the whole schema's model's does. It holds every
-	 * native of a relation of its reach, which a write of the reach can break or a write's statements read, and on every
-	 * relation the natives a read of the schema relies on, whoever writes: each foreign key, PERIOD foreign key, CHECK
-	 * of a containment into a closed relation and roster domain, the existence evidence a query's evidence catalog names
-	 * (catalog.ts existenceConstraints), a foreign key into a relation of the reach also what a delete of its rows
-	 * meets; each contract's domain, which the installed names type a contract's values by; and each selection key, a
-	 * law column of a field term under a selection a UNIQUE holds, with the UNIQUEs that hold one, which a query's probe
-	 * reads (physical/ddl/names.ts selectionKeysOf). Any other native of a relation outside its reach, a key, a CHECK,
-	 * another law column or a reverse index, only a write of that relation can break or read, so the model holds none of
-	 * it.
+	 * native of a relation its slice writes, which a write of the slice can break or a write's statements read, and on
+	 * every relation the natives a read of the schema relies on, whoever writes: each foreign key, PERIOD foreign key,
+	 * CHECK of a containment into a closed relation and roster domain, the existence evidence a query's evidence catalog
+	 * names (catalog.ts existenceConstraints), a foreign key into a relation the slice writes also what a delete of its
+	 * rows meets; each contract's domain, which the installed names type a contract's values by; and each selection key,
+	 * a law column of a field term under a selection a UNIQUE holds, with the UNIQUEs that hold one, which a query's
+	 * probe reads (physical/ddl/names.ts selectionKeysOf). Any other native of a relation the slice does not write, a
+	 * key, a CHECK, another law column or a reverse index, only a write of that relation can break or read, so the model
+	 * holds none of it.
 	 */
 	#held(plans: ReadonlyArray<LawPlan>): (n: NativePlan) => boolean {
-		const reach = this.reach
+		const writes = this.writes
 		const selected = (c: LawColumnPlan): boolean =>
 			c.kind === "term" && c.term.kind === "field" && c.selection.conjuncts.length > 0
 		const unique = new Set(
@@ -1189,10 +1189,10 @@ class Specializer {
 				case "Domain":
 					return true
 				case "LawColumn":
-					return reach.has(n.column.relation.name) || selectionKey(n.column)
+					return writes.has(n.column.relation.name) || selectionKey(n.column)
 				case "Unique":
 					return (
-						reach.has(n.relation.name) ||
+						writes.has(n.relation.name) ||
 						n.columns.some((c) => c.kind === "law" && selectionKey(c.column))
 					)
 				case "PrimaryKey":
@@ -1200,13 +1200,13 @@ class Specializer {
 				case "GeneratedCheck":
 				case "WithoutOverlaps":
 				case "ReverseIndex":
-					return reach.has(n.relation.name)
+					return writes.has(n.relation.name)
 			}
 		}
 	}
 
 	/**
-	 * Refuses a relation of the reach whose rows can exceed one heap tuple (MaxHeapTupleSize, `heapTupleMaxBytes`): its
+	 * Refuses a relation the slice writes whose rows can exceed one heap tuple (MaxHeapTupleSize, `heapTupleMaxBytes`): its
 	 * fields and every law column on it, a generated one outside its guard NULL, each counted at the most it can take
 	 * inline once every variable-length value that can be is moved out of line (rows.ts).
 	 */
@@ -1221,7 +1221,7 @@ class Specializer {
 			lawColumns.set(n.object.relation.name, own)
 		}
 		for (const r of Object.values(this.theory.relations)) {
-			if (r.kind !== "relation" || !this.reach.has(r.name)) {
+			if (r.kind !== "relation" || !this.writes.has(r.name)) {
 				continue
 			}
 			const columns = [
@@ -1817,9 +1817,9 @@ const baseLeaves = (
 const specialize = (
 	theory: Theory,
 	checked: CheckedSchema,
-	reach: WriteReach
+	slice: Slice
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked, reach).run())
+	catchRefusal(() => new Specializer(theory, checked, slice).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
@@ -1861,20 +1861,17 @@ const specialize = (
  * - The DAG: the theory's lowered fold selections plus each declared and generated CHECK's predicate and each
  *   generated law column's value, each lowered here over its relation's row.
  *
- * - Reach: the model serves the writes of its reach (schema/reach.ts WriteReach), and holds exactly the natives those
- *   writes can break or read, with every native a read relies on (Specializer.#held): an installation's, over every
- *   ordinary relation, holds them all; a login's runtime, over the relations its roles write, holds no other native and
- *   no rule that reads none of them, each a constraint no write of the login can raise. The theory, every law's plan,
- *   the deferral they settle and the evidence they give are the whole schema's, whatever the reach.
+ * - Slice: the model serves the writes of its slice (schema/reach.ts Slice), and holds exactly the natives those
+ *   writes can break or read, with every native a read relies on (Specializer.#held): an installation's, writing every
+ *   ordinary relation, holds them all; a login's runtime, writing the relations its roles write, holds no other native
+ *   and no rule that reads none of them, each a constraint no write of the login can raise. The theory, every law's
+ *   plan, the deferral they settle and the evidence they give are the whole schema's, whatever the slice.
  *
- * The law model of an owned schema for the writes of `reach`, or the first refusal: a theory refusal, a law shape the
+ * The law model of an owned schema for `slice`, or the first refusal: a theory refusal, a law shape the
  * compiler does not admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law
  * planned once: the plans settle foreign key deferral and so the laws they prove immediate (immediateOf), and
  * specialization states the evidence each law gives with that validity context (theoryEvidence). */
-export const compileLaws = (
-	owned: Owned,
-	reach: WriteReach
-): Result.Result<LawModel, CompileError> =>
+export const compileLaws = (owned: Owned, slice: Slice): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
-		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, reach))
+		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, slice))
 	)

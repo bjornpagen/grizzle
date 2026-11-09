@@ -65,7 +65,7 @@ import type {
 	AnySchema,
 	Statement
 } from "#compiler/public/schema.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
@@ -805,7 +805,7 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 	if (!owned.ok) {
 		throw refused(owned.error)
 	}
-	const model = compileLaws(owned.value, everyWrite(owned.value))
+	const model = compileLaws(owned.value, everySlice(owned.value))
 	if (!model.ok) {
 		throw refused(model.error)
 	}

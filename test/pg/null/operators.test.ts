@@ -27,7 +27,7 @@ import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
@@ -501,7 +501,7 @@ const modelOf = (pred: Pred) => {
 			)
 		] as const)
 	)
-	return succeeded(compileLaws(owned, everyWrite(owned)), "a case's check compiles")
+	return succeeded(compileLaws(owned, everySlice(owned)), "a case's check compiles")
 }
 
 /** The field types of Probe's row, as the checked schema resolves them: the numeric a rounding reads, its scale's. */

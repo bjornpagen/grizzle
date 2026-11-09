@@ -28,7 +28,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import {
 	closed,
 	closedRelation,
@@ -223,11 +223,11 @@ describe("an admitted pattern", () => {
 								"the multiplied schema owns"
 							)
 							const [model, drawnCounts] = yield* callCounts(
-								Effect.sync(() => compileLaws(drawnOwned, everyWrite(drawnOwned))),
+								Effect.sync(() => compileLaws(drawnOwned, everySlice(drawnOwned))),
 								parseSites
 							)
 							const [, multipliedCounts] = yield* callCounts(
-								Effect.sync(() => compileLaws(multipliedOwned, everyWrite(multipliedOwned))),
+								Effect.sync(() => compileLaws(multipliedOwned, everySlice(multipliedOwned))),
 								parseSites
 							)
 							const laws = succeeded(model, "the schema compiles")

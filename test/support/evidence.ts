@@ -7,7 +7,7 @@ import type { KeySet } from "#compiler/ir/rel.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { type Owned } from "#compiler/schema/own.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -55,7 +55,7 @@ export const ownedFixture = (desc: SchemaDesc): OwnedFixture => {
 	if (!owned.ok) {
 		throw new Error(`fixture ${desc.name}: ownership refuses it: ${owned.error.message}`)
 	}
-	const laws = compileLaws(owned.value, everyWrite(owned.value))
+	const laws = compileLaws(owned.value, everySlice(owned.value))
 	if (!laws.ok) {
 		throw new Error(`fixture ${desc.name}: the law model refuses it: ${laws.error.message}`)
 	}

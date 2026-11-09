@@ -26,7 +26,7 @@ import { compileLaws } from "#compiler/laws/model/model.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import {
@@ -228,7 +228,7 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const owned = succeeded(ownedInput(schemaOf(c)))
-							const model = succeeded(compileLaws(owned, everyWrite(owned)), "the schema compiles")
+							const model = succeeded(compileLaws(owned, everySlice(owned)), "the schema compiles")
 							for (const [name, laws] of model.relations) {
 								const expected = restated(laws.uniques)
 								assert.deepEqual(

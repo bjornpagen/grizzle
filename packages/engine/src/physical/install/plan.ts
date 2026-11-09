@@ -58,16 +58,16 @@ import {
 	spanConstraintLaws
 } from "#compiler/physical/span/storage.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
-import type { WriteReach } from "#compiler/schema/reach.ts"
+import type { Slice } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What every installation of an owned schema under one installation's codes is compiled over, whatever its settings and
- * extensions: the schema's law model (compileLaws) for the writes of a reach, which reads the schema alone, and its
+ * extensions: the schema's law model (compileLaws) for a slice, which reads the schema alone, and its
  * closed relations' constants planned under the codes (physical/ddl/constants.ts planClosed). A caller that installs one
  * schema under several settings, generate's artifacts and then its draft, compiles the basis once and installs over it
- * each time, over every ordinary relation (schema/reach.ts everyWrite); a login's runtime compiles its artifacts over
- * its roles' writes alone (loginWrites) and installs nothing.
+ * each time, over every relation (schema/reach.ts everySlice); a login's runtime compiles its artifacts over its
+ * roles' writes alone (loginSlice) and installs nothing.
  */
 export interface InstallBasis {
 	readonly owned: Owned
@@ -76,13 +76,13 @@ export interface InstallBasis {
 	readonly closed: ClosedPlan
 }
 
-/** The basis of the installations of `owned` under the installation's codes `codes`, for the writes of `reach`. */
+/** The basis of the installations of `owned` under the installation's codes `codes`, for `slice`. */
 export const installBasis = (
 	owned: Owned,
 	codes: Codebook,
-	reach: WriteReach
+	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(compileLaws(owned, reach), (model) =>
+	Result.flatMap(compileLaws(owned, slice), (model) =>
 		catchRefusal((): InstallBasis => ({
 			owned,
 			model,

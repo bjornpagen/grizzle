@@ -41,7 +41,7 @@ import {
 	type DeploySnapshot,
 	type DraftInput,
 	draftMigration,
-	everyWrite,
+	everySlice,
 	findMarkers,
 	type FolderNaming,
 	generateMigration,
@@ -230,7 +230,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 	const codes = drafted.value
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
 	const basis = yield* Effect.mapError(
-		fromEngine(installBasis(owned, codes, everyWrite(owned))),
+		fromEngine(installBasis(owned, codes, everySlice(owned))),
 		refusedAt("schema")
 	)
 	/**

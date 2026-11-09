@@ -1,33 +1,47 @@
 import { nominal } from "#compiler/core/brand.ts"
 import type { Owned, OwnedLogin, OwnedWrite } from "#compiler/schema/own.ts"
 
-declare const writeReachBrand: unique symbol
+declare const sliceBrand: unique symbol
+
+/** A slice's two sets, before reach.ts mints them as one (`Slice`). */
+interface SliceSets {
+	readonly writes: ReadonlySet<string>
+	readonly names: ReadonlySet<string>
+}
 
 /**
- * The ordinary relations a law model serves the writes of: the relations its writers write, closed under what a write
- * of one relation writes of another. A write of a family's member writes its owner's count, ends and accumulators, and a
- * write of its owner writes its members, nested under an insert and rewritten by the owner axis's ON UPDATE CASCADE, so
- * a family's member and its owner are each other's reach, and a tree's relation its own. No write writes any other
- * relation: a foreign key cascades only on a family's owner axis, and a rule's trigger reads and never writes.
+ * What a law model is compiled for: the relations whose writes it serves and the relations its compiles name, each by
+ * its declared name in the base.
  *
- * An installation serves every role over its schema, so its reach is every ordinary relation (everyWrite); a login's
- * runtime serves its roles, which the database holds to their write lists (loginWrites).
+ * `writes` holds the ordinary relations its writers write, closed under what a write of one relation writes of another.
+ * A write of a family's member writes its owner's count, ends and accumulators, and a write of its owner writes its
+ * members, nested under an insert and rewritten by the owner axis's ON UPDATE CASCADE, so a family's member and its
+ * owner are in it together, and a tree's relation alone. No write writes any other relation: a foreign key cascades
+ * only on a family's owner axis, and a rule's trigger reads and never writes.
+ *
+ * `names` holds `writes` and every relation a compile over the slice names. An installation serves every role over its
+ * schema, so its slice is every relation (everySlice); a login's runtime serves its roles, which the database holds to
+ * their write lists, and names every relation of its base (loginSlice).
  */
-export type WriteReach = ReadonlySet<string> & { readonly [writeReachBrand]: true }
+export type Slice = SliceSets & { readonly [sliceBrand]: true }
 
-const writeReach = nominal<ReadonlySet<string>, WriteReach>()
+const slice = nominal<SliceSets, Slice>()
 
-/** Every ordinary relation of `owned`: the reach of its installation, which any role over it may write. */
-export const everyWrite = (owned: Owned): WriteReach =>
-	writeReach(
-		new Set(Object.values(owned.relations).flatMap((r) => (r.kind === "relation" ? [r.name] : [])))
-	)
+/** Every relation of `owned`, each ordinary one written: the slice of its installation, which any role may write. */
+export const everySlice = (owned: Owned): Slice =>
+	slice({
+		writes: new Set(
+			Object.values(owned.relations).flatMap((r) => (r.kind === "relation" ? [r.name] : []))
+		),
+		names: new Set(Object.keys(owned.relations))
+	})
 
 /** The relation a role's write writes: its relation, or its query entry's target. */
 const writtenBy = (write: OwnedWrite): string =>
 	write.kind === "whole" ? write.relation.name : write.writable.target
 
-/** Each ordinary relation of `owned` with the ordinary relations a write of it writes: its families' members and owners. */
+/** Each ordinary relation of `owned` with the ordinary relations a write of it writes: its families' members and
+ * owners. */
 const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const ordinary = (name: string): boolean => owned.relations[name]?.kind === "relation"
 	const out = new Map<string, ReadonlyArray<string>>()
@@ -44,14 +58,15 @@ const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
 	return out
 }
 
-/** The reach of a login's roles over its base: every relation one of them writes, closed (`WriteReach`). */
-export const loginWrites = (login: OwnedLogin): WriteReach => {
+/** The slice of a login's roles over its base: every relation one of them writes, closed (`Slice`), and every
+ * relation of the base named. */
+export const loginSlice = (login: OwnedLogin): Slice => {
 	const writes = coupled(login.base)
-	const reach = new Set(login.roles.flatMap((role) => [...role.writes.values()].map(writtenBy)))
-	for (const relation of reach) {
+	const written = new Set(login.roles.flatMap((role) => [...role.writes.values()].map(writtenBy)))
+	for (const relation of written) {
 		for (const other of writes.get(relation) ?? []) {
-			reach.add(other)
+			written.add(other)
 		}
 	}
-	return writeReach(reach)
+	return slice({ writes: written, names: new Set(Object.keys(login.base.relations)) })
 }

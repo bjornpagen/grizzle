@@ -1,9 +1,9 @@
 /**
- * A login's runtime holds the law model of its roles' writes (schema/reach.ts loginWrites, laws/model/model.ts
+ * A login's runtime holds the law model of its roles' writes (schema/reach.ts loginSlice, laws/model/model.ts
  * compileLaws), never the whole schema's: DbLayer.make compiles its artifacts over it (adapter/pool/registry.ts
  * artifactsUnder). Each case draws a schema of two levels and a login of roles each writing some of its ordinary
  * relations, and compares the layer's artifacts with the installation's, compiled over every ordinary relation
- * (everyWrite), restricted by a reachability read off the installation's model alone:
+ * (everySlice), restricted by a reachability read off the installation's model alone:
  *
  * - the reach: every relation a role writes, closed under what a write of one relation writes of another, each
  *   family's member and its owner and each foreign key that cascades, its target's write rewriting its source;
@@ -47,7 +47,7 @@ import { selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
 import { baseArtifacts, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { fullRoleDesc, ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredRelationDesc,
@@ -399,7 +399,7 @@ const nativeName = (n: NamedNative): string =>
 /** The installation's artifacts of the login's base, over every ordinary relation. */
 const installed = (base: SchemaArtifacts["owned"], codes: ReturnType<typeof firstCodebook>) =>
 	succeeded(
-		Result.flatMap(installBasis(base, codes, everyWrite(base)), baseArtifacts),
+		Result.flatMap(installBasis(base, codes, everySlice(base)), baseArtifacts),
 		"the installation's artifacts"
 	)
 

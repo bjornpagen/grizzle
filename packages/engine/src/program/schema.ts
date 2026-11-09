@@ -44,7 +44,7 @@ import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { contentOfDesc, isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
 import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -287,7 +287,7 @@ export const schemaArtifacts = (
 	options: SchemaArtifactOptions
 ): Result.Result<SchemaArtifacts, CompileError> => {
 	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, options.codes, everyWrite(owned)), baseArtifacts)
+		Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), baseArtifacts)
 	return schema.kind === "role"
 		? Result.flatMap(ownRole(schema.desc), (role) =>
 				Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))

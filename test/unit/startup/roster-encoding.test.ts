@@ -21,7 +21,7 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import { everyWrite } from "#compiler/schema/reach.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -126,7 +126,7 @@ const encodedAt = (guard: Guard, size: number): number => {
 		)
 	])
 	const owned = succeeded(ownedInput(S))
-	const model = succeeded(compileLaws(owned, everyWrite(owned)), "the schema compiles")
+	const model = succeeded(compileLaws(owned, everySlice(owned)), "the schema compiles")
 	const laws = defined(model.relations.get("T"), "T's laws")
 	return Arr.reduce(laws.uniques.others, 0, (n, u) =>
 		u.kind === "guarded" ? Arr.reduce(u.within, n, (m, g) => m + g.canonical.length) : n
