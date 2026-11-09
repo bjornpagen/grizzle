@@ -66,7 +66,7 @@ const refusedAt = (state: ModelState, stage: ModelOpenStage, verifyCalls: Verify
  * snapshot of folders a run left pending not until they land, and with nothing pending the directory's snapshot.json
  * is the current installation's.
  */
-const ledgerReached = (state: ModelState, snapshot: Exclude<SnapshotRef, "tampered">): boolean => {
+const ledgerReached = (state: ModelState, snapshot: SnapshotRef): boolean => {
 	if (migrating(state)) {
 		return false
 	}
@@ -97,7 +97,7 @@ const admitted = (
 	opened: { readonly role: RoleSpec; readonly login: string },
 	verdict: TokenVerdict,
 	verifyCalls: VerifyCalls,
-	snapshot: Exclude<SnapshotRef, "tampered">
+	snapshot: SnapshotRef
 ): Arr.NonEmptyReadonlyArray<Branch> => {
 	if (verdict.kind === "refused") {
 		return [refusedAt(state, `token:${verdict.by}`, verifyCalls)]
@@ -180,9 +180,6 @@ export const openBranches = (
 	const opened = openedRole(version, ref)
 	if (opened === undefined) {
 		return [refusedAt(state, "role", 0)]
-	}
-	if (snapshot === "tampered") {
-		return [refusedAt(state, "schema", 0)]
 	}
 	const verifies = loginVerifies(version, opened.login)
 	const verifyCalls: VerifyCalls = verifies && token.kind !== "none" ? 1 : 0

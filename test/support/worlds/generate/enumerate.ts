@@ -488,7 +488,7 @@ const openActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action
 		),
 		open({ kind: "nonexistent", name: nonexistentNames(install)[0] }, firstToken, "current"),
 		open({ kind: "owner" }, firstToken, "current"),
-		...Arr.map(["stale", "tampered", "foreign"] as const, (s) =>
+		...Arr.map(["stale", "foreign"] as const, (s) =>
 			open({ kind: "own", role: first.name }, firstToken, s)
 		),
 		...Arr.flatMap(

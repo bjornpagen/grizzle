@@ -2931,8 +2931,9 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 Build each `DbLayer` once per process. Building it parses the snapshot, compiles the login's roles and every workload
 program for every role it runs on (the compilation `grizzle generate` ran), and checks the workloads' index needs
-against the snapshot. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse or was edited by
-hand, a schema that is not the snapshot's, a role or program that does not compile, or a workload program added,
+against the snapshot. It trusts the snapshot's recorded fingerprint: `grizzle check` and `grizzle migrate` refuse a
+snapshot.json edited by hand. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse, a schema
+that is not the snapshot's, a role or program that does not compile, or a workload program added,
 renamed, removed or changed since `grizzle generate`; the error names the program and says to run `grizzle generate`.
 
 Open a `Db` per request or handler. Before it yields, `Db.open` checks the database in one round trip of a few catalog

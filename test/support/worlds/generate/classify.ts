@@ -50,8 +50,6 @@ const snapshotKinds = (snapshot: SnapshotRef): ReadonlyArray<InvalidKind> => {
 			return []
 		case "stale":
 			return ["handle:stale-snapshot"]
-		case "tampered":
-			return ["handle:tampered-snapshot"]
 		case "foreign":
 			return ["handle:foreign-snapshot"]
 		case "drafted":

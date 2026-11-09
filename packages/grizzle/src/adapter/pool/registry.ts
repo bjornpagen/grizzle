@@ -405,7 +405,7 @@ export const loginRoles = (
 
 /**
  * The snapshot the config gives, parsed once: the JSON value an import of snapshot.json yields, read as the generator
- * wrote it and its fingerprint checked (boundary/snapshot.ts parseSnapshot), so a hand-edited file is refused.
+ * wrote it, its recorded fingerprint trusted (boundary/snapshot.ts parseSnapshot).
  */
 const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> =>
 	Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) => new OpenError({ reason }))

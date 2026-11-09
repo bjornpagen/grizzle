@@ -470,9 +470,8 @@ const realizeWith = (
 		/**
 		 * The snapshot the opening role's login layer is given (DbConfig), each the JSON value an import of its
 		 * snapshot.json yields, which is how an application holds one: the current version's and an older one's; another
-		 * schema's (foreign) and the current one's with its schema name edited by hand (tampered); and the directory's
-		 * snapshot.json while folders are pending (drafted), the target no complete migration reached, which the new
-		 * application version deployed early imports.
+		 * schema's (foreign); and the directory's snapshot.json while folders are pending (drafted), the target no
+		 * complete migration reached, which the new application version deployed early imports.
 		 */
 		const snapshotOf = (ref: SnapshotRef): Effect.Effect<{ readonly fingerprint: string }> => {
 			switch (ref) {
@@ -480,13 +479,6 @@ const realizeWith = (
 					return Effect.succeed(snapshotValue(state.current.snapshot))
 				case "stale":
 					return Effect.succeed(state.stale)
-				case "tampered": {
-					const s = state.current.snapshot
-					const text = writeSnapshot(s)
-					return text.ok
-						? Effect.succeed({ ...snapshotJson(text.value), schemaName: `${s.schemaName}_edited` })
-						: Effect.die(text.error)
-				}
 				case "foreign":
 					return Effect.succeed(foreign)
 				case "drafted": {

@@ -633,11 +633,11 @@ export type ReadVia =
 	| { readonly kind: "reach"; readonly from: string; readonly to: string }
 
 /**
- * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's, an
- * edited one, another schema's, or the drafted snapshot of folders a run left pending (meaningful only while migrations
+ * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's,
+ * another schema's, or the drafted snapshot of folders a run left pending (meaningful only while migrations
  * are pending, and refused at stage `ledger` there: the latest complete migration is still the previous one).
  */
-export type SnapshotRef = "current" | "stale" | "tampered" | "foreign" | "drafted"
+export type SnapshotRef = "current" | "stale" | "foreign" | "drafted"
 
 /** Where a JavaScript caller hands grizzle a value its types refuse. */
 export type WildSite =
@@ -1006,7 +1006,6 @@ export type InvalidKind =
 	| "handle:other-role"
 	| "handle:other-login"
 	| "handle:stale-snapshot"
-	| "handle:tampered-snapshot"
 	| "handle:foreign-snapshot"
 	| "handle:drafted-snapshot"
 	| "handle:stale-db"

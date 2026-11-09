@@ -212,7 +212,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   `new Error`, no `async`, strict boolean conditions, no console, no `process.env` and no `Math.random`. The engine
   validates its own API inputs natively. Effect Schema never runs in `packages/*/src` (owner, 2026-11-04; the
   `no-restricted-imports` ban passes only `import type`): what PostgreSQL answers grizzle's own statements is trusted
-  through `#compiler/core/trusted.ts`, snapshot.json and meta.json are trusted once their fingerprint and seal hold, and every
+  through `#compiler/core/trusted.ts`, snapshot.json and meta.json are trusted once their fingerprint and seal hold where grizzle drafts, checks or migrates
+  from them, an application's DbLayer trusting snapshot.json's recorded fingerprint as it stands, and every
   foreign input (the environment, CLI arguments, a DbConfig, claims) is narrowed by a reader of its own.
 - **Effect, in the shell, the tests, the scripts and the benches.** Every Effect language-service diagnostic is an
   error, except the ones `REJECTED_DIAGNOSTICS` in the dev tools' preset rejects and the per-file exceptions in the
