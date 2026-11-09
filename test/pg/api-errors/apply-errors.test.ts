@@ -77,17 +77,24 @@ const seedRow = (names: Names): ReplacedStatement => ({
 })
 const fresh = "00000000-0000-4000-8000-000000000003"
 
-/** The fields a value is drawn into, and a live value of each. */
-const live = {
-	id: fresh,
+/**
+ * The described member's parameters, every field but the key, which it reads from Seed, and a live value of each. A
+ * parameters argument names exactly these: one with a key that names no parameter is refused whole, as a Fact.
+ */
+const liveParams = {
 	n: 1,
 	b: 1n,
 	flag: true,
 	label: "ab",
 	during: { start: 0n, end: 1n }
 } as const
+type Param = keyof typeof liveParams
+const paramFields: Arr.NonEmptyReadonlyArray<Param> = ["n", "b", "flag", "label", "during"]
+
+/** The fields a value is drawn into, and a live value of each: the key and the described member's parameters. */
+const live = { id: fresh, ...liveParams } as const
 type Field = keyof typeof live
-const fields: Arr.NonEmptyReadonlyArray<Field> = ["id", "n", "b", "flag", "label", "during"]
+const fields: Arr.NonEmptyReadonlyArray<Field> = ["id", ...paramFields]
 
 /** A value each field's codec documents refusing, with its fault (scalar/values/fault.ts). */
 const planted: { readonly [F in Field]: { readonly value: unknown; readonly fault: ValueFault } } =
@@ -100,16 +107,20 @@ const planted: { readonly [F in Field]: { readonly value: unknown; readonly faul
 		during: { value: { start: 5n, end: 1n }, fault: "spanOrder" }
 	}
 
-type Form = "array" | "Stream" | "parameter"
-const forms: Arr.NonEmptyReadonlyArray<Form> = ["array", "Stream", "parameter"]
+/** The forms a fact is planted in as a member's: an array or a Stream. */
+type MemberForm = "array" | "Stream"
+const memberForms: Arr.NonEmptyReadonlyArray<MemberForm> = ["array", "Stream"]
+type Form = MemberForm | "parameter"
+const forms: Arr.NonEmptyReadonlyArray<Form> = [...memberForms, "parameter"]
 
 type Drawn = { readonly kind: "planted" } | { readonly kind: "wild"; readonly wild: Wild }
 
-interface EncodingCase {
-	readonly field: Field
-	readonly form: Form
-	readonly value: Drawn
-}
+/** A field and the form it is planted in: any field of a member's fact, or a parameter of the described member. */
+type Pair =
+	| { readonly field: Field; readonly form: MemberForm }
+	| { readonly field: Param; readonly form: "parameter" }
+
+type EncodingCase = Pair & { readonly value: Drawn }
 
 type EncodingFeature =
 	| `planted ${Field} as ${Form}`
@@ -117,14 +128,11 @@ type EncodingFeature =
 	| "wild admitted"
 	| "refused by the builder"
 
-/** The forms the key is planted in: every form but a parameter. */
-const keyForms: Arr.NonEmptyReadonlyArray<Form> = ["array", "Stream"]
-
-/** The field and form pairs a case draws: a parameter of the described member carries every field but the key. */
-const plantedPairs: Arr.NonEmptyReadonlyArray<{ readonly field: Field; readonly form: Form }> =
-	Arr.flatMap(fields, (field) =>
-		Arr.map(field === "id" ? keyForms : forms, (form) => ({ field, form }))
-	)
+/** The field and form pairs a case draws: every field in each member form, and every parameter. */
+const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
+	...Arr.flatMap(fields, (field) => Arr.map(memberForms, (form): Pair => ({ field, form }))),
+	...Arr.map(paramFields, (field): Pair => ({ field, form: "parameter" }))
+]
 
 /**
  * One of the field and form pairs, each equally often, with a value `value` draws. A parameter of the described member
@@ -166,11 +174,11 @@ const encodingCaseGen: Gen<EncodingCase> = weighted([
  * times a run, and a wild value the codec admits and each required wild refusal.
  */
 const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
-	...Arr.map(plantedPairs, ({ field, form }): Kept<EncodingCase, EncodingFeature> => ({
-		note: `the refused ${field} as ${form}`,
-		sketch: { field, form, value: { kind: "planted" } },
+	...Arr.map(plantedPairs, (pair): Kept<EncodingCase, EncodingFeature> => ({
+		note: `the refused ${pair.field} as ${pair.form}`,
+		sketch: { ...pair, value: { kind: "planted" } },
 		draws: "",
-		reaches: [`planted ${field} as ${form}`]
+		reaches: [`planted ${pair.field} as ${pair.form}`]
 	})),
 	{
 		note: "a number for an integer",
@@ -284,7 +292,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										cx.note("refused by the builder")
 										return
 									}
-									const params = c.form === "parameter" ? { ...live, [c.field]: value } : {}
+									const params = c.form === "parameter" ? { ...liveParams, [c.field]: value } : {}
 									const mark = tap.mark()
 									const outcome = yield* Effect.result(applyRuntime(dbCtx, built.success, params))
 									if (Result.isSuccess(outcome)) {
