@@ -63,8 +63,8 @@ import {
  *   derives from the InstallSpec (expectedPrivileges): nothing more, nothing less. Then, for one privilege of each kind
  *   on each kind of object that some login or role does not hold, the operation it governs, attempted as that login or
  *   role, is refused with 42501.
- * - Db.open's check refuses every catalog fault it names and admits the rest, as the worlds model predicts it after
- *   each perturbation of the catalog.
+ * - The drift check reports every catalog fault it names and passes the rest, as the worlds model predicts it after
+ *   each perturbation of the catalog, and Db.open, which contacts nothing, opens whatever the catalog holds.
  * - A direct writer meets the world and the laws as the README's SQLSTATEs: every statement on a table or a view a
  *   live transaction sends, and every COMMIT, is refused only with a SQLSTATE the README names, besides agreeing with
  *   the model.
@@ -541,10 +541,11 @@ const directFeature = (f: WorldFeature): boolean =>
 		"object:barrier-view:raise-suppressed"
 	)(f)
 
-const openFeature = (f: WorldFeature): boolean =>
+const catalogFeature = (f: WorldFeature): boolean =>
 	startingWith("invalid:catalog:", "invariant:least-privilege")(f) ||
 	opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
-	opIn({ kinds: ["tamper"], writers: everyWriter, observations: ["ok"] })(f)
+	opIn({ kinds: ["tamper"], writers: everyWriter, observations: ["ok"] })(f) ||
+	opIn({ kinds: ["drift"], writers: everyWriter, observations: ["drift"] })(f)
 
 layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"least privilege: the worlds' privileges from above",
@@ -572,14 +573,14 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 		)
 
 		programTests(it, {
-			suite: "pg/world-model/privileges/open-check",
-			name: "the open check refuses every catalog fault it names and admits the rest",
+			suite: "pg/world-model/privileges/catalog-check",
+			name: "the drift check reports every catalog fault it names and passes the rest, and every Db opens",
 			installs,
 			realize: fresh,
-			focus: ["tamper", "open-db"],
+			focus: ["tamper", "open-db", "drift"],
 			steps: 10,
 			cases: 100,
-			required: requiredWhere(openFeature),
+			required: requiredWhere(catalogFeature),
 			realities: drawnRealities,
 			lead: noLead,
 			check: () => undefined

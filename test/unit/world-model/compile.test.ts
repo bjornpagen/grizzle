@@ -176,8 +176,10 @@ describe("the worlds model's compile rules", () => {
 							login: login.name,
 							role: role.name,
 							facts: c.draw(liveFactsGen(loaded, contextsRead(install.base, role))),
+							claims: "admitted",
 							connection: 0,
-							snapshot: { version: loaded.version, install, names, host }
+							snapshot: { version: loaded.version, install, names, host },
+							guard: "held"
 						}
 						const state: ModelState = { ...loaded, sessions: [session] }
 						const weights = appliesOnly(c.draw(weightsGen))

@@ -1,18 +1,12 @@
 import type { WildKind } from "@grizzle/testing/lsw"
 import { Array as Arr, Option } from "effect"
-import { admissionOf } from "#test/support/worlds/model/session/catalog.ts"
 import {
 	payloadFacts,
 	type TokenVerdict,
 	tokenVerdict
 } from "#test/support/worlds/model/session/claims.ts"
 
-import {
-	loginHolding,
-	loginVerifies,
-	migrating,
-	roleOf
-} from "#test/support/worlds/model/session/state.ts"
+import { loginHolding, loginVerifies, roleOf } from "#test/support/worlds/model/session/state.ts"
 
 import type {
 	Branch,
@@ -21,6 +15,7 @@ import type {
 	ModelOpenStage,
 	RoleRef,
 	RoleSpec,
+	SnapshotGuard,
 	SnapshotRef,
 	Token
 } from "#test/support/worlds/model/types.ts"
@@ -41,17 +36,6 @@ const openedRole = (
 	return role === undefined || login === undefined ? undefined : { role, login: login.name }
 }
 
-/**
- * The version whose role values and login layer an open given `snapshot` runs on: the drafted snapshot of folders a run
- * left pending is the new application version's, deployed before its migration finished, which holds the last pending
- * folder's roles and logins (main's ruling, execute/index.ts draftedTarget); every other snapshot is handed to the
- * current version's.
- */
-const openedVersion = (state: ModelState, snapshot: SnapshotRef): InstallSpec =>
-	snapshot === "drafted" && state.migrations.kind === "pending"
-		? Arr.lastNonEmpty(state.migrations.folders)
-		: state.install
-
 /** How often the layer's verify ran: once when a token reached it, never before the token stage or without one. */
 type VerifyCalls = 0 | 1
 
@@ -61,74 +45,22 @@ const refusedAt = (state: ModelState, stage: ModelOpenStage, verifyCalls: Verify
 })
 
 /**
- * Whether the ledger admits a parsed snapshot: no folder unfinished, and its latest complete migration reached the
- * snapshot's fingerprint: the current installation's, never an older version's or another schema's; the drafted
- * snapshot of folders a run left pending not until they land, and with nothing pending the directory's snapshot.json
- * is the current installation's.
+ * The rest of Db.open once the role resolved on a layer, in packages/grizzle/src/adapter/db/open.ts's order: the token,
+ * decoded on the host, and nothing more, since Db.open contacts nothing. A Db opened allocates a session, judged on the
+ * host by the current version, whose snapshot it was opened with, and a connection of its login's pool, reused when
+ * the pool already has one: every transaction takes on the role and claims for itself alone. Its guard holds the ledger
+ * to that version when the layer was given the current snapshot, and to a snapshot no migration lands otherwise
+ * (SnapshotGuard). A refined claim PostgreSQL refuses opens the Db all the same (ClaimsJudged).
  */
-const ledgerReached = (state: ModelState, snapshot: SnapshotRef): boolean => {
-	if (migrating(state)) {
-		return false
-	}
-	switch (snapshot) {
-		case "current":
-			return true
-		case "stale":
-		case "foreign":
-			return false
-		case "drafted":
-			return state.migrations.kind === "applied"
-	}
-}
-
-/**
- * The rest of Db.open once the role resolved on a layer its snapshot built, in packages/grizzle/src/adapter/db/open.ts's
- * order: the token, decoded on the host; then admission, whose ledger check refuses while a folder is unfinished and a
- * snapshot the ledger's latest complete migration did not reach (an older version's, another schema's, or pending
- * folders' drafted one) before its settings and privileges checks judge the catalog as tampered with; then
- * PostgreSQL's verdict on each refined claim. A Db opened allocates a session, judged by the snapshot its layer was
- * given, and a connection of its login's pool, reused when the pool already has one: every transaction takes on the role
- * and claims for itself alone. Admission's transaction may also be refused by SERIALIZABLE, which may refuse any
- * transaction once it summarizes old committed ones under load (README "Transactions and concurrency"): a retryable failure that opens
- * nothing (AdmissionTransient).
- */
-const admitted = (
+const openedOrRefused = (
 	state: ModelState,
 	opened: { readonly role: RoleSpec; readonly login: string },
 	verdict: TokenVerdict,
 	verifyCalls: VerifyCalls,
-	snapshot: SnapshotRef
-): Arr.NonEmptyReadonlyArray<Branch> => {
-	if (verdict.kind === "refused") {
-		return [refusedAt(state, `token:${verdict.by}`, verifyCalls)]
-	}
-	if (!ledgerReached(state, snapshot)) {
-		return [refusedAt(state, "ledger", verifyCalls), serializationRefused(state)]
-	}
-	const admission = admissionOf(state.install, state.tampered, opened.role, opened.login)
-	return [
-		admission === "admitted"
-			? openedAs(state, opened, verdict, verifyCalls)
-			: refusedAt(state, admission, verifyCalls),
-		serializationRefused(state)
-	]
-}
-
-/** Admission's transaction refused by SERIALIZABLE: nothing opened. */
-const serializationRefused = (state: ModelState): Branch => ({
-	observation: { kind: "transient", reason: "SerializationFailure" },
-	next: state
-})
-
-/** Db.open past admission: refused at token for a refined claim PostgreSQL refuses, opened otherwise. */
-const openedAs = (
-	state: ModelState,
-	opened: { readonly role: RoleSpec; readonly login: string },
-	verdict: Extract<TokenVerdict, { readonly kind: "decoded" }>,
-	verifyCalls: VerifyCalls
+	guard: SnapshotGuard
 ): Branch => {
-	if (verdict.refinedRefused) {
-		return refusedAt(state, "token:claims", verifyCalls)
+	if (verdict.kind === "refused") {
+		return refusedAt(state, `token:${verdict.by}`, verifyCalls)
 	}
 	const reused = Arr.findFirstIndex(state.connections, (c) => c.login === opened.login)
 	const connection = Option.getOrElse(reused, () => state.connections.length)
@@ -143,13 +75,15 @@ const openedAs = (
 					login: opened.login,
 					role: opened.role.name,
 					facts: verdict.facts,
+					claims: verdict.refinedRefused ? "refused" : "admitted",
 					connection,
 					snapshot: {
 						version: state.version,
 						install: state.install,
 						names: state.names,
 						host: state.host
-					}
+					},
+					guard
 				}
 			],
 			connections: Option.isSome(reused)
@@ -164,11 +98,10 @@ const noFactsVerdict: TokenVerdict = { kind: "decoded", facts: {}, refinedRefuse
 /**
  * Db.open(Web.roles.member, { token }) on the layer of the role's login, given `snapshot` (README "Deploying",
  * "Permissions", "Security model"): a reference that is no installed role of a login meets no layer of its login, refused at
- * `role` whatever the snapshot; the layer refuses a snapshot whose fingerprint is not its content's at `schema`, and
- * may refuse an older version's or another schema's there too, when it is not of the login's base (the model keeps no
- * record of the base each was drafted for); a layer it builds leaves the token, admission and the refined claims, as
- * `admitted` orders them. The role, its login's verify and the contexts the token decodes through are the version's
- * the snapshot is handed to (openedVersion).
+ * `role` whatever the snapshot; the layer compares nothing with the snapshot it is given, but may refuse an older
+ * version's or another schema's at `schema`, as the roles and programs compile under its codes (the model keeps no
+ * record of the codes each was drafted with); a layer it builds leaves the token, as openedOrRefused orders it. The
+ * role, its login's verify and the contexts the token decodes through are the current version's.
  */
 export const openBranches = (
 	state: ModelState,
@@ -176,23 +109,20 @@ export const openBranches = (
 	token: Token,
 	snapshot: SnapshotRef
 ): Arr.NonEmptyReadonlyArray<Branch> => {
-	const version = openedVersion(state, snapshot)
-	const opened = openedRole(version, ref)
+	const opened = openedRole(state.install, ref)
 	if (opened === undefined) {
 		return [refusedAt(state, "role", 0)]
 	}
-	const verifies = loginVerifies(version, opened.login)
+	const verifies = loginVerifies(state.install, opened.login)
 	const verifyCalls: VerifyCalls = verifies && token.kind !== "none" ? 1 : 0
-	const opening = admitted(
+	const opening = openedOrRefused(
 		state,
 		opened,
-		tokenVerdict(version.base, opened.role, token, verifies),
+		tokenVerdict(state.install.base, opened.role, token, verifies),
 		verifyCalls,
-		snapshot
+		snapshot === "current" ? "held" : "never"
 	)
-	return snapshot === "stale" || snapshot === "foreign"
-		? [refusedAt(state, "schema", 0), ...opening]
-		: opening
+	return snapshot === "current" ? [opening] : [refusedAt(state, "schema", 0), opening]
 }
 
 /**
@@ -214,12 +144,14 @@ export const wildOpenBranches = (
 		return [refusedAt(state, "role", 0)]
 	}
 	const verifies = loginVerifies(state.install, opened.login)
-	const noToken = admitted(state, opened, noFactsVerdict, 0, "current")
+	const noToken: Arr.NonEmptyReadonlyArray<Branch> = [
+		openedOrRefused(state, opened, noFactsVerdict, 0, "held")
+	]
 	const asText = (payloads: ReadonlyArray<TokenVerdict>): Arr.NonEmptyReadonlyArray<Branch> =>
 		verifies
 			? [
 					refusedAt(state, "token:verify", 1),
-					...Arr.flatMap(payloads, (v) => admitted(state, opened, v, 1, "current"))
+					...Arr.map(payloads, (v) => openedOrRefused(state, opened, v, 1, "held"))
 				]
 			: noToken
 	/** A string that is JSON of no object: a payload no claim object can be read from. */

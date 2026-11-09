@@ -64,7 +64,6 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"handle:other-login": "handle",
 	"handle:stale-snapshot": "handle",
 	"handle:foreign-snapshot": "handle",
-	"handle:drafted-snapshot": "handle",
 	"handle:stale-db": "handle",
 	"handle:wild-js-value": "handle",
 	"catalog:membership-admin": "catalog",

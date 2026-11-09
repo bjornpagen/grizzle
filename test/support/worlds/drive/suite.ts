@@ -741,60 +741,6 @@ export const readPastADelete =
 	}
 
 /**
- * What the opens after a catalog change reach, read of the change's outcome: every feature an open the box offers then
- * notes, as the model predicts it. A token that decodes is refused only past the token, at admission or the ledger,
- * so an open refused past its token needs the catalog changed first.
- */
-const opensAfter = (
-	_state: ModelState,
-	action: Action,
-	outcome: Allowed
-): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "tamper") {
-		return []
-	}
-	const { next } = settled(outcome)
-	return Arr.flatMap(enumerateKind(next, "open-db", aimScope), (a) =>
-		Arr.flatMap(step(next, a), (c) => notedOf(next, a, c.observation))
-	)
-}
-
-/**
- * A lead for a suite requiring the opens a catalog change refuses: while a required refused open is pending, a catalog
- * change from which one is one open away (opensAfter, aimed on every draw among the box's perturbations), and that open,
- * aimed at the required refused opens the program has not reached yet. A catalog change past the contract leaves a
- * program only opens and drift, so a suite takes this lead last. It names the refused opens it serves, where the other
- * leads aim at every pending feature, because a tamper drawn when no pending feature lies past one would cut a program
- * short for nothing.
- */
-export const openPastATamper =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(
-			required,
-			opIn({ kinds: ["open-db"], writers: ["db"], observations: ["open-refused"] })
-		)
-		if (first === undefined) {
-			return []
-		}
-		const targets: Arr.NonEmptyReadonlyArray<WorldFeature> = [first, ...rest]
-		return whilePending(targets, at, () => [
-			{
-				...weights,
-				kinds: ["tamper"],
-				actions: { ...zeroWeights.actions, tamper: 1 },
-				aims: everyDraw(targets, opensAfter, (a) => a.kind === "tamper")
-			},
-			{
-				...weights,
-				kinds: ["open-db"],
-				actions: { ...zeroWeights.actions, "open-db": 1 },
-				aims: everyDraw(targets, noted, (a) => a.kind === "open-db")
-			}
-		])
-	}
-
-/**
  * What the reads after a migration reach, read of the migration's outcome: every feature a read the box offers through
  * an open Db then notes, as the model predicts it. A Db's snapshot is moved past only by a migration after its open, so
  * a read refused by the snapshot guard needs a Db opened and the migration run first.

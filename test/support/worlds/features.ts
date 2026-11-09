@@ -2219,6 +2219,8 @@ const staleHandle = (kind: ActionKind, writers: Arr.NonEmptyReadonlyArray<Writer
  *   tamper, drift, wild) is inside by definition, and the owner's actions and a BEGIN run under no claims;
  * - a read submits nothing, so its claims never disagree with a fact, and a Db's claims are never malformed (verify
  *   decodes them or Db.open refuses the token);
+ * - a stale token decodes, so its Db opens: Db.open contacts nothing, so nothing refuses an open past its token, and
+ *   not-matching claims are required opened only;
  * - a login reads no row (it holds only USAGE on its schema and SELECT on the ledger), so it never observes rows, and
  *   a fact it meets is hidden from it;
  * - an insert whose claimed field disagrees with the claims is outside-world (a Db) or refused by the policy (a direct
@@ -2237,14 +2239,8 @@ const staleHandle = (kind: ActionKind, writers: Arr.NonEmptyReadonlyArray<Writer
  *   naming no object), so `ok` is no outcome of a drift.
  */
 const requiredOps: ReadonlyArray<OpBlock> = [
-	block(
-		"open-db",
-		["db"],
-		["inside"],
-		["absent", "matching", "not-matching"],
-		["opened", "open-refused"]
-	),
-	block("open-db", ["db"], ["inside"], ["malformed"], ["open-refused"]),
+	block("open-db", ["db"], ["inside"], ["absent", "matching", "not-matching"], ["opened"]),
+	block("open-db", ["db"], ["inside"], ["absent", "matching", "malformed"], ["open-refused"]),
 	block("read", ["db"], allMemberships, ["absent", "matching"], ["rows"]),
 	staleHandle("read", ["db", "direct-role", "direct-login"]),
 	block("apply", ["db"], allMemberships, ["absent", "matching"], ["applied", "invariant-rejected"]),

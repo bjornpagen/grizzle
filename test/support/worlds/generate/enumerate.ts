@@ -490,17 +490,6 @@ const openActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action
 		open({ kind: "owner" }, firstToken, "current"),
 		...Arr.map(["stale", "foreign"] as const, (s) =>
 			open({ kind: "own", role: first.name }, firstToken, s)
-		),
-		...Arr.flatMap(
-			state.migrations.kind === "pending"
-				? Arr.filter(
-						install.roles,
-						(r) =>
-							state.migrations.kind === "pending" &&
-							Arr.some(state.migrations.folders.at(-1)?.roles ?? [], (x) => x.name === r.name)
-					).slice(0, 1)
-				: [],
-			(r) => [open({ kind: "own", role: r.name }, liveTokens(state, r, scope)[0], "drafted")]
 		)
 	]
 }

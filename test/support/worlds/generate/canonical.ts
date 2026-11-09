@@ -84,7 +84,7 @@ const session = (out: Writer, s: ModelSession): void => {
 		case "db":
 			out.push("d", s.login, s.role)
 			contextFacts(out, s.facts)
-			out.push(s.connection, s.snapshot.version)
+			out.push(s.claims, s.connection, s.snapshot.version, s.guard)
 			return
 		case "direct":
 			out.push("x", s.login)

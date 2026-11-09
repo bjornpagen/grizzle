@@ -633,11 +633,11 @@ export type ReadVia =
 	| { readonly kind: "reach"; readonly from: string; readonly to: string }
 
 /**
- * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's,
- * another schema's, or the drafted snapshot of folders a run left pending (meaningful only while migrations
- * are pending, and refused at stage `ledger` there: the latest complete migration is still the previous one).
+ * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's, or
+ * another schema's. The layer compares nothing with it and Db.open contacts nothing, so a Db opens on either of the
+ * others too, and every one of its calls that sends SQL meets the snapshot guard (README "Deploying").
  */
-export type SnapshotRef = "current" | "stale" | "foreign" | "drafted"
+export type SnapshotRef = "current" | "stale" | "foreign"
 
 /** Where a JavaScript caller hands grizzle a value its types refuse. */
 export type WildSite =
@@ -718,22 +718,12 @@ export type SqlState =
 export type TokenRefuser = "verify" | "claims"
 
 /**
- * The stage `Db.open` reports, as grizzle names it, in the order it checks them: the role, the role value and the
- * snapshot its login layer was given (`schema`), the token, then admission's checks of the database; at stage token, with what refused it: `token:verify`
- * a TokenError, `token:claims` a ClaimRefused (a payload that does not decode through the role's contexts, or a refined
- * claim PostgreSQL refused). Connection stages are infrastructure and not modelled.
+ * The stage `Db.open` reports, as grizzle names it, in the order it checks them, all on the host: the role, the role
+ * value and the snapshot its login layer was given (`schema`), then the token; at stage token, with what refused it:
+ * `token:verify` a TokenError, `token:claims` a ClaimRefused (a payload that does not decode through the role's
+ * contexts). Db.open contacts nothing, so no stage judges the database.
  */
-export type ModelOpenStage =
-	| "role"
-	| "schema"
-	| `token:${TokenRefuser}`
-	| "version"
-	| "locale"
-	| "capability"
-	| "ledger"
-	| "settings"
-	| "privileges"
-	| "admission"
+export type ModelOpenStage = "role" | "schema" | `token:${TokenRefuser}`
 
 /** Why a migration was refused before it changed anything: a hand-edited file, a ledger out of step, or drift after it. */
 export type MigrationRefusal = "edited" | "ledger" | "order" | "marker" | "decision" | "drift"
@@ -838,14 +828,32 @@ export interface Snapshotted {
 	readonly host: HostSchema
 }
 
-/** A Db: its login and role, the facts its claims decode to, its pooled connection, and the snapshot it was opened with. */
+/**
+ * What the snapshot guard of a Db's every transaction holds the ledger to: its snapshot's version (`held`), or a
+ * snapshot no migration of the installation lands (`never`: an older version's, another schema's), whose calls the
+ * guard always refuses.
+ */
+export type SnapshotGuard = "held" | "never"
+
+/**
+ * Whether PostgreSQL admits every refined claim of a Db's facts where a statement reads it (`admitted`), or refuses one
+ * (`refused`): Db.open judges no claim against the database, so a Db opens either way.
+ */
+export type ClaimsJudged = "admitted" | "refused"
+
+/**
+ * A Db: its login and role, the facts its claims decode to and whether PostgreSQL admits them, its pooled connection,
+ * the snapshot it was opened with and what its guard holds the ledger to.
+ */
 export interface DbSessionState {
 	readonly kind: "db"
 	readonly login: string
 	readonly role: string
 	readonly facts: ContextFacts
+	readonly claims: ClaimsJudged
 	readonly connection: number
 	readonly snapshot: Snapshotted
+	readonly guard: SnapshotGuard
 }
 
 /**
@@ -1007,7 +1015,6 @@ export type InvalidKind =
 	| "handle:other-login"
 	| "handle:stale-snapshot"
 	| "handle:foreign-snapshot"
-	| "handle:drafted-snapshot"
 	| "handle:stale-db"
 	| "handle:wild-js-value"
 	| `catalog:${CatalogPerturbation["kind"]}`

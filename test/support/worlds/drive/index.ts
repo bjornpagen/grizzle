@@ -191,7 +191,7 @@ export const serial = (state: ModelState, action: Action): boolean =>
  * Whether a program may go on with `action` in `state`: a serial driver can perform it (`serial`), and the catalog is
  * still within the contract. A tamper that changed what a world can do (a policy, a grant, row security, a membership,
  * an attribute, a setting: one drift reports) puts every later call outside the README's contract, so a program goes
- * on only by opening a Db, which admission refuses, or by asking drift.
+ * on only by opening a Db, whose calls it then draws none of, or by asking drift.
  */
 const drivable = (state: ModelState, action: Action): boolean =>
 	serial(state, action) &&

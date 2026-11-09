@@ -147,8 +147,8 @@ const docsOneShareBase: BaseSpec = {
 /**
  * The documents base with a context Level read from the token's `l` claim object, its one field `plan` of the contract
  * Plan Org's plan holds: a claim of a contract, which the host decodes as an integer and PostgreSQL holds to the
- * contract's bounds as Db.open's admission casts it, so a plan past nine refuses the token at stage token once
- * admission passed, and an organization's plan meets the claim in a rule.
+ * contract's bounds where a statement reads it, so a plan past nine opens a Db whose claims PostgreSQL refuses, and an
+ * organization's plan meets the claim in a rule.
  */
 const docsLevelBase: BaseSpec = {
 	...docsBase,
@@ -190,9 +190,8 @@ const profileContext: ContextSpec = {
 }
 
 /**
- * The documents base with the context Profile, whose claims of every type a Db decodes from its token and Db.open's
- * admission judges where refined, and a direct writer hand-sets, each cast to its field's type where a statement reads
- * it.
+ * The documents base with the context Profile, whose claims of every type a Db decodes from its token and a direct
+ * writer hand-sets, each cast to its field's type where a statement reads it, PostgreSQL judging a refined one there.
  */
 const docsProfileBase: BaseSpec = {
 	...docsBase,

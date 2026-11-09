@@ -32,7 +32,7 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * session's connection probes as the model expects, and the model's state keeps every invariant.
  *
  * The search is guided by block coverage of the worlds code: the compiler's world analysis and role DDL, and the
- * adapter's claims, Db.open and admission. The file runs among the guided suites, whose processes start V8's block
+ * adapter's claims, Db.open and the drift check. The file runs among the guided suites, whose processes start V8's block
  * coverage before the code under test loads, so V8 counts the blocks of every guide file; its steered phase keeps each
  * case that ran a block no earlier case ran, and mutates those. A tamper changes database settings, so the file runs in
  * a database of its own.
@@ -45,7 +45,7 @@ const guide: Arr.NonEmptyReadonlyArray<string> = [
 	"packages/engine/src/physical/ddl/roles.ts",
 	"packages/grizzle/src/adapter/db/claims.ts",
 	"packages/grizzle/src/adapter/db/open.ts",
-	"packages/grizzle/src/adapter/admission/admit.ts",
+	"packages/grizzle/src/adapter/admission/drift.ts",
 	"packages/grizzle/src/adapter/admission/roles.ts",
 	"packages/engine/src/write/entry/precheck.ts"
 ]

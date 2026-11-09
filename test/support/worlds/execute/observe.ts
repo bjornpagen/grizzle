@@ -51,23 +51,13 @@ const isNamed = (code: string): code is Exclude<SqlState, "other"> => namedState
 /** A SQLSTATE as the model names it: one the README names, or `other`. */
 export const sqlStateOf = (code: string): SqlState => (isNamed(code) ? code : "other")
 
-const openStages: ReadonlySet<string> = new Set([
-	"role",
-	"schema",
-	"version",
-	"locale",
-	"capability",
-	"ledger",
-	"settings",
-	"privileges",
-	"admission"
-])
+const openStages: ReadonlySet<string> = new Set(["role", "schema"])
 
 const isOpenStage = (stage: string): stage is ModelOpenStage => openStages.has(stage)
 
 /**
  * The stage a refused Db.open reports, as the model names it: at stage token, by its reason, verify's TokenError or a
- * ClaimRefused; none for a connection stage, which is infrastructure.
+ * ClaimRefused; none for a stage the model never predicts (config, capability).
  */
 const openStageOf = (error: OpenError): ModelOpenStage | undefined => {
 	if (error.stage === "token") {

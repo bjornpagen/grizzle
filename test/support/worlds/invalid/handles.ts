@@ -160,21 +160,15 @@ export const relationArms = (
 	}
 }
 
-/**
- * The snapshots the opening role's login layer is given: the installation's own; an older version's, another
- * schema's, or, while folders are pending, their drafted one.
- */
-export const snapshotArms = (state: ModelState): BoundaryArms<SnapshotRef> => ({
+/** The snapshots the opening role's login layer is given: the installation's own; an older version's, another schema's. */
+export const snapshotArms: BoundaryArms<SnapshotRef> = {
 	live: constant<SnapshotRef>("current"),
 	stale: [
 		{ invalid: "handle:stale-snapshot", gen: constant<SnapshotRef>("stale") },
-		{ invalid: "handle:foreign-snapshot", gen: constant<SnapshotRef>("foreign") },
-		...(state.migrations.kind === "pending"
-			? [{ invalid: "handle:drafted-snapshot" as const, gen: constant<SnapshotRef>("drafted") }]
-			: [])
+		{ invalid: "handle:foreign-snapshot", gen: constant<SnapshotRef>("foreign") }
 	],
 	wild: []
-})
+}
 
 /** The isolation levels a direct writer begins at: SERIALIZABLE, or any level below it. */
 export const isolationArms: BoundaryArms<Isolation> = {

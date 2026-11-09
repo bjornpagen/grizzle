@@ -157,7 +157,8 @@ export const draftedFrom = (state: ModelState): InstallSpec =>
 /**
  * Why a Db's call that sends SQL is refused by its transaction's prologue (README "Deploying"), the ledger's
  * lock and the snapshot guard, both run as the login: `migrating` while a folder is unfinished, `migrated` once a
- * migration to another installation completed past its snapshot; none for a Db its snapshot describes.
+ * migration to another installation completed past its snapshot, or always for a snapshot no migration lands (an older
+ * version's, another schema's); none for a Db its snapshot describes.
  */
 export const staleReason = (
 	state: ModelState,
@@ -166,7 +167,9 @@ export const staleReason = (
 	if (migrating(state)) {
 		return "migrating"
 	}
-	return session.snapshot.version === state.version ? undefined : "migrated"
+	return session.guard === "held" && session.snapshot.version === state.version
+		? undefined
+		: "migrated"
 }
 
 /** A session closed: a Db's, or a direct writer's whose transaction ended. */

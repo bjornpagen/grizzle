@@ -239,7 +239,8 @@ const fixtures: Arr.NonEmptyReadonlyArray<{
 
 /**
  * The sessions a model state may hold beside its reality, drawn so every kind of handle is there to name: a Db opened
- * at the state's version, or before it, its snapshot moved past.
+ * at the state's version, or before it, its snapshot moved past, its guard holding the ledger to its snapshot or to one
+ * no migration lands, its claims admitted or refused by PostgreSQL.
  */
 const sessionsGen = (state: ModelState): Gen<ReadonlyArray<ModelSession>> => {
 	const install = state.install
@@ -253,13 +254,15 @@ const sessionsGen = (state: ModelState): Gen<ReadonlyArray<ModelSession>> => {
 			).name,
 			role: role.name,
 			facts: source.draw(liveFactsGen(state, contextsRead(install.base, role))),
+			claims: source.draw(element(["admitted", "refused"] as const)),
 			connection: 0,
 			snapshot: {
 				version: source.draw(int(0, state.version)),
 				install,
 				names: state.names,
 				host: state.host
-			}
+			},
+			guard: source.draw(element(["held", "never"] as const))
 		}
 	}
 	const direct: Gen<ModelSession> = (source) => {
@@ -352,8 +355,10 @@ const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<ModelSes
 			).name,
 			role: role.name,
 			facts: factsMeeting(state, role, n),
+			claims: "admitted",
 			connection: 0,
-			snapshot: { version: state.version, install, names: state.names, host: state.host }
+			snapshot: { version: state.version, install, names: state.names, host: state.host },
+			guard: "held"
 		}))
 	)
 	const shared: ReadonlyArray<ModelSession> = [

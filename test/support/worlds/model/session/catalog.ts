@@ -35,77 +35,19 @@ import type {
 	WorldFunction
 } from "#test/support/worlds/model/types.ts"
 
-/** What admission makes of a catalog for one role: admitted, or refused at the first stage that fails. */
-export type Admission = "admitted" | "settings" | "privileges"
-
 /**
- * What one perturbation does: whether `grizzle drift` finds it, and what `Db.open` of each role answers. README
- * "Deploying": Db.open checks the login's settings, the role's privileges, the login's and the role's
- * attributes and memberships, and row security on every table the role's entry narrows (`narrows`); it does not compare
- * view definitions, policy predicates or the rest of the catalog, which `grizzle migrate` and `grizzle drift` do. A
- * change that confers nothing (a membership with SET FALSE that passes on no privilege, a database setting of the
- * owner's) is admitted by both checks; a change that leaves the catalog as it was (a grant already held, a revoke of one
- * never held) is no change at all. A role's extra member is tolerated only WITH INHERIT FALSE, SET FALSE and no ADMIN
- * (packages/grizzle/src/adapter/admission/roles.ts memberDifferences): the member a perturbation grants inherits, its role being created
- * INHERIT, so it acts through the role whatever its SET, and both checks refuse it.
+ * Whether one perturbation changes the catalog, so that `grizzle drift` finds it (README "Deploying"), or leaves it as
+ * it was or as the contract allows. A change that confers nothing (a membership with SET FALSE that passes on no
+ * privilege, a database setting of the owner's) is no drift; a change that leaves the catalog as it was (a grant
+ * already held, a revoke of one never held) is no change at all. A role's extra member is tolerated only WITH INHERIT
+ * FALSE, SET FALSE and no ADMIN (packages/grizzle/src/adapter/admission/roles.ts memberDifferences): the member a
+ * perturbation grants inherits, its role being created INHERIT, so it acts through the role whatever its SET, and the
+ * drift check refuses it. Db.open judges none of it: it contacts nothing.
  */
-type PerturbationEffect =
-	| { readonly kind: "no-change" }
-	| { readonly kind: "catalog-only" }
-	| {
-			readonly kind: "refusing"
-			readonly stage: Exclude<Admission, "admitted">
-			readonly whom: Whom
-	  }
+type PerturbationEffect = "no-change" | "changed"
 
-/**
- * The Dbs a perturbation's refusal reaches: every one, those of a login, of a role, of the login or the role a grant
- * names (a name is either), of a login or a role of a membership, or of the roles whose entries narrow a relation.
- */
-type Whom =
-	| { readonly kind: "everyone" }
-	| { readonly kind: "login"; readonly login: string }
-	| { readonly kind: "role"; readonly role: string }
-	| { readonly kind: "grantee"; readonly name: string }
-	| { readonly kind: "membership"; readonly login: string; readonly role: string }
-	| { readonly kind: "narrowers"; readonly relation: string }
-
-const noChange: PerturbationEffect = { kind: "no-change" }
-const catalogOnly: PerturbationEffect = { kind: "catalog-only" }
-const refusing = (stage: Exclude<Admission, "admitted">, whom: Whom): PerturbationEffect => ({
-	kind: "refusing",
-	stage,
-	whom
-})
-
-/** Whether a perturbation's refusal reaches a Db of a role of a login. */
-const reaches = (install: InstallSpec, whom: Whom, role: RoleSpec, login: string): boolean => {
-	switch (whom.kind) {
-		case "everyone":
-			return true
-		case "login":
-			return login === whom.login
-		case "role":
-			return role.name === whom.role
-		case "grantee":
-			return role.name === whom.name || login === whom.name
-		case "membership":
-			return login === whom.login || role.name === whom.role
-		case "narrowers":
-			return narrowsAt(install, role, whom.relation)
-	}
-}
-
-/** What Db.open of a role of a login makes of one perturbation. */
-const openUnder = (
-	install: InstallSpec,
-	effect: PerturbationEffect,
-	role: RoleSpec,
-	login: string
-): Admission =>
-	effect.kind === "refusing" && reaches(install, effect.whom, role, login)
-		? effect.stage
-		: "admitted"
+const noChange: PerturbationEffect = "no-change"
+const changed: PerturbationEffect = "changed"
 
 /**
  * Whether a written entry narrows its target (packages/engine/src/schema/entry.ts EntryFilter): a query entry whose rule
@@ -131,7 +73,7 @@ const narrows = (base: BaseSpec, w: Written): boolean => {
 	)
 }
 
-/** Whether a role's entry narrows a relation, the tables whose row security admission checks for the role. */
+/** Whether a role's entry narrows a relation, the tables whose row security the drift check requires for the role. */
 const narrowsAt = (install: InstallSpec, role: RoleSpec, relation: string): boolean => {
 	const w = writtenAt(install.base, role, relation)
 	return w !== undefined && narrows(install.base, w)
@@ -186,8 +128,8 @@ const holdsColumn = (
 }
 
 /**
- * Whether a role already holds a column privilege, as both admission checks judge a column grant: on the column itself,
- * or through its table's privilege, which confers it, since the checks judge a column beside its table only where the
+ * Whether a role already holds a column privilege, as the drift check judges a column grant: on the column itself, or
+ * through its table's privilege, which confers it, since the check judges a column beside its table only where the
  * table's privilege does not hold (adapter admission/roles.ts).
  */
 const holdsColumnGrant = (
@@ -687,7 +629,7 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 const isLogin = (install: InstallSpec, name: string): boolean =>
 	loginOf(install, name) !== undefined
 
-/** A login's or a role's setting changed: admission compares the login's defaults and the role's none. */
+/** A login's or a role's setting changed: the drift check compares the login's defaults and the role's none. */
 const settingEffect = (
 	install: InstallSpec,
 	p: Extract<CatalogPerturbation, { readonly kind: "role-setting" }>
@@ -695,18 +637,16 @@ const settingEffect = (
 	switch (p.who.kind) {
 		case "login": {
 			const who = p.who.login
-			return isLogin(install, who) ? refusing("settings", { kind: "login", login: who }) : noChange
+			return isLogin(install, who) ? changed : noChange
 		}
 		case "role": {
 			const who = p.who.role
-			return roleOf(install, who) === undefined || p.change === "default-reset"
-				? noChange
-				: refusing("settings", { kind: "role", role: who })
+			return roleOf(install, who) === undefined || p.change === "default-reset" ? noChange : changed
 		}
 	}
 }
 
-/** A table's row security changed: admission requires it enabled, not forced, where a role's entry narrows it. */
+/** A table's row security changed: the drift check requires it enabled, not forced, where a role's entry narrows it. */
 const rowSecurityEffect = (
 	install: InstallSpec,
 	p: Extract<CatalogPerturbation, { readonly kind: "row-security" }>
@@ -714,13 +654,11 @@ const rowSecurityEffect = (
 	const secured = rowSecured(install, p.relation)
 	switch (p.state) {
 		case "enabled":
-			return secured ? noChange : catalogOnly
+			return secured ? noChange : changed
 		case "disabled":
-			return secured
-				? refusing("privileges", { kind: "narrowers", relation: p.relation })
-				: noChange
+			return secured ? changed : noChange
 		case "forced":
-			return refusing("privileges", { kind: "narrowers", relation: p.relation })
+			return changed
 	}
 }
 
@@ -728,43 +666,33 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 	switch (p.kind) {
 		case "membership-admin":
 		case "membership-inherit":
-			return isLogin(install, p.login) && roleOf(install, p.role) !== undefined
-				? refusing("privileges", { kind: "membership", login: p.login, role: p.role })
-				: noChange
+			return isLogin(install, p.login) && roleOf(install, p.role) !== undefined ? changed : noChange
 		case "membership-revoked":
-			return loginOf(install, p.login)?.roles.includes(p.role) === true
-				? refusing("privileges", { kind: "login", login: p.login })
-				: noChange
+			return loginOf(install, p.login)?.roles.includes(p.role) === true ? changed : noChange
 		case "membership-extra":
 			if (!isLogin(install, p.login)) {
 				return noChange
 			}
-			return p.set || (p.inherit && p.holds === "a-privilege")
-				? refusing("privileges", { kind: "login", login: p.login })
-				: noChange
+			return p.set || (p.inherit && p.holds === "a-privilege") ? changed : noChange
 		case "member-extra":
-			return roleOf(install, p.role) === undefined
-				? noChange
-				: refusing("privileges", { kind: "role", role: p.role })
+			return roleOf(install, p.role) === undefined ? noChange : changed
 		case "role-attribute":
 			if (isLogin(install, p.role)) {
-				return p.attribute === "LOGIN"
-					? noChange
-					: refusing("privileges", { kind: "login", login: p.role })
+				return p.attribute === "LOGIN" ? noChange : changed
 			}
 			if (roleOf(install, p.role) === undefined || p.attribute === "INHERIT") {
 				return noChange
 			}
-			return refusing("privileges", { kind: "role", role: p.role })
+			return changed
 		case "role-setting":
 			return settingEffect(install, p)
 		case "database-setting":
-			return p.change === "owner-setting" ? noChange : refusing("settings", { kind: "everyone" })
+			return p.change === "owner-setting" ? noChange : changed
 		case "row-security":
 			return rowSecurityEffect(install, p)
 		case "extra-grant":
 			if (isLogin(install, p.role)) {
-				return refusing("privileges", { kind: "grantee", name: p.role })
+				return changed
 			}
 			if (
 				roleOf(install, p.role) === undefined ||
@@ -772,14 +700,12 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 			) {
 				return noChange
 			}
-			return refusing("privileges", { kind: "grantee", name: p.role })
+			return changed
 		case "grant-revoked":
-			return revokedWith(install, p.role, p.relation, p.privilege)
-				? refusing("privileges", { kind: "grantee", name: p.role })
-				: noChange
+			return revokedWith(install, p.role, p.relation, p.privilege) ? changed : noChange
 		case "extra-column-grant":
 			if (isLogin(install, p.role)) {
-				return refusing("privileges", { kind: "grantee", name: p.role })
+				return changed
 			}
 			if (
 				roleOf(install, p.role) === undefined ||
@@ -787,19 +713,15 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 			) {
 				return noChange
 			}
-			return refusing("privileges", { kind: "grantee", name: p.role })
+			return changed
 		case "inherited-grant":
-			return isLogin(install, p.role) || roleOf(install, p.role) !== undefined
-				? refusing("privileges", { kind: "grantee", name: p.role })
-				: noChange
+			return isLogin(install, p.role) || roleOf(install, p.role) !== undefined ? changed : noChange
 		case "public-grant":
-			return refusing("privileges", { kind: "everyone" })
+			return changed
 		case "policy-dropped": {
 			const spec = roleOf(install, p.role)
 			const w = spec === undefined ? undefined : writtenNamed(install.base, spec, p.entry)
-			return w !== undefined && rowSecured(install, w.target)
-				? refusing("privileges", { kind: "role", role: p.role })
-				: noChange
+			return w !== undefined && rowSecured(install, w.target) ? changed : noChange
 		}
 		case "policy-edited":
 		case "view-redefined":
@@ -812,22 +734,8 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 		case "extra-table":
 		case "rewrite-rule":
 		case "trigger-disabled":
-			return catalogOnly
+			return changed
 	}
-}
-
-/** What Db.open's admission makes of the tampered catalog for a role of a login. */
-export const admissionOf = (
-	install: InstallSpec,
-	tampered: ReadonlyArray<CatalogPerturbation>,
-	role: RoleSpec,
-	login: string
-): Admission => {
-	const verdicts = Arr.map(tampered, (p) => openUnder(install, effectOf(install, p), role, login))
-	if (verdicts.includes("settings")) {
-		return "settings"
-	}
-	return verdicts.includes("privileges") ? "privileges" : "admitted"
 }
 
 /** A perturbation's label: its kind and the world object it changed, as the drift observation lists it. */
@@ -882,6 +790,6 @@ export const driftOf = (
 	tampered: ReadonlyArray<CatalogPerturbation>
 ): ReadonlyArray<string> =>
 	Arr.map(
-		Arr.filter(tampered, (p) => effectOf(install, p).kind !== "no-change"),
+		Arr.filter(tampered, (p) => effectOf(install, p) === "changed"),
 		labelOf
 	)

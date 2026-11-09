@@ -11,7 +11,6 @@ import {
 	fresh,
 	leadsOf,
 	noCheck,
-	openPastATamper,
 	opIn,
 	programTests,
 	requiredWhere,
@@ -21,11 +20,11 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
 
 /**
  * Errors over the documents base: programs of every action kind with invalid inputs of every kind, so every refusal
- * kind is met (an open refused at each stage, an apply refused or rejected, a direct statement refused, a law at
- * COMMIT, a compile refusal, an encoding refusal, a stale handle, drift). The executor reads every field of what each
- * refusal carries (message, detail, hint, every notice, the witness) and reports any token of reality hidden from the
- * acting session that the action did not submit, which the driver never allows: no error quotes a value from outside
- * the world. The worlds model names the typed error or outcome of each refusal, and the driver holds the real one to
+ * kind is met (an open refused at each stage it judges on the host, an apply refused or rejected, a direct statement
+ * refused, a law at COMMIT, a compile refusal, an encoding refusal, a stale handle, drift). The executor reads every
+ * field of what each refusal carries (message, detail, hint, every notice, the witness) and reports any token of
+ * reality hidden from the acting session that the action did not submit, which the driver never allows: no error
+ * quotes a value from outside the world. The worlds model names the typed error or outcome of each refusal, and the driver holds the real one to
  * it. Half the realities hold a document at its bound of shares (drive/suite.ts docsAtBoundRealities), so a member's
  * own share of it breaks the one-share variant's key on a fact hidden from it, and the key's refusal must quote none of
  * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
@@ -62,12 +61,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })("the worlds model:
 		cases: 32,
 		required,
 		realities: docsAtBoundRealities,
-		lead: leadsOf(
-			directTransaction(required),
-			dbSession(required),
-			breakingAtCommit(required),
-			openPastATamper(required)
-		),
+		lead: leadsOf(directTransaction(required), dbSession(required), breakingAtCommit(required)),
 		check: noCheck
 	})
 })

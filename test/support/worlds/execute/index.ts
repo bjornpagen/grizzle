@@ -21,7 +21,7 @@ import type { FolderSource } from "#adapter/migrate/input.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { codebookOf, noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -226,9 +226,9 @@ const foldersOf = (directory: Directory): ReadonlyArray<FolderSource> => [
 ]
 
 /**
- * What a login layer serves: a version's sessions, whose pool the executor probes; or one open, its layer built with
- * another snapshot than the version's (SnapshotRef: an older version's, another schema's, an edited one, or the drafted
- * one of pending folders, main's ruling on "drafted"), which opens none and ends with the open.
+ * What a login layer serves: a version's sessions, whose pool the executor probes; or one open's, its layer built with
+ * another snapshot than the version's (SnapshotRef: an older version's, another schema's), whose calls the snapshot
+ * guard refuses.
  */
 type LayerUse = "version" | "probe"
 
@@ -243,7 +243,7 @@ interface Held {
 
 /**
  * What an open hands Db.open and runs under: the role value it names, that role reached through its login, the role the
- * installation holds it as (none for a role of no installed login), and its layers, built in the open's scope.
+ * installation holds it as (none for a role of no installed login), and its layers.
  */
 interface OpenTarget {
 	readonly value: BuiltRole
@@ -481,10 +481,6 @@ const realizeWith = (
 					return Effect.succeed(state.stale)
 				case "foreign":
 					return Effect.succeed(foreign)
-				case "drafted": {
-					const text = writeSnapshot(directorySnapshot())
-					return text.ok ? Effect.succeed(snapshotJson(text.value)) : Effect.die(text.error)
-				}
 			}
 		}
 
@@ -581,62 +577,14 @@ const realizeWith = (
 			})
 
 		/**
-		 * The role value, the login role and the layers an open whose login layer is given the drafted snapshot names, as
-		 * main ruled: the new application version, deployed before its migration finished, holds the pending version's
-		 * role values and its login's layer, given the drafted snapshot (the login's password unchanged), so Db.open meets
-		 * the folder in progress at ledger. That layer's pool serves no session the executor probes. A drafted open of a
-		 * role the pending version drops or moves to a login it adds is no deploy the executor models, so it dies naming
-		 * it; with nothing pending, the drafted snapshot is the current one, and so are the role and its layer.
-		 */
-		const draftedTarget = (ref: RoleRef): Effect.Effect<OpenTarget> =>
-			Effect.gen(function* () {
-				const pending = Arr.last(state.directory.pending)
-				if (Option.isNone(pending) || (ref.kind !== "own" && ref.kind !== "other-login")) {
-					const target = yield* roleFor(ref)
-					return { ...target, layers: Effect.succeed(target.context) }
-				}
-				const spec = pending.value.next.spec
-				const built = yield* Effect.orDie(buildInstall(spec, installed.declared))
-				const value = yield* get(built.roles, ref.role, "drafted role")
-				const login = yield* Option.match(
-					Arr.findFirst(spec.logins, (l) => l.roles.includes(ref.role)),
-					{
-						onNone: () => missing(`login of the drafted role ${ref.role}`),
-						onSome: (l) => Effect.succeed(l.name)
-					}
-				)
-				const holder = yield* get(built.logins, login, "drafted login")
-				const credentials = yield* get(
-					state.current.credentials,
-					login,
-					"credentials of the drafted login"
-				)
-				const drafted = yield* snapshotOf("drafted")
-				return {
-					value,
-					reached: yield* get(holder.roles, ref.role, "drafted role of login"),
-					held: Option.none<Held>(),
-					layers:
-						ref.kind === "own"
-							? yield* Effect.map(
-									layerOf(spec, built, login, credentials, drafted, "probe"),
-									Layer.build
-								)
-							: Effect.succeed(allLayers(Option.some(login)))
-				}
-			})
-
-		/**
 		 * What an open hands Db.open and the layers it runs under, its login layer given the snapshot it names: the
-		 * version's layers for the current snapshot; for another, a layer of the role's login built for the open alone,
-		 * whose refusal (a snapshot that does not parse, or is not of the login's base) is the open's. A reference that is
-		 * no role of its own login meets the version's layers alone, whatever the snapshot, and is refused at role.
+		 * version's layers for the current snapshot; for another, a layer of the role's login built for that open, in the
+		 * realization's scope, so the Db it opens keeps its pool, and whose refusal (a snapshot whose roles or programs
+		 * do not compile under its codes) is the open's. A reference that is no role of its own login meets the version's
+		 * layers alone, whatever the snapshot, and is refused at role.
 		 */
 		const openTarget = (ref: RoleRef, snapshot: SnapshotRef): Effect.Effect<OpenTarget> =>
 			Effect.gen(function* () {
-				if (snapshot === "drafted") {
-					return yield* draftedTarget(ref)
-				}
 				const target = yield* roleFor(ref)
 				if (snapshot === "current" || ref.kind !== "own" || Option.isNone(target.held)) {
 					return { ...target, layers: Effect.succeed(target.context) }
@@ -653,7 +601,7 @@ const realizeWith = (
 					probeSnapshot,
 					"probe"
 				)
-				return { ...target, layers: Layer.build(layer) }
+				return { ...target, layers: Scope.provide(Layer.build(layer), scope) }
 			})
 
 		const opened = (
@@ -674,7 +622,12 @@ const realizeWith = (
 				onSuccess: (o) => openedDb(value, held, o, verifyCalls)
 			})
 
-		/** A Db opened: a session of its role in its login, minted; one for a role the installation does not hold is a defect. */
+		/**
+		 * A Db opened: a session of its role in its login, minted; one for a role the installation does not hold is a
+		 * defect. Db.open contacts nothing, so the executor leases one session of the Db's pool at once and releases it,
+		 * sending nothing but a new connection's startup: the pool then holds a connection from the open on, as the model's
+		 * connections are (model/session/open.ts), whatever the Db's first call meets.
+		 */
 		const openedDb = (
 			value: BuiltRole,
 			held: Option.Option<Held>,
@@ -686,6 +639,7 @@ const realizeWith = (
 					Effect.die(new Error("a Db opened for a role the installation does not hold")),
 				onSome: ({ role, login }) =>
 					Effect.gen(function* () {
+						yield* Effect.orDie(Effect.scoped(o.ctx.pool.lease))
 						const current = state.current
 						const session = yield* mint({
 							kind: "db",
@@ -710,7 +664,6 @@ const realizeWith = (
 					onSome: (token) => ({ token: token.text })
 				})
 				const before = verified.calls
-				/** A layer built for the open alone ends with it: its pool serves no session the executor probes. */
 				const exit = yield* Effect.exit(
 					Effect.scoped(
 						Effect.flatMap(target.layers, (context) =>

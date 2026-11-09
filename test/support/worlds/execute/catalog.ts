@@ -252,7 +252,7 @@ export interface Catalog {
 	readonly superuser: (sql: string) => Effect.Effect<void>
 }
 
-/** The role attributes only a superuser grants: an operator with every right, which admission and drift must catch. */
+/** The role attributes only a superuser grants: an operator with every right, which drift must catch. */
 const operatorAttributes: ReadonlySet<string> = new Set([
 	"SUPERUSER",
 	"BYPASSRLS",
@@ -430,7 +430,7 @@ const databaseDefault = (installation: Installation): Effect.Effect<string> =>
 
 /**
  * A database-level setting changed behind grizzle's back: the default isolation changed or reset, or a setting of the
- * owner's in this database, which admission does not read. Each is undone when the realization ends.
+ * owner's in this database, which the drift check does not judge. Each is undone when the realization ends.
  */
 const databaseSettingStatements = (
 	admin: PgConnection,

@@ -63,9 +63,21 @@ export const useOf = (kind: SessionKind): SessionUse => {
 }
 
 /**
- * The sessions an action of a kind may name in a state: every session for a close, a direct statement or a read; the
- * quiet ones otherwise. A Db whose snapshot a migration moved past, or met while one is unfinished, is named like any
- * other: its calls are refused by their prologue (README "Deploying").
+ * Whether a session is a Db whose claims hold a refined value PostgreSQL refuses: Db.open judges no claim against the
+ * database, so it opens, and is then only closed, a harness rule. What its calls meet is where each statement reads the
+ * claims, the cast every reader of a context takes (sql/print.ts contextClaims), which the direct writers' hand-set
+ * claims draw over every plan order (session/direct.ts handSetFaults).
+ */
+const refusedClaims = (state: ModelState, session: number): boolean => {
+	const s = state.sessions[session]
+	return s?.kind === "db" && s.claims === "refused"
+}
+
+/**
+ * The sessions an action of a kind may name in a state: every session for a close or a direct statement; every one
+ * but a Db with claims PostgreSQL refuses for a read (refusedClaims); the quiet ones of those otherwise. A Db whose
+ * snapshot a migration moved past, or met while one is unfinished, or opened at a snapshot no migration lands, is named
+ * like any other: its calls are refused by their prologue (README "Deploying").
  */
 export const allowedFor =
 	(state: ModelState, kind: SessionKind): ((session: number) => boolean) =>
@@ -74,20 +86,28 @@ export const allowedFor =
 			case "close":
 			case "direct":
 			case "direct-end":
-			case "read":
 				return true
+			case "read":
+				return !refusedClaims(state, session)
 			case "apply":
 			case "refresh":
 			case "interrupt":
-				return quiet(state, holderOf(state), session)
+				return !refusedClaims(state, session) && quiet(state, holderOf(state), session)
 		}
 	}
 
-/** The calls a wild value may be handed to at a session: every one, and only a read while a direct transaction is open. */
+/**
+ * The calls a wild value may be handed to at a session: every one, and only a read while a direct transaction is open;
+ * none at a Db with claims PostgreSQL refuses (refusedClaims).
+ */
 export const wildCalls =
 	(state: ModelState) =>
 	(session: number): ReadonlyArray<"read" | "apply" | "refresh"> =>
-		quiet(state, holderOf(state), session) ? ["read", "apply", "refresh"] : ["read"]
+		refusedClaims(state, session)
+			? []
+			: quiet(state, holderOf(state), session)
+				? ["read", "apply", "refresh"]
+				: ["read"]
 
 /**
  * Whether a state offers the session an action names: one its kind may name (allowedFor), a wild value at a call the
@@ -172,11 +192,15 @@ export const applicable = (state: ModelState, kind: ActionKind): boolean => {
 	}
 }
 
-/** Whether a session is live: a Db its snapshot describes, or a direct writer's transaction. */
+/**
+ * Whether a session is live: a Db its snapshot describes, whose guard holds the ledger to it and whose claims
+ * PostgreSQL admits, or a direct writer's transaction.
+ */
 const isOpen =
 	(state: ModelState) =>
 	(s: ModelSession): boolean =>
-		s.kind === "direct" || (s.kind === "db" && !staleDb(state, s))
+		s.kind === "direct" ||
+		(s.kind === "db" && s.guard === "held" && s.claims === "admitted" && !staleDb(state, s))
 
 /**
  * The moves a state forces when the weights give nothing to draw: with no live session, opening one (a Db, or a direct

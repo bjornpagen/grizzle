@@ -38,9 +38,9 @@ import {
 } from "#test/support/worlds/privileges.ts"
 
 /**
- * Every role entry of a small space, installed, holds exactly the privileges its classification gives it, and its role
- * is admitted: the writable-entry rule of README "Writing through a role", as the worlds model restates it
- * (model/host.ts classifyEntry), and Db.open's admission of what the migration installed (README "Connecting"), agree.
+ * Every role entry of a small space, installed, holds exactly the privileges its classification gives it, and a Db of
+ * its role opens: the writable-entry rule of README "Writing through a role", as the worlds model restates it
+ * (model/host.ts classifyEntry), and what the migration installed, agree.
  *
  * The space is every entry over a two-relation base with one context: P(id, v) and Q(id, w), each keyed by id, and the
  * context C { x }, read from the token's top level. An entry's rule matches its would-be target T (P or Q), T's two
@@ -311,7 +311,7 @@ const boxOf = <A>(generator: Gen<A>): ReadonlyArray<A> => {
 	return box
 }
 
-/** The most read-only entries a role holds beside its writes, so no role's views crowd one admission. */
+/** The most read-only entries a role holds beside its writes, so no role's views crowd one installation's catalog read. */
 const readOnlyPerRole = 24
 
 /** A role being filled: its entries, the ones it writes, and the relations they write. */
@@ -458,7 +458,7 @@ const openOf = (actions: ReadonlyArray<Action>, role: string): Action =>
 
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles", (it) => {
 	it.effect(
-		"every entry of the small space holds the privileges its classification gives it, and its role is admitted",
+		"every entry of the small space holds the privileges its classification gives it, and a Db of its role opens",
 		(ctx) =>
 			searched(
 				ctx,
@@ -478,7 +478,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 								)
 							)
 						)
-						const admitted = new Set<string>()
+						const opened = new Set<string>()
 						return yield* exhaust(
 							{
 								box: { kind: "unstated" },
@@ -504,13 +504,13 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 										[],
 										`the privileges of ${role}, which holds ${name}, are its classification's`
 									)
-									if (!admitted.has(role)) {
+									if (!opened.has(role)) {
 										yield* world.reset(empty)
 										const start = yield* checkStart(world, initialState(install, names, empty))
 										const open = openOf(enumerateKind(start, "open-db", defaultScope), role)
 										const stepped = yield* runStep(world, start, open, 0, unnoted)
 										assert.equal(stepped.observation.kind, "opened", `Db.open of ${role}`)
-										admitted.add(role)
+										opened.add(role)
 									}
 									c.noteAll(verdictFeatures(s, classified))
 								})

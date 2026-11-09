@@ -21,15 +21,15 @@ import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
  * from the payload's own top level or from the nested claim object its `claim` names; an absent claim object is no
  * fact; a claim object that is no object, a field missing from it, or a value its field's encoder refuses is refused at
  * stage token (ClaimRefused); keys no context names are ignored. The host decides every type but a refinement: a text
- * field's regex and a contract's bounds are PostgreSQL's to judge, in Db.open's admission flight, so a value they refuse
- * is refused at stage token only once admission passed.
+ * field's regex and a contract's bounds are PostgreSQL's to judge, where a statement reads the claim, so a value they
+ * refuse opens the Db all the same.
  */
 export type TokenVerdict =
 	| { readonly kind: "refused"; readonly by: TokenRefuser }
 	| {
 			readonly kind: "decoded"
 			readonly facts: ContextFacts
-			/** Whether PostgreSQL refuses a refined claim of the facts, which Db.open reports after admission. */
+			/** Whether PostgreSQL refuses a refined claim of the facts where a statement reads it. */
 			readonly refinedRefused: boolean
 	  }
 

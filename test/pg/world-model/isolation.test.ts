@@ -140,23 +140,12 @@ const writesRequired: Situations<WorldFeature> = [
 	])
 ]
 
-/**
- * A stale token refused (op:open-db:inside:not-matching:db:open-refused) is no case of the claims suite. A stale token
- * is a payload the layer's verify returns and the role's contexts decode, each value in its field's domain (a removed
- * user, a deleted or left organization, an earlier request: invalid/tokens.ts staleVariants), so Db.open refuses it
- * only at a stage after the token that a catalog change (admission) or an unfinished migration (ledger) decides. The
- * suite draws neither (its kinds are open-db, read, close and wild), so no case of it can reach the feature; the errors
- * suite, which draws every kind, and privileges/open-check, which draws catalog changes, require it.
- */
-const staleTokenRefused: WorldFeature = "op:open-db:inside:not-matching:db:open-refused"
-
 /** What the claims suite must reach. */
 const claimsRequired: Situations<WorldFeature> = [
 	...requiredWhere(
 		(f) =>
-			f !== staleTokenRefused &&
-			(opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
-				opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f))
+			opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
+			opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f)
 	),
 	...invalidFeatures(ofKinds("token:")),
 	"claim:uuid",

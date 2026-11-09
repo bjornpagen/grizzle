@@ -221,36 +221,14 @@ const openDbStrata = (state: ModelState, focus: RoleFocus): Strata<Action> => {
 		const role = Option.getOrElse(namedRole(state, ref), () => firstFocused ?? install.roles[0])
 		return map(tokenArms(state, role.name).live, (token) => open(ref, token, "current"))
 	})
-	/**
-	 * The snapshot strata, each an own role's live open: none where the focus names no installed role. The drafted
-	 * snapshot is the new version's, which holds only the last pending folder's roles: it opens one of those alone.
-	 */
-	const lastFolder =
-		state.migrations.kind === "pending" ? state.migrations.folders.at(-1) : undefined
-	const [firstDrafted, ...moreDrafted] = Arr.filter(
-		focused,
-		(r) => lastFolder !== undefined && Arr.some(lastFolder.roles, (x) => x.name === r.name)
-	)
-	const snapshotOptions = armsStrata(snapshotArms(state))
-	const offered: Strata<SnapshotRef> =
-		firstDrafted === undefined
-			? {
-					live: snapshotOptions.live,
-					stale: Arr.filter(snapshotOptions.stale, (v) => v.invalid !== "handle:drafted-snapshot"),
-					wild: Arr.filter(snapshotOptions.wild, (v) => v.invalid !== "handle:drafted-snapshot")
-				}
-			: snapshotOptions
+	/** The snapshot strata, each an own role's live open: none where the focus names no installed role. */
 	const snapshots =
 		firstFocused === undefined
 			? []
 			: [
 					offLive(
-						chainStrata(offered, (snapshot) => (source) => {
-							const r = source.draw(
-								snapshot === "drafted" && firstDrafted !== undefined
-									? element([firstDrafted, ...moreDrafted])
-									: element([firstFocused, ...moreFocused])
-							)
+						chainStrata(armsStrata(snapshotArms), (snapshot) => (source) => {
+							const r = source.draw(element([firstFocused, ...moreFocused]))
 							return open(own(r), source.draw(tokenArms(state, r.name).live), snapshot)
 						})
 					)
