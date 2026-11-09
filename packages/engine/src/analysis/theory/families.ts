@@ -412,7 +412,7 @@ interface AxisEnd {
 }
 
 /** An axis's two ends. */
-interface AxisShape {
+export interface AxisShape {
 	readonly axis: AxisKind
 	readonly source: AxisEnd
 	readonly target: AxisEnd
@@ -500,6 +500,19 @@ const atEnd = (f: FamilyShape, end: AxisEnd, side: RidingSide): boolean =>
 			)
 		: side.selection.conjuncts.length === 0)
 
+/** A family as a containment tries to ride it (`ridesOf`): its shape, and its axes as a containment rides them
+ * (`axisShapes`), made once for every containment that tries it. */
+export interface RiddenFamily {
+	readonly shape: FamilyShape
+	readonly ridden: ReadonlyArray<AxisShape>
+}
+
+/** `shape` as a containment tries to ride it (`RiddenFamily`). */
+export const riddenFamily = (shape: FamilyShape): RiddenFamily => ({
+	shape,
+	ridden: axisShapes(shape)
+})
+
 /**
  * The axis a containment rides, or undefined when it rides none and keeps its own native: the first family, in
  * the order the families were stated, and its first axis, whose source is the containment's left side and whose target
@@ -507,13 +520,13 @@ const atEnd = (f: FamilyShape, end: AxisEnd, side: RidingSide): boolean =>
  * axis that admits it is exact, so the first is chosen for determinism.
  */
 export const ridesOf = (
-	families: Iterable<FamilyShape>,
+	families: Iterable<RiddenFamily>,
 	from: RidingSide,
 	to: RidingSide,
 	pairs: NonEmptyReadonlyArray<RidingPair>
 ): Ride | undefined => {
-	for (const f of families) {
-		for (const a of axisShapes(f)) {
+	for (const { shape: f, ridden } of families) {
+		for (const a of ridden) {
 			const width = a.source.key.length
 			const carried = pairs.slice(width)
 			if (
@@ -592,10 +605,13 @@ export interface FoldEntry {
  * One family as the theory builds it: its shape, its law, the pairs each axis carries and the folds over it, filled as
  * the statements are normalized and frozen into a Family once every one is.
  */
-export class FamilyEntry {
+export class FamilyEntry implements RiddenFamily {
 	readonly shape: FamilyShape
 	/** The family or tree statement's location: where a pairing its group makes is refused. */
 	readonly loc: SourceLoc
+	/** Its axes as a containment rides them (`axisShapes`), made once with the entry for every containment that tries
+	 * them (`ridesOf`). */
+	readonly ridden: ReadonlyArray<AxisShape>
 	readonly #axes: {
 		readonly [A in AxisKind]: Map<
 			string,
@@ -611,6 +627,7 @@ export class FamilyEntry {
 	constructor(shape: FamilyShape, loc: SourceLoc) {
 		this.shape = shape
 		this.loc = loc
+		this.ridden = axisShapes(shape)
 	}
 
 	/** The folds over the family, by their position: a fold's number. */

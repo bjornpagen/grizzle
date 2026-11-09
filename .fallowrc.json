@@ -795,8 +795,11 @@
 	// from the type it is passed as, and the simplifier's rules call DagEditor.discriminantSpine on the editor of the cx
 	// each Rule's at receives (lower/optimize/simplify/rules.ts). freshVar, freshOccurrence and freshScope: fallow does
 	// not follow a class's property to its type, and the catalog shapes call CatalogEditor's through CatalogContext.ed
-	// (lower/shapes/catalog/neighbor.ts).
+	// (lower/shapes/catalog/neighbor.ts). folds, fold and axes, only of the class that implements RiddenFamily: fallow
+	// reads FamilyEntry's as unused, though the Normalizer reads all three through its Map of FamilyEntry
+	// (analysis/theory/laws.ts). The entry goes when fallow is patched (TODO.md, grizzle/upstream/fallow).
 	"usedClassMembers": [
+		{ "implements": "RiddenFamily", "members": ["folds", "fold", "axes"] },
 		"discriminantSpine",
 		"use",
 		"useRelation",

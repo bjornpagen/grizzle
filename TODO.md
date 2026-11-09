@@ -204,3 +204,8 @@ post-beta swarm's fixes for the next release.
 - upstream/arkregex-zero-width-space-marker: ArkRegex reads a literal U+200B in a pattern as its own error or anchor
   marker, so grizzle's scan writes it as NUL and the host type writes it back (types/fields/source.ts, regex.ts). File
   at arktypeio/arktype, then delete the stand-in once repro.sh reports the control alone.
+- grizzle/upstream/fallow: fallow reports class members read through a Map of the class as unused once the class
+  implements an interface: FamilyEntry.folds, fold and axes (analysis/theory/families.ts), which the Normalizer reads
+  through its Map of FamilyEntry (analysis/theory/laws.ts), since c665a759; dropping the implements clause alone does
+  not clear it. Patch it in grizzle/upstream/fallow, then delete .fallowrc.json's usedClassMembers entry scoped to the
+  class that implements RiddenFamily.
