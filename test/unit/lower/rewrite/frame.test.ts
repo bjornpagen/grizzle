@@ -1,8 +1,7 @@
 /**
  * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly lowers its pass's
- * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), the same input
- * rewrites identically, and the worklist misses no rewrite: a pass's output is a fixed point of the pass, as a scan of
- * the whole DAG to a fixed point would deliver.
+ * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), and the same
+ * input rewrites identically.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -23,21 +22,13 @@ import {
 } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
 } from "#compiler/lower/optimize/demand/phases.ts"
-import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
-import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
-import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
-import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
-import { semiPushdownPass } from "#compiler/lower/optimize/pushdown/semi.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
@@ -288,71 +279,6 @@ describe("determinism", () => {
 									c.note("a pass changed the DAG")
 								}
 								warm = hot
-							}
-						})
-				)
-			)
-		}
-	)
-})
-
-describe("the worklist", () => {
-	it.effect(
-		"every rewrite pass delivers a fixed point of itself: run again over its own output, it rewrites nothing",
-		(ctx) => {
-			const chain = [
-				simplifyPass,
-				fusePass,
-				simplifyPass,
-				prunePass,
-				eliminatePass,
-				closedPass,
-				existencePass,
-				pushdownPass,
-				semiPushdownPass,
-				simplifyPass,
-				prunePass,
-				lateFetchPass,
-				catalogPass("auto"),
-				graphPass
-			]
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/lower/rewrite/frame-fixed-point",
-						literal: Formatter.format,
-						kept: [],
-						draw: drawn(queryCaseGen(defaultGenConfig)),
-						runs: 150,
-						shrink: completeShrink,
-						/** The chain rewrites: a fixed point is checked over changed DAGs, not only ones no pass touched. */
-						coverage: required<FrameFeature>(["a pass changed the DAG"], {
-							cases: 150,
-							sense: notesOnly
-						}),
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(q, c) =>
-						Effect.sync(() => {
-							const catalog = genCatalog(q.schema)
-							const chainCtx = passContext({ catalog, evidence: "snapshot" })
-							let current = caseQuery(q)
-							for (const pass of chain) {
-								const out = succeeded(pass.run(current, chainCtx))
-								if (out.dag !== current.dag) {
-									c.note("a pass changed the DAG")
-								}
-								if (pass.measure === "bounded-worklist") {
-									const again = succeeded(
-										pass.run(out, passContext({ catalog, evidence: "snapshot" }))
-									)
-									assert.equal(again.dag, out.dag, `${pass.name} rewrote its own output`)
-								}
-								current = out
 							}
 						})
 				)

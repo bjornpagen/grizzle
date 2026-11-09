@@ -3,8 +3,6 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 
-type PassMeasure = "single-traversal" | "bounded-worklist"
-
 interface CertificateLog {
 	readonly record: (certificate: Certificate) => void
 	readonly all: () => ReadonlyArray<Certificate>
@@ -20,8 +18,8 @@ export interface PassContext {
 /**
  * Passes and their context.
  *
- * A pass is a pure function from its input to a Result: passes never throw. Each pass states its measure: one traversal,
- * or a bounded worklist; there is no unrestricted rewrite loop. The context is the optimized pipeline's: it carries the compilation's
+ * A pass is a pure function from its input to a Result: passes never throw. Each pass terminates by its construction:
+ * one traversal, or rewrites each lowering a potential; there is no unrestricted rewrite loop. The context is the optimized pipeline's: it carries the compilation's
  * certificate log, the evidence context the artifact is compiled for, and the evidence
  * catalog its proofs resolve declared keys and containments through.
  * Every pass reads the one catalog of its compilation, so no pass can prove over constraints named another way. The conservative lowering is no pass: it runs outside any context,
@@ -29,7 +27,6 @@ export interface PassContext {
  */
 export interface Pass<I, O> {
 	readonly name: string
-	readonly measure: PassMeasure
 	readonly run: (input: I, ctx: PassContext) => Result.Result<O, CompileError>
 }
 

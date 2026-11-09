@@ -175,7 +175,6 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  */
 export const ctePolicyPass: Pass<LogicalQuery, CtePlannedQuery> = {
 	name: "ctePolicy",
-	measure: "single-traversal",
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const decided = ctePlan(query.dag)

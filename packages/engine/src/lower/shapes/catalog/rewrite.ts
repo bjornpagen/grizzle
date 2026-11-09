@@ -255,7 +255,6 @@ export const rewriteCatalog = <R extends Roots>(
  */
 export const catalogPass = (parents: ParentPolicy): Pass<LogicalQuery, LogicalQuery> => ({
 	name: "compileTargetCatalog",
-	measure: "single-traversal",
 	run: (query, ctx) => {
 		const options: CatalogOptions = { catalog: ctx.catalog, parents }
 		return Result.map(rewriteCatalog(query.dag, options), (result) => {

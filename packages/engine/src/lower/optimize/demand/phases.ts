@@ -34,9 +34,6 @@ export const sequence = (
 	passes: ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>
 ): Pass<LogicalQuery, LogicalQuery> => ({
 	name,
-	measure: passes.some((p) => p.measure === "bounded-worklist")
-		? "bounded-worklist"
-		: "single-traversal",
 	run: (query, ctx) => {
 		let current: Result.Result<LogicalQuery, CompileError> = Result.ok(query)
 		for (const pass of passes) {

@@ -151,7 +151,6 @@ const deliver = (
 /** The optimized lowering of a checked query, as a pass. */
 const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, OptimizedProgram> => ({
 	name: "optimizedLowering",
-	measure: "bounded-worklist",
 	run: (input, ctx) => {
 		const rewritten = rewritePipeline(options.subject.kind).run(input, ctx)
 		if (!rewritten.ok) {

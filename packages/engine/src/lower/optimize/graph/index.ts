@@ -19,7 +19,7 @@ const graphRules: ReadonlySet<CertificateRule> = new Set(Object.values(seedRules
  * Bounded traversal specialization.
  *
  * The pass runs in the specialized lowering stage of the optimized pipeline (../pipeline.ts), after the relational
- * rewrites and the compile-target catalog, and is a bounded-worklist rewrite pass (../demand/frame.ts) with one rule
+ * rewrites and the compile-target catalog, and is a rewrite pass (../demand/frame.ts) with one rule
  * family:
  *
  * - proved root pushdown (seed.ts): a predicate the consumer of a recursion applies to columns the step carries
@@ -43,7 +43,6 @@ const graphRules: ReadonlySet<CertificateRule> = new Set(Object.values(seedRules
  */
 export const graphPass: Pass<LogicalQuery, LogicalQuery> = {
 	name: graphPassName,
-	measure: rewrites.measure,
 	run: (input, ctx) => {
 		const before = ctx.certificates.all().filter((c) => graphRules.has(c.rule)).length
 		return Result.map(rewrites.run(input, ctx), (output) =>

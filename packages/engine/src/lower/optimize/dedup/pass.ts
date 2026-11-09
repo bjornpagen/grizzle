@@ -20,7 +20,6 @@ const dedupPassName = "dedupPlacement"
  */
 export const dedupPlacement: Pass<DedupInput, DedupPlan> = {
 	name: dedupPassName,
-	measure: "bounded-worklist",
 	run: (input, ctx) => {
 		const planned = placeDeduplication(input.dag, {
 			context: ctx.evidenceContext,

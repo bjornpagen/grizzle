@@ -18,11 +18,9 @@ const rewrites = rewritePass({
 
 /**
  * Semantic simplification: the Allen normal form of span predicates, once over every filter, then literal and finite
- * folding, equality propagation, branch removal, and the filter and projection normalizations, as one bounded-worklist
- * pass. Fusion (R01, ../fuse) is the other half of the semantic simplification pass and runs beside it.
+ * folding, equality propagation, branch removal, and the filter and projection normalizations, as one rewrite pass. Fusion (R01, ../fuse) is the other half of the semantic simplification pass and runs beside it.
  */
 export const simplifyPass: Pass<LogicalQuery, LogicalQuery> = {
 	name: "simplify",
-	measure: rewrites.measure,
 	run: (input, ctx) => Result.flatMap(allen.run(input, ctx), (normal) => rewrites.run(normal, ctx))
 }
