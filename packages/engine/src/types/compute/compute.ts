@@ -1026,10 +1026,11 @@ export interface ComputeApi {
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
 	/**
-	 * a || b, PostgreSQL's textcat: text of no pattern. The second operand is a text term the first meets, a parameter
-	 * among them, or a string. Admitted in contract predicates, row checks, generated fields and folds; in a query only
-	 * as a side of Compute.eq or Compute.ne, which is decided without building the concatenation, since it allocates its
-	 * result, which PostgreSQL refuses past 1 GB, and a read never fails on a value.
+	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
+	 * bounded, a string by its own. The second operand is a text term the first meets, a parameter among them, or a
+	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query only as a side of
+	 * Compute.eq or Compute.ne, which is decided without building the concatenation, since it allocates its result,
+	 * which PostgreSQL refuses past 1 GB, and a read never fails on a value.
 	 */
 	concat<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
@@ -1058,10 +1059,11 @@ export interface ComputeApi {
 	 * PostgreSQL's translate, by characters: x with each character of from replaced by the character of to at its
 	 * position. from and to are strings of one length, from holding each character once, so no character is deleted;
 	 * compilation reads the result as text of the image of x's language under the map, so a bounded pattern stays
-	 * bounded. Admitted in contract predicates, row checks and generated fields; in a query only over a text whose
-	 * pattern bounds it within 268,435,454 bytes, since PostgreSQL's translate allocates four bytes for every byte of
-	 * its operand and refuses past 1 GB. The engine reads from and to before the subject, so a subject that is no term is
-	 * refused as one only beside two strings.
+	 * bounded, within the most bytes the image of a text of x's byte bound takes, x's own bound for a map that takes no
+	 * character to a wider one. Admitted in contract predicates, row checks and generated fields; in a query only over a
+	 * text whose type bounds it within 268,435,454 bytes, since PostgreSQL's translate allocates four bytes for every
+	 * byte of its operand and refuses past 1 GB. The engine reads from and to before the subject, so a subject that is no
+	 * term is refused as one only beside two strings.
 	 */
 	translate<A extends TermBase | FirstValue, X, PA, OA, const Fr, const To>(
 		x: A &
@@ -1075,14 +1077,15 @@ export interface ComputeApi {
 	>
 	/**
 	 * ASCII's case fold, translate(x, "A…Z", "a…z"): only the 26 capitals lower, every other character, a non-ASCII
-	 * letter included, stays, so the fold is one map whatever the collation, as an IMMUTABLE expression needs.
+	 * letter included, stays, so the fold is one map whatever the collation, as an IMMUTABLE expression needs, and
+	 * compilation reads the result within x's byte bound.
 	 */
 	lowerAscii<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
 	 * XML Schema's whiteSpace replace: translate(x, "\t\n\r", "   "), tab, LF and CR each a space, as Compute.translate
-	 * is admitted.
+	 * is admitted, and within x's byte bound.
 	 */
 	replaceWhitespace<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
@@ -1090,9 +1093,10 @@ export interface ComputeApi {
 	/**
 	 * XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at either end,
 	 * `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`, IMMUTABLE. Compilation reads the result as text of a language
-	 * holding its values within x's length bound: exactly the image of x's where it is cheap to state, and otherwise
-	 * more. Admitted in contract predicates, row checks and generated fields; in a query only over a text whose pattern
-	 * bounds it within 268,435,454 bytes, since PostgreSQL's regex engine widens its operand to four bytes a byte.
+	 * holding its values within x's length and byte bounds, which it never lengthens: exactly the image of x's where it
+	 * is cheap to state, and otherwise more. Admitted in contract predicates, row checks and generated fields; in a query
+	 * only over a text whose type bounds it within 268,435,454 bytes, since PostgreSQL's regex engine widens its operand
+	 * to four bytes a byte.
 	 */
 	collapse<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">

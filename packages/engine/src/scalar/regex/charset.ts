@@ -92,6 +92,10 @@ export const complement = (set: CharSet): CharSet => {
 	return charSet(out)
 }
 
+/** The admitted code points both sets hold. */
+export const intersection = (a: CharSet, b: CharSet): CharSet =>
+	complement(union([complement(a), complement(b)]))
+
 export const isEmpty = (set: CharSet): boolean => set.length === 0
 
 export const has = (set: CharSet, cp: number): boolean => {
@@ -117,6 +121,18 @@ export const size = (set: CharSet): number => set.reduce((n, [lo, hi]) => n + (h
 /** The UTF-8 width of one code point: at most four bytes. */
 export const utf8Width = (cp: number): 1 | 2 | 3 | 4 =>
 	cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4
+
+/**
+ * The admitted code points of each UTF-8 width, one byte to four, in width order: each class of utf8Width, U+0001 to
+ * U+007F, U+0080 to U+07FF, U+0800 to U+FFFF without the surrogates, and U+10000 to U+10FFFF (RFC 3629 §3).
+ */
+export const utf8Classes: ReadonlyArray<{ readonly width: 1 | 2 | 3 | 4; readonly set: CharSet }> =
+	Object.freeze([
+		Object.freeze({ width: 1, set: charSet([[0x0, 0x7f]]) }),
+		Object.freeze({ width: 2, set: charSet([[0x80, 0x7ff]]) }),
+		Object.freeze({ width: 3, set: charSet([[0x800, 0xffff]]) }),
+		Object.freeze({ width: 4, set: charSet([[0x10000, maxScalar]]) })
+	])
 
 /** The widest UTF-8 encoding of any member, 0 for the empty set. */
 export const maxUtf8Width = (set: CharSet): number => {

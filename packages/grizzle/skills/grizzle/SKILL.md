@@ -515,7 +515,10 @@ The command line's own refusals, by stage:
   lies in, which compilation proves; translate in a query only over a pattern that bounds its length. For XML
   Schema's whiteSpace facets use `Compute.replaceWhitespace(x)` (tab, LF and CR to spaces) and `Compute.collapse(x)`
   (runs to one space, none at either end), never a regex of your own; cast a collapse into a refined text the same
-  way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any text. A query's
+  way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any text. A collapse, a
+  translation and a concatenation keep their operands' byte bound, a translation to wider characters by the most its
+  image can take, so a `str.bytes` text normalized from one casts back into it:
+  `generated(Key, Compute.cast(Compute.lowerAscii(Compute.collapse(row.lang)), Key))` for `lang` a `Key`. A query's
   `Compute.matches` and `Compute.collapse`, like its translate, need a pattern that bounds the subject's length:
   PostgreSQL's regex engine widens its subject fourfold. Fold an ordered family's texts with `Monoid.concat`, naming its
   `(before, after)` pair, and write each member's separator into its own step value; type the accumulators by a

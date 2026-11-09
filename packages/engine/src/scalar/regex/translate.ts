@@ -1,20 +1,33 @@
+import { maxOf } from "#compiler/core/array.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
-import type { PatternSource } from "#compiler/ir/scalar.ts"
+import type { PatternSource, Patterns, TextBounds } from "#compiler/ir/scalar.ts"
 import {
 	type CharSet,
 	charSet,
 	complement,
 	domain,
 	has,
+	intersection,
 	isAdmittedCodePoint,
-	union
+	maxUtf8Width,
+	size,
+	union,
+	utf8Classes,
+	utf8Width
 } from "#compiler/scalar/regex/charset.ts"
 import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { anchoredAt, anyText, printSource, sourceFlags } from "#compiler/scalar/regex/source.ts"
+import {
+	alphabetOf,
+	anchoredAt,
+	anyText,
+	printSource,
+	sourceFlags
+} from "#compiler/scalar/regex/source.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
@@ -158,3 +171,108 @@ export const imageOf = (
 	patterns: PatternAutomata
 ): { readonly exact: string; readonly within: string } =>
 	imageSources(patterns.parse(pattern).node, map)
+
+/**
+ * A kind of character a text holds: the UTF-8 bytes it takes and the most bytes its image under a map takes. The empty
+ * kind, no character, takes none, and fills a text out to its bound in characters.
+ */
+interface CharKind {
+	readonly bytes: number
+	readonly image: number
+}
+
+/** No character: what a text of fewer characters than its bound holds in their place. */
+const noCharacter: CharKind = Object.freeze({ bytes: 0, image: 0 })
+
+/**
+ * The kinds of character of `alphabet` in bytes order: the empty kind, then one for each UTF-8 width the alphabet holds
+ * a code point of (charset.ts utf8Classes), with the most bytes its image under `map` takes, the width itself for a code
+ * point the map leaves and its target's width for one it moves.
+ */
+const kindsOf = (map: CharMap, alphabet: CharSet): ReadonlyArray<CharKind> => [
+	noCharacter,
+	...utf8Classes.flatMap(({ width, set }): ReadonlyArray<CharKind> => {
+		const held = intersection(alphabet, set)
+		const moved = [...map].flatMap(([source, target]) =>
+			has(held, source) ? [utf8Width(target)] : []
+		)
+		const images = moved.length < size(held) ? [width, ...moved] : moved
+		return isNonEmpty(images) ? [{ bytes: width, image: maxOf(images, 0) }] : []
+	})
+]
+
+/**
+ * How many characters of each of three kinds admit both a trade among them and its reverse (imageBytes): a code point's
+ * widest UTF-8 width, the most bytes two kinds differ by.
+ */
+const traded = maxUtf8Width(domain)
+
+/** A count of characters of each of some kinds. */
+type Counts = ReadonlyArray<readonly [CharKind, number]>
+
+/** Every choice of a count below `traded` for each of `kinds`. */
+const fewOf = (kinds: ReadonlyArray<CharKind>): ReadonlyArray<Counts> =>
+	kinds.reduce<ReadonlyArray<Counts>>(
+		(choices, kind) =>
+			choices.flatMap((choice) =>
+				Array.from({ length: traded }, (_, count) => [...choice, [kind, count] as const])
+			),
+		[[]]
+	)
+
+/**
+ * The most bytes the image takes of a text of each kind of `few` its count, and the rest of the characters `bounds`
+ * admits of `low` and `high`, all of them, low taking fewer bytes than high: low's alone or as many of high's as the
+ * bytes left admit, its bytes growing linearly in high's count; none where the bytes left do not hold that many of low's.
+ */
+const pairImage = (
+	low: CharKind,
+	high: CharKind,
+	few: Counts,
+	bounds: TextBounds
+): ReadonlyArray<number> => {
+	const chars = few.reduce((n, [, count]) => n - count, bounds.length)
+	const bytes = few.reduce((n, [kind, count]) => n - kind.bytes * count, bounds.bytes)
+	const image = few.reduce((n, [kind, count]) => n + kind.image * count, 0)
+	if (chars < 0 || bytes < low.bytes * chars) {
+		return []
+	}
+	const highs = Math.min(chars, Math.floor((bytes - low.bytes * chars) / (high.bytes - low.bytes)))
+	return [image + low.image * chars + Math.max(0, high.image - low.image) * highs]
+}
+
+/**
+ * The most UTF-8 bytes the image under `map` takes of a text of at most `bounds.bytes` bytes and `bounds.length`
+ * characters, each in the alphabet of every one of `patterns` (source.ts alphabetOf), its parse read from `automata`:
+ * so the bound on the bytes of the translation of every value of a text type of those patterns and bounds, at most
+ * `bounds.bytes` where the map takes no character to a wider one, and exactly the most such a text's image takes.
+ *
+ * A text is a count of characters of each kind (kindsOf), the empty kind filling it out to `bounds.length`, its bytes
+ * within `bounds.bytes`, and its image takes each count times its kind's image. For kinds i < j < k by bytes, trading
+ * k - i characters of j for k - j of i and j - i of k keeps both sums and raises the sum of each count times its kind's
+ * bytes squared by (k - j)(j - i)(k - i). Of the texts whose image takes the most, the one of the least such sum cannot
+ * make both, since the reverse would take more bytes, or as many by a lesser sum, or else the trade more; so it holds
+ * fewer than `traded` characters of one of any three kinds. At most two kinds hold more, so the most is the most over
+ * each pair of kinds and each count below `traded` of every other kind (pairImage).
+ */
+export const imageBytes = (
+	patterns: Patterns,
+	map: CharMap,
+	bounds: TextBounds,
+	automata: PatternAutomata
+): number => {
+	const alphabet = patterns.reduce(
+		(a, pattern) => intersection(a, alphabetOf(automata.parse(pattern).node)),
+		domain
+	)
+	const kinds = kindsOf(map, alphabet)
+	return maxOf(
+		kinds.flatMap((low, i) =>
+			kinds.slice(i + 1).flatMap((high) => {
+				const others = kinds.filter((kind) => kind !== low && kind !== high)
+				return fewOf(others).flatMap((few) => pairImage(low, high, few, bounds))
+			})
+		),
+		0
+	)
+}

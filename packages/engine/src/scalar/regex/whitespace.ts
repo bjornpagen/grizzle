@@ -7,21 +7,14 @@ import {
 	type CharSet,
 	charSet,
 	complement,
-	domain,
 	has,
 	isEmpty,
 	union
 } from "#compiler/scalar/regex/charset.ts"
-import {
-	folded,
-	type LiveNode,
-	RegexBuilder,
-	type RegexNode,
-	set
-} from "#compiler/scalar/regex/ir.ts"
+import { type LiveNode, RegexBuilder, type RegexNode, set } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { anchoredAt, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
+import { alphabetOf, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
 
 /**
  * XML Schema's whiteSpace facet over the four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+`
@@ -71,32 +64,6 @@ export const whitespaceRun: string = ((): string => {
 	}
 	return toAre(run)
 })()
-
-/** Every code point a node's sets hold. */
-const setsOf = (node: LiveNode): CharSet =>
-	folded(new Map<RegexNode, CharSet>(), node, (n, of): CharSet => {
-		switch (n.kind) {
-			case "set":
-				return n.set
-			case "seq":
-				return union(n.items.map(of))
-			case "alt":
-				return union(n.arms.map(of))
-			case "repeat":
-				return of(n.body)
-			case "empty":
-			case "start":
-			case "end":
-				return []
-		}
-	})
-
-/**
- * Every code point a value of a pattern's language may hold: its sets', where it is anchored at both ends, and every
- * admitted code point otherwise, since a match anywhere admits any prefix and suffix.
- */
-const alphabetOf = (node: LiveNode): CharSet =>
-	anchoredAt(node, "start") && anchoredAt(node, "end") ? setsOf(node) : domain
 
 /** Whether a node is one class repeated freely and anchored at both ends, `^[A]*$`: every text over A. */
 const isFreeOver = (node: LiveNode): boolean => {
