@@ -21,6 +21,10 @@ post-beta swarm's fixes for the next release.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
+- **One statement per write stratum (waste):** the write executor keeps carriers (a TEMPORARY table per write) and the
+  sequential realization, with UnorderableStratum refusing what it cannot order. Making every stratum one statement
+  (sibling data-modifying CTEs reading the stratum's state) deletes both, but rewrites the insert, put, delete, serial
+  and entry protocols (4-5k lines). Deferred 2026-11-08 behind ONERTT-WRITE's one-flight family writer (F2).
 - **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
   relation lists for its key, e.g. one row per (domain, pattern), compiled into the CHECK as each key's patterns ANDed.
   It would delete qti-pie's product regex (~1.2 MB of install SQL for NCName). Until then qti-pie keeps it.
