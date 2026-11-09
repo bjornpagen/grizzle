@@ -120,6 +120,16 @@ export type FieldDesc =
 	| { readonly kind: "bits"; readonly roster: string }
 	| { readonly kind: "vector"; readonly dimensions: number }
 
+/** Visits every descriptor inside `desc`: itself, then a contract's base's and a span's endpoint's, depth first. */
+export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
+	visit(desc)
+	if (desc.kind === "contract") {
+		nestedFields(desc.base, visit)
+	} else if (desc.kind === "span") {
+		nestedFields(desc.endpoint, visit)
+	}
+}
+
 /**
  * A derived relation's inferred field descriptor (analysis/derived/fields.ts fieldDescOf): the one a declaration of the
  * field's type writes, or a computed numeric, PostgreSQL's numeric of no typmod with the bound its definition proves

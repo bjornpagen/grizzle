@@ -30,7 +30,8 @@ import {
 	type ExprDesc,
 	type FieldDesc,
 	type KeySlotDesc,
-	type LiteralDesc
+	type LiteralDesc,
+	nestedFields
 } from "#compiler/ir/desc.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -273,16 +274,6 @@ const leafText = (leaf: LeafDesc): string => {
 			return "a contract's value"
 		case "parent":
 			return `parent column ${leaf.column}`
-	}
-}
-
-/** Every descriptor inside `desc`: itself, a contract's base, a span's endpoint. */
-const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
-	visit(desc)
-	if (desc.kind === "contract") {
-		nestedFields(desc.base, visit)
-	} else if (desc.kind === "span") {
-		nestedFields(desc.endpoint, visit)
 	}
 }
 

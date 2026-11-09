@@ -52,6 +52,7 @@ import {
 	fieldTypes,
 	type LiteralDesc,
 	type LoginDesc,
+	nestedFields,
 	type QueryDesc,
 	type DerivedStorage,
 	heldRelation,
@@ -465,16 +466,6 @@ const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>
 			return rosterHeading(desc)
 		case "closedRelation":
 			return desc.fields
-	}
-}
-
-/** Every field descriptor inside `desc`: itself, a contract's base, a span's endpoint. */
-const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
-	visit(desc)
-	if (desc.kind === "contract") {
-		nestedFields(desc.base, visit)
-	} else if (desc.kind === "span") {
-		nestedFields(desc.endpoint, visit)
 	}
 }
 
