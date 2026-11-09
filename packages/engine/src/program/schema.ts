@@ -34,9 +34,9 @@ import {
 } from "#compiler/physical/ddl/roles.ts"
 import {
 	freshPlanSettings,
-	type InstallBasis,
 	installBasis,
 	type InstallPlan,
+	type PlanBasis,
 	planInstallation
 } from "#compiler/physical/install/plan.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
@@ -297,12 +297,13 @@ export const schemaArtifacts = (
 
 /**
  * The artifacts of an owned schema under the target identifiers, read from the plan of its fresh installation over its
- * basis (the law model and the closed constants under the installation's codes, physical/install/plan.ts installBasis,
- * planInstallation), which builds no DDL: what the artifacts of every role over it read through their views
+ * basis (the law model and the closed constants' names under the installation's codes, physical/install/plan.ts
+ * PlanBasis: a Db's from its snapshot, planBasis, everyone else's planned, installBasis), which builds no DDL and packs
+ * no cell: what the artifacts of every role over it read through their views
  * (roleArtifacts). Their holder (the layer, generate) computes them once for a schema and hands them to every role and
  * every compilation over the schema; generate installs its draft over the same basis.
  */
-export const baseArtifacts = (basis: InstallBasis): Result.Result<SchemaArtifacts, CompileError> =>
+export const baseArtifacts = (basis: PlanBasis): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.map(
 		planInstallation(basis, freshPlanSettings(basis.owned), []),
 		(plan): SchemaArtifacts => {

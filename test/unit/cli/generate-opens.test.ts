@@ -6,19 +6,22 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { artifactsUnder, loginRoles } from "#adapter/pool/registry.ts"
+import { artifactsOver, loginRoles } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
+import * as Engine from "#compiler/core/result.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
+import { installBasis } from "#compiler/physical/install/plan.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { loginSlice } from "#compiler/schema/reach.ts"
 import { defineConfig } from "#index.ts"
 import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -151,7 +154,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
 							const compiled = yield* Effect.result(
 								Effect.flatMap(
-									fromEngine(artifactsUnder(compiledLogin.owned, codes)),
+									fromEngine(
+										Engine.flatMap(
+											installBasis(
+												compiledLogin.owned.base,
+												codes,
+												loginSlice(compiledLogin.owned)
+											),
+											artifactsOver
+										)
+									),
 									(artifacts) =>
 										loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove)
 								)

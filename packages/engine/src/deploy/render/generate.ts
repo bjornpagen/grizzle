@@ -27,6 +27,7 @@ import {
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
 import { recordFile, renderFile } from "#compiler/deploy/render/sql.ts"
 import {
+	derivedOf,
 	discontinuedRoster,
 	type DraftWorkload,
 	finishSnapshot,
@@ -35,7 +36,11 @@ import {
 	withAttnums,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot, SnapshotFiles } from "#compiler/deploy/snapshot/types.ts"
+import type {
+	DeploySnapshot,
+	SnapshotDerived,
+	SnapshotFiles
+} from "#compiler/deploy/snapshot/types.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
@@ -67,14 +72,16 @@ interface GenerateInput extends DraftInput {
  * workload. */
 type DraftChange = "none" | "schema"
 
-/** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot and its
- * files' texts, and the plan the folder's files render. */
+/** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot, the
+ * installation's derived runtime facts snapshot.json records beside it, the files' texts, and the plan the folder's files
+ * render. */
 interface DraftOf<F> {
 	readonly change: DraftChange
 	readonly folder: F
 	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord). */
 	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
+	readonly derived: SnapshotDerived
 	readonly snapshotFiles: SnapshotFiles
 	readonly plan: MigrationPlan
 }
@@ -197,12 +204,14 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			files: recorded
 		}
 		const change: DraftChange = changed ? "schema" : "none"
+		const derived = derivedOf(installation)
 		return {
 			change,
 			folder: { meta, metaText: unwrap(writeMeta(meta)), files },
 			record: record.value,
 			snapshot,
-			snapshotFiles: unwrap(writeSnapshot(snapshot)),
+			derived,
+			snapshotFiles: unwrap(writeSnapshot(snapshot, derived)),
 			plan
 		}
 	})

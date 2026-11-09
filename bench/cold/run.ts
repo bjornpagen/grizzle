@@ -30,7 +30,7 @@ import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/s
 import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
@@ -266,7 +266,9 @@ const databaseRun = Effect.fn("databaseRun")(function* (options: ColdOptions) {
 		schema: work.schema,
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
-		snapshot: Result.getOrThrow(toResult(writeSnapshot(work.snapshot))).snapshot,
+		snapshot: Result.getOrThrow(
+			toResult(writeSnapshot(work.snapshot, derivedOf(work.installation)))
+		).snapshot,
 		account: a1,
 		connectTimeoutMs: benchConnectTimeout.value,
 		idleTimeoutMs: benchIdleTimeout.value

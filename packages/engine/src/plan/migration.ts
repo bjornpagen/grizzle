@@ -68,13 +68,16 @@ export { workloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { installationsOf } from "#compiler/schema/own.ts"
 export { everySlice, loginSlice } from "#compiler/schema/reach.ts"
+export type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 export { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 export { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
 export {
 	type DescribedLaw,
 	type InstallBasis,
-	installBasis
+	installBasis,
+	type PlanBasis,
+	planBasis
 } from "#compiler/physical/install/plan.ts"
 export {
 	accessDrift,

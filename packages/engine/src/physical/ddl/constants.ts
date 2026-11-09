@@ -8,6 +8,7 @@ import {
 	identifierOf,
 	identity
 } from "#compiler/core/identity.ts"
+import type { Identifier } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { cellMaxCodes, constantMaxBits, maxStringLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -647,8 +648,18 @@ const functionOf = (schema: string, named: Identity<"closedConstant">): ObjectNa
 	name: identifierOf(named)
 })
 
-/** How readers address a planned key (ClosedKey), under the installed schema. */
-const closedKeyOf = (schema: string, key: PlannedKey): ClosedKey =>
+/**
+ * A closed relation's constants as readers address them, each function by its identifier alone (sql/constants.ts
+ * ClosedConstant): what the snapshot records of every closed relation (deploy/snapshot DeploySnapshot.closed), so a
+ * Db names them without packing a cell, and what the installation's names qualify under its schema (qualifiedClosed).
+ */
+export type NamedClosed = ClosedConstant<Identifier<"closedConstant">>
+
+/** Each closed relation's constants as readers address them, by the relation's declared name. */
+export type ClosedNames = ReadonlyMap<string, NamedClosed>
+
+/** How readers address a planned key (ClosedKey), each owner function by its identifier. */
+const namedKeyOf = (key: PlannedKey): ClosedKey<Identifier<"closedConstant">> =>
 	key.kind === "product"
 		? {
 				kind: "product",
@@ -662,14 +673,16 @@ const closedKeyOf = (schema: string, key: PlannedKey): ClosedKey =>
 						? { kind: "codes", field: b.field.name, radix: b.codec.size }
 						: { kind: "slots", field: b.field.name, count: b.slot }
 				),
-				bases: ownerFunctionOf(schema, key.bases),
-				counts: mapNonEmpty(key.counts, (c) => ownerFunctionOf(schema, c)),
+				bases: namedOwnerFunction(key.bases),
+				counts: mapNonEmpty(key.counts, namedOwnerFunction),
 				cells: Number(keyCells(key.space))
 			}
 
-/** An owner function as its readers address it: its function and its cells' width. */
-const ownerFunctionOf = (schema: string, planned: PlannedCells): OwnerFunction => ({
-	function: functionOf(schema, planned.named),
+/** An owner function as its readers address it: its function's identifier and its cells' width. */
+const namedOwnerFunction = (
+	planned: PlannedCells
+): OwnerFunction<Identifier<"closedConstant">> => ({
+	function: identifierOf(planned.named),
 	width: planned.constant.width
 })
 
@@ -677,38 +690,70 @@ const ownerFunctionOf = (schema: string, planned: PlannedCells): OwnerFunction =
 const layoutOf = (key: PlannedKey): ReadonlyArray<PlannedCells> =>
 	key.kind === "product" ? [] : [key.bases, ...key.counts]
 
-/** How readers address a planned relation's constants (PhysicalNames.closed), under the installed schema. */
-const closedConstantOf = (schema: string, plan: PlannedRelation): ClosedConstant => {
+/** How readers address a planned relation's constants (NamedClosed). */
+const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 	const dictionaries = new Map(plan.dictionaries.map((d) => [d.field.name, d] as const))
-	const cells = functionOf(schema, plan.cells.named)
+	const cells = identifierOf(plan.cells.named)
 	const others = [plan.keys, ...layoutOf(plan.key), ...plan.dictionaries]
-		.map((planned) => functionOf(schema, planned.named))
-		.filter(
-			(fn, i, all) => fn.name !== cells.name && all.findIndex((f) => f.name === fn.name) === i
-		)
+		.map((planned) => identifierOf(planned.named))
+		.filter((fn, i, all) => fn !== cells && all.indexOf(fn) === i)
 	return {
-		function: functionOf(schema, plan.cells.named),
-		key: closedKeyOf(schema, plan.key),
+		function: cells,
+		key: namedKeyOf(plan.key),
 		width: plan.cells.constant.width,
 		payload: plan.payload.map((space) => {
 			const dictionary = dictionaries.get(space.field.name)
 			return {
 				field: space.field.name,
 				radix: radixOf(space),
-				dictionary: dictionary === undefined ? undefined : functionOf(schema, dictionary.named)
+				dictionary: dictionary === undefined ? undefined : identifierOf(dictionary.named)
 			}
 		}),
-		keys: functionOf(schema, plan.keys.named),
+		keys: identifierOf(plan.keys.named),
 		functions: [cells, ...others]
 	}
 }
 
-/** Each planned closed relation's constants as its readers address them, by name. */
-export const closedConstants = (
+/** Each planned closed relation's constants as readers address them, by name. */
+export const closedNames = (plan: ClosedPlan): ClosedNames =>
+	new Map([...plan.relations].map(([name, r]) => [name, namedClosedOf(r)] as const))
+
+/** A key as readers address it in the installed schema `schema`: a dependent key's owner functions qualified there. */
+const qualifiedKey = (schema: string, key: ClosedKey<Identifier<"closedConstant">>): ClosedKey => {
+	if (key.kind === "product") {
+		return key
+	}
+	const owner = (f: OwnerFunction<Identifier<"closedConstant">>): OwnerFunction => ({
+		function: { schema, name: f.function },
+		width: f.width
+	})
+	return { ...key, bases: owner(key.bases), counts: mapNonEmpty(key.counts, owner) }
+}
+
+/** Each closed relation's constants in the installed schema `schema`, as a read calls them (PhysicalNames.closed). */
+export const qualifiedClosed = (
 	schema: string,
-	plan: ClosedPlan
-): ReadonlyMap<string, ClosedConstant> =>
-	new Map([...plan.relations].map(([name, r]) => [name, closedConstantOf(schema, r)] as const))
+	names: ClosedNames
+): ReadonlyMap<string, ClosedConstant> => {
+	const qualified = (name: Identifier<"closedConstant">): ObjectName => ({ schema, name })
+	return new Map(
+		[...names].map(([relation, c]): readonly [string, ClosedConstant] => [
+			relation,
+			{
+				function: qualified(c.function),
+				key: qualifiedKey(schema, c.key),
+				width: c.width,
+				payload: c.payload.map((p) => ({
+					field: p.field,
+					radix: p.radix,
+					dictionary: p.dictionary === undefined ? undefined : qualified(p.dictionary)
+				})),
+				keys: qualified(c.keys),
+				functions: mapNonEmpty(c.functions, qualified)
+			}
+		])
+	)
+}
 
 /** A constant's revoke from PUBLIC, which holds EXECUTE on every new function: a role is granted what it calls. */
 const revokeFromPublic = (fn: ObjectName): SqlStatement => ({
@@ -1106,7 +1151,7 @@ export const closedMembership = (
 			).source
 		)
 	const index = cellOfKey(
-		closedKeyOf(b.schema, plan.key),
+		qualifiedKey(b.schema, namedKeyOf(plan.key)),
 		mapNonEmpty(keyFieldsOf(plan.key), (f) => sourceOf(f.field.name))
 	)
 	const cells = functionOf(b.schema, plan.cells.named)

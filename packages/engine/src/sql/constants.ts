@@ -32,10 +32,10 @@ export interface ClosedCoordinate {
 /**
  * A function of a dependent key's owner, installed as a closed relation over the owner prefix: its cell at the owner's
  * index, `width` bits, holds 1 + the owner's value, a block's first cell or one count, for every owner of the prefix's
- * product, so it never reads absent at a code its domain admits.
+ * product, so it never reads absent at a code its domain admits. F is how its function is named (ClosedConstant).
  */
-export interface OwnerFunction {
-	readonly function: ObjectName
+export interface OwnerFunction<F = ObjectName> {
+	readonly function: F
 	readonly width: number
 }
 
@@ -49,7 +49,7 @@ export interface OwnerFunction {
  *   at or past its owner's count reads the cell `cells`, past the string, so it reads absent instead of aliasing the
  *   owner's next slot or the next owner's block.
  */
-export type ClosedKey =
+export type ClosedKey<F = ObjectName> =
 	| { readonly kind: "product"; readonly coordinates: NonEmptyReadonlyArray<ClosedCoordinate> }
 	| {
 			readonly kind: "dependent"
@@ -58,8 +58,8 @@ export type ClosedKey =
 				| { readonly kind: "codes"; readonly field: string; readonly radix: number }
 				| { readonly kind: "slots"; readonly field: string; readonly count: number }
 			>
-			readonly bases: OwnerFunction
-			readonly counts: NonEmptyReadonlyArray<OwnerFunction>
+			readonly bases: OwnerFunction<F>
+			readonly counts: NonEmptyReadonlyArray<OwnerFunction<F>>
 			readonly cells: number
 	  }
 
@@ -70,18 +70,22 @@ export type ClosedKey =
  * field's values in code order, none for a closed id; the function of its key set, one bit per cell of the key space,
  * set where the relation holds a tuple; and every function a read of it calls, which each role that reads it is
  * granted EXECUTE on.
+ *
+ * F is how each function is named: by its ObjectName in the installation's schema, as a read calls it, or by its
+ * identifier alone, as the snapshot records it (physical/ddl/constants.ts NamedClosed), every constant's name being its
+ * content's digest whatever schema holds it.
  */
-export interface ClosedConstant {
-	readonly function: ObjectName
-	readonly key: ClosedKey
+export interface ClosedConstant<F = ObjectName> {
+	readonly function: F
+	readonly key: ClosedKey<F>
 	readonly width: number
 	readonly payload: ReadonlyArray<{
 		readonly field: string
 		readonly radix: number
-		readonly dictionary: ObjectName | undefined
+		readonly dictionary: F | undefined
 	}>
-	readonly keys: ObjectName
-	readonly functions: NonEmptyReadonlyArray<ObjectName>
+	readonly keys: F
+	readonly functions: NonEmptyReadonlyArray<F>
 }
 
 /** An integer literal PostgreSQL types integer: a nonnegative one prints bare. */

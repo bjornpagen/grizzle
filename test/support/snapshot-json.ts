@@ -1,6 +1,7 @@
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /**
@@ -10,6 +11,13 @@ import { succeeded } from "#test/support/assert.ts"
 export const snapshotJson = (text: string): { readonly fingerprint: string } =>
 	trustedJson<{ readonly fingerprint: string }>(text)
 
-/** The JSON value of the snapshot.json `grizzle generate` writes for `snapshot`: what an application gives DbLayer.make. */
-export const snapshotValue = (snapshot: DeploySnapshot): { readonly fingerprint: string } =>
-	snapshotJson(succeeded(writeSnapshot(snapshot), "the installation's snapshot files").snapshot)
+/** The JSON value of the snapshot.json `grizzle generate` writes for `snapshot` of `installation`, with its derived
+ * runtime facts: what an application gives DbLayer.make. */
+export const snapshotValue = (
+	snapshot: DeploySnapshot,
+	installation: Installation
+): { readonly fingerprint: string } =>
+	snapshotJson(
+		succeeded(writeSnapshot(snapshot, derivedOf(installation)), "the installation's snapshot files")
+			.snapshot
+	)

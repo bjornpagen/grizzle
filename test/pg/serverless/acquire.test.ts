@@ -115,7 +115,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 										),
 										pool: { max: 1, min: 0, idleTimeoutMs: nodeTimerMin.value },
 										login: o.server,
-										snapshot: snapshotValue(o.installed.snapshot),
+										snapshot: snapshotValue(o.installed.snapshot, o.installed.installation),
 										verify: testVerify
 									})
 									/** The call on an open Db, and what it failed with. */

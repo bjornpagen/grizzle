@@ -11,7 +11,7 @@ import {
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
-import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -33,6 +33,7 @@ import {
 	type DeploySnapshot,
 	manifestFileName,
 	type SnapshotContent,
+	type SnapshotDerived,
 	type SnapshotFiles,
 	snapshotFileName,
 	type SnapshotField,
@@ -60,6 +61,7 @@ import {
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
+import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -67,6 +69,7 @@ import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, own } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { OwnerFunction } from "#compiler/sql/constants.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -508,6 +511,12 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
 	return result.value
 }
 
+/** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
+ * each closed relation's constants as readers address them, the installation's plan's. */
+export const derivedOf = (installation: Installation): SnapshotDerived => ({
+	closed: installation.closed
+})
+
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * migrations ledger's objects added to its manifest: the ledger table and its SERIALIZABLE guard trigger in Setup,
  * after the guard's function, and every login's SELECT on it in Publish. */
@@ -759,6 +768,52 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 	}))
 })
 
+/** The JSON form of an owner function of a dependent key: its function's identifier and its width. */
+const ownerFunctionForm = (f: OwnerFunction<Identifier<"closedConstant">>): SnapshotForm => ({
+	function: f.function,
+	width: f.width
+})
+
+/** The JSON form of a closed relation's constants as readers address them (NamedClosed), a payload field of no
+ * dictionary stating none. */
+const closedForm = (c: NamedClosed): SnapshotForm => ({
+	function: c.function,
+	key:
+		c.key.kind === "product"
+			? {
+					kind: c.key.kind,
+					coordinates: c.key.coordinates.map((k): SnapshotForm => ({
+						field: k.field,
+						radix: k.radix
+					}))
+				}
+			: {
+					kind: c.key.kind,
+					owner: c.key.owner.map((k): SnapshotForm => ({ field: k.field, radix: k.radix })),
+					block: c.key.block.map((b): SnapshotForm =>
+						b.kind === "codes"
+							? { kind: b.kind, field: b.field, radix: b.radix }
+							: { kind: b.kind, field: b.field, count: b.count }
+					),
+					bases: ownerFunctionForm(c.key.bases),
+					counts: c.key.counts.map(ownerFunctionForm),
+					cells: c.key.cells
+				},
+	width: c.width,
+	payload: c.payload.map((p): SnapshotForm =>
+		p.dictionary === undefined
+			? { field: p.field, radix: p.radix }
+			: { field: p.field, radix: p.radix, dictionary: p.dictionary }
+	),
+	keys: c.keys,
+	functions: c.functions
+})
+
+/** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
+const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
+	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const))
+})
+
 const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): FormOf<S> =>
 	levels.map((l): RecordOf<S> => ({
 		name: l.name,
@@ -792,12 +847,18 @@ const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 })
 
 /** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the
- * constraint-to-law map and each roster's codes (`rosters`), which manifest.json's theory records without. */
-const runtimeForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
+ * constraint-to-law map, each roster's codes (`rosters`), which manifest.json's theory records without, and the
+ * installation's derived runtime facts (`derived`), which the content and its fingerprint hold none of. */
+const runtimeForm = <S>(
+	s: DeploySnapshot,
+	derived: SnapshotDerived,
+	units: Units<S>
+): RecordOf<S> => ({
 	fingerprint: s.fingerprint,
 	levels: levelsForm(s.levels, units),
 	constraintToLaw: s.constraintToLaw,
-	rosters: rostersForm(s.theory)
+	rosters: rostersForm(s.theory),
+	derived: derivedForm(derived)
 })
 
 /** The finished snapshot: the target state, fingerprinted. */
@@ -908,12 +969,20 @@ const fileText = (form: RecordOf<CompactLine>): string =>
  * snapshot is the same bytes on every machine. The layout is the writer's: the fingerprint digests the content's
  * canonical text (contentForm), which no layout changes, and joinedSnapshot puts the two back together. */
 export const writeSnapshot = (
-	snapshot: DeploySnapshot
+	snapshot: DeploySnapshot,
+	derived: SnapshotDerived
 ): Result.Result<SnapshotFiles, CompileError> =>
 	catchRefusal(() => ({
-		snapshot: fileText(runtimeForm(snapshot, asLines)),
+		snapshot: fileText(runtimeForm(snapshot, derived, asLines)),
 		manifest: fileText(migrationForm(snapshot, asLines, laidOutRelationForm))
 	}))
+
+/** A snapshot's two files joined (joinedSnapshot): the JSON form of its whole content, which its fingerprint digests,
+ * and snapshot.json's derived runtime facts as recorded, kept out of the content, absent from a file that holds none. */
+export interface JoinedSnapshot {
+	readonly content: Readonly<Record<string, unknown>>
+	readonly derived: unknown
+}
 
 /** A member a snapshot file must hold that it does not: no pair grizzle wrote. */
 const unjoined = (file: string, at: ReadonlyArray<string>, what: string): CompileError =>
@@ -922,20 +991,21 @@ const unjoined = (file: string, at: ReadonlyArray<string>, what: string): Compil
 /**
  * The JSON form of a whole snapshot from the JSON values of its two files, the layout writeSnapshot writes undone:
  * manifest.json's members and snapshot.json's, which share none, each roster's codes put back into the record of the
- * theory manifest.json holds for it. A pair that does not join so is none grizzle wrote, refused as MalformedArtifact;
+ * theory manifest.json holds for it, and snapshot.json's derived runtime facts set apart from the content. A pair that
+ * does not join so is none grizzle wrote, refused as MalformedArtifact;
  * what joins is trusted only once its fingerprint holds over the whole (the shell's boundary/snapshot.ts).
  */
 export const joinedSnapshot = (
 	runtime: unknown,
 	migration: unknown
-): Result.Result<Readonly<Record<string, unknown>>, CompileError> => {
+): Result.Result<JoinedSnapshot, CompileError> => {
 	if (!isRecord(runtime)) {
 		return Result.err(unjoined(snapshotFileName, [], "holding an object"))
 	}
 	if (!isRecord(migration)) {
 		return Result.err(unjoined(manifestFileName, [], "holding an object"))
 	}
-	const { rosters, ...served } = runtime
+	const { rosters, derived, ...served } = runtime
 	const theory = migration["theory"]
 	const relations = isRecord(theory) ? theory["relations"] : undefined
 	if (!isRecord(rosters)) {
@@ -964,5 +1034,8 @@ export const joinedSnapshot = (
 		}
 		joined[name] = { ...relation, codes }
 	}
-	return Result.ok({ ...migration, ...served, theory: { ...theory, relations: joined } })
+	return Result.ok({
+		content: { ...migration, ...served, theory: { ...theory, relations: joined } },
+		derived
+	})
 }

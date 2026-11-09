@@ -7,6 +7,7 @@ import type {
 	Snapshot,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
+import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
@@ -167,8 +168,8 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
  * built from snapshot.json alone (served.ts servedSnapshot): the recorded fingerprint, which every Db's prologue guards
  * the database's ledger with; every level's PostgreSQL schema, the levels above the one the layer serves with the laws
  * each states, and the constraint-to-law map, which name a refusal by a law of a level above a Db's own
- * (witness/keylaw.ts lawsAbove); and the installation's codes (codebookOf), its rosters' history, which no schema alone
- * determines. Nothing else of a snapshot reaches an application: `grizzle generate`, check, drift and migrate read the
+ * (witness/keylaw.ts lawsAbove); the installation's codes (codebookOf), its rosters' history, which no schema alone
+ * determines; and the installation's derived runtime facts (SnapshotDerived). Nothing else of a snapshot reaches an application: `grizzle generate`, check, drift and migrate read the
  * whole DeploySnapshot, from both its files.
  */
 export interface ServedSnapshot {
@@ -179,6 +180,24 @@ export interface ServedSnapshot {
 	readonly above: ReadonlyArray<Pick<SnapshotLevel, "name" | "laws">>
 	readonly constraintToLaw: ConstraintLaws
 	readonly codes: Codebook
+	/** The installation's derived runtime facts, as snapshot.json records them beside its content. */
+	readonly derived: SnapshotDerived
+}
+
+/**
+ * The facts snapshot.json records beside the snapshot's content for DbLayer.make, derived from the installation's
+ * compile and no part of the content its fingerprint digests, so they change no fingerprint and no database's ledger:
+ * `grizzle generate` writes them from the compile it drafts from (build.ts derivedOf), and the layer reads them instead
+ * of compiling them again.
+ */
+export interface SnapshotDerived {
+	/**
+	 * Each closed relation's constants as readers address them, by the relation's declared name, rosters aside: every
+	 * function by its identifier, its key's layout and its payload's radices under the installation's codes
+	 * (physical/ddl/constants.ts NamedClosed). generate plans them from the relations' rows, packing each string of
+	 * cells to name it by its digest; DbLayer.make reads them here and packs nothing.
+	 */
+	readonly closed: ClosedNames
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

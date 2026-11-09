@@ -119,7 +119,7 @@ export const loginLayerIn = <L extends AnyLogin>(
 		...clusterConnection(installed.cluster, database, installed.as(account).password),
 		pool: clusterPool,
 		login: account,
-		snapshot: snapshotValue(installed.snapshot),
+		snapshot: snapshotValue(installed.snapshot, installed.installation),
 		verify: testVerify
 	})
 

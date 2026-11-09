@@ -18,7 +18,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -125,7 +125,10 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const App = declared(installed.declared)
 					const own = fullWorld(App)
 					const snapshot = path.join(published.project, "snapshot.json")
-					yield* fs.writeFileString(snapshot, succeeded(writeSnapshot(installed.snapshot)).snapshot)
+					yield* fs.writeFileString(
+						snapshot,
+						succeeded(writeSnapshot(installed.snapshot, derivedOf(installed.installation))).snapshot
+					)
 					const program = path.join(published.project, "consumer.mjs")
 					yield* fs.writeFileString(program, consumerProgram)
 					const config = path.join(published.project, "config.json")

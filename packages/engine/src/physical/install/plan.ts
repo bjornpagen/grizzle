@@ -26,7 +26,13 @@ import {
 	type DomainUse,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
-import { type ClosedPlan, closedConstants, planClosed } from "#compiler/physical/ddl/constants.ts"
+import {
+	type ClosedNames,
+	type ClosedPlan,
+	closedNames,
+	planClosed,
+	qualifiedClosed
+} from "#compiler/physical/ddl/constants.ts"
 import type { InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
 	type ContextContract,
@@ -62,18 +68,29 @@ import type { Slice } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
- * What every installation of an owned schema under one installation's codes is compiled over, whatever its settings and
- * extensions: the schema's law model (compileLaws) for a slice, which reads the schema alone, and its
- * closed relations' constants planned under the codes (physical/ddl/constants.ts planClosed). A caller that installs one
- * schema under several settings, generate's artifacts and then its draft, compiles the basis once and installs over it
- * each time, over every relation (schema/reach.ts everySlice); a login's runtime compiles its artifacts over its
- * roles' writes alone (loginSlice) and installs nothing.
+ * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws) for a
+ * slice, which reads the schema alone, the installation's codes, and each closed relation's constants as readers address
+ * them under those codes (physical/ddl/constants.ts NamedClosed). A login's runtime compiles its law model for its
+ * roles' writes alone (schema/reach.ts loginSlice) and reads the constants' names from its snapshot, which recorded them
+ * when the installation was generated (planBasis); generate, check and every installation compile it over every relation
+ * (everySlice) and plan the constants from the closed relations' rows (installBasis).
  */
-export interface InstallBasis {
+export interface PlanBasis {
 	readonly owned: Owned
 	readonly model: LawModel
 	readonly codes: Codebook
-	readonly closed: ClosedPlan
+	readonly closed: ClosedNames
+}
+
+/**
+ * What every installation of an owned schema under one installation's codes is built over, whatever its settings and
+ * extensions: its plan's basis, its closed relations' constants planned from their rows (physical/ddl/constants.ts
+ * planClosed), each string of cells packed and named by its content's digest, and their names read off the planned
+ * constants. A caller that installs one schema under several settings, generate's artifacts and then its draft,
+ * compiles the basis once and installs over it each time.
+ */
+export interface InstallBasis extends PlanBasis {
+	readonly planned: ClosedPlan
 }
 
 /** The basis of the installations of `owned` under the installation's codes `codes`, for `slice`. */
@@ -83,19 +100,27 @@ export const installBasis = (
 	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
 	Result.flatMap(compileLaws(owned, slice), (model) =>
-		catchRefusal((): InstallBasis => ({
-			owned,
-			model,
-			codes,
-			closed: planClosed(
+		catchRefusal((): InstallBasis => {
+			const planned = planClosed(
 				owned,
 				Object.values(model.theory.relations).filter(
 					(r): r is ClosedTheoryRelation => r.kind === "closed"
 				),
 				codes
 			)
-		}))
+			return { owned, model, codes, closed: closedNames(planned), planned }
+		})
 	)
+
+/** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice`, each
+ * closed relation's constants named as `closed` records them: a Db's, from its snapshot, which packs no cell. */
+export const planBasis = (
+	owned: Owned,
+	codes: Codebook,
+	slice: Slice,
+	closed: ClosedNames
+): Result.Result<PlanBasis, CompileError> =>
+	Result.map(compileLaws(owned, slice), (model): PlanBasis => ({ owned, model, codes, closed }))
 
 /** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
 export interface DescribedLaw<L extends LawId = LawId> {
@@ -130,6 +155,8 @@ export interface InstallPlan {
 	readonly checked: CheckedSchema
 	readonly laws: LawModel
 	readonly names: InstallNames
+	/** Each closed relation's constants as readers address them, the basis's: what the snapshot records. */
+	readonly closed: ClosedNames
 	/** Each structural text domain, planned (planTextDomains). */
 	readonly textPlans: ReadonlyArray<TextDomainPlan>
 	/** The contracts the context fields of the installed roles name that the base does not declare: each gets its
@@ -301,12 +328,12 @@ const contractSources = (
 	])
 
 /**
- * The plan of the installation over a basis (installBasis) under `settings`, which its caller admitted
+ * The plan of the installation over a basis (installBasis, planBasis) under `settings`, which its caller admitted
  * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the text domain uses of
  * `extensions`, each once.
  */
 export const planInstallation = (
-	basis: InstallBasis,
+	basis: PlanBasis,
 	settings: PlanSettings,
 	extensions: ReadonlyArray<InstallExtension>
 ): Result.Result<InstallPlan, CompileError> =>
@@ -357,7 +384,7 @@ export const planInstallation = (
 			contracts,
 			define: contractDigest,
 			codes,
-			closed: closedConstants(identifierOf(headNonEmpty(settings.levels)), closed),
+			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
 			selectionKeys: selectionKeysOf(model.natives)
 		})
 		const stored = [...model.relations.values()].map((r) => r.relation)
@@ -376,6 +403,7 @@ export const planInstallation = (
 			checked,
 			laws: model,
 			names,
+			closed,
 			textPlans,
 			contextContracts: claimContracts.value,
 			logins,

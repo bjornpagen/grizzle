@@ -361,7 +361,7 @@ const realizeWith = (
 						built,
 						l.name,
 						loginCredentials,
-						snapshotValue(snapshot),
+						snapshotValue(snapshot, installation),
 						"version"
 					)
 					layers[l.name] = yield* Effect.orDie(Scope.provide(Layer.build(layer), scope))
@@ -442,7 +442,7 @@ const realizeWith = (
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool: clusterPool,
 						login: strangerLogin,
-						snapshot: snapshotValue(first.snapshot)
+						snapshot: snapshotValue(first.snapshot, first.installation)
 					})
 				),
 				scope
@@ -476,7 +476,7 @@ const realizeWith = (
 		const snapshotOf = (ref: SnapshotRef): Effect.Effect<{ readonly fingerprint: string }> => {
 			switch (ref) {
 				case "current":
-					return Effect.succeed(snapshotValue(state.current.snapshot))
+					return Effect.succeed(snapshotValue(state.current.snapshot, state.current.installation))
 				case "stale":
 					return Effect.succeed(state.stale)
 				case "foreign":
@@ -1042,7 +1042,7 @@ const realizeWith = (
 					versionOf(next.spec, next.plan, next.plan.installation, next.snapshot, credentials)
 				)
 				if (version.snapshot.fingerprint !== state.current.snapshot.fingerprint) {
-					state.stale = snapshotValue(state.current.snapshot)
+					state.stale = snapshotValue(state.current.snapshot, state.current.installation)
 				}
 				state.current = version
 			})

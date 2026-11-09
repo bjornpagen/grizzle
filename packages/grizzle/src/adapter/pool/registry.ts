@@ -67,10 +67,11 @@ import {
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
-	installBasis,
-	type InstallBasis,
+	type ClosedNames,
 	ledgerStatements,
 	loginSlice,
+	type PlanBasis,
+	planBasis,
 	type ServedSnapshot
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
@@ -308,18 +309,21 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
 }
 
 /**
- * The artifacts of a login's base, owned once, compiled once under the installation's codes `codes`, under its own
- * installation and vector schema (program/schema.ts baseArtifacts), its law model for the writes of the login's roles
- * (schema/reach.ts loginSlice), which the database holds every write of the login to: what every one of its roles reads.
+ * The artifacts of a login's base, owned once, compiled once under its own installation and vector schema
+ * (program/schema.ts baseArtifacts), its law model for the writes of the login's roles (schema/reach.ts loginSlice),
+ * which the database holds every write of the login to, under the codes `codes` and the closed relations' constant names
+ * `closed` the installation's snapshot records (physical/install/plan.ts planBasis), so no closed relation's cells are
+ * packed: what every one of its roles reads.
  */
 export const artifactsUnder = (
 	login: OwnedLogin,
-	codes: Codebook
+	codes: Codebook,
+	closed: ClosedNames
 ): Engine.Result<SchemaArtifacts, CompileError> =>
-	Engine.flatMap(installBasis(login.base, codes, loginSlice(login)), artifactsOver)
+	Engine.flatMap(planBasis(login.base, codes, loginSlice(login), closed), artifactsOver)
 
-/** The artifacts of a base over its basis (physical/install/plan.ts installBasis), under its own installation. */
-export const artifactsOver = (basis: InstallBasis): Engine.Result<SchemaArtifacts, CompileError> =>
+/** The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation. */
+export const artifactsOver = (basis: PlanBasis): Engine.Result<SchemaArtifacts, CompileError> =>
 	baseArtifacts(basis)
 
 /** A built login owned over its base's Owned, which login(...) held each of its roles to. */
@@ -425,7 +429,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
-	const artifacts = yield* openStage(artifactsUnder(owned, codes))
+	const artifacts = yield* openStage(artifactsUnder(owned, codes, snapshot.derived.closed))
 	const above = lawsAbove(snapshot)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts, above),

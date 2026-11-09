@@ -234,7 +234,7 @@ export const installationOver = (
 	Result.flatMap(admittedSettings(basis.owned, options), (settings) =>
 		Result.flatMap(planInstallation(basis, settings, options.extensions), (plan) =>
 			catchRefusal((): Installation => {
-				const { owned, model, closed } = basis
+				const { owned, model, planned } = basis
 				const b = new InstallBuilder({
 					owned,
 					checked: plan.checked,
@@ -243,7 +243,7 @@ export const installationOver = (
 					settings
 				})
 				const rosters = addRosters(b)
-				addClosedRelations(b, closed)
+				addClosedRelations(b, planned)
 				const domains = [
 					...rosters.flatMap((r) =>
 						r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]

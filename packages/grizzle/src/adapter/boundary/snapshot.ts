@@ -78,6 +78,8 @@ export const parseSnapshot = (
 export const readSnapshot = (files: SnapshotFiles): Result.Result<DeploySnapshot, CompileError> =>
 	Result.flatMap(toResult(decode(files.snapshot, noRevivers)), (runtime) =>
 		Result.flatMap(toResult(decode(files.manifest, noRevivers)), (migration) =>
-			Result.flatMap(toResult(joinedSnapshot(runtime, migration)), sealedSnapshot)
+			Result.flatMap(toResult(joinedSnapshot(runtime, migration)), (joined) =>
+				sealedSnapshot(joined.content)
+			)
 		)
 	)

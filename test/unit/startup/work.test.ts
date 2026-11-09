@@ -53,11 +53,12 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  *   encode it again never, nor read it again from a description (contentOfDesc).
  * - `grizzle generate`, `grizzle check` and DbLayer.make own the schema once, which reads each statement's text, as
  *   schema(...) did, and writes its fingerprint, the snapshot's encoding of it; no level check or program they compile
- *   reads a description's text (descText). They compile its basis once (its law model and
- *   closed constants, physical/install/plan.ts installBasis) and compile the login's programs once, through the one
- *   path they share (adapter/pool/registry.ts loginRoles): generate and check plan the installation twice over the one
- *   basis, for the artifacts the programs read and for the draft, and build the draft's DDL once; the layer plans it
- *   once and builds no DDL.
+ *   reads a description's text (descText). They compile its basis once and compile the login's programs once, through
+ *   the one path they share (adapter/pool/registry.ts loginRoles): generate and check compile the installation's basis
+ *   (its law model and closed constants, physical/install/plan.ts installBasis), packing every closed relation's cells
+ *   once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the programs read
+ *   and for the draft, and build the draft's DDL once; the layer compiles its plan's basis from the closed constants'
+ *   names the snapshot records (planBasis), packs no cell, plans once and builds no DDL.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -87,6 +88,8 @@ const sites = {
 	own: { file: "packages/engine/src/schema/own.ts", name: "own" },
 	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
 	installBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "installBasis" },
+	planBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "planBasis" },
+	planClosed: { file: "packages/engine/src/physical/ddl/constants.ts", name: "planClosed" },
 	plan: { file: "packages/engine/src/physical/install/plan.ts", name: "planInstallation" },
 	installation: {
 		file: "packages/engine/src/physical/install/compile.ts",
@@ -298,6 +301,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 1,
 		compileLaws: 1,
 		installBasis: 1,
+		planBasis: 0,
+		planClosed: 1,
 		plan: 2,
 		installation: 1,
 		loginRoles: 1
@@ -308,6 +313,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 1,
 		compileLaws: 1,
 		installBasis: 1,
+		planBasis: 0,
+		planClosed: 1,
 		plan: 2,
 		installation: 1,
 		loginRoles: 1
@@ -318,6 +325,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 0,
 		compileLaws: 0,
 		installBasis: 0,
+		planBasis: 0,
+		planClosed: 0,
 		plan: 0,
 		installation: 0,
 		loginRoles: 0,
@@ -330,6 +339,8 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		own: 0,
 		compileLaws: 0,
 		installBasis: 0,
+		planBasis: 0,
+		planClosed: 0,
 		plan: 0,
 		installation: 0,
 		loginRoles: 0,
@@ -341,7 +352,9 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 1,
 		compileLaws: 1,
-		installBasis: 1,
+		installBasis: 0,
+		planBasis: 1,
+		planClosed: 0,
 		plan: 1,
 		installation: 0,
 		loginRoles: 1

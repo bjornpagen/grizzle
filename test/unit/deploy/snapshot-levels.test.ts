@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	codebookOf,
+	derivedOf,
 	finishSnapshot,
 	targetState,
 	writeSnapshot
@@ -167,7 +168,7 @@ describe("snapshot.json", () => {
 							const snapshot = succeeded(
 								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 							)
-							const files = succeeded(writeSnapshot(snapshot))
+							const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 							const read = succeeded(readSnapshot(files))
 							const lawsOf = (levels: typeof snapshot.levels) =>
 								Arr.map(levels, (l) => Arr.map(l.laws, (law) => law.law))
@@ -188,6 +189,18 @@ describe("snapshot.json", () => {
 								)
 								assert.deepEqual(served.constraintToLaw, read.constraintToLaw)
 								assert.deepEqual(codesOf(served.codes), codesOf(codebookOf(read)))
+								assert.deepEqual<unknown>(
+									[...served.derived.closed],
+									Arr.map([...derivedOf(installation).closed], ([name, c]) => [
+										name,
+										{
+											...c,
+											payload: Arr.map(c.payload, (p) =>
+												p.dictionary === undefined ? { field: p.field, radix: p.radix } : p
+											)
+										}
+									])
+								)
 							}
 							k.note(c.placement)
 						})

@@ -6,6 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import {
+	derivedOf,
 	finishSnapshot,
 	noWorkload,
 	targetState,
@@ -453,7 +454,7 @@ const sizesOf = (installation: Installation) => {
 	const snapshot = succeeded(
 		finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 	)
-	const files = succeeded(writeSnapshot(snapshot))
+	const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 	return {
 		largest: Arr.reduce(sizes, 0, (m, x) => Math.max(m, x)),
 		total: Arr.reduce(sizes, 0, (n, x) => n + x),

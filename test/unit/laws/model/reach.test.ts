@@ -477,7 +477,14 @@ describe("a login's runtime law model", () => {
 						Effect.sync(() => {
 							const login = loginOf(c)
 							const codes = firstCodebook(rostersOf(login.base))
-							const runtime = succeeded(artifactsUnder(login, codes), "the layer's artifacts")
+							const recorded = succeeded(
+								installBasis(login.base, codes, everySlice(login.base)),
+								"the installation's basis"
+							).closed
+							const runtime = succeeded(
+								artifactsUnder(login, codes, recorded),
+								"the layer's artifacts"
+							)
 							const whole = installed(login.base, codes)
 							const seed = new Set(
 								Arr.flatMap(c.roles, (writes) => Arr.map(writes, (i) => ordinaryName(c, i)))

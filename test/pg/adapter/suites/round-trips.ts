@@ -545,7 +545,7 @@ export const roundTripSuite = (): void => {
 							transport: tap.transport,
 							pool: { ...clusterPool, min: 1, max: 1 },
 							login: o.server,
-							snapshot: snapshotValue(o.installed.snapshot),
+							snapshot: snapshotValue(o.installed.snapshot, o.installed.installation),
 							verify: testVerify
 						})
 						return yield* Effect.gen(function* () {
