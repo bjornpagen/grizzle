@@ -1,4 +1,6 @@
+import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
@@ -105,11 +107,20 @@ export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(Mutabl
 export type ShopCompile = Pick<CompileWriteOptions, "claims">
 export const shopCompile: ShopCompile = { claims: { kind: "every" } }
 
+/** A Shop's write compiler, and its write oracle's baseline of a write it compiled. */
+interface ShopWriter {
+	readonly write: (
+		value: unknown,
+		options: ShopCompile
+	) => Result.Result<CompiledWrite, CompileError>
+	readonly conservative: (program: CompiledWrite) => Result.Result<CompiledWrite, CompileError>
+}
+
 /**
  * The write compiler of a Shop: its names as installed under the schema `shop`, the keys of its views as its artifacts
  * know them, and the reality it writes.
  */
-const shopWriter = (s: typeof Shop | typeof MutableCrewShop) => {
+const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 	const owned = owning(s)
 	const names: WriteNames = succeeded(
 		compileInstallation(owned, {
