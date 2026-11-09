@@ -152,6 +152,11 @@ export type OwnedRelation =
 			})
 	| (Owning<"closed"> &
 			Installed<"rosterDomain"> & {
+				/**
+				 * The roster its handles type, its handles' digest taken once here, which every reading of the owned schema
+				 * types a closed id over it by.
+				 */
+				readonly roster: Roster
 				/** Its one field, its handle under `id`. */
 				readonly fields: Readonly<Record<string, OwnedField>>
 				readonly keys: readonly []
@@ -344,9 +349,7 @@ export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKi
  * the installation's codebook holds codes for (ir/codes.ts draftCodebook).
  */
 export const rostersOf = (owned: Owned): ReadonlyArray<Roster> =>
-	Object.values(owned.relations).flatMap((r) =>
-		r.kind === "closed" ? [new Roster(r.name, r.desc.handles)] : []
-	)
+	Object.values(owned.relations).flatMap((r) => (r.kind === "closed" ? [r.roster] : []))
 
 /**
  * A function declaration, so that control flow knows a call never returns. Ownership's refusals are Refusals, which
@@ -1926,6 +1929,7 @@ class Owner {
 					...owning,
 					kind: r.kind,
 					desc: r,
+					roster: new Roster(name, r.handles),
 					named,
 					ident: identifierOf(named),
 					fields: this.#closedFields(owning, entry, rosterHeading(r)),

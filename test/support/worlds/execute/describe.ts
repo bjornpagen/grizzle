@@ -2,8 +2,8 @@ import { Array as Arr, type Effect, Option, Predicate, Record as Rec } from "eff
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
+import { admittedClosedId, closedIdOf } from "#compiler/schema/relation.ts"
 import { carrierOf } from "#test/support/worlds/execute/host.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { fieldDomain, headFieldDomain } from "#test/support/worlds/model/host.ts"
@@ -145,11 +145,10 @@ class Terms {
 				fields.set(term.field, minted)
 				return minted
 			}
-			case "handle":
-				return handleTerm(
-					sourceValue(this.#sources, { kind: "closed", name: term.closed }),
-					term.member
-				)
+			case "handle": {
+				const roster = sourceValue(this.#sources, { kind: "closed", name: term.closed })
+				return handleTerm(roster, closedIdOf(roster), term.member)
+			}
 			case "literal":
 				return literalOf(term.value, domain)
 		}

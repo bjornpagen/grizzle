@@ -1,6 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -28,7 +29,13 @@ import {
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
-import { rosterOf } from "#compiler/ir/scalar.ts"
+import { Roster as IrRoster, rosterOf } from "#compiler/ir/scalar.ts"
+import {
+	builtRosterParts,
+	type ClosedIdParts,
+	closedIdField,
+	closedIdParts
+} from "#compiler/scalar/closed-id.ts"
 import { handleTerm } from "#compiler/scalar/compute/builders.ts"
 import {
 	type ClosedReadTyping,
@@ -92,6 +99,18 @@ import type { SlotField } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
 export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
+
+/**
+ * What closed(name, handles) builds a roster with: its content digest, and the roster its admitted handles type, its
+ * handles' digest taken once (ir/scalar.ts Roster), which every closed id over it reads (closedIdOf). The roster is
+ * absent when the name is no declared name, which every reader of the roster refuses before it resolves one
+ * (scalar/registry.ts rosterAt).
+ */
+export interface RosterContent {
+	readonly digest: ContentDigest
+	readonly typed: IrRoster | undefined
+}
+
 /**
  * What derived records until schema.extend places it: the definition and the relations it reads. The Description
  * proper needs the level, which only the extended schema determines.
@@ -626,6 +645,9 @@ export const closed = <
 	const id: ClosedId<Handles[number], Name> = Object.freeze({
 		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
 	})
+	const declared = parseDeclaredName(desc.name)
+	const typed = declared.ok ? new IrRoster(declared.value, desc.handles) : undefined
+	const parts = builtRosterParts(desc.name, desc.handles, typed)
 	const value: Roster<Name, readonly [...Handles]> = ownValue(
 		{
 			kind: "closed",
@@ -633,14 +655,31 @@ export const closed = <
 			handles: roster,
 			fact: record<[ClosedId<Handles[number], Name>]>(id),
 			heading: id,
-			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, member)
+			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, parts, member)
 		},
 		"closed",
 		desc,
-		contentDigest("relation", desc)
+		{ digest: contentDigest("relation", desc), typed }
 	)
 	return value
 }
+
+/**
+ * The parts of a closed id over `value`: a roster closed(name, handles) built, read off what its build admitted and the
+ * roster it typed, or a JavaScript look-alike's, admitted by closedId's own core (scalar/closed-id.ts closedIdParts).
+ */
+export const closedIdOf = (value: unknown): ClosedIdParts => {
+	const built = ownedEntry(value, "closed")
+	return built === undefined
+		? closedIdParts(value)
+		: builtRosterParts(built.desc.name, built.desc.handles, built.content.typed)
+}
+
+/**
+ * The descriptor of a closed id over `value`, for a caller that holds no literal handles: its parts closedIdOf's, its
+ * column the admitted roster's handles (scalar/closed-id.ts closedIdField).
+ */
+export const admittedClosedId = (value: unknown) => closedIdField(value, closedIdOf(value))
 
 /**
  * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
@@ -1041,10 +1080,11 @@ export const relationContentOf = (
 	readonly desc: OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation
 	readonly digest: ContentDigest
 } => {
-	const owned =
-		ownedEntry(value, "relation") ??
-		ownedEntry(value, "closed") ??
-		ownedEntry(value, "closedRelation")
+	const roster = ownedEntry(value, "closed")
+	if (roster !== undefined) {
+		return { desc: roster.desc, digest: roster.content.digest }
+	}
+	const owned = ownedEntry(value, "relation") ?? ownedEntry(value, "closedRelation")
 	if (owned !== undefined) {
 		return { desc: owned.desc, digest: owned.content }
 	}

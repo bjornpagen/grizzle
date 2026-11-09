@@ -266,7 +266,7 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 							ident: o.ident,
 							mutable: false,
 							level: o.level,
-							codes: codecOf(installation.names.codes, new Roster(o.name, o.desc.handles)).codes
+							codes: codecOf(installation.names.codes, o.roster).codes
 						}
 					]
 				]

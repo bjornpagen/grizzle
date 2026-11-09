@@ -2,9 +2,8 @@ import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
-import { type NamedRelation, namedRelation } from "#compiler/schema/relation.ts"
+import { admittedClosedId, type NamedRelation, namedRelation } from "#compiler/schema/relation.ts"
 import { candidateKeyOf, statementDescOf } from "#compiler/schema/statements.ts"
 
 /** A relation or closed relation a builder made, as namedRelation reads it, with its fact decoder. */

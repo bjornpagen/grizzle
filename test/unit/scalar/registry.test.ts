@@ -64,7 +64,6 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import { str } from "#compiler/public/text.ts"
-import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -84,6 +83,7 @@ import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
+import { admittedClosedId } from "#compiler/schema/relation.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import {
 	assert,

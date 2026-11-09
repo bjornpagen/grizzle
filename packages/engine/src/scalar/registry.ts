@@ -448,7 +448,7 @@ export const serialNameOf = (described: Described): string | undefined => {
  * registry parses as a declared name before it asks. An environment answers with one roster value for each closed
  * relation it holds, so its handles' digest is taken where the environment makes it, never for each field it types.
  */
-type RosterLookup = (name: DeclaredName) => Roster | undefined
+export type RosterLookup = (name: DeclaredName) => Roster | undefined
 
 /**
  * The analyzed language of a conjunction of text patterns, before any byte bound cuts it: the text analysis's

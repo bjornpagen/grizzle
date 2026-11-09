@@ -381,8 +381,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		this.owned = owned
 		this.world = world
 		for (const r of Object.values(owned.relations)) {
-			if (r.desc.kind === "closed") {
-				this.#rosters.set(r.name, new Roster(r.name, r.desc.handles))
+			if (r.kind === "closed") {
+				this.#rosters.set(r.name, r.roster)
 			}
 		}
 		const relations = new Map<string, RelationInfo>()

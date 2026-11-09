@@ -48,13 +48,12 @@ import {
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, type Described, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { writingOf } from "#compiler/schema/relation.ts"
+import { admittedClosedId, writingOf } from "#compiler/schema/relation.ts"
 import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { floatOf } from "#test/support/descriptors.ts"
 import { fieldIdentity, spanDescriptor } from "#test/support/fixtures/descriptors.ts"

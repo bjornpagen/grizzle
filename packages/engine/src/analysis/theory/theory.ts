@@ -414,8 +414,8 @@ export const typingEnv = (
 	const patterns = new CompilePatterns()
 	const rosters = new Map<string, Roster>()
 	for (const r of Object.values(owned.relations)) {
-		if (r.desc.kind === "closed") {
-			rosters.set(r.name, new Roster(r.name, r.desc.handles))
+		if (r.kind === "closed") {
+			rosters.set(r.name, r.roster)
 		}
 	}
 	const fieldType = (desc: FieldDesc, loc: SourceLoc): Result.Result<ScalarType, CompileError> =>

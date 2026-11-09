@@ -4,7 +4,6 @@ import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/co
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
-import { closedIdParts } from "#compiler/scalar/closed-id.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
@@ -16,6 +15,7 @@ import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	accumulatedField,
 	bitsOf,
+	closedIdOf,
 	drawnField,
 	generatedField,
 	slotField
@@ -178,7 +178,7 @@ export const span: SpanConstructor = <E extends SpanEndpointLike>(
 export const closedId: ClosedIdConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
 ): ClosedIdField<C> => {
-	const parts = closedIdParts(roster)
+	const parts = closedIdOf(roster)
 	return defineField(
 		{},
 		carrierSql.code,
@@ -193,7 +193,7 @@ export const closedId: ClosedIdConstructor = <C extends AnyRoster>(
 export const bits: BitsConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
 ): BitsField<C> => {
-	const parts = closedIdParts(roster)
+	const parts = closedIdOf(roster)
 	return defineField(
 		{},
 		carrierSql.bits,

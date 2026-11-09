@@ -13,6 +13,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { paramTerm } from "#compiler/query/build/terms.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
+import { closedIdOf } from "#compiler/schema/relation.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import {
 	Agree,
@@ -278,7 +279,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "offRoster":
 			return {
 				source: `Tone.handle("none")`,
-				value: () => handleTerm(Tone, "none"),
+				value: () => handleTerm(Tone, closedIdOf(Tone), "none"),
 				column: "tone"
 			}
 		case "uuidUpper": {

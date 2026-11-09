@@ -26,11 +26,11 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
-import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
+	admittedClosedId,
 	closed,
 	closedRelation,
 	generatedField,

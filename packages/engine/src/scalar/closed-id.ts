@@ -8,7 +8,12 @@ import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { carrierSql, defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
+import {
+	carrierSql,
+	defineField,
+	type RosterLookup,
+	type ScalarEnv
+} from "#compiler/scalar/registry.ts"
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !isList(value)
@@ -78,17 +83,25 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
  * What the admission core decided: the roster, the reference's Description and location, and the environment that
  * resolves the roster by name.
  */
-interface ClosedIdParts {
+export interface ClosedIdParts {
 	readonly roster: ClosedRoster
 	readonly desc: FieldDesc
 	readonly loc: SourceLoc
 	readonly env: ScalarEnv
 }
 
+/** The parts of a closed id over `roster`, whose environment resolves the roster's name by `typed`. */
+const partsOf = (roster: ClosedRoster, typed: RosterLookup): ClosedIdParts => ({
+	roster,
+	desc: { kind: "closedId", roster: roster.closed },
+	loc: SourceLoc(`closedId(${roster.closed})`, []),
+	env: { kind: "builder", roster: typed }
+})
+
 /**
- * The admission core of closedId: a JavaScript caller can pass anything. Reading its value can run its code (a proxy's
- * traps, a getter), so it is read once through hostRead, and a value whose reading throws is refused like any other
- * value that is no closed relation.
+ * The admission core of closedId for a JavaScript look-alike of a roster: a JavaScript caller can pass anything.
+ * Reading its value can run its code (a proxy's traps, a getter), so it is read once through hostRead, and a value whose
+ * reading throws is refused like any other value that is no closed relation.
  */
 export const closedIdParts = (closed: unknown): ClosedIdParts => {
 	const read = hostRead(
@@ -103,16 +116,22 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
 		throw read.error
 	}
 	const roster = read.value
-	return {
-		roster,
-		desc: { kind: "closedId", roster: roster.closed },
-		loc: SourceLoc(`closedId(${roster.closed})`, []),
-		env: {
-			kind: "builder",
-			roster: (name) => (name === roster.closed ? new Roster(name, roster.handles) : undefined)
-		}
-	}
+	return partsOf(roster, (name) =>
+		name === roster.closed ? new Roster(name, roster.handles) : undefined
+	)
 }
+
+/**
+ * The parts of a closed id over a roster closed(name, handles) built: the name and handles its admission read, and the
+ * roster it typed once, absent when its name is no declared name, which the registry refuses before it resolves one
+ * (scalar/registry.ts rosterAt).
+ */
+export const builtRosterParts = (
+	closed: string,
+	handles: NonEmptyReadonlyArray<string>,
+	typed: Roster | undefined
+): ClosedIdParts =>
+	partsOf({ closed, handles }, (name) => (typed?.closed === name ? typed : undefined))
 
 /**
  * closedId(C): a reference to a closed relation's roster.
@@ -127,13 +146,13 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
  * list of distinct nonempty handles, each storable text. Anything else from a JavaScript caller is
  * MalformedDescription, a value whose reading throws (a refusing proxy, a throwing getter) among them.
  *
- * The descriptor of the admission core, for a JavaScript caller: it holds the closed relation it was given, and its
- * column is the admitted roster's handles. The public closedId (public/fields.ts) builds the same descriptor with the
- * column typed by the closed relation's literal handles.
+ * The descriptor over `closed`, whose parts its admission decided (schema/relation.ts closedIdOf): it holds the closed
+ * relation it was given, and its column is the admitted roster's handles. The public closedId (public/fields.ts) builds
+ * the same descriptor with the column typed by the closed relation's literal handles, and admittedClosedId
+ * (schema/relation.ts) builds it for a caller that holds none.
  */
-export const admittedClosedId = (closed: unknown) => {
-	const parts = closedIdParts(closed)
-	return defineField(
+export const closedIdField = (closed: unknown, parts: ClosedIdParts) =>
+	defineField(
 		{},
 		carrierSql.code,
 		parts.desc,
@@ -141,4 +160,3 @@ export const admittedClosedId = (closed: unknown) => {
 		parts.loc,
 		parts.env
 	)
-}

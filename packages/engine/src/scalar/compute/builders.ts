@@ -21,7 +21,7 @@ import {
 import type { LiteralExpr, OpenExpr } from "#compiler/ir/open.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
-import { admittedClosedId, closedIdParts } from "#compiler/scalar/closed-id.ts"
+import { type ClosedIdParts, closedIdField } from "#compiler/scalar/closed-id.ts"
 import {
 	exprEmitter,
 	type LowerEnv,
@@ -1007,15 +1007,19 @@ const literal = (type: unknown, value: unknown): Checked => {
 }
 
 /**
- * X.handle(member): the member's literal at X's closed id, whose column is that one handle. A member off the roster, or
- * anything but a string from a JavaScript caller, is refused, MalformedDescription.
+ * X.handle(member): the member's literal at X's closed id, whose parts X's build admitted, its column that one handle.
+ * A member off the roster, or anything but a string from a JavaScript caller, is refused, MalformedDescription.
  */
-export const handleTerm = <M extends string>(closed: unknown, member: M): ScalarTerm<M, "code"> => {
-	const { roster } = closedIdParts(closed)
+export const handleTerm = <M extends string>(
+	closed: unknown,
+	parts: ClosedIdParts,
+	member: M
+): ScalarTerm<M, "code"> => {
+	const { roster } = parts
 	const call = new Call(`${roster.closed}.handle`)
 	const checked = typedLiteral(
 		call,
-		call.field(admittedClosedId(closed), "the literal's type"),
+		call.field(closedIdField(closed, parts), "the literal's type"),
 		member
 	)
 	return scalarTerm(checked.expr, checked.type, {
