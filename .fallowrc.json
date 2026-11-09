@@ -89,13 +89,15 @@
 				]
 			},
 			{
-				// The shell's migration, drift and manifest readers, which only generate, check and migrate run.
+				// The shell's migration, drift and manifest readers, which only generate, check and migrate run, and the one
+				// compile of a login's workload, whose served file generate writes and check holds to it.
 				"name": "adapter-install",
 				"patterns": [
 					"packages/grizzle/src/adapter/admission/drift.ts",
 					"packages/grizzle/src/adapter/admission/expectation.ts",
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
+					"packages/grizzle/src/adapter/served/compile.ts",
 					"packages/grizzle/src/adapter/served/project.ts"
 				]
 			},

@@ -25,6 +25,7 @@ import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { noTransactionMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -292,6 +293,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 						init,
 						seed,
 						manifestFileName,
+						servedDirectory,
 						snapshotFileName
 					])
 					const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)

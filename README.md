@@ -2653,8 +2653,10 @@ deploy.
   None controls its own transaction. Every file runs at SERIALIZABLE, and the database must still end at the
   snapshot.
 - **`check` reads no database.** It reports, each with its fix, a schema change you haven't generated, a drop no
-  declaration names, a workload program whose index needs differ from the snapshot's (naming it), an unresolved marker
-  or data loss, and an edited `snapshot.json`, `manifest.json` or `meta.json`.
+  declaration names, a workload program whose index needs differ from the snapshot's (naming it), a served file that
+  is not what its login's workload compiles to (naming the login and the first program where they part), one missing
+  or one of a login the configuration does not list, an unresolved marker or data loss, and an edited
+  `snapshot.json`, `manifest.json` or `meta.json`.
 - **`migrate`** connects as the role that owns the schema and the database, applies the pending files, records each in
   the schema's ledger, and refuses an applied file edited, removed or added since. Then it refuses drift, a database
   that is not exactly the snapshot's, so on a database changed by hand it applies its files, then refuses. `drift`

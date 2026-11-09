@@ -58,12 +58,13 @@ import { upTo } from "#test/support/up-to.ts"
  *   schema once, reading the texts its content carries (schema/own.ts ownBuilt), none again; generate and check hash
  *   each level's fingerprint (core/fingerprint.ts schemaLevel), the snapshot's encoding of it, and the layer hashes
  *   none, owning the schema under the fingerprints the snapshot records (schema/own.ts ownServed); no level check or
- *   program they compile reads a description's text (descText). They compile its basis once and compile the login's
- *   programs once, through the one path they share (adapter/pool/registry.ts loginRoles): generate and check compile
- *   the installation's basis (its law model and closed constants, physical/install/plan.ts installBasis), packing every
- *   closed relation's cells once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the
- *   artifacts the programs read and for the draft, and build the draft's DDL once; the layer compiles its plan's basis
- *   from the closed constants' names the snapshot records (planBasis), packs no cell, plans once and builds no DDL.
+ *   program they compile reads a description's text (descText). generate and check compile the installation's basis
+ *   once (its law model and closed constants, physical/install/plan.ts installBasis), packing every closed relation's
+ *   cells once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
+ *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
+ *   programs once, into its served file, exactly as the layer does (adapter/served/compile.ts compileServed): the
+ *   layer's plan's basis from the closed constants' names the snapshot records (planBasis), packing no cell, planned
+ *   once, and its roles' programs (adapter/served/login.ts loginRoles), building no DDL.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -309,11 +310,11 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 1,
 		schemaLevel: 1,
-		compileLaws: 1,
+		compileLaws: 2,
 		installBasis: 1,
-		planBasis: 0,
+		planBasis: 1,
 		planClosed: 1,
-		plan: 2,
+		plan: 3,
 		installation: 1,
 		loginRoles: 1
 	},
@@ -322,11 +323,11 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 1,
 		schemaLevel: 1,
-		compileLaws: 1,
+		compileLaws: 2,
 		installBasis: 1,
-		planBasis: 0,
+		planBasis: 1,
 		planClosed: 1,
-		plan: 2,
+		plan: 3,
 		installation: 1,
 		loginRoles: 1
 	},

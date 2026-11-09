@@ -1,5 +1,6 @@
 import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
+import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
 import { maxMigrationNameLength, metaFileName } from "#compiler/plan/migration.ts"
@@ -26,7 +27,7 @@ import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
  * - `codes`: a roster declares its handles out of the order of the codes the committed snapshot records for them, so
  *   no draft could keep every stored code's meaning;
- * - `generate`: the compiler refused the schema, its logins' workloads or the draft.
+ * - `generate`: the compiler refused the schema, its logins' workloads or the draft, or a login's served workload.
  *
  * Every refusal happens before anything is written: a generate writes no folder of any schema until every configured
  * schema has drafted, and an apply hands nothing to the runner until every schema's directory reads.
@@ -366,13 +367,15 @@ export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
 
 /**
  * The migrations directory of `schema` holds what no generator writes: `directory`, its directory, is no directory; it
- * holds `entry`, neither a snapshot file nor a migration folder; it holds one of the snapshot's two files, `present`,
- * without the other, `missing`, which generate writes together; or the migration folder at `folder` has no meta.json,
- * or holds `entry`, which is no file.
+ * holds `entry`, neither a snapshot file, the served directory nor a migration folder; its served directory, `directory`,
+ * holds `entry`, no file named `<login>.json`; it holds one of the snapshot's two files, `present`, without the other,
+ * `missing`, which generate writes together; or the migration folder at `folder` has no meta.json, or holds `entry`,
+ * which is no file.
  */
 type TreeFault =
 	| { readonly kind: "notDirectory"; readonly directory: string }
 	| { readonly kind: "strayEntry"; readonly directory: string; readonly entry: string }
+	| { readonly kind: "strayServed"; readonly directory: string; readonly entry: string }
 	| {
 			readonly kind: "halfSnapshot"
 			readonly directory: string
@@ -392,7 +395,9 @@ export class TreeRefused extends Data.TaggedError("TreeRefused")<{
 			case "notDirectory":
 				return `${fault.directory} is not a directory; it is schema ${this.schema}'s migrations directory`
 			case "strayEntry":
-				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName}, ${manifestFileName} nor a migration folder`
+				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName}, ${manifestFileName}, the served directory nor a migration folder`
+			case "strayServed":
+				return `${fault.directory} holds ${fault.entry}, which is no file named <login>.json; grizzle generate writes one per login`
 			case "halfSnapshot":
 				return `${fault.directory} holds ${fault.present} without ${fault.missing}; grizzle generate writes the two together, so restore ${fault.missing} from version control`
 			case "noMeta":
@@ -442,6 +447,16 @@ export class SnapshotUnwritten extends Data.TaggedError("SnapshotUnwritten")<{
 }> {
 	override get message(): string {
 		return `${snapshotFileName} and ${manifestFileName} of ${this.schema} could not be written${codeOf(this.cause)}`
+	}
+}
+
+/** The served files of `schema` could not be written or removed, for `cause`. */
+export class ServedUnwritten extends Data.TaggedError("ServedUnwritten")<{
+	readonly schema: string
+	readonly cause: Error
+}> {
+	override get message(): string {
+		return `the served files of ${this.schema} could not be written${codeOf(this.cause)}`
 	}
 }
 
@@ -575,6 +590,32 @@ export class DraftRefused extends Data.TaggedError("DraftRefused")<{
 	}
 }
 
+const workloadPlaceText = (place: WorkloadPlace): string => {
+	switch (place.kind) {
+		case "login":
+			return ""
+		case "role":
+			return ` for role ${place.role}`
+		case "program":
+			return ` at program ${place.program} of role ${place.role}`
+	}
+}
+
+/**
+ * The compiler refused the workload of login `login` of `schema` at `place`, for `error`: the served file generate would
+ * write for it (adapter/served/compile.ts), which its application serves, does not compile.
+ */
+export class ServedRefused extends Data.TaggedError("ServedRefused")<{
+	readonly schema: string
+	readonly login: string
+	readonly place: WorkloadPlace
+	readonly error: CompileError
+}> {
+	override get message(): string {
+		return `login ${this.login}'s workload does not compile${workloadPlaceText(this.place)}: ${this.error.message}`
+	}
+}
+
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
 type CliReason =
 	| ArgumentsRefused
@@ -594,12 +635,14 @@ type CliReason =
 	| FolderExists
 	| FolderUnwritten
 	| SnapshotUnwritten
+	| ServedUnwritten
 	| MigrationsUnread
 	| SnapshotUnreadable
 	| SnapshotForeign
 	| ChainRefused
 	| RosterReordered
 	| DraftRefused
+	| ServedRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
@@ -620,12 +663,14 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	FolderExists: "filesystem",
 	FolderUnwritten: "filesystem",
 	SnapshotUnwritten: "filesystem",
+	ServedUnwritten: "filesystem",
 	MigrationsUnread: "filesystem",
 	SnapshotUnreadable: "snapshot",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",
 	RosterReordered: "codes",
-	DraftRefused: "generate"
+	DraftRefused: "generate",
+	ServedRefused: "generate"
 }
 
 /**

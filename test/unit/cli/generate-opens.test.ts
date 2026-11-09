@@ -10,7 +10,7 @@ import { compiledDbLayer } from "#adapter/pool/registry.ts"
 import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema } from "#cli/generate.ts"
+import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -32,17 +32,19 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * `grizzle generate` compiles every program of a login's workloads exactly as DbLayer.make does, through the one
- * function the layer runs at startup (adapter/served/login.ts loginRoles), so a program generate admits is one the
- * layer opens, and one the layer would refuse refuses the draft first, with the same CompileError.
+ * `grizzle generate` compiles every program of a login's workloads once, into the login's served file, through the
+ * one compile of a login (adapter/served/compile.ts compileServed over adapter/served/login.ts loginRoles), so a program
+ * generate admits is one the layer's own compilation admits and its drafted snapshot opens the layer, and one that
+ * compilation refuses refuses generate, by the program, with the same CompileError.
  *
  * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
  * one query, whose head is every field of two joined relations, split between them evenly, on the bound and one
  * entry past it. The checker admits every width; the statements the layer compiles refuse a head past the
  * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts
- * it, and its snapshot opens a DbLayer, which builds without a connection; past it, the layer refuses the program and
- * generate refuses the draft with the CompileError the layer refuses it with. A case compiles a program of some 1,664
- * columns, so the box is the bound and the entry past it alone.
+ * it and writes its served file, and its snapshot opens a DbLayer, which builds without a connection; past it, the
+ * layer refuses the program and generate refuses with the CompileError the layer refuses it with, the draft's access
+ * plan or the served file's compile naming the program. A case compiles a program of some 1,664 columns, so the box is
+ * the bound and the entry past it alone.
  */
 
 /** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
@@ -143,12 +145,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							const configured = defined(config.schemas[0], "the configured schema")
 							const compiledSchema = yield* Effect.fromResult(compileSchema(configured))
 							const compiledLogin = defined(compiledSchema.logins[0], "the login")
-							const draft = yield* Effect.result(
-								draftSchema(
-									compiledSchema,
-									emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-									[],
-									noDeclarations
+							const generated = yield* Effect.result(
+								Effect.flatMap(
+									draftSchema(
+										compiledSchema,
+										emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
+										[],
+										noDeclarations
+									),
+									(draft) =>
+										Effect.as(servedFiles(compiledSchema, draft.snapshotFiles), draft.snapshotFiles)
 								)
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
@@ -181,10 +187,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 								within,
 								"the layer compiles exactly the programs the select list holds"
 							)
-							if (Result.isSuccess(draft)) {
+							if (Result.isSuccess(generated)) {
 								assert.ok(
 									Result.isSuccess(compiled),
-									"generate drafts only what the layer compiles"
+									"generate drafts and serves only what the layer compiles"
 								)
 								const opened = yield* Effect.exit(
 									Effect.scoped(
@@ -193,7 +199,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 												...offlineConnection,
 												pool: clusterPool,
 												login: pairs.login,
-												snapshot: snapshotJson(draft.success.snapshotFiles.snapshot)
+												snapshot: snapshotJson(generated.success.snapshot)
 											})
 										)
 									)
@@ -205,10 +211,20 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							if (Result.isSuccess(compiled)) {
 								return
 							}
-							const refusal = draft.failure.reason
-							assert.equal(refusal._tag, "DraftRefused")
-							if (refusal._tag === "DraftRefused") {
-								assert.equal(refusal.step, "workload")
+							const refusal = generated.failure.reason
+							assert.ok(
+								(refusal._tag === "DraftRefused" && refusal.step === "workload") ||
+									refusal._tag === "ServedRefused",
+								`generate refuses the workload: ${refusal.message}`
+							)
+							if (refusal._tag === "ServedRefused") {
+								assert.deepEqual(
+									refusal.place,
+									{ kind: "program", role: "reader", program: "pairs" },
+									"the served file's compile names the program"
+								)
+							}
+							if (refusal._tag === "DraftRefused" || refusal._tag === "ServedRefused") {
 								assert.deepEqual(refusal.error.reason, compiled.failure.reason)
 								const reason = refusal.error.reason
 								assert.ok(

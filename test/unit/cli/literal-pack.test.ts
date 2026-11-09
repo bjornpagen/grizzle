@@ -24,6 +24,7 @@ import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/ty
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
@@ -219,7 +220,11 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									const schemaDir = `migrations/${headNonEmpty(owned.levels).installation.identifier}`
 									const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									const folder = `${schemaDir}/${defined(
-										Arr.filter(entries, (n) => n !== snapshotFileName && n !== manifestFileName)[0],
+										Arr.filter(
+											entries,
+											(n) =>
+												n !== snapshotFileName && n !== manifestFileName && n !== servedDirectory
+										)[0],
 										"the drafted folder"
 									)}`
 									const named = yield* fs.readDirectory(`${ws}/${folder}`)

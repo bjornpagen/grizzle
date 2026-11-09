@@ -10,8 +10,8 @@ import {
 	Result
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { artifactsOver, loginRoles } from "#adapter/served/login.ts"
-import { noLevelAbove } from "#adapter/witness/keylaw.ts"
+import { type ServedEntry, servedEntry } from "#adapter/served/compile.ts"
+import { artifactsOver } from "#adapter/served/login.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
 import { committedSnapshot, continuedChain } from "#cli/committed.ts"
@@ -27,11 +27,24 @@ import {
 	MigrationsUnread,
 	cliError,
 	RosterReordered,
-	SchemaChoiceRefused
+	SchemaChoiceRefused,
+	ServedRefused
 } from "#cli/errors.ts"
-import { readSchemaTree, writeFolder, writeSnapshotFiles } from "#cli/files.ts"
+import {
+	readSchemaTree,
+	type ServedText,
+	writeFolder,
+	writeServedFiles,
+	writeSnapshotFiles
+} from "#cli/files.ts"
 import { rosterRenames } from "#cli/renames.ts"
-import { type CompileError, draftCodebook, Engine, rostersOf } from "#compiler/plan/common.ts"
+import {
+	type CompileError,
+	draftCodebook,
+	Engine,
+	rostersOf,
+	trustedJson
+} from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
 	compileWorkload,
@@ -86,9 +99,9 @@ interface DraftLoss {
 }
 
 /**
- * What generate wrote for one schema: nothing; the snapshot files written again for their derived facts alone, with no
- * folder; an empty custom folder, its name and path; or a drafted folder and the snapshot files it replaced,
- * manifest.json's path and snapshot.json's.
+ * What generate wrote for one schema's snapshot: nothing; the snapshot files written again for their derived facts
+ * alone, with no folder; an empty custom folder, its name and path; or a drafted folder and the snapshot files it
+ * replaced, manifest.json's path and snapshot.json's.
  */
 type Written =
 	| { readonly kind: "unchanged" }
@@ -121,6 +134,11 @@ type Written =
  * A custom migration is the empty folder whose source and target are both the committed snapshot, for hand-written
  * data steps, named `--name`; the snapshot's files do not change.
  *
+ * Beside the snapshot, every other draft brings the schema's served directory to the snapshot it commits: each login of
+ * the configuration over the schema has its workload compiled under that snapshot (servedFiles), and its
+ * `served/<login>.json` is written where the directory does not hold that text, and the served file of a login the
+ * configuration no longer lists is removed. A custom folder changes no snapshot and compiles nothing, so it leaves them.
+ *
  * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
  * schema, and a name the previous snapshot holds that the schema no longer does is refused unless the command line
  * declares it renamed or dropped (`--rename`, `--drop`). The report lists each written file, each marker a reviewer
@@ -129,16 +147,24 @@ type Written =
  * renamed in code leaves, starts the schema under the loss of their rows (abandonedSchemas). generate never reads the
  * configuration's connection.
  */
-export type SchemaGenerateReport = Written & {
+export type SchemaGenerateReport = SchemaWritten & {
 	readonly schema: string
 	readonly ident: string
+	/** The snapshot the schema's directory now commits. */
+	readonly fingerprint: string
+	/** The path of each served file written, its text not the one the directory held. */
+	readonly served: ReadonlyArray<string>
+	/** The path of each served file removed, of a login the configuration no longer lists over the schema. */
+	readonly unserved: ReadonlyArray<string>
+}
+
+/** What writing a draft's folder and snapshot wrote (Written), with the folder's files, markers and losses. */
+type SchemaWritten = Written & {
 	/** The folder's SQL files, by name; none when nothing was written. */
 	readonly files: ReadonlyArray<string>
 	readonly markers: ReadonlyArray<DraftMarker>
 	/** Each loss of stored data the folder drafts, by file, with what it loses. */
 	readonly losses: ReadonlyArray<DraftLoss>
-	/** The snapshot the schema's directory now commits. */
-	readonly fingerprint: string
 }
 
 /** The refusal of `step` of a schema's draft, which the compiler refused. */
@@ -179,8 +205,22 @@ const selectSchemas = (
 	return Result.succeed(config.schemas)
 }
 
+/**
+ * What a draft does to a schema's served directory: each login's served file whose text the directory does not hold,
+ * written, and the served file of each login the configuration no longer lists over the schema, removed, by its
+ * declared name.
+ */
+interface ServedWrites {
+	readonly write: ReadonlyArray<ServedText>
+	readonly remove: ReadonlyArray<string>
+}
+
+/** A custom folder leaves the served files as they are. */
+const noServedWrites: ServedWrites = { write: [], remove: [] }
+
 /** A schema's draft: nothing to write; snapshot.json written again, its derived facts the compile's, with no folder; an
- * empty custom folder; or a drafted folder and its new snapshot's files. */
+ * empty custom folder; or a drafted folder and its new snapshot's files. Beside any of them but the custom folder, the
+ * served files of the snapshot the schema's directory commits once the draft is written. */
 type SchemaDraft = (
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "rederived"; readonly snapshotFiles: SnapshotFiles }
@@ -194,6 +234,7 @@ type SchemaDraft = (
 	readonly schema: ConfiguredSchema
 	/** The snapshot the schema's directory commits once the draft is written. */
 	readonly snapshot: DeploySnapshot
+	readonly served: ServedWrites
 }
 
 /**
@@ -204,11 +245,9 @@ type SchemaDraft = (
  * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook): a
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
  * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
- * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
- * DbLayer.make compiles it (adapter/served/login.ts loginRoles), so a program the layer would refuse refuses the draft.
- * The schema's basis is compiled once: the artifacts the programs read and the installation the draft installs share
- * one law model and one plan of the closed constants (physical/install/plan.ts installBasis), and every login and
- * role reads the one artifacts.
+ * The schema's basis is compiled once: the artifacts the workloads' access paths are planned against and the
+ * installation the draft installs share one law model and one plan of the closed constants (physical/install/plan.ts
+ * installBasis). Each login's programs are compiled once the draft lays out its snapshot (servedFiles).
  */
 const draftInput = Effect.fn("draftInput")(function* (
 	schema: CompiledSchema,
@@ -239,9 +278,8 @@ const draftInput = Effect.fn("draftInput")(function* (
 	}
 	const codes = drafted.value
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
-	const slice = everySlice(owned)
 	const basis = yield* Effect.mapError(
-		fromEngine(installBasis(owned, codes, slice)),
+		fromEngine(installBasis(owned, codes, everySlice(owned))),
 		refusedAt("schema")
 	)
 	/**
@@ -253,41 +291,21 @@ const draftInput = Effect.fn("draftInput")(function* (
 		? yield* Effect.mapError(
 				fromEngine(
 					Engine.flatMap(artifactsOver(basis), (artifacts) =>
-						Engine.map(
-							compileWorkload(
-								Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
-								configured.built,
-								{ artifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
-							),
-							(plan) => ({ artifacts, plan })
+						compileWorkload(
+							Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
+							configured.built,
+							{ artifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
 						)
 					)
 				),
 				refusedAt("workload")
 			)
 		: undefined
-	if (planned !== undefined) {
-		for (const login of logins) {
-			yield* Effect.mapError(
-				loginRoles(
-					login.login,
-					login.owned,
-					{
-						slice,
-						artifacts: planned.artifacts,
-						over: (sliced) => Engine.flatMap(installBasis(owned, codes, sliced), artifactsOver)
-					},
-					noLevelAbove
-				),
-				(refused) => refusedAt("workload")(refused.error)
-			)
-		}
-	}
 	const options = completeInstallOptions(
 		owned,
 		installationsOf(owned),
 		Arr.map(logins, (l) => l.owned),
-		planned === undefined ? [] : [workloadExtension(planned.plan)],
+		planned === undefined ? [] : [workloadExtension(planned)],
 		codes
 	)
 	const installation = yield* Effect.mapError(
@@ -300,7 +318,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 		workload:
 			planned === undefined
 				? noWorkload
-				: { access: planned.plan.access, accessPaths: planned.plan.requests },
+				: { access: planned.access, accessPaths: planned.requests },
 		abandoned,
 		declared
 	}
@@ -344,6 +362,43 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 	)
 })
 
+/**
+ * Each login's served file, in configured order: its workload compiled under the snapshot.json text `files` lays out,
+ * the draft's, as DbLayer.make read it (adapter/served/compile.ts servedEntry). generate writes them beside the snapshot
+ * and check holds the committed ones to them, so both compile every login once, from the one text. A login whose
+ * workload does not compile is ServedRefused, at the login, its role or its program.
+ */
+export const servedFiles = Effect.fn("servedFiles")(function* (
+	schema: CompiledSchema,
+	files: SnapshotFiles
+): Effect.fn.Return<ReadonlyArray<ServedEntry>, CliError> {
+	const snapshot = trustedJson<unknown>(files.snapshot)
+	return yield* Effect.forEach(schema.logins, (login) =>
+		Effect.mapError(servedEntry(login, snapshot), (refusal) =>
+			cliError(
+				new ServedRefused({
+					schema: schema.configured.declared,
+					login: login.login.desc.name,
+					place: refusal.place,
+					error: refusal.error
+				})
+			)
+		)
+	)
+})
+
+/** What writing `served` does to a served directory holding `committed`, by login (ServedWrites). */
+const servedWrites = (
+	served: ReadonlyArray<ServedEntry>,
+	committed: ReadonlyMap<string, string>
+): ServedWrites => {
+	const listed = new Set(Arr.map(served, (f) => f.login))
+	return {
+		write: Arr.filter(served, (f) => committed.get(f.login) !== f.text),
+		remove: Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
+	}
+}
+
 /** One schema's draft, computed without writing anything. */
 const draftFor = Effect.fn("draftFor")(function* (
 	config: ResolvedConfig,
@@ -361,7 +416,13 @@ const draftFor = Effect.fn("draftFor")(function* (
 			fromEngine(customMigration({ snapshot: previous, name: mode.name, timestamp })),
 			draftRefused(schema.declared, "custom")
 		)
-		return { schema, folder, snapshot: previous, kind: "custom" } satisfies SchemaDraft
+		return {
+			schema,
+			folder,
+			snapshot: previous,
+			served: noServedWrites,
+			kind: "custom"
+		} satisfies SchemaDraft
 	}
 	const compiled = yield* Effect.fromResult(compileSchema(schema))
 	const generated = yield* generateSchema(
@@ -372,21 +433,25 @@ const draftFor = Effect.fn("draftFor")(function* (
 		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
 		options.declared
 	)
+	const files = yield* servedFiles(compiled, generated.snapshotFiles)
+	const served = servedWrites(files, tree.served)
 	if (generated.change === "none") {
 		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
 			? ({
 					schema,
 					snapshot: previous,
 					snapshotFiles: generated.snapshotFiles,
+					served,
 					kind: "rederived"
 				} satisfies SchemaDraft)
-			: ({ schema, snapshot: previous, kind: "unchanged" } satisfies SchemaDraft)
+			: ({ schema, snapshot: previous, served, kind: "unchanged" } satisfies SchemaDraft)
 	}
 	return {
 		schema,
 		folder: generated.folder,
 		snapshot: generated.snapshot,
 		snapshotFiles: generated.snapshotFiles,
+		served,
 		kind: "drafted"
 	} satisfies SchemaDraft
 })
@@ -428,29 +493,39 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 		)
 )
 
-/** Writes a draft: its folder whole, then its snapshot. */
+/** Writes a draft: its folder whole, then its snapshot, then its served files. */
 const writeDraft = Effect.fn("writeDraft")(function* (
 	draft: SchemaDraft
 ): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
 	const { schema } = draft
-	const common = {
+	const written = yield* writeSchemaDraft(draft)
+	const served = yield* writeServedFiles(
+		schema.declared,
+		schema.directory,
+		draft.served.write,
+		draft.served.remove
+	)
+	return {
+		...written,
 		schema: schema.declared,
 		ident: schema.ident,
-		fingerprint: draft.snapshot.fingerprint
+		fingerprint: draft.snapshot.fingerprint,
+		served: served.written,
+		unserved: served.removed
 	}
+})
+
+/** Writes a draft's folder whole, then its snapshot. */
+const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
+	draft: SchemaDraft
+): Effect.fn.Return<SchemaWritten, CliError, FileSystem.FileSystem | Path.Path> {
+	const { schema } = draft
 	if (draft.kind === "unchanged") {
-		const unchanged: SchemaGenerateReport = {
-			...common,
-			kind: "unchanged",
-			files: [],
-			markers: [],
-			losses: []
-		}
+		const unchanged: SchemaWritten = { kind: "unchanged", files: [], markers: [], losses: [] }
 		return unchanged
 	}
 	if (draft.kind === "rederived") {
-		const rederived: SchemaGenerateReport = {
-			...common,
+		const rederived: SchemaWritten = {
 			kind: "rederived",
 			snapshotPaths: yield* writeSnapshotFiles(
 				schema.declared,
@@ -465,7 +540,6 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 	}
 	const folder = draft.folder
 	const written = {
-		...common,
 		folder: folder.name,
 		path: yield* writeFolder(schema.declared, schema.directory, folder),
 		files: Arr.map(folder.files, (f) => f.name),
@@ -482,10 +556,10 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 				: []
 	}
 	if (draft.kind === "custom") {
-		const custom: SchemaGenerateReport = { ...written, kind: "custom" }
+		const custom: SchemaWritten = { ...written, kind: "custom" }
 		return custom
 	}
-	const drafted: SchemaGenerateReport = {
+	const drafted: SchemaWritten = {
 		...written,
 		kind: "drafted",
 		snapshotPaths: yield* writeSnapshotFiles(schema.declared, schema.directory, draft.snapshotFiles)

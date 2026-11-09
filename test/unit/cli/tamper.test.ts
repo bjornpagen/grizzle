@@ -21,6 +21,7 @@ import type { CliStage } from "#cli/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import {
 	cli,
 	cliClock,
@@ -159,7 +160,10 @@ const tamper = (c: Case, dir: string, other: string) =>
 		const schema = `${dir}/${schemaDir}`
 		const entries = yield* fs.readDirectory(schema)
 		const folders = Arr.sort(
-			Arr.filter(entries, (n) => n !== snapshotFileName && n !== manifestFileName),
+			Arr.filter(
+				entries,
+				(n) => n !== snapshotFileName && n !== manifestFileName && n !== servedDirectory
+			),
 			Order.String
 		)
 		const newest = folderAt(Arr.last(folders))

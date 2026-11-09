@@ -64,6 +64,7 @@ import { closed, login, type Relation, relation, role, schema } from "#compiler/
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defineConfig } from "#index.ts"
@@ -108,8 +109,9 @@ import { upTo } from "#test/support/up-to.ts"
  *   snapshot read before it, the schema compiled with its login, the declared renames and drops, the name and the
  *   timestamp, byte for byte: every file, meta.json and snapshot.json.
  * - `check` finds, for each schema: an unresolved placeholder per marker line and value line, an undecided loss, and
- *   then, against the committed snapshot, a roster reordered, else an undeclared drop, else an ungenerated change; or, for
- *   a directory that is a file, only that. It exits 1 exactly when it finds anything.
+ *   then, against the committed snapshot, a roster reordered, else an undeclared drop, else an ungenerated change beside
+ *   its login's served file, missing before the schema's first draft and stale after, since the snapshot it compiles
+ *   under is another; or, for a directory that is a file, only that. It exits 1 exactly when it finds anything.
  * - Reviewing deletes every marker line and writes every value; deciding a loss writes its statement in. A hidden
  *   entry an editor leaves beside the folders changes nothing.
  *
@@ -731,9 +733,11 @@ const findingsOf = (s: SchemaState): ReadonlyArray<FindingKind> => {
 		? ["rosterReordered"]
 		: neededOf(s).length > 0
 			? ["undeclaredDrop"]
-			: committed === undefined || !sameSpec(committed, s.current)
-				? ["ungenerated"]
-				: []
+			: committed === undefined
+				? ["ungenerated", "servedMissing"]
+				: !sameSpec(committed, s.current)
+					? ["ungenerated", "servedStale"]
+					: []
 	return [...files, ...draft]
 }
 
@@ -844,6 +848,8 @@ const checkedKinds = [
 	"undeclaredDrop",
 	"rosterReordered",
 	"ungenerated",
+	"servedMissing",
+	"servedStale",
 	"strayEntry"
 ] as const satisfies ReadonlyArray<FindingKind>
 
@@ -900,6 +906,8 @@ const projectFeatures = [
 	"check finds undeclaredDrop",
 	"check finds rosterReordered",
 	"check finds ungenerated",
+	"check finds servedMissing",
+	"check finds servedStale",
 	"check finds strayEntry"
 ] as const satisfies ReadonlyArray<ProjectFeature>
 
@@ -1018,7 +1026,11 @@ const foldersOnDisk = (r: Workspace, s: SchemaState) =>
 		return Arr.sort(
 			Arr.filter(
 				entries,
-				(n) => n !== snapshotFileName && n !== manifestFileName && !Str.startsWith(".")(n)
+				(n) =>
+					n !== snapshotFileName &&
+					n !== manifestFileName &&
+					n !== servedDirectory &&
+					!Str.startsWith(".")(n)
 			),
 			Order.String
 		)

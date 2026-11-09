@@ -10,6 +10,7 @@ import {
 	String as Str
 } from "effect"
 import { transactionControl } from "#adapter/migrate/input.ts"
+import type { ServedEntry } from "#adapter/served/compile.ts"
 import { chainWhole, type Committed, committedChain, committedSnapshot } from "#cli/committed.ts"
 import {
 	type CompiledSchema,
@@ -19,7 +20,7 @@ import {
 } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree, type SchemaTree } from "#cli/files.ts"
-import { draftSchema } from "#cli/generate.ts"
+import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
 import { namedText, noDeclarations } from "#cli/renames.ts"
 import { compileReasonText, looksLikeLiteralPack } from "#compiler/plan/common.ts"
@@ -34,9 +35,16 @@ import {
 	noTransactionMarker,
 	orderFolderFiles,
 	type PackFault,
+	servedDifference,
+	servedPartText,
 	splitStatements
 } from "#compiler/plan/migration.ts"
-import { type DeploySnapshot, derivedHolds, snapshotFileName } from "#compiler/plan/serve.ts"
+import {
+	type DeploySnapshot,
+	derivedHolds,
+	servedPath,
+	snapshotFileName
+} from "#compiler/plan/serve.ts"
 
 /** One finding: which refusal it is, where, what, and the fix. */
 interface CheckFinding {
@@ -81,6 +89,10 @@ interface CheckFinding {
  * - derived facts out of date: the derived runtime facts snapshot.json records beside the snapshot, outside its
  *   fingerprint, are not the ones the compile derives (build.ts derivedHolds), or snapshot.json records none, which
  *   `grizzle generate` writes again with no migration;
+ * - a served workload out of date: each login of the configuration over the schema compiled under the snapshot the
+ *   draft lays out, as generate compiles it (generate.ts servedFiles), whose committed `served/<login>.json` is not
+ *   that text byte for byte, each named with the first member where they part (served/compile.ts servedDifference); a
+ *   login with no served file; and a served file of a login the configuration does not list;
  * - a literal pack edited: a closed relation's constant, stated as one hex literal, whose literal does not decode to
  *   the content its comment states and its function's name digests, decoded back to its cells and held to them, each
  *   named with the first cell and key where it parts from the rows the schema declares (physical/ddl/literal.ts
@@ -115,6 +127,8 @@ interface CommittedCheck {
 	readonly committed: Option.Option<Committed>
 	readonly folders: number
 	readonly packs: ReadonlyArray<PackStatement>
+	/** The committed served files' texts, by login (files.ts SchemaTree). */
+	readonly served: ReadonlyMap<string, string>
 }
 
 /** A finding of `kind` about `schema` at `where`, with its fix. */
@@ -144,7 +158,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const read = yield* Effect.result(readSchemaTree(schema.declared, schema.directory))
 	if (Result.isFailure(read)) {
 		at("strayEntry", path(), read.failure.reason.message)
-		return { findings, committed: Option.none(), folders: 0, packs: [] }
+		return { findings, committed: Option.none(), folders: 0, packs: [], served: new Map() }
 	}
 	const tree: SchemaTree = read.success
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
@@ -224,7 +238,13 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	) {
 		at("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)
 	}
-	return { findings, committed: recorded, folders: tree.folders.length, packs }
+	return {
+		findings,
+		committed: recorded,
+		folders: tree.folders.length,
+		packs,
+		served: tree.served
+	}
 })
 
 /**
@@ -252,10 +272,59 @@ const packFindings = (
 	})
 
 /**
+ * The findings of a schema's committed served files, `committed` by login, against the served files generate writes
+ * under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file that is not its text, a
+ * login with none, and a file of a login the configuration does not list.
+ */
+const servedFindings = (
+	schema: ConfiguredSchema,
+	served: ReadonlyArray<ServedEntry>,
+	committed: ReadonlyMap<string, string>,
+	where: (login: string) => string
+): ReadonlyArray<CheckFinding> => {
+	const listed = new Set(Arr.map(served, (f) => f.login))
+	const extra = Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
+	return [
+		...Arr.flatMap(served, (file) => {
+			const text = committed.get(file.login)
+			if (text === undefined) {
+				return [
+					finding(
+						schema,
+						"servedMissing",
+						where(file.login),
+						`login ${file.login}: ${refusalText.servedMissing.problem}`
+					)
+				]
+			}
+			return text === file.text
+				? []
+				: [
+						finding(
+							schema,
+							"servedStale",
+							where(file.login),
+							`login ${file.login}, ${servedPartText(servedDifference(file.text, text))}: ${refusalText.servedStale.problem}`
+						)
+					]
+		}),
+		...Arr.map(Arr.sort(extra, Order.String), (login) =>
+			finding(
+				schema,
+				"servedExtra",
+				where(login),
+				`login ${login}: ${refusalText.servedExtra.problem}`
+			)
+		)
+	]
+}
+
+/**
  * One compiled schema's findings: its committed files' (checkCommitted), then the draft of its change from the committed
- * snapshot, which compiles every program of every login's workloads for every role as DbLayer.make does (generate.ts
- * draftSchema): each literal pack held to the drafted installation, a roster reordered, a program the compiler refuses,
- * each workload program whose access moved, and an ungenerated change, against the committed snapshot.
+ * snapshot (generate.ts draftSchema): each literal pack held to the drafted installation, a roster reordered, a schema
+ * or access plan the compiler refuses, each workload program whose access moved, and an ungenerated change, against the
+ * committed snapshot; then every login's workload compiled under the snapshot the draft lays out, as generate compiles
+ * it (generate.ts servedFiles), a login it refuses, and the committed served files held to it (servedFindings).
  */
 const checkSchema = Effect.fn("checkSchema")(function* (
 	compiled: CompiledSchema,
@@ -320,6 +389,21 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				!derivedHolds(recorded.value.derived, draft.success.derived)
 			) {
 				at("derivedFacts", schema.declared, refusalText.derivedFacts.problem)
+			}
+			const served = yield* Effect.result(servedFiles(compiled, draft.success.snapshotFiles))
+			if (Result.isFailure(served)) {
+				at(
+					"compile",
+					schema.declared,
+					`${refusalText.compile.problem}: ${served.failure.reason.message}`
+				)
+			} else {
+				const paths = yield* Path.Path
+				findings.push(
+					...servedFindings(schema, served.success, committed.served, (login) =>
+						paths.relative(cwd, Arr.join([schema.directory, servedPath(login)], "/"))
+					)
+				)
 			}
 		}
 	}

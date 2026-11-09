@@ -48,6 +48,7 @@ import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { type AnyLogin, roleNameOf } from "#compiler/public/schema.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import { placeholderToken, quoteIdent } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
@@ -240,7 +241,11 @@ const foldersOnDisk = (r: Workspace) =>
 		return Arr.sort(
 			Arr.filter(
 				entries,
-				(n) => n !== "snapshot.json" && n !== "manifest.json" && !Str.startsWith(".")(n)
+				(n) =>
+					n !== "snapshot.json" &&
+					n !== "manifest.json" &&
+					n !== servedDirectory &&
+					!Str.startsWith(".")(n)
 			),
 			Order.String
 		)

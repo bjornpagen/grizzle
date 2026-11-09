@@ -76,9 +76,13 @@ export const markerLine = (
 ): string =>
 	`${folder}/${marker.file}:${marker.line}: ${marker.kind}: ${refusalText[marker.kind].fix}`
 
+/** The next step after a generate that wrote no folder: commit what it wrote, snapshot.json, the served files or both. */
+const commitStep = (rederived: boolean, served: boolean): string =>
+	`next: commit ${rederived && served ? "snapshot.json and the served files" : rederived ? "snapshot.json" : "the served files"}, then run grizzle check`
+
 /**
- * Each written file, relative to `cwd`; then each marker to resolve and each loss to decide, with what to do; then the
- * next step.
+ * Each written file, relative to `cwd`, each served file written and each removed; then each marker to resolve and each
+ * loss to decide, with what to do; then the next step.
  */
 const renderGenerate = (
 	reports: ReadonlyArray<SchemaGenerateReport>,
@@ -88,7 +92,14 @@ const renderGenerate = (
 	const written = Arr.flatMap(reports, (r) =>
 		r.kind === "custom" || r.kind === "drafted" ? [r] : []
 	)
-	if (written.length === 0 && rederived.length === 0) {
+	const served = Arr.flatMap(reports, (r) => Arr.map(r.served, relative))
+	const unserved = Arr.flatMap(reports, (r) => Arr.map(r.unserved, (p) => `removed ${relative(p)}`))
+	if (
+		written.length === 0 &&
+		rederived.length === 0 &&
+		served.length === 0 &&
+		unserved.length === 0
+	) {
 		return [noChanges]
 	}
 	const folderOf = (r: (typeof written)[number]) => relative(r.path)
@@ -97,7 +108,9 @@ const renderGenerate = (
 			...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
 			...(r.kind === "drafted" ? Arr.map(r.snapshotPaths, relative) : [])
 		]),
-		...Arr.flatMap(rederived, (r) => Arr.map(r.snapshotPaths, relative))
+		...Arr.flatMap(rederived, (r) => Arr.map(r.snapshotPaths, relative)),
+		...served,
+		...unserved
 	]
 	const markers = Arr.flatMap(written, (r) => Arr.map(r.markers, (m) => markerLine(folderOf(r), m)))
 	const losses = Arr.flatMap(written, (r) =>
@@ -117,7 +130,7 @@ const renderGenerate = (
 				? "next: write the SQL files, then run grizzle check"
 				: written.length > 0
 					? "next: review the SQL, then run grizzle check"
-					: "next: commit snapshot.json, then run grizzle check"
+					: commitStep(rederived.length > 0, served.length + unserved.length > 0)
 	]
 }
 

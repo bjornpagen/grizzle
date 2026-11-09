@@ -36,6 +36,19 @@ export const refusalText = {
 			"the derived facts snapshot.json records differ from the ones the schemas compile to, or are missing (an ungenerated change)",
 		fix: "run grizzle generate, which writes snapshot.json again and drafts no migration"
 	},
+	servedStale: {
+		problem:
+			"the login's served file differs from what its workload compiles to under snapshot.json (an ungenerated change)",
+		fix: "run grizzle generate, which writes the served file again"
+	},
+	servedMissing: {
+		problem: "the login has no served file beside snapshot.json (an ungenerated change)",
+		fix: "run grizzle generate, which writes the served file"
+	},
+	servedExtra: {
+		problem: "the served file is of a login the configuration does not list over the schema",
+		fix: "run grizzle generate, which removes the served file"
+	},
 	compile: {
 		problem: "the schema or a login's workload does not compile",
 		fix: "fix the schema or workload it names, then run grizzle generate"

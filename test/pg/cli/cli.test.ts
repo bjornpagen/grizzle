@@ -27,6 +27,7 @@ import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { servedDirectory } from "#compiler/served/forms.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import {
 	bin,
@@ -136,7 +137,11 @@ const foldersOf = (dir: string, schema: string) =>
 		return Arr.sort(
 			Arr.filter(
 				entries,
-				(n) => n !== "snapshot.json" && n !== "manifest.json" && !Str.startsWith(".")(n)
+				(n) =>
+					n !== "snapshot.json" &&
+					n !== "manifest.json" &&
+					n !== servedDirectory &&
+					!Str.startsWith(".")(n)
 			),
 			Order.String
 		)

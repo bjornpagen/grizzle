@@ -14,20 +14,29 @@ import {
 	FolderExists,
 	FolderUnwritten,
 	cliError,
+	ServedUnwritten,
 	SnapshotUnwritten,
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
 import { metaFileName, type MigrationFolder } from "#compiler/plan/migration.ts"
-import { manifestFileName, snapshotFileName, type SnapshotFiles } from "#compiler/plan/serve.ts"
+import {
+	manifestFileName,
+	servedDirectory,
+	servedPath,
+	snapshotFileName,
+	type SnapshotFiles
+} from "#compiler/plan/serve.ts"
 
 /**
  * The migrations directory on disk.
  *
  * Each declared schema has its own directory `<migrations>/<schema>/`, `<schema>` its PostgreSQL schema identifier,
- * holding the snapshot's two files, `snapshot.json` and `manifest.json`, and one folder `<YYYYMMDDHHMMSS>_<name>/` per
- * migration, each with its `meta.json` and its `NN-<phase>.sql` files. The command line owns this filesystem work; the
- * compiler and the apply runner only ever see texts.
+ * holding the snapshot's two files, `snapshot.json` and `manifest.json`, one folder `<YYYYMMDDHHMMSS>_<name>/` per
+ * migration, each with its `meta.json` and its `NN-<phase>.sql` files, and the served directory `served/`, holding one
+ * `<login>.json` per login of the configuration over the schema: the login's workload, compiled under the snapshot
+ * (adapter/served/compile.ts), which its application serves. The command line owns this filesystem work; the compiler
+ * and the apply runner only ever see texts.
  *
  * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds the snapshot's two
  * files, both or neither, and migration folders, a folder holds meta.json and its SQL files, and anything else is
@@ -47,7 +56,12 @@ export interface SchemaTree {
 	readonly snapshotFiles: Option.Option<SnapshotFiles>
 	/** Every migration folder, in name order. */
 	readonly folders: ReadonlyArray<FolderSource>
+	/** The text of each served file, by its login's declared name, the stem of its name; none before generate wrote one. */
+	readonly served: ReadonlyMap<string, string>
 }
+
+/** The extension of a served file, after its login's declared name (served/forms.ts servedPath). */
+const servedExtension = ".json"
 
 /** The refusal of a schema's migrations directory that holds what no generator writes. */
 const strayIn = (schema: string, fault: TreeRefused["fault"]): CliError =>
@@ -97,6 +111,28 @@ const readFolder = Effect.fnUntraced(function* (schema: string, directory: strin
 })
 
 /**
+ * Reads a schema's served directory: every entry a file named `<login>.json`, its text by the login's declared name.
+ * Anything else is no file generate writes there.
+ */
+const readServed = Effect.fnUntraced(function* (schema: string, directory: string) {
+	const fs = yield* FileSystem.FileSystem
+	const paths = yield* Path.Path
+	const served = new Map<string, string>()
+	for (const entry of yield* visibleEntries(fs, directory)) {
+		const file = paths.join(directory, entry)
+		const login = Str.endsWith(servedExtension)(entry)
+			? Str.slice(0, -servedExtension.length)(entry)
+			: ""
+		if (login.length === 0 || (yield* entryType(fs, file)) !== "File") {
+			return yield* strayIn(schema, { kind: "strayServed", directory, entry })
+		}
+		const text = yield* fs.readFileString(file)
+		served.set(login, text)
+	}
+	return served
+})
+
+/**
  * Reads one schema's directory; a missing directory is a schema with no migration yet.
  */
 export const readSchemaTree = Effect.fn("readSchemaTree")(
@@ -111,7 +147,12 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
 		if (!(yield* fs.exists(directory))) {
-			const empty: SchemaTree = { directory, folders: [], snapshotFiles: Option.none() }
+			const empty: SchemaTree = {
+				directory,
+				folders: [],
+				snapshotFiles: Option.none(),
+				served: new Map()
+			}
 			return empty
 		}
 		if ((yield* entryType(fs, directory)) !== "Directory") {
@@ -119,11 +160,16 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		}
 		const snapshotTexts = new Map<string, string>()
 		const folders: Array<FolderSource> = []
+		let served: ReadonlyMap<string, string> = new Map()
 		for (const entry of yield* visibleEntries(fs, directory)) {
 			const type = yield* entryType(fs, path.join(directory, entry))
 			if ((entry === snapshotFileName || entry === manifestFileName) && type === "File") {
 				const text = yield* fs.readFileString(path.join(directory, entry))
 				snapshotTexts.set(entry, text)
+				continue
+			}
+			if (entry === servedDirectory && type === "Directory") {
+				served = yield* readServed(schema, path.join(directory, entry))
 				continue
 			}
 			if (type !== "Directory") {
@@ -135,7 +181,12 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		const snapshot = snapshotTexts.get(snapshotFileName)
 		const manifest = snapshotTexts.get(manifestFileName)
 		if (snapshot === undefined && manifest === undefined) {
-			const unsnapshotted: SchemaTree = { directory, folders, snapshotFiles: Option.none() }
+			const unsnapshotted: SchemaTree = {
+				directory,
+				folders,
+				snapshotFiles: Option.none(),
+				served
+			}
 			return unsnapshotted
 		}
 		if (snapshot === undefined || manifest === undefined) {
@@ -149,7 +200,8 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		const tree: SchemaTree = {
 			directory,
 			folders,
-			snapshotFiles: Option.some({ snapshot, manifest })
+			snapshotFiles: Option.some({ snapshot, manifest }),
+			served
 		}
 		return tree
 	},
@@ -246,5 +298,55 @@ export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 	(effect, schema) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
 			Effect.fail(cliError(new SnapshotUnwritten({ schema, cause })))
+		)
+)
+
+/** A served file as generate writes it: its login's declared name and its text. */
+export interface ServedText {
+	readonly login: string
+	readonly text: string
+}
+
+/**
+ * Brings a schema's served directory to what generate compiled: each file of `write` written by rename, the directory
+ * made first when it writes one, then each served file of a login in `remove` removed; returns the paths written and
+ * removed.
+ */
+export const writeServedFiles = Effect.fn("writeServedFiles")(
+	function* (
+		...[, directory, write, remove]: [
+			schema: string,
+			directory: string,
+			write: ReadonlyArray<ServedText>,
+			remove: ReadonlyArray<string>
+		]
+	): Effect.fn.Return<
+		{ readonly written: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> },
+		PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path
+	> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		if (write.length > 0) {
+			yield* fs.makeDirectory(path.join(directory, servedDirectory), { recursive: true })
+		}
+		const written: Array<string> = []
+		for (const file of write) {
+			const target = yield* writeAtomically(directory, servedPath(file.login), (scratch) =>
+				fs.writeFileString(scratch, file.text)
+			)
+			written.push(target)
+		}
+		const removed: Array<string> = []
+		for (const login of remove) {
+			const file = path.join(directory, servedPath(login))
+			yield* fs.remove(file)
+			removed.push(file)
+		}
+		return { written, removed }
+	},
+	(effect, schema) =>
+		Effect.catchTag(effect, "PlatformError", (cause) =>
+			Effect.fail(cliError(new ServedUnwritten({ schema, cause })))
 		)
 )

@@ -96,7 +96,12 @@ export default defineConfig({
    kind `placeholder` or `confirm`, then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`,
    then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`,
    unless the derived facts snapshot.json records are out of date or missing: then it writes `snapshot.json` and
-   `manifest.json` again, drafts no folder, and prints `next: commit snapshot.json, then run grizzle check`. A name the previous snapshot
+   `manifest.json` again, drafts no folder, and prints `next: commit snapshot.json, then run grizzle check`. Beside the
+   snapshot it writes `served/<login>.json` for every login of the configuration over the schema: the login's
+   workload compiled under that snapshot, every program for every role it runs on, which is what the application
+   serves. It writes a served file whose text changed, removes the one of a login the configuration no longer lists,
+   prints each, and prints `next: commit the served files, then run grizzle check` when nothing else changed. A login
+   whose workload does not compile refuses generate, naming the login, the role and the program. A name the previous snapshot
    holds that the schema no longer does and no declaration names refuses the draft before anything is written:
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
 3. Read every drafted SQL file, and resolve each marker:
@@ -119,7 +124,7 @@ export default defineConfig({
    drift check judges what it built.
 5. Run `grizzle check grizzle.config.ts` until it passes. It prints `<schema>: ok (<n> migrations, snapshot
    <fingerprint>)`.
-6. Commit the folder, `snapshot.json` and `manifest.json`.
+6. Commit the folder, `snapshot.json`, `manifest.json` and the `served` directory.
 7. Run `grizzle migrate grizzle.config.ts` from CI or the deploy, where its connection reaches the database. It prints
    `<schema>: applied <n> migrations, now at <fingerprint>` and each folder's files, or `<schema>: up to date at
    <fingerprint>`.
@@ -291,6 +296,10 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   `check` says: snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema;
   restore them from git. They list each installed statement compact on a line of its own, so a review of their diff
   reads each changed statement as one changed line.
+- `served/<login>.json`: a login's workload compiled under the snapshot beside it, which the application serves.
+  `check` compiles every login again and holds each file to it byte for byte: the login's served file differs from
+  what its workload compiles to under snapshot.json (an ungenerated change), naming the login and the first program
+  where they part; run grizzle generate, which writes the served file again.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, and every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
   every reviewed file against. `check` says: meta.json does not decode as a
@@ -329,6 +338,9 @@ schema or workload that does not compile) are `check`'s alone.
 | the schemas or their logins differ from snapshot.json (an ungenerated change) | run grizzle generate |
 | a workload program's access differs from snapshot.json (an ungenerated change) | run grizzle generate |
 | the derived facts snapshot.json records differ from the ones the schemas compile to, or are missing (an ungenerated change) | run grizzle generate, which writes snapshot.json again and drafts no migration |
+| the login's served file differs from what its workload compiles to under snapshot.json (an ungenerated change) | run grizzle generate, which writes the served file again |
+| the login has no served file beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the served file |
+| the served file is of a login the configuration does not list over the schema | run grizzle generate, which removes the served file |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |
