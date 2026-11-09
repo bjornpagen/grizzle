@@ -481,8 +481,8 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			i === top || desc === undefined
 				? installation.laws.theory
 				: unwrapCompiled(
-						Result.flatMap(own(desc), (owned) =>
-							compileLaws(owned, everySlice(owned), { kind: "planned" })
+						Result.flatMap(own(desc), (alone) =>
+							compileLaws(alone, everySlice(alone), { kind: "planned" })
 						)
 					).theory
 		const laws: Array<DescribedLaw> = []
