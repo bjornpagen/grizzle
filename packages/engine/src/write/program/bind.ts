@@ -253,12 +253,24 @@ interface StratumFill {
 }
 
 /**
- * The plan an application's stated rows are judged at: its strata's fills, a stratum absent filling nothing; or none,
- * before the plan is drawn or where it is refused, when no write statement is sent.
+ * The plan an application's stated rows are judged at: its strata's fills, a stratum absent filling nothing, and
+ * `drawn`, each owner slot as its insert carries the counts and ends the write draws into it, the plan's or, where the
+ * stratum's family work is one additions statement, the fresh fill's; or none, before the plan is drawn or where it is
+ * refused, when no write statement is sent.
  */
 type Fill =
-	| { readonly kind: "planned"; readonly strata: ReadonlyMap<StratumAt, StratumFill> }
+	| {
+			readonly kind: "planned"
+			readonly strata: ReadonlyMap<StratumAt, StratumFill>
+			readonly drawn: (slot: ParamId) => NormalizedSlot | undefined
+	  }
 	| { readonly kind: "unplanned" }
+
+/**
+ * What a judged row's columns hold beyond the fields the ChangeSet states: nothing (`stated`); every column a nesting's
+ * walk filled (`walk`); or the counts and ends the write draws into an owner's insert (`drawn`).
+ */
+type ColumnsSource = "stated" | "walk" | "drawn"
 
 const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
 
@@ -560,14 +572,14 @@ export const bindWrite = (
 	}
 	/**
 	 * A row of `relation` the ChangeSet states in `stratum`, as its write fills it (witness.ts JudgedRow): `columns` its
-	 * columns as normalization holds them, `op` how its statement writes it, `key` its primary key's texts where they
-	 * are known, `walked` whether a nesting's walk filled `columns`, and `proposal` which of its facts the statement that
-	 * writes it proposes (insert/statement.ts Proposal), an action's INSERT into a family owner only those no stored row
-	 * holds the key of. It states its caller's and serial fields; every other column is, in turn, a count or an end its
-	 * stratum's recount draws, the value the plan's rows hold at its key, unfilled for a row the reads found stored, an
-	 * owner's count or end at its empty family's where the reads found none stored or, for an insert, looked up none,
-	 * the walk's value, and otherwise unfilled. A row no read looked up that its statement proposes only where no stored
-	 * row holds its key is `ifFresh`.
+	 * columns as `source` gives them, `op` how its statement writes it, `key` its primary key's texts where they are
+	 * known, and `proposal` which of its facts the statement that writes it proposes (insert/statement.ts Proposal), an
+	 * action's INSERT into a family owner only those no stored row holds the key of. It states its caller's and serial
+	 * fields; every other column is, in turn, a count or an end its stratum's recount draws, the value the plan's rows
+	 * hold at its key, unfilled for a row the reads found stored, an owner's count or end as its insert carries it where
+	 * the write drew it into the row's facts, else at its empty family's where the reads found none stored or, for an
+	 * insert, looked up none, the walk's value, and otherwise unfilled. A row no read looked up that its statement
+	 * proposes only where no stored row holds its key is `ifFresh`.
 	 */
 	const judgedRow = (
 		fill: Fill,
@@ -576,7 +588,7 @@ export const bindWrite = (
 		columns: Values,
 		op: "insert" | "put" | "delete",
 		key: MemberKey | undefined,
-		walked: boolean,
+		source: ColumnsSource,
 		proposal: Proposal
 	): JudgedRow => {
 		const stated = Object.freeze(
@@ -620,9 +632,12 @@ export const bindWrite = (
 					return unfilled
 				}
 				if (owned !== undefined) {
+					if (source === "drawn" && columns.has(column)) {
+						return { kind: "filled", value: columns.get(column) }
+					}
 					return empty ? emptyOf(owned.family, owned.field) : unfilled
 				}
-				return walked && columns.has(column)
+				return source === "walk" && columns.has(column)
 					? { kind: "filled", value: columns.get(column) }
 					: unfilled
 			}
@@ -640,21 +655,25 @@ export const bindWrite = (
 		return "every"
 	}
 	/**
-	 * The rows the ChangeSet states as `fill` fills them (witness.ts StatedRows): a slot's facts, a query entry's in its
-	 * own words and none of its columns filled, since its fields are not its target's; and a stratum's nested rows,
-	 * which their family's statements propose every one of.
+	 * The rows the ChangeSet states as `fill` fills them (witness.ts StatedRows): a slot's facts, an owner slot's as its
+	 * insert carries the counts and ends the write draws into it, a query entry's in its own words and none of its
+	 * columns filled, since its fields are not its target's; and a stratum's nested rows, which their family's
+	 * statements propose every one of.
 	 */
 	const statedRowsOf = (fill: Fill): StatedRows => ({
 		slot: (group: SlotGroup, input: EnumeratedInput, slot: MemberSlot) => {
-			const facts = factsOf(slot.slot).facts
 			const relation = group.relation
 			if (group.facts.name !== relation.name) {
-				return facts.map((fact): JudgedRow => ({
+				return factsOf(slot.slot).facts.map((fact): JudgedRow => ({
 					kind: "known",
 					stated: fact,
 					filled: () => unfilled
 				}))
 			}
+			const drawn = fill.kind === "planned" ? fill.drawn(slot.slot) : undefined
+			const facts = (drawn ?? factsOf(slot.slot)).facts
+			const source: ColumnsSource =
+				input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
 			const layout = rowLayout(relation, frontend.laws.families)
 			const op = input.kind === "single" ? input.act.op : "insert"
 			const proposal = proposalAt(group.stratum, slot.slot)
@@ -670,14 +689,14 @@ export const bindWrite = (
 					columns,
 					op,
 					whole ? keyOf(ctx, layout, columns) : undefined,
-					input.kind === "nested",
+					source,
 					proposal
 				)
 			})
 		},
 		nested: (stratum: StratumAt, relation: RelationInfo) =>
 			[...(normalized.nested.get(stratum)?.get(relation.name)?.values() ?? [])].map((row) =>
-				judgedRow(fill, stratum, relation, row.values, "insert", row.key, true, "every")
+				judgedRow(fill, stratum, relation, row.values, "insert", row.key, "walk", "every")
 			)
 	})
 	/** The facts a stratum may insert of `relation`, by every slot of its that inserts (`insertSlots`) but a generated
@@ -1439,7 +1458,15 @@ export const bindWrite = (
 		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
 	): PlanWrites => ({
 		chunks: chunksOf(plans),
-		stated: statedRowsOf(plans.ok ? { kind: "planned", strata: plans.value.fills } : unplannedFill)
+		stated: statedRowsOf(
+			plans.ok
+				? {
+						kind: "planned",
+						strata: plans.value.fills,
+						drawn: (slot) => plans.value.slots.get(slot) ?? fresh.get(slot)
+					}
+				: unplannedFill
+		)
 	})
 	/** The flights of a write that reads nothing, planned now: refused where its plan fills a generated field with no
 	 * value, before any statement. */
