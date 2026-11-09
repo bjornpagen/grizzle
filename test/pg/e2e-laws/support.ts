@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } fro
 import type { DbContext } from "#adapter/db/context.ts"
 import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -30,6 +31,7 @@ import {
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
 import {
 	ExpectationFailed,
 	type PgErrorFields,
@@ -73,6 +75,11 @@ export interface Fixture {
 	) => Schema<string, R, StatementsByName<St, R>>
 	/** The DbLayer of a login over the installation, aimed at the substrate's target. */
 	readonly layer: <L extends AnyLogin>(login: L) => Layer.Layer<DbLayerOf<L>, OpenError>
+	/**
+	 * A login of the rebuilt worlds served as an application serves it, from its own served file over the installation
+	 * (test/support/served-db.ts servedFixture): its served login, whose roles a Db opens, and its layer.
+	 */
+	readonly served: <L extends AnyLogin>(login: L) => Effect.Effect<ServedFixture<L>, ServedRefusal>
 	/** Owner statements in one transaction; `$S` is the quoted schema. */
 	readonly owner: (
 		sql: ReadonlyArray<string>
@@ -164,6 +171,7 @@ export const openFixture = (
 				value: Checked<N, R, St>
 			) => schema<string, R, St>(done.schema, value.relations, value.statements),
 			layer,
+			served: (login) => servedFixture(done, login),
 			owner,
 			rows: (sql) =>
 				Effect.map(s.admin.queryValues(Str.replaceAll("$S", q)(sql), []), (rs) =>
