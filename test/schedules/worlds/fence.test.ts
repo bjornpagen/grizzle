@@ -37,8 +37,9 @@ import type {
 /**
  * The fence (README "Deploying"): a Db never waits on a migration, and a migration waits only for the
  * transactions in flight. While a migration runs, every transaction a Db sends is refused at once with StaleSnapshot
- * `migrating`, and every Db.open at stage `ledger`; once the transaction it waits behind ends, the migration completes
- * or is refused as its data decides, and the calls after it meet the version it left.
+ * `migrating`, and a Db.open, which contacts nothing, opens a Db whose calls meet the fence in turn; once the
+ * transaction it waits behind ends, the migration completes or is refused as its data decides, and the calls after it
+ * meet the version it left.
  *
  * A case draws a reality of the documents installation, a Db opened on it, a row check on an integer field of one of
  * its relations, which the migration adds, and what the transaction in flight the migration waits behind holds: a psql
@@ -218,14 +219,18 @@ const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 		const pid = yield* Effect.orDie(held.pid)
 		yield* Effect.raceFirst(s.awaitBlockedBy(pid, world.migrator), endedUnblocked(migration))
 		const during = running(before, to)
-		yield* Effect.forEach(
+		/** Each call judged in the state the calls before it left: an open adds its Db while the migration runs. */
+		const answered = yield* Effect.reduce(
 			Arr.filter(calls, (call) => applicable(during, call)),
-			(call, i) =>
+			(): ModelState => during,
+			(state, call, i) =>
 				Effect.map(
-					judged(world, during, drawAction(c.draw, during, liveOf(fc.weights, call)), 2 + i),
-					() => c.note(`${fc.holder}: ${call} answered`)
-				),
-			{ discard: true }
+					judged(world, state, drawAction(c.draw, state, liveOf(fc.weights, call)), 2 + i),
+					(stepped) => {
+						c.note(`${fc.holder}: ${call} answered`)
+						return stepped.next
+					}
+				)
 		)
 		yield* Effect.orDie(held.commit)
 		const migrated = yield* Fiber.join(migration)
@@ -233,9 +238,15 @@ const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 		if (outcome === "ok" || outcome === "migration-refused") {
 			c.note(`${fc.holder}: the migration ${outcome}`)
 		}
+		/** The migration's state with the Dbs opened while it ran, which it leaves as it leaves every session. */
+		const landed: ModelState = {
+			...migrated.next,
+			sessions: answered.sessions,
+			connections: answered.connections
+		}
 		yield* Effect.reduce(
 			after,
-			(): ModelState => migrated.next,
+			(): ModelState => landed,
 			(state, call, i) =>
 				Effect.map(
 					runStep(
