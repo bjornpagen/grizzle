@@ -1983,12 +1983,11 @@ export type OwnedWrite =
 	  }
 
 /**
- * The owned role: its canonical description, its base's Owned, its relations by name, its write list
- * as admitted entries by name in name order, its refresh list in name order, whether it holds every relation of its
- * base whole (a full role, whose base is among its levels), and the contexts its relations read, by name.
+ * The owned role: its name, its base's Owned, its relations by name, its write list as admitted entries by name in name
+ * order, its refresh list in name order, whether it holds every relation of its base whole (a full role, whose base is
+ * among its levels), and the contexts its relations read, by name.
  */
 export interface OwnedRole {
-	readonly desc: RoleDesc
 	readonly name: DeclaredName
 	readonly loc: SourceLoc
 	readonly base: Owned
@@ -1999,9 +1998,8 @@ export interface OwnedRole {
 	readonly contexts: Readonly<Record<string, ContextDesc>>
 }
 
-/** The owned login: its canonical description, its base's Owned and its owned roles in name order. */
+/** The owned login: its name, its base's Owned and its owned roles in name order. */
 export interface OwnedLogin {
-	readonly desc: LoginDesc
 	readonly name: DeclaredName
 	readonly loc: SourceLoc
 	readonly base: Owned
@@ -2135,28 +2133,17 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	const full = Object.values(base.relations).every(
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
-	const canonical = unwrap(
-		decodeDesc("role", {
-			name: desc.name,
-			base: base.desc,
-			relations: [...desc.relations].toSorted((a, b) => compareText(a.name, b.name)),
-			write: [...desc.write].toSorted(compareText),
-			refresh: [...desc.refresh].toSorted(compareText),
-			loc: desc.loc
-		})
-	)
 	const ownedContexts: Record<string, ContextDesc> = {}
 	for (const [name, c] of [...contexts].toSorted(([a], [b]) => compareText(a, b))) {
 		ownedContexts[name] = c.desc
 	}
 	return {
-		desc: canonical,
 		name: roleName,
 		loc: desc.loc,
 		base,
 		relations,
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareText(a, b))),
-		refresh: canonical.refresh,
+		refresh: [...desc.refresh].toSorted(compareText),
 		full,
 		contexts: ownedContexts
 	}
@@ -2173,9 +2160,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
  * (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views
  * (core/identity.ts DeclaredNamespace: MalformedDescription, or IdentifierCollision for two that convert alike). A
  * query entry's heading and types are the checker's, against the base (analysis/schema.ts checkedRoleOver), and its heading's
- * names are its view's columns (analysis/derived/world.ts). The canonical description sorts the relations, the write
- * and the refresh lists by name, over the base's canonical description. ownLogin owns each role and checks they share
- * the login's base (LoginRefused), under names that convert apart from each other's and the login's (IdentifierCollision), the login's
+ * names are its view's columns (analysis/derived/world.ts). ownLogin owns each role and checks they share the login's
+ * base (LoginRefused), under names that convert apart from each other's and the login's (IdentifierCollision), the login's
  * name kept to the declared-name rule (MalformedDescription), as each role's own is.
  */
 export const ownRole = (desc: RoleDesc): Result.Result<OwnedRole, CompileError> =>
@@ -2198,16 +2184,12 @@ const ownLoginOf = (
 	for (const r of roles) {
 		declareName(names, r.name, "role", r.loc)
 	}
-	const sorted = roles.toSorted((a, b) => compareText(a.name, b.name))
-	const canonical = unwrap(
-		decodeDesc("login", {
-			name: desc.name,
-			base: base.desc,
-			roles: sorted.map((r) => r.desc),
-			loc: desc.loc
-		})
-	)
-	return { desc: canonical, name: loginName, loc: desc.loc, base, roles: sorted }
+	return {
+		name: loginName,
+		loc: desc.loc,
+		base,
+		roles: roles.toSorted((a, b) => compareText(a.name, b.name))
+	}
 }
 
 /**
