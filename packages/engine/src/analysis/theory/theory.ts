@@ -56,7 +56,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
-import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { HeadingColumn, KeySet, RelNode } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	type ContractInfo,
