@@ -218,14 +218,13 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   error, except the ones `REJECTED_DIAGNOSTICS` in the dev tools' preset rejects and the per-file exceptions in the
   `overrides` of the plugin that `packages/grizzle/tsconfig.json` and `tsconfig.json` restate: the entry points that
   provide their layers, the shell's per-row hot paths, which read text, arrays and records natively, and the tests that
-  play an environment or a socket. The service runs there and never on the engine. A non-public export that exposes
-  `FileSystem` or `Path` is `@internal`; tests and scripts read and write files through `FileSystem` under
-  `NodeServices.layer`. An error is a `Data.TaggedError` whose classified case is its `reason`, a
-  union of reason classes, each itself a `Data.TaggedError` rendering its own `message`, so `Effect.catchReason`,
-  `catchReasons` and `unwrapReason` reach every case. What follows from a reason, such as a stage, is a getter, never a
-  stored field, and `cause` holds only a foreign value wrapped. No `.match` member call in `packages/*/src`: the
-  dependency audit (`test/unit/deps`) reads any as a regular expression's; read an Option with `Option.isSome` and
-  `.value`.
+  play an environment or a socket. The service runs there and never on the engine. Tests and scripts read and write
+  files through `FileSystem` under `NodeServices.layer`. An error is a `Data.TaggedError` whose classified case is its
+  `reason`, a union of reason classes, each itself a `Data.TaggedError` rendering its own `message`, so
+  `Effect.catchReason`, `catchReasons` and `unwrapReason` reach every case. What follows from a reason, such as a stage,
+  is a getter, never a stored field, and `cause` holds only a foreign value wrapped. No `.match` member call in
+  `packages/*/src`: the dependency audit (`test/unit/deps`) reads any as a regular expression's; read an Option with
+  `Option.isSome` and `.value`.
 - **Hardened Node.** grizzle works under `--disable-proto=delete` and `--disable-sigusr1`, and every test runs under
   the hardened flags (`hardenedNode`), which add that a deprecation throws and an unhandled rejection is fatal. Never
   read or write the `__proto__` accessor: a null-prototype object is the `{ __proto__: null }` literal or
