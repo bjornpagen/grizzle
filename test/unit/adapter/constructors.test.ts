@@ -20,7 +20,6 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { DatabaseError } from "pg"
-import { admissionFailure } from "#adapter/admission/admit.ts"
 import { serializationRefusal, transientReason } from "#adapter/errors/execution.ts"
 import { literalBound, messageBound } from "#adapter/errors/failures.ts"
 import { applyOutcome, transientFailureOf } from "#adapter/outcomes/index.ts"
@@ -87,9 +86,6 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
-	AdmissionFailed: Public.AdmissionFailed,
-	AdmissionRefused: Public.AdmissionRefused,
-	AdmissionTransient: Public.AdmissionTransient,
 	CatalogRowRefused: Public.CatalogRowRefused,
 	ClaimRefused: Public.ClaimRefused,
 	CommitLost: Public.CommitLost,
@@ -637,17 +633,6 @@ describe("the public failure and outcome constructors", () => {
 											? undefined
 											: new Public.TransientFailure({ reason: serializable, error })
 									)
-									const opened = admissionFailure(error)
-									assert.deepEqual(
-										opened,
-										new Public.OpenError({
-											reason:
-												serializable === undefined
-													? new Public.AdmissionFailed({ failure: error })
-													: new Public.AdmissionTransient({ reason: serializable, error })
-										})
-									)
-									assert.ok(publiclyBuilt(opened) && publiclyBuilt(opened.reason))
 									for (const step of ["lock", "guard"] as const) {
 										const stale = staleOf(step, error)
 										assert.deepEqual(Option.getOrUndefined(fenceReason(step, error)), stale)

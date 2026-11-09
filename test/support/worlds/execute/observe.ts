@@ -81,14 +81,8 @@ const openStageOf = (error: OpenError): ModelOpenStage | undefined => {
 	return isOpenStage(error.stage) ? error.stage : undefined
 }
 
-/**
- * A refused Db.open at the stage grizzle reports, its admission refused by SERIALIZABLE as the retryable failure it is;
- * a connection stage is infrastructure.
- */
+/** A refused Db.open at the stage grizzle reports; any other stage is a defect. */
 export const openRefused = (error: OpenError, verifyCalls: 0 | 1): Effect.Effect<Observation> => {
-	if (error.reason._tag === "AdmissionTransient") {
-		return Effect.succeed({ kind: "transient", reason: error.reason.reason._tag })
-	}
 	const stage = openStageOf(error)
 	return stage === undefined
 		? defect(`an open refused at ${error.stage} by ${error.reason._tag}`, error)

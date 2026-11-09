@@ -16,14 +16,8 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { DatabaseError } from "pg"
-import { admissionFailure } from "#adapter/admission/admit.ts"
-import { OpenError, ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
-import {
-	BatchRefused,
-	CommitRefused,
-	type ServerError,
-	StartupRefused
-} from "#adapter/errors/failures.ts"
+import { ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
+import { BatchRefused, CommitRefused, type ServerError } from "#adapter/errors/failures.ts"
 import { asReadFailure } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
 import { type TransientTag } from "#compiler/core/errors.ts"
@@ -41,9 +35,6 @@ import { regex } from "arkregex"
  * authorization; FATAL and PANIC end the session. The README promise is that a server-raised failure carries its
  * SQLSTATE, its message, its DETAIL and its HINT exactly as given, and the objects it names (constraint, schema, table,
  * column, data type) as named, an empty name naming nothing.
- *
- * Admission's flight reads the same reports: 40001 and 40P01 refuse its transaction for a reason outside Db.open's
- * inputs, retryable (AdmissionTransient), and any other report is an admission with no verdict (AdmissionFailed).
  *
  * Each case is a named intention: a code grizzle branches on, any well-formed code, and the malformed ones (lowercase, a
  * fullwidth digit, too short, too long, absent); a message that is empty, quotes a value, holds a lone surrogate or is
@@ -262,7 +253,6 @@ type Feature =
 	| `position ${Position}`
 	| "class TransientFailure"
 	| "class ReadFailure"
-	| "admission transient"
 	| "unparsed"
 
 const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
@@ -297,7 +287,6 @@ const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"position COMMIT",
 	"class TransientFailure",
 	"class ReadFailure",
-	"admission transient",
 	"unparsed"
 ]
 
@@ -357,40 +346,6 @@ describe("the failure vocabulary", () => {
 								answer._tag,
 								r.severity === "FATAL" || r.severity === "PANIC" ? "terminated" : "refused"
 							)
-							assert.equal(
-								new OpenError({ reason: new StartupRefused({ error }) }).stage,
-								Str.startsWith("28")(r.code) ? "authentication" : "connect"
-							)
-							/**
-							 * Admission's failure: SERIALIZABLE's refusal of its transaction is retryable, carrying the report; any
-							 * other report is an admission with no verdict, carrying it; both at stage `admission`.
-							 */
-							const opened = admissionFailure(error)
-							assert.equal(opened.stage, "admission")
-							const refusedBySerializable: TransientTag | undefined =
-								r.code === serialization
-									? "SerializationFailure"
-									: r.code === deadlock
-										? "Deadlock"
-										: undefined
-							if (opened.reason._tag === "AdmissionTransient") {
-								c.note("admission transient")
-								assert.equal<TransientTag | undefined>(
-									opened.reason.reason._tag,
-									refusedBySerializable
-								)
-								assert.equal(opened.reason.error, error)
-							} else {
-								assert.equal(
-									refusedBySerializable,
-									undefined,
-									"SERIALIZABLE's refusal is retryable"
-								)
-								assert.ok(
-									opened.reason._tag === "AdmissionFailed" && opened.reason.failure === error,
-									`an admission with no verdict carrying the report, not ${opened.reason._tag}`
-								)
-							}
 							/** A read's failure: exactly one class, carrying the same report. */
 							const read = asReadFailure(flightFailure(r.position, error))
 							assert.equal(

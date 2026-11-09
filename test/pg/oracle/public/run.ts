@@ -26,7 +26,6 @@ import {
 	StaleSnapshot,
 	TransientFailure
 } from "#adapter/errors/execution.ts"
-import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
@@ -173,15 +172,6 @@ const describe = (error: unknown): string => {
 	}
 	if (isCompileError(error)) {
 		return `CompileError{${error.message}}`
-	}
-	if (error instanceof AdmissionRefused) {
-		return `AdmissionRefused{${Arr.join(
-			Arr.map(
-				error.mismatches,
-				(m) => `${m.stage} ${m.check}: expected ${m.expected}, observed ${m.observed}`
-			),
-			"; "
-		)}}`
 	}
 	if (Error.isError(error)) {
 		return `${error.name}: ${error.message}`
