@@ -50,6 +50,11 @@
 			"types": "./dist/runtime.d.ts",
 			"default": "./dist/runtime.js"
 		},
+		"./compile": {
+			"grizzle-source": "./src/compile.ts",
+			"types": "./dist/compile.d.ts",
+			"default": "./dist/compile.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"bin": {

@@ -3,6 +3,7 @@ import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.t
 import {
 	answerOf,
 	type ExecutionInputs,
+	type EmittedStatement,
 	encodeForm,
 	type HostParams,
 	formFor,
@@ -17,7 +18,7 @@ import {
 	type SentRuns,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
-import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
+import type { Flight } from "#adapter/wire/batch.ts"
 import {
 	type Carrier,
 	type Cell,
@@ -459,13 +460,13 @@ interface Delivered {
 const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
 
 /** The statements of one execution of a read program (see the header): each one sent, in its form for `inputs`. */
-const programStatements = (
+export const programStatements = (
 	program: ReadProgram,
 	inputs: ExecutionInputs
-): Effect.Effect<ReadonlyArray<BatchStatement>, InputTooLarge> =>
+): Effect.Effect<ReadonlyArray<EmittedStatement>, InputTooLarge> =>
 	Effect.gen(function* () {
 		const exceeds = readExceeds(inputs)
-		const statements: Array<BatchStatement> = []
+		const statements: Array<EmittedStatement> = []
 		for (const record of program.records) {
 			if (record.arrival.kind === "fed") {
 				continue

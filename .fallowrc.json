@@ -97,7 +97,9 @@
 					"packages/grizzle/src/adapter/admission/expectation.ts",
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
+					"packages/grizzle/src/adapter/public/compile.ts",
 					"packages/grizzle/src/adapter/served/compile.ts",
+					"packages/grizzle/src/adapter/served/explain.ts",
 					"packages/grizzle/src/adapter/served/project.ts"
 				]
 			},

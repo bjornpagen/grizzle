@@ -225,7 +225,7 @@ export const executionOf = <Slot, E>(
 export const encodeForm = <Slot, E>(
 	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
-): Effect.Effect<BatchStatement, E> =>
+): Effect.Effect<EmittedStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 
 /** A flight's answers to the statements it sent, in the order it sent them, as PostgreSQL sent them. */
