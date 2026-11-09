@@ -588,7 +588,7 @@ export class InstallBuilder {
 
 	/** The domain of the contract `contract`; none when the installation creates none for it. */
 	domainOf(contract: DeclaredName): Node<"setup"> | undefined {
-		return this.#types.get(this.names.contractDomain(contract).name)
+		return this.#types.get(domainKey(this.names.contractDomain(contract)))
 	}
 
 	/** Adds the table of the stored relation `relation`, which every object on it is created after (`table`). */
@@ -622,7 +622,7 @@ export class InstallBuilder {
 				return this.table(relation)
 			case "closed":
 				return (
-					this.#types.get(this.names.rosterDomain(r.name).name) ??
+					this.#types.get(domainKey(this.names.rosterDomain(r.name))) ??
 					missing(`physical: no domain of roster ${r.name}`)
 				)
 			case "derived":

@@ -295,7 +295,7 @@ const resolveConfigWith = (
 		}
 		const login = read.desc
 		const listed = Arr.findFirst(schemas, (c) =>
-			Arr.some(levelsOf(c.built), (l) => l.name === login.base.name)
+			Arr.some(levelsOf(c.built), (level) => level.name === login.base.name)
 		)
 		if (Option.isNone(listed)) {
 			return Result.fail(
@@ -306,7 +306,7 @@ const resolveConfigWith = (
 		if (
 			!Arr.some(
 				levelsOf(entry.built),
-				(l) => l.name === login.base.name && l.digest === read.base.content.digest
+				(level) => level.name === login.base.name && level.digest === read.base.content.digest
 			)
 		) {
 			return Result.fail(

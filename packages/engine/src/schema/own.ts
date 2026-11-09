@@ -881,8 +881,9 @@ class Owner {
 		this.#collectFields()
 		this.#collectStatements()
 		const statements = this.#statements.map((s) => {
+			const statement = this.#checkStatement(s)
 			this.#checkLevels(s)
-			return { text: s.text, statement: this.#checkStatement(s) }
+			return { text: s.text, statement }
 		})
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
 		const contracts = this.#ownContracts()
