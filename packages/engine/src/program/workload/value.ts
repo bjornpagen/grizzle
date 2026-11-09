@@ -19,7 +19,7 @@ import {
 } from "#compiler/query/build/query.ts"
 import { builderLoc, isPlainRecord, malformed } from "#compiler/schema/protocol.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type { Workload } from "#compiler/types/db/workload.ts"
+import type { Paged, Workload } from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
@@ -28,10 +28,14 @@ import {
 
 type QueryProgramDesc = Extract<ProgramDesc, { readonly kind: "query" }>
 
-/** A program value of a workload, by kind, as the builders made it, with its Description. */
+/**
+ * A program value of a workload, by kind, as the builders made it, with its Description: an ordered query read only,
+ * or one that pages (paged), whose Description is its ordered query's.
+ */
 type ProgramValue =
 	| { readonly kind: "query"; readonly value: QueryValue; readonly desc: QueryProgramDesc }
 	| { readonly kind: "ordered"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
+	| { readonly kind: "paged"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
 	| {
 			readonly kind: "changeSet"
 			readonly value: ChangeSetValue
@@ -88,11 +92,36 @@ const queryFound = (
 	}
 }
 
+/** The ordered query each value paged(...) made pages (paged). */
+const pagedValues = new WeakMap<object, OrderedValue>()
+
 /**
- * One program value, its Description and the schema it was written over, when it is a query, ordered query or ChangeSet
- * value; undefined otherwise.
+ * paged(ordered): the workload member that pages `ordered`, an ordered query, as well as reading it: its handle pages
+ * (`db.workload.<name>.page`), and the layer compiles its page template once, at startup. A plain ordered member reads
+ * only, and no page template is compiled for it. A value that is no ordered query throws CompileError
+ * MalformedDescription synchronously, as every builder refuses a value its signature forbids.
+ */
+export const paged = <O>(ordered: O, ...extra: ReadonlyArray<unknown>): Paged<O> => {
+	if (extra.length > 0) {
+		throw malformed("paged", "paged(ordered): one argument")
+	}
+	if (!isOrderedValue(ordered)) {
+		throw malformed("paged", "an ordered query, built by orderBy(...)")
+	}
+	const value: Paged<O> = Object.freeze({ paged: ordered })
+	pagedValues.set(value, ordered)
+	return value
+}
+
+/**
+ * One program value, its Description and the schema it was written over, when it is a query, ordered query, paged
+ * ordered query or ChangeSet value; undefined otherwise.
  */
 export const programDescOf = (program: unknown): ProgramFound | undefined => {
+	const pagedQuery = hasProperties(program) ? pagedValues.get(program) : undefined
+	if (pagedQuery !== undefined) {
+		return queryFound((desc) => ({ kind: "paged", value: pagedQuery, desc }), pagedQuery)
+	}
 	if (isQueryValue(program)) {
 		return queryFound((desc) => ({ kind: "query", value: program, desc }), program)
 	}
@@ -139,7 +168,7 @@ const workloadProgram = (
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a ChangeSet or a relation's key the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet or a relation's key the builders made`
 		)
 	}
 	return {

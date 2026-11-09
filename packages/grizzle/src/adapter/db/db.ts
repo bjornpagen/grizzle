@@ -8,7 +8,13 @@ import {
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
-import { type CompiledRead, makeReader, poolExecutor, type Reader } from "#adapter/reader/reader.ts"
+import {
+	type CompiledRead,
+	makeReader,
+	poolExecutor,
+	type Reader,
+	type RowsRead
+} from "#adapter/reader/reader.ts"
 import { refresh } from "#adapter/refresh/index.ts"
 import type {
 	ApplyOutcome,
@@ -74,6 +80,14 @@ export const readOps = <A>(read: CompiledRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
 	page: (params, request) => read.page(params, request),
+	apply: () => compileFailure(notItsOperation())
+})
+
+/** A read's operations but page, a workload member that does not page: it pages nothing and applies nothing. */
+export const rowsOps = <A>(read: RowsRead<A>): CompiledOps<A> => ({
+	execute: (params) => read.execute(params),
+	get: (params) => read.get(params),
+	page: () => Effect.fail(new ReadFailure({ reason: notItsOperation() })),
 	apply: () => compileFailure(notItsOperation())
 })
 

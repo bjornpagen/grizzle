@@ -301,49 +301,66 @@ export const whileLive = <X, E>(
 const readReleased = (): ReadFailure => new ReadFailure({ reason: new HandleReleased() })
 
 /**
- * A query compiled once for a role, ahead of the reads that run it: its template and parameters' codecs, its decoder
- * bound, an ordered query's page template, and whether get may read it. db.compile compiles one for its Db, and the
- * layer one for each query and key of the login's workloads, for every role it runs on.
+ * A query compiled once for a role for its rows, ahead of the reads that run it: its template and parameters' codecs,
+ * its decoder bound, and whether get may read it. The layer compiles one for each query, ordered query and key of the
+ * login's workloads that does not page, for every role it runs on.
  */
-export interface ReadForm<A> {
+export interface RowsForm<A> {
 	readonly query: unknown
 	readonly decoder: () => RowDecoder<A>
 	readonly bound: Bound<A>
-	readonly page: PageSource
 	readonly eligible: ReturnType<typeof getEligibility>
 }
 
-/** The read form of `query` for `role`, its rows read by `decoder`: a query that does not compile is its CompileError. */
+/**
+ * A query compiled once for a role for its rows and its pages: its rows form and an ordered query's page template.
+ * db.compile compiles one for its Db, and the layer one for each paged member of the login's workloads.
+ */
+export interface ReadForm<A> extends RowsForm<A> {
+	readonly page: PageSource
+}
+
+/** The rows form of `query` for `role`, its rows read by `decoder`: a query that does not compile is its CompileError. */
+export const compileRowsForm = <A>(
+	role: RoleContext,
+	query: unknown,
+	decoder: () => RowDecoder<A>
+): Result.Result<RowsForm<A>, CompileError> =>
+	Result.gen(function* () {
+		const compiled = yield* compileArtifacts(role, query)
+		const bound = yield* bindArtifacts(role, compiled, decoder)
+		return { query, decoder, bound, eligible: getEligibility(compiled.compiled.template) }
+	})
+
+/**
+ * The read form of `query` for `role`, its rows read by `decoder` (compileRowsForm) and an ordered query's page
+ * template compiled beside them: a query that does not compile is its CompileError.
+ */
 export const compileReadForm = <A>(
 	role: RoleContext,
 	query: unknown,
 	decoder: () => RowDecoder<A>
 ): Result.Result<ReadForm<A>, CompileError> =>
 	Result.gen(function* () {
-		const compiled = yield* compileArtifacts(role, query)
-		const bound = yield* bindArtifacts(role, compiled, decoder)
+		const rows = yield* compileRowsForm(role, query, decoder)
 		const page: PageSource = isOrderedValue(query)
 			? { kind: "compiled", page: yield* compiledPageTemplate(role, query) }
 			: { kind: "query" }
-		return {
-			query,
-			decoder,
-			bound,
-			page,
-			eligible: getEligibility(compiled.compiled.template)
-		}
+		return { ...rows, page }
 	})
 
+/** A compiled read's operations but page: what a workload member that does not page offers. */
+export type RowsRead<A> = Omit<CompiledRead<A>, "page">
+
 /**
- * The handle of a read form on a Db: its reads run through `executor` while `live` holds; a read after it ends is
+ * The handle of a rows form on a Db: its reads run through `executor` while `live` holds; a read after it ends is
  * refused with HandleReleased.
  */
-export const readHandle = <A>(
-	ctx: DbContext,
+export const rowsHandle = <A>(
 	executor: ReadExecutor,
-	form: ReadForm<A>,
+	form: RowsForm<A>,
 	live: () => boolean
-): CompiledRead<A> => {
+): RowsRead<A> => {
 	const alive = <X, E>(read: () => Effect.Effect<X, E>) =>
 		whileLive<X, E | ReadFailure>(live, readReleased, read)
 	const { bound, eligible } = form
@@ -356,7 +373,24 @@ export const readHandle = <A>(
 				Result.isFailure(eligible)
 					? Effect.fail(new ReadFailure({ reason: eligible.failure }))
 					: runBound(bound, params, executor, programGetFlight)
-			),
+			)
+	}
+}
+
+/**
+ * The handle of a read form on a Db: its rows form's reads and its pages, run through `executor` while `live` holds; a
+ * read after it ends is refused with HandleReleased.
+ */
+export const readHandle = <A>(
+	ctx: DbContext,
+	executor: ReadExecutor,
+	form: ReadForm<A>,
+	live: () => boolean
+): CompiledRead<A> => {
+	const alive = <X, E>(read: () => Effect.Effect<X, E>) =>
+		whileLive<X, E | ReadFailure>(live, readReleased, read)
+	return {
+		...rowsHandle(executor, form, live),
 		page: <Q>(params: ParamMap, request: unknown) =>
 			alive(() =>
 				pageRuntime<A, Q>({

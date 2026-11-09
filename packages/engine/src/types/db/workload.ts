@@ -1,7 +1,7 @@
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type { ChangeSetAt, PlannedStrata } from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped } from "#compiler/types/core/phantom.ts"
-import type { OrderedAt, QueryAt } from "#compiler/types/query/query.ts"
+import type { OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
 import type { CandidateKey } from "#compiler/types/schema/statements.ts"
@@ -23,10 +23,23 @@ type KeyAt<L> = KeyedAt<L> | CandidateKey<Extract<KeyedAt<L>, AnyRelation>>
 type WritableBy<S> = S extends AnyRole ? Phantom<{ readonly writes: WriteListOf<S> }> : unknown
 
 /**
- * A program of a workload over S, over S or a level below it, L: a query, an ordered query, a ChangeSet S writes or a
- * relation's key.
+ * A workload member that pages its ordered query O: paged(O), whose handle pages as well as reading. A plain ordered
+ * member reads only, and the layer compiles a page template only for a paged one.
  */
-type ProgramAt<S, L> = QueryAt<L> | OrderedAt<L> | (ChangeSetAt<L> & WritableBy<S>) | KeyAt<L>
+export interface Paged<O> {
+	readonly paged: O
+}
+
+/**
+ * A program of a workload over S, over S or a level below it, L: a query, an ordered query, an ordered query that pages,
+ * a ChangeSet S writes or a relation's key.
+ */
+type ProgramAt<S, L> =
+	| QueryAt<L>
+	| OrderedAt<L>
+	| Paged<OrderedAt<L>>
+	| (ChangeSetAt<L> & WritableBy<S>)
+	| KeyAt<L>
 
 /**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
@@ -54,3 +67,6 @@ export interface Workload<S, Programs> {
 
 /** Any workload: the members every one has. */
 export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, unknown>>>
+
+/** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
+export type PagedConstructor = <const O extends OrderedBase>(ordered: O) => Paged<O>

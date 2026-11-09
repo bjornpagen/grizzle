@@ -1029,7 +1029,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
 - **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts, and `grizzle generate` derives the indexes they need.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts, and `grizzle generate` derives the indexes they need. An ordered query your app pages is the member `paged(query)`: only its handle has `page`, and only its page template is compiled at startup.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
@@ -2330,7 +2330,7 @@ Every read takes a query and its parameters and runs in one READ ONLY transactio
 - **`db.get(target, params)`** gives an `Option` of one row: of a table by its primary key, `db.get(Post, { id })`; of a candidate key or a closed relation by its key values; or of a query that returns at most one row.
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`, `{ first, after }`, `{ last }` or `{ last, before }`. A size is any safe integer of at least 1, with no default and no largest.
 - **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, in the order the program's statements would run, never EXPLAIN ANALYZE; a ChangeSet's are taken in a transaction that is rolled back. A plan node holds only its node type, estimated startup and total cost, rows, width and children; the relation and index names and conditions PostgreSQL reports are dropped.
-- **`db.workload.<name>`** is a program in the login's workloads, compiled when the layer was built, with exactly the operations it allows.
+- **`db.workload.<name>`** is a program in the login's workloads, compiled when the layer was built, with exactly the operations it allows: `page` only for a member `paged(orderedQuery)`, whose page template the layer compiles beside its rows.
 - **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send it as unnamed statements, with no index promised for it.
 - **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its compiled form drops when the handle's `Scope` ends.
 

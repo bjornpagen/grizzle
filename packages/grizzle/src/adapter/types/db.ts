@@ -23,6 +23,7 @@ import type {
 	LevelsOf,
 	LoginRole,
 	OnlyParams,
+	Paged,
 	ParamArg,
 	ParamValue,
 	Phantom,
@@ -354,8 +355,15 @@ type RecordsOf<X> = X extends { readonly rows: RowDecoder<infer A> }
 				? A
 				: never
 
-/** A Db's workload handles: each program of P under its name, compiled for R. */
-export type WorkloadHandles<R, P> = { readonly [K in keyof P]: Compiled<R, P[K], RecordsOf<P[K]>> }
+/**
+ * A Db's workload handles: each program of P under its name, compiled for R. A paged member's handle pages its ordered
+ * query; any other member's has no page, since the layer compiled no page template for it.
+ */
+export type WorkloadHandles<R, P> = {
+	readonly [K in keyof P]: P[K] extends Paged<infer O>
+		? Compiled<R, O, RecordsOf<O>>
+		: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
+}
 
 /**
  * What db.apply and a compiled ChangeSet's apply answer: the ChangeSet was accepted, with each written relation's counts

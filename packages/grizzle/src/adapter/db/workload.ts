@@ -1,10 +1,18 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { changeHandle, type ChangeForm, compileChangeForm } from "#adapter/apply/index.ts"
 import type { DbContext, RoleContext } from "#adapter/db/context.ts"
-import { type CompiledOps, changeOps, readOps, typedCompiled } from "#adapter/db/db.ts"
+import { type CompiledOps, changeOps, readOps, rowsOps, typedCompiled } from "#adapter/db/db.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
-import { compileReadForm, poolExecutor, type ReadForm, readHandle } from "#adapter/reader/reader.ts"
+import {
+	compileReadForm,
+	compileRowsForm,
+	poolExecutor,
+	type ReadForm,
+	readHandle,
+	type RowsForm,
+	rowsHandle
+} from "#adapter/reader/reader.ts"
 import { type ChangeSetValue, fillContexts } from "#compiler/plan/change.ts"
 import {
 	type AnyWorkload,
@@ -32,16 +40,18 @@ type ChangeVariants =
 	  }
 
 /**
- * One program of a login's workloads, compiled once by the layer for one role: a query or ordered query, a key, whose
- * lookup query reads by the key's values, or a ChangeSet, compiled for each set of its fill contexts that may hold a
- * fact, since a write into a query entry compiles for the contexts the Db's claims hold (write/frontend/entry.ts).
+ * One program of a login's workloads, compiled once by the layer for one role: a query or ordered query, read for its
+ * rows; an ordered query that pages (paged), with its page template; a key, whose lookup query reads by the key's
+ * values; or a ChangeSet, compiled for each set of its fill contexts that may hold a fact, since a write into a query
+ * entry compiles for the contexts the Db's claims hold (write/frontend/entry.ts).
  */
 export type WorkloadForm = { readonly name: string } & (
-	| { readonly kind: "read"; readonly form: ReadForm<unknown> }
+	| { readonly kind: "read"; readonly form: RowsForm<unknown> }
+	| { readonly kind: "paged"; readonly form: ReadForm<unknown> }
 	| {
 			readonly kind: "key"
 			readonly fields: ReadonlyArray<string>
-			readonly form: ReadForm<unknown>
+			readonly form: RowsForm<unknown>
 	  }
 	| { readonly kind: "change"; readonly variants: ChangeVariants }
 )
@@ -107,14 +117,20 @@ export const compileRoleWorkload = (
 					case "query":
 					case "ordered": {
 						const query = program.value
-						const form = yield* compileReadForm(role, query, () => query.rows)
+						const form = yield* compileRowsForm(role, query, () => query.rows)
 						forms.push({ name: program.name, kind: "read", form })
+						break
+					}
+					case "paged": {
+						const query = program.value
+						const form = yield* compileReadForm(role, query, () => query.rows)
+						forms.push({ name: program.name, kind: "paged", form })
 						break
 					}
 					case "key": {
 						const target = program.target
 						const fact = target.relation.fact
-						const form = yield* compileReadForm(
+						const form = yield* compileRowsForm(
 							role,
 							keyQuery(role.schema.value, target),
 							() => fact
@@ -141,9 +157,9 @@ const alwaysLive = (): boolean => true
 const keyOps = (
 	ctx: DbContext,
 	fields: ReadonlyArray<string>,
-	form: ReadForm<unknown>
+	form: RowsForm<unknown>
 ): CompiledOps<unknown> => {
-	const read = readOps(readHandle(ctx, poolExecutor(ctx), form, alwaysLive))
+	const read = rowsOps(rowsHandle(poolExecutor(ctx), form, alwaysLive))
 	return {
 		...read,
 		get: (values: ParamMap): Effect.Effect<Option.Option<unknown>, ReadError> => {
@@ -172,6 +188,9 @@ export const workloadHandles = (ctx: DbContext, forms: ReadonlyArray<WorkloadFor
 	for (const w of forms) {
 		switch (w.kind) {
 			case "read":
+				handles[w.name] = typedCompiled(rowsOps(rowsHandle(poolExecutor(ctx), w.form, alwaysLive)))
+				break
+			case "paged":
 				handles[w.name] = typedCompiled(
 					readOps(readHandle(ctx, poolExecutor(ctx), w.form, alwaysLive))
 				)

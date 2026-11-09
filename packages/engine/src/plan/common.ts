@@ -169,7 +169,7 @@ export type {
 	ParamValue,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
-export type { AnyWorkload } from "#compiler/types/db/workload.ts"
+export type { AnyWorkload, Paged } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"

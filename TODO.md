@@ -36,15 +36,6 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
     0.33 s with native foreign keys), though each probe alone is index lookups.
-  - A workload member states whether it pages (main, 2026-11-09: proposed, not tonight). The layer compiles every
-    ordered program of a login's workloads twice, once for rows and once as a page (adapter/reader/reader.ts
-    compileReadForm builds the page template up front, so a handle's .page is ready), though an app may never page it:
-    qti-app only executes its one ordered program, `tests`, about 0.1 s of DbLayer.make's CPU on edullm's profile
-    (REPORT-2 G9). Compiling the page per .page call instead is refused (a compile on every hot-path page request).
-    The representation: a page program is declared as one in the workload (a page entry built from the ordered
-    query, its page template compiled once at startup), and a plain ordered program offers execute and get only, its
-    typed handle without .page, so no form compiles a page nobody declared. It changes the workload builder and the
-    Compiled handle types (README, SKILL), and qti-pie's and edullm's workloads only if they page a program.
   - A Compute.matches pattern as a value (REGEX's proposal, 2026-11-09; not built, under main's 0.3 s bar).
     Compute.matches takes its pattern as a raw string, and its builder admits it on every call (scalar/compute/
     builders.ts matches, then regex/admit.ts matchPattern) and keeps only the refusal: Qti's build makes 121 such

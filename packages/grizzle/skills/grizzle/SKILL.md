@@ -67,8 +67,10 @@ export default defineConfig({
   opens the installation's snapshot, and a refusal by a law above it is `{ kind: "above", level, law }`.
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
-  roles, and names queries, ordered queries, ChangeSets and relation keys. Two programs of one name across a login's
-  workloads are refused when the login is built.
+  roles, and names queries, ordered queries, ChangeSets and relation keys. An ordered query the application pages is
+  the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and DbLayer.make compiles a page
+  template for no other member. Two programs of one name across a login's workloads are refused when the login is
+  built.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
