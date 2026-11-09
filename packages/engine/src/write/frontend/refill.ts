@@ -82,11 +82,14 @@ export interface StratumRefill {
 
 /**
  * Where a refill starts (write/family/removals.ts RefillWay): a put of a plain relation, whose facts state its changed
- * rows; or an edit of a family's member relation, whose own removals statement redraws its changed rows by `family`.
+ * rows; an edit of a family's member relation, whose own removals statement redraws its changed rows by `family`; or
+ * an append to `family`, whose additions statement recounts the owners whose count and ends its stored members copy
+ * (write/family/additions.ts recountOf).
  */
 export type RefillStart =
 	| { readonly kind: "put"; readonly relation: string }
 	| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
+	| { readonly kind: "recount"; readonly relation: string; readonly family: Family }
 
 /**
  * A way a change of the stratum reaches a refilled family's members: where it starts, and the family whose owner axis
@@ -112,9 +115,10 @@ const sameWay = (a: PlainRefillWay, b: PlainRefillWay): boolean =>
 /**
  * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
  * host: a put of a plain relation whose change cascades along one owner axis into a counted or ordered family's member,
- * read there by its fold, predecessor or last axis; or an edit of a family member relation that redraws a column of its
- * rows a counted or ordered family it owns copies into its members, read there as that copy. Either reaches a member
- * relation the stratum does not edit.
+ * read there by its fold, predecessor or last axis; an edit of a family member relation that redraws a column of its
+ * rows a counted or ordered family it owns copies into its members, read there as that copy; or an append to a counted
+ * or ordered family of a mutable owner, whose recount changes a count or an end the family's stored members copy. Each
+ * reaches a member relation the stratum does not put or delete.
  */
 const flightWay = (
 	path: RefillPath,
@@ -139,8 +143,20 @@ const flightWay = (
 			? { root: { kind: "put", relation: change.relation.name }, hop: hop.family }
 			: undefined
 	}
-	return change.op !== "insert" &&
-		hop === undefined &&
+	if (change.op === "insert") {
+		return hop === undefined &&
+			changed.by === "owner" &&
+			reader.kind === "owner" &&
+			familyKey(changed.family.id) === familyKey(reader.family.id) &&
+			reader.family.member.name === change.relation.name &&
+			reader.family.owner.mutable
+			? {
+					root: { kind: "recount", relation: change.relation.name, family: reader.family },
+					hop: reader.family
+				}
+			: undefined
+	}
+	return hop === undefined &&
 		changed.by === "member" &&
 		changed.relation.name === change.relation.name &&
 		reader.kind === "owner" &&

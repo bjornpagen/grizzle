@@ -486,7 +486,11 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					const ways = refilled.get(relation.name) ?? []
 					const own = familiesOf(relation).map((f) => ({
 						...f,
-						refills: ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
+						refills: (
+							ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
+						).flatMap((way) =>
+							way.root.kind === "recount" ? [] : [{ root: way.root, hop: way.hop }]
+						)
 					}))
 					if (!isNonEmpty(own)) {
 						throw defect(
@@ -565,7 +569,11 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 								: []
 						}
 					)
-					const sql = additionsSql(w0, appended, putOwners, stored)
+					/** The families this append recopies (FamilyAdditions `recopies`), each a recount way's family. */
+					const recopies = (refilled.get(member) ?? []).flatMap((r) =>
+						r.ways.flatMap((way) => (way.root.kind === "recount" ? [way.hop] : []))
+					)
+					const sql = additionsSql(w0, appended, putOwners, recopies, stored)
 					const step: FamilyWriteStep = {
 						kind: "familyWrite",
 						stratum: s,

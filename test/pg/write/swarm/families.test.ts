@@ -626,6 +626,57 @@ const inserted = (
 /** The seven downstream defects' shapes, then the shapes this search found, each kept by value. */
 const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 	{
+		note: "TEST_SEED=1608381433's case 10: an ordered member's put beside an append to the counted family it owns, whose count its stored members copy, the owner axis deferred since the put re-places the owner; the planner on the host refused it, its members' copies left stale",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [relationFlags(true), relationFlags(true), relationFlags(true)],
+					families: [
+						{ kind: "ordered", owner: 1, member: 0, fold: "sum" },
+						{ kind: "counted", owner: 0, member: 2, fold: "sum" }
+					],
+					copies: [],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 1, id: 1, v: 0n, memberOf: [] },
+						{ relation: 0, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 0, id: 3, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+						{ relation: 2, id: 4, v: 3n, memberOf: [{ family: 1, owner: 2, slot: 0 }] }
+					],
+					true,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 2,
+						put: Option.some(-1n),
+						inserted: [
+							{ relation: 2, id: 5, v: -1n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+							{ relation: 2, id: 6, v: 1n, memberOf: [{ family: 1, owner: 2, slot: 0 }] }
+						],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "an owner's column changed beside an append to its family"]
+	},
+	{
 		note: "1bf3dbb: a counted family's or end, its owner inserted beside its members, one member per fact",
 		sketch: {
 			spec: {

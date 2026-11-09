@@ -1693,7 +1693,12 @@ const freshOwners = (
 					? Result.err({ ...refusal, stratum: s })
 					: Result.err(refusal)
 			}
-			for (const slot of ownerSlots(s, owner)) {
+			/** The owner's slots whose facts it may insert: a sequence's member is only ever inserted nested, where the walk
+			 * stands it, so its slots' facts name stored rows, whose counts and ends no statement takes from them. */
+			const inserting = frontend.laws.families.some((f) => isSequence(f) && f.member.name === owner)
+				? []
+				: ownerSlots(s, owner)
+			for (const slot of inserting) {
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
 				for (const fact of current.facts) {

@@ -2000,6 +2000,8 @@ const compile = (
 			return undefined
 		}
 		const removing = by(["put", "delete"])
+		const slotted = by(["insert", "put"])
+		const adding = [...new Set([...slotted, ...nested])]
 		/** Each refilled member's starts: every way's, all of one kind, a put's or an edit's of one relation the stratum
 		 * puts or deletes, or none where its ways mix them, which the family planner refills on the host. */
 		const startsOf = (member: ReadonlyArray<PlainRefill>) => {
@@ -2011,6 +2013,18 @@ const compile = (
 			if (first.kind === "put") {
 				return rest.every((x) => x.kind === "put")
 					? { kind: "put" as const, relations: [...new Set(starts.map((x) => x.relation))] }
+					: undefined
+			}
+			if (first.kind === "recount") {
+				return rest.every((x) => x.kind === "recount") && adding.includes(first.relation)
+					? {
+							kind: "recount" as const,
+							families: [
+								...new Set(
+									starts.flatMap((x) => (x.kind === "recount" ? [familyKey(x.family.id)] : []))
+								)
+							]
+						}
 					: undefined
 			}
 			return rest.every((x) => x.kind === "edit" && x.relation === first.relation) &&
@@ -2032,6 +2046,12 @@ const compile = (
 				x?.kind === "put" ? [[member, x.relations] as const] : []
 			)
 		)
+		/** The families an append to `member` recopies, its additions statement rewriting their stored members' copies of
+		 * the counts and ends it recounts (FamilyAdditions `recopies`). */
+		const recopiesOf = (member: string): ReadonlyArray<string> => {
+			const x = starts.get(member)
+			return x?.kind === "recount" ? x.families : []
+		}
 		/** The members an edit's refills rewrite in the edit's own removals statement (FamilyRemovals `riders`). */
 		const ridersOf = (member: string): ReadonlyArray<string> =>
 			[...starts].flatMap(([rider, x]) =>
@@ -2071,8 +2091,6 @@ const compile = (
 				: deleting.includes(member)
 					? ["delete"]
 					: ["refill"]
-		const slotted = by(["insert", "put"])
-		const adding = [...new Set([...slotted, ...nested])]
 		/** The members whose removals statements redraw their groups: an edit's, which puts or deletes them, and a
 		 * refill's. */
 		const redrawing = [...new Set([...removing, ...putRefilled.keys()])]
@@ -2154,6 +2172,7 @@ const compile = (
 					appends: "rows" as const,
 					member,
 					copies: copiedOwners(member),
+					recopies: recopiesOf(member),
 					owners: [
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))

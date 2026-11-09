@@ -73,7 +73,7 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
+import { type ColumnKey, columnKey, familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import {
 	type PerGroup,
 	readAt,
@@ -175,6 +175,7 @@ export const additionsSql = (
 	w: WriteContext,
 	members: ReadonlyArray<AppendedMember>,
 	putOwners: ReadonlyArray<PutOwner>,
+	recopies: ReadonlyArray<Family>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
 	const supply = new NameSupply(w.start)
@@ -294,7 +295,7 @@ export const additionsSql = (
 		const [first, ...rest] = [...byFamily.values()]
 		if (first !== undefined) {
 			const owner = defined(relations.get(ownerName), `the owner relation ${ownerName}`)
-			recounts.push(recountOf(w, supply, ctes, owner, [first, ...rest]))
+			recounts.push(recountOf(w, supply, ctes, owner, [first, ...rest], recopies))
 		}
 	}
 	const [firstReturning, ...restReturnings] = [...recounts, ...inserts]
@@ -967,14 +968,17 @@ interface Recounted {
  * and each end, its last member's column: an appended group's from its scan, its new count and its last appended member;
  * a put owner's other group's as the removals leave it, its kept count `max(index) + 1` and its stored last member, or
  * the end's start where it has none. One UPDATE of the relation's rows whose count or end changes, every family keeping
- * its stored values where it recounts no group of the row.
+ * its stored values where it recounts no group of the row. And, for each recounted family among `recopies`, whose owner
+ * axis carries no change into its members, one UPDATE of its stored members in the recounted groups, each copy the axis
+ * holds of the owner's count or an end taking the recounted value (frontend/refill.ts RefillStart `recount`).
  */
 const recountOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	owner: RelationInfo,
-	recounted: NonEmptyReadonlyArray<Recounted>
+	recounted: NonEmptyReadonlyArray<Recounted>,
+	recopies: ReadonlyArray<Family>
 ): FamilyReturning => {
 	const name = owner.name
 	const bigint = types.bigint
@@ -1110,6 +1114,50 @@ const recountOf = (
 		)
 		return { family, last }
 	})
+	for (const { family, last } of lasts) {
+		if (!recopies.some((f) => familyKey(f.id) === familyKey(family.id))) {
+			continue
+		}
+		const memberName = family.member.name
+		const l = supply.relation(internal("recopied group"))
+		const recopied = family.axes.owner.flatMap((pair): ReadonlyArray<Assignment> => {
+			const to = columnKey(pair.to)
+			const field = [family.count, ...endColumns(family)].find((f) => fieldKey(f.name) === to)
+			const source = to === fieldKey(family.count.name) ? last.count : last.columns.get(to)
+			return field === undefined || source === undefined
+				? []
+				: [
+						{
+							column: installed(w, memberName, pair.from),
+							value: written(w, col(l, source), field.type)
+						}
+					]
+		})
+		const [firstSet, ...restSets] = recopied
+		if (firstSet === undefined) {
+			continue
+		}
+		const m = supply.relation(internal("recopied member"))
+		ctes.push(
+			cte(supply.relation(internal("family recopy")), [], {
+				kind: "update",
+				with: undefined,
+				table: w.names.relation(memberName),
+				alias: m,
+				set: [firstSet, ...restSets],
+				from: [cteRefAs(last.name, l)],
+				where: and(
+					mapNonEmpty(family.group, (g, i) =>
+						eq(
+							col(m, w.names.column(memberName, g.member.name)),
+							col(l, defined(last.group[i], "a recopied group column"))
+						)
+					)
+				),
+				returning: []
+			})
+		)
+	}
 	const o = supply.relation(internal("recounted owner"))
 	const ownerKey = (family: Family): ReadonlyArray<Expr> =>
 		family.group.map((g) => col(o, w.names.column(name, g.owner.name)))
