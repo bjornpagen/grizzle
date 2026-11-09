@@ -1,4 +1,3 @@
-import { maxOf } from "#compiler/core/array.ts"
 import { compareText, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
@@ -15,7 +14,6 @@ import {
 import {
 	builtExpr,
 	type ExprSpec,
-	exprClosure,
 	type LiveArgs,
 	mapArgs,
 	type ScalarExpr,
@@ -34,7 +32,6 @@ import {
 	metaSpecOf,
 	type NodeOf,
 	type NodeSpec,
-	type RelDag,
 	type RelNode,
 	type Roots,
 	type SpecRefs,
@@ -78,34 +75,19 @@ export class QueryMerger {
 		return merged.node(query.dag.roots[0])
 	}
 
-	get dag(): ValidDag {
+	get dag(): LabelledDag {
 		return this.#dag
 	}
 }
 
-const suffixOf = (prefix: string, id: string): number => {
-	if (!id.startsWith(prefix)) {
-		return 0
-	}
-	const n = Number(id.slice(prefix.length))
-	return Number.isSafeInteger(n) ? n : 0
-}
-
-/** The glue the frontend builds over the merged queries, under fresh labels past every label they hold. */
+/** The glue the frontend builds over the merged queries, under fresh labels past every label they hold (its tops). */
 export class GlueBuilder {
 	#node: number
 	#expr: number
 
-	constructor(dag: RelDag) {
-		const nodes = topoOrder(dag)
-		this.#node = maxOf(
-			nodes.map((n) => suffixOf(allocatedKinds.node, n.id)),
-			0
-		)
-		this.#expr = maxOf(
-			exprClosure(nodes.flatMap((n) => exprsOf(n))).map((e) => suffixOf(allocatedKinds.expr, e.id)),
-			0
-		)
+	constructor(dag: LabelledDag) {
+		this.#node = dag.tops.node
+		this.#expr = dag.tops.expr
 	}
 
 	#add(spec: NodeSpec): RelNode {
