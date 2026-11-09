@@ -24,6 +24,7 @@ export {
 	AccountNames,
 	accountIds,
 	accountSeats,
+	accountTasks,
 	Org,
 	Reports,
 	Session,

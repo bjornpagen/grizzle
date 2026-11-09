@@ -29,6 +29,7 @@ import {
 	AccountNames,
 	accountIds,
 	accountSeats,
+	accountTasks,
 	Org,
 	Reports,
 	Session,
@@ -77,8 +78,9 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   those and a name role refuses to write, or a drawn list that may name one twice, and a drawn refresh list,
  *   typechecks exactly when role(...) builds it, refused for naming one twice exactly when the engine admits each name
  *   of the list alone and refuses the list, and then its relations' names and its write list are exactly those of the
- *   engine's Description of it, and a program over the base reading the closed relation runs on it exactly when the
- *   engine compiles it there;
+ *   engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
+ *   Reports, matching its live derived relation, which no role holds), run on it exactly when the engine compiles
+ *   them there;
  * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, writableNamesOf, lawsOf), given the
  *   level or the case's first role value, typechecks exactly when the engine admits its base: a role is no schema.
  *
@@ -115,6 +117,16 @@ type Opener = (typeof openers)[number]
 const basePrograms = ["accountIds", "accountSeats"] as const
 type BaseProgram = (typeof basePrograms)[number]
 const baseValues: { readonly [P in BaseProgram]: object } = { accountIds, accountSeats }
+
+/**
+ * The program over each level a full role of that level runs: over Work, one reading its ordinary relations; over
+ * Reports, one matching its live derived relation, which no role holds, so a full role holds Reports whole without it.
+ */
+const levelPrograms = { Work: "accountIds", Reports: "accountTasks" } as const
+const levelValues: { readonly [L in keyof typeof levelPrograms]: object } = {
+	Work: accountIds,
+	Reports: accountTasks
+}
 
 /** Db.open's options as a caller may give them: none, null, a token, or a token of another type than text. */
 const optionForms = ["omitted", "null", "a token", "a token of another type"] as const
@@ -248,6 +260,7 @@ export type AccessNote =
 	| `options ${OptionForm} ${"admitted" | "refused"}`
 	| `base ${BaseProgram} ${"admitted" | "refused"}`
 	| `full ${"admitted" | "refused"}`
+	| `full over ${AccessSpec["level"]} runs its program ${"admitted" | "refused"}`
 	| `full write ${FullWrite["kind"]}`
 	| "full write repeated"
 	| `${SchemaTaker} over a ${BaseKind} ${"admitted" | "refused"}`
@@ -410,7 +423,7 @@ interface AccessVerdict {
 /**
  * The engine's reading of a case's full role: refused by role(...), for a repeat in its write list or not, or admitted
  * with the names of its entries and its write list as its Description holds them, and whether the program over the
- * base matching the closed relation compiles for it.
+ * base matching the closed relation and the program over its level (levelPrograms) compile for it.
  */
 type FullVerdict =
 	| { readonly kind: "refused"; readonly repeat: boolean }
@@ -419,6 +432,7 @@ type FullVerdict =
 			readonly entries: ReadonlyArray<string>
 			readonly write: ReadonlyArray<string>
 			readonly base: boolean
+			readonly level: boolean
 	  }
 
 /** A full role's options as a JavaScript caller passes them, its write list made by the helpers the program calls. */
@@ -463,7 +477,8 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 		kind: "admitted",
 		entries: Arr.map(desc.relations, (entry) => entry.name),
 		write: desc.write,
-		base: compileTemplate(accountSeats, built.value, testCompile).ok
+		base: compileTemplate(accountSeats, built.value, testCompile).ok,
+		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok
 	}
 }
 
@@ -585,6 +600,11 @@ const caseGen: Gen<AccessCase> = (source) => {
 	notes.add(`options ${spec.options} ${verdict.options ? "admitted" : "refused"}`)
 	notes.add(`base ${spec.base.program} ${verdict.base ? "admitted" : "refused"}`)
 	notes.add(`full ${verdict.full.kind}`)
+	if (verdict.full.kind === "admitted") {
+		notes.add(
+			`full over ${spec.level} runs its program ${verdict.full.level ? "admitted" : "refused"}`
+		)
+	}
 	notes.add(`full write ${spec.full.write.kind}`)
 	if (verdict.full.kind === "refused" && verdict.full.repeat) {
 		notes.add("full write repeated")
@@ -645,7 +665,7 @@ const unionOf = (names: ReadonlyArray<string>): string =>
 /**
  * A case's full role, in the program: under its directive where role(...) refuses it, and otherwise followed by its
  * relations' names and its write list stated as the engine's, and the program over the base matching the closed
- * relation run on it under the engine's verdict.
+ * relation and the program over its level run on it under the engine's verdicts.
  */
 const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyArray<string> => {
 	const declaration = `export const F${i} = role(${spec.level}, "f${i}", wholeEntriesOf(${spec.level}), ${fullOptionsSource(spec.full, spec.level)})`
@@ -664,7 +684,10 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 				`export type fw${i} = Expect<Equals<WriteListOf<typeof F${i}>, ${unionOf(verdict.write)}>>`,
 				`export const fb${i} = (db: DbOf<typeof F${i}, unknown>) =>`,
 				...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
-				"\tdb.execute(accountSeats, {})"
+				"\tdb.execute(accountSeats, {})",
+				`export const fl${i} = (db: DbOf<typeof F${i}, unknown>) =>`,
+				...(verdict.level ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
+				`\tdb.execute(${levelPrograms[spec.level]}, {})`
 			]
 	}
 }
@@ -813,6 +836,8 @@ export const accessRequired: Situations<AccessNote> = [
 	"base accountSeats refused",
 	"full admitted",
 	"full refused",
+	"full over Work runs its program admitted",
+	"full over Reports runs its program admitted",
 	...Arr.map(fullWriteKinds, (kind): AccessNote => `full write ${kind}`),
 	"full write repeated",
 	...Arr.flatMap(schemaTakers, (builder): ReadonlyArray<AccessNote> => [

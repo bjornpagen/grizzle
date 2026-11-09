@@ -83,6 +83,11 @@ export interface AnyMaterialized extends AnyDerived {
 	readonly storage: "materialized"
 }
 
+/** A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. */
+export interface AnyLive extends AnyDerived {
+	readonly storage: "live"
+}
+
 /**
  * Derived relations: named queries, stored as materialized views where materialized. The runtime constructor is
  * packages/engine/src/schema's, bound to this signature by the public schema barrel.

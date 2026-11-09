@@ -16,7 +16,7 @@ import { str } from "#compiler/public/text.ts"
 /**
  * The values the access agreement (test/support/agreement/access.ts) draws its worlds from, which its generated
  * program imports by name: Work, an account's tasks and its tier, whose seats a closed relation states; Reports, an extension of it holding two derived relations a role
- * may refresh; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
+ * may refresh and a live one no role holds; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
  * reading a context at every place a definition can, or none; and two logins the DbConfig agreement
  * (test/support/agreement/dbconfig.ts) configures, one whose role reads no context and one whose role reads Session.
  */
@@ -67,7 +67,21 @@ export const AccountNames = derived.materialized(
 		return r.match(Account, { id, name }).find({ id, name })
 	})
 )
-export const Reports = schema.extend(Work, "Reports", { TaskTally, AccountNames }, [])
+/** An account's tasks, live: PostgreSQL stores none of its rows, so no role holds it and a role reads it through Task. */
+export const AccountTasks = derived(
+	"AccountTasks",
+	query(Work).rule((r) => {
+		const { id, account } = v(Task, "task")
+		return r.match(Task, { id, account }).find({ id, account })
+	})
+)
+export const Reports = schema.extend(Work, "Reports", { TaskTally, AccountNames, AccountTasks }, [])
+
+/** A program over the extension matching its live derived relation, which a full role of the extension runs. */
+export const accountTasks = query(Reports).rule((r) => {
+	const { id, account } = v(AccountTasks, "tasks")
+	return r.match(AccountTasks, { id, account }).find({ id, account })
+})
 
 export const Org = context("Org", { id: uuid }, { claim: "o" })
 export const Session = context("Session", { sub: str.regex("^[a-z]{1,32}$") })

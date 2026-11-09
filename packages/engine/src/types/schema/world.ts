@@ -11,6 +11,7 @@ import type {
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
 	AnyDerived,
+	AnyLive,
 	AnyMaterialized,
 	DefinitionQuery,
 	DefinitionShape
@@ -199,7 +200,7 @@ type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }
  * base and admissible as a definition (one flat heading of at least one field, no parameter).
  */
 type EntryCheck<Base, K, V> = V extends AnyRelation | AnyRoster | AnyDerived
-	? V extends { readonly storage: "live" }
+	? V extends AnyLive
 		? Refusal<"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads">
 		: IsRelationOf<Base, V> extends true
 			? [K] extends [NameOf<V>]
@@ -228,21 +229,26 @@ export type RefreshableKeys<Rs> = {
 	string
 
 /**
- * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the closed
- * relations, which are no entry (every role reads their rows), and the live derived relations, which store nothing and
- * which a role reads through the relations their definitions read. One key per relation, kept or dropped by its own type
- * alone, so a record of n relations costs n conditionals and a closed relation can never stand among the entries.
+ * The relations no role holds, since PostgreSQL holds none of their rows (desc.ts heldRelation): a closed relation,
+ * whose rows are its constants and which every role reads, and a live derived relation, which stores nothing and which a
+ * role reads through the relations its definition reads. The one definition a full role's entries (WholeEntries) and
+ * the levels a role holds whole (UnheldOf) both read.
+ */
+type UnheldRelation = AnyClosedRelation | AnyLive
+
+/**
+ * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the relations
+ * no role holds (UnheldRelation). One key per relation, kept or dropped by its own type alone, so a record of n
+ * relations costs n conditionals and an unheld relation can never stand among the entries.
  */
 export type WholeEntries<Rs> = {
-	readonly [
-		K in keyof Rs as Rs[K] extends AnyClosedRelation | { readonly storage: "live" } ? never : K
-	]: Rs[K]
+	readonly [K in keyof Rs as Rs[K] extends UnheldRelation ? never : K]: Rs[K]
 }
 
 /**
  * The entries of a full role over Base (wholeEntriesOf): every relation of every level of the base, under its own name,
- * whole, its closed relations aside. A role holding them holds every relation of its base whole, so its base is among
- * its levels (FullBaseOf).
+ * whole, but the relations no role holds (UnheldRelation). A role holding them holds every relation of its base whole,
+ * so its base is among its levels (FullBaseOf).
  */
 export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relations"]>
 
@@ -261,8 +267,8 @@ export type EntryContexts<Rs> = {
 /**
  * The highest level of a role's base it holds whole, every relation of that level and of every level below it under its
  * own name: then that level, and every level below it, is among the role's levels; never when it holds not every
- * relation of the base's root whole. A closed relation is no entry (its rows are constants every role reads), so a
- * role holds every relation but those. A level's record holds each relation under its own name too (UnderOwnNames), so
+ * relation of the base's root whole. A relation no role holds (UnheldRelation) is no entry, so a role holds every
+ * relation but those. A level's record holds each relation under its own name too (UnderOwnNames), so
  * each is read against the role's entry of its key alone. The walk is as deep as the extension chain.
  */
 type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] extends [never]
@@ -273,10 +279,13 @@ type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] exte
 			: FullBaseOf<Below, Relations>
 		: never
 
-/** The keys of a base's record whose relation the role does not hold whole under that key, closed relations aside. */
+/**
+ * The keys of a base's record whose relation the role does not hold whole under that key, the relations no role holds
+ * (UnheldRelation) aside.
+ */
 type UnheldOf<BaseRelations, Relations> = {
 	[K in keyof BaseRelations]-?: [BaseRelations[K]] extends [
-		AnyClosedRelation | UnderName<Relations, K>
+		UnheldRelation | UnderName<Relations, K>
 	]
 		? never
 		: K
