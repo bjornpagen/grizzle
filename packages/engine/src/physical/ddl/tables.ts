@@ -951,16 +951,25 @@ const addNatives = (
 			}
 		}
 	}
+	/** Each relation's keys, in the order they were added: a reference reads its target's alone. */
+	const keysOf = new Map<string, Array<(typeof keys)[number]>>()
+	for (const k of keys) {
+		const held = keysOf.get(k.shape.relation)
+		if (held === undefined) {
+			keysOf.set(k.shape.relation, [k])
+		} else {
+			held.push(k)
+		}
+	}
 	/** The key a reference into `columns` of `relation` names: one over exactly those columns, in any order. */
 	const keyObjectOf = (
 		relation: string,
 		columns: ReadonlyArray<NativeColumn>,
 		method: "btree" | "gist"
 	): ReadonlyArray<Node<"structure">> =>
-		keys
+		(keysOf.get(relation) ?? [])
 			.filter(
 				({ shape: k }) =>
-					k.relation === relation &&
 					k.method === method &&
 					k.columns.length === columns.length &&
 					k.columns.every((c) => columns.some((d) => sameNativeColumn(c, d)))
