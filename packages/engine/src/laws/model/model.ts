@@ -78,6 +78,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 
+import { admittedReads } from "#compiler/check/closed.ts"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {
@@ -104,6 +105,7 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
+import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The native objects installed as a table constraint: keys, CHECKs and references. */
@@ -770,10 +772,52 @@ const regionColumn = (node: NodeId, name: string, type: ScalarType): ExprSpec =>
  * counted family's ‹p› is pred of its drawn index, read as that column by its identifier; a drawn column is the host's,
  * and lowers nothing.
  */
+/** The expressions a law column's value lowers: its selection's conjuncts, an index predecessor's index's. */
+const lawColumnExprs = (column: LawColumnPlan): ReadonlyArray<ExprDesc> => {
+	switch (column.kind) {
+		case "term":
+			return column.selection.conjuncts.map((c) => c.predicate)
+		case "indexPred":
+			return lawColumnExprs(column.index)
+		case "constant":
+		case "drawn":
+			return []
+	}
+}
+
+/**
+ * The expressions the law model lowers for a native: a declared or generated CHECK's predicate, a ClosedCheck's
+ * guards, a law column's value; no other native lowers one.
+ */
+const nativeExprs = (n: NativePlan): ReadonlyArray<ExprDesc> => {
+	switch (n.kind) {
+		case "TableCheck":
+			return [n.predicate]
+		case "GeneratedCheck":
+			return [n.check.predicate]
+		case "ClosedCheck":
+			return n.guard.map((c) => c.predicate)
+		case "LawColumn":
+			return lawColumnExprs(n.column)
+		case "PrimaryKey":
+		case "Unique":
+		case "Domain":
+		case "RosterDomain":
+		case "ForeignKey":
+		case "WithoutOverlaps":
+		case "PeriodForeignKey":
+		case "ReverseIndex":
+			return []
+	}
+}
+
 class ColumnLowering {
 	readonly #ext: ViolationBuilder
 	readonly #typing: ReturnType<typeof typingEnv>
-	/** The closed relations a guard or a term may apply (CheckedSchema.closedReads). */
+	/**
+	 * The closed relations a guard or a term may apply (CheckedSchema.closedReads), each pattern the held natives read
+	 * admitted for the law model's lowering (nativeExprs).
+	 */
 	readonly #closed: ClosedRelations
 	readonly #roots: Array<RelNode>
 	/** The identifier of a law column, which a value reading another law column reads it by. */
@@ -1039,7 +1083,12 @@ class Specializer {
 		/** The extension DAG: each declared and generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const roots: Array<RelNode> = []
-		const columns = new ColumnLowering(ext, this.#typing, this.checked.closedReads, roots, (plan) =>
+		/** The closed relations the held natives' predicates and values apply, each pattern they read admitted once. */
+		const closed = admittedReads(
+			this.checked.closedReads,
+			exprPatternReads(plans.flatMap((plan) => plan.natives.filter(held).flatMap(nativeExprs)))
+		)
+		const columns = new ColumnLowering(ext, this.#typing, closed, roots, (plan) =>
 			this.#lawColumn(plan)
 		)
 		/** Each plan with its native objects, a generated CHECK's predicate and a law column's value lowered into the
@@ -1047,7 +1096,13 @@ class Specializer {
 		const place = (n: NativePlan, plan: LawPlan): PlacedNative => {
 			switch (n.kind) {
 				case "GeneratedCheck": {
-					const { filter, predicate } = this.#lowerCheck(ext, n.relation, n.check, plan.law.loc)
+					const { filter, predicate } = this.#lowerCheck(
+						ext,
+						closed,
+						n.relation,
+						n.check,
+						plan.law.loc
+					)
 					roots.push(filter)
 					return { kind: "LoweredCheck", relation: n.relation, predicate }
 				}
@@ -1440,6 +1495,7 @@ class Specializer {
 	 */
 	#lowerCheck(
 		ext: ViolationBuilder,
+		closed: ClosedRelations,
 		r: RelationInfo,
 		check: CheckPredicate,
 		loc: SourceLoc
@@ -1451,7 +1507,7 @@ class Specializer {
 		const attempt = (desc: ExprDesc, emit: (spec: ExprSpec) => ScalarExpr, node: NodeId) =>
 			lowerPredicate(desc, {
 				...this.#typing,
-				closed: this.checked.closedReads,
+				closed,
 				mode: "check",
 				loc,
 				emit,

@@ -7,6 +7,13 @@ import type {
 	RuleDesc,
 	SourceDesc
 } from "#compiler/ir/desc.ts"
+import { patternParts } from "#compiler/scalar/compute/lower.ts"
+
+/**
+ * The closed relations' payload fields a set of expressions reads as Compute.matches patterns (scalar/compute/lower.ts
+ * patternParts), by relation: what a lowering batch admits (check/closed.ts admittedReads).
+ */
+export type PatternReads = ReadonlyMap<string, ReadonlySet<string>>
 
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
@@ -21,6 +28,26 @@ class Collector {
 	readonly relations = new Set<string>()
 	readonly inputs = new Set<string>()
 	readonly contexts = new Map<string, ContextDesc>()
+	readonly patterns = new Map<string, Set<string>>()
+
+	/** Each payload field the pattern of a Compute.matches reads, its other parts no field. */
+	#pattern(pattern: ExprDesc): void {
+		for (const part of patternParts(pattern)) {
+			if (part.kind === "closedAt") {
+				this.#read(part.desc.relation, part.desc.field)
+			}
+		}
+	}
+
+	/** The payload field `field` of `relation`, read as a pattern. */
+	#read(relation: string, field: string): void {
+		const fields = this.patterns.get(relation)
+		if (fields === undefined) {
+			this.patterns.set(relation, new Set([field]))
+		} else {
+			fields.add(field)
+		}
+	}
 
 	query(q: QueryDesc): void {
 		this.stage(q.stage)
@@ -103,6 +130,11 @@ class Collector {
 				inner.query(s.query)
 				for (const r of inner.relations) {
 					this.relations.add(r)
+				}
+				for (const [relation, fields] of inner.patterns) {
+					for (const field of fields) {
+						this.#read(relation, field)
+					}
 				}
 				for (const [name, c] of inner.contexts) {
 					if (!this.contexts.has(name)) {
@@ -203,11 +235,16 @@ class Collector {
 			case "parent":
 			case "literal":
 				return
-			case "compute":
+			case "compute": {
+				const [, pattern] = e.args
+				if (e.fn === "matches" && pattern !== undefined) {
+					this.#pattern(pattern)
+				}
 				for (const a of e.args) {
 					this.expr(a)
 				}
 				return
+			}
 			case "cast":
 			case "base":
 			case "not":
@@ -335,3 +372,27 @@ export const approximates = (q: QueryDesc): boolean => stageApproximates(q.stage
 
 /** Whether a query's delivered heading carries an attachment: a role's query entry, a flat view, does not. */
 export const attachesHeading = (q: QueryDesc): boolean => stageAttaches(q.stage)
+
+/**
+ * The payload fields the Compute.matches patterns of `exprs` read (PatternReads): a lowering batch's, over the
+ * expressions it lowers.
+ */
+export const exprPatternReads = (exprs: Iterable<ExprDesc>): PatternReads => {
+	const c = new Collector()
+	for (const e of exprs) {
+		c.expr(e)
+	}
+	return c.patterns
+}
+
+/**
+ * The payload fields the Compute.matches patterns of `queries` read, through every rule, import, negation and
+ * attachment of each (PatternReads): a checked program's batch.
+ */
+export const queryPatternReads = (queries: Iterable<QueryDesc>): PatternReads => {
+	const c = new Collector()
+	for (const q of queries) {
+		c.query(q)
+	}
+	return c.patterns
+}

@@ -4,7 +4,7 @@ import {
 	type DerivedRelationAnalysis
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
-import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
+import { admittedReads, closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
 import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
 import {
 	closedReadNames,
@@ -80,6 +80,7 @@ import type {
 	OwnedWrite
 } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
+import { exprPatternReads } from "#compiler/schema/walk.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
@@ -567,7 +568,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					? undefined
 					: this.#typeOf(field.desc, childLoc(loc, "fields", f), patterns)
 			},
-			closed: closedReadsAmong(this.closedReads, below),
+			closed: admittedReads(
+				closedReadsAmong(this.closedReads, below),
+				exprPatternReads(
+					Object.values(r.fields).flatMap((f) =>
+						f.writing.kind === "generated" ? [f.writing.expr] : []
+					)
+				)
+			),
 			above: (c) => readable.some((x) => x.name === c) && !below.some((x) => x.name === c)
 		}
 		const declared = this.#lawFields(

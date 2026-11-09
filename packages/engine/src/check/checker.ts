@@ -847,12 +847,27 @@ export class Checker {
 	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
 	readonly #searches = new Map<string, RelNode>()
 
-	/** `params` are the cells of the resolved description the checker checks (params.ts resolveQuery). */
-	constructor(schema: SchemaReading, options: CheckOptions, params: ParamTable) {
+	/**
+	 * The closed relations a rule's filter applies: the schema's (SchemaReading.closedReads) with every text payload field
+	 * the query's Compute.matches patterns read admitted, the query's lowering batch (check/closed.ts admittedReads).
+	 */
+	readonly #closedReads: ClosedRelations
+
+	/**
+	 * `params` are the cells of the resolved description the checker checks (params.ts resolveQuery), and `closedReads`
+	 * the schema's closed relations as its query's lowering batch admitted them (`#closedReads`).
+	 */
+	constructor(
+		schema: SchemaReading,
+		options: CheckOptions,
+		params: ParamTable,
+		closedReads: ClosedRelations
+	) {
 		this.schema = schema
 		this.options = options
 		this.b = new DagBuilder(makeIdSupply())
 		this.params = params
+		this.#closedReads = closedReads
 	}
 
 	/** Records an expression, built over its arguments with its effects (ir/expr.ts builtExpr). */
@@ -1892,7 +1907,7 @@ export class Checker {
 		return {
 			mode: "query",
 			loc,
-			closed: reads === "filter" ? this.schema.closedReads : deliveredValue,
+			closed: reads === "filter" ? this.#closedReads : deliveredValue,
 			emit: (spec) => this.emit(spec),
 			leaf: (desc, at) =>
 				catchRefusal(() => {

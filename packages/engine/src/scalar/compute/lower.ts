@@ -311,12 +311,12 @@ export interface ClosedField {
 
 /**
  * What a Compute.matches pattern reading a closed relation's payload field can be (Lowering.patternAdmissions): where
- * every row's value there is a text, each distinct one in row order, admitted where the closed relation's reads are
- * built (scalar/regex/admit.ts admitMatch), none where it holds no row; or a field of another value, which no pattern
- * reads.
+ * every row's value there is a text, each distinct one in row order (`sources`), none where it holds no row, which the
+ * lowering batch whose expressions read the field as a pattern admits once (ClosedRelations.admitted); or a field of
+ * another value, which no pattern reads.
  */
 export type PayloadPatterns =
-	| { readonly kind: "texts"; readonly admitted: ReadonlyArray<MatchAdmission> }
+	| { readonly kind: "texts"; readonly sources: ReadonlyArray<string> }
 	| { readonly kind: "other" }
 
 /** A payload field of a closed relation, as C.at reads it, with what a Compute.matches pattern reading it can be. */
@@ -334,12 +334,88 @@ export interface ClosedHeading {
 }
 
 /**
- * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's;
- * or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
+ * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's,
+ * with each text payload field a Compute.matches pattern of the lowering batch reads (patternParts) admitted once for
+ * the batch (`admitted`, check/closed.ts admittedReads), undefined for a field no expression of the batch reads as a
+ * pattern; or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
  */
 export type ClosedRelations =
-	| { readonly kind: "schema"; readonly heading: (relation: string) => ClosedHeading | undefined }
+	| {
+			readonly kind: "schema"
+			readonly heading: (relation: string) => ClosedHeading | undefined
+			readonly admitted: (
+				relation: string,
+				field: string
+			) => ReadonlyArray<MatchAdmission> | undefined
+	  }
 	| { readonly kind: "none"; readonly why: string }
+
+/**
+ * A part of a Compute.matches pattern, in the order the pattern states it: a literal, a closed relation's payload
+ * field C.at reads, or any other expression, each with the branches of the Compute.cond it stands in. The one reading of
+ * what a pattern reads: patternAdmissions admits it, and a lowering batch admits the payload fields it names
+ * (check/closed.ts admittedReads).
+ */
+export type PatternPart<R extends Refs> =
+	| {
+			readonly kind: "literal"
+			readonly desc: Extract<ExprDesc<Located, R>, { readonly kind: "literal" }>
+			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
+	  }
+	| {
+			readonly kind: "closedAt"
+			readonly desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedAt" }>
+			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
+	  }
+	| {
+			readonly kind: "other"
+			readonly desc: ExprDesc<Located, R>
+			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
+	  }
+
+/** The parts of the Compute.matches pattern `desc` (PatternPart), a conditional's two branches in turn. */
+export const patternParts = <R extends Refs>(
+	desc: ExprDesc<Located, R>
+): ReadonlyArray<PatternPart<R>> => partsUnder(desc, [])
+
+/** patternParts of `desc`, which stands in the conditional branches `branches`. */
+const partsUnder = <R extends Refs>(
+	desc: ExprDesc<Located, R>,
+	branches: ReadonlyArray<"onTrue" | "onFalse">
+): ReadonlyArray<PatternPart<R>> => {
+	switch (desc.kind) {
+		case "literal":
+			return [{ kind: "literal", desc, branches }]
+		case "closedAt":
+			return [{ kind: "closedAt", desc, branches }]
+		case "cond":
+			return [
+				...partsUnder(desc.onTrue, [...branches, "onTrue"]),
+				...partsUnder(desc.onFalse, [...branches, "onFalse"])
+			]
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "param":
+		case "compute":
+		case "cast":
+		case "base":
+		case "when":
+		case "compare":
+		case "between":
+		case "in":
+		case "and":
+		case "or":
+		case "not":
+		case "closedRow":
+		case "closedHas":
+		case "allen":
+		case "pointIn":
+		case "absent":
+			return [{ kind: "other", desc, branches }]
+	}
+}
 
 /** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
 export const noClosedRelations = (why: string): ClosedRelations =>
@@ -2379,66 +2455,67 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * The values a matches pattern can take, each a source text admitted (scalar/regex/admit.ts admitMatch): a text
-	 * literal's own; each value of a closed relation's text payload field that C.at reads, whatever its key, as its
-	 * closed reads admitted it (PayloadPatterns); or either branch's of a conditional. Any other pattern, a field, a
-	 * parameter or a computed text, can be any text, so no measure bounds it, and it is refused, naming what it is.
+	 * The values a matches pattern can take, each a source text admitted (scalar/regex/admit.ts admitMatch), part by part
+	 * (patternParts): a text literal's own; each value of a closed relation's text payload field that C.at reads, whatever
+	 * its key, as the lowering batch admitted it (ClosedRelations.admitted). Any other part, a field, a parameter or a
+	 * computed text, can be any text, so no measure bounds it, and it is refused, naming what it is.
 	 */
 	patternAdmissions(desc: ExprDesc<Located, R>, at: SourceLoc): ReadonlyArray<MatchAdmission> {
-		switch (desc.kind) {
+		return patternParts(desc).flatMap((part) =>
+			this.partAdmissions(
+				part,
+				part.branches.reduce((loc, branch) => childLoc(loc, branch), at)
+			)
+		)
+	}
+
+	/** The admitted values of one part of a matches pattern (patternAdmissions), stated at `at`. */
+	partAdmissions(part: PatternPart<R>, at: SourceLoc): ReadonlyArray<MatchAdmission> {
+		switch (part.kind) {
 			case "literal":
-				return typeof desc.value === "string"
-					? [admitMatch(desc.value)]
+				return typeof part.desc.value === "string"
+					? [admitMatch(part.desc.value)]
 					: stop("MalformedDescription", at, "a text literal as matches's pattern")
-			case "closedAt": {
-				const heading = this.closedHeading("C.at", desc.relation, at)
-				const payload = heading.payload.find((f) => f.name === desc.field)
-				if (payload === undefined) {
-					return stop(
-						"MalformedDescription",
-						at,
-						`a payload field of ${desc.relation} named ${JSON.stringify(desc.field)}`
-					)
-				}
-				return payload.patterns.kind === "texts"
-					? payload.patterns.admitted
-					: stop(
-							"MalformedDescription",
-							at,
-							`a text payload as matches's pattern: ${desc.relation}.${desc.field} is ${typeLabel(payload.type)}`
-						)
-			}
-			case "cond":
-				return [
-					...this.patternAdmissions(desc.onTrue, childLoc(at, "onTrue")),
-					...this.patternAdmissions(desc.onFalse, childLoc(at, "onFalse"))
-				]
-			case "var":
-			case "field":
-			case "value":
-			case "parent":
-			case "param":
-			case "compute":
-			case "cast":
-			case "base":
-			case "when":
-			case "compare":
-			case "between":
-			case "in":
-			case "and":
-			case "or":
-			case "not":
-			case "closedRow":
-			case "closedHas":
-			case "allen":
-			case "pointIn":
-			case "absent":
+			case "closedAt":
+				return this.payloadAdmissions(part.desc.relation, part.desc.field, at)
+			case "other":
 				return stop(
 					"UnsupportedOperation",
 					at,
-					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's text payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${desc.kind} can be any text, so no measure bounds it`
+					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's text payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${part.desc.kind} can be any text, so no measure bounds it`
 				)
 		}
+	}
+
+	/**
+	 * The admitted values of the text payload field `field` of the closed relation `relation`, which C.at reads as a
+	 * matches pattern: the lowering batch admitted each once, since its expressions read the field so (patternParts).
+	 */
+	payloadAdmissions(relation: string, field: string, at: SourceLoc): ReadonlyArray<MatchAdmission> {
+		const heading = this.closedHeading("C.at", relation, at)
+		const payload = heading.payload.find((f) => f.name === field)
+		if (payload === undefined) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a payload field of ${relation} named ${JSON.stringify(field)}`
+			)
+		}
+		if (payload.patterns.kind === "other") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text payload as matches's pattern: ${relation}.${field} is ${typeLabel(payload.type)}`
+			)
+		}
+		const { closed } = this.env
+		const admitted = closed.kind === "schema" ? closed.admitted(relation, field) : undefined
+		if (admitted === undefined) {
+			throw defect(
+				`the lowering batch admitted ${relation}.${field}, which a matches pattern of its expressions reads`
+			)
+		}
+		return admitted
 	}
 
 	/**

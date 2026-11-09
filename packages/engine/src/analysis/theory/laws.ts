@@ -42,6 +42,7 @@ import {
 	storedSideArm,
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
+import { admittedReads } from "#compiler/check/closed.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule } from "#compiler/check/fold.ts"
 import { compareText, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
@@ -113,6 +114,7 @@ import type {
 	SidePair,
 	SideScope
 } from "#compiler/schema/own.ts"
+import { exprPatternReads } from "#compiler/schema/walk.ts"
 
 /** A row check as its statement states it: its relation, its name and predicate, and its constraint identifier, which
  * ownership named. */
@@ -1709,12 +1711,24 @@ export class Normalizer {
 	 */
 	resolve(b: ViolationBuilder): ResolvedFamilies {
 		const selections: Array<FoldSelection> = []
-		const families = [...this.#families.values()].map((entry): Family => {
+		const entries = [...this.#families.values()]
+		/** The theory's environment, each pattern the folds' selections read admitted once for their lowering. */
+		const env: NormalizeEnv = {
+			...this.env,
+			lowerEnv: {
+				...this.env.lowerEnv,
+				closed: admittedReads(
+					this.env.lowerEnv.closed,
+					exprPatternReads(entries.flatMap((entry) => entry.folds.flatMap((f) => f.where)))
+				)
+			}
+		}
+		const families = entries.map((entry): Family => {
 			const shape = entry.shape
 			const folds = entry.folds.map((f): FamilyFold => {
 				const region = b.scan(shape.member, shape.member.fields, [])
 				const where = f.where.map((c) =>
-					lowerTotal(b, this.env, c, f.loc, rowLeaf(shape.member, region))
+					lowerTotal(b, env, c, f.loc, rowLeaf(shape.member, region))
 				)
 				if (isNonEmpty(where)) {
 					selections.push({ region, where })

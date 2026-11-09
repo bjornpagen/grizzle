@@ -1,5 +1,6 @@
 import { pipelinedOverSearch } from "#compiler/check/approximate/attach.ts"
 import { Checker, type CheckOptions, type RootRole } from "#compiler/check/checker.ts"
+import { admittedReads } from "#compiler/check/closed.ts"
 import { type StructureOptions, validateQueryStructure } from "#compiler/check/description.ts"
 import { fail, rootLoc, unwrap } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
@@ -17,6 +18,7 @@ import {
 	type ReadBackDesc
 } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { queryPatternReads } from "#compiler/schema/walk.ts"
 
 export type { CheckOptions } from "#compiler/check/checker.ts"
 
@@ -54,7 +56,10 @@ export const admitQuery = (
 
 /**
  * One check of a decoded description: every parameter is of its declared type, so one pass types them all. The
- * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs.
+ * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs. The
+ * query is its own lowering batch: the text payload fields its Compute.matches patterns read, through every rule,
+ * import, negation and attachment (schema/walk.ts queryPatternReads), are admitted once for it (check/closed.ts
+ * admittedReads).
  */
 const run = (
 	schema: SchemaReading,
@@ -64,7 +69,8 @@ const run = (
 	role: RootRole
 ): AdmittedQuery => {
 	const resolved = resolveQuery(desc)
-	const dag = new Checker(schema, options, resolved.params).root(resolved.query, loc, role)
+	const closed = admittedReads(schema.closedReads, queryPatternReads([desc]))
+	const dag = new Checker(schema, options, resolved.params, closed).root(resolved.query, loc, role)
 	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 

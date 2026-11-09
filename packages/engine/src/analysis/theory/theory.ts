@@ -755,11 +755,14 @@ export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, Compi
 
 /**
  * The sides of an owned schema's laws, resolved as the theory resolves them (LawSides), in the environment its
- * normalization reads: what the violation queries' writer (laws/model/violations.ts) writes each law's violation query
- * by, from what its theory law carries.
+ * normalization reads with `closed` the closed relations its lowerings apply, the violation queries' lowering batch:
+ * what the violation queries' writer (laws/model/violations.ts) writes each law's violation query by, from what its
+ * theory law carries.
  */
-export const lawSides = (checked: CheckedSchema): LawSides =>
-	new LawSides(new Builder(checked).env())
+export const lawSides = (checked: CheckedSchema, closed: ClosedRelations): LawSides => {
+	const env = new Builder(checked).env()
+	return new LawSides({ ...env, lowerEnv: { ...env.lowerEnv, closed } })
+}
 
 /**
  * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement
