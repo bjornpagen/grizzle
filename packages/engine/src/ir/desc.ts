@@ -1329,57 +1329,64 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
 
+/**
+ * A field descriptor's Description, answering one it decoded before as it stands (S.recognized): defineField decodes
+ * each descriptor's once, and every description that holds the descriptor's, a closed relation's fields, a context's, a
+ * parameter's type, reads it without proving it again.
+ */
 const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
-	S.tagged("kind", {
-		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
-		numeric: S.refine(
-			S.struct({ precision: S.integer, scale: S.integer }),
-			(f) =>
-				f.precision >= 1 &&
-				f.precision <= numericMaxPrecision.value &&
-				f.scale >= numericMinScale.value &&
-				f.scale <= numericMaxScale.value,
-			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
-		),
-		uuid: S.struct({}),
-		bytes: S.struct({}),
-		text: S.refine(
-			S.structStated(
-				{ patterns: patternsShape, language: textLanguageShape },
-				{ bytes: S.nonNegativeInteger },
+	S.recognized(
+		S.tagged("kind", {
+			pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
+			numeric: S.refine(
+				S.struct({ precision: S.integer, scale: S.integer }),
+				(f) =>
+					f.precision >= 1 &&
+					f.precision <= numericMaxPrecision.value &&
+					f.scale >= numericMinScale.value &&
+					f.scale <= numericMaxScale.value,
+				`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
+			),
+			uuid: S.struct({}),
+			bytes: S.struct({}),
+			text: S.refine(
+				S.structStated(
+					{ patterns: patternsShape, language: textLanguageShape },
+					{ bytes: S.nonNegativeInteger },
+					{}
+				),
+				(t) => t.bytes === languageOctets(t.language),
+				"a text's byte bound, the one its language enforces"
+			),
+			contract: S.structStated(
+				{
+					name,
+					base: fieldDescShape,
+					facts: S.refine(
+						S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
+						factsSorted,
+						"a contract's facts sorted, each once"
+					)
+				},
+				{ predicate: exprDescShape },
 				{}
 			),
-			(t) => t.bytes === languageOctets(t.language),
-			"a text's byte bound, the one its language enforces"
-		),
-		contract: S.structStated(
-			{
-				name,
-				base: fieldDescShape,
-				facts: S.refine(
-					S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
-					factsSorted,
-					"a contract's facts sorted, each once"
+			span: S.structStated(
+				{ endpoint: fieldDescShape },
+				{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
+				{}
+			),
+			closedId: S.struct({ roster: name }),
+			bits: S.struct({ roster: name }),
+			vector: S.struct({
+				dimensions: S.refine(
+					S.positiveInteger,
+					(n) => n <= vectorMaxDimensions.value,
+					`1..${vectorMaxDimensions.value} dimensions`
 				)
-			},
-			{ predicate: exprDescShape },
-			{}
-		),
-		span: S.structStated(
-			{ endpoint: fieldDescShape },
-			{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
-			{}
-		),
-		closedId: S.struct({ roster: name }),
-		bits: S.struct({ roster: name }),
-		vector: S.struct({
-			dimensions: S.refine(
-				S.positiveInteger,
-				(n) => n <= vectorMaxDimensions.value,
-				`1..${vectorMaxDimensions.value} dimensions`
-			)
+			})
 		})
-	})
+	)
 )
 
 const bindingsDescShape: S.Shape<BindingsDesc> = S.lazy("bindings", () =>
