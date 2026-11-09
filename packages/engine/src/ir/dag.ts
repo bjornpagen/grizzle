@@ -625,6 +625,11 @@ const highest = (dag: RelDag): Record<AllocatedKind, number> => {
 
 interface MergedDag {
 	readonly dag: ValidDag
+	/**
+	 * The highest numeric suffix of each allocated kind among the merged DAG's labels: the base's, or the last fresh label
+	 * the merge gave the extension.
+	 */
+	readonly tops: Readonly<Record<AllocatedKind, number>>
 	/** The merged counterpart of a node of the extension. */
 	readonly node: (node: RelNode) => RelNode
 	/** The merged counterpart of an expression of the extension. */
@@ -690,7 +695,12 @@ export const mergeDags = (base: ValidDag, extension: ValidDag): MergedDag => {
 		return relNode(nodeName(node.id), spec)
 	})
 	const roots = [...base.roots, ...extension.roots.map((root) => nodes.of(root))]
-	return { dag: assembledDag(roots), node: (n) => nodes.of(n), expr: (e) => exprs.of(e) }
+	return {
+		dag: assembledDag(roots),
+		tops: Object.freeze({ ...top }),
+		node: (n) => nodes.of(n),
+		expr: (e) => exprs.of(e)
+	}
 }
 
 /**
@@ -706,7 +716,7 @@ export const mergeForbidding = (
 ): { readonly dag: ValidDag; readonly forbid: RelNode } => {
 	const merged = mergeDags(base, query)
 	const root = merged.node(violation)
-	const forbid = relNode(NodeId(`${allocatedKinds.node}${highest(merged.dag).node + 1}`), {
+	const forbid = relNode(NodeId(`${allocatedKinds.node}${merged.tops.node + 1}`), {
 		kind: "Forbid",
 		lawId: law,
 		violation: root,
