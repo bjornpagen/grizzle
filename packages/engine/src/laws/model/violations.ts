@@ -1,12 +1,10 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
-import type { KeptLaw } from "#compiler/analysis/theory/laws.ts"
-import { normalizedLaws, type Theory } from "#compiler/analysis/theory/theory.ts"
+import { lawViolation } from "#compiler/analysis/theory/laws.ts"
+import { lawSides, type Theory } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { LabelSupply } from "#compiler/ir/dag.ts"
@@ -35,46 +33,31 @@ type Written =
 	  }
 
 /**
- * The violation queries of `theory`'s laws, the theory of `checked`, or the first refusal: its laws normalized as the
- * theory normalizes them (normalizedLaws), so each is the theory law of its id, the families resolved into the builder
- * first, since a family's, a tree's and a fold's arms read them, then each law's violation query in law order, each
- * primary key's law first, then every other law, a rule over a query's as its theory law carries it checked, labelled
- * past them under its Forbid node (LabelSupply). The laws and their identities are a pure function of the owned schema,
- * and the builder allocates its identifiers in the same order for the same laws, so every write of a schema's violation
- * queries builds one DAG.
+ * The violation queries of `theory`'s laws, the theory of `checked`, or the first refusal: each law's written in law
+ * order, each primary key's law first, then every other law, from what its theory law carries (laws.ts lawViolation),
+ * its sides resolved as the theory resolves them (lawSides); a rule over a query's the one its theory law carries
+ * checked, labelled past them under its Forbid node (LabelSupply). The laws and their identities are a pure function of
+ * the owned schema, and the builder allocates its identifiers in the same order for the same laws, so every write of a
+ * schema's violation queries builds one DAG.
  */
 export const theoryViolations = (
 	checked: CheckedSchema,
 	theory: Theory
 ): Result.Result<TheoryViolations, CompileError> =>
 	catchRefusal(() => {
-		const rules = new Map(
-			theory.laws.flatMap((l) =>
-				l.detail.kind === "rule" ? [[l.id, l.detail.violation] as const] : []
-			)
-		)
-		const normalizer = normalizedLaws(checked)
+		const sides = lawSides(checked)
 		const vb = new ViolationBuilder(SourceLoc(`schema ${checked.owned.name}`, []))
-		normalizer.resolve(vb)
-		const write = (k: KeptLaw): Written => {
-			const id = identifierOf(k.named)
-			const writing = k.draft.write
-			switch (writing.kind) {
-				case "built":
-					return { kind: "built", id, forbid: vb.forbid(id, writing.violation(vb)) }
-				case "query": {
-					const query = defined(
-						rules.get(id),
-						"a rule over a query's violation query, which its theory law carries checked"
-					)
-					return { kind: "query", id, query: query.dag, root: query.root }
-				}
-			}
-		}
-		const written = [
-			...normalizer.primaryKeys.map((p) => write(p.kept)),
-			...normalizer.laws.map(write)
-		]
+		const statements = checked.owned.statements
+		const written = theory.laws.map((law): Written => {
+			const d = law.detail
+			return d.kind === "rule"
+				? { kind: "query", id: law.id, query: d.violation.dag, root: d.violation.root }
+				: {
+						kind: "built",
+						id: law.id,
+						forbid: vb.forbid(law.id, lawViolation(vb, sides, theory.families, statements, law, d))
+					}
+		})
 		const supply = new LabelSupply(
 			vb.b.build(written.flatMap((w) => (w.kind === "built" ? [w.forbid] : [])))
 		)

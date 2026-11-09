@@ -9,6 +9,8 @@ import {
 	fixedSelection,
 	type KeptLaw,
 	type LawIdentity,
+	LawSides,
+	type NormalizeEnv,
 	Normalizer,
 	type PrimaryKeyKept,
 	type ResolvedSide,
@@ -504,21 +506,13 @@ class Builder {
 		}
 	}
 
-	#type(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		const t = this.fieldType(desc, loc)
-		if (!t.ok) {
-			throw new Refusal(t.error)
-		}
-		return t.value
-	}
-
 	/**
-	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
-	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
-	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet.
+	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
+	 * columns are delivered at, the naming door's law identities, and the typing environment its predicates and terms
+	 * lower in.
 	 */
-	normalize(): Normalizer {
-		const normalizer = new Normalizer({
+	env(): NormalizeEnv {
+		return {
 			relations: this.relations,
 			definition: (relation) => this.definitions.get(relation),
 			columnType: (relation, query, loc) => this.#columnType(relation, query, loc),
@@ -529,7 +523,16 @@ class Builder {
 				patternLanguage: textLookup,
 				closed: this.closed
 			}
-		})
+		}
+	}
+
+	/**
+	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
+	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
+	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet.
+	 */
+	#normalize(): Normalizer {
+		const normalizer = new Normalizer(this.env())
 		for (const [index, r] of this.stored.entries()) {
 			if (r.kind === "relation") {
 				normalizer.primaryKey(r, index)
@@ -544,14 +547,7 @@ class Builder {
 			const uses = [...this.relations.values()].flatMap((r) =>
 				r.kind === "relation" ? r.fields.flatMap((f) => contractUses(r, f, name)) : []
 			)
-			normalizer.contract(
-				contract,
-				contract.desc.predicate,
-				index,
-				uses,
-				() => this.#type(contract.desc.base, contract.loc),
-				contract.loc
-			)
+			normalizer.contract(contract, index, uses, contract.loc)
 		}
 		normalizer.finish()
 		return normalizer
@@ -559,7 +555,7 @@ class Builder {
 
 	/** The schema's laws normalized (`normalize`), the families resolved and every law's detail written. */
 	run(): Theory {
-		const normalizer = this.normalize()
+		const normalizer = this.#normalize()
 		const kept = normalizer.laws
 		const classes = this.#classes(kept, normalizer.familyPairings())
 		const { laws, primaryKeys, dag, families } = this.#written(normalizer, kept)
@@ -756,12 +752,12 @@ export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, Compi
 	catchRefusal(() => new Builder(checked).run())
 
 /**
- * An owned schema's laws normalized as buildTheory normalizes them (Builder.normalize), none written, or the first
- * refusal thrown: what the violation queries' writer (laws/model/violations.ts) writes them from, so it names and
- * orders every law as the theory does.
+ * The sides of an owned schema's laws, resolved as the theory resolves them (LawSides), in the environment its
+ * normalization reads: what the violation queries' writer (laws/model/violations.ts) writes each law's violation query
+ * by, from what its theory law carries.
  */
-export const normalizedLaws = (checked: CheckedSchema): Normalizer =>
-	new Builder(checked).normalize()
+export const lawSides = (checked: CheckedSchema): LawSides =>
+	new LawSides(new Builder(checked).env())
 
 /**
  * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement

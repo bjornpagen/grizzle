@@ -44,7 +44,7 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule } from "#compiler/check/fold.ts"
-import { compareText, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { compareText, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -59,9 +59,10 @@ import * as Result from "#compiler/core/result.ts"
 import {
 	connectiveExpr,
 	type ExprDesc,
-	expandAlternatives,
-	type LiteralDesc,
 	everyFact,
+	expandAlternatives,
+	type FieldDesc,
+	type LiteralDesc,
 	type MonoidName,
 	type QueryDesc,
 	type SelectionDesc,
@@ -380,11 +381,7 @@ interface LawDraft {
  * and the violation queries' writer merges into its DAG.
  */
 type LawWriting =
-	| {
-			readonly kind: "built"
-			readonly detail: (b: ViolationBuilder) => WrittenDetail
-			readonly violation: (b: ViolationBuilder) => RelNode
-	  }
+	| { readonly kind: "built"; readonly detail: (b: ViolationBuilder) => WrittenDetail }
 	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: StatedRule }
 
 /**
@@ -403,18 +400,13 @@ interface StatedDraft {
 		readonly detail: Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" }>
 	}
 	readonly sources: ReadonlyArray<StatementSource>
-	readonly violation: (b: ViolationBuilder) => RelNode
 }
 
-/** A stated draft as a law draft: its detail as stated, its violation written when asked. */
+/** A stated draft as a law draft: its detail as stated. */
 const lawDraft = (draft: StatedDraft): LawDraft => ({
 	identity: draft.identity,
 	sources: draft.sources,
-	write: {
-		kind: "built",
-		detail: () => ({ detail: draft.identity.detail, roots: [] }),
-		violation: draft.violation
-	}
+	write: { kind: "built", detail: () => ({ detail: draft.identity.detail, roots: [] }) }
 })
 
 /** The draft of a key ownership owned over `r`, its handles the checked schema's: a relation's primary key, or a key
@@ -435,8 +427,7 @@ const keyDraft = (
 			reads: [relation],
 			detail: { kind: "key", relation, rel: r, key }
 		},
-		sources,
-		violation: (b) => keyViolation(b, r, key)
+		sources
 	}
 }
 
@@ -511,7 +502,7 @@ interface SpanPair {
 	readonly to: SpanField
 }
 
-interface NormalizeEnv {
+export interface NormalizeEnv {
 	readonly relations: ReadonlyMap<string, TheoryRelation>
 	/** Each derived relation's definition, by name: undefined for a stored or closed relation. */
 	readonly definition: (relation: string) => QueryDesc | undefined
@@ -685,34 +676,29 @@ type FoldSides =
 			}>
 	  }
 
-export class Normalizer {
+/**
+ * A law's sides over an owned schema's relations, resolved where its statement names them: each relation and field
+ * by its handle, each selection's conjuncts with their texts and the fields they read, each fixed one's literal typed
+ * at its field. Normalization resolves its laws' sides by it, and the violation queries' writer the sides a family's,
+ * a tree's and a fold's violation query reads (lawViolation), which no other reader needs.
+ */
+export class LawSides {
 	readonly env: NormalizeEnv
-	readonly #primaryKeys: Array<PrimaryKeyKept> = []
-	readonly #laws: Array<KeptLaw> = []
-	/** Each kept law by its identity's canonical text, so an equivalent draft merges into it. */
-	readonly #byIdentity = new Map<string, KeptLaw>()
-	/** Every family and tree by its key (families.ts familyKey), in statement order: the axes a containment may ride. */
-	readonly #families = new Map<string, FamilyEntry>()
-	/** Which statement names each drawn and accumulated field. */
-	readonly #namings = new Namings()
-	/** The families once `resolve` has lowered their folds, by key. */
-	#resolved: ReadonlyMap<string, Family> | undefined
 
 	constructor(env: NormalizeEnv) {
 		this.env = env
 	}
 
-	/** Each ordinary relation's primary-key law, in the order the relations were kept. */
-	get primaryKeys(): ReadonlyArray<PrimaryKeyKept> {
-		return this.#primaryKeys
+	/** The scalar type of a declared field type, at `loc`, or its refusal thrown. */
+	type(desc: FieldDesc, loc: SourceLoc): ScalarType {
+		const t = this.env.lowerEnv.fieldType(desc, loc)
+		if (!t.ok) {
+			throw new Refusal(t.error)
+		}
+		return t.value
 	}
 
-	/** Every law kept but the primary keys', in the order its first draft was pushed. */
-	get laws(): ReadonlyArray<KeptLaw> {
-		return this.#laws
-	}
-
-	#relation(name: string, loc: SourceLoc): TheoryRelation {
+	relation(name: string, loc: SourceLoc): TheoryRelation {
 		const r = this.env.relations.get(name)
 		if (r === undefined) {
 			return refuse("MalformedDescription", loc, `a relation or closed relation named ${name}`)
@@ -730,22 +716,22 @@ export class Normalizer {
 
 	/** The law side of `scope` over `terms`, its relation and each term's field resolved, and its selection resolved. */
 	side(scope: SideScope, terms: NonEmptyReadonlyArray<TermDesc>, loc: SourceLoc): ResolvedSide {
-		const r = this.#relation(scope.relation, loc)
-		return this.#sideOver(
+		const r = this.relation(scope.relation, loc)
+		return this.sideOver(
 			scope,
 			r,
-			mapNonEmpty(terms, (t) => this.#term(r, t, loc)),
+			mapNonEmpty(terms, (t) => this.term(r, t, loc)),
 			loc
 		)
 	}
 
 	/** The term `t` of a side of `r`, its field resolved. */
-	#term(r: TheoryRelation, t: TermDesc, loc: SourceLoc): ResolvedTerm {
+	term(r: TheoryRelation, t: TermDesc, loc: SourceLoc): ResolvedTerm {
 		return { ...t, column: this.#column(r, t.field, loc) }
 	}
 
 	/** The side of `scope` over `r` with its terms resolved, its selection resolved. */
-	#sideOver(
+	sideOver(
 		scope: SideScope,
 		r: TheoryRelation,
 		terms: NonEmptyReadonlyArray<ResolvedTerm>,
@@ -805,424 +791,8 @@ export class Normalizer {
 		return { column, value: typed.value.literal, col }
 	}
 
-	/**
-	 * Keeps a draft, tracked at `tracked`: a new law, or the statements of an equivalent draft (one law identity, such
-	 * as one statement repeated at two levels states) merged into the law kept first. `onNew` sees a new law once.
-	 */
-	#push(draft: StatedDraft, tracked: SourceLoc): KeptLaw {
-		return this.#pushing(draft, tracked, () => undefined)
-	}
-
-	/** Keeps a draft as `#push` does, `onNew` seeing a new law once, after it joins the laws. */
-	#pushing(draft: StatedDraft, tracked: SourceLoc, onNew: (kept: KeptLaw) => void): KeptLaw {
-		return this.#keep(lawDraft(draft), tracked, (kept) => {
-			this.#laws.push(kept)
-			onNew(kept)
-		})
-	}
-
-	/** Keeps a draft as `#push` does, a new law handed to `keepNew`. */
-	#keep(draft: LawDraft, tracked: SourceLoc, keepNew: (kept: KeptLaw) => void): KeptLaw {
-		const named = this.env.named({
-			...draft.identity,
-			statements: draft.sources.map((s) => s.index)
-		})
-		const prior = this.#byIdentity.get(named.canonical)
-		if (prior !== undefined) {
-			prior.merge(draft.sources)
-			return prior
-		}
-		const kept = new KeptLaw(named, draft, tracked)
-		this.#byIdentity.set(named.canonical, kept)
-		keepNew(kept)
-		return kept
-	}
-
-	/** The law of the primary key of the ordinary relation `r`, the `index`-th stored relation, kept with `r`: its key is
-	 * the first ownership declared on it (`keyNames`). */
-	primaryKey(r: RelationInfo, index: number): void {
-		this.#keep(
-			lawDraft(keyDraft(r, r.keyNames[0], { statement: index, kind: "relation" }, [])),
-			r.loc,
-			(kept) => this.#primaryKeys.push({ relation: r, kept })
-		)
-	}
-
-	/** The key a key statement states over `r`, as the checked schema minted it. */
-	#statedKey(r: TheoryRelation, key: OwnedKey, loc: SourceLoc): KeyName {
-		return (
-			r.keyNames.find((k) => identifierOf(k.named) === key.constraint) ??
-			refuse("MalformedDescription", loc, `a key ownership owned over ${r.name}`)
-		)
-	}
-
-	/** The contract `name`, whose predicate is undefined when it refines nothing; `base` types its VALUE. */
-	contract(
-		owned: OwnedContract,
-		predicate: ExprDesc | undefined,
-		index: number,
-		uses: ReadonlyArray<ContractUse>,
-		base: () => ScalarType,
-		loc: SourceLoc
-	): void {
-		const name = owned.name
-		this.#push(
-			{
-				identity: {
-					shape: "contract",
-					source: { statement: index, kind: "contract" },
-					reads: [...new Set(uses.map((u) => u.relation))],
-					detail: { kind: "contract", contract: name, owned, uses }
-				},
-				sources: [],
-				violation: (b) => contractViolation(b, this.env, name, predicate, uses, base, loc)
-			},
-			loc
-		)
-	}
-
-	/**
-	 * Every family and tree statement's shape, before any law is normalized, so a containment knows the axes it may
-	 * ride wherever it stands among the statements: one count counts one family, a relation is a member of at most one
-	 * sequence (an ordered family or a tree) and of any number of counted families, each with its own axes and law
-	 * columns, and each family names its drawn fields.
-	 */
-	families(statements: ReadonlyArray<OwnedStatement>): void {
-		/** Each member relation's sequence, an ordered family or a tree: the caller nests a sequence's members, so one
-		 * relation's rows are nested under at most one. */
-		const sequences = new Map<string, FamilyShape>()
-		for (const s of statements) {
-			if (s.kind !== "family" && s.kind !== "tree") {
-				continue
-			}
-			const shape =
-				s.kind === "family" ? familyShape(s, this.env.relations) : treeShape(s, this.env.relations)
-			const key = familyKey(shape.id)
-			const known = this.#families.get(key)
-			if (known !== undefined) {
-				refuse(
-					"MalformedDescription",
-					s.loc,
-					`one count counts one family; ${slotsText(shape.id)} counts ${familyText(known.shape)} and ${familyText(shape)}`
-				)
-			}
-			if (shape.index.kind === "field") {
-				const sequence = sequences.get(shape.member.name)
-				if (sequence !== undefined) {
-					refuse(
-						"MalformedDescription",
-						s.loc,
-						`a relation is a member of at most one ordered family or tree, which orders it, and of any number of counted ones; ${shape.member.name} is a member of ${familyText(sequence)} and of ${familyText(shape)}`
-					)
-				}
-				sequences.set(shape.member.name, shape)
-			}
-			this.#families.set(key, new FamilyEntry(shape, s.loc))
-			for (const d of drawnNamed(shape)) {
-				this.#namings.name(d.relation, d.field, familyText(shape))
-			}
-		}
-	}
-
-	/**
-	 * One statement's laws. An alternatives statement's are its containments (desc.ts expandAlternatives),
-	 * each a containment law of source `alternatives`, so a restated one is one law with both statements.
-	 */
-	statement(s: OwnedStatement, index: number): void {
-		const loc = s.loc
-		const sources = [{ index, loc }]
-		switch (s.kind) {
-			case "key":
-				if (this.env.definition(s.side.relation) !== undefined) {
-					this.#queryRule(
-						{ kind: "key", side: this.#ruleSide(s.side, s.side.terms, "side.", loc) },
-						"key",
-						{ statement: index, kind: "key" },
-						sources,
-						loc
-					)
-					return
-				}
-				this.#key(s, index, sources)
-				return
-			case "check": {
-				const definition = this.env.definition(s.relation)
-				if (definition !== undefined) {
-					const arms = liveArms(s.relation, definition, {
-						definition: this.env.definition,
-						columnType: this.env.columnType,
-						loc
-					})
-					const [field, ...fields] = Object.keys(arms[0].head)
-					if (field === undefined) {
-						return refuse(
-							"MalformedDescription",
-							loc,
-							`a definition of ${s.relation} that derives a field`
-						)
-					}
-					const heading = mapNonEmpty([field, ...fields], (f): TermDesc => ({
-						kind: "field",
-						field: f
-					}))
-					this.#queryRule(
-						{
-							kind: "check",
-							name: s.name,
-							predicate: s.predicate,
-							side: {
-								relation: s.relation,
-								terms: heading,
-								selection: everyFact,
-								texts: [],
-								arms: derivedSideArms(arms, heading, everyFact, loc)
-							}
-						},
-						"check",
-						{ statement: index, kind: "check" },
-						sources,
-						loc
-					)
-					return
-				}
-				const r = this.#relation(s.relation, loc)
-				const stated: StatedCheck = {
-					kind: "check",
-					relation: s.relation,
-					rel: r,
-					name: s.name,
-					predicate: s.predicate,
-					named: s.check.named
-				}
-				this.#keep(
-					{
-						identity: {
-							shape: "check",
-							source: { statement: index, kind: "check" },
-							reads: [s.relation],
-							detail: stated
-						},
-						sources,
-						write: {
-							kind: "built",
-							detail: (b) => {
-								const lowered = checkPredicate(b, this.env, r, s.predicate, loc)
-								return {
-									detail: { ...stated, lowered: lowered.predicate },
-									roots: [b.project(lowered.region, [["check", lowered.predicate]])]
-								}
-							},
-							violation: (b) => checkViolation(b, this.env, r, s.predicate, loc)
-						}
-					},
-					loc,
-					(kept) => this.#laws.push(kept)
-				)
-				return
-			}
-			case "contained":
-				if (
-					this.env.definition(s.left.relation) !== undefined ||
-					this.env.definition(s.right.relation) !== undefined
-				) {
-					this.#queryContainment(s.left, s.right, s.pairs, index, sources, loc)
-					return
-				}
-				this.containment(
-					s.left,
-					s.right,
-					leftToRight(s.pairs),
-					{ statement: index, kind: "contained" },
-					loc
-				)
-				return
-			case "alternatives":
-				for (const c of expandAlternatives(s)) {
-					this.containment(
-						scopeOf(c.left),
-						scopeOf(c.right),
-						pairedTerms(c.left, c.right, loc),
-						{ statement: index, kind: "alternatives" },
-						loc
-					)
-				}
-				return
-			case "family":
-				this.#family(s, index)
-				return
-			case "tree":
-				this.#tree(s, index)
-				return
-			case "fold":
-				this.#fold(s, index)
-				return
-			case "mutable":
-				return
-		}
-	}
-
-	/**
-	 * A side of a rule over a query (analysis/theory/query.ts RuleSide): a derived relation's live arms, or the one arm of
-	 * a stored or closed relation, `prefix` keeping its variables apart from the rule's other side's.
-	 */
-	#ruleSide(
-		scope: SideScope,
-		terms: NonEmptyReadonlyArray<TermDesc>,
-		prefix: string,
-		loc: SourceLoc
-	): RuleSide {
-		const definition = this.env.definition(scope.relation)
-		const texts = scope.selection.conjuncts.map((c) => ownedText(c, withoutSourceLocs))
-		if (definition === undefined) {
-			const r = this.#relation(scope.relation, loc)
-			for (const t of terms) {
-				this.#term(r, t, loc)
-			}
-			return {
-				relation: scope.relation,
-				terms,
-				selection: scope.selection,
-				texts,
-				arms: [storedSideArm(scope.relation, terms, scope.selection, prefix, loc)]
-			}
-		}
-		return {
-			relation: scope.relation,
-			terms,
-			selection: scope.selection,
-			texts,
-			arms: derivedSideArms(
-				liveArms(scope.relation, definition, {
-					definition: this.env.definition,
-					columnType: this.env.columnType,
-					loc
-				}),
-				terms,
-				scope.selection,
-				loc
-			)
-		}
-	}
-
-	/** A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms. */
-	#queryContainment(
-		left: SideScope,
-		right: SideScope,
-		pairs: NonEmptyReadonlyArray<SidePair>,
-		index: number,
-		sources: ReadonlyArray<StatementSource>,
-		loc: SourceLoc
-	): void {
-		this.#queryRule(
-			{
-				kind: "contained",
-				from: this.#ruleSide(
-					left,
-					mapNonEmpty(pairs, (p) => p.left),
-					"from.",
-					loc
-				),
-				to: this.#ruleSide(
-					right,
-					mapNonEmpty(pairs, (p) => p.right),
-					"to.",
-					loc
-				)
-			},
-			"contained",
-			{ statement: index, kind: "contained" },
-			sources,
-			loc
-		)
-	}
-
-	/** A rule over a query, kept with its violation query as a description the checker reads. */
-	#queryRule(
-		rule: QueryRule,
-		shape: LawShape,
-		source: LawSource,
-		sources: ReadonlyArray<StatementSource>,
-		loc: SourceLoc
-	): void {
-		const detail: StatedRule = { kind: "rule", rule }
-		this.#keep(
-			{
-				identity: { shape, source, reads: ruleReads(rule), detail },
-				sources,
-				write: { kind: "query", violation: violationQuery(rule, loc), detail }
-			},
-			loc,
-			(kept) => this.#laws.push(kept)
-		)
-	}
-
-	/** A key statement: a candidate key as the checked schema minted it, or a key over a projected side. */
-	#key(s: KeyStatement, index: number, sources: ReadonlyArray<StatementSource>): void {
-		const loc = s.loc
-		switch (s.key.kind) {
-			case "candidate": {
-				const r = this.#relation(s.side.relation, loc)
-				this.#push(
-					keyDraft(
-						r,
-						this.#statedKey(r, s.key.key, loc),
-						{ statement: index, kind: "key" },
-						sources
-					),
-					loc
-				)
-				return
-			}
-			case "projected": {
-				const side = this.side(s.side, s.side.terms, loc)
-				this.#push(
-					{
-						identity: {
-							shape: "key",
-							source: { statement: index, kind: "key" },
-							reads: [side.relation],
-							detail: { kind: "projectedKey", side }
-						},
-						sources,
-						violation: (b) => projectedKeyViolation(b, this.env, side, loc)
-					},
-					loc
-				)
-				return
-			}
-		}
-	}
-
-	/** The family `id` counts, refused when no family or tree statement states one. */
-	#entry(id: FamilyId, loc: SourceLoc): FamilyEntry {
-		return (
-			this.#families.get(familyKey(id)) ??
-			refuse(
-				"MalformedDescription",
-				loc,
-				`a fold over a family an ordered, counted or tree statement states; ${slotsText(id)} counts none`
-			)
-		)
-	}
-
-	/** Each family's shape, in statement order: what `ridesOf` tries. */
-	*#shapes(): Generator<FamilyShape> {
-		for (const entry of this.#families.values()) {
-			yield entry.shape
-		}
-	}
-
-	/** The family `id` resolved: its axes and folds complete, which only `resolve` makes. */
-	#resolvedFamily(id: FamilyId): Family {
-		const family = this.#resolved?.get(familyKey(id))
-		if (family === undefined) {
-			throw defect("a family law's violation is written after the theory resolves its families")
-		}
-		return family
-	}
-
 	/** The sides a family's lemmas read (FamilySides), over its members' selection. */
-	#familySides(f: FamilyShape, loc: SourceLoc): FamilySides {
+	familySides(f: FamilyShape, loc: SourceLoc): FamilySides {
 		const members = membersSelection(f)
 		const group = mapNonEmpty(f.group, (p) => termOf(p.member))
 		const keys = mapNonEmpty(f.group, (p) => termOf(p.owner))
@@ -1247,49 +817,15 @@ export class Normalizer {
 		}
 	}
 
-	/** The family law `f`'s statement states, at `source`, reading its member and its owner. */
-	#familyIdentity(f: FamilyShape, source: LawSource): Omit<LawIdentity, "statements" | "detail"> {
-		return {
-			shape: source.kind === "tree" ? "tree" : "family",
-			source,
-			reads: [f.member.name, f.owner.name]
-		}
-	}
-
-	/** An ordered or counted family's law: its lemmas, read over its fields. */
-	#family(s: FamilyStatement, index: number): void {
-		const loc = s.loc
-		const f = this.#entry(s.slots, loc).shape
-		this.#keep(
-			{
-				identity: {
-					...this.#familyIdentity(f, { statement: index, kind: "family" }),
-					detail: { kind: "family", family: f }
-				},
-				sources: [{ index, loc }],
-				write: {
-					kind: "built",
-					detail: () => ({
-						detail: { kind: "family", family: this.#resolvedFamily(f.id) },
-						roots: []
-					}),
-					violation: (b) => b.union(familyArms(b, this.env, this.#familySides(f, loc), loc))
-				}
-			},
-			loc,
-			(kept) => this.#laws.push(kept)
-		)
-	}
-
 	/**
-	 * A tree's sides, which its violation query reads: its family's (`#familySides`), and T0 to T6's with the root pin,
+	 * A tree's sides, which its violation query reads: its family's (`familySides`), and T0 to T6's with the root pin,
 	 * each a side of its member or its owner, each check a row predicate of its member.
 	 */
-	#treeSides(
+	treeSides(
 		f: TreeFamilyShape,
 		loc: SourceLoc
 	): { readonly sides: FamilySides; readonly tree: TreeSides } {
-		const sides = this.#familySides(f, loc)
+		const sides = this.familySides(f, loc)
 		const t = f.members
 		const parent = headNonEmpty(f.group).member
 		const key = headNonEmpty(f.group).owner
@@ -1364,144 +900,8 @@ export class Normalizer {
 		return { sides, tree }
 	}
 
-	/**
-	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
-	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
-	 * predecessor (T4), end → end on the last (T5).
-	 */
-	#tree(s: TreeStatement, index: number): void {
-		const loc = s.loc
-		const entry = this.#entry(s.slots, loc)
-		const f = entry.shape
-		if (!isTree(f)) {
-			throw defect("a tree statement's family is a tree")
-		}
-		const t = f.members
-		this.#keep(
-			{
-				identity: {
-					...this.#familyIdentity(f, { statement: index, kind: "tree" }),
-					detail: { kind: "tree", family: f }
-				},
-				sources: [{ index, loc }],
-				write: {
-					kind: "built",
-					detail: () => {
-						const resolved = this.#resolvedFamily(f.id)
-						if (resolved.members.kind !== "tree") {
-							throw defect("a tree's resolved family keeps its tree members")
-						}
-						return {
-							detail: { kind: "tree", family: { ...resolved, members: resolved.members } },
-							roots: []
-						}
-					},
-					violation: (b) => {
-						const { sides, tree } = this.#treeSides(f, loc)
-						return b.union([
-							...familyArms(b, this.env, sides, loc),
-							...treeArms(b, this.env, sides.witness, f.member, tree, loc)
-						])
-					}
-				}
-			},
-			loc,
-			(kept) => {
-				this.#laws.push(kept)
-				const law = identifierOf(kept.named)
-				entry.carry(
-					"owner",
-					{ kind: "law", column: t.parentStart },
-					{ kind: "field", field: t.start },
-					formerRank(0),
-					law
-				)
-				entry.carry(
-					"owner",
-					{ kind: "field", field: t.root },
-					{ kind: "field", field: t.root },
-					formerRank(1),
-					law
-				)
-				entry.carry(
-					"predecessor",
-					{ kind: "field", field: t.start },
-					{ kind: "field", field: t.end },
-					formerRank(0),
-					law
-				)
-				entry.carry(
-					"last",
-					{ kind: "field", field: t.end },
-					{ kind: "field", field: t.end },
-					formerRank(0),
-					law
-				)
-			}
-		)
-	}
-
-	/**
-	 * A fold over a family: resolved by families.ts foldEntry, which refuses what check/fold.ts foldRule
-	 * refuses, and its proving CHECK typed by combineRule. Its copies are its family's axes' pairs, before ← after on the
-	 * predecessor axis and end ← after on the last, and it names its accumulators and ends.
-	 */
-	#fold(s: FoldStatement, index: number): void {
-		const loc = s.loc
-		const entry = this.#entry(s.family, loc)
-		const f = entry.shape
-		const number = entry.folds.length
-		const step = this.side(s.step, s.step.terms, loc)
-		const end = this.side(s.end, s.end.terms, loc)
-		const detail: Extract<LawDetail, { readonly kind: "fold" }> = {
-			kind: "fold",
-			family: f.id,
-			fold: number,
-			monoid: s.monoid,
-			step,
-			end
-		}
-		const identity = {
-			shape: "fold" as const,
-			source: { statement: index, kind: "fold" as const },
-			reads: [step.relation, end.relation],
-			detail
-		}
-		/** The fold's law's identifier, which names its hidden accumulators: its identity is no position among the
-		 * family's folds, so removing another fold renames none of them. */
-		const law = identifierOf(this.env.named({ ...identity, statements: [index] }))
-		const fold = foldEntry(s, f, law)
-		const monoid = monoidSpecs[s.monoid]
-		const plane =
-			fold.step.kind === "value" ? fold.step.field.type : headNonEmpty(fold.planes).end.type
-		const unproved = combineRule(monoid, plane)
-		if (unproved !== undefined) {
-			refuse("MalformedDescription", loc, unproved)
-		}
-		const sides = this.#foldSides(f, fold, loc)
-		const witness = familyWitness(f)
-		this.#pushing(
-			{
-				identity,
-				sources: [{ index, loc }],
-				violation: (b) => b.union(foldArms(b, this.env, witness, f, sides, loc))
-			},
-			loc,
-			(kept) => {
-				entry.fold(fold, identifierOf(kept.named))
-				for (const named of fold.named) {
-					this.#namings.name(
-						named.relation,
-						named.field,
-						`the ${s.monoid} fold over ${slotsText(f.id)}`
-					)
-				}
-			}
-		)
-	}
-
 	/** The sides a fold's law reads (FoldSides). */
-	#foldSides(f: FamilyShape, fold: FoldEntry, loc: SourceLoc): FoldSides {
+	foldSides(f: FamilyShape, fold: FoldEntry, loc: SourceLoc): FoldSides {
 		const members = membersSelection(f)
 		const group = mapNonEmpty(f.group, (p) => termOf(p.member))
 		const keys = mapNonEmpty(f.group, (p) => termOf(p.owner))
@@ -1620,6 +1020,608 @@ export class Normalizer {
 				throw defect("foldRule admits a concat fold only with its (before, after) pair named")
 		}
 	}
+}
+
+export class Normalizer {
+	readonly env: NormalizeEnv
+	readonly #primaryKeys: Array<PrimaryKeyKept> = []
+	readonly #laws: Array<KeptLaw> = []
+	/** Each kept law by its identity's canonical text, so an equivalent draft merges into it. */
+	readonly #byIdentity = new Map<string, KeptLaw>()
+	/** Every family and tree by its key (families.ts familyKey), in statement order: the axes a containment may ride. */
+	readonly #families = new Map<string, FamilyEntry>()
+	/** Which statement names each drawn and accumulated field. */
+	readonly #namings = new Namings()
+	/** The families once `resolve` has lowered their folds, by key. */
+	#resolved: ReadonlyMap<string, Family> | undefined
+
+	/** The sides this normalization resolves its laws' sides by. */
+	readonly #sides: LawSides
+
+	constructor(env: NormalizeEnv) {
+		this.env = env
+		this.#sides = new LawSides(env)
+	}
+
+	/** Each ordinary relation's primary-key law, in the order the relations were kept. */
+	get primaryKeys(): ReadonlyArray<PrimaryKeyKept> {
+		return this.#primaryKeys
+	}
+
+	/** Every law kept but the primary keys', in the order its first draft was pushed. */
+	get laws(): ReadonlyArray<KeptLaw> {
+		return this.#laws
+	}
+
+	/**
+	 * Keeps a draft, tracked at `tracked`: a new law, or the statements of an equivalent draft (one law identity, such
+	 * as one statement repeated at two levels states) merged into the law kept first. `onNew` sees a new law once.
+	 */
+	#push(draft: StatedDraft, tracked: SourceLoc): KeptLaw {
+		return this.#pushing(draft, tracked, () => undefined)
+	}
+
+	/** Keeps a draft as `#push` does, `onNew` seeing a new law once, after it joins the laws. */
+	#pushing(draft: StatedDraft, tracked: SourceLoc, onNew: (kept: KeptLaw) => void): KeptLaw {
+		return this.#keep(lawDraft(draft), tracked, (kept) => {
+			this.#laws.push(kept)
+			onNew(kept)
+		})
+	}
+
+	/** Keeps a draft as `#push` does, a new law handed to `keepNew`. */
+	#keep(draft: LawDraft, tracked: SourceLoc, keepNew: (kept: KeptLaw) => void): KeptLaw {
+		const named = this.env.named({
+			...draft.identity,
+			statements: draft.sources.map((s) => s.index)
+		})
+		const prior = this.#byIdentity.get(named.canonical)
+		if (prior !== undefined) {
+			prior.merge(draft.sources)
+			return prior
+		}
+		const kept = new KeptLaw(named, draft, tracked)
+		this.#byIdentity.set(named.canonical, kept)
+		keepNew(kept)
+		return kept
+	}
+
+	/** The law of the primary key of the ordinary relation `r`, the `index`-th stored relation, kept with `r`: its key is
+	 * the first ownership declared on it (`keyNames`). */
+	primaryKey(r: RelationInfo, index: number): void {
+		this.#keep(
+			lawDraft(keyDraft(r, r.keyNames[0], { statement: index, kind: "relation" }, [])),
+			r.loc,
+			(kept) => this.#primaryKeys.push({ relation: r, kept })
+		)
+	}
+
+	/** The key a key statement states over `r`, as the checked schema minted it. */
+	#statedKey(r: TheoryRelation, key: OwnedKey, loc: SourceLoc): KeyName {
+		return (
+			r.keyNames.find((k) => identifierOf(k.named) === key.constraint) ??
+			refuse("MalformedDescription", loc, `a key ownership owned over ${r.name}`)
+		)
+	}
+
+	/** The contract `owned`, the `index`-th in name order, with every column and span endpoint that stores its values. */
+	contract(
+		owned: OwnedContract,
+		index: number,
+		uses: ReadonlyArray<ContractUse>,
+		loc: SourceLoc
+	): void {
+		const name = owned.name
+		this.#push(
+			{
+				identity: {
+					shape: "contract",
+					source: { statement: index, kind: "contract" },
+					reads: [...new Set(uses.map((u) => u.relation))],
+					detail: { kind: "contract", contract: name, owned, uses }
+				},
+				sources: []
+			},
+			loc
+		)
+	}
+
+	/**
+	 * Every family and tree statement's shape, before any law is normalized, so a containment knows the axes it may
+	 * ride wherever it stands among the statements: one count counts one family, a relation is a member of at most one
+	 * sequence (an ordered family or a tree) and of any number of counted families, each with its own axes and law
+	 * columns, and each family names its drawn fields.
+	 */
+	families(statements: ReadonlyArray<OwnedStatement>): void {
+		/** Each member relation's sequence, an ordered family or a tree: the caller nests a sequence's members, so one
+		 * relation's rows are nested under at most one. */
+		const sequences = new Map<string, FamilyShape>()
+		for (const s of statements) {
+			if (s.kind !== "family" && s.kind !== "tree") {
+				continue
+			}
+			const shape =
+				s.kind === "family" ? familyShape(s, this.env.relations) : treeShape(s, this.env.relations)
+			const key = familyKey(shape.id)
+			const known = this.#families.get(key)
+			if (known !== undefined) {
+				refuse(
+					"MalformedDescription",
+					s.loc,
+					`one count counts one family; ${slotsText(shape.id)} counts ${familyText(known.shape)} and ${familyText(shape)}`
+				)
+			}
+			if (shape.index.kind === "field") {
+				const sequence = sequences.get(shape.member.name)
+				if (sequence !== undefined) {
+					refuse(
+						"MalformedDescription",
+						s.loc,
+						`a relation is a member of at most one ordered family or tree, which orders it, and of any number of counted ones; ${shape.member.name} is a member of ${familyText(sequence)} and of ${familyText(shape)}`
+					)
+				}
+				sequences.set(shape.member.name, shape)
+			}
+			this.#families.set(key, new FamilyEntry(shape, s.loc))
+			for (const d of drawnNamed(shape)) {
+				this.#namings.name(d.relation, d.field, familyText(shape))
+			}
+		}
+	}
+
+	/**
+	 * One statement's laws. An alternatives statement's are its containments (desc.ts expandAlternatives),
+	 * each a containment law of source `alternatives`, so a restated one is one law with both statements.
+	 */
+	statement(s: OwnedStatement, index: number): void {
+		const loc = s.loc
+		const sources = [{ index, loc }]
+		switch (s.kind) {
+			case "key":
+				if (this.env.definition(s.side.relation) !== undefined) {
+					this.#queryRule(
+						{ kind: "key", side: this.#ruleSide(s.side, s.side.terms, "side.", loc) },
+						"key",
+						{ statement: index, kind: "key" },
+						sources,
+						loc
+					)
+					return
+				}
+				this.#key(s, index, sources)
+				return
+			case "check": {
+				const definition = this.env.definition(s.relation)
+				if (definition !== undefined) {
+					const arms = liveArms(s.relation, definition, {
+						definition: this.env.definition,
+						columnType: this.env.columnType,
+						loc
+					})
+					const [field, ...fields] = Object.keys(arms[0].head)
+					if (field === undefined) {
+						return refuse(
+							"MalformedDescription",
+							loc,
+							`a definition of ${s.relation} that derives a field`
+						)
+					}
+					const heading = mapNonEmpty([field, ...fields], (f): TermDesc => ({
+						kind: "field",
+						field: f
+					}))
+					this.#queryRule(
+						{
+							kind: "check",
+							name: s.name,
+							predicate: s.predicate,
+							side: {
+								relation: s.relation,
+								terms: heading,
+								selection: everyFact,
+								texts: [],
+								arms: derivedSideArms(arms, heading, everyFact, loc)
+							}
+						},
+						"check",
+						{ statement: index, kind: "check" },
+						sources,
+						loc
+					)
+					return
+				}
+				const r = this.#sides.relation(s.relation, loc)
+				const stated: StatedCheck = {
+					kind: "check",
+					relation: s.relation,
+					rel: r,
+					name: s.name,
+					predicate: s.predicate,
+					named: s.check.named
+				}
+				this.#keep(
+					{
+						identity: {
+							shape: "check",
+							source: { statement: index, kind: "check" },
+							reads: [s.relation],
+							detail: stated
+						},
+						sources,
+						write: {
+							kind: "built",
+							detail: (b) => {
+								const lowered = checkPredicate(b, this.env, r, s.predicate, loc)
+								return {
+									detail: { ...stated, lowered: lowered.predicate },
+									roots: [b.project(lowered.region, [["check", lowered.predicate]])]
+								}
+							}
+						}
+					},
+					loc,
+					(kept) => this.#laws.push(kept)
+				)
+				return
+			}
+			case "contained":
+				if (
+					this.env.definition(s.left.relation) !== undefined ||
+					this.env.definition(s.right.relation) !== undefined
+				) {
+					this.#queryContainment(s.left, s.right, s.pairs, index, sources, loc)
+					return
+				}
+				this.containment(
+					s.left,
+					s.right,
+					leftToRight(s.pairs),
+					{ statement: index, kind: "contained" },
+					loc
+				)
+				return
+			case "alternatives":
+				for (const c of expandAlternatives(s)) {
+					this.containment(
+						scopeOf(c.left),
+						scopeOf(c.right),
+						pairedTerms(c.left, c.right, loc),
+						{ statement: index, kind: "alternatives" },
+						loc
+					)
+				}
+				return
+			case "family":
+				this.#family(s, index)
+				return
+			case "tree":
+				this.#tree(s, index)
+				return
+			case "fold":
+				this.#fold(s, index)
+				return
+			case "mutable":
+				return
+		}
+	}
+
+	/**
+	 * A side of a rule over a query (analysis/theory/query.ts RuleSide): a derived relation's live arms, or the one arm of
+	 * a stored or closed relation, `prefix` keeping its variables apart from the rule's other side's.
+	 */
+	#ruleSide(
+		scope: SideScope,
+		terms: NonEmptyReadonlyArray<TermDesc>,
+		prefix: string,
+		loc: SourceLoc
+	): RuleSide {
+		const definition = this.env.definition(scope.relation)
+		const texts = scope.selection.conjuncts.map((c) => ownedText(c, withoutSourceLocs))
+		if (definition === undefined) {
+			const r = this.#sides.relation(scope.relation, loc)
+			for (const t of terms) {
+				this.#sides.term(r, t, loc)
+			}
+			return {
+				relation: scope.relation,
+				terms,
+				selection: scope.selection,
+				texts,
+				arms: [storedSideArm(scope.relation, terms, scope.selection, prefix, loc)]
+			}
+		}
+		return {
+			relation: scope.relation,
+			terms,
+			selection: scope.selection,
+			texts,
+			arms: derivedSideArms(
+				liveArms(scope.relation, definition, {
+					definition: this.env.definition,
+					columnType: this.env.columnType,
+					loc
+				}),
+				terms,
+				scope.selection,
+				loc
+			)
+		}
+	}
+
+	/** A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms. */
+	#queryContainment(
+		left: SideScope,
+		right: SideScope,
+		pairs: NonEmptyReadonlyArray<SidePair>,
+		index: number,
+		sources: ReadonlyArray<StatementSource>,
+		loc: SourceLoc
+	): void {
+		this.#queryRule(
+			{
+				kind: "contained",
+				from: this.#ruleSide(
+					left,
+					mapNonEmpty(pairs, (p) => p.left),
+					"from.",
+					loc
+				),
+				to: this.#ruleSide(
+					right,
+					mapNonEmpty(pairs, (p) => p.right),
+					"to.",
+					loc
+				)
+			},
+			"contained",
+			{ statement: index, kind: "contained" },
+			sources,
+			loc
+		)
+	}
+
+	/** A rule over a query, kept with its violation query as a description the checker reads. */
+	#queryRule(
+		rule: QueryRule,
+		shape: LawShape,
+		source: LawSource,
+		sources: ReadonlyArray<StatementSource>,
+		loc: SourceLoc
+	): void {
+		const detail: StatedRule = { kind: "rule", rule }
+		this.#keep(
+			{
+				identity: { shape, source, reads: ruleReads(rule), detail },
+				sources,
+				write: { kind: "query", violation: violationQuery(rule, loc), detail }
+			},
+			loc,
+			(kept) => this.#laws.push(kept)
+		)
+	}
+
+	/** A key statement: a candidate key as the checked schema minted it, or a key over a projected side. */
+	#key(s: KeyStatement, index: number, sources: ReadonlyArray<StatementSource>): void {
+		const loc = s.loc
+		switch (s.key.kind) {
+			case "candidate": {
+				const r = this.#sides.relation(s.side.relation, loc)
+				this.#push(
+					keyDraft(
+						r,
+						this.#statedKey(r, s.key.key, loc),
+						{ statement: index, kind: "key" },
+						sources
+					),
+					loc
+				)
+				return
+			}
+			case "projected": {
+				const side = this.#sides.side(s.side, s.side.terms, loc)
+				this.#push(
+					{
+						identity: {
+							shape: "key",
+							source: { statement: index, kind: "key" },
+							reads: [side.relation],
+							detail: { kind: "projectedKey", side }
+						},
+						sources
+					},
+					loc
+				)
+				return
+			}
+		}
+	}
+
+	/** The family `id` counts, refused when no family or tree statement states one. */
+	#entry(id: FamilyId, loc: SourceLoc): FamilyEntry {
+		return (
+			this.#families.get(familyKey(id)) ??
+			refuse(
+				"MalformedDescription",
+				loc,
+				`a fold over a family an ordered, counted or tree statement states; ${slotsText(id)} counts none`
+			)
+		)
+	}
+
+	/** Each family's shape, in statement order: what `ridesOf` tries. */
+	*#shapes(): Generator<FamilyShape> {
+		for (const entry of this.#families.values()) {
+			yield entry.shape
+		}
+	}
+
+	/** The family `id` resolved: its axes and folds complete, which only `resolve` makes. */
+	#resolvedFamily(id: FamilyId): Family {
+		const family = this.#resolved?.get(familyKey(id))
+		if (family === undefined) {
+			throw defect("a family law's violation is written after the theory resolves its families")
+		}
+		return family
+	}
+
+	/** The family law `f`'s statement states, at `source`, reading its member and its owner. */
+	#familyIdentity(f: FamilyShape, source: LawSource): Omit<LawIdentity, "statements" | "detail"> {
+		return {
+			shape: source.kind === "tree" ? "tree" : "family",
+			source,
+			reads: [f.member.name, f.owner.name]
+		}
+	}
+
+	/** An ordered or counted family's law: its lemmas, read over its fields. */
+	#family(s: FamilyStatement, index: number): void {
+		const loc = s.loc
+		const f = this.#entry(s.slots, loc).shape
+		this.#keep(
+			{
+				identity: {
+					...this.#familyIdentity(f, { statement: index, kind: "family" }),
+					detail: { kind: "family", family: f }
+				},
+				sources: [{ index, loc }],
+				write: {
+					kind: "built",
+					detail: () => ({
+						detail: { kind: "family", family: this.#resolvedFamily(f.id) },
+						roots: []
+					})
+				}
+			},
+			loc,
+			(kept) => this.#laws.push(kept)
+		)
+	}
+
+	/**
+	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
+	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
+	 * predecessor (T4), end → end on the last (T5).
+	 */
+	#tree(s: TreeStatement, index: number): void {
+		const loc = s.loc
+		const entry = this.#entry(s.slots, loc)
+		const f = entry.shape
+		if (!isTree(f)) {
+			throw defect("a tree statement's family is a tree")
+		}
+		const t = f.members
+		this.#keep(
+			{
+				identity: {
+					...this.#familyIdentity(f, { statement: index, kind: "tree" }),
+					detail: { kind: "tree", family: f }
+				},
+				sources: [{ index, loc }],
+				write: {
+					kind: "built",
+					detail: () => {
+						const resolved = this.#resolvedFamily(f.id)
+						if (resolved.members.kind !== "tree") {
+							throw defect("a tree's resolved family keeps its tree members")
+						}
+						return {
+							detail: { kind: "tree", family: { ...resolved, members: resolved.members } },
+							roots: []
+						}
+					}
+				}
+			},
+			loc,
+			(kept) => {
+				this.#laws.push(kept)
+				const law = identifierOf(kept.named)
+				entry.carry(
+					"owner",
+					{ kind: "law", column: t.parentStart },
+					{ kind: "field", field: t.start },
+					formerRank(0),
+					law
+				)
+				entry.carry(
+					"owner",
+					{ kind: "field", field: t.root },
+					{ kind: "field", field: t.root },
+					formerRank(1),
+					law
+				)
+				entry.carry(
+					"predecessor",
+					{ kind: "field", field: t.start },
+					{ kind: "field", field: t.end },
+					formerRank(0),
+					law
+				)
+				entry.carry(
+					"last",
+					{ kind: "field", field: t.end },
+					{ kind: "field", field: t.end },
+					formerRank(0),
+					law
+				)
+			}
+		)
+	}
+
+	/**
+	 * A fold over a family: resolved by families.ts foldEntry, which refuses what check/fold.ts foldRule
+	 * refuses, and its proving CHECK typed by combineRule. Its copies are its family's axes' pairs, before ← after on the
+	 * predecessor axis and end ← after on the last, and it names its accumulators and ends.
+	 */
+	#fold(s: FoldStatement, index: number): void {
+		const loc = s.loc
+		const entry = this.#entry(s.family, loc)
+		const f = entry.shape
+		const number = entry.folds.length
+		const step = this.#sides.side(s.step, s.step.terms, loc)
+		const end = this.#sides.side(s.end, s.end.terms, loc)
+		const detail: Extract<LawDetail, { readonly kind: "fold" }> = {
+			kind: "fold",
+			family: f.id,
+			fold: number,
+			monoid: s.monoid,
+			step,
+			end
+		}
+		const identity = {
+			shape: "fold" as const,
+			source: { statement: index, kind: "fold" as const },
+			reads: [step.relation, end.relation],
+			detail
+		}
+		/** The fold's law's identifier, which names its hidden accumulators: its identity is no position among the
+		 * family's folds, so removing another fold renames none of them. */
+		const law = identifierOf(this.env.named({ ...identity, statements: [index] }))
+		const fold = foldEntry(s, f, law)
+		const monoid = monoidSpecs[s.monoid]
+		const plane =
+			fold.step.kind === "value" ? fold.step.field.type : headNonEmpty(fold.planes).end.type
+		const unproved = combineRule(monoid, plane)
+		if (unproved !== undefined) {
+			refuse("MalformedDescription", loc, unproved)
+		}
+		this.#pushing(
+			{
+				identity,
+				sources: [{ index, loc }]
+			},
+			loc,
+			(kept) => {
+				entry.fold(fold, identifierOf(kept.named))
+				for (const named of fold.named) {
+					this.#namings.name(
+						named.relation,
+						named.field,
+						`the ${s.monoid} fold over ${slotsText(f.id)}`
+					)
+				}
+			}
+		)
+	}
 
 	/**
 	 * The containment `statement` states from `from` into `to`, each source term paired with the target term it meets,
@@ -1635,19 +1637,19 @@ export class Normalizer {
 		tracked: SourceLoc
 	): KeptLaw {
 		const loc = tracked
-		const fromRel = this.#relation(from.relation, loc)
-		const toRel = this.#relation(to.relation, loc)
+		const fromRel = this.#sides.relation(from.relation, loc)
+		const toRel = this.#sides.relation(to.relation, loc)
 		const resolved = mapNonEmpty(pairs, (p): ResolvedPair => ({
-			from: this.#term(fromRel, p.from, loc),
-			to: this.#term(toRel, p.to, loc)
+			from: this.#sides.term(fromRel, p.from, loc),
+			to: this.#sides.term(toRel, p.to, loc)
 		}))
-		const fromSide = this.#sideOver(
+		const fromSide = this.#sides.sideOver(
 			from,
 			fromRel,
 			mapNonEmpty(resolved, (p) => p.from),
 			loc
 		)
-		const toSide = this.#sideOver(
+		const toSide = this.#sides.sideOver(
 			to,
 			toRel,
 			mapNonEmpty(resolved, (p) => p.to),
@@ -1676,29 +1678,6 @@ export class Normalizer {
 		const ride: Ride | undefined =
 			span === undefined ? ridesOf(this.#shapes(), fromSide, toSide, resolved) : undefined
 		const entry = ride === undefined ? undefined : this.#entry(ride.family, loc)
-		const violation = (b: ViolationBuilder): RelNode => {
-			if (span !== undefined) {
-				return coverageViolation(b, this.env, fromSide, toSide, resolved, span, loc)
-			}
-			const pins = ride === undefined || entry === undefined ? [] : ridingPins(entry.shape, ride)
-			const width = resolved.length - (ride?.carried.length ?? 0)
-			const own = containmentViolation(b, this.env, fromSide, toSide, resolved, loc)
-			const [lead, ...rest] = own.heading.slice(0, width)
-			if (!isNonEmpty(pins) || lead === undefined) {
-				return own
-			}
-			/** A pinned copy's law names its axis's group: the key a base row and a source tuple both hold. */
-			const witness: NonEmptyReadonlyArray<HeadingColumn> = [lead, ...rest]
-			const group = mapNonEmpty(
-				witness,
-				(_, j) =>
-					defined(resolved[j], "a containment's witness reads its pairs' first columns").from.column
-			)
-			return b.union([
-				witnessed(b, own, witness),
-				...mapNonEmpty(pins, (pin) => pinViolation(b, pin, group, witness))
-			])
-		}
 		return this.#pushing(
 			{
 				identity: {
@@ -1719,8 +1698,7 @@ export class Normalizer {
 								: { kind: "rides", family: ride.family, axis: ride.axis }
 					}
 				},
-				sources: [{ index: source.statement, loc }],
-				violation
+				sources: [{ index: source.statement, loc }]
 			},
 			tracked,
 			(kept) => {
@@ -1832,6 +1810,110 @@ export class Normalizer {
 			return [...group, ...tree, ...folds]
 		})
 	}
+}
+
+/**
+ * A law's violation query written in `b` from what its theory law carries: its detail and its location, its sides
+ * resolved by `sides`, a family's, a tree's and a fold's shape read off the theory's `families`, a fold's step and
+ * accumulators off its statement among the owned schema's `statements`. A rule over a query's violation query is the
+ * one its detail carries checked, which no builder writes.
+ */
+export const lawViolation = (
+	b: ViolationBuilder,
+	sides: LawSides,
+	families: ReadonlyArray<Family>,
+	statements: ReadonlyArray<OwnedStatement>,
+	law: TheoryLaw,
+	d: Exclude<LawDetail, { readonly kind: "rule" }>
+): RelNode => {
+	const env = sides.env
+	const loc = law.loc
+	switch (d.kind) {
+		case "key":
+			return keyViolation(b, d.rel, d.key)
+		case "check":
+			return checkViolation(b, env, d.rel, d.predicate, loc)
+		case "contract":
+			return contractViolation(
+				b,
+				env,
+				d.contract,
+				d.owned.desc.predicate,
+				d.uses,
+				() => sides.type(d.owned.desc.base, d.owned.loc),
+				loc
+			)
+		case "projectedKey":
+			return projectedKeyViolation(b, env, d.side, loc)
+		case "containment":
+			return d.pairing.kind === "span"
+				? coverageViolation(b, env, d.from, d.to, d.pairs, d.pairing, loc)
+				: scalarContainmentViolation(b, env, families, d, loc)
+		case "family":
+			return b.union(familyArms(b, env, sides.familySides(d.family, loc), loc))
+		case "tree": {
+			const tree = sides.treeSides(d.family, loc)
+			return b.union([
+				...familyArms(b, env, tree.sides, loc),
+				...treeArms(b, env, tree.sides.witness, d.family.member, tree.tree, loc)
+			])
+		}
+		case "fold": {
+			const f = familyOf(families, d.family)
+			const s = statements[law.source.statement]
+			if (s?.kind !== "fold") {
+				throw defect("a fold law's source is its fold statement")
+			}
+			return b.union(
+				foldArms(b, env, familyWitness(f), f, sides.foldSides(f, foldEntry(s, f, law.id), loc), loc)
+			)
+		}
+	}
+}
+
+/** The family `id` counts among the theory's `families`, which state every family a law names. */
+const familyOf = (families: ReadonlyArray<Family>, id: FamilyId): Family =>
+	defined(
+		families.find((f) => familyKey(f.id) === familyKey(id)),
+		"a law's family is one of the theory's families"
+	)
+
+/**
+ * A scalar containment's violation query: a source projection with no matching target fact; and, where it rides a
+ * family axis (families.ts ridesOf) and carries an accumulated column, a base row of the axis whose copy is not its
+ * start, each arm naming the axis's group.
+ */
+const scalarContainmentViolation = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	families: ReadonlyArray<Family>,
+	d: Extract<LawDetail, { readonly kind: "containment" }>,
+	loc: SourceLoc
+): RelNode => {
+	const own = containmentViolation(b, env, d.from, d.to, d.pairs, loc)
+	if (d.lowers.kind === "own") {
+		return own
+	}
+	const ride = defined(
+		ridesOf(families, d.from, d.to, d.pairs),
+		"a containment that rides a family axis rides it whenever its sides are read"
+	)
+	const pins = ridingPins(familyOf(families, ride.family), ride)
+	const [lead, ...rest] = own.heading.slice(0, d.pairs.length - ride.carried.length)
+	if (!isNonEmpty(pins) || lead === undefined) {
+		return own
+	}
+	/** A pinned copy's law names its axis's group: the key a base row and a source tuple both hold. */
+	const witness: NonEmptyReadonlyArray<HeadingColumn> = [lead, ...rest]
+	const group = mapNonEmpty(
+		witness,
+		(_, j) =>
+			defined(d.pairs[j], "a containment's witness reads its pairs' first columns").from.column
+	)
+	return b.union([
+		witnessed(b, own, witness),
+		...mapNonEmpty(pins, (pin) => pinViolation(b, pin, group, witness))
+	])
 }
 
 /** A family law's witness: its owner's key, each column at the type the member's group field and it meet as. */
