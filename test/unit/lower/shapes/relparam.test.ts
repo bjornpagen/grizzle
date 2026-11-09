@@ -16,13 +16,12 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { readArrayLiteral } from "#test/support/arrays.ts"
+import { paramArrayElements } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -108,16 +107,14 @@ describe("a write's enumerated members", () => {
 									continue
 								}
 								const form = bound.form(s)
-								const texts = succeeded(bound.values(s))
-								assert.equal(texts.length, form.paramSlots.length)
+								const params = succeeded(bound.values(s))
+								assert.equal(params.length, form.paramSlots.length)
 								for (const [i, slot] of form.paramSlots.entries()) {
 									if (slot.kind !== "member") {
 										continue
 									}
 									arraysSent += 1
-									const elements = readArrayLiteral(
-										textOfParam(Option.getOrThrow(Arr.get(texts, i)))
-									)
+									const elements = paramArrayElements(Option.getOrThrow(Arr.get(params, i)))
 									assert.equal(
 										elements.length,
 										rows.length,

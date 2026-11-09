@@ -18,6 +18,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
+import { readArrayBinary } from "#test/support/arrays.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -80,33 +81,13 @@ const arraysOf = (values: ReadonlyArray<Value>): ReadonlyArray<Uint8Array<ArrayB
 	return out
 }
 
-/** Reads a one-dimensional bytea[] in the array binary format, or none of no dimension: its elements' bytes. */
+/** A bytea[] as array_recv reads it (readArrayBinary): its elements' bytes, under bytea's element type, none NULL. */
 const readArray = (out: Uint8Array): ReadonlyArray<ReadonlyArray<number>> => {
-	const view = new DataView(out.buffer, out.byteOffset, out.byteLength)
-	let at = 0
-	const field = (): number => {
-		const n = view.getInt32(at)
-		at += 4
-		return n
-	}
-	const dimensions = field()
-	assert.equal(field(), 0, "no NULL flag")
-	assert.equal(field(), 17, "element type bytea")
-	if (dimensions === 0) {
-		assert.equal(at, out.length, "an empty array is its header alone")
-		return []
-	}
-	assert.equal(dimensions, 1, "one dimension")
-	const count = field()
-	assert.equal(field(), 1, "lower bound 1")
-	const elements: Array<ReadonlyArray<number>> = []
-	for (let i = 0; i < count; i += 1) {
-		const n = field()
-		elements.push([...out.subarray(at, at + n)])
-		at += n
-	}
-	assert.equal(at, out.length, "the array ends with its last element")
-	return elements
+	const array = readArrayBinary(out)
+	assert.equal(array.flags, 0, "no NULL flag")
+	assert.equal(array.elementType, 17, "element type bytea")
+	assert.equal(array.lowerBound, 1, "lower bound 1")
+	return Arr.map(array.elements, (e) => (e === null ? assert.fail("a NULL element") : [...e]))
 }
 
 describe("a bytes column's binary array", () => {

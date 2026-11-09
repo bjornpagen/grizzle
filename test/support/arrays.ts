@@ -2,6 +2,7 @@ import { Array as Arr, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import type { RelationParamEncoder } from "#compiler/ir/products.ts"
 
 /**
@@ -132,3 +133,66 @@ export const readArrayLiteral = (literal: string): ReadonlyArray<string | null> 
 		}
 	}
 }
+
+/** A one-dimensional array in the array binary format: its header's flags, element type and lower bound, and its elements. */
+export interface BinaryArray {
+	readonly flags: number
+	readonly elementType: number
+	readonly lowerBound: number
+	readonly elements: ReadonlyArray<Uint8Array | null>
+}
+
+/**
+ * An array in the array binary format read as PostgreSQL's array_recv reads it (src/backend/utils/adt/arrayfuncs.c), the
+ * reference the binary arrays' writer (codec/bytea.ts) is checked against: its dimension count, its flags, its element
+ * type, then each dimension's length and lower bound, then each element's length and bytes, a length of -1 being NULL.
+ * An array of no dimension is empty. One of more than one dimension, of flags other than 0 or 1, or of bytes after its
+ * last element throws.
+ */
+export const readArrayBinary = (bytes: Uint8Array): BinaryArray => {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+	let at = 0
+	const field = (): number => {
+		const n = view.getInt32(at)
+		at += 4
+		return n
+	}
+	const dimensions = field()
+	const flags = field()
+	const elementType = field()
+	if (flags !== 0 && flags !== 1) {
+		throw new Error(`malformed binary array: flags ${flags}`)
+	}
+	if (dimensions === 0) {
+		if (at !== bytes.length) {
+			throw new Error("malformed binary array: bytes after an empty array's header")
+		}
+		return { flags, elementType, lowerBound: 1, elements: [] }
+	}
+	if (dimensions !== 1) {
+		throw new Error(`malformed binary array: ${dimensions} dimensions`)
+	}
+	const count = field()
+	const lowerBound = field()
+	const elements: Array<Uint8Array | null> = []
+	for (let i = 0; i < count; i += 1) {
+		const n = field()
+		if (n === -1) {
+			elements.push(null)
+			continue
+		}
+		elements.push(bytes.subarray(at, at + n))
+		at += n
+	}
+	if (at !== bytes.length) {
+		throw new Error("malformed binary array: bytes after its last element")
+	}
+	return { flags, elementType, lowerBound, elements }
+}
+
+/**
+ * The elements of the array a placeholder carries, read as its statement binds it: a text parameter's array literal
+ * (readArrayLiteral), or a binary parameter's array (readArrayBinary).
+ */
+export const paramArrayElements = (param: Param): ReadonlyArray<string | Uint8Array | null> =>
+	typeof param === "string" ? readArrayLiteral(param) : readArrayBinary(param).elements
