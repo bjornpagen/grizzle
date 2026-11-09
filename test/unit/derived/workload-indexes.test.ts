@@ -69,7 +69,7 @@ const automaticBudgetOfBusy = query(W.Work).rule((r) => {
 		.find({ account, tasks: r.count(), budget: r.sum(budget) })
 })
 const BusyBudget = derived.materialized("AccountBudget", automaticBudgetOfBusy)
-const Redefined = schema.extend(W.Work, "Redefined", { AccountBudget: BusyBudget }, [])
+const Redefined = schema.extend(W.Work, "Reports", { AccountBudget: BusyBudget }, [])
 
 /** The view's columns: its key, its count and its computed numeric, each with a parameter type it compares to. */
 const viewColumns = { account: uuid, tasks: pg.bigint, budget: pg.numeric(38, 0) } as const

@@ -6,7 +6,7 @@ import {
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { Identity } from "#compiler/core/identity.ts"
+import { type Identity, identifierOf, identity, parseSchemaName } from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -46,7 +46,7 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
-import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
+import { levelChain, type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
@@ -127,12 +127,39 @@ export const testArtifacts = (
 	Result.flatMap(parseSchemaInput(schema), (input) =>
 		Result.flatMap(codebookFor(input, naming.codes), (codes) =>
 			schemaArtifacts(input, {
-				levels: naming.installation === undefined ? undefined : [naming.installation],
+				levels:
+					naming.installation === undefined
+						? undefined
+						: allocatedLevels(
+								naming.installation,
+								levelChain(input.kind === "role" ? input.desc.base : input.desc)
+							),
 				vectorSchema: naming.vectorSchema,
 				codes
 			})
 		)
 	)
+
+/**
+ * The PostgreSQL schemas of `levels` allocated under `installation`, the root's first: the root's is the allocation,
+ * each level above it the allocation and its depth (oracle/install/real.ts levelNameAt).
+ */
+export const allocatedLevels = (
+	installation: Identity<"schema">,
+	levels: Arr.NonEmptyReadonlyArray<unknown>
+): Arr.NonEmptyReadonlyArray<Identity<"schema">> =>
+	Arr.map(levels, (_, depth) => {
+		if (depth === 0) {
+			return installation
+		}
+		const name = parseSchemaName(`${identifierOf(installation)}_${depth}`)
+		if (!name.ok) {
+			throw new Error(
+				`the allocated level name of ${installation.display} at ${depth}: ${name.error}`
+			)
+		}
+		return identity.schema(name.value)
+	})
 
 /**
  * A schema value parsed as the compiler's entry points take it, a test's fixture schema among them; a value that does

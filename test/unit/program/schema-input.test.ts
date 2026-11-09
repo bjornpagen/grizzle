@@ -32,7 +32,8 @@ import {
 	compileTestWorkload,
 	schemaInputOf,
 	testArtifacts,
-	testCompile
+	testCompile,
+	allocatedLevels
 } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { Account, Reports, Work } from "#test/support/fixtures/api/work.ts"
@@ -258,7 +259,9 @@ describe("the artifacts of a schema", () => {
 							const owned = ownedOf(s)
 							const options = {
 								levels:
-									naming.installation === undefined ? undefined : ([naming.installation] as const),
+									naming.installation === undefined
+										? undefined
+										: allocatedLevels(naming.installation, owned.levels),
 								vectorSchema: naming.vectorSchema,
 								codes: firstCodebook(rostersOf(owned))
 							}

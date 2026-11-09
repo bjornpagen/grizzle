@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
@@ -652,7 +652,9 @@ export const checkInstallation = (installed: Installed): Effect.Effect<void, nev
 			substrate.database,
 			"the installed-catalog checker reads the substrate's own database"
 		)
-		const read = yield* Effect.orDie(readCatalog(substrate.admin, mapNonEmpty(installed.installation.names.levels, identifierOf)))
+		const read = yield* Effect.orDie(
+			readCatalog(substrate.admin, mapNonEmpty(installed.installation.names.levels, identifierOf))
+		)
 		assert.ok(read.kind === "present", `the installed schema ${installed.schema} is absent`)
 		assert.deepEqual(
 			checkInstalled(read.catalog, installedScope(installed.installation, installed.snapshot)),

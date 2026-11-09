@@ -38,6 +38,7 @@ import {
 import { runRefresh } from "#adapter/refresh/run.ts"
 import { type RefreshTarget, refreshTargets } from "#adapter/refresh/targets.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
+import { conversionOf } from "#compiler/core/identity.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
@@ -357,7 +358,10 @@ describe("db.refresh targets", () => {
 									relation: d.name,
 									level: d.level,
 									position: d.position,
-									view: { schema: names.schema, name: names.tableIdent({ name: d.name }) }
+									view: {
+										schema: conversionOf(`Level${d.level}`),
+										name: names.tableIdent({ name: d.name })
+									}
 								}))
 							)
 							k.note("refreshed in level order")
@@ -571,7 +575,8 @@ describe("plain or CONCURRENTLY", () => {
  * How a refresh ends, over its one flight on a scripted session: the targets a call names among three derived relations
  * (B and A at level 1, written in that order, and C at level 2 over B), which of their views the catalog reports
  * populated, and one fault where the flight can meet one. The oracle is the contract of run.ts restated: a committed
- * refresh ran BEGIN, the fence, the role's entry, the populated read, the block over the views in refresh order and
+ * refresh ran BEGIN, the fence, the role's entry, the populated read of each PostgreSQL schema the views live in (each
+ * level's own), the block over the views in refresh order and
  * COMMIT, in one flight, CONCURRENTLY exactly for the populated views; 40001 and 40P01 anywhere are TransientFailure; the
  * block's grizzle concurrent change naming a target's position is TransientFailure{ConcurrentRefresh} of that target,
  * and one naming no target is the server's report; the fence's refusals are StaleSnapshot; every other refusal is
@@ -943,7 +948,10 @@ describe("how a refresh ends", () => {
 									"BEGIN ISOLATION LEVEL SERIALIZABLE",
 									asRefresher.fence.server.sql,
 									asRefresher.enter.server.sql,
-									populatedSql,
+									...Arr.map(
+										Arr.dedupe(Arr.map(targets, (t) => t.view.schema)),
+										() => populatedSql
+									),
 									refreshBlock(Arr.map(targets, (t) => t.view)),
 									"COMMIT"
 								])

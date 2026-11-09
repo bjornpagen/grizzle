@@ -278,10 +278,10 @@ const prepare = (
 			yield* s.admin.query(statement, [])
 		}
 		const installation = withWorld(
-			next("Staff"),
+			next(done.schema),
 			done.schema,
 			s.owner.role,
-			succeeded(draftCodes(next("Staff"), fromSnapshot(done.snapshot), noDeclarations))
+			succeeded(draftCodes(next(done.schema), fromSnapshot(done.snapshot), noDeclarations))
 		)
 		const g = succeeded(
 			generate({

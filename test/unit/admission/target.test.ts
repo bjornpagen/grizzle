@@ -3,7 +3,8 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { servedLevel } from "#adapter/admission/snapshots.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { snapshotMismatch } from "#compiler/deploy/admission/target.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -11,12 +12,13 @@ import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, noDeclarations, unowned } from "#test/support/migrate/kit.ts"
+import { owning } from "#test/support/policy.ts"
 import { withB } from "#test/unit/deploy/schemas.ts"
 
 /**
- * Admission's reading of the registered snapshot (deploy/admission/target.ts snapshotMismatch): it is the application's
- * exactly when it was installed under the application's PostgreSQL schema and is of the application's schema, whatever
- * it was drafted from.
+ * Admission's reading of the registered snapshot (deploy/admission/target.ts snapshotMismatch and
+ * adapter/admission/snapshots.ts servedLevel): it is the application's exactly when it was installed under the
+ * application's PostgreSQL schema and serves the application's schema at its level, whatever it was drafted from.
  *
  * The box, exhausted: a registered snapshot drafted of one of two schemas, installed under one of two PostgreSQL
  * schemas, against an application of one of the same two schemas expecting one of the same two PostgreSQL schemas. The
@@ -108,11 +110,11 @@ describe("the registered snapshot", () => {
 							}
 							const otherSchema = registered.content !== application.content
 							const otherPlacement = registered.placement !== application.placement
-							const mismatch = snapshotMismatch(
-								draftOf(registered.content, registered.placement),
-								expected
-							)
-							assert.equal(mismatch !== undefined, otherSchema || otherPlacement)
+							const snapshot = draftOf(registered.content, registered.placement)
+							const mismatch =
+								snapshotMismatch(snapshot, expected) !== undefined ||
+								Option.isNone(servedLevel(snapshot, owning(contents[application.content])))
+							assert.equal(mismatch, otherSchema || otherPlacement)
 							c.note(
 								otherSchema
 									? otherPlacement

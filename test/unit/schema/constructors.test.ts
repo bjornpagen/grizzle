@@ -1990,7 +1990,7 @@ describe("schema and schema.extend", () => {
 	]
 
 	it.effect(
-		"extends under the base's name and computes derived levels from what definitions read",
+		"extends under its own name and computes derived levels from what definitions read",
 		(ctx) =>
 			searched(
 				ctx,
@@ -2145,7 +2145,7 @@ describe("schema and schema.extend", () => {
 							const { current, chain, expected } = tower()
 							for (const [k, value] of chain.entries()) {
 								const desc = defined(schemaDescOf(value))
-								assert.equal(desc.name, "Edu")
+								assert.equal(desc.name, k === 0 ? "Edu" : `Level${k}`)
 								assert.equal(
 									"extends" in value ? value.extends : "no base member",
 									k === 0 ? undefined : chain[k - 1]

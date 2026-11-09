@@ -885,7 +885,7 @@ describe("scope and structure", () => {
 		| "a derived level that disagrees"
 		| "a definition reading its own level"
 		| "a parameterized definition"
-		| "an extension under another name"
+		| "an extension under its base's name"
 		| "a value that is no description"
 	const structures: Arr.NonEmptyReadonlyArray<Structure> = [
 		"Reports as written",
@@ -906,14 +906,16 @@ describe("scope and structure", () => {
 		"a derived level that disagrees",
 		"a definition reading its own level",
 		"a parameterized definition",
-		"an extension under another name",
+		"an extension under its base's name",
 		"a value that is no description"
 	]
 	/** What ownership answers each with: success, or its documented reason. */
-	const answer = (s: Structure): "owned" | "MalformedDescription" =>
+	const answer = (s: Structure): "owned" | "MalformedDescription" | "IdentifierCollision" =>
 		s === "Reports as written" || s === "a check over its own row"
 			? "owned"
-			: "MalformedDescription"
+			: s === "an extension under its base's name"
+				? "IdentifierCollision"
+				: "MalformedDescription"
 
 	/** A pool's claims, a counted family of Claim over Pool's drawn count n. */
 	const Pool = relation("Pool", { id: uuid, n: drawnField(natural, []) }, ["id"], [])
@@ -1023,11 +1025,13 @@ describe("scope and structure", () => {
 										)
 									case "a check over its own row":
 										return ownValue(
-											schema.extend(
-												Work,
-												"Above",
-												{},
-												[checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))],
+											schema(
+												"Checked",
+												Work.relations,
+												[
+													...Work.statements,
+													checkBuilder(s.name, Task, (row: Row) => row.account.ne(row.id))
+												],
 												[]
 											)
 										)
@@ -1071,8 +1075,8 @@ describe("scope and structure", () => {
 												}
 											]
 										})
-									case "an extension under another name":
-										return ownValue({ ...d, name: s.name })
+									case "an extension under its base's name":
+										return ownValue({ ...d, name: defined(d.extends, "Reports' base").name })
 									case "a value that is no description":
 										return ownValue(s.description)
 								}

@@ -383,7 +383,7 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 		planted,
 		rule: Option.some(rule)
 	})
-	const base = "Blog"
+	const base = "Reports"
 	switch (defect.kind) {
 		case "none":
 			return { healthy, planted: healthy, rule: Option.none() }
@@ -704,7 +704,10 @@ const loginOutcomes = (p: LoginProgram): ReadonlyArray<LoginOutcome> => {
 		for (const at of l.roles) {
 			const r = defined(p.roles[at], `role ${at}`)
 			if (r.other) {
-				return { kind: "refused", rule: { kind: "roleBase", role: roleName(r.name), base: "Reports" } }
+				return {
+					kind: "refused",
+					rule: { kind: "roleBase", role: roleName(r.name), base: "Reports" }
+				}
 			}
 			if (roleName(r.name) === name) {
 				return { kind: "refused", rule: { kind: "roleName", role: roleName(r.name) } }

@@ -3514,7 +3514,8 @@ const derivedRecord = (env: Env): Readonly<Record<string, AnyDerived>> => {
 /**
  * An alternatives law over the base's pack: drawn arms, or one planted fault: no arm, an arm under a stranger, the
  * parent as its own arm, an arm keyed apart from the parent, a discriminator that is no closed id of the roster, the
- * derived relation as parent or arm.
+ * derived relation as parent or arm. The law is stated at the root, or at the level declaring the derived relation when
+ * it names it: a level states no alternatives over the relations below it (schema/own.ts LevelRefused).
  */
 const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const alt = base.alternatives
@@ -3592,7 +3593,8 @@ const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
 					got(env.rosters, alt.roster),
 					Rec.fromEntries(Arr.map(planted.arms, ([h, arm]) => [h, valueOf(arm)] as const))
 				)
-				return counts === undefined
+				return counts === undefined ||
+					!Arr.contains([planted.parent, ...Arr.map(planted.arms, ([, arm]) => arm)], counts.name)
 					? probeSchema(env, [statement])
 					: schema.extend(p, "Level", { [counts.name]: counts }, [statement], [])
 			})

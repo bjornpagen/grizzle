@@ -60,7 +60,7 @@ import type {
 	AnySchema,
 	Statement
 } from "#compiler/public/schema.ts"
-import { type OwnedLogin, ownRole, rostersOf } from "#compiler/schema/own.ts"
+import { type Owned, type OwnedLogin, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
@@ -71,6 +71,7 @@ import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { typesDigest } from "#compiler/write/carriers/carriers.ts"
+import { allocatedLevels } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -494,15 +495,28 @@ const withoutStatements = (level: SrcSchemaDesc): SrcSchemaDesc => ({
 })
 
 /**
- * The identity text of the owned statement `desc` is: own itself owns it over `base`'s levels, its top level holding the
- * statement alone, or refuses it there, such as a statement over a relation `base` does not declare. The statement is
+ * `desc` owned alone at the lowest level of `bare`, a description with no statement, that admits it: a level states a
+ * law only over its own relations and through the ones below it as its level allows (schema/own.ts LevelRefused), so a
+ * statement of a lower level is owned at that level, under the levels below it; the top level's refusal when none does.
+ */
+const ownedAtItsLevel = (
+	bare: SrcSchemaDesc,
+	desc: unknown
+): Result.Result<Owned, CompileError> => {
+	const below = bare.extends === undefined ? undefined : ownedAtItsLevel(bare.extends, desc)
+	return below?.ok === true ? below : ownedInput({ ...bare, statements: [desc] })
+}
+
+/**
+ * The identity text of the owned statement `desc` is: own itself owns it over `base`'s levels, at the lowest level
+ * holding the statement alone, or refuses it there, such as a statement over a relation `base` does not declare. The statement is
  * the caller's value: the schema boundary parses it before ownership reads it.
  */
 export const ownedStatementText = (
 	base: SrcSchemaDesc,
 	desc: unknown
 ): Result.Result<string, CompileError> =>
-	Result.map(ownedInput({ ...withoutStatements(base), statements: [desc] }), (alone) => {
+	Result.map(ownedAtItsLevel(withoutStatements(base), desc), (alone) => {
 		const [owned, ...more] = alone.statements
 		if (owned === undefined || more.length > 0) {
 			throw new Error(
@@ -832,7 +846,8 @@ export const installationWith = (
 	logins: ReadonlyArray<OwnedLogin>
 ): Installation => {
 	const owned = lawNamesOf(subject).model.owned
-	const under = at.kind === "declared" ? installationsOf(owned) : ([at.installation] as const)
+	const under =
+		at.kind === "declared" ? installationsOf(owned) : allocatedLevels(at.installation, owned.levels)
 	const installation = compileInstallation(
 		owned,
 		completeInstallOptions(owned, under, logins, [], codes)

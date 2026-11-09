@@ -556,7 +556,9 @@ const levelSchema = (c: LevelCase): SchemaDesc => {
 		...(c.reader === level ? [reader] : [])
 	]
 	const base = rootSchema([rosterQ, ...at(0)])
-	return c.reader === 0 && c.closed === 0 ? base : { ...base, relations: at(1), extends: base }
+	return c.reader === 0 && c.closed === 0
+		? base
+		: { ...base, name: "Upper", relations: at(1), extends: base }
 }
 
 /** A closed read of a closed relation declared above the reading field's level is refused at that field. */

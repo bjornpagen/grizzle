@@ -213,13 +213,16 @@ export const checkedAdmission = (
 	Option.some((_session: MigrationSession, snapshot: DeploySnapshot) =>
 		Effect.gen(function* () {
 			const installed = yield* Effect.orDie(
-				readCatalogWith((sql, params) => harness.queryValues(sql, params), [
-					snapshot.schema,
-					...Arr.filter(
-						Arr.map(snapshot.levels, (l) => l.schema),
-						(s) => s !== snapshot.schema
-					)
-				])
+				readCatalogWith(
+					(sql, params) => harness.queryValues(sql, params),
+					[
+						snapshot.schema,
+						...Arr.filter(
+							Arr.map(snapshot.levels, (l) => l.schema),
+							(s) => s !== snapshot.schema
+						)
+					]
+				)
 			)
 			assert.ok(installed.kind === "present", `the applied schema ${snapshot.schema} is absent`)
 			return Arr.map(

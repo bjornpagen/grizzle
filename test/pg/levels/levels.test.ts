@@ -2,6 +2,7 @@ import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -144,24 +145,30 @@ type Feature =
 
 /** The facts the host holds: items by id with their n, sittings by id with their item and kind. */
 interface Facts {
-	readonly items: ReadonlyMap<number, number>
-	readonly sittings: ReadonlyMap<number, { readonly item: number; readonly test: boolean }>
+	readonly items: Map<number, number>
+	readonly sittings: Map<number, { readonly item: number; readonly test: boolean }>
 }
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
 const disagreed = (message: string) => Effect.fail(new Disagreed({ message }))
 
-/** A refusal names exactly `law`, its witness unreported. */
+/** A refusal names exactly `law`. */
 const namesExactly = (
 	outcome: { readonly kind: string },
 	refused: ReadonlyArray<Law> | undefined,
 	law: Law
 ): boolean =>
 	outcome.kind === "invariant-rejected" &&
-	refused !== undefined &&
-	refused.length === 1 &&
-	Formatter.format(refused[0]) === Formatter.format(law)
+	refused?.length === 1 &&
+	Option.isNone(exact(refused[0], law))
+
+/** Rows of an id and an n, in id order. */
+const byId = (rows: ReadonlyArray<{ readonly id: string; readonly n: number }>) =>
+	Arr.sort(
+		Arr.map(rows, (r) => ({ id: r.id, n: r.n })),
+		Order.mapInput(Order.String, (r: { readonly id: string }) => r.id)
+	)
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"levels of one installation on PostgreSQL 19rc1",
@@ -284,7 +291,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(history, c) =>
 								Effect.gen(function* () {
 									yield* cleared(seat, ["Sitting", "Item"])
-									let facts: Facts = { items: new Map(), sittings: new Map() }
+									const facts: Facts = { items: new Map(), sittings: new Map() }
 									for (const op of history) {
 										switch (op.kind) {
 											case "addItem": {
@@ -302,7 +309,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														`adding item ${op.id} answered ${Formatter.format(outcome)}`
 													)
 												}
-												facts = { ...facts, items: new Map([...facts.items, [op.id, op.n]]) }
+												facts.items.set(op.id, op.n)
 												c.note("an item added")
 												break
 											}
@@ -334,9 +341,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														`deleting item ${op.id} answered ${Formatter.format(outcome)}`
 													)
 												}
-												const remaining = new Map(facts.items)
-												remaining.delete(op.id)
-												facts = { ...facts, items: remaining }
+												facts.items.delete(op.id)
 												c.note("an item deleted")
 												break
 											}
@@ -376,13 +381,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														`adding sitting ${op.id} answered ${Formatter.format(outcome)}`
 													)
 												}
-												facts = {
-													...facts,
-													sittings: new Map([
-														...facts.sittings,
-														[op.id, { item: op.item, test: op.test }]
-													])
-												}
+												facts.sittings.set(op.id, { item: op.item, test: op.test })
 												c.note("a sitting added")
 												break
 											}
@@ -406,47 +405,33 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														`deleting sitting ${op.id} answered ${Formatter.format(outcome)}`
 													)
 												}
-												const remaining = new Map(facts.sittings)
-												remaining.delete(op.id)
-												facts = { ...facts, sittings: remaining }
+												facts.sittings.delete(op.id)
 												c.note("a sitting deleted")
 												break
 											}
 										}
 										const joined = yield* (yield* learner.execute(fused, {})).collect
-										const expectedJoin = Arr.sort(
-											Arr.map([...facts.sittings], ([id, s]) =>
-												Formatter.format({
-													id: idAt(id),
-													n: defined(facts.items.get(s.item), "a held item")
-												})
-											),
-											Order.String
+										const expectedJoin = byId(
+											Arr.map([...facts.sittings], ([id, sitting]) => ({
+												id: idAt(id),
+												n: defined(facts.items.get(sitting.item), "a held item")
+											}))
 										)
-										const gotJoin = Arr.sort(
-											Arr.map(joined, (row) => Formatter.format({ id: row.id, n: row.n })),
-											Order.String
-										)
-										if (Formatter.format(gotJoin) !== Formatter.format(expectedJoin)) {
-											return yield* disagreed(
-												`the fused read answered ${Formatter.format(gotJoin)}, the facts hold ${Formatter.format(expectedJoin)}`
-											)
+										const joinDiffers = ordered(exact)(byId(joined), expectedJoin)
+										if (Option.isSome(joinDiffers)) {
+											return yield* disagreed(`the fused read: ${joinDiffers.value}`)
 										}
 										if (expectedJoin.length > 0) {
 											c.note("a fused read of a sitting")
 										}
 										const read = yield* (yield* learner.execute(items, {})).collect
-										const expectedItems = Arr.sort(
-											Arr.map([...facts.items], ([id, n]) => Formatter.format({ id: idAt(id), n })),
-											Order.String
+										const expectedItems = byId(
+											Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
 										)
-										const gotItems = Arr.sort(
-											Arr.map(read, (row) => Formatter.format({ id: row.id, n: row.n })),
-											Order.String
-										)
-										if (Formatter.format(gotItems) !== Formatter.format(expectedItems)) {
+										const itemsDiffer = ordered(exact)(byId(read), expectedItems)
+										if (Option.isSome(itemsDiffer)) {
 											return yield* disagreed(
-												`the lower level's query on the upper role answered ${Formatter.format(gotItems)}, the facts hold ${Formatter.format(expectedItems)}`
+												`the lower level's query on the upper role: ${itemsDiffer.value}`
 											)
 										}
 									}

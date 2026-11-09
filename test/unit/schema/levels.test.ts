@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
@@ -21,7 +21,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
@@ -30,11 +30,10 @@ import { caseHang } from "#test/support/limits.ts"
  * between stored relations whose sides are fields with no selection and no span, into a key the target relation
  * declares (a deferred foreign key PostgreSQL judges at COMMIT), and never by a key, a check, `mutable` or a family.
  *
- * The box is every statement of a closed space stated at the upper level `Up` over `Lo`: a key, a check and `mutable`
- * over a lower and an upper relation; every containment from one of four sources (an upper field, a selected upper
- * field, a lower candidate key, a selected lower field) into one of five targets (a lower primary key, a lower
- * candidate key, a lower field no key holds, an upper primary key, a selected lower primary key); and a counted family
- * whose member is lower or upper over an upper owner. Each is owned, and refused with LevelRefused, naming the lower
+ * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
+ * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
+ * or a lower candidate key, every fact or a selection) into one of seven targets (the upper primary key, or the lower
+ * primary key, candidate key or a field no key holds, every fact or a selection). Each is owned, and refused with LevelRefused, naming the lower
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
  */
@@ -47,47 +46,62 @@ const C = relation("C", { id: uuid, a: uuid, n: natural }, ["id"])
 const U = relation("U", { id: uuid, count: drawn(natural) }, ["id"])
 const UM = relation("UM", { id: uuid, owner: uuid }, ["id"])
 
-/** Where a side reads: an upper or a lower relation, every fact or a selection. */
-type Place = "upper" | "lower"
+/** Where a side reads: an upper or a lower relation. */
+const places = ["upper", "lower"] as const
+type Place = (typeof places)[number]
 
-/** A containment's source and target, by what each reads. */
-const sources = [
-	{ name: "C.a", place: "upper", selected: false },
-	{ name: "selected C.a", place: "upper", selected: true },
-	{ name: "A.x", place: "lower", selected: false },
-	{ name: "selected A.x", place: "lower", selected: true }
-] as const
-const targets = [
-	{ name: "A.id", place: "lower", selected: false, key: true },
-	{ name: "A.x", place: "lower", selected: false, key: true },
-	{ name: "A.y", place: "lower", selected: false, key: false },
-	{ name: "C.id", place: "upper", selected: false, key: true },
-	{ name: "selected A.id", place: "lower", selected: true, key: true }
-] as const
+/** The fields of A a lower target names: its primary key, its candidate key, and a field no key holds. */
+const targetFields = ["id", "x", "y"] as const
+type TargetField = (typeof targetFields)[number]
+
+/** The statements a shape states, each a kind of law. */
+const kinds = ["key", "check", "mutable", "counted", "contained"] as const
 
 type Situation = "admitted" | "refused" | "a lower source admitted" | "a lower target admitted"
 
 type Shape =
-	| { readonly kind: "key" | "check" | "mutable"; readonly place: Place }
+	| { readonly kind: "key" | "check" | "mutable" | "counted"; readonly place: Place }
 	| {
 			readonly kind: "contained"
-			readonly source: (typeof sources)[number]
-			readonly target: (typeof targets)[number]
+			readonly source: { readonly place: Place; readonly selected: boolean }
+			readonly target:
+				| { readonly place: "lower"; readonly selected: boolean; readonly field: TargetField }
+				| { readonly place: "upper" }
 	  }
-	| { readonly kind: "counted"; readonly place: Place }
 
-const places: ReadonlyArray<Place> = ["upper", "lower"]
-const shapes: ReadonlyArray<Shape> = [
-	...Arr.flatMap(["key", "check", "mutable"] as const, (kind) =>
-		Arr.map(places, (place): Shape => ({ kind, place }))
-	),
-	...Arr.flatMap(sources, (source) =>
-		Arr.map(targets, (target): Shape => ({ kind: "contained", source, target }))
-	),
-	...Arr.map(places, (place): Shape => ({ kind: "counted", place }))
-]
+/**
+ * A shape drawn: a law of each kind over either level, and a containment from C.a or A.x, every fact or a selection,
+ * into A at each of its three fields, every fact or a selection, or into C's primary key.
+ */
+const shapeGen: Gen<Shape> = (source) => {
+	const kind = source.draw(element(kinds))
+	switch (kind) {
+		case "key":
+		case "check":
+		case "mutable":
+		case "counted":
+			return { kind, place: source.draw(element(places)) }
+		case "contained": {
+			const from = { place: source.draw(element(places)), selected: source.draw(boolean) }
+			const into = source.draw(element(places))
+			return {
+				kind,
+				source: from,
+				target:
+					into === "upper"
+						? { place: into }
+						: {
+								place: into,
+								selected: source.draw(boolean),
+								field: source.draw(element(targetFields))
+							}
+			}
+		}
+	}
+}
 
-const shapeGen: Gen<Shape> = element(nonEmpty(shapes, "the space of shapes"))
+/** The size of the shapes' space: a law of four kinds over two levels, and four sources into seven targets. */
+const spaceSize = 4 * places.length + 2 * places.length * (1 + 2 * targetFields.length)
 
 const shapeText = (s: Shape): string => {
 	switch (s.kind) {
@@ -97,7 +111,11 @@ const shapeText = (s: Shape): string => {
 		case "counted":
 			return `${s.kind} over the ${s.place} level`
 		case "contained":
-			return `contained ${s.source.name} into ${s.target.name}`
+			return `contained ${s.source.selected ? "selected " : ""}${s.source.place === "upper" ? "C.a" : "A.x"} into ${
+				s.target.place === "upper"
+					? "C.id"
+					: `${s.target.selected ? "selected " : ""}A.${s.target.field}`
+			}`
 	}
 }
 
@@ -135,18 +153,12 @@ const statementOf = (s: Shape): Statement => {
 				s.source.place === "upper"
 					? sideOf(C, s.source.selected, "a")
 					: sideOf(A, s.source.selected, "x")
-			switch (s.target.name) {
-				case "A.id":
-					return containedBuilder(source, sideOf(A, false, "id"))
-				case "A.x":
-					return containedBuilder(source, sideOf(A, false, "x"))
-				case "A.y":
-					return containedBuilder(source, sideOf(A, false, "y"))
-				case "C.id":
-					return containedBuilder(source, sideOf(C, false, "id"))
-				case "selected A.id":
-					return containedBuilder(source, sideOf(A, true, "id"))
-			}
+			return containedBuilder(
+				source,
+				s.target.place === "upper"
+					? sideOf(C, false, "id")
+					: sideOf(A, s.target.selected, s.target.field)
+			)
 		}
 	}
 }
@@ -163,9 +175,9 @@ const refusedAt = (s: Shape): string | undefined => {
 		case "contained": {
 			const { source, target } = s
 			if (source.place === "lower") {
-				return target.place === "lower" || source.selected || !target.key ? "A" : undefined
+				return target.place === "lower" || source.selected ? "A" : undefined
 			}
-			return target.place === "lower" && (target.selected || !target.key) ? "A" : undefined
+			return target.place === "lower" && (target.selected || target.field === "y") ? "A" : undefined
 		}
 	}
 }
@@ -187,8 +199,8 @@ describe("a level's laws over the levels below it", () => {
 						suite: "unit/schema/levels/reach",
 						generator: shapeGen,
 						literal: shapeText,
-						limit: shapes.length,
-						box: "a key, a check and mutable over each level; every containment of four sources into five targets; a counted family whose member is either level",
+						limit: spaceSize,
+						box: "a key, a check, mutable and a counted family over each level; every containment of four sources into seven targets",
 						oracle: {
 							kind: "second-implementation",
 							name: "the rule of what a level may state below it, restated per shape"
