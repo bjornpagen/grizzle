@@ -9,14 +9,14 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
-import { type DeclaredType, languageOfText } from "#compiler/ir/scalar.ts"
+import { type DeclaredType, languageOfText, languageWithin } from "#compiler/ir/scalar.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { textLookupWithin } from "#compiler/text/refinement.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -189,7 +189,7 @@ const bytesDesc = (source: string, flags: "u" | "su", bytes: number): FieldDesc 
 	kind: "text",
 	patterns: [{ source, flags }],
 	bytes,
-	language: succeeded(textLookupWithin(bytes)([{ source, flags }]))
+	language: languageWithin(succeeded(textLookup([{ source, flags }])), bytes)
 })
 
 /** The roster the closed id and the set descriptors are over. */

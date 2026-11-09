@@ -28,6 +28,7 @@ import {
 	type DeclaredType,
 	isDateType,
 	languageOctets,
+	languageWithin,
 	type NumericBound,
 	type NumericTypmod,
 	type PatternLanguage,
@@ -36,7 +37,6 @@ import {
 	type Roster,
 	type ScalarType,
 	type SpanCarrier,
-	type TextLanguage,
 	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
@@ -361,9 +361,14 @@ interface TextDescriptor extends Built, Columned<unknown> {
 	readonly patterns: Patterns
 }
 
-/** A text descriptor as its builder registered it: its patterns, and what describeField answers for it. */
+/**
+ * A text descriptor as its builder registered it: its patterns; their language as the text analysis proved it when the
+ * descriptor was made, before any byte bound cuts it, which a str.bytes over the descriptor cuts and never analyzes
+ * again; and what describeField answers for it.
+ */
 interface RegisteredText {
 	readonly patterns: Patterns
+	readonly language: Result.Result<PatternLanguage, CompileError>
 	readonly described: Result.Result<Described, CompileError>
 }
 
@@ -376,27 +381,31 @@ interface RegisteredText {
 const ownedText = new WeakMap<object, RegisteredText>()
 
 /**
- * Registers `value`, a frozen str.regex, str.and or str.bytes descriptor its builder made, with its patterns analyzed by
- * `text`, which cuts their language to the descriptor's byte bound where it has one, and returns it. The analysis is the
+ * Registers `value`, a frozen str.regex, str.and or str.bytes descriptor its builder made, with `language`, its
+ * patterns' language as the text analysis proved it (text/refinement.ts textLookup), cut to `octets` UTF-8 bytes
+ * (ir/scalar.ts languageWithin) where the descriptor has a byte bound, and returns it. The analysis is the
  * descriptor's admission: its Description carries the language it proved, so every pass that reads the descriptor reads
  * the language and none analyzes the patterns again, whatever position it is passed in.
  */
 export const registerTextDescriptor = <T extends TextDescriptor>(
 	value: T,
-	text: DescriptorLanguage
+	language: Result.Result<PatternLanguage, CompileError>,
+	octets: number | undefined
 ): T => {
 	const { patterns } = value
 	ownedText.set(value, {
 		patterns,
+		language,
 		described: Result.flatMap(
-			Result.flatMap(text(patterns), (language) =>
-				decodeDesc("field", {
+			Result.flatMap(language, (pattern) => {
+				const cut = octets === undefined ? pattern : languageWithin(pattern, octets)
+				return decodeDesc("field", {
 					kind: "text",
 					patterns,
-					bytes: languageOctets(language),
-					language
+					bytes: languageOctets(cut),
+					language: cut
 				})
-			),
+			}),
 			(desc): Result.Result<Described, CompileError> =>
 				Result.map(
 					scalarTypeOf(desc, bareEnv, SourceLoc(patternsText(patterns), [])),
@@ -413,12 +422,19 @@ export const registerTextDescriptor = <T extends TextDescriptor>(
 }
 
 /**
- * A text descriptor a builder registered (str.regex, str.and, str.bytes): its patterns, and the byte bound its
- * Description states, none for patterns alone or patterns their analysis refused; undefined for any other value.
+ * A text descriptor a builder registered (str.regex, str.and, str.bytes): its patterns, their language before any byte
+ * bound (RegisteredText), and the byte bound its Description states, none for patterns alone or patterns their analysis
+ * refused; undefined for any other value.
  */
 export const registeredText = (
 	value: unknown
-): { readonly patterns: Patterns; readonly bytes: number | undefined } | undefined => {
+):
+	| {
+			readonly patterns: Patterns
+			readonly language: Result.Result<PatternLanguage, CompileError>
+			readonly bytes: number | undefined
+	  }
+	| undefined => {
 	if (!hasProperties(value)) {
 		return undefined
 	}
@@ -427,7 +443,11 @@ export const registeredText = (
 		return undefined
 	}
 	const desc = known.described.ok ? known.described.value.desc : undefined
-	return { patterns: known.patterns, bytes: desc?.kind === "text" ? desc.bytes : undefined }
+	return {
+		patterns: known.patterns,
+		language: known.language,
+		bytes: desc?.kind === "text" ? desc.bytes : undefined
+	}
 }
 
 /**
@@ -540,13 +560,6 @@ type RosterLookup = (name: DeclaredName) => Roster | undefined
  * by. The scalar layer reads it through this type alone, since the analysis is the text package's.
  */
 export type TextLookup = (patterns: Patterns) => Result.Result<PatternLanguage, CompileError>
-
-/**
- * The analyzed language of a text descriptor's patterns, cut to the descriptor's byte bound where it has one: their
- * own (TextLookup) for str.regex and an unbounded str.and, and its cut (ir/scalar.ts languageWithin) for str.bytes and a
- * str.and of a bounded member.
- */
-export type DescriptorLanguage = (patterns: Patterns) => Result.Result<TextLanguage, CompileError>
 
 /**
  * What a FieldDesc does not say by itself, supplied by whoever resolves it (a text descriptor carries its pattern's

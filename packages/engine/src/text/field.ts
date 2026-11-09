@@ -1,17 +1,14 @@
 import { textColumn } from "#compiler/core/decoder.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { int4Max } from "#compiler/core/limits.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { flatMapNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
+import type * as Result from "#compiler/core/result.ts"
+import type { PatternLanguage, Patterns } from "#compiler/ir/scalar.ts"
 import { isRegexFlags, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import {
-	type DescriptorLanguage,
-	registeredText,
-	registerTextDescriptor
-} from "#compiler/scalar/registry.ts"
-import { textLookup, textLookupWithin } from "#compiler/text/refinement.ts"
+import { registeredText, registerTextDescriptor } from "#compiler/scalar/registry.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import type { TextField } from "#compiler/types/fields/field.ts"
 import type {
 	Refused,
@@ -87,10 +84,14 @@ export const admitRegex = (source: unknown, flags: unknown): void => {
 /** The first flags argument, undefined when there is none. */
 const firstFlags = <A extends RegexFlagsArguments>(flags: A): A[0] => flags[0]
 
-/** The descriptor of patterns, their language analyzed by `lookup`, which cuts it to a byte bound where it has one. */
+/**
+ * The descriptor of patterns of `language`, as the text analysis proved it (text/refinement.ts textLookup), cut to
+ * `octets` UTF-8 bytes where the descriptor has a byte bound.
+ */
 const textField = <Host extends string>(
 	patterns: Patterns,
-	lookup: DescriptorLanguage
+	language: Result.Result<PatternLanguage, CompileError>,
+	octets: number | undefined
 ): RegexText<Host> =>
 	registerTextDescriptor(
 		Object.freeze({
@@ -99,7 +100,8 @@ const textField = <Host extends string>(
 			patterns: Object.freeze(patterns),
 			column: textColumn<Host>()
 		}),
-		lookup
+		language,
+		octets
 	)
 
 /**
@@ -114,7 +116,8 @@ export const regexField = <Host extends string>(
 	const first = firstFlags(flags)
 	admitRegex(source, first)
 	const resolved: RegexFlags = flagsOf[`${first}` as const]
-	return textField<Host>([Object.freeze({ source, flags: resolved })], textLookup)
+	const patterns: Patterns = [Object.freeze({ source, flags: resolved })]
+	return textField<Host>(patterns, textLookup(patterns), undefined)
 }
 
 /** A JavaScript caller's str.bytes arguments the types forbid: a malformed argument, thrown synchronously. */
@@ -129,9 +132,15 @@ const textDescriptor =
 /**
  * The admission core of str.bytes: a byte bound octet_length's integer result compares with, from 0 to int4's
  * greatest, and a text descriptor a builder made; the bound the descriptor states, the tighter of the two where the
- * patterns are already bounded.
+ * patterns are already bounded, and the language the text's registration proved, which the bound cuts.
  */
-const admitBytes = (bytes: unknown, text: unknown): number => {
+const admitBytes = (
+	bytes: unknown,
+	text: unknown
+): {
+	readonly octets: number
+	readonly language: Result.Result<PatternLanguage, CompileError>
+} => {
 	if (
 		typeof bytes !== "number" ||
 		!Number.isSafeInteger(bytes) ||
@@ -146,7 +155,10 @@ const admitBytes = (bytes: unknown, text: unknown): number => {
 	if (registered === undefined) {
 		return refuseBytes(`${textDescriptor}, whose language the byte bound cuts`)
 	}
-	return registered.bytes === undefined ? bytes : Math.min(bytes, registered.bytes)
+	return {
+		octets: registered.bytes === undefined ? bytes : Math.min(bytes, registered.bytes),
+		language: registered.language
+	}
 }
 
 /**
@@ -161,8 +173,8 @@ const bytesConstructor = <Host extends string>(
 	bytes: number,
 	text: RegexText<Host>
 ): RegexText<Host> => {
-	const octets = admitBytes(bytes, text)
-	return textField<Host>(text.patterns, textLookupWithin(octets))
+	const { octets, language } = admitBytes(bytes, text)
+	return textField<Host>(text.patterns, language, octets)
 }
 
 /** A JavaScript caller's str.and arguments the types forbid: a malformed argument, thrown synchronously. */
@@ -209,9 +221,8 @@ const andConstructor = <
 	const [bound, ...bounds] = texts.flatMap((t) => (t.bytes === undefined ? [] : [t.bytes]))
 	return textField<JoinedHost<M>>(
 		patterns,
-		bound === undefined
-			? textLookup
-			: textLookupWithin(bounds.reduce((tightest, b) => Math.min(tightest, b), bound))
+		textLookup(patterns),
+		bound === undefined ? undefined : bounds.reduce((tightest, b) => Math.min(tightest, b), bound)
 	)
 }
 

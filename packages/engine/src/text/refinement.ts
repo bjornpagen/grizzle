@@ -8,7 +8,6 @@ import { codePoints } from "#compiler/core/text.ts"
 import {
 	finiteCheck,
 	languageKey,
-	languageWithin,
 	type PatternCheck,
 	type PatternLanguage,
 	type Patterns,
@@ -35,7 +34,7 @@ import {
 import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { DescriptorLanguage, TextLookup } from "#compiler/scalar/registry.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
@@ -394,15 +393,6 @@ export const textLanguage = (refinement: TextRefinement): PatternLanguage => {
  */
 export const textLookup: TextLookup = (patterns) =>
 	Result.map(analyzeText(patterns, SourceLoc(patternsText(patterns), [])), textLanguage)
-
-/**
- * The analyzed language of a conjunction of patterns cut to `octets` UTF-8 bytes (languageWithin), a refusal located at
- * the patterns: what a text descriptor of a byte bound is admitted with.
- */
-export const textLookupWithin =
-	(octets: number): DescriptorLanguage =>
-	(patterns) =>
-		Result.map(textLookup(patterns), (pattern) => languageWithin(pattern, octets))
 
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
