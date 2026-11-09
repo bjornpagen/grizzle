@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, constant, type Gen, oneOf, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -11,6 +11,7 @@ import {
 	FileSystem,
 	Formatter,
 	Order,
+	Record as Rec,
 	Result,
 	String as Str
 } from "effect"
@@ -39,16 +40,77 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * `grizzle check` refuses facts that are not the ones the schemas compile to, and `grizzle generate` writes snapshot.json
  * again with them, drafting no folder and leaving manifest.json and the fingerprint as they were.
  *
- * A case takes the committed directory of one schema's first draft and plants stale facts in its snapshot.json: the
- * `derived` member removed, as a snapshot.json laid out before its facts were derived holds none; emptied of its
- * members; without its FK cycles alone; or holding a fact of a relation the schema does not declare. The oracle is the first draft itself: check
- * finds exactly the one stale-facts finding; generate exits 0, writes no folder, leaves manifest.json byte for byte,
- * and writes snapshot.json back to the very bytes the first draft wrote; and check then passes. A snapshot.json that
- * does not record every fact the layer reads, as the first three plants leave it, is refused by DbLayer.make's parse as
- * a MalformedArtifact at the missing member of `derived` naming the fix, never a crash.
+ * A case takes the committed directory of one schema's first draft and makes the facts its snapshot.json records stale
+ * (Staling), every way over the members the draft records: the `derived` member removed, as a snapshot.json laid out
+ * before its facts were derived holds none; or any of its members left out, every one of them included; or the closed
+ * facts holding one of a relation the schema does not declare beside their own. The oracle is the first draft itself:
+ * check finds exactly the one stale-facts finding; generate exits 0, writes no folder, leaves manifest.json byte for
+ * byte, and writes snapshot.json back to the very bytes the first draft wrote; and check then passes. DbLayer.make's
+ * parse refuses a snapshot.json that does not record every fact the layer reads as a MalformedArtifact at `derived`
+ * naming the fix, never a crash, and reads one that records them all.
  */
-const plants = ["removed", "emptied", "without cycles", "foreign"] as const
-type Plant = (typeof plants)[number]
+
+/**
+ * How a case makes the draft's derived facts stale: the `derived` member removed whole; or kept with the recorded
+ * members `dropped` left out and, at `foreign`, the closed facts holding a fact of a relation the schema does not
+ * declare. A kept `derived` drops a member or holds the foreign fact, so every staling is stale.
+ */
+type Staling =
+	| { readonly derived: "removed" }
+	| { readonly derived: "kept"; readonly dropped: ReadonlyArray<string>; readonly foreign: boolean }
+
+/** The member of `derived` that holds the closed facts, which a foreign fact is planted among. */
+const closedMember = "closed"
+
+/**
+ * Every staling of facts that record `members`: the whole member removed, or each subset of them left out, the foreign
+ * fact drawn where the closed facts are kept, and held where nothing is left out.
+ */
+const stalings = (members: ReadonlyArray<string>): Gen<Staling> =>
+	oneOf<Staling>([
+		constant({ derived: "removed" }),
+		(source) => {
+			const dropped = subarray(members)(source)
+			const foreign = Arr.contains(dropped, closedMember)
+				? false
+				: dropped.length === 0 || boolean(source)
+			return { derived: "kept", dropped, foreign }
+		}
+	])
+
+/** What a staling leaves of the facts the layer reads: whether it records every one of them. */
+const recordsEvery = (staling: Staling): boolean =>
+	staling.derived === "kept" && staling.dropped.length === 0
+
+/** What a staling does, as the search counts it. */
+type Situation =
+	| "the derived member removed"
+	| "a member left out"
+	| "every member left out"
+	| "a foreign fact"
+	| "a foreign fact beside every member"
+
+/** The situations a staling of facts that record `members` reaches. */
+const situationsOf = (
+	staling: Staling,
+	members: ReadonlyArray<string>
+): ReadonlyArray<Situation> => {
+	if (staling.derived === "removed") {
+		return ["the derived member removed"]
+	}
+	const left: ReadonlyArray<Situation> =
+		staling.dropped.length === 0
+			? []
+			: staling.dropped.length === members.length
+				? ["a member left out", "every member left out"]
+				: ["a member left out"]
+	const foreign: ReadonlyArray<Situation> = !staling.foreign
+		? []
+		: staling.dropped.length === 0
+			? ["a foreign fact", "a foreign fact beside every member"]
+			: ["a foreign fact"]
+	return [...left, ...foreign]
+}
 
 const shop = shopV1("DerivedShop", "none")
 const ident = identifierOf(identity.schema(parsedSchemaName("DerivedShop")))
@@ -72,24 +134,23 @@ const at = (second: number) =>
 		millisecond: 0
 	})
 
-/** snapshot.json's text with its derived facts made stale by `plant`. */
-const staled = (text: string, plant: Plant): string => {
+/** The derived facts snapshot.json records, by member, the closed facts by relation. */
+type RecordedFacts = { readonly [member: string]: { readonly [key: string]: Json } }
+
+/** snapshot.json's text with its derived facts made stale by `staling`. */
+const staled = (text: string, staling: Staling): string => {
 	const { derived: _recorded, ...rest } = trustedJson<{ readonly [key: string]: Json }>(text)
-	const { derived } = trustedJson<{ readonly derived: { readonly [key: string]: Json } }>(text)
-	const { fkCycles: _cycles, ...withoutCycles } = derived
-	switch (plant) {
-		case "removed":
-			return jsonText(rest)
-		case "emptied":
-			return jsonText({ ...rest, derived: {} })
-		case "without cycles":
-			return jsonText({ ...rest, derived: withoutCycles })
-		case "foreign":
-			return jsonText({
-				...rest,
-				derived: { ...derived, closed: { Stale: { function: "stale" } } }
-			})
+	if (staling.derived === "removed") {
+		return jsonText(rest)
 	}
+	const { derived } = trustedJson<{ readonly derived: RecordedFacts }>(text)
+	const kept = Rec.filter(derived, (_, member) => !Arr.contains(staling.dropped, member))
+	return jsonText({
+		...rest,
+		derived: staling.foreign
+			? { ...kept, [closedMember]: { ...kept[closedMember], Stale: { function: "stale" } } }
+			: kept
+	})
 }
 
 layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts", (it) => {
@@ -112,37 +173,51 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 					const manifest = yield* fs.readFileString(`${base}/${schemaDir}/${manifestFileName}`)
 					const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
 					const entries = Arr.sort(listed, Order.String)
+					const members = Rec.keys(
+						trustedJson<{ readonly derived: RecordedFacts }>(snapshot).derived
+					)
 					return yield* exhaust(
 						{
 							suite: "unit/cli/derived-facts",
-							generator: element(plants),
+							generator: stalings(members),
 							literal: Formatter.format,
-							limit: plants.length,
-							box: "a snapshot.json whose derived facts are removed, emptied or of a relation the schema lacks",
+							limit: 1 + 2 * 2 ** members.length,
+							box: "a snapshot.json whose derived member is removed, or which leaves out any of the members the draft records, or whose closed facts hold one of a relation the schema lacks",
 							oracle: {
 								kind: "specification",
 								name: "the first draft's own snapshot.json and manifest.json, which generate writes back"
 							},
-							coverage: requiredInSpace<Plant>(plants),
+							coverage: requiredInSpace<Situation>([
+								"the derived member removed",
+								"a member left out",
+								"every member left out",
+								"a foreign fact",
+								"a foreign fact beside every member"
+							]),
 							caseHang
 						},
-						(plant, c) =>
+						(staling, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									c.note(plant)
+									Arr.forEach(situationsOf(staling, members), (situation) => c.note(situation))
 									const ws = yield* workspace("derived-planted")
 									yield* fs.copy(base, ws, { overwrite: true })
 									const file = `${ws}/${schemaDir}/${snapshotFileName}`
-									const stale = staled(snapshot, plant)
+									const stale = staled(snapshot, staling)
 									yield* fs.writeFileString(file, stale)
-									if (plant !== "foreign") {
-										const served = parseSnapshot(snapshotJson(stale), 0)
+									const served = parseSnapshot(snapshotJson(stale), 0)
+									if (recordsEvery(staling)) {
+										assert.ok(
+											Result.isSuccess(served),
+											`DbLayer.make's parse reads facts that record every member: ${Formatter.format(served)}`
+										)
+									} else {
 										assert.ok(
 											Result.isFailure(served) &&
 												served.failure.reason._tag === "MalformedArtifact" &&
 												served.failure.reason.at[0] === "derived" &&
 												Str.includes("run grizzle generate")(served.failure.message),
-											`DbLayer.make's parse refuses ${plant} facts by name: ${Formatter.format(served)}`
+											`DbLayer.make's parse refuses ${Formatter.format(staling)} by name: ${Formatter.format(served)}`
 										)
 									}
 									const refused = yield* cliOver(ws, config, ["check", configName], at(1))
@@ -153,7 +228,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 									assert.deepEqual(
 										Arr.map(defined(checked, "the schema's check").findings, (f) => f.kind),
 										["derivedFacts"],
-										plant
+										Formatter.format(staling)
 									)
 									const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
 									assert.equal(regenerated.code, 0, regenerated.stderr)
