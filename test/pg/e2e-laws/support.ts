@@ -1,15 +1,9 @@
-import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import type { OpenError } from "#adapter/errors/execution.ts"
+import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import type { Db } from "#adapter/public/db.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type AnyClosed,
 	type AnyLogin,
-	type AnyLoginRole,
 	type AnyRelation,
 	type AnyRole,
 	type AnySchema,
@@ -41,7 +35,6 @@ import {
 } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
-import { loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
 /**
  * A schema value whose relations sit under their own names and whose statements name only its relations and read back
@@ -73,8 +66,6 @@ export interface Fixture {
 	>(
 		value: Checked<N, R, St>
 	) => Schema<string, R, StatementsByName<St, R>>
-	/** The DbLayer of a login over the installation, aimed at the substrate's target. */
-	readonly layer: <L extends AnyLogin>(login: L) => Layer.Layer<DbLayerOf<L>, OpenError>
 	/**
 	 * A login of the rebuilt worlds served as an application serves it, from its own served file over the installation
 	 * (test/support/served-db.ts servedFixture): its served login, whose roles a Db opens, and its layer.
@@ -90,15 +81,6 @@ export interface Fixture {
 	 * A psql child in a role's world: logged in as the login that holds it, the role taken on; closed with the scope.
 	 */
 	readonly psql: (role: AnyRole) => Effect.Effect<PsqlWriter, PsqlProcessError, Scope.Scope>
-	/**
-	 * Runs `body` with a Db of `role`, a role of the rebuilt worlds reached through its login, opened through a DbLayer
-	 * of that login, and the context it reads. The Db is typed by no particular role: a body applies ChangeSets through
-	 * it or through the runtime over its context (test/support/runtime-db.ts).
-	 */
-	readonly withDb: <A, E>(
-		role: AnyLoginRole,
-		body: (db: Db<AnyRole, unknown>, ctx: DbContext) => Effect.Effect<A, E, Scope.Scope>
-	) => Effect.Effect<A, E | OpenError>
 }
 
 export interface OpenOptions {
@@ -120,12 +102,12 @@ export const bareFixture: OpenOptions = { facts: noFacts, after: [] }
  * A fixture installs under a fresh schema name with its complete installation: its native laws and its derived
  * relations (packages/engine/src/physical/derived), as the fresh installer runs them. Its facts
  * load as the owner in one transaction, so every deferred law judges the loaded state at its COMMIT, and a schema value
- * of the fixture is rebuilt under the installed name from its own relations and statements, typed by them, so a Db
- * opened on it compiles to the installed objects and logs in as the installed logins (test/pg/reads/support.ts). The
+ * of the fixture is rebuilt under the installed name from its own relations and statements, typed by them, so a login
+ * of its worlds serves the installed objects and logs in as the installed login (test/pg/reads/support.ts). The
  * fixture installs with the logins its caller gives, over the declared schema; its worlds are rebuilt over the
- * installed name by the caller. Writers are grizzle (db.apply and db.compile through Db.open of a role) and psql
- * children in a role's world, logged in as its login over verify-full TLS, which see PostgreSQL's native errors
- * ("Direct SQL writers").
+ * installed name by the caller. Writers are grizzle (the members of a login served from its own served file, through
+ * `served` and Db.open of its role) and psql children in a role's world, logged in as its login over verify-full TLS,
+ * which see PostgreSQL's native errors ("Direct SQL writers").
  *
  * Installs `fixture` completely under a fresh schema name with `logins`, each over the declared fixture, loads its
  * facts, and returns the helpers above.
@@ -157,8 +139,6 @@ export const openFixture = (
 		if (options.after.length > 0) {
 			yield* owner(options.after)
 		}
-		const layer = <L extends AnyLogin>(login: L): Layer.Layer<DbLayerOf<L>, OpenError> =>
-			loginLayerIn(s.database, done, login)
 		const fx: Fixture = {
 			installed: done,
 			q,
@@ -170,7 +150,6 @@ export const openFixture = (
 			>(
 				value: Checked<N, R, St>
 			) => schema<string, R, St>(done.schema, value.relations, value.statements),
-			layer,
 			served: (login) => servedFixture(done, login),
 			owner,
 			rows: (sql) =>
@@ -181,20 +160,7 @@ export const openFixture = (
 						)
 					)
 				),
-			psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name }),
-			withDb: (role, body) =>
-				Effect.scoped(
-					Effect.flatMap(Layer.build(layer(role.login)), (context) =>
-						Effect.provideContext(
-							Effect.scoped(
-								Effect.flatMap(openDbContext(role, { token: tokenOf({}) }), (opened) =>
-									body(opened.db, opened.ctx)
-								)
-							),
-							context
-						)
-					)
-				)
+			psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name })
 		}
 		return fx
 	})

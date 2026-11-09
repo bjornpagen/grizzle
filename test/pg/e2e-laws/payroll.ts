@@ -1,8 +1,10 @@
 import { Effect, pipe, type Scope, String as Str } from "effect"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
@@ -14,7 +16,7 @@ import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { stateA } from "#test/support/fixtures/golden/payroll.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { applyRuntime } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -27,14 +29,40 @@ export type PayrollInstalled = Schema<
 /** The fixture's worlds over the installed Payroll. */
 export type PayrollWorlds = ReturnType<typeof P.reportingWorlds>
 
-/**
- * A ChangeSet and its db.apply as one role: the outcome, and the ChangeSet value grizzle compiles (a typed one, or a
- * JavaScript caller's built with the runtime builder).
- */
+/** A ChangeSet applied as one role through its login's served file: the outcome. */
 export interface Attempt {
-	readonly changes: unknown
-	readonly outcome: Effect.Effect<ApplyOutcome<unknown>, ApplyError | OpenError>
+	readonly outcome: Effect.Effect<ApplyOutcome<unknown>, ApplyError | OpenError | ServedRefusal>
 }
+
+/**
+ * A call's facts: under the op of each array member of its ChangeSet (insert, put or delete), the rows of the relation
+ * that member writes, a JavaScript caller's values as given.
+ */
+export type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+
+/** The facts of a call of a ChangeSet that holds no array member. */
+const noFacts: CallFacts = {}
+
+/**
+ * `changes` applied as `role` through its login's served file, the ChangeSet the one member of the role's workload
+ * (test/support/served-db.ts withServedDb): with `facts` where it holds array members, and with `params`.
+ */
+const appliedAs = (
+	f: Fixture,
+	role: AnyLoginRole,
+	changes: unknown,
+	facts: CallFacts,
+	params: ParamMap
+): Attempt => ({
+	outcome: Effect.scoped(
+		withServedDb(f.installed, role, {}, ({ serve }) =>
+			Effect.flatMap(serve({ attempt: changes }), (served) => {
+				const ops = member(served, "attempt")
+				return ops.kind === "facts" ? ops.ops.apply(facts, params) : ops.ops.apply(params)
+			})
+		)
+	)
+})
 
 /** The ledger's member queries over the rebuilt schema. */
 const members = (s: PayrollInstalled) => ({
@@ -112,12 +140,19 @@ export interface Payroll extends ReturnType<typeof members> {
 	readonly w: PayrollWorlds
 	readonly cs: () => ChangeSet<PayrollInstalled>
 	/**
-	 * db.apply of a ChangeSet without parameters, whose parameter type is unknown, as `role`, a role reached through its
-	 * login.
+	 * A ChangeSet without parameters, whose parameter type is unknown, applied as `role`, a role reached through its
+	 * login, with each call's facts of its array members.
 	 */
 	readonly attempt: <L extends LevelsOf<PayrollInstalled>, W extends string, Reads>(
 		role: AnyLoginRole,
-		changes: ChangeSet<L, unknown, W, Reads>
+		changes: ChangeSet<L, unknown, W, Reads>,
+		facts: CallFacts
+	) => Attempt
+	/** A ChangeSet of query members alone applied as `role` with `params`. */
+	readonly called: <L extends LevelsOf<PayrollInstalled>, Params, W extends string, Reads>(
+		role: AnyLoginRole,
+		changes: ChangeSet<L, Params, W, Reads>,
+		params: ParamMap
 	) => Attempt
 }
 
@@ -152,10 +187,8 @@ export const openPayroll: Effect.Effect<
 		s,
 		w: P.reportingWorlds(s),
 		cs: () => ChangeSet.empty(s),
-		attempt: (role, changes) => ({
-			changes,
-			outcome: f.withDb(role, (...[, ctx]) => applyRuntime(ctx, changes, {}))
-		})
+		attempt: (role, changes, facts) => appliedAs(f, role, changes, facts, {}),
+		called: (role, changes, params) => appliedAs(f, role, changes, noFacts, params)
 	}
 	return payroll
 })
