@@ -1,0 +1,172 @@
+import { describe, it } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { readSnapshot } from "#adapter/boundary/snapshot.ts"
+import { finishSnapshot, targetState, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
+import { schemaDescOf } from "#compiler/schema/schema.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
+
+/**
+ * snapshot.json records each level's laws as an outcome names them (deploy/snapshot/types.ts SnapshotLevel), so a law
+ * whose side selects by a literal carries that literal, whose type member is absent, into the snapshot. The writer lays
+ * each law out as one canonical value, as it lays out an installed statement, so the file and the fingerprint agree by
+ * construction.
+ *
+ * The box, exhausted: a key over a side of R selected by a comparison of each kind of field R holds (a 64-bit integer,
+ * a text, a boolean, a uuid, a closed id over the root's roster) with a literal of it, R declared at the root or at a
+ * level over it, which records the key among the upper level's laws. The oracle is the snapshot itself: the text writeSnapshot writes reads back
+ * (boundary/snapshot.ts readSnapshot, which refuses a text whose content is not its recorded fingerprint) as a snapshot
+ * of the fingerprint written, every level recording the laws written.
+ */
+const Kind = closed("Kind", ["One", "Two"])
+const R = relation(
+	"R",
+	{
+		id: uuid,
+		big: pg.bigint,
+		label: str.regex("^[a-z]{1,8}$"),
+		flag: pg.boolean,
+		other: uuid,
+		kind: closedId(Kind)
+	},
+	["id"]
+)
+const B = relation("B", { id: uuid }, ["id"])
+
+const literals = ["bigint", "text", "boolean", "uuid", "closed id"] as const
+type Literal = (typeof literals)[number]
+const placements = ["root", "level"] as const
+type Placement = (typeof placements)[number]
+
+interface Case {
+	readonly literal: Literal
+	readonly placement: Placement
+}
+
+const caseGen: Gen<Case> = (source) => ({
+	literal: source.draw(element(literals)),
+	placement: source.draw(element(placements))
+})
+
+/** The key over R's facts the case's literal selects. */
+const selectedKey = (literal: Literal) => {
+	switch (literal) {
+		case "bigint":
+			return key(
+				on(
+					select(R, (r) => r.gt(r.big, 0n)),
+					"other"
+				)
+			)
+		case "text":
+			return key(
+				on(
+					select(R, (r) => r.eq(r.label, "ab")),
+					"other"
+				)
+			)
+		case "boolean":
+			return key(
+				on(
+					select(R, (r) => r.eq(r.flag, true)),
+					"other"
+				)
+			)
+		case "uuid":
+			return key(
+				on(
+					select(R, (r) => r.ne(r.other, "00000000-0000-4000-8000-000000000000")),
+					"big"
+				)
+			)
+		case "closed id":
+			return key(
+				on(
+					select(R, (r) => r.eq(r.kind, "Two")),
+					"other"
+				)
+			)
+	}
+}
+
+/**
+ * The schema of a case: the key at the root, or at a level over a root of B, R there contained in B by its other and
+ * typed by the root's roster.
+ */
+const schemaOf = (c: Case): AnySchema => {
+	switch (c.placement) {
+		case "root":
+			return schema("Root", { Kind, R }, [selectedKey(c.literal)])
+		case "level":
+			return schema.extend(schema("Root", { Kind, B }, []), "Upper", { R }, [
+				contained(on(R, "other"), on(B, "id")),
+				selectedKey(c.literal)
+			])
+	}
+}
+
+describe("snapshot.json", () => {
+	it.effect(
+		"reads back as the snapshot written, of the same fingerprint, whatever literal a level's law selects by",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/deploy/snapshot-levels",
+						generator: caseGen,
+						literal: Formatter.format,
+						limit: literals.length * placements.length,
+						box: "a key over a side selected by a literal of each field kind, stated at the root or at a level above it",
+						oracle: {
+							kind: "specification",
+							name: "the written snapshot reads back as itself, its fingerprint and its levels' laws"
+						},
+						coverage: requiredInSpace<Placement>(["root", "level"]),
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const owned = succeeded(
+								own(defined(schemaDescOf(schemaOf(c)), "the case's description"))
+							)
+							const installation = succeeded(
+								compileInstallation(
+									owned,
+									completeInstallOptions(
+										owned,
+										installationsOf(owned),
+										[],
+										[],
+										firstCodebook(rostersOf(owned))
+									)
+								)
+							)
+							const snapshot = succeeded(
+								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
+							)
+							const read = succeeded(readSnapshot(succeeded(writeSnapshot(snapshot))))
+							assert.equal(read.fingerprint, snapshot.fingerprint)
+							assert.deepEqual(
+								Arr.map(read.levels, (l) => Arr.map(l.laws, (law) => law.law)),
+								Arr.map(snapshot.levels, (l) => Arr.map(l.laws, (law) => law.law))
+							)
+							k.note(c.placement)
+						})
+				)
+			)
+	)
+})

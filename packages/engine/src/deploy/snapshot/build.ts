@@ -1,4 +1,3 @@
-import { lawDescription } from "#compiler/analysis/theory/description.ts"
 import {
 	catchRefusal,
 	type EncodeOptions,
@@ -70,11 +69,10 @@ import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { DescribedLaw, Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, own } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** Entries in the code-unit order of their keys. */
 const byKey: Comparator<readonly [string, unknown]> = mapInput(
@@ -494,18 +492,24 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			i === top || desc === undefined
 				? installation.laws.theory
 				: unwrapCompiled(Result.flatMap(own(desc), compileLaws)).theory
-		const laws: Array<{ readonly id: LawId; readonly law: Law }> = []
+		const laws: Array<DescribedLaw> = []
 		for (const law of theory.laws) {
 			if (!stated.has(law.id)) {
 				stated.add(law.id)
-				laws.push({ id: law.id, law: lawDescription(law) })
+				laws.push({
+					law: law.id,
+					described: defined(
+						installation.described.get(law.id),
+						"the installation describes its laws"
+					)
+				})
 			}
 		}
 		return {
 			name: level.name,
 			schema: identifierOf(defined(installation.names.levels[i], "a level's schema")),
 			fingerprint: level.fingerprint,
-			laws: laws.toSorted((a, b) => compareStrings(a.id, b.id))
+			laws: laws.toSorted((a, b) => compareStrings(a.law, b.law))
 		}
 	})
 }
@@ -586,38 +590,44 @@ const sortedOwners = <V>(
  * once its fingerprint holds (boundary/snapshot.ts). */
 type SnapshotForm = RecordOf<never>
 
-/** An installed statement as snapshot.json lays it out: compact, on one line of its own. The statement is the unit the
- * diff compares and a review reads, so a changed statement is one changed line. */
-class StatementLine {
-	readonly statement: SqlStatement
-	constructor(statement: SqlStatement) {
-		this.statement = statement
+/** A unit of snapshot.json laid out compact, on one line of its own, as its one canonical value: an installed
+ * statement, the unit the diff compares and a review reads, so a changed statement is one changed line; or a level's
+ * law as an outcome names it. */
+class CompactLine {
+	readonly value: SqlStatement | DescribedLaw
+	constructor(value: SqlStatement | DescribedLaw) {
+		this.value = value
 	}
 }
 
-/** A value of the snapshot's form whose installed statements are `S`: the statements themselves, which the fingerprint
- * digests, or their StatementLines, which snapshot.json is written from. */
+/** A value of the snapshot's form whose compact units, its installed statements and its levels' laws, are `S`: the units
+ * themselves, which the fingerprint digests, or their CompactLines, which snapshot.json is written from. */
 type FormOf<S> =
 	| string
 	| number
 	| boolean
 	| bigint
 	| S
-	| Law
 	| ReadonlyArray<FormOf<S>>
 	| { readonly [key: string]: FormOf<S> }
 
 /** A record of the snapshot's form whose installed statements are `S`. */
 type RecordOf<S> = { readonly [key: string]: FormOf<S> }
 
-/** How a form holds an installed statement. */
-type Statement<S> = (s: SqlStatement) => S
+/** How a form holds its compact units: an installed statement and a level's law. */
+interface Units<S> {
+	readonly statement: (s: SqlStatement) => S
+	readonly law: (l: DescribedLaw) => S
+}
 
-/** Each statement as itself. */
-const asStatement: Statement<SqlStatement> = (s) => s
+/** Each unit as itself. */
+const asValues: Units<SqlStatement | DescribedLaw> = { statement: (s) => s, law: (l) => l }
 
-/** Each statement as its line of snapshot.json. */
-const asLine: Statement<StatementLine> = (s) => new StatementLine(s)
+/** Each unit as its line of snapshot.json. */
+const asLines: Units<CompactLine> = {
+	statement: (s) => new CompactLine(s),
+	law: (l) => new CompactLine(l)
+}
 
 const writingForm = (w: SnapshotWriting): FormOf<never> =>
 	typeof w === "string"
@@ -693,24 +703,21 @@ const reasonForm = (r: PhysicalReason): SnapshotForm => {
 	}
 }
 
-const objectForm = <S>(o: PhysicalObject<SqlStatement>, statement: Statement<S>): RecordOf<S> => ({
+const objectForm = <S>(o: PhysicalObject<SqlStatement>, units: Units<S>): RecordOf<S> => ({
 	kind: o.kind,
 	ident: o.ident,
-	ddl: o.ddl.map(statement),
+	ddl: o.ddl.map(units.statement),
 	reasons: o.reasons.map(reasonForm),
 	state: o.state,
 	phase: o.phase
 })
 
-const manifestForm = <S>(
-	m: InstallationManifest<SqlStatement>,
-	statement: Statement<S>
-): RecordOf<S> => ({
-	objects: m.objects.map((o) => objectForm(o, statement)),
+const manifestForm = <S>(m: InstallationManifest<SqlStatement>, units: Units<S>): RecordOf<S> => ({
+	objects: m.objects.map((o) => objectForm(o, units)),
 	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
-	roleDefaults: m.roleDefaults.map(statement),
-	publicRevokes: m.publicRevokes.map(statement),
-	comments: m.comments.map(statement)
+	roleDefaults: m.roleDefaults.map(units.statement),
+	publicRevokes: m.publicRevokes.map(units.statement),
+	comments: m.comments.map(units.statement)
 })
 
 const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
@@ -742,17 +749,17 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 })
 
 /** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint. */
-const contentForm = <S>(c: SnapshotContent, statement: Statement<S>): RecordOf<S> => ({
+const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 	schemaName: c.schemaName,
 	schema: c.schema,
-	levels: c.levels.map((l): SnapshotForm => ({
+	levels: c.levels.map((l): RecordOf<S> => ({
 		name: l.name,
 		schema: l.schema,
 		fingerprint: l.fingerprint,
-		laws: l.laws.map((l): SnapshotForm => ({ id: l.id, law: l.law }))
+		laws: l.laws.map(units.law)
 	})),
 	theory: theoryForm(c.theory),
-	manifest: manifestForm(c.manifest, statement),
+	manifest: manifestForm(c.manifest, units),
 	constraintToLaw: c.constraintToLaw,
 	logins: valuesForm(c.logins, (l): SnapshotForm => ({ role: l.role })),
 	workload: valuesForm(c.workload, (programs) => valuesForm(programs, accessForm)),
@@ -760,8 +767,8 @@ const contentForm = <S>(c: SnapshotContent, statement: Statement<S>): RecordOf<S
 })
 
 /** The JSON form of a snapshot: its content's, with its fingerprint. */
-const snapshotForm = <S>(s: DeploySnapshot, statement: Statement<S>): RecordOf<S> => ({
-	...contentForm(s, statement),
+const snapshotForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
+	...contentForm(s, units),
 	fingerprint: s.fingerprint
 })
 
@@ -769,7 +776,7 @@ const snapshotForm = <S>(s: DeploySnapshot, statement: Statement<S>): RecordOf<S
 export const finishSnapshot = (
 	state: SnapshotContent
 ): Result.Result<DeploySnapshot, CompileError> =>
-	Result.map(snapshotFingerprint(contentForm(state, asStatement)), (fingerprint) => ({
+	Result.map(snapshotFingerprint(contentForm(state, asValues)), (fingerprint) => ({
 		...state,
 		fingerprint
 	}))
@@ -837,9 +844,9 @@ const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
  * on one line, its compact canonical JSON; a scalar as its canonical JSON; a list or a record one item or member per
  * line, a record's keys in code point order.
  */
-const formValue = (out: Lines, head: string, value: FormOf<StatementLine>, tail: string): void => {
-	if (value instanceof StatementLine) {
-		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.statement, everyProperty))))
+const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: string): void => {
+	if (value instanceof CompactLine) {
+		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.value, everyProperty))))
 		return out.line(`${head}${compact}${tail}`)
 	}
 	if (typeof value !== "object") {
@@ -876,7 +883,7 @@ export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, C
 	catchRefusal(() =>
 		valueOf(
 			textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
-				formValue(out, "", snapshotForm(snapshot, asLine), "")
+				formValue(out, "", snapshotForm(snapshot, asLines), "")
 				out.line("")
 			})
 		)

@@ -153,9 +153,9 @@ export const lawsAbove = (
 	constraints: snapshot.constraintToLaw,
 	laws: new Map(
 		Arr.flatMap(snapshot.levels.slice(index + 1), (level) =>
-			Arr.map(level.laws, ({ id, law }): readonly [LawId, Law] => [
-				id,
-				{ kind: "above", level: level.name, law }
+			Arr.map(level.laws, ({ law, described }): readonly [LawId, Law] => [
+				law,
+				{ kind: "above", level: level.name, law: described }
 			])
 		)
 	)

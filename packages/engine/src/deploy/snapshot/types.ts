@@ -1,4 +1,4 @@
-import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { ColumnIdent, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type {
 	ConstraintLaws,
@@ -6,8 +6,8 @@ import type {
 	Snapshot,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
+import type { DescribedLaw } from "#compiler/physical/install/compile.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The snapshot file of one declared schema, relative to the migrations directory. */
 export const snapshotFileName = "snapshot.json"
@@ -96,7 +96,7 @@ export interface SnapshotLevel {
 	readonly name: string
 	readonly schema: string
 	readonly fingerprint: SchemaFingerprint
-	readonly laws: ReadonlyArray<{ readonly id: LawId; readonly law: Law }>
+	readonly laws: ReadonlyArray<DescribedLaw>
 }
 
 /** A login of an installation as the snapshot records it, under its declared name: its PostgreSQL role, whose name
