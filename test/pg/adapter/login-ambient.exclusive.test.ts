@@ -1,6 +1,7 @@
 /**
  * A login's every answer is the same under any database defaults: its own defaults pin what its sessions resolve names
- * and print values under, and Db.open refuses a login whose search_path pin is gone.
+ * and print values under, and every session of its pool sends them again as startup options, so a login whose
+ * search_path pin is gone answers the same.
  *
  * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): a case sets its database's own
  * defaults (ALTER DATABASE ... SET), which every session that starts in the database while they stand starts under, and
@@ -16,18 +17,14 @@
  * fields, then the links joined to their texts, every amount, the amounts at a money parameter and from a double one,
  * one amount by its key, and every page of the amounts ordered by the double.
  *
- * Properties:
- * - with the pin standing, Db.open admits the login under the drawn defaults, and the program's every outcome and
- *   answer there is exactly its outcome and answer under the database's own defaults, from the same stored state; the
- *   amounts read under the defaults are the facts the puts left;
- * - with the pin reset, Db.open refuses the login under the drawn defaults with exactly one mismatch: the login's
- *   search_path default, missing.
+ * Property: with the pin standing or reset, the program's every outcome and answer under the drawn defaults is exactly
+ * its outcome and answer under the database's own defaults, from the same stored state; the amounts read under the
+ * defaults are the facts the puts left.
  *
  * Every setting at every value it is drawn at is a required situation, beside the installation-first path, both pins,
  * a refused write and a later page.
  */
 import { layer } from "@effect/vitest"
-import { assertInstanceOf } from "@effect/vitest/utils"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
@@ -43,8 +40,6 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { OpenError } from "#adapter/errors/execution.ts"
-import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
@@ -307,7 +302,7 @@ const kept: ReadonlyArray<Kept<LoginCase, Feature>> = [
 		reaches: ["the search_path pin standing", "a write refused by a law", "a later page"]
 	},
 	{
-		note: "every hostile default with the search_path pin reset: Db.open refuses the login",
+		note: "every hostile default with the search_path pin reset: the startup options pin the path, every answer is the defaults' answer",
 		sketch: { ambient: hostileSession, pin: "reset", program: plantedProgram },
 		draws: "",
 		reaches: ["the search_path pin reset", "grizzle-first path"]
@@ -397,7 +392,7 @@ const pinReset = (role: string) =>
 
 layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 	it.effect(
-		"answers exactly as under the database's own defaults, and Db.open refuses it without its search_path pin",
+		"answers exactly as under the database's own defaults, with its search_path pin or without it",
 		(ctx) =>
 			searched(
 				ctx,
@@ -496,34 +491,17 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 								cx.noteAll(ambientFeatures(c.ambient))
 								cx.noteAll(Arr.map(c.ambient.settings, settingFeature))
 								cx.note(`the search_path pin ${c.pin}`)
-								if (c.pin === "reset") {
-									const refused = yield* Effect.scoped(
-										Effect.gen(function* () {
-											yield* databaseAmbient(database, c.ambient, schemas)
-											yield* pinReset(login)
-											return yield* Effect.flip(
-												Db.open(o.server.roles.app, {}).pipe(withLayer(Layer.fresh(o.layer)))
-											)
-										})
-									)
-									assertInstanceOf(refused, OpenError)
-									const reason = refused.reason
-									assertInstanceOf(reason, AdmissionRefused)
-									assert.deepEqual(reason.mismatches, [
-										{
-											stage: "settings",
-											check: `role ${login} default search_path`,
-											expected: "pg_catalog, pg_temp",
-											observed: "<not set>"
-										}
-									])
-									return
-								}
 								yield* replaceMigrated(o.installed, {})
 								const ordinary = yield* run(c.program)
 								yield* replaceMigrated(o.installed, {})
 								const hostile = yield* Effect.scoped(
-									Effect.andThen(databaseAmbient(database, c.ambient, schemas), run(c.program))
+									Effect.gen(function* () {
+										yield* databaseAmbient(database, c.ambient, schemas)
+										if (c.pin === "reset") {
+											yield* pinReset(login)
+										}
+										return yield* run(c.program)
+									})
 								)
 								assert.deepEqual(hostile.writes, ordinary.writes)
 								unorderedEqual(hostile.linked, ordinary.linked)

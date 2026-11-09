@@ -5,25 +5,24 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { servedLevel } from "#adapter/admission/snapshots.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { snapshotMismatch } from "#compiler/deploy/admission/target.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
-import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { atName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, noDeclarations, unowned } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import { withB } from "#test/unit/deploy/schemas.ts"
 
 /**
- * Admission's reading of the registered snapshot (deploy/admission/target.ts snapshotMismatch and
- * adapter/admission/snapshots.ts servedLevel): it is the application's exactly when it was installed under the
- * application's PostgreSQL schema and serves the application's schema at its level, whatever it was drafted from.
+ * The host's reading of the registered snapshot (adapter/admission/snapshots.ts servedLevel): it is the application's
+ * exactly when it serves the application's schema at its level, whatever it was drafted from and whatever PostgreSQL
+ * schema it was installed under, which the host never judges: every transaction's fence holds the database to the
+ * snapshot.
  *
  * The box, exhausted: a registered snapshot drafted of one of two schemas, installed under one of two PostgreSQL
  * schemas, against an application of one of the same two schemas expecting one of the same two PostgreSQL schemas. The
- * oracle is the rule itself: a mismatch exactly when the schemas or the PostgreSQL schemas differ. Two schemas that differ
- * only in their name are two schemas, and one schema installed under two PostgreSQL schemas is one schema.
+ * oracle is the rule itself: a mismatch exactly when the schemas differ. Two schemas that differ only in their name are
+ * two schemas, and one schema installed under two PostgreSQL schemas is one schema.
  */
 type Content = "the schema" | "the schema renamed"
 type Placement = "app_one" | "app_two"
@@ -78,7 +77,7 @@ type TargetFeature = "the application's" | "another schema" | "another placement
 
 describe("the registered snapshot", () => {
 	it.effect(
-		"is the application's exactly when installed under its PostgreSQL schema and of its schema",
+		"is the application's exactly when of its schema, under any PostgreSQL schema",
 		(ctx) =>
 			searched(
 				ctx,
@@ -98,23 +97,19 @@ describe("the registered snapshot", () => {
 						box: "a registered snapshot of two schemas under two PostgreSQL schemas, against an application of the same",
 						oracle: {
 							kind: "specification",
-							name: "a mismatch exactly when the schemas or the PostgreSQL schemas differ"
+							name: "a mismatch exactly when the schemas differ"
 						},
 						caseHang
 					},
 					({ registered, application }, c) =>
 						Effect.sync(() => {
-							const expected = {
-								fingerprint: draftOf(application.content, application.placement).theory.schema,
-								schema: identifierOf(identity.schema(parsedSchemaName(application.placement)))
-							}
 							const otherSchema = registered.content !== application.content
 							const otherPlacement = registered.placement !== application.placement
 							const snapshot = draftOf(registered.content, registered.placement)
-							const mismatch =
-								snapshotMismatch(snapshot, expected) !== undefined ||
-								Option.isNone(servedLevel(snapshot, owning(contents[application.content])))
-							assert.equal(mismatch, otherSchema || otherPlacement)
+							const mismatch = Option.isNone(
+								servedLevel(snapshot, owning(contents[application.content]))
+							)
+							assert.equal(mismatch, otherSchema)
 							c.note(
 								otherSchema
 									? otherPlacement

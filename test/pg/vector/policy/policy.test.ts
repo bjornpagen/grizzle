@@ -1,13 +1,11 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { constant, element, map, oneOf } from "@grizzle/testing/gen"
+import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import { openDbContext } from "#adapter/db/open.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
-import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
@@ -20,7 +18,7 @@ import {
 	installFixture,
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -88,30 +86,12 @@ interface DefaultChange {
 	readonly value: Option.Option<string>
 }
 
-type PolicyFeature =
-	| "the stored policy fills the read"
-	| "a lost default refused"
-	| "a changed default refused"
+type PolicyFeature = "the stored policy fills the read"
 
 /** Loads the vector library in the admin session, so its `hnsw.*` parameters are known there. */
 const loadVectorLibrary = Effect.flatMap(Substrate, (s) =>
 	s.admin.query(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
 )
-
-/** Every value PostgreSQL lists for an enum parameter. */
-const valuesOf = (parameter: string) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		yield* loadVectorLibrary
-		const rows = yield* s.admin.queryValues(
-			"SELECT pg_catalog.unnest(s.enumvals)::text FROM pg_catalog.pg_settings AS s WHERE s.name = $1::text",
-			[parameter]
-		)
-		return nonEmpty(
-			Arr.map(rows, (row) => String(row[0])),
-			`the values of ${parameter}`
-		)
-	})
 
 /**
  * Stores `change` as the login's default of its setting's parameter, as the migration identity, whose session must have
@@ -140,7 +120,7 @@ const changedDefault = (fx: Fixture, change: DefaultChange) =>
 
 layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 	it.effect(
-		"admits a login exactly under the stored policy, whose session and typed approximateNearest read run under it",
+		"stores the policy as the login's defaults, whose session and typed approximateNearest read run under it",
 		(ctx) =>
 			searched(
 				ctx,
@@ -163,40 +143,21 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 						assert.deepEqual(rows, [[p.value]], p.parameter)
 					}
 					const role = loginRole(fx)
-					const listed = yield* Effect.forEach(searchPolicySettings, (setting) =>
-						Effect.map(valuesOf(setting.parameter), (taken) => [setting.parameter, taken] as const)
-					)
-					const values = new Map(listed)
 					return yield* exhaust(
 						{
 							suite: "pg/vector/policy",
 							generator: (source): DefaultChange => {
 								const setting = source.draw(element(searchPolicySettings))
-								const taken = defined(values.get(setting.parameter), setting.parameter)
-								return {
-									setting,
-									value: source.draw(
-										oneOf([constant(Option.none<string>()), map(element(taken), Option.some)])
-									)
-								}
+								return { setting, value: Option.some(setting.value) }
 							},
 							literal: Formatter.format,
-							limit: Arr.reduce(
-								searchPolicySettings,
-								0,
-								(n, setting) =>
-									n + 1 + defined(values.get(setting.parameter), setting.parameter).length
-							),
-							box: "the login's default of each policy setting at every value PostgreSQL lists for its parameter, and removed",
+							limit: searchPolicySettings.length,
+							box: "the login's default of each policy setting at the policy's value",
 							oracle: {
 								kind: "specification",
-								name: "admission holds the login's stored defaults to the policy's: one removed or changed is refused at settings"
+								name: "the login's stored defaults are the policy's, and a Db's typed approximateNearest read fills its request under them"
 							},
-							coverage: requiredInSpace<PolicyFeature>([
-								"the stored policy fills the read",
-								"a lost default refused",
-								"a changed default refused"
-							]),
+							coverage: requiredInSpace<PolicyFeature>(["the stored policy fills the read"]),
 							caseHang
 						},
 						(change, k) =>
@@ -204,37 +165,6 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 								Effect.gen(function* () {
 									yield* changedDefault(fx, change)
 									const open = openDbContext(fx.opened.server.roles.app, {})
-									const { setting } = change
-									if (!Option.contains(change.value, setting.value)) {
-										const error = yield* Effect.flip(
-											open.pipe(Effect.scoped, withLayer(fx.opened.layer))
-										)
-										assert.ok(error instanceof OpenError)
-										assert.equal(error.stage, "settings")
-										assert.ok(error.reason instanceof AdmissionRefused)
-										assert.deepEqual(
-											Arr.map(error.reason.mismatches, (m) => [
-												m.stage,
-												m.check,
-												m.expected,
-												m.observed
-											]),
-											[
-												[
-													"settings",
-													`role ${role} default ${setting.parameter}`,
-													setting.value,
-													Option.getOrElse(change.value, () => "<not set>")
-												]
-											]
-										)
-										k.note(
-											Option.isNone(change.value)
-												? "a lost default refused"
-												: "a changed default refused"
-										)
-										return
-									}
 									yield* Effect.gen(function* () {
 										const { db, ctx: dbCtx } = yield* open
 										assert.deepEqual(

@@ -15,9 +15,9 @@ import { emitCatalog, type ParamText } from "#compiler/plan/common.ts"
 import { textArrayParam, textParam } from "#compiler/plan/read.ts"
 
 /**
- * The settings, privileges, attributes, memberships, members, policies and row security statements both admissions
- * run, and their comparison with what the target snapshot installs (compiler/deploy/admission/roles.ts): Db.open's for
- * the opened role and its login, the drift check's for every login and role the snapshot creates.
+ * The settings, privileges, attributes, memberships, members and policies statements the drift check runs for every login
+ * and role the snapshot creates, and their comparison with what the target snapshot installs
+ * (compiler/deploy/admission/roles.ts).
  *
  * Every statement is a catalog read, a catalog-read AST the engine prints (sql/catalog.ts), whose cells are never NULL.
  * The privileges statement takes the expected
@@ -193,15 +193,6 @@ export const roleDifferences = (
 	...scopeDifferences(stored, "roleInDatabase", { settings: new Map(), holds: "exactly" })
 ]
 
-/** Every difference in every scope Db.open judges for `expectation`'s role: the database's and the role's. */
-export const settingDifferences = (
-	stored: ReadonlyArray<StoredSetting>,
-	expectation: RoleExpectation
-): ReadonlyArray<SettingDifference> => [
-	...databaseDifferences(stored),
-	...roleDifferences(stored, expectation)
-]
-
 /** A privilege the role should hold and does not, or holds and should not. */
 export interface PrivilegeDifference {
 	readonly kind: "missing" | "unexpected"
@@ -346,8 +337,8 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 }
 
 /**
- * The relation of an expected privilege `e`, found through the catalog by its schema and name: admission reads a role's
- * privileges as its login, which holds no USAGE on the role's schema, where a lookup by qualified name is refused.
+ * The relation of an expected privilege `e`, found through the catalog by its schema and name, which needs no USAGE on
+ * the role's schema, as a lookup by qualified name does.
  */
 const relationOid = (e: C.CatalogSource): C.CatalogExpr => {
 	const c = C.from("pg_class", "c")
@@ -756,68 +747,8 @@ export const attributeDifferences = (
 	return out
 }
 
-/**
- * Row security of the tables $2 of the installation's level schemas $1 (text[]): each table that exists, whether row
- * security is enabled and whether it is forced.
- */
-interface TableSecurity {
-	readonly table: string
-	readonly enabled: boolean
-	readonly forced: boolean
-}
-
 const classes = C.from("pg_class", "c")
 const namespaces = C.from("pg_namespace", "n")
-const classesInSchemas = C.join(
-	classes.item,
-	namespaces.item,
-	C.eq(namespaces.col("oid"), classes.col("relnamespace"))
-)
-
-export const rowSecurityQuery: CatalogQuery<TableSecurity> = {
-	sql: emitCatalog(
-		C.query(
-			[
-				C.asText(classes.col("relname")),
-				C.asText(classes.col("relrowsecurity")),
-				C.asText(classes.col("relforcerowsecurity"))
-			],
-			[classesInSchemas],
-			C.and([
-				C.any(C.asText(namespaces.col("nspname")), C.arrayParam(1, "text")),
-				C.any(classes.col("relname"), C.arrayParam(2, "text"))
-			])
-		)
-	),
-	what: "a table's row security",
-	row: ([table, enabled, forced]) => {
-		const e = flag(enabled)
-		const f = flag(forced)
-		return table === undefined || e === undefined || f === undefined
-			? undefined
-			: { table, enabled: e, forced: f }
-	}
-}
-
-/**
- * Each table the role writes through a query entry whose row security is not enabled, or forced, or that is missing.
- */
-export const rowSecurityDifferences = (
-	held: ReadonlyArray<TableSecurity>,
-	expectation: RoleExpectation
-): ReadonlyArray<{ readonly table: string; readonly observed: string }> =>
-	Arr.flatMap(expectation.secured, (table) => {
-		const t = Arr.findFirst(held, (h) => h.table === table)
-		const observed = Option.isNone(t)
-			? Option.some("no such table")
-			: !t.value.enabled
-				? Option.some("disabled")
-				: t.value.forced
-					? Option.some("forced")
-					: Option.none()
-		return Option.isNone(observed) ? [] : [{ table, observed: observed.value }]
-	})
-
 const policies = C.from("pg_policy", "p")
 
 /** The policies naming the role $1 on the tables of the installation's level schemas $2 (text[]), each by its table and

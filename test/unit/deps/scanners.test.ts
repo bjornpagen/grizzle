@@ -1,11 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
-import { element, oneOf, string } from "@grizzle/testing/gen"
+import { element, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { isCUtf8 } from "#adapter/admission/expectation.ts"
 import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -24,38 +23,6 @@ const textOf = (letters: string, maxLength: number) =>
 	string(element(nonEmpty(Arr.fromIterable(letters), "an alphabet")), { min: 0, max: maxLength })
 
 describe("scanners that replace a RegExp under src", () => {
-	it.effect("isCUtf8 accepts exactly /^C\\.UTF-?8$/i", (ctx) =>
-		Effect.gen(function* () {
-			const reference = regex("^C\\.UTF-?8$", "i")
-			const texts = oneOf([
-				textOf("cCuUtTfF.-_8 Kſİ", 9),
-				element(["C.UTF-8", "c.utf8", "C.utf-8", "C.UTF-8 ", "C", "POSIX", "en_US.UTF-8"])
-			])
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/deps/scanners-1",
-						draw: drawn(texts),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: numRuns,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(text) =>
-						Effect.sync(() => {
-							assert.equal(isCUtf8(text), reference.test(text))
-						})
-				)
-			)
-		})
-	)
-
 	it.effect("Sqlstate.parse reads exactly /^[0-9A-Z]{5}$/, as the text itself", (ctx) =>
 		Effect.gen(function* () {
 			const reference = regex("^[0-9A-Z]{5}$")

@@ -190,7 +190,7 @@ const roleReadsContext = (role: RoleDesc): boolean =>
 export const dbSessions = <R>(
 	login: AnyLogin,
 	role: string
-): Effect.Effect<DbSessions, OpenError, DbLayerService<R>> =>
+): Effect.Effect<DbSessions, OpenError<RoleOutsideLayers>, DbLayerService<R>> =>
 	Effect.flatMap(Effect.context<DbLayerService<R>>(), (context) => {
 		const desc = loginDescOf(login)
 		const found =

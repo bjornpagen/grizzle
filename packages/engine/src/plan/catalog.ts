@@ -17,7 +17,6 @@ export {
 	roleExpectation,
 	type RoleExpectation
 } from "#compiler/deploy/admission/roles.ts"
-export { snapshotMismatch } from "#compiler/deploy/admission/target.ts"
 export { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 export { type InstallNames, missing } from "#compiler/physical/ddl/names.ts"
 export { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"

@@ -6,8 +6,7 @@ import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { OpenError } from "#adapter/errors/execution.ts"
-import { type AdmissionMismatch, AdmissionRefused } from "#adapter/errors/failures.ts"
+import { Drifted } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -36,10 +35,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * it through a narrowed entry, and then holds exactly one policy per writer of it, the narrowed writer's its entry's
  * membership and a whole writer's TRUE, since under row security a role with no policy writes nothing; a table no writer
  * narrows has neither row security nor a policy, the migration dropping both where an earlier version had them. At the
- * last version Db.open admits both roles, and the installed-catalog checker finds nothing. Then a drawn change by hand,
- * row security disabled or forced on every table under it: Db.open refuses exactly the roles that write one of them
- * through a narrowed entry, each with one mismatch per such table, its row security as changed (README "Connecting"),
- * and admits the rest.
+ * last version both roles open, and the installed-catalog checker finds nothing. Then a drawn change by hand, row
+ * security disabled or forced on every table under it: both roles still open, since Db.open checks nothing of the
+ * database, and the drift check grizzle migrate runs refuses exactly a catalog with a changed table, naming each.
  */
 
 /** How a role holds a relation: whole, or through a query entry fixing the shelf at 1 or at 2. */
@@ -145,11 +143,6 @@ const versionOf = (name: string, uses: Uses) => {
 
 type Built = ReturnType<typeof versionOf>
 
-/** An admission mismatch as a case compares it: its stage, its check and the value observed. */
-type Shown = readonly [stage: AdmissionMismatch["stage"], check: string, observed: string]
-
-const shown = (m: AdmissionMismatch): Shown => [m.stage, m.check, m.observed]
-
 /** A policy as the rule judges it: its table, its roles, and whether both its USING and its WITH CHECK admit every
  * row. */
 interface PolicySeen {
@@ -196,17 +189,13 @@ type RowSecurityFeature =
 	| "row security added"
 	| "row security dropped"
 	| "a narrowed writer's filter changed"
-	| `a narrowed writer refused, row security ${Planted}`
-	| "a role admitted beside a changed table"
+	| `a changed table drifted, row security ${Planted}`
+	| "no table changed"
 
 const secureds = (uses: Uses): ReadonlyArray<RelationName> =>
 	Arr.filter(relationNames, (r) =>
 		Arr.some(roleNames, (who) => uses[who][r].writes && uses[who][r].holds !== "whole")
 	)
-
-/** The relations a role writes through a narrowed entry. */
-const narrowedBy = (uses: Uses, who: RoleName): ReadonlyArray<RelationName> =>
-	Arr.filter(relationNames, (r) => uses[who][r].writes && uses[who][r].holds !== "whole")
 
 const featuresOf = (
 	history: Arr.NonEmptyReadonlyArray<Uses>
@@ -268,7 +257,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: 'row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration; Db.open\'s admission of a role, refused exactly for a narrowed writer of a changed table (README "Connecting")'
+							name: 'row security exactly where a writer narrows, one policy per writer there, read from the catalog after each migration; the drift check, refusing exactly a catalog whose row security was changed by hand'
 						},
 						coverage: required<RowSecurityFeature>(
 							[
@@ -277,9 +266,9 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 								"row security added",
 								"row security dropped",
 								"a narrowed writer's filter changed",
-								"a narrowed writer refused, row security disabled",
-								"a narrowed writer refused, row security forced",
-								"a role admitted beside a changed table"
+								"a changed table drifted, row security disabled",
+								"a changed table drifted, row security forced",
+								"no table changed"
 							],
 							{ cases: 12, sense: notesOnly }
 						),
@@ -378,33 +367,29 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 									)
 								}
 								for (const who of roleNames) {
-									const opened = yield* Effect.result(
-										withDb(
-											m,
-											who === "clerk" ? last.login.roles.clerk : last.login.roles.keeper,
-											() => Effect.void
-										)
+									yield* withDb(
+										m,
+										who === "clerk" ? last.login.roles.clerk : last.login.roles.keeper,
+										() => Effect.void
 									)
-									const expected = Arr.map(narrowedBy(lastUses, who), (r): Shown => [
-										"privileges",
-										`row security of ${tableOf(r)}`,
-										planted
-									])
-									if (!Arr.isReadonlyArrayNonEmpty(expected)) {
-										assertVariant(opened, "_tag", "Success", `${who} admitted`)
-										if (Arr.isReadonlyArrayNonEmpty(changed)) {
-											k.note("a role admitted beside a changed table")
-										}
-										continue
-									}
-									assertVariant(opened, "_tag", "Failure", `${who} refused`)
-									const error = opened.failure
-									assertInstanceOf(error, OpenError)
-									const reason = error.reason
-									assertInstanceOf(reason, AdmissionRefused)
-									unorderedEqual(Arr.map(reason.mismatches, shown), expected)
-									k.note(`a narrowed writer refused, row security ${planted}`)
 								}
+								const drift = yield* Effect.result(m.reapply)
+								if (!Arr.isReadonlyArrayNonEmpty(changed)) {
+									assertVariant(drift, "_tag", "Success", "drift admits the unchanged catalog")
+									k.note("no table changed")
+									return
+								}
+								assertVariant(drift, "_tag", "Failure", "drift refuses the changed tables")
+								const reason = drift.failure.reason
+								assertInstanceOf(reason, Drifted)
+								const facts = Arr.map(reason.mismatches, (d) => d.fact)
+								for (const r of changed) {
+									assert.ok(
+										Arr.some(facts, (f) => f.includes(tableOf(r))),
+										`drift names the changed table ${tableOf(r)}: ${facts.join("; ")}`
+									)
+								}
+								k.note(`a changed table drifted, row security ${planted}`)
 							})
 						)
 				)

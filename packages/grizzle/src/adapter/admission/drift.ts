@@ -101,10 +101,10 @@ import { textParam } from "#compiler/plan/read.ts"
  * empty snapshot alters none and owns nothing, so it judges no one's), every login and role the snapshot creates
  * exists with its attributes (a login LOGIN NOINHERIT, a role NOLOGIN, neither SUPERUSER, CREATEDB, CREATEROLE,
  * REPLICATION or BYPASSRLS), each one's settings, privileges, memberships, members and policies are exactly the
- * snapshot's (roles.ts, the statements Db.open runs for its own login and role), every extension the snapshot creates
- * lives in the schema it names, and the ledger's latest complete target is the snapshot's with no folder partial
- * (ledgerMismatches). A grant to a role the snapshot does not create is not drift, unless it makes that role a member
- * of a login or theory role beyond what the snapshot grants: then something besides the login acts through it.
+ * snapshot's (roles.ts), every extension the snapshot creates lives in the schema it names, and the ledger's latest
+ * complete target is the snapshot's with no folder partial (ledgerMismatches). A grant to a role the snapshot does not
+ * create is not drift, unless it makes that role a member of a login or theory role beyond what the snapshot grants:
+ * then something besides the login acts through it.
  *
  * Every read is a catalog-read AST the engine prints (sql/catalog.ts). Every value read is text and never NULL: a
  * description's parts are joined by concat_ws, which leaves out a part the object lacks and returns text in any case.

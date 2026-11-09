@@ -1,10 +1,9 @@
-import { type Array as Arr, Data } from "effect"
+import { Data } from "effect"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
 import type { Family, Law, Unsendable } from "#compiler/plan/change.ts"
 import {
 	admittedIdentifier,
 	type ColumnIdent,
-	type CompileError,
 	type ConstraintName,
 	type DomainName,
 	type Identifier,
@@ -24,7 +23,7 @@ import {
  * getter, never a stored field. `cause` is only a foreign value wrapped: what the password Effect
  * (CredentialError) or the layer's verify (TokenError) failed with or threw. The adapter classifies each failure once,
  * where it happens: a connection attempt where pg reports it (wire/session.ts), a statement's answer where its flight
- * drains (wire/batch.ts), an admission where it compares (adapter/admission).
+ * drains (wire/batch.ts), a catalog read where its rows are parsed (wire/statement.ts).
  *
  * Each class is its value's one constructor, the adapter's and the public barrel's alike, so an application's test
  * builds the exact value grizzle fails with. A constructor that reads a name the server or the installation gave (a
@@ -323,55 +322,6 @@ export class ClaimRefused extends Data.TaggedError("ClaimRefused")<{
 	}
 }
 
-/**
- * The stages admission reports, in the order it reports them (adapter/admission/admit.ts): the server, its database
- * and the extensions the schema needs; whether the database holds the snapshot; and the database's and the login's
- * settings and the login's and the role's privileges against it.
- */
-const admissionStages = [
-	"version",
-	"locale",
-	"capability",
-	"ledger",
-	"settings",
-	"privileges"
-] as const
-export type AdmissionStage = (typeof admissionStages)[number]
-
-/** One check admission found unmet: what was checked (a setting, a catalog property or an extension), at its stage. */
-export type AdmissionMismatch = {
-	readonly stage: AdmissionStage
-	readonly check: string
-	readonly expected: string
-	readonly observed: string
-}
-
-/**
- * A refused admission: every mismatch found, each naming the check, the value required and the value observed. Its
- * stage is the first, in admission's order, with a mismatch. Settings and catalog properties are not secrets, and
- * nothing else is reported.
- */
-export class AdmissionRefused extends Data.TaggedError("AdmissionRefused")<{
-	readonly mismatches: Arr.NonEmptyReadonlyArray<AdmissionMismatch>
-}> {
-	/** The first stage, in admission's order, a mismatch is at. */
-	get stage(): AdmissionStage {
-		let least = this.mismatches[0].stage
-		for (const mismatch of this.mismatches) {
-			if (admissionStages.indexOf(mismatch.stage) < admissionStages.indexOf(least)) {
-				least = mismatch.stage
-			}
-		}
-		return least
-	}
-
-	override get message(): string {
-		const [first, ...rest] = this.mismatches
-		const more = rest.length === 0 ? "" : ` (and ${rest.length} more)`
-		return `${first.check}: expected ${first.expected}, observed ${first.observed}${more}`
-	}
-}
-
 /** The catalog answered what its statement cannot: `what` is what the statement answers. */
 export class CatalogRowRefused extends Data.TaggedError("CatalogRowRefused")<{
 	readonly what: string
@@ -450,7 +400,7 @@ const fateText: Readonly<Record<TransactionFate, string>> = {
 
 /**
  * Statement `index` answered rows grizzle cannot read: a NULL cell, or a cell that is no text (only a catalog change
- * since admission makes one, such as a dropped NOT NULL), a plan that is no plan, or rows its compiled proof says it
+ * since the migration makes one, such as a dropped NOT NULL), a plan that is no plan, or rows its compiled proof says it
  * cannot deliver (a second row of a query proved at most one row, more rows than its LIMIT binds, a probe that is not
  * one row of one Boolean). The server ran it, so it decided nothing; `fate` is what the flight's transaction then did,
  * "committed" for a statement alone, which commits at its own Sync.
@@ -461,27 +411,6 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 }> {
 	override get message(): string {
 		return `statement ${this.index} answered rows grizzle cannot read, and ${fateText[this.fate]}`
-	}
-}
-
-/**
- * Admission could not run to a verdict, for `failure`: a statement of its flight was refused (the server's report),
- * the session failed, the catalog answered rows its statements cannot give, what it read does not compile (the
- * ledger's or the snapshot's statements), or its flight is longer than one write carries, refused unwritten.
- */
-export class AdmissionFailed extends Data.TaggedError("AdmissionFailed")<{
-	readonly failure:
-		| ServerError
-		| ConnectionLost
-		| CommitLost
-		| DriverFailure
-		| UnreadableAnswer
-		| CatalogRowRefused
-		| CompileError
-		| InputTooLarge
-}> {
-	override get message(): string {
-		return `admission reached no verdict: ${this.failure.message}`
 	}
 }
 
@@ -761,21 +690,6 @@ export class ConcurrentRefresh extends Data.TaggedError("ConcurrentRefresh")<{
 }> {
 	override get message(): string {
 		return `another refresh of ${this.relation} committed after this transaction's snapshot`
-	}
-}
-
-/**
- * Admission's transaction was refused for a reason outside Db.open's inputs, and it changed nothing: SERIALIZABLE found
- * no serial order of it and a concurrent transaction (40001), as it may for any transaction once it summarizes old
- * committed ones under load, or a deadlock (40P01). Retryable, as a call's TransientFailure is: the same Db.open may
- * succeed if it runs again, and grizzle never retries. `reason` says which, and `error` is the server's report.
- */
-export class AdmissionTransient extends Data.TaggedError("AdmissionTransient")<{
-	readonly reason: SerializationFailure | Deadlock
-	readonly error: ServerError
-}> {
-	override get message(): string {
-		return `the database refused admission's transaction, which changed nothing: ${this.reason.message}`
 	}
 }
 

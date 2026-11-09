@@ -1,13 +1,12 @@
 import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
-import { admit } from "#adapter/admission/admit.ts"
-import { admissionExpectation } from "#adapter/admission/expectation.ts"
+import { capabilitiesOf } from "#adapter/admission/expectation.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { workloadHandles, workloadMissing } from "#adapter/db/workload.ts"
-import { OpenError } from "#adapter/errors/execution.ts"
+import { type DbOpenReason, OpenError } from "#adapter/errors/execution.ts"
 import {
-	ClaimRefused,
+	type ClaimRefused,
 	MissingCapability,
 	RoleOutsideLayers,
 	TokenError
@@ -19,17 +18,20 @@ import { prologueOf } from "#adapter/wire/batch.ts"
 import {
 	type AnyRole,
 	catchCompileError,
+	type CompileError,
 	defect,
 	type LoginRole,
 	loginRoleOf,
 	malformedDescription,
 	SourceLoc
 } from "#compiler/plan/common.ts"
+import { manifestStatements, roleExpectation } from "#compiler/plan/catalog.ts"
 import { hostArguments } from "#compiler/plan/read.ts"
+import { toResult } from "#adapter/engine.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 
-const refusedOption = (capability: string): OpenError =>
+const refusedOption = (capability: string): OpenError<CompileError> =>
 	new OpenError({ reason: malformedDescription(openLoc, capability) })
 
 /**
@@ -66,7 +68,7 @@ const dbClaims = (
 	sessions: DbSessions,
 	contexts: ReadonlyArray<TypedContext>,
 	token: Option.Option<string>
-): Effect.Effect<Claims, OpenError> => {
+): Effect.Effect<Claims, OpenError<TokenError | ClaimRefused>> => {
 	const check = sessions.token
 	if (Option.isNone(token) || check.kind === "none") {
 		return Effect.succeed(noClaims)
@@ -93,7 +95,9 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
  * a getter or a setter, and a token that is no string are each refused at stage schema. The types require the options
  * and type the token, so only a JavaScript caller meets a refusal here.
  */
-export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
+export const openToken = (
+	options: unknown
+): Result.Result<Option.Option<string>, OpenError<CompileError>> => {
 	if (!isRecord(options)) {
 		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
 	}
@@ -122,8 +126,11 @@ export interface OpenedDb<R, P> {
 /**
  * Db.open(Web.roles.member, { token? }), and the context the Db reads.
  *
- * Opening acquires a database for a role reached through its login and admits it before it yields; it never installs
- * or changes a schema. In order:
+ * Opening builds a database handle for a role reached through its login, on the host alone: it contacts nothing and
+ * checks nothing of the database, which is the one its snapshot was migrated to (grizzle migrate and grizzle drift judge
+ * it), so a request's first call is its first round trip. Every transaction of the Db still takes the fence first, the
+ * ledger's lock and the snapshot guard, and fails with StaleSnapshot at a database another snapshot leads or a
+ * migration holds. It never installs or changes a schema. In order:
  *
  * 1. The role and the options. A value that is no role reached through its login (Web.roles.member) is
  *    OpenError{stage: "schema"} whose reason is the CompileError, and so are options a JavaScript caller passes that are
@@ -137,25 +144,18 @@ export interface OpenedDb<R, P> {
  * 4. The token. A Db opened with a token turns it into claims once: the layer's verify runs on it, and the payload it
  *    returns is decoded through the contexts the role's relations read (claims.ts). A refusal is OpenError{stage:
  *    "token"} whose reason is verify's TokenError, or ClaimRefused for a payload that does not decode. A Db opened
- *    without one, or on a layer whose login reads no context, has no context facts.
- * 5. Admission (../admission), one flight on the login's pool: the server version, the database's encoding and builtin
- *    C.UTF-8 locale and the schema's extensions; the fence every transaction of the Db takes, the ledger's lock NOWAIT
- *    and the guard of the snapshot's fingerprint, refused while a migration runs and once the ledger holds another;
- *    and the database's and the login's role settings, the login's membership in the role, and the role's
- *    privileges and policies against the snapshot. The installed extensions are kept on the Db's context, for the
- *    capability check of each program it runs. The same flight asks each refined claim's domain whether it admits the
- *    claim, PostgreSQL being the one judge of a pattern or a contract's predicate: once admission passes, a claim it
- *    refused is OpenError{stage: "token"} whose reason is ClaimRefused naming the field. Every failure while opening is
- *    OpenError, a CredentialError its reason on a credential failure.
+ *    without one, or on a layer whose login reads no context, has no context facts. PostgreSQL judges a claim of a
+ *    refined field where a statement reads it, by its field's domain.
+ * 5. The workload. The capabilities a Db can name are its snapshot's (admission/expectation.ts capabilitiesOf): a
+ *    workload program needing an extension the snapshot does not install is OpenError{stage: "capability"}.
  *
- * Admission compares the ledger, the settings and the privileges with the snapshot the layer was given (DbConfig): no
- * snapshot is ever derived from the schema alone. The Db's workload handles (`db.workload`) are built here over the
- * programs the layer compiled for the role, each ChangeSet's for the contexts the Db's claims hold a fact of.
+ * The Db's workload handles (`db.workload`) are built here over the programs the layer compiled for the role, each
+ * ChangeSet's for the contexts the Db's claims hold a fact of.
  */
 export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	role: LoginRole<R, P>,
 	options: OpenOptions<R>
-): Effect.fn.Return<OpenedDb<R, P>, OpenError, DbLayerService<R>> {
+): Effect.fn.Return<OpenedDb<R, P>, OpenError<DbOpenReason>, DbLayerService<R>> {
 	const reached = loginRoleOf(role)
 	if (reached === undefined) {
 		return yield* refusedOption("a role reached through its login: Db.open(Web.roles.member, ...)")
@@ -174,26 +174,14 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 	const desc = schema.desc
 	const snapshot = sessions.snapshot
 	const claims = yield* dbClaims(sessions, contexts, token)
-	const pool = sessions.pool
-	const admitted = yield* admit(pool, admissionExpectation(artifacts), {
-		artifacts,
-		loginRole: sessions.loginRole,
-		role: desc,
-		snapshot,
-		claims: claims.values
-	})
-	/**
-	 * A refined claim PostgreSQL found no value of its field's domain is refused as the token's, after admission.
-	 */
-	const [refusedClaim] = admitted.refusedClaims
-	if (refusedClaim !== undefined) {
-		return yield* new OpenError({
-			reason: new ClaimRefused({
-				context: refusedClaim.context,
-				fault: { kind: "refused", field: refusedClaim.field }
-			})
-		})
-	}
+	const statements = yield* Effect.mapError(
+		Effect.fromResult(toResult(manifestStatements(snapshot))),
+		(reason) => new OpenError({ reason })
+	)
+	const capabilities = capabilitiesOf(
+		statements,
+		roleExpectation(statements, artifacts.names.schema, theory)
+	)
 	const ctx: DbContext = {
 		schema,
 		declared,
@@ -204,10 +192,10 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 		compile,
 		witness,
 		bind,
-		pool,
-		...admitted.capabilities
+		pool: sessions.pool,
+		...capabilities
 	}
-	const missing = workloadMissing(workload, admitted.capabilities)
+	const missing = workloadMissing(workload, capabilities)
 	if (Option.isSome(missing)) {
 		return yield* new OpenError({
 			reason: new MissingCapability({ capability: missing.value })

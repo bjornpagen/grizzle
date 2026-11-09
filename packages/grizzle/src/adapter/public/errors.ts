@@ -1,6 +1,7 @@
 export {
 	type ApplyError,
 	CommitUnknown,
+	type DbOpenReason,
 	ExecutionFailure,
 	type ExecutionReason,
 	OpenError,
@@ -19,11 +20,6 @@ export {
 
 export {
 	type AcquireRefusal,
-	AdmissionFailed,
-	type AdmissionMismatch,
-	AdmissionRefused,
-	type AdmissionStage,
-	AdmissionTransient,
 	CatalogRowRefused,
 	type ClaimFault,
 	ClaimRefused,

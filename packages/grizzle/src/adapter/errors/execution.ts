@@ -1,11 +1,7 @@
 import { Data } from "effect"
 import {
 	type AcquireRefusal,
-	AdmissionFailed,
-	AdmissionRefused,
-	type AdmissionStage,
-	AdmissionTransient,
-	ClaimRefused,
+	type ClaimRefused,
 	CommitLost,
 	ConcurrentRefresh,
 	ConnectionEnvironmentRefused,
@@ -36,7 +32,6 @@ import {
 	type CompileError,
 	type EncodingFailure,
 	SchemaFingerprint,
-	sqlstateClass,
 	sqlstates,
 	type TransientReason as EngineTransientReason
 } from "#compiler/plan/common.ts"
@@ -49,92 +44,52 @@ import {
  *
  * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure or StaleSnapshot),
  * a page also with the engine's CursorError; a write or refresh with ApplyError (the engine's EncodingFailure,
- * TransientFailure, TransportFailure, ExecutionFailure, CommitUnknown or StaleSnapshot); compile with
- * the engine's CompileError. `invariant-rejected` is an outcome value, never an error, and a defect stays a defect.
+ * TransientFailure, TransportFailure, ExecutionFailure, CommitUnknown or StaleSnapshot); compile with the engine's
+ * CompileError. `invariant-rejected` is an outcome value, never an error, and a defect stays a defect.
  * Every failure the server raised carries the server's own report (failures.ts ServerError): its SQLSTATE, message,
  * DETAIL and HINT as given.
  */
 
 /**
- * Why opening a Db failed: no session (AcquireRefusal); a DbConfig no connection can use, or an environment that sets
- * a connection option grizzle cannot override; a role no provided layer serves; a token verify refused or threw, or
- * claims that do not decode through the role's contexts; a schema, login, snapshot or option value that does not
- * compile or parse (CompileError), a login whose role name the naming door refuses included; an admission refused; an
- * admission whose transaction SERIALIZABLE refused, which is retryable (AdmissionTransient); or an admission that could
- * not run to a verdict.
+ * Why opening a Db or building a DbLayer failed, on the host, before anything is sent: a DbConfig no connection can
+ * use, or an environment that sets a connection option grizzle cannot override; a role no provided layer serves; a
+ * token verify refused or threw, or claims that do not decode through the role's contexts; a schema, login, snapshot or
+ * option value that does not compile or parse (CompileError), a login whose role name the naming door refuses
+ * included; a workload out of step with the snapshot, or one needing an extension the snapshot does not install.
  */
 export type OpenReason =
-	| AcquireRefusal
 	| DbConfigRefused
 	| ConnectionEnvironmentRefused
 	| RoleOutsideLayers
 	| TokenError
 	| ClaimRefused
 	| CompileError
-	| AdmissionRefused
-	| AdmissionTransient
-	| AdmissionFailed
 	| MissingCapability
 	| WorkloadUngenerated
 
 /**
- * Where acquiring a session failed: the password Effect, TLS, authentication (a refusal of SQLSTATE class 28), anything
- * else on the way to ReadyForQuery, or a DbLayer whose scope has closed.
+ * Why Db.open refused, which it judges on the host alone: a role no provided layer serves; a token verify refused or
+ * threw, or claims that do not decode; a value that does not compile; or a workload program needing an extension the
+ * snapshot does not install.
  */
-type AcquireStage = "credential" | "tls" | "authentication" | "connect" | "released"
+export type DbOpenReason =
+	| RoleOutsideLayers
+	| TokenError
+	| ClaimRefused
+	| CompileError
+	| MissingCapability
 
 /**
- * Where opening a Db failed: an acquisition's stage; `config`, a DbConfig or the environment's connection options
- * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify
- * refused or whose claims do not decode; `schema`, a value that does not compile or parse, or a layer whose snapshot
- * does not record its workloads (WorkloadUngenerated); admission's stage, `capability` for a workload program needing
- * an extension the database lacks too; or `admission`, an admission with no verdict, its transaction refused by
- * SERIALIZABLE (retryable) or failed otherwise.
+ * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
+ * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
+ * or whose claims do not decode; `schema`, a value that does not compile or parse, or a layer whose snapshot does not
+ * record its workloads (WorkloadUngenerated); or `capability`, a workload program needing an extension the snapshot does
+ * not install.
  */
-export type OpenStage =
-	| AcquireStage
-	| AdmissionStage
-	| "config"
-	| "role"
-	| "token"
-	| "schema"
-	| "admission"
-
-/** The stage of an acquisition's refusal. */
-const acquireStage = (reason: AcquireRefusal): AcquireStage => {
-	switch (reason._tag) {
-		case "CredentialError":
-			return "credential"
-		case "TlsRefused":
-			return "tls"
-		case "StartupRefused":
-			return sqlstateClass(reason.error.sqlstate) ===
-				sqlstateClass(sqlstates.invalidAuthorizationSpecification)
-				? "authentication"
-				: "connect"
-		case "ConnectTimedOut":
-		case "SocketFailed":
-		case "ConnectionClosed":
-		case "DriverRefused":
-		case "NoCancelKey":
-			return "connect"
-		case "LayerReleased":
-			return "released"
-	}
-}
+export type OpenStage = "config" | "role" | "token" | "schema" | "capability"
 
 const openStage = (reason: OpenReason): OpenStage => {
 	switch (reason._tag) {
-		case "CredentialError":
-		case "TlsRefused":
-		case "StartupRefused":
-		case "ConnectTimedOut":
-		case "SocketFailed":
-		case "ConnectionClosed":
-		case "DriverRefused":
-		case "NoCancelKey":
-		case "LayerReleased":
-			return acquireStage(reason)
 		case "DbConfigRefused":
 		case "ConnectionEnvironmentRefused":
 			return "config"
@@ -146,20 +101,18 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "CompileError":
 		case "WorkloadUngenerated":
 			return "schema"
-		case "AdmissionRefused": {
-			const refused: AdmissionRefused = reason
-			return refused.stage
-		}
-		case "AdmissionTransient":
-		case "AdmissionFailed":
-			return "admission"
 		case "MissingCapability":
 			return "capability"
 	}
 }
 
-/** Opening a Db, or building a DbLayer, failed for `reason`, at the stage that reason fails at. */
-export class OpenError extends Data.TaggedError("OpenError")<{ readonly reason: OpenReason }> {
+/**
+ * Opening a Db or building a DbLayer failed for `reason`, at the stage that reason fails at. `R` is the reasons where it
+ * is raised can give: Db.open's DbOpenReason, every reason for DbLayer.make.
+ */
+export class OpenError<out R extends OpenReason = OpenReason> extends Data.TaggedError("OpenError")<{
+	readonly reason: R
+}> {
 	get stage(): OpenStage {
 		return openStage(this.reason)
 	}
@@ -263,9 +216,9 @@ export class ReadFailure extends Data.TaggedError("ReadFailure")<{ readonly reas
 
 /**
  * The database refused this attempt for a reason outside the call's inputs, and the attempt changed nothing: a
- * concurrent transaction's work met it. This is what retryable means, and the only call error it applies to (Db.open's
- * is OpenError's AdmissionTransient): the same call with the same inputs may succeed if it runs again. grizzle makes one
- * attempt per call and never retries; a caller that wants another attempt runs the call again (Effect.retry
+ * concurrent transaction's work met it. This is what retryable means, and the only call error it applies to: the same
+ * call with the same inputs may succeed if it runs again. grizzle makes one attempt per call and never retries; a caller
+ * that wants another attempt runs the call again (Effect.retry
  * with its own Schedule, while the error is a TransientFailure). `reason` says what grizzle read the refusal as, and
  * `error` is the server's report of it.
  */
@@ -302,9 +255,9 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
 }
 
 /**
- * The refusal SERIALIZABLE gives any transaction, admission's, a read's or a write's, from the server's report: 40001,
- * no serial order, or 40P01, a deadlock; undefined for any other report. The one reading of it: a call's
- * TransientFailure (serializationRefusal) and admission's AdmissionTransient (admission/admit.ts admissionFailure).
+ * The refusal SERIALIZABLE gives any transaction, a read's or a write's, from the server's report: 40001, no serial
+ * order, or 40P01, a deadlock; undefined for any other report: the one reading of it, a call's TransientFailure
+ * (serializationRefusal).
  */
 export const serializableRefusal = (
 	error: ServerError
@@ -352,8 +305,7 @@ export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
 
 /**
  * A failed read: at run time or refused before any SQL (ReadFailure), refused by SERIALIZABLE (40001 or 40P01, which a
- * read-only serializable transaction can meet too) or by a stale statement, the one failure the same read may not meet
- * again, or refused by the fence (StaleSnapshot).
+ * read-only serializable transaction can meet too), or refused by the fence (StaleSnapshot).
  */
 export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
 

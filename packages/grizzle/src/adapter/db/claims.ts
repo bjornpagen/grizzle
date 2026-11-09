@@ -40,8 +40,8 @@ import { scalarCodec, type ScalarCodec } from "#compiler/plan/read.ts"
  * refuses.
  *
  * A field whose type is refined, by a pattern or a contract's predicate, is judged by PostgreSQL, never on the host:
- * Db.open's admission flight asks the field's domain whether it admits each such value (admission/admit.ts), and a
- * value it refuses is a ClaimRefused like the others, at stage `token`.
+ * every statement that reads the context casts each claim to the type it is judged by, its domain included (sql/print.ts
+ * contextClaims), so a value its refinement refuses fails that statement with the domain's error.
  *
  * One decoded claim: its context and field, the field's type, and its text form, the setting's value of it.
  */
