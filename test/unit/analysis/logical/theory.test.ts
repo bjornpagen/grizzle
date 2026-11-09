@@ -57,7 +57,7 @@ import {
 } from "#test/support/oracle/gen/schema.ts"
 import {
 	noImmediate,
-	type TestTheory,
+	type EvidencedTestTheory,
 	theoryResultOf,
 	theoryUnder,
 	violated
@@ -111,7 +111,7 @@ const alternativeOf = (t: Theory, from: string, to: string) =>
  * exactly its witnesses.
  */
 const violatedSorted = (
-	t: TestTheory,
+	t: EvidencedTestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> =>
 	new Map(Arr.map([...violated(t, facts)], ([law, rows]) => [law, Arr.sort(rows, byText)]))

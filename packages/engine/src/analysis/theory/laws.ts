@@ -391,7 +391,7 @@ type LawWriting =
  * predicate lowered over a scan of its row, which `roots` reads; a family's and a tree's resolved; any other law's as
  * stated, lowering nothing.
  */
-export interface WrittenDetail {
+interface WrittenDetail {
 	readonly detail: LawDetail
 	readonly roots: ReadonlyArray<RelNode>
 }

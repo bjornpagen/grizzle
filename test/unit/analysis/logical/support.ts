@@ -50,13 +50,16 @@ export const noImmediate: ReadonlySet<LawId> = new Set()
 
 /** A theory as the logical tests read it: its laws' evidence, and their violation queries, by which the reference
  * evaluator reads each law's meaning. */
-export interface TestTheory extends EvidencedTheory {
+export interface EvidencedTestTheory extends EvidencedTheory {
 	readonly violations: TheoryViolations
 }
 
 /** The theory of a schema with its laws' evidence, a containment into an open relation immediate exactly when the test
  * names it among `immediate`, as law specialization would prove it, and its laws' violation queries. */
-export const theoryUnder = (desc: SchemaDesc, immediate: ReadonlySet<LawId>): TestTheory => {
+export const theoryUnder = (
+	desc: SchemaDesc,
+	immediate: ReadonlySet<LawId>
+): EvidencedTestTheory => {
 	const checked = succeeded(Result.flatMap(ownedInput(desc), checkedSchema))
 	const t = succeeded(buildTheory(checked))
 	return Object.freeze({
@@ -115,7 +118,7 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
 
 /** The violating witnesses of every law over `facts`, by law id, as JSON-ish rows. */
 const violations = (
-	t: TestTheory,
+	t: EvidencedTestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> => {
 	const ref = Reference.of(t.violations.dag, {
@@ -141,7 +144,7 @@ const violations = (
 
 /** The nonempty violations only. */
 export const violated = (
-	t: TestTheory,
+	t: EvidencedTestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> =>
 	new Map(Arr.filter([...violations(t, facts)], ([, rows]) => rows.length > 0))

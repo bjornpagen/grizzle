@@ -12,7 +12,7 @@ import {
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
 import { sameMembers, sameOrder } from "#compiler/core/array.ts"
-import { catchRefusal, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
 import {
 	type Identity,
@@ -37,6 +37,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import type { CellSide } from "#compiler/ir/cells.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
 import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
 import type { ExistenceConstraint } from "#compiler/ir/evidence.ts"
@@ -44,7 +45,8 @@ import {
 	type ExprSpec,
 	identityValueOf,
 	predicateTable,
-	type ScalarExpr
+	type ScalarExpr,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
@@ -75,6 +77,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
+import { keyOf } from "#compiler/laws/model/names.ts"
 import {
 	type CheckPredicate,
 	type LawColumnPlan,
@@ -402,71 +405,96 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
-/** A native object as its structural identity reads it, every law it discharges left out: each handle by its name, so
- * two plans of one object are one object. */
-const nativeIdentity = (object: NativeObject): unknown => {
-	const { lawIds: _ignored, ...rest } = object
-	switch (rest.kind) {
+/**
+ * A native object's identity as the model's merge reads it, every law it discharges left out, so two plans of one object
+ * are one object: its kind and what of it the database states, each handle by its name, each column by its name (a
+ * field's, or a law column's identifier), an identity by its canonical text, a lowered predicate by its expression's
+ * label, which names exactly one expression, a closed side by its number among the sides the recognizer built, one per
+ * content (`sideOrdinal`, plan.ts closedSidesOf), and a contract's domain by its contract's name, whose base and check
+ * it is.
+ */
+const nativeKey = (
+	object: NativeObject,
+	sideOrdinal: (side: CellSide<TypedLiteral>) => number
+): string => {
+	switch (object.kind) {
 		case "PrimaryKey":
-			return { ...rest, relation: rest.relation.name, columns: fieldNames(rest.columns) }
+			return keyOf(
+				object.kind,
+				object.relation.name,
+				fieldNames(object.columns),
+				object.named.canonical
+			)
 		case "Unique":
+			return keyOf(object.kind, object.relation.name, columnNames(object.columns))
 		case "ReverseIndex":
-			return { ...rest, relation: rest.relation.name, columns: columnNames(rest.columns) }
+			return keyOf(object.kind, object.relation.name, object.method, columnNames(object.columns))
 		case "LawColumn":
-			return { kind: rest.kind, relation: rest.relation.name, column: rest.column }
+			return keyOf(object.kind, object.relation.name, object.column)
 		case "PeriodForeignKey":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: columnNames(rest.columns),
-				span: columnNames([rest.span]),
-				target: rest.target.name,
-				targetColumns: columnNames(rest.targetColumns),
-				targetSpan: columnNames([rest.targetSpan])
-			}
+			return keyOf(
+				object.kind,
+				object.relation.name,
+				columnNames(object.columns),
+				columnNames([object.span]),
+				object.target.name,
+				columnNames(object.targetColumns),
+				columnNames([object.targetSpan]),
+				String(object.deferrable)
+			)
 		case "WithoutOverlaps":
-			return {
-				kind: rest.kind,
-				relation: rest.relation.name,
-				span: columnNames([rest.span]),
-				key: { kind: rest.key.kind, scalars: columnNames(rest.key.scalars) }
-			}
+			return keyOf(
+				object.kind,
+				object.relation.name,
+				columnNames([object.span]),
+				object.key.kind,
+				columnNames(object.key.scalars)
+			)
 		case "TableCheck":
-			return { ...rest, relation: rest.relation.name }
+			return object.check.kind === "declared"
+				? keyOf(
+						object.kind,
+						object.relation.name,
+						object.check.kind,
+						object.check.name,
+						object.check.named.canonical,
+						object.predicate.id
+					)
+				: keyOf(
+						object.kind,
+						object.relation.name,
+						object.check.kind,
+						object.check.law,
+						object.predicate.id
+					)
 		case "ClosedCheck":
-			return {
-				kind: rest.kind,
-				relation: rest.relation.name,
-				target: rest.target.name,
-				side: { key: rest.side.key, payload: rest.side.payload, rows: [...rest.side.rows] },
-				pairs: rest.pairs.map((p) => ({ source: columnNames([p.source]), target: p.target.name })),
-				guard: rest.guard.map((g) => g.predicate)
-			}
+			return keyOf(
+				object.kind,
+				object.relation.name,
+				object.target.name,
+				String(sideOrdinal(object.side)),
+				object.pairs.map((p) => keyOf(columnNames([p.source]), p.target.name)),
+				object.guard.map((g) => g.predicate.id)
+			)
 		case "ForeignKey":
-			return {
-				...rest,
-				relation: rest.relation.name,
-				columns: columnNames(rest.columns),
-				target: rest.target.name,
-				targetColumns: columnNames(rest.targetColumns)
-			}
+			return keyOf(
+				object.kind,
+				object.relation.name,
+				columnNames(object.columns),
+				object.target.name,
+				columnNames(object.targetColumns),
+				String(object.deferrable),
+				object.onUpdate
+			)
 		case "Domain":
 		case "RosterDomain":
-			return rest
+			return keyOf(object.kind, object.name)
 	}
 }
 
 /** The names of a native's columns: a field's name, a law column's identifier. */
 const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
 	columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
-
-const structuralKey = (object: unknown): string => {
-	const text = encode(object, everyProperty)
-	if (!text.ok) {
-		throw new Refusal(text.error)
-	}
-	return text.value
-}
 
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */
@@ -976,7 +1004,7 @@ class Specializer {
 		for (const { plan, natives: placedNatives } of keysFirst) {
 			for (const n of placedNatives) {
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
-				const key = structuralKey(nativeIdentity(object))
+				const key = nativeKey(object, (side) => this.recognizer.closedSideOrdinal(side))
 				const known = byKey.get(key)
 				if (known === undefined) {
 					const laws = this.#firstLaws(n, plan, implyingKey)
@@ -1190,13 +1218,16 @@ class Specializer {
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
 			laws
 		)
-		byKey.set(structuralKey(nativeIdentity(object)), {
-			kind: "primary",
-			relation: pk.relation,
-			object,
-			laws,
-			law: pk.law
-		})
+		byKey.set(
+			nativeKey(object, (side) => this.recognizer.closedSideOrdinal(side)),
+			{
+				kind: "primary",
+				relation: pk.relation,
+				object,
+				laws,
+				law: pk.law
+			}
+		)
 	}
 
 	/** The installed identifier of a merged object (`#name`), a primary key's kept with its relation in `keyed`. */
