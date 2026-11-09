@@ -256,24 +256,26 @@ export const levelIn = (
 	levels[base.levels.length - 1] ??
 	missing(`physical: schema ${base.name} is no level of the installation`)
 
-/** The names of a role, installed in the installation `names` names: its theory role embeds its level's schema, and its
- * filter functions and probes live in the root's, as every function of the installation does. A theory role that does
+/** The names of a role, installed in the installation `names` names: its theory role embeds its level's schema, each of
+ * its relations' views is named once, here, and its filter functions and probes live in the root's, as every function of
+ * the installation does. A theory role that does
  * not fit 63 bytes with its level's name is refused as MalformedDescription, thrown as a Refusal; an installation, which
  * names every one first, has refused it already. */
 export const worldNames = (role: OwnedRole, names: InstallNames): WorldNames => {
 	const theory = roleIdentity(levelIn(names.levels, role.base), role.name, role.loc)
 	const schema = names.schema
 	const roleSchema = identifierOf(identity.roleSchema(theory))
+	const views = new Map(
+		Object.entries(role.relations).map(([relation, e]) => [
+			relation,
+			{ schema: roleSchema, name: identifierOf(roleView(theory, e)) }
+		])
+	)
 	return {
 		role: identifierOf(theory),
 		schema: roleSchema,
-		view: (relation) => {
-			const e = role.relations[relation]
-			if (e === undefined) {
-				missing(`physical: no relation ${relation} in role ${role.name}`)
-			}
-			return { schema: roleSchema, name: identifierOf(roleView(theory, e)) }
-		},
+		view: (relation) =>
+			views.get(relation) ?? missing(`physical: no relation ${relation} in role ${role.name}`),
 		filterFunction: (entry, args) => ({
 			schema,
 			name: identifierOf(identity.filter(theory, entry)),
@@ -297,25 +299,26 @@ export const worldNames = (role: OwnedRole, names: InstallNames): WorldNames => 
 	}
 }
 
-/** What a role reads its relations through: every relation of it is its view in the role's schema, a whole entry's
- * columns its table's (or its materialized view's) and a query entry's its definition's head fields, each a field's
- * column; domains, constants and the vector extension stay the base's. */
-export const roleReadNames = (names: InstallNames, role: OwnedRole): PhysicalNames => {
-	const world = worldNames(role, names)
-	return {
-		...names,
-		relation: world.view,
-		column: (relation, field) => {
-			const e = role.relations[relation]
-			if (e === undefined) {
-				missing(`physical: no relation ${relation} in role ${role.name}`)
-			}
-			return e.kind === "whole"
-				? names.column(e.relation.name, field)
-				: identifierOf(viewColumn(field))
+/** What a role reads its relations through: every relation of it is its view in the role's schema (`world`, the role's
+ * names, worldNames), a whole entry's columns its table's (or its materialized view's) and a query entry's its
+ * definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. */
+export const roleReadNames = (
+	names: InstallNames,
+	world: WorldNames,
+	role: OwnedRole
+): PhysicalNames => ({
+	...names,
+	relation: world.view,
+	column: (relation, field) => {
+		const e = role.relations[relation]
+		if (e === undefined) {
+			missing(`physical: no relation ${relation} in role ${role.name}`)
 		}
+		return e.kind === "whole"
+			? names.column(e.relation.name, field)
+			: identifierOf(viewColumn(field))
 	}
-}
+})
 
 const relationOf = (owned: Owned, relation: string) => {
 	const r = owned.relations[relation]

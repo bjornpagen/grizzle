@@ -1,7 +1,7 @@
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { catchCompileError, catchRefusal, compareText } from "#compiler/core/canonical.ts"
+import { catchCompileError, compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -26,7 +26,7 @@ import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { worldNames } from "#compiler/physical/ddl/names.ts"
+import { type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -103,10 +103,15 @@ const programIr = (
 	return checkedProgramIr(program, world.kind === "role" ? world.checked : base, reads)
 }
 
-/** What a workload's programs are checked over: reality, or a role over the artifacts' base. */
+/** What a workload's programs are checked over: reality, or a role over the artifacts' base, with the role's names. */
 type WorkloadWorld =
 	| { readonly kind: "reality" }
-	| { readonly kind: "role"; readonly role: OwnedRole; readonly checked: CheckedSchema }
+	| {
+			readonly kind: "role"
+			readonly role: OwnedRole
+			readonly checked: CheckedSchema
+			readonly names: WorldNames
+	  }
 
 /**
  * What every program of a workload is checked and planned over, read once for the workload: its world, and the base's
@@ -123,10 +128,12 @@ const workloadReads = (
 ): Result.Result<WorkloadReads, CompileError> =>
 	schema.kind === "role"
 		? Result.flatMap(ownBuiltRole(schema.desc, artifacts.owned), (role) =>
-				Result.map(checkedRoleOver(role, artifacts.derived.schema), (checked): WorkloadReads => ({
-					world: { kind: "role", role, checked },
-					artifacts
-				}))
+				Result.flatMap(checkedRoleOver(role, artifacts.derived.schema), (checked) =>
+					Result.map(
+						catchCompileError(() => worldNames(role, artifacts.names)),
+						(names): WorkloadReads => ({ world: { kind: "role", role, checked, names }, artifacts })
+					)
+				)
 			)
 		: Result.ok<WorkloadReads>({ world: { kind: "reality" }, artifacts })
 
@@ -175,20 +182,14 @@ const checkedProgramIr = (
 		return checkedQueryIr(program.query, read, "rows", "query")
 	}
 	const world = reads.world
-	const writeWorld = catchRefusal((): WriteWorld =>
-		world.kind === "role"
-			? { kind: "role", names: worldNames(world.role, reads.artifacts.names) }
-			: { kind: "reality" }
-	)
-	if (!writeWorld.ok) {
-		return writeWorld
-	}
+	const writeWorld: WriteWorld =
+		world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" }
 	return Result.map(
 		compileChangeSet(read, program.changeSet, {
 			claims: { kind: "every" },
 			laws: reads.artifacts.laws,
 			derived,
-			world: writeWorld.value,
+			world: writeWorld,
 			codes: reads.artifacts.names.codes
 		}),
 		(frontend) => {

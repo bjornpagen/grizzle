@@ -1092,8 +1092,8 @@ export const roleNamesOf = (installed: Installed, role: AnyRole): RoleNames => {
 		throw refused(ownedRole.error)
 	}
 	const owned = ownedRole.value
-	const read = roleReadNames(installed.installation.names, owned)
 	const world = worldNames(owned, installed.installation.names)
+	const read = roleReadNames(installed.installation.names, world, owned)
 	return {
 		view: (relation) => qualified(read.relation(relation)),
 		column: (relation, field) => quoteIdent(read.column(relation, field)),

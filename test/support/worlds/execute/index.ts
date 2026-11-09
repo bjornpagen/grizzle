@@ -748,7 +748,11 @@ const realizeWith = (
 						if (spec === undefined) {
 							return yield* missing(`role ${role}`)
 						}
-						const read = roleReadNames(v.installation.names, ownedRole)
+						const read = roleReadNames(
+							v.installation.names,
+							worldNames(ownedRole, v.installation.names),
+							ownedRole
+						)
 						const view = read.relation(relation)
 						const fields = Option.getOrElse(entryFields(v.spec.base, spec, relation), () => [])
 						return {

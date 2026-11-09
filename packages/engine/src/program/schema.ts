@@ -378,7 +378,7 @@ export const roleArtifacts = (
 	if (!installed.ok) {
 		return installed
 	}
-	const reads = catchCompileError(() => roleReadNames(installed.value, role))
+	const reads = catchCompileError(() => roleReadNames(installed.value, names.value, role))
 	if (!reads.ok) {
 		return reads
 	}
