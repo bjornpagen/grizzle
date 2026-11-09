@@ -13,10 +13,9 @@ import {
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { type AttachmentScope, attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
-import { programFlight, templateProgram } from "#adapter/reader/run.ts"
+import { programFlight, readProgram } from "#adapter/reader/run.ts"
 import { type FlightFailure, type Prologue, readFrame, runFramed } from "#adapter/wire/batch.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
@@ -53,6 +52,8 @@ import { type CompiledTemplate, templateFor } from "#compiler/program/template.t
 import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
+import { type ServedSpine, servedSource } from "#compiler/served/read.ts"
+import { servedSpine } from "#compiler/served/spine.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -337,7 +338,7 @@ export interface Compiled {
 	readonly decoder: RowDecoder<unknown>
 	readonly desc: QueryDesc
 	readonly artifacts: SchemaArtifacts
-	readonly spine: AttachmentScope
+	readonly spine: ServedSpine
 	/** The first compilation, and the compilations of the same query after it. */
 	readonly compileFirstMs: number
 	readonly compileWarmMs: Summary
@@ -411,7 +412,7 @@ export const compile = <S>(
 		decoder: query.rows,
 		desc,
 		artifacts,
-		spine: attachmentHeads(desc),
+		spine: servedSpine(desc),
 		compileFirstMs,
 		compileWarmMs: summarize(warm)
 	}
@@ -562,8 +563,13 @@ export const deliver = Effect.fn("deliver")(
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
-		const program = templateProgram(
-			artifact === "optimized" ? compiled.compiled.template : conservativeRunning(compiled.oracle),
+		const program = readProgram(
+			servedSource(
+				(artifact === "optimized"
+					? compiled.compiled.template
+					: conservativeRunning(compiled.oracle)
+				).run
+			),
 			compiled.spine,
 			codes
 		)

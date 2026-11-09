@@ -1,74 +1,61 @@
-import { Array as Arr, Record as Rec, Result } from "effect"
+import { Array as Arr, Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { type AttachmentScope, attachmentHeads } from "#adapter/reader/analysis.ts"
 import {
 	programRecords,
+	readForm,
 	type RunStatement,
-	type StatementForm,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
-import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
 	type Carrier,
 	type Cell,
 	type Codebook,
 	type CompileError,
-	Engine,
 	type Layout,
 	type ParamDecl,
-	type QueryDesc,
-	rowCell,
-	type SchemaArtifacts,
-	SourceLoc,
-	type StatementSpec
+	rowCell
 } from "#compiler/plan/common.ts"
 import { scalarReader, type ScalarReader } from "#compiler/plan/decode.ts"
 import {
 	type CarrierHost,
+	type ChoiceInput,
 	columnPosition,
 	compareValues,
-	compilePageOf,
 	type CursorCodec,
 	cursorCodec,
 	type CursorGeneration,
 	cursorTokenMaxLength,
-	type FusedStatement,
 	type Heading,
-	type PageArtifact,
 	type PageComparator,
 	type PageDirection,
 	type PageFill,
-	type PageProbeProgram,
-	type PageProgram,
-	pageQueryFingerprint,
-	type PageRequestProgram,
-	type PageStatement,
 	type PageStatementSlot,
-	pageStatementSlotOf,
-	type PageTemplate,
 	type PageVariant,
 	type ProbeKind,
-	type QueryTemplate,
-	type ShapeChoice,
-	statedOrderOf,
-	type VariantFill,
-	type StatementRoots,
-	statementSpec,
-	traverseTree
+	type VariantFill
 } from "#compiler/plan/read.ts"
+import {
+	type ServedChoice,
+	type ServedPage,
+	type ServedPageProbe,
+	type ServedPageRequest,
+	type ServedPageStatement,
+	type ServedRoots,
+	type ServedSpine,
+	servedTree
+} from "#compiler/plan/serve.ts"
 
 /**
  * The page runtime template of an ordered query.
  *
  * Compilation produces the source query, completed order, seek comparator, forward and reverse SQL templates,
  * page-info probes, cursor codecs, and execution requirements. The page compiler (lower/shapes/page/compile.ts)
- * produces the order, the comparators and the statements of every request variant and
- * probe for both artifacts; this module adds what running them needs, once per template:
+ * produces the order, the comparators and the statements of every request variant and probe, and its served form
+ * (engine program/served.ts servedPage) each statement's spec, its executable text with every delivered column cast to
+ * text, and each per-execution variant's beside the statement it replaces, emitted when the page compiles; this module
+ * adds what running them needs, once per template, from that served form alone:
  *
- * - each statement's StatementSpec (lower/template.ts statementSpec): its executable text with every delivered column
- *   cast to text and one encoder per declared parameter's placeholder; and each per-execution variant's beside the
- *   statement it replaces;
  * - each request's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
  *   layouts on every page of the request variant, and how its rows statements deliver: each one's comparison tuple read
  *   from its texts by the comparators' value codecs, and a heterogeneous union's groups merged on the fetch order;
@@ -88,9 +75,9 @@ import {
  * (execute.ts), among its read ones, and its per-execution form, when it has one.
  */
 export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<
-	FusedStatement<PageStatementSlot<F>>,
+	ServedPageStatement<F>["statement"],
 	PageStatementSlot<F>,
-	ShapeChoice
+	ServedChoice<ChoiceInput>
 >
 
 /** A page statement's record (reader/execution.ts programRecords), its page placeholders each filled by one of `F`. */
@@ -118,7 +105,7 @@ export type PageDelivery =
  * fills (VariantFill), so a plain request's binding reads its size alone.
  */
 export interface RunProgram<V extends PageVariant = PageVariant> {
-	readonly program: PageRequestProgram<V>
+	readonly program: ServedPageRequest<V>
 	/**
 	 * Its statements' records in flight order, what the request delivers, and the layouts of its delivered Rows, one
 	 * per heading group (one for a rows delivery), which the query's decoder binds to.
@@ -160,7 +147,7 @@ const fetchComparison = (
  * codec, which reads its answer.
  */
 interface RunProbe<K extends ProbeKind = ProbeKind> {
-	readonly program: PageProbeProgram<K>
+	readonly program: ServedPageProbe<K>
 	readonly statement: PageRunStatement
 	readonly answer: ScalarReader
 }
@@ -171,7 +158,7 @@ interface RunArtifact {
 }
 
 export interface PageRuntime {
-	readonly page: PageTemplate
+	readonly page: ServedPage
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly artifact: RunArtifact
 	readonly codec: CursorCodec<ReadonlyArray<PageComparator>>
@@ -181,68 +168,40 @@ export interface PageRuntime {
 	readonly values: ReadonlyArray<ScalarReader>
 }
 
+/** What a page's runtime is built from: its served form, its read's parameters and spine, and the installation's codes. */
 interface PageRuntimeParts {
-	readonly page: PageTemplate
+	readonly page: ServedPage
 	readonly params: ReadonlyArray<ParamDecl>
-	/**
-	 * The installation's codes, which every value codec, cursor boundary and placeholder encoder of a closed id or a set
-	 * reads.
-	 */
+	/** The installation's codes, which every value codec, cursor boundary and placeholder encoder of a closed id or a set
+	 * reads. */
 	readonly codes: Codebook
-	/**
-	 * The DAG each artifact's statements lower, whose Attach nodes lay out fused attachments: a page has none
-	 * (pageForm), so its Rows plans read none.
-	 * The ordered query's semantic fingerprint and the semantic generation.
-	 */
-	readonly query: string
-	readonly generation: CursorGeneration
 	/** The delivered spine, whose attachments' children carry the columns their head keys name (reader/analysis.ts). */
-	readonly spine: AttachmentScope
+	readonly spine: ServedSpine
 }
 
-/** The form of a page statement: each page placeholder is the page's, every other one a declared parameter's. */
-const pageForm = <F extends PageFill>(
-	statement: FusedStatement<PageStatementSlot<F>>,
-	spec: StatementSpec
-): StatementForm<FusedStatement<PageStatementSlot<F>>, PageStatementSlot<F>> => ({
-	statement,
-	spec,
-	slots: statement.params
-})
-
-/**
- * A statement of a page program as it runs, each form with the spec rebuilt from it, its placeholders encoded under the
- * installation's codes `codes`.
- */
-const pageRun = <F extends PageFill>(
-	statement: PageStatement<F>,
-	codes: Codebook
-): Engine.Result<PageRunStatement<F>, CompileError> =>
-	Engine.flatMap(
-		statementSpec(statement, pageStatementSlotOf(codes)),
-		(spec): Engine.Result<PageRunStatement<F>, CompileError> => {
-			const form = pageForm(statement, spec)
-			const forms = statement.forms
-			if (forms.kind === "one") {
-				return Engine.ok({ ...form, forms, arrival: statement.arrival })
-			}
-			return Engine.map(
-				statementSpec(forms.large, pageStatementSlotOf(codes)),
-				(large): PageRunStatement<F> => ({
-					...form,
-					forms: { kind: "chosen", choices: forms.choices, large: pageForm(forms.large, large) },
-					arrival: statement.arrival
-				})
-			)
-		}
-	)
+/** A statement of a page program as it runs: its served spec and placeholders, and its large form's. */
+const pageRun = <F extends PageFill>(served: ServedPageStatement<F>): PageRunStatement<F> => {
+	const { statement, spec } = served
+	const forms = statement.forms
+	return {
+		statement,
+		...readForm(statement, spec),
+		forms:
+			forms.kind === "one"
+				? forms
+				: {
+						kind: "chosen",
+						choices: forms.choices,
+						large: readForm(forms.large.statement, forms.large.spec)
+					},
+		arrival: statement.arrival
+	}
+}
 
 /** The statements of a page program as they run (pageRun), in their tree. */
-const specsOf = <F extends PageFill>(
-	program: PageProgram<F>,
-	codes: Codebook
-): Result.Result<StatementRoots<PageRunStatement<F>>, CompileError> =>
-	toResult(traverseTree(program.roots, (statement) => pageRun(statement, codes)))
+const runsOf = <F extends PageFill>(
+	roots: ServedRoots<ServedPageStatement<F>>
+): ServedRoots<PageRunStatement<F>> => Arr.map(roots, (tree) => servedTree(tree, pageRun))
 
 /**
  * The reading of a rows statement's comparison tuple: each comparator's column, a column of the statement's heading
@@ -274,7 +233,7 @@ const rowsStatement = (
  * its heading groups merged on its fetch order, under `heading`, the union's heading every group carries.
  */
 const pageDelivery = (
-	delivery: PageRequestProgram["delivery"],
+	delivery: ServedPageRequest["delivery"],
 	heading: Heading,
 	delivered: Arr.NonEmptyReadonlyArray<PageRecord>,
 	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>,
@@ -305,142 +264,88 @@ interface ArtifactParts {
 	readonly heading: Heading
 	readonly comparators: ReadonlyArray<PageComparator>
 	readonly values: ReadonlyArray<ScalarReader>
-	readonly spine: AttachmentScope
+	readonly spine: ServedSpine
 	readonly codes: Codebook
 }
 
-const runArtifact = (
-	artifact: PageArtifact,
-	parts: ArtifactParts
-): Result.Result<RunArtifact, CompileError> =>
-	Result.gen(function* () {
-		const request = <V extends PageVariant>(v: V) =>
-			Result.gen(function* () {
-				const program = artifact.requests[v]
-				const { records, delivered } = programRecords(
-					yield* specsOf(program, parts.codes),
-					parts.spine,
-					parts.codes
-				)
-				const delivery = pageDelivery(
-					program.delivery,
-					parts.heading,
-					delivered,
-					Arr.zip(parts.comparators, parts.values),
-					parts.codes
-				)
-				const run: RunProgram<V> = {
-					program,
-					records,
-					delivery,
-					layouts: deliveredLayouts(delivery),
-					fetch: fetchComparison(Arr.zip(parts.comparators, parts.values), program.direction)
-				}
-				return run
-			})
-		const probe = <K extends ProbeKind>(k: K) =>
-			Result.gen(function* () {
-				const program = artifact.probes[k]
-				const run: RunProbe<K> = {
-					program,
-					statement: yield* toResult(pageRun(program.statement, parts.codes)),
-					answer: scalarReader(program.column.type, parts.codes)
-				}
-				return run
-			})
-		return {
-			requests: {
-				first: yield* request("first"),
-				after: yield* request("after"),
-				last: yield* request("last"),
-				before: yield* request("before")
-			},
-			probes: {
-				atOrBefore: yield* probe("atOrBefore"),
-				atOrAfter: yield* probe("atOrAfter")
-			}
-		}
-	})
-
-/** The runtime template of a page template and what its statements and cursors need. */
-export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
-	Result.gen(function* () {
-		const page = parts.page
-		const values: ReadonlyArray<ScalarReader> = Arr.map(page.comparators, (c) =>
-			scalarReader(c.type, parts.codes)
+const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
+	const request = <V extends PageVariant>(program: ServedPageRequest<V>): RunProgram<V> => {
+		const { records, delivered } = programRecords(
+			runsOf<VariantFill[V]>(program.roots),
+			parts.spine,
+			parts.codes
 		)
-		const shared: ArtifactParts = {
-			heading: page.heading,
-			comparators: page.comparators,
-			values,
-			spine: parts.spine,
-			codes: parts.codes
+		const delivery = pageDelivery(
+			program.delivery,
+			parts.heading,
+			delivered,
+			Arr.zip(parts.comparators, parts.values),
+			parts.codes
+		)
+		return {
+			program,
+			records,
+			delivery,
+			layouts: deliveredLayouts(delivery),
+			fetch: fetchComparison(Arr.zip(parts.comparators, parts.values), program.direction)
 		}
-		const artifact = yield* runArtifact(page.artifact, shared)
-		const codec = yield* toResult(
+	}
+	const probe = <K extends ProbeKind>(program: ServedPageProbe<K>): RunProbe<K> => ({
+		program,
+		statement: pageRun(program.statement),
+		answer: scalarReader(program.column.type, parts.codes)
+	})
+	return {
+		requests: {
+			first: request(page.requests.first),
+			after: request(page.requests.after),
+			last: request(page.requests.last),
+			before: request(page.requests.before)
+		},
+		probes: {
+			atOrBefore: probe(page.probes.atOrBefore),
+			atOrAfter: probe(page.probes.atOrAfter)
+		}
+	}
+}
+
+/**
+ * The runtime template of a served page and what its statements and cursors need: its statements' records and
+ * deliveries, its comparators' value codecs, and its cursor codec, bound to the page's query fingerprint and cursor
+ * generation. A completed order whose shortest token exceeds cursorTokenMaxLength is refused with UnsupportedOperation.
+ */
+export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
+	Result.map(
+		toResult(
 			cursorCodec(
-				{ query: parts.query, comparators: page.comparators, generation: parts.generation },
+				{
+					query: parts.page.query,
+					comparators: parts.page.comparators,
+					generation: parts.page.generation
+				},
 				cursorTokenMaxLength,
 				parts.codes
 			)
-		)
-		return {
-			page,
-			params: parts.params,
-			artifact,
-			codec,
-			identity: { query: parts.query, generation: parts.generation },
-			values
+		),
+		(codec): PageRuntime => {
+			const page = parts.page
+			const values: ReadonlyArray<ScalarReader> = Arr.map(page.comparators, (c) =>
+				scalarReader(c.type, parts.codes)
+			)
+			const artifact = runArtifact(page, {
+				heading: page.heading,
+				comparators: page.comparators,
+				values,
+				spine: parts.spine,
+				codes: parts.codes
+			})
+			return {
+				page,
+				params: parts.params,
+				artifact,
+				codec,
+				identity: { query: page.query, generation: page.generation },
+				values
+			}
 		}
-	})
-
-/**
- * The semantic generation of a schema's cursors: its fingerprint, and each extension it requires at the version
- * admission verified.
- */
-const cursorGeneration = (artifacts: SchemaArtifacts): CursorGeneration => ({
-	schema: artifacts.fingerprint,
-	extensions: Rec.fromEntries(
-		Arr.map(
-			vectorExpectations(artifacts.owned, artifacts.names.vectorSchema),
-			(e) => [e.extension, e.version] as const
-		)
 	)
-})
-
-/** The ordered query's semantic fingerprint (program/workload/fingerprint.ts). */
-const orderedQueryFingerprint = (
-	desc: QueryDesc,
-	artifacts: SchemaArtifacts
-): Result.Result<string, CompileError> =>
-	toResult(pageQueryFingerprint(desc, artifacts.fingerprint))
-
-interface PageTemplateInput {
-	/** The query template compiled with read "page" (program/compile.ts), and the Description it was compiled from. */
-	readonly template: QueryTemplate
-	readonly desc: QueryDesc
-	readonly artifacts: SchemaArtifacts
-}
-
-/** The page runtime template of a query template compiled for a page. */
-export const pageTemplateFor = (
-	input: PageTemplateInput
-): Result.Result<PageRuntime, CompileError> => {
-	const { template, desc, artifacts } = input
-	return Result.gen(function* () {
-		/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
-		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
-		const page = yield* toResult(
-			compilePageOf(template.programs, { stated, names: artifacts.reads })
-		)
-		const query = yield* orderedQueryFingerprint(desc, artifacts)
-		return yield* pageRuntimeOf({
-			page,
-			params: template.params,
-			codes: artifacts.names.codes,
-			query,
-			generation: cursorGeneration(artifacts),
-			spine: attachmentHeads(desc)
-		})
-	})
-}

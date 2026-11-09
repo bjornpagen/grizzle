@@ -1,11 +1,11 @@
 import { Array as Arr, type Effect } from "effect"
 import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
 import type { CompiledWrite } from "#compiler/plan/change.ts"
 import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/common.ts"
+import { servedSource, servedSpine } from "#compiler/plan/read.ts"
 
 /**
  * Delivering a ChangeSet's read-backs.
@@ -27,7 +27,7 @@ import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/com
  * - its attachments' delivered types: the write front end analyzed the read-backs' DAG with immediate-constraint
  *   evidence only (frontend/compile.ts), so each Attach node already carries the type that evidence proves; a
  *   correlation column the read-back's head does not deliver is dropped from the delivered child as a query's is
- *   (reader/analysis.ts attachmentHeads);
+ *   (engine served/spine.ts servedSpine);
  * - its parameters: the ChangeSet's declared parameters by name, a ChangeSet.bind value under its private name.
  *
  * The rows are held until COMMIT succeeds: nothing a read-back read reaches the caller before.
@@ -73,7 +73,7 @@ export const readsRow = (delivered: ReadonlyArray<ReadonlyArray<Row>>): Row => (
 export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBackRuns => {
 	const each = Arr.map(program.artifact.readBacks, (delivery): ReadBackRun => ({
 		name: delivery.name,
-		program: readProgram(delivery.run, attachmentHeads(delivery.query), codes)
+		program: readProgram(servedSource(delivery.run), servedSpine(delivery.query), codes)
 	}))
 	return { runs: each, layout: readsLayout(each) }
 }

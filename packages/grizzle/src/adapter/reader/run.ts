@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import type { AttachmentScope } from "#adapter/reader/analysis.ts"
 import {
 	answerOf,
 	type ExecutionInputs,
@@ -37,19 +36,22 @@ import {
 	columnType,
 	compareValues,
 	type CompletedOrder,
-	type FusedStatement,
 	type GroupMerge,
 	type Heading,
-	mapTree,
 	mergeHeadingGroups,
 	type ProgramDelivery,
-	type QueryTemplate,
-	type RelationChoice,
+	type RelationInput,
 	runsLargeForm,
-	type SpecifiedStatement,
-	type StatementRoots,
 	type TakeBound
 } from "#compiler/plan/read.ts"
+import {
+	type ServedChoice,
+	type ServedReadStatement,
+	type ServedRoots,
+	type ServedSource,
+	type ServedSpine,
+	servedTree
+} from "#compiler/plan/serve.ts"
 
 /**
  * Running one compiled query template and delivering its public result.
@@ -74,20 +76,14 @@ import {
  *   which in one snapshot are the rows it would deliver (lower/shapes/share arrivalsOf), and stitches them under its own
  *   name. The read-only snapshot creates no temporary relation.
  *
- * What a read delivers from: the delivery of the artifact that runs, and its statement tree, each statement with the
- * spec emitted from it, saying whether the runtime sends it or feeds it an earlier one's rows (lower/shapes Arrival)
- * and holding its forms, each large form with its spec.
+ * What a read delivers from: its served source (engine served/read.ts ServedSource), the delivery of the artifact that
+ * runs and its statement tree, each statement with the spec emitted from it, saying whether the runtime sends it or
+ * feeds it an earlier one's rows (lower/shapes Arrival) and holding its forms, each large form with its spec.
+ *
+ * A read's statement as it runs: the served statement its records read, its form, its forms, the whole-relation one with
+ * the choices that select it, and how the runtime has its rows.
  */
-export interface ReadSource {
-	readonly delivery: ProgramDelivery
-	readonly roots: StatementRoots<SpecifiedStatement>
-}
-
-/**
- * A read's statement as it runs: its form, its forms, the whole-relation one with the choices that select it, and how
- * the runtime has its rows.
- */
-type ReadRun = RunStatement<FusedStatement>
+type ReadRun = RunStatement<ServedReadStatement["statement"]>
 
 /** A read statement's record (execution.ts programRecords). */
 export type ReadRecord = StatementRecord<ReadRun>
@@ -167,28 +163,31 @@ export interface ReadProgram {
 }
 
 /** A per-execution choice of a read: by a relation parameter's count. */
-const readChoice = (choice: RelationChoice): ReadChoice => ({
+const readChoice = (choice: ServedChoice<RelationInput>): ReadChoice => ({
 	source: choice.source.param,
 	threshold: choice.threshold
 })
 
-/** The statements of a read source, each settled as it runs. */
-const readStatements = (source: ReadSource): StatementRoots<ReadRun> =>
-	mapTree(source.roots, ({ statement, spec }): ReadRun => {
-		const forms = statement.forms
-		return {
-			...readForm<FusedStatement>(statement, spec),
-			forms:
-				forms.kind === "one"
-					? forms
-					: {
-							kind: "chosen",
-							choices: Arr.map(forms.choices, readChoice),
-							large: readForm<FusedStatement>(forms.large.statement, forms.large.spec)
-						},
-			arrival: statement.arrival
-		}
-	})
+/** The statements of a read source, each settled as it runs, in their tree. */
+const readStatements = (source: ServedSource): ServedRoots<ReadRun> =>
+	Arr.map(source.roots, (tree) =>
+		servedTree(tree, ({ statement, spec }): ReadRun => {
+			const forms = statement.forms
+			return {
+				statement,
+				...readForm(statement, spec),
+				forms:
+					forms.kind === "one"
+						? forms
+						: {
+								kind: "chosen",
+								choices: Arr.map(forms.choices, readChoice),
+								large: readForm(forms.large.statement, forms.large.spec)
+							},
+				arrival: statement.arrival
+			}
+		})
+	)
 
 /**
  * The order `order` over heading groups `groups`, in group order, of headings `headingOf`, under the union's heading
@@ -306,40 +305,19 @@ const deliveredLayouts = (delivery: DeliveryPlan): Arr.NonEmptyReadonlyArray<Lay
 	Arr.map(delivery.groups, (g) => g.record.layout)
 
 /**
- * The program of a read source on the delivered spine `spine` (analysis.ts attachmentHeads), its statements run by
- * `runs`, its rows read under the installation's codes `codes`.
+ * The program of a read source on its delivered spine `spine` (engine served/read.ts servedSpine), under the
+ * installation's codes `codes`: built once by the compiled read that holds it (reader.ts), from the source a served file
+ * carries or the compile serves alike.
  */
-const sourceProgram = (
-	source: ReadSource,
-	runs: StatementRoots<ReadRun>,
-	spine: AttachmentScope,
+export const readProgram = (
+	source: ServedSource,
+	spine: ServedSpine,
 	codes: Codebook
 ): ReadProgram => {
-	const { records, delivered } = programRecords(runs, spine, codes)
+	const { records, delivered } = programRecords(readStatements(source), spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return { records, delivery, layouts: deliveredLayouts(delivery) }
 }
-
-/** The program of a read source on the delivered spine `spine`, under the installation's codes `codes`. */
-export const readProgram = (
-	source: ReadSource,
-	spine: AttachmentScope,
-	codes: Codebook
-): ReadProgram => sourceProgram(source, readStatements(source), spine, codes)
-
-/** The read statements of a template. */
-export const templateStatements = (template: QueryTemplate): StatementRoots<ReadRun> =>
-	readStatements(template.run)
-
-/**
- * The read program of a template, under the installation's codes `codes`: built once by the compiled read that holds
- * it (reader.ts).
- */
-export const templateProgram = (
-	template: QueryTemplate,
-	spine: AttachmentScope,
-	codes: Codebook
-): ReadProgram => readProgram(template.run, spine, codes)
 
 /** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
 export const readExceeds =

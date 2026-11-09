@@ -34,6 +34,7 @@ import {
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import {
 	type AnchoredVariant,
+	type ChoiceInput,
 	countParam,
 	mergeHeadingGroups,
 	type PageFill,
@@ -41,10 +42,10 @@ import {
 	type PageVariant,
 	type ProbeKind,
 	runsLargeForm,
-	type ShapeChoice,
 	type SizeFill,
 	type VariantFill
 } from "#compiler/plan/read.ts"
+import type { ServedChoice } from "#compiler/plan/serve.ts"
 
 /**
  * One page request as one flight of one transaction.
@@ -158,7 +159,11 @@ const anchoredBinding =
 	}
 
 /** The size of a choice's input in one execution: the requested size, or a relation parameter's distinct fact count. */
-const choiceCount = (choice: ShapeChoice, inputs: ExecutionInputs, size: number): number => {
+const choiceCount = (
+	choice: ServedChoice<ChoiceInput>,
+	inputs: ExecutionInputs,
+	size: number
+): number => {
 	const source = choice.source
 	switch (source.kind) {
 		case "pageSize":
@@ -178,7 +183,7 @@ const sending = <F extends PageFill>(
 	size: number,
 	bind: (fill: F) => ParamText
 ): Effect.Effect<BatchStatement, InputTooLarge> => {
-	const form = formFor(run, (choice: ShapeChoice) =>
+	const form = formFor(run, (choice: ServedChoice<ChoiceInput>) =>
 		runsLargeForm(choice, choiceCount(choice, inputs, size))
 	)
 	return encodeForm(form, (slot: PageStatementSlot<F>) =>

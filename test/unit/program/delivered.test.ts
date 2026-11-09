@@ -15,7 +15,6 @@ import {
 	String as Str
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { AttachmentLayout, BindContext, Layout } from "#compiler/core/decoder.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
@@ -31,6 +30,8 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
+import { servedSource } from "#compiler/served/read.ts"
+import { servedSpine } from "#compiler/served/spine.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import {
@@ -221,14 +222,14 @@ const compiled = (c: ProgramCase, value: SchemaValue, query: unknown): Compiled 
 	)
 	judgedAsAnalyzed(template)
 	const desc = ok(queryInput(query), "the builder refuses a generated query", c).desc
-	const spine = attachmentHeads(desc)
+	const spine = servedSpine(desc)
 	const codes = succeeded(codebookFor(schemaInputOf(value), firstCodes))
 	return {
 		template,
 		bind: { options: rowOptions, names: codeNames(codes) },
 		layouts: Arr.map(artifactNames, (artifact) => ({
 			artifact,
-			layouts: readProgram(template.runs[artifact], spine, codes).layouts
+			layouts: readProgram(servedSource(template.runs[artifact]), spine, codes).layouts
 		}))
 	}
 }

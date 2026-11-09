@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
-import { pageRuntimeOf } from "#adapter/page/template.ts"
+import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import { indices } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -462,7 +462,7 @@ describe("the page compiler and the page runtime template", () => {
 							) {
 								c.note("per-execution form")
 							}
-							const runtime = pageRuntimeOf({
+							const runtime = compiledPageRuntime({
 								page: template,
 								params: query.params,
 								query: "unit/page/runtime-total",

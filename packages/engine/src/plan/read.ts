@@ -80,7 +80,11 @@ export type {
 	ProbeKind,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
-export { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
+export {
+	type ChoiceInput,
+	type RelationInput,
+	runsLargeForm
+} from "#compiler/lower/shapes/take/index.ts"
 export { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 export {
 	pageStatementSlotOf,
@@ -88,6 +92,7 @@ export {
 	statementSpec
 } from "#compiler/lower/template.ts"
 export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
+export { servedPage, servedRead } from "#compiler/program/served.ts"
 export {
 	type CompiledTemplate,
 	type ExecutionRequest,
@@ -100,6 +105,8 @@ export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 export { keyLookup, keyQuery } from "#compiler/query/build/key.ts"
 export { queryState } from "#compiler/query/build/state.ts"
 export { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
+export { servedSource } from "#compiler/served/read.ts"
+export { servedSpine } from "#compiler/served/spine.ts"
 export type {
 	Page,
 	PageCursor,

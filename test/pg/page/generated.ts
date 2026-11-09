@@ -13,8 +13,9 @@ import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { ConnectionLost, type UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
 import { pageOf } from "#adapter/page/page.ts"
-import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
+import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import type { BatchOutcome, Flight } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
 import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
@@ -1290,7 +1291,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				})
 			}
 			const { compiled, paged: template } = page.value
-			const runtime = pageRuntimeOf({
+			const runtime = compiledPageRuntime({
 				page: template,
 				params: query.params,
 				codes,

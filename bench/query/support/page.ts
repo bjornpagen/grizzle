@@ -1,9 +1,10 @@
 import { type Array as Arr, Effect, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
-import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import { answerOf, type HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
+import { compiledPageTemplateFor } from "#adapter/served/forms.ts"
 import { type FlightFailure, readFrame, runFramed } from "#adapter/wire/batch.ts"
 import type { VariantStatement } from "#bench/harness/variant.ts"
 import {
@@ -17,6 +18,7 @@ import {
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
 
 /**
@@ -33,10 +35,14 @@ import { conservativePageRuntime } from "#test/support/conservative.ts"
  * The page runtime of a template compiled with read "page", with the installation's codes its artifacts were compiled
  * under, which the request's parameter codecs read, as a Db's role's artifacts give them (adapter/page/page.ts).
  */
-export type BenchPages = PageRuntime & { readonly codes: Codebook }
+export type BenchPages = PageRuntime & {
+	readonly codes: Codebook
+	/** The compiled page artifact the runtime was served from, whose statements a variant rewrites. */
+	readonly compiled: PageArtifact
+}
 
 export const pageRuntime = (compiled: Compiled): BenchPages => {
-	const built = pageTemplateFor({
+	const built = compiledPageTemplateFor({
 		template: compiled.compiled.template,
 		desc: compiled.desc,
 		artifacts: compiled.artifacts
@@ -44,7 +50,11 @@ export const pageRuntime = (compiled: Compiled): BenchPages => {
 	if (Result.isFailure(built)) {
 		throw new GateSetupError({ what: `the page template: ${built.failure.message}` })
 	}
-	return { ...built.success, codes: compiled.artifacts.names.codes }
+	return {
+		...built.success.runtime,
+		codes: compiled.artifacts.names.codes,
+		compiled: built.success.template.artifact
+	}
 }
 
 /** The page runtime of `pages`'s query through the page oracle's conservative artifact (test/support/conservative.ts). */
@@ -58,7 +68,7 @@ export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchP
 	if (Result.isFailure(built)) {
 		throw new GateSetupError({ what: `the conservative page template: ${built.failure.message}` })
 	}
-	return { ...built.success, codes: pages.codes }
+	return { ...built.success.runtime, codes: pages.codes, compiled: built.success.artifact }
 }
 
 export interface DeliveredPage {
@@ -112,7 +122,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		}
 		return {
 			statements,
-			rows: { sent, statement: record.run.statement },
+			rows: { sent, statement: pages.compiled.requests[call.variant].roots[0].statement },
 			flights: runtime.flights
 		}
 	},

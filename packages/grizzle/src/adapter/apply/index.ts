@@ -145,6 +145,8 @@ export const apply = <R>(
 export interface ChangeForm<R> {
 	readonly entry: CompiledChange
 	readonly bound: BoundReads<R>
+	/** The ChangeSet's reads decoder, which its served form carries as data. */
+	readonly decoder: RowDecoder<R>
 }
 
 /** An apply of a handle whose Scope ended. */

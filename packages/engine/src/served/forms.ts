@@ -47,17 +47,19 @@ import type { CompiledWrite } from "#compiler/write/program/compile.ts"
  */
 export interface ServedFile {
 	/** The login's declared name, which names its file. */
-	readonly login: DeclaredName
+	readonly login: string
 	/** The snapshot fingerprint the file was compiled under; a layer refuses a file whose snapshot it does not serve. */
 	readonly fingerprint: SchemaFingerprint
 	/** The declared name of the level the login is over, and that level's index among the snapshot's levels. */
-	readonly base: DeclaredName
+	readonly base: string
 	readonly level: number
 	/** The login's PostgreSQL role, and the PostgreSQL schema of its base. */
 	readonly role: string
 	readonly schema: string
 	/** The texts of every Db transaction's prologue the file fixes: the ledger's fence, then entering the snapshot guard. */
 	readonly prologue: ServedPrologue
+	/** The texts every session of the login sends besides its programs': its startup options and its transactions'. */
+	readonly session: ServedSession
 	/**
 	 * The codes of exactly the rosters the login's members read or write, by declared name: the codebook its codecs,
 	 * readers and classifier are rebuilt under, so the file is all a layer reads.
@@ -73,6 +75,18 @@ export interface ServedFile {
 export interface ServedPrologue {
 	readonly fence: EmittedText
 	readonly enter: EmittedText
+}
+
+/**
+ * What every session of a login sends that no program states, emitted at generate: the startup options pinning its
+ * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN, read only or read write, and
+ * its COMMIT and ROLLBACK.
+ */
+export interface ServedSession {
+	readonly startup: string
+	readonly begin: { readonly readOnly: EmittedText; readonly readWrite: EmittedText }
+	readonly commit: EmittedText
+	readonly rollback: EmittedText
 }
 
 /**

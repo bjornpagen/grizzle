@@ -1,4 +1,4 @@
-import { Result } from "effect"
+import { Array as Arr, Record as Rec, Result } from "effect"
 import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
@@ -6,12 +6,12 @@ import { boundReads } from "#adapter/apply/run.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CompiledPage, PageSource } from "#adapter/page/page.ts"
-import { pageTemplateFor } from "#adapter/page/template.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
+import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { Bound, ReadArtifacts, ReadForm, RowsForm } from "#adapter/reader/reader.ts"
 import { paramCodecs } from "#adapter/reader/relations.ts"
-import { templateProgram } from "#adapter/reader/run.ts"
+import { readProgram } from "#adapter/reader/run.ts"
+import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import { compileWrite, parseChangeSet, type ParsedChangeSet } from "#compiler/plan/change.ts"
 import {
 	bindGroups,
@@ -20,11 +20,29 @@ import {
 	levelSchema,
 	malformedDescription,
 	parseSchemaInput,
+	type Codebook,
+	type ParamDecl,
 	prose,
+	type QueryDesc,
 	type RowDecoder,
+	type SchemaArtifacts,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { isOrderedValue, queryInput, queryState } from "#compiler/plan/read.ts"
+import {
+	compilePageOf,
+	type CursorGeneration,
+	isOrderedValue,
+	type PageTemplate,
+	pageQueryFingerprint,
+	type QueryTemplate,
+	queryInput,
+	queryState,
+	servedPage,
+	servedSource,
+	servedSpine,
+	statedOrderOf
+} from "#compiler/plan/read.ts"
+import type { ServedSpine } from "#compiler/plan/serve.ts"
 
 /**
  * The forms of a login's compile: a query's rows form and read form, an ordered query's page template, and a
@@ -49,9 +67,9 @@ export const compileArtifacts = (
 		),
 		({ compiled }): ReadArtifacts => ({
 			compiled,
-			program: templateProgram(
-				compiled.template,
-				attachmentHeads(compiled.desc),
+			program: readProgram(
+				servedSource(compiled.template.run),
+				servedSpine(compiled.desc),
 				role.artifacts.names.codes
 			),
 			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
@@ -100,6 +118,90 @@ export const compileReadForm = <A>(
 			: { kind: "query" }
 		return { ...rows, page }
 	})
+
+/**
+ * The semantic generation of a schema's cursors: its fingerprint, and each extension it requires at the version
+ * admission verified.
+ */
+const cursorGeneration = (artifacts: SchemaArtifacts): CursorGeneration => ({
+	schema: artifacts.fingerprint,
+	extensions: Rec.fromEntries(
+		Arr.map(
+			vectorExpectations(artifacts.owned, artifacts.names.vectorSchema),
+			(e) => [e.extension, e.version] as const
+		)
+	)
+})
+
+/** What a page's template compiles from: the query template compiled with read "page", its Description and artifacts. */
+interface PageTemplateInput {
+	readonly template: QueryTemplate
+	readonly desc: QueryDesc
+	readonly artifacts: SchemaArtifacts
+}
+
+/**
+ * The page runtime template of a query template compiled for a page: its page compiled (lower/shapes/page/compile.ts)
+ * over the stated order, served with every statement's spec emitted (engine program/served.ts servedPage) under the
+ * ordered query's semantic fingerprint (program/workload/fingerprint.ts) and its schema's cursor generation, and run as
+ * a served page runs (page/template.ts pageRuntimeOf).
+ */
+export const pageTemplateFor = (
+	input: PageTemplateInput
+): Result.Result<PageRuntime, CompileError> =>
+	Result.map(compiledPageTemplateFor(input), (compiled) => compiled.runtime)
+
+/** A page's runtime beside the page template it was served from, which a bench's variants rewrite. */
+export interface CompiledPageTemplate {
+	readonly runtime: PageRuntime
+	readonly template: PageTemplate
+}
+
+/** The page runtime of a query template compiled for a page (pageTemplateFor), with its compiled page template. */
+export const compiledPageTemplateFor = (
+	input: PageTemplateInput
+): Result.Result<CompiledPageTemplate, CompileError> => {
+	const { template, desc, artifacts } = input
+	return Result.gen(function* () {
+		/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
+		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
+		const compiled = yield* toResult(
+			compilePageOf(template.programs, { stated, names: artifacts.reads })
+		)
+		const query = yield* toResult(pageQueryFingerprint(desc, artifacts.fingerprint))
+		const runtime = yield* compiledPageRuntime({
+			page: compiled,
+			params: template.params,
+			codes: artifacts.names.codes,
+			query,
+			generation: cursorGeneration(artifacts),
+			spine: servedSpine(desc)
+		})
+		return { runtime, template: compiled }
+	})
+}
+
+/** A compiled page and what its runtime is built from: its read's parameters and spine, its codes and cursor identity. */
+interface CompiledPageParts {
+	readonly page: PageTemplate
+	readonly params: ReadonlyArray<ParamDecl>
+	readonly codes: Codebook
+	readonly query: string
+	readonly generation: CursorGeneration
+	readonly spine: ServedSpine
+}
+
+/**
+ * The runtime of a compiled page: served with its statements' specs emitted under its codes (engine program/served.ts
+ * servedPage), then run as a served page runs (page/template.ts pageRuntimeOf).
+ */
+export const compiledPageRuntime = (
+	parts: CompiledPageParts
+): Result.Result<PageRuntime, CompileError> =>
+	Result.flatMap(
+		toResult(servedPage(parts.page, parts.codes, parts.query, parts.generation)),
+		(page) => pageRuntimeOf({ page, params: parts.params, codes: parts.codes, spine: parts.spine })
+	)
 
 /**
  * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or
@@ -236,6 +338,7 @@ export const compileChangeForm = <R>(
 	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
 		Result.map(boundReads(compiled, decoder), (bound): ChangeForm<R> => ({
 			entry: compiled,
-			bound
+			bound,
+			decoder
 		}))
 	)

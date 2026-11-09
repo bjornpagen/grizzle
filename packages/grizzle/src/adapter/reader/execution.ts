@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Result } from "effect"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { type AttachmentScope, carried } from "#adapter/reader/analysis.ts"
+import { carried } from "#adapter/reader/analysis.ts"
 import type { RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import {
@@ -18,7 +18,6 @@ import {
 	type Row,
 	rowCell,
 	rowText,
-	type StatementSpec,
 	TupleMap
 } from "#compiler/plan/common.ts"
 import {
@@ -31,22 +30,26 @@ import {
 } from "#compiler/plan/decode.ts"
 import {
 	type Arrival,
-	type AttachedTree,
+	type ChoiceInput,
 	columnPosition,
-	type ConservativeParamSlot,
 	type DeclaredParamSlot,
-	type FusedAttachment,
-	type FusedStatement,
 	fusedTexts,
 	type FusedTexts,
 	keyColumns,
-	type NodeOf,
 	type StatementForms,
 	statementOutput,
-	type StatementOutput,
-	type StatementRoots,
-	type StatementTree
+	type StatementOutput
 } from "#compiler/plan/read.ts"
+import type {
+	ServedAttach,
+	ServedAttached,
+	ServedFused,
+	ServedRoots,
+	ServedRunStatement,
+	ServedSpec,
+	ServedSpine,
+	ServedTree
+} from "#compiler/plan/serve.ts"
 
 /**
  * One statement execution and the Rows it delivers: what reads, read-backs, pages and db.explain share.
@@ -92,26 +95,29 @@ import {
  */
 export type HostParams = Readonly<Record<string, unknown>>
 
-/** A statement of any lowering, whatever its placeholders: what a form's statement is. */
-type LoweredStatement = FusedStatement<ConservativeParamSlot>
+/**
+ * What a record reads of a statement, whatever its placeholders and forms: its role, the heading of the relation it
+ * delivers and its fused attachments, as a served program holds them (engine served/read.ts ServedRunStatement).
+ */
+type LoweredStatement = Pick<ServedRunStatement<unknown, ChoiceInput>, "role" | "heading" | "fused">
 
-/** One form of a statement: the lowered statement, the spec emitted from it, and its placeholders in order. */
-export interface StatementForm<S extends LoweredStatement, Slot = DeclaredParamSlot> {
-	readonly statement: S
-	readonly spec: StatementSpec
+/** One form of a statement as an execution sends it: the spec emitted from it, and its placeholders in order. */
+export interface StatementForm<Slot = DeclaredParamSlot> {
+	readonly spec: ServedSpec
 	readonly slots: ReadonlyArray<Slot>
 }
 
 /**
- * A statement as it runs: its form, its forms (lower/shapes StatementForms): one, or its whole-relation form with the
- * choices that select it, and how the runtime has its rows.
+ * A statement as it runs: the statement its records read, its form, its forms (lower/shapes StatementForms): one, or its
+ * whole-relation form with the choices that select it, and how the runtime has its rows.
  */
 export interface RunStatement<
 	S extends LoweredStatement,
 	Slot = DeclaredParamSlot,
 	Choice = ReadChoice
-> extends StatementForm<S, Slot> {
-	readonly forms: StatementForms<Choice, StatementForm<S, Slot>>
+> extends StatementForm<Slot> {
+	readonly statement: S
+	readonly forms: StatementForms<Choice, StatementForm<Slot>>
 	readonly arrival: Arrival
 }
 
@@ -121,11 +127,11 @@ export interface ReadChoice {
 	readonly threshold: number
 }
 
-/** The form of a read statement: every placeholder of a query's statement is a declared parameter's. */
-export const readForm = <S extends FusedStatement>(
-	statement: S,
-	spec: StatementSpec
-): StatementForm<S> => ({ statement, spec, slots: statement.params })
+/** The form of a statement whose placeholders are `statement`'s, sent as `spec`. */
+export const readForm = <Slot>(
+	statement: { readonly params: ReadonlyArray<Slot> },
+	spec: ServedSpec
+): StatementForm<Slot> => ({ spec, slots: statement.params })
 
 /**
  * What an execution reads, from one walk of the read's declared parameters (relations.ts executionInputs): the host
@@ -164,7 +170,7 @@ export const inputCount = (inputs: ExecutionInputs, param: ParamId): number =>
 export const formFor = <S extends LoweredStatement, Slot, Choice>(
 	run: RunStatement<S, Slot, Choice>,
 	exceeds: (choice: Choice) => boolean
-): StatementForm<S, Slot> => {
+): StatementForm<Slot> => {
 	const forms = run.forms
 	switch (forms.kind) {
 		case "one":
@@ -200,8 +206,8 @@ export interface EmittedStatement extends BatchStatement {
 }
 
 /** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
-export const executionOf = <S extends LoweredStatement, Slot, E>(
-	form: StatementForm<S, Slot>,
+export const executionOf = <Slot, E>(
+	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
 ): Result.Result<EmittedStatement, E> => {
 	const encoded: Array<Param> = []
@@ -216,8 +222,8 @@ export const executionOf = <S extends LoweredStatement, Slot, E>(
 }
 
 /** One execution of `form`, its parameters encoded. */
-export const encodeForm = <S extends LoweredStatement, Slot, E>(
-	form: StatementForm<S, Slot>,
+export const encodeForm = <Slot, E>(
+	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
 ): Effect.Effect<BatchStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
@@ -309,7 +315,7 @@ export interface ProgramRecords<Run> {
 }
 
 /** A statement's output columns (conservative/types.ts statementOutput). */
-const outputOf = (statement: LoweredStatement): StatementOutput<FusedAttachment> =>
+const outputOf = (statement: LoweredStatement): StatementOutput<ServedFused> =>
 	statementOutput(statement.role, statement.heading, statement.fused)
 
 /**
@@ -334,8 +340,8 @@ type Under =
 	| { readonly kind: "root" }
 	| {
 			readonly kind: "attachment"
-			readonly attach: NodeOf<"Attach">
-			readonly scope: AttachmentScope | undefined
+			readonly attach: ServedAttach
+			readonly scope: ServedSpine | undefined
 	  }
 
 /** The public columns of a statement's rows and their positions, where `under` places it. */
@@ -372,9 +378,9 @@ interface Attached<Run> {
  * a fused child is one column.
  */
 const recordOf = <Run extends Arrived>(
-	tree: StatementTree<Run>,
+	tree: ServedTree<Run>,
 	under: Under,
-	scope: AttachmentScope | undefined,
+	scope: ServedSpine | undefined,
 	codes: Codebook
 ): StatementRecord<Run> => {
 	const run = tree.statement
@@ -435,9 +441,9 @@ const recordOf = <Run extends Arrived>(
  * record, its parent key read from the parent's rows and from its own, which lead with it, and its layout.
  */
 const attachedOf = <Run extends Arrived>(
-	tree: AttachedTree<Run>,
-	parent: StatementOutput<FusedAttachment>,
-	scope: AttachmentScope | undefined,
+	tree: ServedAttached<Run>,
+	parent: StatementOutput<ServedFused>,
+	scope: ServedSpine | undefined,
 	codes: Codebook
 ): Attached<Run> => {
 	const { attach } = tree
@@ -471,13 +477,13 @@ const recordsUnder = <Run>(
 ]
 
 /**
- * The records of a program's statements, each run by its `run`, on the delivered spine `spine` (attachmentHeads), under
+ * The records of a program's statements, each run by its `run`, on the delivered spine `spine` (servedSpine), under
  * the installation's codes `codes`: its delivered ones, each with the records of the attachment statements under its
  * rows, and all of them in flight order.
  */
 export const programRecords = <Run extends Arrived>(
-	roots: StatementRoots<Run>,
-	spine: AttachmentScope,
+	roots: ServedRoots<Run>,
+	spine: ServedSpine,
 	codes: Codebook
 ): ProgramRecords<Run> => {
 	const delivered = Arr.map(roots, (tree) => recordOf(tree, { kind: "root" }, spine, codes))

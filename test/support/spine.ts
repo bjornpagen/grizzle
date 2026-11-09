@@ -1,14 +1,14 @@
-import type { AttachedHeads, AttachmentScope } from "#adapter/reader/analysis.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
+import type { ServedSpine, ServedSpineAttachment } from "#compiler/served/read.ts"
 
 /**
  * A delivered spine over a DAG no Description states, every child column of every attachment carried: each attachment
  * by its name at every level, its heads every column of its child's heading. A generated query has no head keys, so
  * the reader delivers each attachment's whole child, the conservative reading its claims are sound under.
  */
-export const everyColumnCarried = (dag: RelDag): AttachmentScope => {
-	const under = new Map<string, AttachedHeads>()
+export const everyColumnCarried = (dag: RelDag): ServedSpine => {
+	const under = new Map<string, ServedSpineAttachment>()
 	for (const node of topoOrder(dag)) {
 		if (node.kind !== "Attach") {
 			continue

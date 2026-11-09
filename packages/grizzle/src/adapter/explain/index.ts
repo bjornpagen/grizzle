@@ -7,7 +7,7 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { executionOf, formFor, readBinding } from "#adapter/reader/execution.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
-import { readExceeds, templateStatements } from "#adapter/reader/run.ts"
+import { readExceeds, readProgram } from "#adapter/reader/run.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import {
@@ -28,7 +28,13 @@ import {
 	type ParamMap,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { flight, isOrderedValue, isQueryValue, queryInput } from "#compiler/plan/read.ts"
+import {
+	isOrderedValue,
+	isQueryValue,
+	queryInput,
+	servedSource,
+	servedSpine
+} from "#compiler/plan/read.ts"
 
 /**
  * One statement the program would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's
@@ -148,7 +154,12 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	const exceeds = readExceeds(inputs)
 	/** A query's statements depend on none other (reader/run.ts), so they run in index order. */
 	const statements: Array<Explained> = []
-	for (const run of flight(templateStatements(template))) {
+	const program = readProgram(
+		servedSource(template.run),
+		servedSpine(compiled.value.compiled.desc),
+		ctx.artifacts.names.codes
+	)
+	for (const { run } of program.records) {
 		const execution = executionOf(formFor(run, exceeds), (slot) => readBinding(slot, inputs))
 		if (Result.isFailure(execution)) {
 			return yield* new ReadFailure({ reason: execution.failure })

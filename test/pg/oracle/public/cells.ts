@@ -12,8 +12,7 @@ import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
-import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import {
 	type CompiledReadValue,
@@ -23,7 +22,8 @@ import {
 	type ReadExecutor,
 	type ReaderValue
 } from "#adapter/reader/reader.ts"
-import { deliveredRows, templateProgram } from "#adapter/reader/run.ts"
+import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
+import { pageTemplateFor } from "#adapter/served/forms.ts"
 import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
@@ -36,14 +36,16 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { type ConservativeParamSlot, statementOutput } from "#compiler/lower/conservative/types.ts"
+import { statementOutput } from "#compiler/lower/conservative/types.ts"
 import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/decode.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
+import { type ServedRunStatement, servedSource } from "#compiler/served/read.ts"
+import { servedSpine } from "#compiler/served/spine.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
 import {
@@ -161,8 +163,9 @@ interface Checked {
 	readonly layout: Layout
 }
 
-const ownFrom = (statement: FusedStatement<ConservativeParamSlot>): number =>
-	statementOutput(statement.role, statement.heading, statement.fused).own(0)
+const ownFrom = (
+	statement: Pick<ServedRunStatement<unknown, ChoiceInput>, "role" | "heading" | "fused">
+): number => statementOutput(statement.role, statement.heading, statement.fused).own(0)
 
 interface LaidOut {
 	readonly heading: Heading
@@ -411,7 +414,7 @@ const checkRead =
 			recorded,
 			() => new Error("a read whose template was not recorded")
 		)
-		const program = templateProgram(prepared.template, attachmentHeads(desc), codes)
+		const program = readProgram(servedSource(prepared.template.run), servedSpine(desc), codes)
 		const statements = Arr.map(
 			program.records,
 			({ run: { statement }, layout, arrival }): SentChecked => ({

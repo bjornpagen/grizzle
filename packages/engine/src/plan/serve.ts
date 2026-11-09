@@ -69,22 +69,24 @@ export {
 	type ServedRead,
 	type ServedRefusals,
 	type ServedRoleForm,
+	type ServedSession,
 	type ServedVariants
 } from "#compiler/served/forms.ts"
 export { servedFile } from "#compiler/served/json.ts"
-export type {
-	ServedAttach,
-	ServedAttached,
-	ServedChoice,
-	ServedForm,
-	ServedFused,
-	ServedReadStatement,
-	ServedRoots,
-	ServedRunStatement,
-	ServedSource,
-	ServedSpec,
-	ServedSpecified,
-	ServedSpine,
-	ServedSpineAttachment,
-	ServedTree
+export {
+	type ServedAttach,
+	type ServedAttached,
+	type ServedChoice,
+	type ServedForm,
+	type ServedFused,
+	type ServedReadStatement,
+	type ServedRoots,
+	type ServedRunStatement,
+	type ServedSource,
+	type ServedSpec,
+	type ServedSpecified,
+	type ServedSpine,
+	type ServedSpineAttachment,
+	type ServedTree,
+	servedTree
 } from "#compiler/served/read.ts"

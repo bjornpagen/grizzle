@@ -4,8 +4,7 @@ import { readBacks } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import {
 	type CompiledReadValue,
 	makeReader,
@@ -14,7 +13,7 @@ import {
 	type ReadForm,
 	readHandle
 } from "#adapter/reader/reader.ts"
-import { compileReadForm } from "#adapter/served/forms.ts"
+import { compiledPageRuntime, compileReadForm } from "#adapter/served/forms.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -49,6 +48,7 @@ import {
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
+import { servedSpine } from "#compiler/served/spine.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
@@ -128,7 +128,10 @@ export const conservativePageRuntime = (
 	template: QueryTemplate,
 	desc: QueryDesc,
 	artifacts: SchemaArtifacts
-): EffectResult.Result<PageRuntime, CompileError> =>
+): EffectResult.Result<
+	{ readonly runtime: PageRuntime; readonly artifact: PageArtifact },
+	CompileError
+> =>
 	EffectResult.flatMap(toResult(statedOrderOf(desc, SourceLoc("query", []))), (stated) =>
 		EffectResult.flatMap(
 			toResult(
@@ -143,14 +146,22 @@ export const conservativePageRuntime = (
 				)
 			),
 			(artifact) =>
-				pageRuntimeOf({
-					page: { ...runtime.page, artifact },
-					params: runtime.params,
-					codes: artifacts.names.codes,
-					query: runtime.identity.query,
-					generation: runtime.identity.generation,
-					spine: attachmentHeads(desc)
-				})
+				EffectResult.map(
+					compiledPageRuntime({
+						page: {
+							order: runtime.page.order,
+							comparators: runtime.page.comparators,
+							heading: runtime.page.heading,
+							artifact
+						},
+						params: runtime.params,
+						codes: artifacts.names.codes,
+						query: runtime.identity.query,
+						generation: runtime.identity.generation,
+						spine: servedSpine(desc)
+					}),
+					(served) => ({ runtime: served, artifact })
+				)
 		)
 	)
 
@@ -197,7 +208,7 @@ export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): Read
 									page.compiled.desc,
 									artifacts
 								),
-								(runtime): ReadForm<unknown> => ({
+								({ runtime }): ReadForm<unknown> => ({
 									...compiled,
 									page: { kind: "compiled", page: { ...page, runtime } }
 								})
@@ -249,7 +260,7 @@ export const conservativeChange = (
  */
 export const conservativePage = (
 	input: PageCompileInput,
-	page: PageTemplate
+	page: Pick<PageTemplate, "order" | "comparators">
 ): Result.Result<PageArtifact, CompileError> =>
 	catchRefusal(() => {
 		const checkedRoot = input.checked.dag.roots[0]
