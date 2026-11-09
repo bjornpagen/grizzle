@@ -40,7 +40,8 @@ import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
  * workload of its programs, installed by the real apply runner through its generated first migration, and the snapshot
  * is registered as the application's. The property, for every drawn workload:
  * - the catalog holds exactly the statistics the workload plan justifies, each on its relation (a materialized view for a
- *   derived relation, a table for a stored one), over its columns, with all three kinds;
+ *   derived relation, a table for a stored one) in that relation's level's PostgreSQL schema, over its columns, with all
+ *   three kinds;
  * - `grizzle migrate apply` with nothing pending, its drift check, admits it, and so does Db.open;
  * - the view statistics object the case picks, dropped by hand, is drift the drift check refuses at stage drift,
  *   while Db.open, which compares no catalog, still opens; created again as it was, both admit it again.
@@ -200,9 +201,10 @@ const kept: ReadonlyArray<Kept<WorkloadSketch, StatisticsFeature>> = [
 	}
 ]
 
-/** Each statistics object of the schema: its name, its relation, the relation's kind (m for a materialized view, r for a
- * table), its columns in code point order joined by commas, its kinds, and the statement that creates it. */
-type StatisticsRow = readonly [string, string, string, string, string, string]
+/** Each statistics object of the installation: its PostgreSQL schema, its name, its relation, the relation's kind (m for a
+ * materialized view, r for a table), its columns in code point order joined by commas, its kinds, and the statement that
+ * creates it. */
+type StatisticsRow = readonly [string, string, string, string, string, string, string]
 
 layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 	it.effect(
@@ -257,12 +259,17 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 								const access = Record.values(
 									defined(plan.access[fixtureLogin], "the login's programs' access")
 								)
-								/** The catalog's statistics are exactly the plan's, each on its relation with all three
-								 * kinds. */
+								/** Every level's PostgreSQL schema: a level's tables and materialized views live in its own. */
+								const levels = Arr.join(
+									Arr.map(m.installation.names.levels, (l) => quoteString(identifierOf(l))),
+									", "
+								)
+								/** The catalog's statistics are exactly the plan's, each on its relation in that relation's
+								 * level's schema, with all three kinds. */
 								const installed = () =>
 									Effect.map(
 										m.owner.values(
-											`SELECT x.stxname::text, c.relname::text, c.relkind::text,
+											`SELECT n.nspname::text, x.stxname::text, c.relname::text, c.relkind::text,
 													(SELECT string_agg(a.attname::text, ',' ORDER BY a.attname::text COLLATE "C")
 													 FROM pg_catalog.pg_attribute AS a
 													 WHERE a.attrelid = x.stxrelid AND a.attnum = ANY (x.stxkeys))::text,
@@ -270,37 +277,39 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 													pg_catalog.pg_get_statisticsobjdef(x.oid)::text
 												 FROM pg_catalog.pg_statistic_ext AS x
 												 JOIN pg_catalog.pg_class AS c ON c.oid = x.stxrelid
-												 WHERE x.stxnamespace = ${quoteString(m.schema)}::regnamespace
-												 ORDER BY 1`,
+												 JOIN pg_catalog.pg_namespace AS n ON n.oid = x.stxnamespace
+												 WHERE n.nspname IN (${levels})
+												 ORDER BY 1, 2`,
 											[]
 										),
 										(rows) => trusted<ReadonlyArray<StatisticsRow>>(rows)
 									)
 								const before = yield* installed()
 								const expected = Arr.sort(
-									Arr.map(statistics, (s) => [
-										identifierOf(
-											derivedNames.has(s.relation)
-												? identity.view(parsedName(s.relation))
-												: identity.table(parsedName(s.relation))
-										),
-										derivedNames.has(s.relation) ? "m" : "r",
-										Arr.join(
-											Arr.sort(
-												Arr.map(s.columns, (column) =>
-													identifierOf(identity.column(parsedName(column)))
+									Arr.map(statistics, (s) => {
+										const on = m.installation.names.relation(s.relation)
+										return [
+											on.schema,
+											on.name,
+											derivedNames.has(s.relation) ? "m" : "r",
+											Arr.join(
+												Arr.sort(
+													Arr.map(s.columns, (column) =>
+														identifierOf(identity.column(parsedName(column)))
+													),
+													Order.String
 												),
-												Order.String
+												","
 											),
-											","
-										),
-										"d,f,m"
-									]),
+											"d,f,m"
+										]
+									}),
 									byRowText
 								)
 								assert.deepEqual(
 									Arr.sort(
-										Arr.map(before, ([, table, kind, columns, kinds]) => [
+										Arr.map(before, ([level, , table, kind, columns, kinds]) => [
+											level,
 											table,
 											kind,
 											columns,
@@ -335,15 +344,15 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 									yield* withDb(m, b.server.roles.reader, () => Effect.void)
 								})
 								yield* admitted
-								const views = Arr.filter(before, ([, , kind]) => kind === "m")
+								const views = Arr.filter(before, ([, , , kind]) => kind === "m")
 								if (views.length === 0) {
 									return
 								}
-								const [dropped, , , , , definition] = pickFrom(
+								const [level, dropped, , , , , definition] = pickFrom(
 									[defined(views[0], "a view's statistics"), ...views.slice(1)],
 									sketch.drop
 								)
-								yield* m.sql(`DROP STATISTICS $S.${quoteIdent(dropped)}`)
+								yield* m.sql(`DROP STATISTICS ${quoteIdent(level)}.${quoteIdent(dropped)}`)
 								c.note("a view's statistics dropped")
 								const applied = yield* Effect.result(m.reapply)
 								if (Result.isSuccess(applied)) {
