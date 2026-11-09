@@ -54,11 +54,32 @@ const isPunct = (t: Token | undefined, text: string): boolean =>
 const isIdent = (t: Token | undefined, text: string): boolean =>
 	t?.kind === "ident" && t.text === text
 
-/** The local names a file's `import { ... } from "effect"` declarations bind: effect's modules, `X as Y` by Y. */
+/** Whether a module specifier names effect's barrel or one of its modules: `effect`, or `effect/<Module>`. */
+const isEffect = (t: Token | undefined): boolean =>
+	t?.kind === "string" && (t.text === "effect" || Str.startsWith("effect/")(t.text))
+
+/**
+ * The local names a file's effect imports bind, each an effect module: `import { ... } from "effect"`'s, `X as Y` by Y,
+ * and `import * as X from "effect/<Module>"`'s X.
+ */
 const effectModules = (tokens: ReadonlyArray<Token>): ReadonlySet<string> => {
 	const names = new Set<string>()
 	for (const [i, t] of tokens.entries()) {
-		if (!isIdent(t, "import") || !isPunct(tokens[i + 1], "{")) {
+		if (!isIdent(t, "import")) {
+			continue
+		}
+		const local = tokens[i + 3]
+		if (
+			isPunct(tokens[i + 1], "*") &&
+			isIdent(tokens[i + 2], "as") &&
+			local?.kind === "ident" &&
+			isIdent(tokens[i + 4], "from") &&
+			isEffect(tokens[i + 5])
+		) {
+			names.add(local.text)
+			continue
+		}
+		if (!isPunct(tokens[i + 1], "{")) {
 			continue
 		}
 		const found = Arr.findFirstIndex(tokens, (x, j) => j > i && isPunct(x, "}"))
