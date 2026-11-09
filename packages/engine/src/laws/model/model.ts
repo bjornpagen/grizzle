@@ -35,6 +35,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { heapTupleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
@@ -334,6 +335,9 @@ export interface LawModel {
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
 	/** The laws whose containment evidence holds at every statement (an immediate foreign key or a CHECK). */
 	readonly immediate: ReadonlySet<LawId>
+	/** The cycles of the foreign key graph its deferral reads (FkCycles), names only: what generate records for a layer
+	 * that plans only a slice. */
+	readonly fkCycles: FkCycles
 	/** Each containment's existence evidence a query may rely on, with the native object that enforces it (catalog.ts
 	 * existenceConstraints): what every evidence catalog over the model reads. */
 	readonly existence: ReadonlyArray<ExistenceConstraint>
@@ -510,12 +514,17 @@ export const domainCheck = (info: ContractInfo): DomainCheck => {
 	return isNonEmpty(terms) ? { kind: "checked", terms } : { kind: "unchecked" }
 }
 
-/** Strongly connected relations of the foreign key graph (iterative Tarjan); an edge whose ends share a component, a
- * self-reference included, lies on a cycle. A relation outside the graph is in no component, so no edge with it as an
- * end lies on one. */
-const cycleEdges = (
-	edges: ReadonlyArray<readonly [string, string]>
-): ((from: string, to: string) => boolean) => {
+/**
+ * The cycles of the foreign keys that order a write's statements (`#deferral`): each strongly connected component of
+ * more than one relation, its relations' names in code point order, the components in the order of their first names.
+ * A foreign key lies on a cycle exactly when it references its own relation or its two ends are in one of them
+ * (`onCycleOf`). Names only: what generate records in the snapshot for a layer that plans only a slice of the laws.
+ */
+export type FkCycles = ReadonlyArray<NonEmptyReadonlyArray<string>>
+
+/** The cycles of the foreign key graph of `edges` (FkCycles): its strongly connected components (iterative Tarjan) of
+ * more than one relation. */
+const fkCyclesOf = (edges: ReadonlyArray<readonly [string, string]>): FkCycles => {
 	const next = new Map<string, Array<string>>()
 	for (const [a, b] of edges) {
 		next.set(a, [...(next.get(a) ?? []), b])
@@ -592,11 +601,38 @@ const cycleEdges = (
 			strongConnect(root)
 		}
 	}
+	const members = Map.groupBy(component.keys(), (relation) => component.get(relation))
+	return [...members.values()]
+		.flatMap((relations) => {
+			const sorted = relations.toSorted(compareStrings)
+			return isNonEmpty(sorted) && sorted.length > 1 ? [sorted] : []
+		})
+		.toSorted((a, b) => compareStrings(a[0], b[0]))
+}
+
+/**
+ * Whether a foreign key from `from` into `to` lies on one of `cycles`: it references its own relation, or both its ends
+ * are in one component. Every foreign key the deferral asks about is an edge of the graph the cycles are of, so a
+ * self-reference is a cycle of its own, which no component of more than one relation lists.
+ */
+const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) => {
+	const cycleOf = new Map(cycles.flatMap((c, i) => c.map((relation) => [relation, i] as const)))
 	return (from, to) => {
-		const own = component.get(from)
-		return own !== undefined && own === component.get(to)
+		const own = cycleOf.get(from)
+		return from === to || (own !== undefined && own === cycleOf.get(to))
 	}
 }
+
+/** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
+ * does not fix deferred, and every PERIOD foreign key, from its relation to its target. */
+const fkEdges = (plans: ReadonlyArray<LawPlan>): ReadonlyArray<readonly [string, string]> =>
+	plans.flatMap((plan) =>
+		plan.natives.flatMap((n): ReadonlyArray<readonly [string, string]> =>
+			(n.kind === "ForeignKey" && n.deferral !== "deferred") || n.kind === "PeriodForeignKey"
+				? [[n.relation.name, n.target.name]]
+				: []
+		)
+	)
 
 /** A foreign key the schema-wide deferral rule decides, as the rule asks about it: its relation, its target and the
  * target's fields it references as plain columns. */
@@ -963,7 +999,8 @@ class Specializer {
 
 	run(): LawModel {
 		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
-		const deferred = this.#deferral(plans)
+		const fkCycles = fkCyclesOf(fkEdges(plans))
+		const deferred = this.#deferral(fkCycles)
 		const immediate = immediateOf(plans, deferred)
 		const held = this.#held(plans)
 
@@ -1097,6 +1134,7 @@ class Specializer {
 			constraintToLaw: constraintLawMap(constraints),
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
+			fkCycles,
 			existence: existenceConstraints(evidence.containments, natives),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,
@@ -1338,15 +1376,8 @@ class Specializer {
 	 * is the cycle's among them, and the rule's too, which also defers a key into a replaceable target. The edges depend
 	 * on the plans alone, never on an evidence context.
 	 */
-	#deferral(plans: ReadonlyArray<LawPlan>): Deferral {
-		const edges = plans.flatMap((plan) =>
-			plan.natives.flatMap((n): ReadonlyArray<readonly [string, string]> =>
-				(n.kind === "ForeignKey" && n.deferral !== "deferred") || n.kind === "PeriodForeignKey"
-					? [[n.relation.name, n.target.name]]
-					: []
-			)
-		)
-		const onCycle = cycleEdges(edges)
+	#deferral(cycles: FkCycles): Deferral {
+		const onCycle = onCycleOf(cycles)
 		return {
 			onCycle,
 			rule: (fk) =>
