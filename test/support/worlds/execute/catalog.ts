@@ -27,7 +27,8 @@ import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import { type PgConnection, type SqlError, wireSession } from "#test/support/pg.ts"
+import { type PgConnection, runAlone, type SqlError, wireSession } from "#test/support/pg.ts"
+import { testSql } from "#test/support/sql.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
@@ -177,10 +178,26 @@ const killedAt = (session: Session, at: KillPoint): MigrationSession => {
 }
 
 /**
+ * Waits until the server has ended the backend `pid`, polling pg_stat_activity back to back and judging nothing by
+ * time: the server ends a backend once it reads its connection's end, a moment after the client destroyed it, and only
+ * then frees the session's locks, the migration's session-level apply lock among them.
+ */
+const backendEnded = (admin: PgConnection, pid: number): Effect.Effect<void, SqlError> =>
+	Effect.flatMap(
+		admin.queryValues("SELECT 1 FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4", [pid]),
+		(listed) =>
+			listed.length === 0
+				? Effect.void
+				: Effect.flatMap(Effect.yieldNow, () => backendEnded(admin, pid))
+	)
+
+/**
  * Runs the migration runner in the substrate's database with `folders` (applied or pending) on a migration session of
  * `owner`, the installation's owner login, under the ambient session it was installed under: what `grizzle migrate`
  * sends, its drift check after it, ended as `end` says. Nothing pending runs the drift check alone, as `grizzle drift`
- * does.
+ * does. A killed deploy's run ends once the server has ended its backend, as a process's death ends its connection:
+ * until then the backend still holds the deploy's apply lock, and the next migrate of the schema would be refused as
+ * busy, an apply the dead deploy no longer runs.
  */
 export const runFolders = (
 	substrate: SubstrateShape,
@@ -198,15 +215,23 @@ export const runFolders = (
 					password: owner.credentials.password
 				})
 			)
+			const pid = yield* Effect.orDie(
+				runAlone(connection, {
+					sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
+					params: []
+				})
+			)
 			const session =
 				end.kind === "runner" ? migrationSession(connection) : killedAt(connection, end.at)
 			const ran = yield* Effect.result(applyOnSession(session, [{ snapshot, folders }]))
 			if (Result.isSuccess(ran)) {
 				return { kind: "applied" }
 			}
-			return connection.state() === "ended" && end.kind === "killed"
-				? { kind: "killed" }
-				: { kind: "refused", error: ran.failure }
+			if (connection.state() === "ended" && end.kind === "killed") {
+				yield* Effect.orDie(backendEnded(substrate.admin, Number(pid.rows[0]?.[0])))
+				return { kind: "killed" }
+			}
+			return { kind: "refused", error: ran.failure }
 		})
 	)
 
