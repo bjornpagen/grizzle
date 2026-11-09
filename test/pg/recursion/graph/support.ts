@@ -311,15 +311,22 @@ export const statementParams = (
 	})
 
 /**
- * The rows a statement read from one table: every scan of it, the rows it returned and those its filter or recheck
- * removed, times its loops.
+ * The rows a plan node produced over all its loops. PostgreSQL reports a node's rows per loop to two decimal places, so
+ * their product with its loops, rounded, is its total, a whole number, wherever it loops fewer than 100 times, and lies
+ * within a two-hundredth of a row a loop of it otherwise.
+ */
+export const rowsOverLoops = (n: PlanNode): number => Math.round(n.actualRows * n.actualLoops)
+
+/**
+ * The rows a statement read from one table: every scan of it, the rows it returned over its loops (rowsOverLoops) and
+ * those its filter or recheck removed, which PostgreSQL reports per loop too.
  */
 export const tableRowsRead = (root: PlanNode, table: string): number =>
 	Arr.reduce(
 		Arr.filter(planNodes(root), (n) => Option.contains(n.relation, table)),
 		0,
 		(sum, n) =>
-			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
+			sum + rowsOverLoops(n) + (n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
 	)
 
 /**

@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, type Gen, int } from "@grizzle/testing/gen"
+import { array, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -24,6 +24,7 @@ import {
 	inInstalledCase,
 	logicalOf,
 	publicCase,
+	rowsOverLoops,
 	tableRowsRead,
 	statementParams
 } from "#test/pg/recursion/graph/support.ts"
@@ -85,10 +86,13 @@ interface Forest {
 	readonly page: ReadonlyArray<number>
 }
 
+/** A forest whose page is one root as often as it is two to four, so the streams that judge coverage reach both. */
 const forestGen: Gen<Forest> = (source) => ({
 	roots: source.draw(int(40, 200)),
 	depth: source.draw(int(1, 6)),
-	page: source.draw(array(int(1, 6), { min: 1, max: 4 }))
+	page: source.draw(
+		oneOf([map(int(1, 6), (depth) => [depth]), array(int(1, 6), { min: 2, max: 4 })])
+	)
 })
 
 const int4 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -128,6 +132,22 @@ type ForestFeature =
 	| "a page of one root"
 	| "a page of several roots"
 	| "a page of chains of two depths"
+
+/** The forests kept from failure reports, each replayed first by value. */
+const kept: ReadonlyArray<Kept<Forest, ForestFeature>> = [
+	{
+		note: "a page of two roots of one edge each, over 40 edges on one heap page, which PostgreSQL reads whole through a nested loop over the page materialized rather than probe the key index twice",
+		sketch: { roots: 40, depth: 1, page: [1, 1] },
+		draws: "",
+		reaches: ["a page of several roots"]
+	},
+	{
+		note: "a page whose chains of five and six edges loop the recursion's working table over several iterations, whose rows per loop PostgreSQL reports to two decimal places",
+		sketch: { roots: 40, depth: 1, page: [1, 1, 5, 6] },
+		draws: "",
+		reaches: ["a page of several roots", "a page of chains of two depths"]
+	}
+]
 
 /** The transition arm the definition uses: a rule over Net, and the feedback of a state of one vertex. */
 type NetRule = Rule<typeof Net>
@@ -186,7 +206,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 							["a page of one root", "a page of several roots", "a page of chains of two depths"],
 							{ cases: 8, sense: notesOnly }
 						),
-						kept: [],
+						kept,
 						runs: 6,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -199,8 +219,11 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 							const schema = yield* s.schema({ create: false, label: "seededx" })
 							const c = caseOf("PageBelow", pageBelow(f.page.length), {}, f)
 							/**
-							 * With hash joins the planner reads the small edge table whole once per statement. Where it probes
-							 * the edge relation's key index instead, the rows read are those of the traversal itself.
+							 * With hash joins the planner reads the small edge table whole once per statement, and so it does
+							 * through a nested loop over the page materialized, which it prefers to probing while the edge
+							 * table fits a heap page: at 40 edges, each probe of the key index is costed a random heap page,
+							 * the whole table one. Where it probes the edge relation's key index instead, the rows read are
+							 * those of the traversal itself.
 							 */
 							const measured = yield* inInstalledCase(c, schema, (session, plan) =>
 								Effect.gen(function* () {
@@ -250,7 +273,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 												 */
 												states: Arr.map(
 													Arr.filter(nodes, (n) => n.nodeType === "Recursive Union"),
-													(n) => n.actualRows * n.actualLoops
+													rowsOverLoops
 												),
 												unionLoops: Arr.map(
 													Arr.filter(nodes, (n) => n.nodeType === "Recursive Union"),
@@ -259,7 +282,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 												feedback: Arr.reduce(
 													Arr.filter(nodes, (n) => n.nodeType === "WorkTable Scan"),
 													0,
-													(sum, n) => sum + n.actualRows * n.actualLoops
+													(sum, n) => sum + rowsOverLoops(n)
 												),
 												delivered: defined(run.statements[index], `${side}: the attachment run`)
 													.rows.length
@@ -269,7 +292,12 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 										seeded: yield* measure(optimized.value, "optimized"),
 										pipelined: yield* measure(baseline.value, "conservative")
 									}
-									for (const setting of ["enable_seqscan", "enable_hashjoin", "enable_mergejoin"]) {
+									for (const setting of [
+										"enable_seqscan",
+										"enable_hashjoin",
+										"enable_mergejoin",
+										"enable_material"
+									]) {
 										yield* session.query(`SET LOCAL ${setting} = off`, []).pipe(Effect.orDie)
 									}
 									const probed = {
