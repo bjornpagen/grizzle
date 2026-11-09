@@ -3,7 +3,6 @@ import { readHost, toResult } from "#adapter/engine.ts"
 import {
 	type CompileError,
 	decode,
-	fromJson,
 	isList,
 	isRecord,
 	malformedArtifact,

@@ -10,12 +10,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
-import {
-	type DeclaredName,
-	declaredAlike,
-	identifierOf,
-	parseDeclaredName
-} from "#compiler/core/identity.ts"
+import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -43,16 +38,10 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
+import { rosterCodebook } from "#compiler/deploy/snapshot/served.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
-import {
-	type Codebook,
-	codecOf,
-	emptyCodebook,
-	type PreviousRoster,
-	type RosterCodec,
-	rosterCodec
-} from "#compiler/ir/codes.ts"
+import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
 import type { Writing } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import {
