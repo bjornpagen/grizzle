@@ -692,7 +692,7 @@ const objectParts = (
 export type Parts = { readonly [K in PartKind]: ReadonlyMap<string, PartOf<K>> }
 
 /** The parts of a relation that holds none. */
-export const noParts: Parts = {
+const noParts: Parts = {
 	constraint: new Map(),
 	index: new Map(),
 	statistics: new Map(),

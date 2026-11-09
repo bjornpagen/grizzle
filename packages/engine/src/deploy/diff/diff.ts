@@ -654,14 +654,15 @@ class Differ {
 		>()
 		for (const p of previousObjects) {
 			const w = installed(p)
-			if (w.kind === "lawColumn") {
-				const key = nameKey(w.table)
-				const held = lawColumnsByTable.get(key)
-				if (held === undefined) {
-					lawColumnsByTable.set(key, [{ object: p, column: w }])
-				} else {
-					held.push({ object: p, column: w })
-				}
+			if (w.kind !== "lawColumn") {
+				continue
+			}
+			const key = nameKey(w.table)
+			const held = lawColumnsByTable.get(key)
+			if (held === undefined) {
+				lawColumnsByTable.set(key, [{ object: p, column: w }])
+			} else {
+				held.push({ object: p, column: w })
 			}
 		}
 		return new Map(
