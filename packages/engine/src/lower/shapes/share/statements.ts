@@ -242,6 +242,7 @@ const occurrencesByKey = (
 	index: ShareIndex,
 	root: RelNode,
 	order: ReadonlyArray<RelNode>,
+	keyed: ReadonlyMap<NodeId, string>,
 	chosen: ReadonlySet<string>,
 	carried: (node: RelNode) => boolean
 ): ReadonlyMap<string, number> => {
@@ -254,7 +255,7 @@ const occurrencesByKey = (
 			continue
 		}
 		/** The occurrences the node passes on to its inputs: one, from its first copy, under a chosen CTE. */
-		const key = index.key(node)
+		const key = keyed.get(node.id)
 		let passed = occ
 		if (key !== undefined) {
 			byKey.set(key, (byKey.get(key) ?? 0) + occ)
@@ -278,27 +279,91 @@ const occurrencesByKey = (
 	return byKey
 }
 
+/** How many times the statement rooted at `root` lowers each node it reaches, every use of a node lowered anew. */
+const usesOf = (
+	index: ShareIndex,
+	root: RelNode,
+	order: ReadonlyArray<RelNode>,
+	carried: (node: RelNode) => boolean
+): ReadonlyMap<RelNode, number> => {
+	const uses = new Map<RelNode, number>([[root, 1]])
+	for (const node of order) {
+		const used = uses.get(node) ?? 0
+		for (const input of index.inputs(node)) {
+			if (!carried(input)) {
+				uses.set(input, (uses.get(input) ?? 0) + used)
+			}
+		}
+	}
+	return uses
+}
+
+/**
+ * The share key of each node of a statement that may be read twice in it: one the statement lowers more than once
+ * (`uses`), or one whose kind, height and width another node of the statement has, as every node of its share key
+ * does. Any other node is the only one of its key in the statement and lowered once, so no count of its key reaches
+ * two and nothing reads its key: no digest of it is taken.
+ */
+const keyedNodes = (
+	index: ShareIndex,
+	order: ReadonlyArray<RelNode>,
+	uses: ReadonlyMap<RelNode, number>
+): ReadonlyMap<NodeId, string> => {
+	const alike = new Map<string, Map<number, Map<number, Array<RelNode>>>>()
+	for (const node of order) {
+		const byHeight = alike.get(node.kind) ?? new Map<number, Map<number, Array<RelNode>>>()
+		alike.set(node.kind, byHeight)
+		const height = index.height(node)
+		const byWidth = byHeight.get(height) ?? new Map<number, Array<RelNode>>()
+		byHeight.set(height, byWidth)
+		const width = node.heading.length
+		const nodes = byWidth.get(width) ?? []
+		byWidth.set(width, nodes)
+		nodes.push(node)
+	}
+	const keyed = new Map<NodeId, string>()
+	for (const byHeight of alike.values()) {
+		for (const byWidth of byHeight.values()) {
+			for (const nodes of byWidth.values()) {
+				for (const node of nodes) {
+					if (nodes.length < 2 && (uses.get(node) ?? 0) < 2) {
+						continue
+					}
+					const key = index.key(node)
+					if (key !== undefined) {
+						keyed.set(node.id, key)
+					}
+				}
+			}
+		}
+	}
+	return keyed
+}
+
 /**
  * The share keys one statement rooted at `root` reads at least twice and computes once as a MATERIALIZED CTE, never
- * entering a node `carried` names (the statement reads its carrier). Occurrences are counted in the statement as it is
- * lowered, every use of a node lowered anew: a copy under a CTE already chosen is lowered once, in the CTE's body. The
- * highest such sub-query is chosen first (cte-policy rule 5: a shared expensive node is MATERIALIZED).
+ * entering a node `carried` names (the statement reads its carrier), each with the nodes of the statement that are its
+ * copies, by label. Occurrences are counted in the statement as it is lowered, every use of a node lowered anew: a
+ * copy under a CTE already chosen is lowered once, in the CTE's body. The highest such sub-query is chosen first
+ * (cte-policy rule 5: a shared expensive node is MATERIALIZED). Only the nodes that may be read twice are keyed
+ * (keyedNodes).
  */
 export const statementCtes = (
 	index: ShareIndex,
 	root: RelNode,
 	carried: (node: RelNode) => boolean
-): ReadonlySet<string> => {
+): ReadonlyMap<NodeId, string> => {
 	const nodes = reach(index, root, carried)
 	/** Parents before children: by decreasing height, a node's inputs being strictly lower. */
 	const order = [...nodes].toSorted((a, b) => index.height(b) - index.height(a))
+	const keyed = keyedNodes(index, order, usesOf(index, root, order, carried))
 	const chosen = new Set<string>()
 	for (;;) {
-		const byKey = occurrencesByKey(index, root, order, chosen, carried)
+		const byKey = occurrencesByKey(index, root, order, keyed, chosen, carried)
 		/** The highest key read often enough, the least key among equals. */
 		let best: { readonly key: string; readonly height: number } | undefined
 		for (const node of order) {
-			const key = index.key(node)
+			const key = keyed.get(node.id)
 			if (key === undefined || chosen.has(key)) {
 				continue
 			}
@@ -315,7 +380,7 @@ export const statementCtes = (
 			}
 		}
 		if (best === undefined) {
-			return chosen
+			return new Map([...keyed].filter(([, key]) => chosen.has(key)))
 		}
 		chosen.add(best.key)
 	}
@@ -336,7 +401,8 @@ type SharedSource =
 interface StatementScope {
 	readonly ctes: Set<Cte>
 	readonly defined: Map<string, DefinedCte>
-	readonly materialize: ReadonlySet<string>
+	/** The copies of each share key the statement computes once as a MATERIALIZED CTE (statementCtes), by label. */
+	readonly materialize: ReadonlyMap<NodeId, string>
 }
 
 /**
@@ -456,8 +522,8 @@ export class StatementSharing {
 	}
 
 	#shared(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): OperandSelect {
-		const key = scope.materialize.size === 0 ? undefined : this.index.key(node)
-		if (key === undefined || !scope.materialize.has(key) || cx.readsFeedback(node)) {
+		const key = scope.materialize.get(node.id)
+		if (key === undefined || cx.readsFeedback(node)) {
 			return this.#inner(node, cx, env)
 		}
 		const origin = { kind: "node", node: node.id } as const

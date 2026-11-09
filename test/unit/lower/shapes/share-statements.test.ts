@@ -2,6 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
+import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
@@ -175,12 +176,19 @@ describe("sub-queries repeated inside one statement", () => {
 					caseHang
 				},
 				(reads, c) =>
-					Effect.sync(() => {
+					Effect.gen(function* () {
 						const { built, copies } = repeated(reads)
 						const ctes = statementCtes(new ShareIndex(built.dag), built.dag.roots[0], () => false)
 						const expected =
 							reads > 1 ? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))] : []
-						assert.deepEqual([...ctes], expected)
+						yield* agree(
+							[
+								["the share keys the statement computes once", [...new Set(ctes.values())]],
+								["the copies' share key", expected]
+							],
+							set(structuralHash, exact)
+						)
+						unorderedEqual([...ctes.keys()], reads > 1 ? Arr.map(copies, (copy) => copy.id) : [])
 						c.note(reads > 1 ? "shared" : "inline")
 					})
 			)
