@@ -81,18 +81,76 @@ export interface StratumRefill {
 }
 
 /**
- * A way a put of the stratum reaches a refilled family's members (write/family/removals.ts RefillWay): the plain
- * relation it writes, and the family whose owner axis carries its change into the refilled family's member.
+ * Where a refill starts (write/family/removals.ts RefillWay): a put of a plain relation, whose facts state its changed
+ * rows; or an edit of a family's member relation, whose own removals statement redraws its changed rows by `family`.
+ */
+export type RefillStart =
+	| { readonly kind: "put"; readonly relation: string }
+	| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
+
+/**
+ * A way a change of the stratum reaches a refilled family's members: where it starts, and the family whose owner axis
+ * carries its change into the refilled family's member.
  */
 export interface PlainRefillWay {
-	readonly root: string
+	readonly root: RefillStart
 	readonly hop: Family
 }
 
-/** A refilled family of one member relation, and the ways the stratum's puts reach its members. */
+/** A refilled family of one member relation, and the ways the stratum's changes reach its members. */
 export interface PlainRefill {
 	readonly family: Family
 	readonly ways: NonEmptyReadonlyArray<PlainRefillWay>
+}
+
+/** Whether two ways start at one change and ride one family's owner axis. */
+const sameWay = (a: PlainRefillWay, b: PlainRefillWay): boolean =>
+	a.root.kind === b.root.kind &&
+	a.root.relation === b.root.relation &&
+	familyKey(a.hop.id) === familyKey(b.hop.id)
+
+/**
+ * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
+ * host: a put of a plain relation whose change cascades along one owner axis into a counted or ordered family's member,
+ * read there by its fold, predecessor or last axis; or an edit of a family member relation that redraws a column of its
+ * rows a counted or ordered family it owns copies into its members, read there as that copy. Either reaches a member
+ * relation the stratum does not edit.
+ */
+const flightWay = (
+	path: RefillPath,
+	managed: (relation: string) => boolean,
+	edited: ReadonlySet<string>
+): PlainRefillWay | undefined => {
+	const { change, changed, reader } = path
+	const [hop, ...further] = path.copies
+	if (
+		change.kind !== "write" ||
+		reader.family.members.kind === "tree" ||
+		edited.has(reader.family.member.name)
+	) {
+		return undefined
+	}
+	if (!managed(change.relation.name)) {
+		return change.op === "put" &&
+			hop !== undefined &&
+			!isNonEmpty(further) &&
+			(reader.kind === "fold" || reader.kind === "predecessor" || reader.kind === "last") &&
+			hop.family.member.name === reader.family.member.name
+			? { root: { kind: "put", relation: change.relation.name }, hop: hop.family }
+			: undefined
+	}
+	return change.op !== "insert" &&
+		hop === undefined &&
+		changed.by === "member" &&
+		changed.relation.name === change.relation.name &&
+		reader.kind === "owner" &&
+		reader.family.owner.name === change.relation.name &&
+		reader.family.member.name !== change.relation.name
+		? {
+				root: { kind: "edit", relation: change.relation.name, family: changed.family },
+				hop: reader.family
+			}
+		: undefined
 }
 
 /**
@@ -112,30 +170,15 @@ export const plainRefills = (
 		{ readonly family: Family; readonly ways: [PlainRefillWay, ...Array<PlainRefillWay>] }
 	>()
 	for (const path of refill.closure.paths) {
-		const change = path.change
-		const [hop, ...further] = path.copies
-		const reader = path.reader
-		if (
-			change.kind !== "write" ||
-			change.op !== "put" ||
-			managed(change.relation.name) ||
-			hop === undefined ||
-			isNonEmpty(further) ||
-			reader.family.members.kind === "tree" ||
-			(reader.kind !== "fold" && reader.kind !== "predecessor" && reader.kind !== "last") ||
-			hop.family.member.name !== reader.family.member.name ||
-			edited.has(reader.family.member.name)
-		) {
+		const way = flightWay(path, managed, edited)
+		if (way === undefined) {
 			return undefined
 		}
-		const way: PlainRefillWay = { root: change.relation.name, hop: hop.family }
-		const key = familyKey(reader.family.id)
+		const key = familyKey(path.reader.family.id)
 		const known = byFamily.get(key)
 		if (known === undefined) {
-			byFamily.set(key, { family: reader.family, ways: [way] })
-		} else if (
-			!known.ways.some((w) => w.root === way.root && familyKey(w.hop.id) === familyKey(way.hop.id))
-		) {
+			byFamily.set(key, { family: path.reader.family, ways: [way] })
+		} else if (!known.ways.some((w) => sameWay(w, way))) {
 			known.ways.push(way)
 		}
 	}

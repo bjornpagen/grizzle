@@ -94,6 +94,9 @@ export interface FamilyRemovals {
 	 * it writes ahead of each put of them, members first, so the cascade finds them changed (frontend/refill.ts
 	 * plainRefills). */
 	readonly refilledFrom: ReadonlyArray<string>
+	/** The member relations whose rows its edit's refills rewrite in place in this statement, from the rows of `member` it
+	 * redraws (frontend/refill.ts RefillStart `edit`), none of them `member`. */
+	readonly riders: ReadonlyArray<string>
 }
 
 /** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions or removals
@@ -105,7 +108,11 @@ export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 
 /** The member relation an additions or removals statement writes the rows of: its member, none where it appends none. */
 const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
-	node.kind === "additions" && node.appends === "nothing" ? [] : [node.member]
+	node.kind === "removals"
+		? [node.member, ...node.riders]
+		: node.appends === "nothing"
+			? []
+			: [node.member]
 
 /** A column PostgreSQL generates from its row, by key (write/family/fold.ts ColumnKey), with the keys of the columns it
  * reads. */
@@ -560,8 +567,9 @@ const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
  * in its own row (write/program/bind.ts freshOwners), which no recount changes; and the immediate references between
  * them order them as any two writes' do, the additions adding the rows they insert, the removals removing the rows they
  * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put or refilled
- * member in place, and either adding and changing an owner's facts at the columns its recount changes; and a removals
- * that refills a member ahead of a put of a plain relation it draws from runs before that put.
+ * member in place, adding and changing the rows of each member relation its edit's refills rewrite (`riders`), and
+ * either adding and changing an owner's facts at the columns its recount changes; and a removals that refills a member
+ * ahead of a put of a plain relation it draws from runs before that put.
  */
 const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	action: Scheduled,
@@ -587,7 +595,9 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 		if (members.includes(relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
-				: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
+				: relation === node.member
+					? { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
+					: { adds: true, removes: false, updates: true }
 		}
 		const owner = node.owners.find((o) => o.relation === relation)
 		if (owner === undefined) {

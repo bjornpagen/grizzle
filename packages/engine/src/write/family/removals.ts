@@ -74,7 +74,7 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
+import { type ColumnKey, columnKey, familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import {
 	type PerGroup,
 	type Scanned,
@@ -217,22 +217,61 @@ export const removalsSql = (
 	const ctes: Array<Cte> = []
 	const slots = slotReader(w, supply, ctes)
 	const deferred = deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
-	/** Each root's put facts, the root's rows as the stratum leaves them, by relation. */
-	const rootFacts = new Map(
+	/** Each put root's facts, the root's rows as the stratum leaves them, by relation. */
+	const putFacts = new Map(
 		roots.map((r) => [r.relation.name, slots(r.relation.name, r.slot)] as const)
 	)
-	const reads = members.map((member): Read => {
-		const read = readEdit(w, supply, ctes, member, slots)
-		const ways = member.families.flatMap((f) => f.refills)
-		return isNonEmpty(ways)
-			? { ...read, updated: cascaded(w, supply, ctes, member, ways, rootFacts) }
-			: read
-	})
-	const redrawn = reads.flatMap((read) =>
-		read.member.families.map((f) =>
-			redraw(w, supply, ctes, read, f.family, f.drawn, f.inputs, deferred, rootFacts)
-		)
+	const waysOf = (member: EditedMember) => member.families.flatMap((f) => f.refills)
+	/** Each member's read and its families' redraws, its refills' rows cascaded from `rootFacts`. */
+	const drawn = (
+		of: ReadonlyArray<EditedMember>,
+		rootFacts: ReadonlyMap<string, Shaped>
+	): { readonly reads: ReadonlyArray<Read>; readonly redrawn: ReadonlyArray<Redrawn> } => {
+		const read = of.map((member): Read => {
+			const edit = readEdit(w, supply, ctes, member, slots)
+			const ways = waysOf(member)
+			return isNonEmpty(ways)
+				? { ...edit, updated: cascaded(w, supply, ctes, member, ways, rootFacts) }
+				: edit
+		})
+		return {
+			reads: read,
+			redrawn: read.flatMap((r) =>
+				r.member.families.map((f) =>
+					redraw(w, supply, ctes, r, f.family, f.drawn, f.inputs, deferred, rootFacts)
+				)
+			)
+		}
+	}
+	/** The edited members first, and then the riders an edit's refills rewrite, whose rows start at the edited rows
+	 * their families redraw. */
+	const edited = drawn(
+		members.filter((m) => !waysOf(m).some((way) => way.root.kind === "edit")),
+		putFacts
 	)
+	const editFacts = new Map(putFacts)
+	for (const member of members) {
+		for (const way of waysOf(member)) {
+			const root = way.root
+			if (root.kind === "edit") {
+				const at = defined(
+					edited.redrawn.find(
+						(x) =>
+							x.member.relation.name === root.relation &&
+							familyKey(x.family.id) === familyKey(root.family.id)
+					),
+					`the redraw of ${root.relation} a refill starts from`
+				)
+				editFacts.set(root.relation, at.scan)
+			}
+		}
+	}
+	const riding = drawn(
+		members.filter((m) => waysOf(m).some((way) => way.root.kind === "edit")),
+		editFacts
+	)
+	const reads = [...edited.reads, ...riding.reads]
+	const redrawn = [...edited.redrawn, ...riding.redrawn]
 	const returnings: Array<FamilyReturning> = []
 	/** The deletions every insert and update of the statement waits on. */
 	const deletions: Array<string> = []
@@ -278,19 +317,23 @@ export interface RefillRoot {
 }
 
 /**
- * One way a root's put reaches a refilled family's members: the family whose owner axis carries the root's put fields
- * into its members' copies, the refilled family's member relation's rows.
+ * One way a change reaches a refilled family's members: where it starts, a put of a plain relation (`RefillRoot`) or an
+ * edit of a member relation whose rows this statement redraws by `family`; and the family whose owner axis carries the
+ * changed columns into its members' copies, the refilled family's member relation's rows.
  */
 export interface RefillWay {
-	readonly root: string
+	readonly root:
+		| { readonly kind: "put"; readonly relation: string }
+		| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
 	readonly hop: Family
 }
 
 /**
- * A member relation's rows a refill reaches as the stratum's puts of plain relations leave them, before those puts run
- * (`RefillWay`): each row in a group a root's put names, every column as stored but each copy its family's owner axis
- * carries of a field the put states, which takes the put's value, as the axis's cascade would. The refill writes them
- * ahead of the put, so the cascade finds them changed, and each row check over a copy meets its redrawn values.
+ * A member relation's rows a refill reaches as the stratum's changes leave them (`RefillWay`): each row in a group a
+ * root's rows name, every column as stored but each copy its family's owner axis carries of a column those rows state,
+ * which takes their value, as the axis's cascade would. A put's refill writes them ahead of the put, so the cascade
+ * finds them changed, and each row check over a copy meets its redrawn values; an edit's, beside the edit's own rows,
+ * whose redraw the root's rows are.
  */
 const cascaded = (
 	w: WriteContext,
@@ -310,7 +353,7 @@ const cascaded = (
 	const out = shapedCte(supply, "cascaded member", keys)
 	const s = supply.relation(internal("cascaded stored"))
 	const factsOf = (way: RefillWay): Shaped =>
-		defined(rootFacts.get(way.root), `the put of ${way.root} a refill reads`)
+		defined(rootFacts.get(way.root.relation), `the rows of ${way.root.relation} a refill reads`)
 	/** The way's put facts naming the stored member's group, read as `p`. */
 	const naming = (way: RefillWay, p: string): Expr =>
 		and(
@@ -327,8 +370,7 @@ const cascaded = (
 		const puts = ways.flatMap((way) =>
 			way.hop.axes.owner.flatMap((pair): ReadonlyArray<Expr> => {
 				const facts = factsOf(way)
-				const put =
-					pair.to.kind === "field" ? facts.columns.get(fieldKey(pair.to.field.name)) : undefined
+				const put = facts.columns.get(columnKey(pair.to))
 				if (columnKey(pair.from) !== key || put === undefined) {
 					return []
 				}
@@ -848,7 +890,7 @@ const redraw = (
 			)
 		}
 		const facts = rootFacts.get(owner.name)
-		const put = to.kind === "field" ? facts?.columns.get(fieldKey(to.field.name)) : undefined
+		const put = facts?.columns.get(columnKey(to))
 		if (facts === undefined || put === undefined) {
 			return stored
 		}

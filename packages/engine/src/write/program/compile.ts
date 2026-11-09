@@ -616,7 +616,18 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 						as: "owners" as const
 					}))
 				]
-				const sql = removalsSql(w0, [removing], roots, deferring, stored)
+				/** The members the edit's refills rewrite in this statement (FamilyRemovals `riders`). */
+				const riders = node.riders.map((name): EditedMember => {
+					const rider = info(name)
+					return {
+						relation: rider,
+						layout: layoutOf(name),
+						puts: undefined,
+						deletes: undefined,
+						families: removedFamilies(rider)
+					}
+				})
+				const sql = removalsSql(w0, [removing, ...riders], roots, deferring, stored)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,

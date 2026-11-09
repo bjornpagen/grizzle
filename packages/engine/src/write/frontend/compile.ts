@@ -1999,6 +1999,42 @@ const compile = (
 		) {
 			return undefined
 		}
+		const removing = by(["put", "delete"])
+		/** Each refilled member's starts: every way's, all of one kind, a put's or an edit's of one relation the stratum
+		 * puts or deletes, or none where its ways mix them, which the family planner refills on the host. */
+		const startsOf = (refills: ReadonlyArray<PlainRefill>) => {
+			const starts = refills.flatMap((r) => r.ways.map((way) => way.root))
+			const [first, ...rest] = starts
+			if (first === undefined) {
+				return undefined
+			}
+			if (first.kind === "put") {
+				return rest.every((x) => x.kind === "put")
+					? { kind: "put" as const, relations: [...new Set(starts.map((x) => x.relation))] }
+					: undefined
+			}
+			return rest.every((x) => x.kind === "edit" && x.relation === first.relation) &&
+				removing.includes(first.relation)
+				? { kind: "edit" as const, relation: first.relation }
+				: undefined
+		}
+		const starts = new Map(
+			[...refilled].map(([member, refills]) => [member, startsOf(refills)] as const)
+		)
+		if ([...starts.values()].some((x) => x === undefined)) {
+			return undefined
+		}
+		/** The members whose refills start at plain puts, each its own removals statement's, by the puts' relations. */
+		const putRefilled = new Map(
+			[...starts].flatMap(([member, x]) =>
+				x?.kind === "put" ? [[member, x.relations] as const] : []
+			)
+		)
+		/** The members an edit's refills rewrite in the edit's own removals statement (FamilyRemovals `riders`). */
+		const ridersOf = (member: string): ReadonlyArray<string> =>
+			[...starts].flatMap(([rider, x]) =>
+				x?.kind === "edit" && x.relation === member ? [rider] : []
+			)
 		/** The owners of `drawn`, the families a family statement draws, each changed at its counts and ends. */
 		const ownersOfFamilies = (drawn: ReadonlyArray<Family>) =>
 			[...new Set(drawn.map((f) => f.owner.name))].map((relation) => ({
@@ -2021,7 +2057,6 @@ const compile = (
 				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
 			)
 		const ownersOf = (members: ReadonlyArray<string>) => ownersOfFamilies(slotFamilies(members))
-		const removing = by(["put", "delete"])
 		const putting = by(["put"])
 		const deleting = by(["delete"])
 		/** What `member`'s removals statement does to its rows (schedule.ts RemovalEdit): the operations the stratum states
@@ -2038,7 +2073,7 @@ const compile = (
 		const adding = [...new Set([...slotted, ...nested])]
 		/** The members whose removals statements redraw their groups: an edit's, which puts or deletes them, and a
 		 * refill's. */
-		const redrawing = [...new Set([...removing, ...refilled.keys()])]
+		const redrawing = [...new Set([...removing, ...putRefilled.keys()])]
 		/**
 		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
 		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
@@ -2106,10 +2141,9 @@ const compile = (
 				kind: "removals" as const,
 				member,
 				edits: removalEdits(member),
-				owners: ownersOf([member]),
-				refilledFrom: [
-					...new Set((refilled.get(member) ?? []).flatMap((r) => r.ways.map((way) => way.root)))
-				]
+				owners: ownersOf([member, ...ridersOf(member)]),
+				refilledFrom: putRefilled.get(member) ?? [],
+				riders: ridersOf(member)
 			})),
 			...adding.map((member) => {
 				const drawn = drawnOwners(member)
