@@ -1,45 +1,47 @@
-import { Array as Arr, Effect, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { carried } from "#adapter/reader/analysis.ts"
 import type { RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
-import {
-	type AssembledRows,
-	type AttachmentLayout,
-	type Cell,
-	type Codebook,
-	defect,
-	type EmittedText,
-	type Layout,
-	type OutputRows,
-	outputTextOf,
-	type ParamId,
-	type Param,
-	type Row,
-	rowCell,
-	rowText,
-	TupleMap
+import type {
+	AssembledRows,
+	AttachmentLayout,
+	Cell,
+	Codebook,
+	EmittedText,
+	Layout,
+	OutputRows,
+	ParamId,
+	Param,
+	Row
 } from "#compiler/plan/common.ts"
+import type { Delivery } from "#compiler/plan/decode.ts"
+import type {
+	Arrival,
+	ChoiceInput,
+	DeclaredParamSlot,
+	FusedTexts,
+	StatementForms,
+	StatementOutput
+} from "#compiler/plan/read.ts"
 import {
+	TupleMap,
 	assembled,
 	cellKindOf,
-	type Delivery,
-	deliveryOf,
-	sameBytes,
-	scalarReader
-} from "#compiler/plan/decode.ts"
-import {
-	type Arrival,
-	type ChoiceInput,
 	columnPosition,
-	type DeclaredParamSlot,
+	defect,
+	deliveryOf,
 	fusedTexts,
-	type FusedTexts,
 	keyColumns,
-	type StatementForms,
-	statementOutput,
-	type StatementOutput
-} from "#compiler/plan/read.ts"
+	outputTextOf,
+	rowCell,
+	rowText,
+	sameBytes,
+	scalarReader,
+	statementOutput
+} from "#compiler/plan/runtime.ts"
 import type {
 	ServedAttach,
 	ServedAttached,

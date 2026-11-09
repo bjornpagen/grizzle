@@ -1,4 +1,10 @@
-import { Array as Arr, Context, Effect, Layer, Option, Result, type Scope } from "effect"
+import * as Arr from "effect/Array"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
+import type * as Scope from "effect/Scope"
 import {
 	type ParsedConnection,
 	parseConnection,

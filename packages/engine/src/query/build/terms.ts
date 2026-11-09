@@ -38,7 +38,8 @@ import {
 	untyped
 } from "#compiler/scalar/compute/term.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
-import { describeField, literalDescFor, type SqlTag } from "#compiler/scalar/registry.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
+import { describeField, type SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"

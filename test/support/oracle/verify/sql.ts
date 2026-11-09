@@ -5,6 +5,7 @@ import { CompileError, prose } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { isDecimal } from "#compiler/core/text.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import { operandsAlias } from "#compiler/lower/conservative/expr/total.ts"
@@ -49,7 +50,7 @@ import {
 } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
-import { bodyPositionNames, isDecimal } from "#compiler/sql/naming.ts"
+import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
 
 /** r<n>: the generated alias of a relation occurrence or a stage. */

@@ -13,7 +13,8 @@ import {
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
-import { literalDescFor, type SqlTag } from "#compiler/scalar/registry.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
+import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 
 /** A value a closed read delivers: its declared type and its carrier, the column that reads its cell and its SQL type. */

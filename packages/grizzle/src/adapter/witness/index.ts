@@ -1,7 +1,8 @@
 import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
-import { type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/plan/change.ts"
+import type { KeyDecoder } from "#compiler/plan/change.ts"
 import type { Codebook } from "#compiler/plan/common.ts"
+import { keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
 import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**

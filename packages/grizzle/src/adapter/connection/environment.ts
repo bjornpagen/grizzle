@@ -1,4 +1,5 @@
-import { Array as Arr, type Option } from "effect"
+import * as Arr from "effect/Array"
+import type * as Option from "effect/Option"
 
 /** The variables node-postgres reads into a session's startup packet whenever grizzle's configured value is falsy. */
 export const startupVariableNames = ["PGOPTIONS", "PGREPLICATION"] as const

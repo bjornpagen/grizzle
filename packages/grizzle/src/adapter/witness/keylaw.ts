@@ -1,19 +1,18 @@
-import { Array as Arr } from "effect"
+import * as Arr from "effect/Array"
 import type { Law, RefusedLaw } from "#compiler/plan/change.ts"
-import {
-	type Codebook,
-	type ColumnIdent,
-	type ConstraintLaws,
-	type ConstraintName,
-	type ConstraintOwner,
-	constraintLaw,
-	defect,
-	type DomainName,
-	type LawId,
-	type RelationIdent,
-	type RosterCodec,
-	type SchemaArtifacts
+import type {
+	Codebook,
+	ColumnIdent,
+	ConstraintLaws,
+	ConstraintName,
+	ConstraintOwner,
+	DomainName,
+	LawId,
+	RelationIdent,
+	RosterCodec,
+	SchemaArtifacts
 } from "#compiler/plan/common.ts"
+import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** One column a domain types in a table, with the law that column's use of the domain discharges. */

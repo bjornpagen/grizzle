@@ -1,15 +1,19 @@
-import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
+import * as Stream from "effect/Stream"
 import { readHost } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
+import type { ParamDecl, ParamMap, ParamValue } from "#compiler/plan/common.ts"
 import {
+	encodeFailure,
+	factPlace,
 	hasProperties,
 	isList,
-	type ParamDecl,
-	type ParamMap,
-	type ParamValue
-} from "#compiler/plan/common.ts"
-import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
+	slotPlace
+} from "#compiler/plan/runtime.ts"
 
 /**
  * A read's parameter values as the statements' encoders take them.

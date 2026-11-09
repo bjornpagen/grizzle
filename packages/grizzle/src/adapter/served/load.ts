@@ -1,7 +1,8 @@
-import { Array as Arr, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Result from "effect/Result"
 import type { WriteEntry } from "#adapter/apply/compile.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
-import { type BoundReads, boundReads, type HostCall } from "#adapter/apply/run.ts"
+import type { BoundReads, HostCall } from "#adapter/apply/run.ts"
 import { contextOver, type TypedContext } from "#adapter/db/claims.ts"
 import { rowOptions, toResult } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -11,40 +12,40 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
+import type { ArrayMember } from "#compiler/plan/change.ts"
+import type {
+	BindContext,
+	Codebook,
+	CompileError,
+	EncodingFailure,
+	ParamDecl,
+	ParamMap,
+	ParamValue,
+	Row,
+	SchemaFingerprint
+} from "#compiler/plan/common.ts"
+import type { PageVariant } from "#compiler/plan/read.ts"
 import {
-	type ArrayMember,
+	codeNames,
+	getRefusal,
 	loadWrite,
 	memberFactsOf,
-	servedRunnable
-} from "#compiler/plan/change.ts"
-import {
-	type BindContext,
-	bindGroups,
-	decoderOf,
-	type Codebook,
-	codeNames,
-	type CompileError,
-	type EncodingFailure,
-	type ParamDecl,
-	type ParamMap,
-	type ParamValue,
-	type Row,
-	type SchemaFingerprint,
-	SourceLoc
-} from "#compiler/plan/common.ts"
-import { getRefusal, type PageVariant } from "#compiler/plan/read.ts"
-import {
+	recordsReader,
 	rosterCodebook,
-	type ServedChange,
-	type ServedFile,
 	servedFile,
-	type ServedMember,
-	type ServedPage,
-	type ServedRead,
-	type ServedRefreshTarget,
-	type ServedRoleForm,
-	type ServedSession,
-	type ServedVariants
+	servedRunnable,
+	SourceLoc
+} from "#compiler/plan/runtime.ts"
+import type {
+	ServedChange,
+	ServedFile,
+	ServedMember,
+	ServedPage,
+	ServedRead,
+	ServedRefresh,
+	ServedRoleForm,
+	ServedSession,
+	ServedVariants
 } from "#compiler/plan/serve.ts"
 
 /**
@@ -134,7 +135,7 @@ export type LoadedMember = { readonly name: string } & (
 	| { readonly kind: "paged"; readonly read: LoadedRead; readonly page: LoadedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: LoadedRead }
 	| { readonly kind: "change"; readonly variants: LoadedVariants }
-	| { readonly kind: "refresh"; readonly targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget> }
+	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
 )
 
 /**
@@ -170,7 +171,22 @@ const boundReader = (
 	layouts: Arr.NonEmptyReadonlyArray<ReadProgram["layouts"][number]>,
 	bind: BindContext
 ): Result.Result<(row: Row) => unknown, CompileError> =>
-	toResult(bindGroups(decoderOf(read.decoder), layouts, bind))
+	toResult(recordsReader(read.decoder, layouts, bind))
+
+/**
+ * A ChangeSet's read-backs as a served file holds them, and its reads decoder bound to their Row's layout, once: a
+ * layout the decoder cannot bind is a defect of the compile that wrote the file, its CompileError.
+ */
+const servedReads = (
+	entry: WriteEntry,
+	decoder: ServedChange["decoder"]
+): Result.Result<BoundReads<unknown>, CompileError> => {
+	const runs = entry.readBacks
+	return Result.map(toResult(recordsReader(decoder, [runs.layout], entry.bind)), (read) => ({
+		runs,
+		read
+	}))
+}
 
 /** Where get refuses a read of a query not proved at most one row per parameter binding. */
 const getLoc = SourceLoc("reader.get", [])
@@ -228,7 +244,7 @@ const loadChange = (
 		codecs: paramCodecs(program.params, codes),
 		bind
 	}
-	return Result.map(boundReads(entry, decoderOf(change.decoder)), (reads) => ({
+	return Result.map(servedReads(entry, change.decoder), (reads) => ({
 		entry,
 		reads,
 		call: changeCall(change.bound, change.members)
@@ -290,7 +306,7 @@ const loadMember = (
 				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
 			)
 		case "refresh":
-			return Result.succeed({ name: member.name, kind: "refresh", targets: member.targets })
+			return Result.succeed({ name: member.name, kind: "refresh", refresh: member.refresh })
 	}
 }
 
@@ -329,8 +345,9 @@ export const loadServed = (json: unknown, name: string): Result.Result<LoadedLog
 	Result.gen(function* () {
 		const file = servedFile(json)
 		if (file.login !== name) {
-			return yield* Result.fail(
-				refusedFile(new ServedLoginRefused({ login: name, file: file.login }))
+			return yield* new ServedLoginRefused({ login: name, file: file.login }).pipe(
+				refusedFile,
+				Result.fail
 			)
 		}
 		const codes = rosterCodebook([...file.rosters])
@@ -345,8 +362,9 @@ export const loadServed = (json: unknown, name: string): Result.Result<LoadedLog
 			)
 		}
 		if (!Arr.isReadonlyArrayNonEmpty(roles)) {
-			return yield* Result.fail(
-				refusedFile(new ServedLoginRefused({ login: name, file: file.login }))
+			return yield* new ServedLoginRefused({ login: name, file: file.login }).pipe(
+				refusedFile,
+				Result.fail
 			)
 		}
 		return {

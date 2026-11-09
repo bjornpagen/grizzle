@@ -1,4 +1,7 @@
-import { Array as Arr, Effect, Option, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import {
 	answerOf,
@@ -19,39 +22,34 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
+import type { Carrier, Cell, Codebook, Layout, ParamId, Row } from "#compiler/plan/common.ts"
+import type {
+	CarrierHost,
+	CompletedOrder,
+	GroupMerge,
+	Heading,
+	ProgramDelivery,
+	RelationInput,
+	TakeBound
+} from "#compiler/plan/read.ts"
 import {
-	type Carrier,
-	type Cell,
-	type Codebook,
-	defined,
-	type Layout,
-	type ParamId,
-	type Row,
-	rowCell
-} from "#compiler/plan/common.ts"
-import { scalarReader } from "#compiler/plan/decode.ts"
-import {
-	type CarrierHost,
 	carrierSpecOf,
 	columnPosition,
 	columnType,
 	compareValues,
-	type CompletedOrder,
-	type GroupMerge,
-	type Heading,
+	defined,
 	mergeHeadingGroups,
-	type ProgramDelivery,
-	type RelationInput,
+	rowCell,
 	runsLargeForm,
-	type TakeBound
-} from "#compiler/plan/read.ts"
-import {
-	type ServedChoice,
-	type ServedReadStatement,
-	type ServedRoots,
-	type ServedSource,
-	type ServedSpine,
+	scalarReader,
 	servedTree
+} from "#compiler/plan/runtime.ts"
+import type {
+	ServedChoice,
+	ServedReadStatement,
+	ServedRoots,
+	ServedSource,
+	ServedSpine
 } from "#compiler/plan/serve.ts"
 
 /**

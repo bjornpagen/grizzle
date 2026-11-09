@@ -53,22 +53,6 @@ export type NameMap = ReadonlyArray<NameEntry>
 
 export const emptyNameMap: NameMap = []
 
-/** Whether a text spells a natural number in decimal with no leading zero ("0" itself included). */
-export const isDecimal = (text: string): boolean => {
-	if (text === "") {
-		return false
-	}
-	if (text.length > 1 && text.startsWith("0")) {
-		return false
-	}
-	for (const ch of text) {
-		if (ch < "0" || ch > "9") {
-			return false
-		}
-	}
-	return true
-}
-
 /** What every carrier's name starts with. */
 export const carrierPrefix = "__carrier_"
 

@@ -3,6 +3,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as EngineResult from "#compiler/core/result.ts"
+import { isDecimal } from "#compiler/core/text.ts"
 import {
 	cellWidth,
 	type Constant,
@@ -33,7 +34,7 @@ import {
 	inSet,
 	pack
 } from "#compiler/sql/constants.ts"
-import { type CarrierName, carrierPrefix, isDecimal } from "#compiler/sql/naming.ts"
+import { type CarrierName, carrierPrefix } from "#compiler/sql/naming.ts"
 import {
 	printExpr,
 	printObjectName,

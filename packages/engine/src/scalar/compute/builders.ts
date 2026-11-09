@@ -69,6 +69,7 @@ import {
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, isFloat } from "#compiler/scalar/compute/types.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
@@ -79,7 +80,6 @@ import {
 	describeField,
 	isDescriptorCopy,
 	isOwnedDescriptor,
-	literalDescFor,
 	type SqlTag
 } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

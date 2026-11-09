@@ -1,4 +1,6 @@
-import { Array as Arr, Effect, type Scope } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import type * as Scope from "effect/Scope"
 import { type DbContext, dbWriteFrame } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
@@ -9,18 +11,12 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import { ConcurrentRefresh, type ServerError } from "#adapter/errors/failures.ts"
-import {
-	concurrentRefreshPosition,
-	populatedParams,
-	populatedSql,
-	populatedViews,
-	refreshBlock,
-	refreshSql
-} from "#adapter/refresh/populated.ts"
+import { concurrentRefreshPosition, populatedViews } from "#adapter/refresh/detail.ts"
 import { type BatchStatement, type FlightFailure, runFramed } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { type EmittedText, sqlstates } from "#compiler/plan/common.ts"
-import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
+import type { EmittedText } from "#compiler/plan/common.ts"
+import { sqlstates } from "#compiler/plan/runtime.ts"
+import type { ServedRefresh, ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /** One refresh statement an attempt ran. */
 interface RefreshStatement {
@@ -33,7 +29,7 @@ interface RefreshStatement {
  * The refresh transaction: one attempt, in one flight of one transaction (../wire/batch.ts):
  *
  * BEGIN, one catalog statement per PostgreSQL schema reading which named views are
- * populated (populated.ts), which takes the transaction's snapshot, then one DO block (populated.ts refreshBlock) that
+ * populated (statements.ts), which takes the transaction's snapshot, then one DO block (statements.ts refreshBlock) that
  * reads each view's populated state again in that snapshot, runs the rewrite check of every named view, and then the
  * refresh statement of each target in refresh order (targets.ts): `REFRESH MATERIALIZED VIEW <view>` for an
  * unpopulated view and `REFRESH MATERIALIZED VIEW CONCURRENTLY <view>` for a populated one, then COMMIT, whose wait for
@@ -45,7 +41,7 @@ interface RefreshStatement {
  * the later one fails with 40001, and a caller's retry converges; a key the other refresher inserted is 40001 too,
  * never 23505.
  *
- * The rewrite check (populated.ts) waits for any plain refresh of the view in progress and compares the view's
+ * The rewrite check (statements.ts) waits for any plain refresh of the view in progress and compares the view's
  * storage in the snapshot with the current one. A difference for a view the snapshot shows unpopulated is another
  * refresher's first population committed after the snapshot, which a plain refresh statement's heap swap would
  * silently overwrite with an older state, so the block raises before any refresh statement, and the refresh fails with
@@ -111,11 +107,11 @@ const refreshFailure =
 						})
 					)
 				}
-				return Effect.fail(classifyRefreshFailure(failure.failure))
+				return failure.failure.pipe(classifyRefreshFailure, Effect.fail)
 			}
 			case "CommitRefused":
 			case "PrologueRefused":
-				return Effect.fail(classifyRefreshFailure(failure.failure))
+				return failure.failure.pipe(classifyRefreshFailure, Effect.fail)
 			case "CommitLost":
 				return Effect.fail(new CommitUnknown())
 			case "ConnectionLost":
@@ -129,71 +125,54 @@ const refreshFailure =
 		}
 	}
 
-/** The targets by their view's PostgreSQL schema. */
-const bySchema = (
-	targets: ReadonlyArray<ServedRefreshTarget>
-): ReadonlyMap<string, ReadonlyArray<ServedRefreshTarget>> => {
-	const out = new Map<string, Array<ServedRefreshTarget>>()
-	for (const t of targets) {
-		const grouped = out.get(t.view.schema) ?? []
-		grouped.push(t)
-		out.set(t.view.schema, grouped)
-	}
-	return out
-}
-
-/** The refresh's one flight (see the header), and the statements it ran read from its outcomes. */
+/**
+ * The refresh's one flight (see the header), its texts as generate printed them (served/forms.ts ServedRefresh), and the
+ * statements it ran read from its outcomes.
+ */
 const refreshFlight = (
 	ctx: Pick<DbContext, "prologue">,
 	session: Session,
-	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
+	refresh: ServedRefresh
 ): Effect.Effect<ReadonlyArray<RefreshStatement>, FlightFailure> => {
-	const schemas = [...bySchema(targets)]
 	const statements: Array<BatchStatement> = [
-		...Arr.map(schemas, ([schema, grouped]) => ({
-			sql: populatedSql,
-			params: populatedParams(
-				schema,
-				Arr.map(grouped, (t) => t.view.name)
-			)
-		})),
-		{ sql: refreshBlock(Arr.map(targets, (t) => t.view)), params: [] }
+		...Arr.map(refresh.schemas, (schema) => ({ sql: refresh.populated, params: schema.params })),
+		{ sql: refresh.block, params: [] }
 	]
 	return Effect.map(runFramed(session, dbWriteFrame(ctx), statements), (outcomes) => {
-		/** The targets whose view its schema's catalog statement read populated. */
-		const populated = new Set<ServedRefreshTarget>()
-		for (const [[, grouped], outcome] of Arr.zip(schemas, outcomes)) {
+		/** The places of the targets whose view its schema's catalog statement read populated. */
+		const populated = new Set<number>()
+		for (const [schema, outcome] of Arr.zip(refresh.schemas, outcomes)) {
 			const views = populatedViews(outcome.rows)
-			for (const t of grouped) {
-				if (views.has(t.view.name)) {
-					populated.add(t)
+			for (const { place, view } of schema.targets) {
+				if (views.has(view)) {
+					populated.add(place)
 				}
 			}
 		}
-		const ran = Arr.map(targets, (t) => {
-			const concurrently = populated.has(t)
+		const ran = Arr.map(refresh.targets, (t, place) => {
+			const concurrently = populated.has(place)
 			return Object.freeze({
 				relation: t.relation,
 				concurrently,
-				sql: refreshSql(t.view, concurrently)
+				sql: concurrently ? t.concurrently : t.plain
 			})
 		})
 		return Object.freeze(ran)
 	})
 }
 
-/** Refreshes `targets`, already in refresh order, in one transaction of the Db's role. */
+/** Runs the refresh call `refresh`, its targets already in refresh order, in one transaction of the Db's role. */
 export const runRefresh = Effect.fn("runRefresh")(function* (
 	ctx: Pick<DbContext, "pool" | "prologue">,
-	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
+	refresh: ServedRefresh
 ): Effect.fn.Return<RefreshReport, ApplyError, Scope.Scope> {
 	const session = yield* Effect.mapError(
 		ctx.pool.lease,
 		(reason) => new TransportFailure({ reason })
 	)
 	const statements = yield* Effect.catch(
-		refreshFlight(ctx, session, targets),
-		refreshFailure(targets)
+		refreshFlight(ctx, session, refresh),
+		refreshFailure(refresh.targets)
 	)
 	return Object.freeze({ statements })
 }, Effect.scoped)

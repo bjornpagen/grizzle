@@ -24,7 +24,8 @@ export {
 	rosterFates,
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
-export { rosterCodebook, servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
+export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
+export { rosterCodebook } from "#compiler/ir/codes.ts"
 export {
 	type DeploySnapshot,
 	manifestFileName,
@@ -66,6 +67,7 @@ export {
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,
+	type ServedRefresh,
 	type ServedRefreshTarget,
 	type ServedRefusals,
 	type ServedRoleForm,

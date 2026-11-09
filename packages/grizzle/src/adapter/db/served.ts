@@ -1,4 +1,8 @@
-import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
 import { compileFailure } from "#adapter/apply/run.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
@@ -9,14 +13,14 @@ import { type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, ServedRole, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
+import type { AnyRole, CompileError } from "#compiler/plan/common.ts"
 import {
-	type AnyRole,
-	type CompileError,
+	SourceLoc,
 	defect,
 	malformedDescription,
-	SourceLoc
-} from "#compiler/plan/common.ts"
-import { noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
+	noOpaque,
+	readsAsData
+} from "#compiler/plan/runtime.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 

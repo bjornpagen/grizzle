@@ -1,4 +1,4 @@
-import { Data } from "effect"
+import * as Data from "effect/Data"
 import {
 	type AcquireRefusal,
 	type ClaimRefused,
@@ -27,13 +27,12 @@ import {
 	UnreadableAnswer,
 	UnseenOccupant
 } from "#adapter/errors/failures.ts"
+import { SchemaFingerprint, sqlstates } from "#compiler/plan/runtime.ts"
 
-import {
-	type CompileError,
-	type EncodingFailure,
-	SchemaFingerprint,
-	sqlstates,
-	type TransientReason as EngineTransientReason
+import type {
+	CompileError,
+	EncodingFailure,
+	TransientReason as EngineTransientReason
 } from "#compiler/plan/common.ts"
 
 /**

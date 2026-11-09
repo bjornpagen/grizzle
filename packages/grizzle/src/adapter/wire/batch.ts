@@ -1,20 +1,19 @@
+import { Buffer } from "node:buffer"
+import type * as Arr from "effect/Array"
+import type * as Brand from "effect/Brand"
+import * as Cause from "effect/Cause"
+import * as Data from "effect/Data"
+import * as Deferred from "effect/Deferred"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Function from "effect/Function"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 /**
  * Flights, a hot path: every statement of every Db call is planned, written and answered here, so the per-statement
  * work is native loops with no Option, tuple or closure per statement, and Effect stays at the flight's boundary.
  */
-import { Buffer } from "node:buffer"
-import {
-	absurd,
-	type Array as Arr,
-	type Brand,
-	Cause,
-	Data,
-	Deferred,
-	Effect,
-	Exit,
-	Option,
-	Result
-} from "effect"
+import { defect, sqlstates, textParam } from "#compiler/plan/runtime.ts"
 
 import {
 	type ReadError,
@@ -48,15 +47,7 @@ import {
 	type Session
 } from "#adapter/wire/session.ts"
 import type { BindFrame } from "#compiler/plan/change.ts"
-import {
-	defect,
-	type EmittedText,
-	type OutputRows,
-	type Param,
-	type SchemaFingerprint,
-	sqlstates
-} from "#compiler/plan/common.ts"
-import { textParam } from "#compiler/plan/read.ts"
+import type { EmittedText, OutputRows, Param, SchemaFingerprint } from "#compiler/plan/common.ts"
 
 /** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
 export type MigrationText = string & Brand.Brand<"MigrationText">
@@ -250,7 +241,7 @@ interface Principal<P, F> {
 	readonly refused: (step: P, failure: ServerError) => F
 }
 
-const asLogin: Principal<never, never> = { prologue: [], refused: absurd }
+const asLogin: Principal<never, never> = { prologue: [], refused: Function.absurd }
 
 /**
  * A Db's role, entered by its prologue's two statements, both run as the login: the fence's lock and the statement
@@ -711,7 +702,7 @@ const apartAnswer = (
 		case "unreadable":
 			return Result.fail(new UnreadableAnswer({ index, fate: "committed" }))
 		case "refused":
-			return Result.succeed(Result.fail(answer.error))
+			return answer.error.pipe(Result.fail, Result.succeed)
 		case "terminated":
 		case "failed":
 		case "unanswered":

@@ -1,4 +1,5 @@
-import { Array as Arr, Option } from "effect"
+import * as Arr from "effect/Array"
+import * as Option from "effect/Option"
 import {
 	type ApplyError,
 	ExecutionFailure,
@@ -13,16 +14,15 @@ import {
 	type ViolationClassifier,
 	type WrittenAt
 } from "#adapter/witness/classify.ts"
-import {
-	type FamilyId,
-	outcomeKind,
-	type Refused,
-	type StatementAt,
-	type UniqueAbort,
-	type Witness,
-	type WriteStep
+import type {
+	FamilyId,
+	Refused,
+	StatementAt,
+	UniqueAbort,
+	Witness,
+	WriteStep
 } from "#compiler/plan/change.ts"
-import { sqlstates } from "#compiler/plan/common.ts"
+import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
 
 /**
  * Mapping what a write transaction's statements and its COMMIT reported onto grizzle's outcomes and errors.

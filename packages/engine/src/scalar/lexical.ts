@@ -1,11 +1,8 @@
-import { unsupported } from "#compiler/core/errors.ts"
 import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
 import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
 import {
-	baseOf,
 	contractOf,
 	type NumericTypmod,
 	numericMaxFractionDigits,
@@ -15,7 +12,6 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 /**
@@ -545,22 +541,4 @@ export const lexicalValue = (
 		case "decimalText":
 			return decimalOfText(text)
 	}
-}
-
-/**
- * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)): its pattern under flags "u" types a
- * lexical field and guards a parse, so a text of the form casts into T total (Compute.cast). A contract's form is its
- * base's, which a cast into the contract parses, then enters the contract by its predicate's proof: date's, whose range
- * is the form's own. A type with no form is refused, UnsupportedOperation.
- */
-export const lexicalTargetOfField = (type: unknown): LexicalTarget => {
-	const loc = captureLoc("lexicalForm", [])
-	const target = lexicalTargetOf(baseOf(describeFieldOrThrow(type, loc).scalar))
-	if (target === undefined) {
-		throw unsupported(
-			loc,
-			"lexicalForm of a type with a lexical form: an integer type, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
-		)
-	}
-	return target
 }

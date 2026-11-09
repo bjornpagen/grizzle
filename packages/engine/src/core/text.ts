@@ -182,3 +182,19 @@ export const codePointsText = (points: Iterable<number>): string => {
 	}
 	return text
 }
+
+/** Whether a text spells a natural number in decimal with no leading zero ("0" itself included). */
+export const isDecimal = (text: string): boolean => {
+	if (text === "") {
+		return false
+	}
+	if (text.length > 1 && text.startsWith("0")) {
+		return false
+	}
+	for (const ch of text) {
+		if (ch < "0" || ch > "9") {
+			return false
+		}
+	}
+	return true
+}

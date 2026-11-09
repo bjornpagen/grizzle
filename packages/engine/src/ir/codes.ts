@@ -9,7 +9,7 @@
  */
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -242,4 +242,23 @@ export const codeNames = (book: Codebook): ((roster: string) => ReadonlyArray<st
 		}
 		return names
 	}
+}
+
+/**
+ * The codebook of rosters' recorded codes, each under its declared name, in the order given. A snapshot `grizzle
+ * generate` wrote records every roster under a name the declared-name rule admits, so one it refuses is a defect of
+ * the compiler that wrote it.
+ */
+export const rosterCodebook = (
+	rosters: ReadonlyArray<readonly [string, RosterCodes]>
+): Codebook => {
+	const book = new Map<DeclaredName, RosterCodec>()
+	for (const [name, codes] of rosters) {
+		const roster = parseDeclaredName(name)
+		if (!roster.ok) {
+			throw defect(`the snapshot records roster ${JSON.stringify(name)} under a declared name`)
+		}
+		book.set(roster.value, rosterCodec(roster.value, codes))
+	}
+	return book.size === 0 ? emptyCodebook : Object.freeze({ rosters: book })
 }

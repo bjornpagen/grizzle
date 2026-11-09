@@ -51,6 +51,48 @@
 				]
 			},
 			{
+				// What a served login's runtime loads (@bjornpagen/grizzle/runtime): the shell modules the runtime entry reaches,
+				// each importing the engine's values through the runtime facade alone, so the entry loads no schema builder, law
+				// model, lowering, checker or install code. Their types may come from anywhere.
+				"name": "adapter-runtime",
+				"patterns": [
+					"packages/grizzle/src/adapter/apply/readback.ts",
+					"packages/grizzle/src/adapter/apply/run.ts",
+					"packages/grizzle/src/adapter/connection/config.ts",
+					"packages/grizzle/src/adapter/connection/environment.ts",
+					"packages/grizzle/src/adapter/db/claims.ts",
+					"packages/grizzle/src/adapter/db/context.ts",
+					"packages/grizzle/src/adapter/db/handles.ts",
+					"packages/grizzle/src/adapter/db/ops.ts",
+					"packages/grizzle/src/adapter/db/served.ts",
+					"packages/grizzle/src/adapter/engine.ts",
+					"packages/grizzle/src/adapter/errors/execution.ts",
+					"packages/grizzle/src/adapter/errors/failures.ts",
+					"packages/grizzle/src/adapter/outcomes/index.ts",
+					"packages/grizzle/src/adapter/page/edges.ts",
+					"packages/grizzle/src/adapter/page/request.ts",
+					"packages/grizzle/src/adapter/pool/served.ts",
+					"packages/grizzle/src/adapter/public/db.ts",
+					"packages/grizzle/src/adapter/public/errors.ts",
+					"packages/grizzle/src/adapter/public/layer.ts",
+					"packages/grizzle/src/adapter/reader/analysis.ts",
+					"packages/grizzle/src/adapter/reader/executor.ts",
+					"packages/grizzle/src/adapter/reader/params.ts",
+					"packages/grizzle/src/adapter/reader/relations.ts",
+					"packages/grizzle/src/adapter/refresh/detail.ts",
+					"packages/grizzle/src/adapter/refresh/run.ts",
+					"packages/grizzle/src/adapter/served/load.ts",
+					"packages/grizzle/src/adapter/served/served.ts",
+					"packages/grizzle/src/adapter/wire/batch.ts",
+					"packages/grizzle/src/adapter/wire/failure.ts",
+					"packages/grizzle/src/adapter/wire/releasing-pool.ts",
+					"packages/grizzle/src/adapter/wire/session.ts",
+					"packages/grizzle/src/adapter/witness/classify.ts",
+					"packages/grizzle/src/adapter/witness/index.ts",
+					"packages/grizzle/src/adapter/witness/keylaw.ts"
+				]
+			},
+			{
 				// The shell's decode sites: its readers of a read's and a page's rows, which alone import the decode facade.
 				"name": "adapter-decode",
 				"patterns": [
@@ -197,6 +239,12 @@
 				"patterns": ["packages/engine/src/served/**"]
 			},
 			{
+				// The engine's runtime facade: every engine value the runtime shell loads, each from a module that loads no
+				// compiler.
+				"name": "plan-runtime",
+				"patterns": ["packages/engine/src/plan/runtime.ts"]
+			},
+			{
 				"name": "plan",
 				"patterns": ["packages/engine/src/plan/**"]
 			},
@@ -213,8 +261,12 @@
 				"patterns": ["packages/engine/src/index.ts"]
 			},
 			{
+				"name": "runtime-entry",
+				"patterns": ["packages/grizzle/src/runtime.ts"]
+			},
+			{
 				"name": "index",
-				"patterns": ["packages/grizzle/src/index.ts", "packages/grizzle/src/runtime.ts"]
+				"patterns": ["packages/grizzle/src/index.ts"]
 			}
 		],
 		"rules": [
@@ -277,6 +329,7 @@
 				"allow": [
 					"adapter",
 					"adapter-decode",
+					"adapter-runtime",
 					"analysis",
 					"check",
 					"codec",
@@ -439,7 +492,7 @@
 			},
 			{
 				"from": "public",
-				"allow": ["allen", "core", "program", "query", "scalar", "schema", "text", "types", "write"]
+				"allow": ["allen", "core", "ir", "program", "query", "scalar", "schema", "text", "types", "write"]
 			},
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
@@ -471,8 +524,9 @@
 				]
 			},
 			{
-				"from": "adapter-decode",
-				"allow": [
+				"from": "adapter-runtime",
+				"allow": ["adapter-decode", "adapter-runtime", "codec", "core", "decode", "ir", "plan-runtime", "runtime", "scalar", "served"],
+				"allowTypeOnly": [
 					"adapter",
 					"analysis",
 					"check",
@@ -480,7 +534,9 @@
 					"core",
 					"decode",
 					"deploy",
+					"install",
 					"ir",
+					"laws",
 					"logical",
 					"lower",
 					"physical",
@@ -493,14 +549,55 @@
 					"schema",
 					"served",
 					"sql",
+					"text",
 					"types",
 					"write"
 				]
 			},
 			{
+				"from": "adapter-decode",
+				"allow": ["adapter-decode", "adapter-runtime", "codec", "core", "decode", "ir", "plan-runtime", "reader", "runtime", "scalar", "served"],
+				"allowTypeOnly": [
+					"adapter",
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"deploy",
+					"install",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"physical",
+					"plan",
+					"program",
+					"query",
+					"reader",
+					"runtime",
+					"scalar",
+					"schema",
+					"served",
+					"sql",
+					"text",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "plan-runtime",
+				"allow": ["codec", "core", "decode", "ir", "reader", "runtime", "scalar", "served"]
+			},
+			{
+				"from": "runtime-entry",
+				"allow": ["adapter-runtime"]
+			},
+			{
 				"from": "adapter",
 				"allow": [
 					"adapter-decode",
+					"adapter-runtime",
 					"analysis",
 					"check",
 					"codec",
@@ -528,6 +625,7 @@
 				"allow": [
 					"adapter",
 					"adapter-install",
+					"adapter-runtime",
 					"core",
 					"deploy",
 					"install",
@@ -548,7 +646,7 @@
 			},
 			{
 				"from": "index",
-				"allow": ["adapter", "engine-index"]
+				"allow": ["adapter", "adapter-runtime", "engine-index"]
 			}
 		],
 		"coverage": {

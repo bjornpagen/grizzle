@@ -1,4 +1,8 @@
-import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
+import * as Stream from "effect/Stream"
 import type { WriteEntry } from "#adapter/apply/compile.ts"
 import { type ReadBackRuns, readBackFlight, readsRow } from "#adapter/apply/readback.ts"
 import {
@@ -37,40 +41,42 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
+import type {
+	BoundWrite,
+	Chunks,
+	ExecutionPart,
+	FamilyId,
+	FamilyRowBound,
+	FlightStatement,
+	FlightWrite,
+	GeneratedRejection,
+	MemberFacts,
+	Raw,
+	RefusedLaw,
+	StatementAt,
+	Transport,
+	Witness
+} from "#compiler/plan/change.ts"
+import type {
+	CompileError,
+	EncodingFailure,
+	LiteralBound,
+	MessageBound,
+	ParamDecl,
+	ParamMap,
+	ParamValue,
+	Row
+} from "#compiler/plan/common.ts"
 import {
 	bindWrite,
-	type BoundWrite,
-	type Chunks,
-	type ExecutionPart,
-	type FamilyId,
-	type FamilyRowBound,
-	type FlightStatement,
-	type FlightWrite,
-	type GeneratedRejection,
+	encodeFailure,
+	factPlace,
 	hostJudgement,
 	inForce,
 	interpretRows,
-	type MemberFacts,
-	type Raw,
-	type RefusedLaw,
-	type StatementAt,
-	statementRelations,
-	type Transport,
-	type Witness
-} from "#compiler/plan/change.ts"
-import {
-	bindGroups,
-	type CompileError,
-	type EncodingFailure,
-	type LiteralBound,
-	type MessageBound,
-	type ParamDecl,
-	type ParamMap,
-	type ParamValue,
-	type Row,
-	type RowDecoder
-} from "#compiler/plan/common.ts"
-import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
+	slotPlace,
+	statementRelations
+} from "#compiler/plan/runtime.ts"
 
 /** The rows of a statement the flight did not send. */
 const noRows: Raw = []
@@ -389,19 +395,6 @@ const flightFailure = <R>(
 export interface BoundReads<R> {
 	readonly runs: ReadBackRuns
 	readonly read: (row: Row) => R
-}
-
-/**
- * The read-backs of the entry's artifact and `decoder` bound to their layout, once: a layout the decoder cannot bind is
- * the ChangeSet's CompileError.
- */
-export const boundReads = <R>(
-	entry: WriteEntry,
-	decoder: RowDecoder<R>
-): Result.Result<BoundReads<R>, CompileError> => {
-	const runs = entry.readBacks
-	const read = bindGroups(decoder, [runs.layout], entry.bind)
-	return read.ok ? Result.succeed({ runs, read: read.value }) : Result.fail(read.error)
 }
 
 /**

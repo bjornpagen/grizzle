@@ -1,4 +1,6 @@
-import { Brand, Option, Result } from "effect"
+import * as Brand from "effect/Brand"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import type { PageRows } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { CursorError, Row } from "#compiler/plan/common.ts"

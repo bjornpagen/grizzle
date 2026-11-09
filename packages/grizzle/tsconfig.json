@@ -188,6 +188,48 @@
 				"allowedDuplicatedPackages": [],
 				"overrides": [
 					{
+						"include": [
+							"src/adapter/apply/readback.ts",
+							"src/adapter/apply/run.ts",
+							"src/adapter/connection/config.ts",
+							"src/adapter/connection/environment.ts",
+							"src/adapter/db/claims.ts",
+							"src/adapter/db/handles.ts",
+							"src/adapter/db/ops.ts",
+							"src/adapter/db/served.ts",
+							"src/adapter/engine.ts",
+							"src/adapter/errors/execution.ts",
+							"src/adapter/errors/failures.ts",
+							"src/adapter/outcomes/index.ts",
+							"src/adapter/page/edges.ts",
+							"src/adapter/page/execute.ts",
+							"src/adapter/page/request.ts",
+							"src/adapter/page/template.ts",
+							"src/adapter/pool/served.ts",
+							"src/adapter/public/layer.ts",
+							"src/adapter/reader/analysis.ts",
+							"src/adapter/reader/execution.ts",
+							"src/adapter/reader/executor.ts",
+							"src/adapter/reader/params.ts",
+							"src/adapter/reader/relations.ts",
+							"src/adapter/reader/run.ts",
+							"src/adapter/refresh/detail.ts",
+							"src/adapter/refresh/run.ts",
+							"src/adapter/served/load.ts",
+							"src/adapter/served/served.ts",
+							"src/adapter/wire/batch.ts",
+							"src/adapter/wire/failure.ts",
+							"src/adapter/wire/releasing-pool.ts",
+							"src/adapter/wire/session.ts",
+							"src/adapter/witness/classify.ts",
+							"src/adapter/witness/keylaw.ts"
+						],
+						"options": {
+							"namespaceImportPackages": ["effect"],
+							"barrelImportPackages": []
+						}
+					},
+					{
 						"include": ["src/cli/main.ts"],
 						"options": {
 							"diagnosticSeverity": {

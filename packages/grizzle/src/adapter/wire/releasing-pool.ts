@@ -1,4 +1,4 @@
-import { Result } from "effect"
+import * as Result from "effect/Result"
 import type { PgDriver, PgPool, PgPoolConfig } from "#adapter/types/driver.ts"
 
 /**

@@ -18,6 +18,7 @@ import {
 } from "#adapter/reader/reader.ts"
 import { refresh } from "#adapter/refresh/index.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
+import { refreshPlan } from "#adapter/refresh/statements.ts"
 import type {
 	CompilableProgram,
 	Compiled,
@@ -105,7 +106,7 @@ export const refreshOps = (
 		get: () => refused,
 		page: () => refused,
 		apply: () => compileFailure(notItsOperation()),
-		refresh: Effect.asVoid(runRefresh(ctx, targets))
+		refresh: Effect.asVoid(runRefresh(ctx, refreshPlan(targets)))
 	}
 }
 

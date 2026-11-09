@@ -1,6 +1,7 @@
-import { Array as Arr, Order, String as Str } from "effect"
+import { Array as Arr, Option, Order } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
-import { C, emptyNameMap, isDecimal, refreshStatement } from "#compiler/plan/catalog.ts"
+import { concurrentRefreshDetail } from "#adapter/refresh/detail.ts"
+import { C, emptyNameMap, refreshStatement } from "#compiler/plan/catalog.ts"
 import {
 	concatNonEmpty,
 	emitCatalog,
@@ -11,12 +12,12 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
 	type ObjectName,
-	type OutputRows,
 	type ParamText,
 	sqlstates,
 	types
 } from "#compiler/plan/common.ts"
 import { textParam } from "#compiler/plan/read.ts"
+import type { ServedRefresh, ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /**
  * Plain or CONCURRENTLY: which refresh statement each view takes.
@@ -98,20 +99,6 @@ export const populatedParams = (
 	textArray(Arr.sort(new Set(names), Order.String))
 ]
 
-/**
- * The views `populatedSql` reported populated. A row is the view's name and PostgreSQL's boolean text, each a text
- * cell as the wire delivers every one.
- */
-export const populatedViews = (rows: OutputRows): ReadonlySet<string> => {
-	const out = new Set<string>()
-	for (const [name, populated] of rows) {
-		if (name !== undefined && populated === "true") {
-			out.add(name)
-		}
-	}
-	return out
-}
-
 /** The refresh statement's text for one view: CONCURRENTLY exactly when it is populated. */
 export const refreshSql = (view: ObjectName, populated: boolean): EmittedText =>
 	emitText(refreshStatement(view, populated), emptyNameMap).text
@@ -145,21 +132,6 @@ const rewrittenParams = (view: ObjectName): ReadonlyArray<Expr> => [
 	lit.text(view.schema, types.text),
 	lit.text(view.name, types.text)
 ]
-
-/**
- * The DETAIL the refresh block raises for the target at `position` in refresh order, and the position a DETAIL names.
- */
-const concurrentRefreshTag = "ConcurrentRefresh "
-export const concurrentRefreshDetail = (position: number): string =>
-	`${concurrentRefreshTag}${position}`
-
-export const concurrentRefreshPosition = (detail: string | undefined): number | undefined => {
-	if (detail === undefined || !Str.startsWith(concurrentRefreshTag)(detail)) {
-		return undefined
-	}
-	const digits = Str.slice(concurrentRefreshTag.length)(detail)
-	return isDecimal(digits) ? Number(digits) : undefined
-}
 
 /** A boolean PL/pgSQL variable of the refresh block. */
 const variable = (name: string): Expr => ({ kind: "plVar", name })
@@ -249,4 +221,52 @@ export const refreshBlock = (targets: NonEmptyReadonlyArray<ObjectName>): Emitte
 		]),
 		body: concatNonEmpty([...reads, ...checks, ...refusals], refreshes)
 	})
+}
+
+/** One PostgreSQL schema's targets of a refresh call, gathered: each one's place in refresh order and its view's name. */
+interface SchemaTargets {
+	readonly schema: string
+	readonly targets: [
+		{ readonly place: number; readonly view: string },
+		...Array<{ readonly place: number; readonly view: string }>
+	]
+}
+
+/**
+ * A refresh call of `targets`, already in refresh order, served with every text it sends (served/forms.ts
+ * ServedRefresh): each target's plain and CONCURRENTLY refresh statements, the populated reading once per PostgreSQL
+ * schema of the targets' views, in their first target's order, with its parameters and its targets by place, and the
+ * refresh block over every target. generate prints them once; a running layer prints nothing.
+ */
+export const refreshPlan = (targets: NonEmptyReadonlyArray<ServedRefreshTarget>): ServedRefresh => {
+	const [first, ...rest] = targets
+	const groups: [SchemaTargets, ...Array<SchemaTargets>] = [
+		{ schema: first.view.schema, targets: [{ place: 0, view: first.view.name }] }
+	]
+	for (const [i, t] of rest.entries()) {
+		const place = i + 1
+		const group = Arr.findFirst(groups, (g) => g.schema === t.view.schema)
+		if (Option.isNone(group)) {
+			groups.push({ schema: t.view.schema, targets: [{ place, view: t.view.name }] })
+		} else {
+			group.value.targets.push({ place, view: t.view.name })
+		}
+	}
+	return {
+		targets: mapNonEmpty(targets, (t) => ({
+			relation: t.relation,
+			view: t.view,
+			plain: refreshSql(t.view, false),
+			concurrently: refreshSql(t.view, true)
+		})),
+		populated: populatedSql,
+		schemas: mapNonEmpty(groups, (g) => ({
+			params: populatedParams(
+				g.schema,
+				Arr.map(g.targets, (t) => t.view)
+			),
+			targets: g.targets
+		})),
+		block: refreshBlock(mapNonEmpty(targets, (t) => t.view))
+	}
 }

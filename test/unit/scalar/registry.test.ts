@@ -66,12 +66,12 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
 	bareEnv,
 	capabilitiesOf,
 	describeField,
-	literalDescFor,
 	noRosters,
 	numericValue,
 	type ScalarEnv,

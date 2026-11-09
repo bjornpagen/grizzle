@@ -1,9 +1,9 @@
-import { Effect, Function, Option, Result } from "effect"
-import {
-	defect,
-	type OptionVocabulary,
-	type Result as EngineResult
-} from "#compiler/plan/common.ts"
+import * as Effect from "effect/Effect"
+import * as Function from "effect/Function"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
+import type { OptionVocabulary, Result as EngineResult } from "#compiler/plan/common.ts"
+import { defect } from "#compiler/plan/runtime.ts"
 
 /**
  * The shell's bridge to the engine's vocabularies. The engine has no runtime Effect: its steps answer its own Result

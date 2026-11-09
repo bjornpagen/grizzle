@@ -1,4 +1,5 @@
-import type { Effect, Option } from "effect"
+import type * as Effect from "effect/Effect"
+import type * as Option from "effect/Option"
 import type { ApplyError, ReadError } from "#adapter/errors/execution.ts"
 import type {
 	ApplyOutcome,
@@ -7,8 +8,9 @@ import type {
 	QueryResult,
 	RefreshHandle
 } from "#adapter/types/db.ts"
-import { builtMark, type CursorError, type ParamMap } from "#compiler/plan/common.ts"
+import type { CursorError, ParamMap } from "#compiler/plan/common.ts"
 import type { Page } from "#compiler/plan/read.ts"
+import { builtMark } from "#compiler/plan/runtime.ts"
 
 /**
  * A compiled program's operations, over records A (its rows, or its read-backs), as a JavaScript caller sees it: every

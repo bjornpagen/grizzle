@@ -1,4 +1,4 @@
-import type { Layer } from "effect"
+import type * as Layer from "effect/Layer"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { servedLayer } from "#adapter/pool/served.ts"
 import { served as servedValue } from "#adapter/served/served.ts"

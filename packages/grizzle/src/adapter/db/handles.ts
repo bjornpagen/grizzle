@@ -1,4 +1,6 @@
-import { Effect, type Option, Result } from "effect"
+import * as Effect from "effect/Effect"
+import type * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import {
 	compileFailure,
 	type HostCall,
@@ -41,16 +43,15 @@ import {
 } from "#adapter/served/load.ts"
 import type { ApplyOutcome, QueryResult } from "#adapter/types/db.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
-import {
-	type CompileError,
-	type CursorError,
-	type EncodingFailure,
-	malformedDescription,
-	type ParamMap,
-	type Row,
-	SourceLoc
+import type {
+	CompileError,
+	CursorError,
+	EncodingFailure,
+	ParamMap,
+	Row
 } from "#compiler/plan/common.ts"
 import type { Page } from "#compiler/plan/read.ts"
+import { SourceLoc, malformedDescription } from "#compiler/plan/runtime.ts"
 
 /**
  * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -258,7 +259,7 @@ export const memberOpsOn = (
 			}
 		}
 		case "refresh": {
-			const targets = member.targets
+			const refresh = member.refresh
 			return {
 				kind: "program",
 				ops: {
@@ -266,7 +267,7 @@ export const memberOpsOn = (
 					get: refusedRead,
 					page: refusedRead,
 					apply: refusedApply,
-					refresh: Effect.asVoid(runRefresh(ctx, targets))
+					refresh: Effect.asVoid(runRefresh(ctx, refresh))
 				}
 			}
 		}

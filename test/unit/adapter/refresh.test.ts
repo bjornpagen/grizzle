@@ -28,14 +28,14 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import { LayerReleased } from "#adapter/errors/failures.ts"
+import { concurrentRefreshDetail, concurrentRefreshPosition } from "#adapter/refresh/detail.ts"
+import { runRefresh } from "#adapter/refresh/run.ts"
 import {
-	concurrentRefreshDetail,
-	concurrentRefreshPosition,
 	populatedParams,
 	populatedSql,
-	refreshBlock
-} from "#adapter/refresh/populated.ts"
-import { runRefresh } from "#adapter/refresh/run.ts"
+	refreshBlock,
+	refreshPlan
+} from "#adapter/refresh/statements.ts"
 import { type RefreshTarget, refreshTargets } from "#adapter/refresh/targets.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
@@ -932,7 +932,7 @@ describe("how a refresh ends", () => {
 													: Effect.succeed(session)
 										})
 									},
-									targets
+									refreshPlan(targets)
 								)
 							)
 							const expected = expectedEnding(c, targets)

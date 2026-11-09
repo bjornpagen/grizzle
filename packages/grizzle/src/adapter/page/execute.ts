@@ -1,4 +1,7 @@
-import { Array as Arr, Effect, Option, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type {
 	ComparisonTuple,
@@ -9,6 +12,13 @@ import type {
 	RowsStatement,
 	RunProgram
 } from "#adapter/page/template.ts"
+import {
+	countParam,
+	defect,
+	mergeHeadingGroups,
+	rowText,
+	runsLargeForm
+} from "#compiler/plan/runtime.ts"
 
 import {
 	answerOf,
@@ -23,27 +33,17 @@ import {
 } from "#adapter/reader/execution.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
-import {
-	type AssembledRows,
-	type Cell,
-	defect,
-	type ParamText,
-	type Row,
-	rowText
-} from "#compiler/plan/common.ts"
+import type { AssembledRows, Cell, ParamText, Row } from "#compiler/plan/common.ts"
 import type { ScalarReader } from "#compiler/plan/decode.ts"
-import {
-	type AnchoredVariant,
-	type ChoiceInput,
-	countParam,
-	mergeHeadingGroups,
-	type PageFill,
-	type PageStatementSlot,
-	type PageVariant,
-	type ProbeKind,
-	runsLargeForm,
-	type SizeFill,
-	type VariantFill
+import type {
+	AnchoredVariant,
+	ChoiceInput,
+	PageFill,
+	PageStatementSlot,
+	PageVariant,
+	ProbeKind,
+	SizeFill,
+	VariantFill
 } from "#compiler/plan/read.ts"
 import type { ServedChoice } from "#compiler/plan/serve.ts"
 

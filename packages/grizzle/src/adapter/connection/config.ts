@@ -1,20 +1,18 @@
 import { createSecureContext, type SecureContext } from "node:tls"
-import {
-	Array as Arr,
-	Brand,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	Redacted,
-	Result,
-	String as Str
-} from "effect"
+import * as Arr from "effect/Array"
+import * as Brand from "effect/Brand"
+import * as Effect from "effect/Effect"
+import * as Formatter from "effect/Formatter"
+import * as Option from "effect/Option"
+import * as Rec from "effect/Record"
+import * as Redacted from "effect/Redacted"
+import * as Result from "effect/Result"
+import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
-import { type Limit, published } from "#compiler/plan/common.ts"
-import { noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
+import type { Limit } from "#compiler/plan/common.ts"
+import { noOpaque, published, readsAsData } from "#compiler/plan/runtime.ts"
 
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection

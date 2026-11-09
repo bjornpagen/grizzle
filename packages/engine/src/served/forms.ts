@@ -10,6 +10,7 @@ import type {
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
@@ -143,7 +144,7 @@ export type ServedMember = { readonly name: string } & (
 	| { readonly kind: "paged"; readonly read: ServedRead; readonly page: ServedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: ServedRead }
 	| { readonly kind: "change"; readonly variants: ServedVariants }
-	| { readonly kind: "refresh"; readonly targets: NonEmptyReadonlyArray<ServedRefreshTarget> }
+	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
 )
 
 /**
@@ -153,6 +154,26 @@ export type ServedMember = { readonly name: string } & (
 export interface ServedRefreshTarget {
 	readonly relation: string
 	readonly view: ObjectName
+}
+
+/**
+ * One refresh call, served with every text it sends, printed once by generate (adapter refresh/statements.ts
+ * refreshPlan): its targets in refresh order, each with its view's plain and CONCURRENTLY refresh statements, which the
+ * call's report names; the catalog statement that reads which views of one PostgreSQL schema PostgreSQL holds
+ * populated, run once per schema the targets' views live in, in their first target's order, with that schema's
+ * parameters and its targets, each by its place in refresh order and its view's name; and the DO block that refreshes every target, each plain or CONCURRENTLY
+ * as PostgreSQL holds it populated, in one statement.
+ */
+export interface ServedRefresh {
+	readonly targets: NonEmptyReadonlyArray<
+		ServedRefreshTarget & { readonly plain: EmittedText; readonly concurrently: EmittedText }
+	>
+	readonly populated: EmittedText
+	readonly schemas: NonEmptyReadonlyArray<{
+		readonly params: ReadonlyArray<ParamText>
+		readonly targets: NonEmptyReadonlyArray<{ readonly place: number; readonly view: string }>
+	}>
+	readonly block: EmittedText
 }
 
 /**

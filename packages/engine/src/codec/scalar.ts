@@ -8,8 +8,8 @@ import { type Codebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
 import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
+import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { literalDescFor } from "#compiler/scalar/registry.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,

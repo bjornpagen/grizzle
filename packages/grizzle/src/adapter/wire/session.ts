@@ -1,24 +1,23 @@
+import { isIP } from "node:net"
+import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
+import * as Arr from "effect/Array"
+import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
+import * as Data from "effect/Data"
+import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Formatter from "effect/Formatter"
+import * as Predicate from "effect/Predicate"
+import * as Redacted from "effect/Redacted"
+import * as Result from "effect/Result"
+import type * as Scope from "effect/Scope"
 /**
  * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
  * checked, here, in native loops with no Option or closure per row.
  */
-import { isIP } from "node:net"
-import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
-import {
-	Array as Arr,
-	Cause,
-	type Context,
-	Data,
-	Deferred,
-	Duration,
-	Effect,
-	Exit,
-	Formatter,
-	Predicate,
-	Redacted,
-	Result,
-	type Scope
-} from "effect"
+import { flightMaxBytes, messageMaxBytes, nominal } from "#compiler/plan/runtime.ts"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
 import {
@@ -47,14 +46,7 @@ import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import {
-	type EmittedText,
-	flightMaxBytes,
-	messageMaxBytes,
-	nominal,
-	type OutputRows,
-	type Param
-} from "#compiler/plan/common.ts"
+import type { EmittedText, OutputRows, Param } from "#compiler/plan/common.ts"
 import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**

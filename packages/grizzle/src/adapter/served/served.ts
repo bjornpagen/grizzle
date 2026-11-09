@@ -1,11 +1,12 @@
-import { Array as Arr } from "effect"
+import * as Arr from "effect/Array"
 import type {
 	ServedConstructor,
 	ServedLogin,
 	ServedRole,
 	ServedRoles
 } from "#adapter/types/layer.ts"
-import { type AnyLogin, builtMark, defect, trusted } from "#compiler/plan/common.ts"
+import type { AnyLogin } from "#compiler/plan/common.ts"
+import { builtMark, defect, trusted } from "#compiler/plan/runtime.ts"
 
 /**
  * served(file, name): a login's served workload, as an application holds it, and the tokens of its roles.

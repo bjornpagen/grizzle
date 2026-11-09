@@ -1,9 +1,12 @@
-import { Array as Arr, Predicate, Record as Rec, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
 import type { CursorError } from "#compiler/plan/common.ts"
-import { cursorError, type PageVariant } from "#compiler/plan/read.ts"
-import { noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
+import type { PageVariant } from "#compiler/plan/read.ts"
+import { cursorError, noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
 
 /**
  * Page request validation.

@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import * as Arr from "effect/Array"
 import type { ServedAttach, ServedSpine } from "#compiler/plan/serve.ts"
 
 /**

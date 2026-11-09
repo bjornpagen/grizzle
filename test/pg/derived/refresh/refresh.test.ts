@@ -331,7 +331,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a refresh member", (it) =
 												assertVariant(refresh, "kind", "refresh", "a refresh member")
 												const before = leases.count
 												const outcome = yield* Effect.result(
-													Effect.scoped(runRefresh(counting, refresh.targets))
+													Effect.scoped(runRefresh(counting, refresh.refresh))
 												)
 												const leased = leases.count - before
 												if (

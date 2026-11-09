@@ -1,4 +1,5 @@
-import { Array as Arr, type Effect } from "effect"
+import * as Arr from "effect/Array"
+import type * as Effect from "effect/Effect"
 import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"

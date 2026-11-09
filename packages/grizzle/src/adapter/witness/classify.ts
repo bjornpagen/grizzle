@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import * as Arr from "effect/Array"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import {
 	type KeyLaws,
@@ -6,30 +6,32 @@ import {
 	type RosterDomain,
 	reportedOwner
 } from "#adapter/witness/keylaw.ts"
-import {
-	type ConcurrentChange,
-	type HostJudgement,
-	type KeyDecoder,
-	type LawDetail,
-	readChangeDetail,
-	readLawDetail,
-	type Refused,
-	type RefusedLaw,
-	type RefusedLaws,
-	type Refuser,
-	type RefusingObject,
-	type Witness
+import type {
+	ConcurrentChange,
+	HostJudgement,
+	KeyDecoder,
+	LawDetail,
+	Refused,
+	RefusedLaw,
+	RefusedLaws,
+	Refuser,
+	RefusingObject,
+	Witness
 } from "#compiler/plan/change.ts"
+import type {
+	DomainName,
+	ConstraintName,
+	ConstraintOwner,
+	RelationIdent
+} from "#compiler/plan/common.ts"
 import {
 	defect,
-	type DomainName,
 	jsonText,
-	type ConstraintName,
-	type ConstraintOwner,
-	type RelationIdent,
+	readChangeDetail,
+	readLawDetail,
 	sqlstateClass,
 	sqlstates
-} from "#compiler/plan/common.ts"
+} from "#compiler/plan/runtime.ts"
 import type { DescribedLaw } from "#compiler/plan/serve.ts"
 
 /**

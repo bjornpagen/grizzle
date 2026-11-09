@@ -2,6 +2,7 @@ import { Array as Arr, Result } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { RowsForm } from "#adapter/reader/reader.ts"
+import { refreshPlan } from "#adapter/refresh/statements.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
@@ -120,7 +121,7 @@ const memberOf = (member: WorkloadForm): Result.Result<ServedMember, UnservedMem
 				variants
 			}))
 		case "refresh":
-			return Result.succeed({ name, kind: "refresh", targets: member.targets })
+			return Result.succeed({ name, kind: "refresh", refresh: refreshPlan(member.targets) })
 	}
 }
 

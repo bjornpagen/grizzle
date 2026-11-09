@@ -1,37 +1,41 @@
-import { Array as Arr, Predicate, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import { type InputTooLarge, literalBound } from "#adapter/errors/failures.ts"
 import type { ExecutionInputs, HostParams } from "#adapter/reader/execution.ts"
-import {
-	canonicalEquals,
-	type Codebook,
-	defined,
-	Engine,
-	type Encoder,
-	type EncodingFailure,
-	everyProperty,
-	type LiteralBound,
-	maxStringLength,
-	type Param,
-	type ParamDecl,
-	type ParamId,
-	type ParamText,
-	type RelationParamDecl,
-	type ScalarType
+import type {
+	Codebook,
+	Encoder,
+	EncodingFailure,
+	LiteralBound,
+	Param,
+	ParamDecl,
+	ParamId,
+	ParamText,
+	RelationParamDecl,
+	ScalarType
 } from "#compiler/plan/common.ts"
+import type {
+	NormalizedRelation,
+	ParameterNormalizer,
+	RelationColumn,
+	RelationSpec
+} from "#compiler/plan/read.ts"
 import {
+	Engine,
+	canonicalEquals,
 	columnLiteral,
 	countParam,
+	defined,
 	encodeFailure,
-	type NormalizedRelation,
+	everyProperty,
+	maxStringLength,
 	normalArray,
 	paramEncoder,
-	type ParameterNormalizer,
 	parameterNormalizer,
 	positionalColumns,
-	type RelationColumn,
-	type RelationSpec,
 	slotPlace
-} from "#compiler/plan/read.ts"
+} from "#compiler/plan/runtime.ts"
 
 /** The columns a statement's relation slot reads, in its arrays' order. */
 type SlotColumns = ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>

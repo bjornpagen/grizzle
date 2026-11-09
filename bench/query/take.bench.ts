@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Option, Predicate, Result } from "effect"
 import { runRefresh } from "#adapter/refresh/run.ts"
+import { refreshPlan } from "#adapter/refresh/statements.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { makePool } from "#adapter/wire/session.ts"
 import { summarize } from "#bench/cold/stats.ts"
@@ -551,7 +552,7 @@ export default defineGate({
 							reports.installed.snapshot.fingerprint
 						)
 					},
-					targets.success
+					refreshPlan(targets.success)
 				)
 				return { report, ms: Math.round((performance.now() - start) * 1000) / 1000 }
 			})

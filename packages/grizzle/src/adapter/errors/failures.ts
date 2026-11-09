@@ -1,19 +1,18 @@
-import { Data } from "effect"
+import * as Data from "effect/Data"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
 import type { ExecutionPart, FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
-import {
-	admittedIdentifier,
-	type ColumnIdent,
-	type ConstraintName,
-	type DomainName,
-	type Identifier,
-	type IdentityKind,
-	type LiteralBound,
-	type MessageBound,
-	type RelationIdent,
-	type Sqlstate,
-	sqlstates
+import type {
+	ColumnIdent,
+	ConstraintName,
+	DomainName,
+	Identifier,
+	IdentityKind,
+	LiteralBound,
+	MessageBound,
+	RelationIdent,
+	Sqlstate
 } from "#compiler/plan/common.ts"
+import { admittedIdentifier, sqlstates } from "#compiler/plan/runtime.ts"
 
 /**
  * The reasons of grizzle's errors, and the wire's own classification of a flight's failure.

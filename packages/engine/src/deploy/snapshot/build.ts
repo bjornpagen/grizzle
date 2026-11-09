@@ -29,7 +29,6 @@ import {
 	ledgerPrivilegesObject
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
-import { rosterCodebook } from "#compiler/deploy/snapshot/served.ts"
 import {
 	type DeploySnapshot,
 	manifestFileName,
@@ -46,6 +45,7 @@ import {
 } from "#compiler/deploy/snapshot/types.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
+import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
 import type { Writing } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"

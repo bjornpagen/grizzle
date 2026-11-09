@@ -1,17 +1,14 @@
-import { Array as Arr, Option, Order, Record as Rec, Result, String as Str } from "effect"
+import * as Arr from "effect/Array"
+import * as Option from "effect/Option"
+import * as Order from "effect/Order"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
+import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
 import { ClaimRefused } from "#adapter/errors/failures.ts"
-import {
-	type Codebook,
-	type ContextDesc,
-	defect,
-	type FieldDesc,
-	isList,
-	isRecord,
-	jsonText,
-	type ScalarType
-} from "#compiler/plan/common.ts"
-import { scalarCodec, type ScalarCodec } from "#compiler/plan/read.ts"
+import type { Codebook, ContextDesc, FieldDesc, ScalarType } from "#compiler/plan/common.ts"
+import type { ScalarCodec } from "#compiler/plan/read.ts"
+import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
 
 /**
  * A Db's claims: the facts of the contexts its role reads, decoded once per Db.open from the payload the layer's verify

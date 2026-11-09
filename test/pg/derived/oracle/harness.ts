@@ -263,7 +263,7 @@ export const withCaseDb = <A, E>(
 							const loaded = yield* load({ refresh: refreshMember(named) })
 							const refresh = member(loaded, "refresh")
 							assertVariant(refresh, "kind", "refresh", "refresh(named) loads a refresh member")
-							return yield* Effect.scoped(runRefresh(contexts[plan], refresh.targets))
+							return yield* Effect.scoped(runRefresh(contexts[plan], refresh.refresh))
 						})
 				}
 				return yield* Effect.provideService(body(db), Substrate, substrate)

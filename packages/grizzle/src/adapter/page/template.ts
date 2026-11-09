@@ -1,4 +1,5 @@
-import { Array as Arr, Result } from "effect"
+import * as Arr from "effect/Array"
+import * as Result from "effect/Result"
 import { toResult } from "#adapter/engine.ts"
 import {
 	programRecords,
@@ -7,43 +8,46 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
-import {
-	type Carrier,
-	type Cell,
-	type Codebook,
-	type CompileError,
-	type Layout,
-	type ParamDecl,
-	rowCell
+import type {
+	Carrier,
+	Cell,
+	Codebook,
+	CompileError,
+	Layout,
+	ParamDecl
 } from "#compiler/plan/common.ts"
-import { scalarReader, type ScalarReader } from "#compiler/plan/decode.ts"
-import {
-	type CarrierHost,
-	type ChoiceInput,
-	columnPosition,
-	compareValues,
-	type CursorCodec,
-	cursorCodec,
-	type CursorGeneration,
-	cursorTokenMaxLength,
-	type Heading,
-	type PageComparator,
-	type PageDirection,
-	type PageFill,
-	type PageStatementSlot,
-	type PageVariant,
-	type ProbeKind,
-	type VariantFill
+import type { ScalarReader } from "#compiler/plan/decode.ts"
+import type {
+	CarrierHost,
+	ChoiceInput,
+	CursorCodec,
+	CursorGeneration,
+	Heading,
+	PageComparator,
+	PageDirection,
+	PageFill,
+	PageStatementSlot,
+	PageVariant,
+	ProbeKind,
+	VariantFill
 } from "#compiler/plan/read.ts"
 import {
-	type ServedChoice,
-	type ServedPage,
-	type ServedPageProbe,
-	type ServedPageRequest,
-	type ServedPageStatement,
-	type ServedRoots,
-	type ServedSpine,
+	columnPosition,
+	compareValues,
+	cursorCodec,
+	cursorTokenMaxLength,
+	rowCell,
+	scalarReader,
 	servedTree
+} from "#compiler/plan/runtime.ts"
+import type {
+	ServedChoice,
+	ServedPage,
+	ServedPageProbe,
+	ServedPageRequest,
+	ServedPageStatement,
+	ServedRoots,
+	ServedSpine
 } from "#compiler/plan/serve.ts"
 
 /**

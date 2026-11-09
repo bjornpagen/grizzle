@@ -25,7 +25,8 @@ export { vectorExpectations } from "#compiler/physical/vector/admission.ts"
 export { vectorExtension } from "#compiler/physical/vector/storage.ts"
 export { admitSchemaDesc } from "#compiler/schema/admit.ts"
 export * as C from "#compiler/sql/catalog.ts"
-export { emptyNameMap, isDecimal } from "#compiler/sql/naming.ts"
+export { isDecimal } from "#compiler/core/text.ts"
+export { emptyNameMap } from "#compiler/sql/naming.ts"
 export {
 	type AstHooks,
 	identityHooks,

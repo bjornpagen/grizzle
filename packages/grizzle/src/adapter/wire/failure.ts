@@ -1,7 +1,7 @@
-import { Predicate } from "effect"
+import * as Predicate from "effect/Predicate"
 import { ServerError } from "#adapter/errors/failures.ts"
 import type { PgDatabaseError } from "#adapter/types/driver.ts"
-import { Sqlstate } from "#compiler/plan/common.ts"
+import { Sqlstate } from "#compiler/plan/runtime.ts"
 
 /**
  * An ErrorResponse as grizzle keeps it: the server's error, refused, after which the session goes on, or terminated,

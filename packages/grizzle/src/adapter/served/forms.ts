@@ -1,8 +1,8 @@
 import { Array as Arr, Record as Rec, Result } from "effect"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
+import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
-import { boundReads } from "#adapter/apply/run.ts"
+import type { BoundReads } from "#adapter/apply/run.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CompiledPage, PageSource } from "#adapter/page/page.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
@@ -51,6 +51,19 @@ import {
 	statedOrderOf
 } from "#compiler/plan/read.ts"
 import type { ServedSpine } from "#compiler/plan/serve.ts"
+
+/**
+ * The read-backs of the entry's artifact and `decoder` bound to their layout, once: a layout the decoder cannot bind is
+ * the ChangeSet's CompileError.
+ */
+export const boundReads = <R>(
+	entry: WriteEntry,
+	decoder: RowDecoder<R>
+): Result.Result<BoundReads<R>, CompileError> => {
+	const runs = entry.readBacks
+	const read = bindGroups(decoder, [runs.layout], entry.bind)
+	return read.ok ? Result.succeed({ runs, read: read.value }) : Result.fail(read.error)
+}
 
 /**
  * The forms of a login's compile: a query's rows form and read form, an ordered query's page template, and a
