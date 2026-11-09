@@ -436,7 +436,9 @@ class Walk {
 		if (Object.getOwnPropertySymbols(value).length > 0) {
 			stop(this.#path, "an object without symbol keys")
 		}
-		return Object.keys(value).sort()
+		const keys = Object.keys(value)
+		keys.sort()
+		return keys
 	}
 }
 
