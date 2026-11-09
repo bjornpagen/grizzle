@@ -4,14 +4,20 @@ import { inject } from "vitest"
 export const typeRunKey = "grizzle.types.run"
 
 /**
+/**
+ * A run's type-test batch as a test process reaches it: the file its result is written to once its builder has built
+ * it (build.ts), and the Unix socket that ends each connection once the writer has finished (batch.ts writtenSignal).
+ */
+export type BatchAt = Readonly<{ file: string; signal: string }>
+
+/**
  * The type tier's run as its global setup hands it to the test processes: the run's seed, which the generated programs
- * the batch checks and the tests that read them both draw from, so the two agree; and the type-test batch, the file its
- * result is written to once its builder has built it (build.ts), or none when the run has no type-test file. Plain
- * data, since what crosses to a worker must survive structured cloning.
+ * the batch checks and the tests that read them both draw from, so the two agree; and the type-test batch, or none when
+ * the run has no type-test file. Plain data, since what crosses to a worker must survive structured cloning.
  */
 export type TypeRun = Readonly<{
 	seed: number
-	batch: Readonly<{ kind: "none" }> | Readonly<{ kind: "batch"; file: string }>
+	batch: Readonly<{ kind: "none" }> | (Readonly<{ kind: "batch" }> & BatchAt)
 }>
 
 declare module "vitest" {

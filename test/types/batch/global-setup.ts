@@ -4,6 +4,7 @@ import {
 	Array as Arr,
 	Cause,
 	Console,
+	Deferred,
 	Effect,
 	Exit,
 	FileSystem,
@@ -32,11 +33,12 @@ type TypeRunStart = Readonly<{
 
 /**
  * Starts the type-test batch of a run (test/types/batch/batch.ts): its builder, a process of its own, builds the groups
- * of the run's type-test files as one tsgo program while the files run, and this provides the run's seed and the file
- * the result will be written to, which each type test waits for. No program is drawn in this process, Vitest's own,
- * whose timers start every test process, so however long a build runs, it never holds them. The temporary directory and
- * the builder live in the scope this runs in, so closing it removes the one and kills the other. A run without
- * type-test files provides no batch and loads nothing of it: the unit tier never pays for it.
+ * of the run's type-test files as one tsgo program while the files run, and this provides the run's seed, the file the
+ * result will be written to and the socket that signals the writer finished (batch.ts writtenSignal), on which each
+ * type test waits. No program is drawn in this process, Vitest's own, whose timers start every test process, so however
+ * long a build runs, it never holds them. The temporary directory, the socket and the builder live in the scope this
+ * runs in, so closing it removes, closes and kills them. A run without type-test files provides no batch and loads
+ * nothing of it: the unit tier never pays for it.
  */
 export const startBatch = Effect.fn("startBatch")(function* (start: TypeRunStart) {
 	const fs = yield* FileSystem.FileSystem
@@ -48,9 +50,14 @@ export const startBatch = Effect.fn("startBatch")(function* (start: TypeRunStart
 	if (!Arr.isReadonlyArrayNonEmpty(files)) {
 		return yield* Effect.sync(() => start.provide({ seed: start.seed, batch: { kind: "none" } }))
 	}
-	const { writeBatch } = yield* Effect.promise(() => import("#test/types/batch/batch.ts"))
+	const { writeBatch, writtenSignal } = yield* Effect.promise(
+		() => import("#test/types/batch/batch.ts")
+	)
 	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-types-" })
 	const file = path.join(dir, "batch.json")
+	const signal = path.join(dir, "written.sock")
+	const written = yield* Deferred.make<void>()
+	yield* writtenSignal(signal, written)
 	yield* Effect.forkScoped(
 		writeBatch({ seed: start.seed, files }, start.builder, file).pipe(
 			Effect.andThen(
@@ -58,10 +65,13 @@ export const startBatch = Effect.fn("startBatch")(function* (start: TypeRunStart
 			),
 			Effect.catchCause((cause) =>
 				Console.error(`types: the type-test batch failed\n${Cause.pretty(cause)}`)
-			)
+			),
+			Effect.ensuring(Deferred.succeed(written, undefined))
 		)
 	)
-	yield* Effect.sync(() => start.provide({ seed: start.seed, batch: { kind: "batch", file } }))
+	yield* Effect.sync(() =>
+		start.provide({ seed: start.seed, batch: { kind: "batch", file, signal } })
+	)
 })
 
 /** The batch of a run, in a scope of its own, returned for the caller to close when the run's batch is done with. */

@@ -587,11 +587,11 @@ const delivered = (planted: PlantedRun, c: Case<RunFeature>) =>
 						Arr.map(provided, (run) => ({ seed: run.seed, kind: run.batch.kind })),
 						[{ seed: planted.seed, kind: "batch" }]
 					)
-					const file = defined(
-						Arr.flatMap(provided, (run) => (run.batch.kind === "batch" ? [run.batch.file] : []))[0],
-						"the file of the run's batch"
+					const batch = defined(
+						Arr.flatMap(provided, (run) => (run.batch.kind === "batch" ? [run.batch] : []))[0],
+						"the run's batch"
 					)
-					const result = yield* whenWritten(file)
+					const result = yield* whenWritten(batch)
 					heldBy(
 						planted.builder,
 						result,

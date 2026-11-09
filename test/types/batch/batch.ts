@@ -1,3 +1,4 @@
+import net from "node:net"
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import {
 	Array as Arr,
@@ -31,7 +32,7 @@ import {
 	diagnosticKey,
 	disarm
 } from "#test/types/batch/directives.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
+import { type BatchAt, typeRun } from "#test/types/batch/provided.ts"
 
 import { regex } from "arkregex"
 /**
@@ -80,6 +81,16 @@ const platform = await ManagedRuntime.make(
 
 /** The batch could not read, write or run what it needs: the platform's failure. */
 export class BatchPlatformFailed extends Data.TaggedError("BatchPlatformFailed")<{
+	readonly cause: unknown
+}> {}
+
+/**
+ * The socket that signals the batch written failed: the global setup could not open it at `at`, or a test process lost
+ * its connection to it before the writer finished. Either way no test process can learn the batch is written, so the
+ * run fails instead of waiting.
+ */
+export class BatchSignalFailed extends Data.TaggedError("BatchSignalFailed")<{
+	readonly at: string
 	readonly cause: unknown
 }> {}
 
@@ -644,23 +655,72 @@ const writeBatchOn = (request: BuildRequest, builder: string, file: string) =>
 	})
 
 /**
- * The batch at `file`, once it exists. It looks once the watcher on the file's directory is installed and again after
- * each event of the file system there, so the result's rename into place wakes it.
+ * The Unix socket at `at`, open for the scope, which ends every connection once `written` is done: a test process waits
+ * on it for the batch (whenWritten), so its wait ends with the writer's own completion, the result written or not, and
+ * never on how the file system reports the result's rename. A connection made after the writer finished ends at once;
+ * one still open when the scope closes is destroyed, which its test process sees as the batch lost.
  */
-export const whenWritten = (file: string) =>
+export const writtenSignal = (at: string, written: Deferred.Deferred<void>) =>
+	Effect.gen(function* () {
+		const waiting = new Set<net.Socket>()
+		yield* Effect.acquireRelease(
+			Effect.callback<net.Server, BatchSignalFailed>((resume) => {
+				const server = net.createServer((connection) => {
+					if (Deferred.isDoneUnsafe(written)) {
+						connection.end()
+						return
+					}
+					waiting.add(connection)
+					connection.once("close", () => waiting.delete(connection))
+				})
+				server.once("error", (cause) => resume(Effect.fail(new BatchSignalFailed({ at, cause }))))
+				server.listen(at, () => resume(Effect.succeed(server)))
+			}),
+			(server) =>
+				Effect.callback<void>((resume) => {
+					for (const connection of waiting) {
+						connection.destroy()
+					}
+					server.close(() => resume(Effect.void))
+				})
+		)
+		yield* Effect.forkScoped(
+			Effect.andThen(
+				Deferred.await(written),
+				Effect.sync(() => {
+					for (const connection of waiting) {
+						connection.end()
+					}
+				})
+			)
+		)
+	})
+
+/**
+ * The batch at `batch.file`, once its writer has finished: the wait is a connection to the batch's signal
+ * (writtenSignal), which the global setup ends when the writer finishes. A connection refused or lost is
+ * BatchSignalFailed, and a writer that finished without writing the file fails the read.
+ */
+export const whenWritten = (batch: BatchAt) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const installed = yield* Deferred.make<void>()
-		yield* Stream.merge(
-			Stream.fromEffect(Deferred.await(installed)),
-			fs.watch(path.dirname(file), { onReady: () => Deferred.doneUnsafe(installed, Effect.void) })
-		).pipe(
-			Stream.mapEffect(() => fs.exists(file)),
-			Stream.takeUntil((exists) => exists),
-			Stream.runDrain
-		)
-		const text = yield* fs.readFileString(file)
+		yield* Effect.callback<void, BatchSignalFailed>((resume) => {
+			const connection = net.createConnection(batch.signal)
+			let failure: unknown
+			connection.on("error", (cause) => {
+				failure = cause
+			})
+			connection.once("close", (hadError) =>
+				resume(
+					hadError
+						? Effect.fail(new BatchSignalFailed({ at: batch.signal, cause: failure }))
+						: Effect.void
+				)
+			)
+			connection.resume()
+			return Effect.sync(() => connection.destroy())
+		})
+		const text = yield* fs.readFileString(batch.file)
 		return trustedJson<BatchResult>(text)
 	})
 
@@ -716,7 +776,7 @@ const checkedOn = (unit: string) =>
 			case "none":
 				return checkedOf(lacking(unit, "the run started no type-test batch"), [])
 			case "batch": {
-				const batch = yield* whenWritten(run.batch.file)
+				const batch = yield* whenWritten(run.batch)
 				return checkedOf(
 					Option.match(Option.fromUndefinedOr(batch.units[unit]), {
 						onNone: () =>
