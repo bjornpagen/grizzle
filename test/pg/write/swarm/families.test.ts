@@ -1540,6 +1540,41 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
+	},
+	{
+		note: "a put of an owner whose ordered members copy its v along the owner axis and that copy along their predecessor axis, beside a delete of one of those members: the members' removals statement draws the delete's re-placements and the put's refill together in the call's one flight",
+		sketch: {
+			spec: bare(staleCopies(true)),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+						{ relation: 1, id: 4, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 2 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.some(5n),
+						inserted: [],
+						removed: Option.some({ id: 3, family: 0 }),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "a follow-up refilling a value", "an ordered member deleted"]
 	}
 ]
 

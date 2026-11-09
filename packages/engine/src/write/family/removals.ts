@@ -230,9 +230,17 @@ export const removalsSql = (
 		const read = of.map((member): Read => {
 			const edit = readEdit(w, supply, ctes, member, slots)
 			const ways = waysOf(member)
-			return isNonEmpty(ways)
-				? { ...edit, updated: cascaded(w, supply, ctes, member, ways, rootFacts) }
-				: edit
+			if (!isNonEmpty(ways)) {
+				return edit
+			}
+			const reached = cascaded(w, supply, ctes, member, ways, rootFacts)
+			return {
+				...edit,
+				updated:
+					member.puts === undefined && member.deletes === undefined
+						? reached
+						: merged(w, supply, ctes, member, edit, reached)
+			}
 		})
 		return {
 			reads: read,
@@ -459,6 +467,77 @@ const cascaded = (
 					keys.map((k) => targetAs(valueOf(k), columnAt(out, k))),
 					[tableAs(w, name, s)],
 					or(mapNonEmpty(ways, (way) => reached(way, way.hops.length - 1, s)))
+				)
+			)
+		)
+	)
+	return out
+}
+
+/**
+ * A member relation's rows both its edit and a refill reach, as the stratum leaves them: every row its puts update in
+ * place or a refill's way reaches, but those the edit removes, each field a put states the put's and every other column
+ * the way's, which is the stored one but a copy a way changes. A way changes copies alone and a put states fields
+ * alone, so neither overwrites the other's. The redraw then runs from the least changed slot over both.
+ */
+const merged = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	member: EditedMember,
+	edit: Read,
+	reached: Shaped
+): Shaped => {
+	const name = member.relation.name
+	const keys = layoutKeys(member.layout)
+	const columnOf = (key: ColumnKey): NativeColumn =>
+		defined(
+			[...member.layout.key, ...member.layout.columns].find((c) => c.key === key),
+			`the column ${key} of ${name}`
+		).column
+	const stated = new Set(
+		member.puts === undefined ? [] : member.puts.input.stated.map((c) => fieldKey(c.name))
+	)
+	const out = shapedCte(supply, "edited and refilled member", keys)
+	const s = supply.relation(internal("edited and refilled stored row"))
+	/** Whether a row of `shaped`, read as `r`, is the stored row read as `s`, by its primary key. */
+	const atKey = (shaped: Shaped, r: string): Expr =>
+		and(
+			mapNonEmpty(member.relation.primaryFields, (f) =>
+				eq(col(r, columnAt(shaped, fieldKey(f.name))), col(s, w.names.column(name, f.name)))
+			)
+		)
+	const holds = (shaped: Shaped): Expr => {
+		const r = supply.relation(internal("edited and refilled source"))
+		return exists(simpleSelect([target(one)], [cteRefAs(shaped.name, r)], atKey(shaped, r)))
+	}
+	const valueIn = (shaped: Shaped, key: ColumnKey): Expr => {
+		const r = supply.relation(internal("edited and refilled source"))
+		return {
+			kind: "subquery",
+			query: simpleSelect(
+				[target(col(r, columnAt(shaped, key)))],
+				[cteRefAs(shaped.name, r)],
+				atKey(shaped, r)
+			)
+		}
+	}
+	const stored = (key: ColumnKey): Expr => col(s, installed(w, name, columnOf(key)))
+	ctes.push(
+		cte(
+			out.name,
+			[...out.columns.values()],
+			select(
+				provedCore(
+					"keyed",
+					keys.map((k) =>
+						targetAs(
+							firstNonNull([valueIn(stated.has(k) ? edit.updated : reached, k), stored(k)]),
+							columnAt(out, k)
+						)
+					),
+					[tableAs(w, name, s)],
+					and([or([holds(edit.updated), holds(reached)]), not(holds(edit.removed))])
 				)
 			)
 		)

@@ -125,10 +125,10 @@ const sameWay = (a: PlainRefillWay, b: PlainRefillWay): boolean =>
  * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
  * host: a put of a plain relation whose change cascades along one owner axis or a chain of them into a counted or
  * ordered family's member, through members the stratum neither puts nor deletes, read there by its fold, predecessor or
- * last axis; an edit of a family member relation that redraws a column of its
- * rows a counted or ordered family it owns copies into its members, read there as that copy; or an append to a counted
- * or ordered family of a mutable owner, whose recount changes a count or an end the family's stored members copy. Each
- * reaches a member relation the stratum does not put or delete.
+ * last axis, a member the stratum may put or delete too, whose removals statement draws both; an edit of a family member
+ * relation that redraws a column of its rows a counted or ordered family it owns copies into its members, read there as
+ * that copy; or an append to a counted or ordered family of a mutable owner, whose recount changes a count or an end
+ * the family's stored members copy. Each of the last two reaches a member relation the stratum does not put or delete.
  */
 const flightWay = (
 	path: RefillPath,
@@ -137,7 +137,7 @@ const flightWay = (
 ): PlainRefillWay | undefined => {
 	const { change, changed, reader } = path
 	const hops = path.copies.map((h) => h.family)
-	if (change.kind !== "write" || edited.has(reader.family.member.name)) {
+	if (change.kind !== "write") {
 		return undefined
 	}
 	if (!managed(change.relation.name)) {
@@ -150,6 +150,9 @@ const flightWay = (
 			: undefined
 	}
 	const [hop] = path.copies
+	if (edited.has(reader.family.member.name)) {
+		return undefined
+	}
 	if (change.op === "insert") {
 		return hop === undefined &&
 			changed.by === "owner" &&
