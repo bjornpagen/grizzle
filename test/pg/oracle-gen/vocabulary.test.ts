@@ -22,7 +22,7 @@ import { canonicalTag } from "#compiler/core/canonical.ts"
 import { codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { nativeName, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { nativeNames, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -72,7 +72,7 @@ const sqlType = (type: ScalarType, schema: string): string => {
 	if (type.carrier === "vector") {
 		return `${vectorSchema}.${quoteIdent("vector")}(${type.typmod.dims})`
 	}
-	return nativeName(type.carrier)
+	return nativeNames[type.carrier]
 }
 
 /**

@@ -137,8 +137,6 @@ const main = Effect.gen(function* () {
 			throw new Error("schema input: the Work fixture's reader is a role over its schema")
 		}
 		const artifacts = schemaArtifacts(schemaInput.value, {
-			levels: undefined,
-			vectorSchema: undefined,
 			codes: firstCodebook(rostersOf(owned.value.base))
 		})
 		phases["schemaArtifactsMs"] = since(t)

@@ -36,7 +36,6 @@ import {
 	lowerPredicate,
 	lowerTerm,
 	noClosedRelations,
-	noExtension,
 	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
 import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
@@ -50,6 +49,7 @@ import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
+import { noExtension } from "#test/support/compute.ts"
 
 import {
 	builtinType,

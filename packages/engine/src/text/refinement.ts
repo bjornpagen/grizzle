@@ -17,9 +17,7 @@ import {
 	type RegexKey,
 	regexCheck,
 	type TextBounds,
-	type TextInfo,
-	textBounds,
-	textInfoOf
+	textBounds
 } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
@@ -98,10 +96,6 @@ export interface TextRefinement {
 	/** SHA-256 of the key, the language's identity (ir/scalar.ts languageKey). */
 	readonly digest: RegexKey
 }
-
-/** The bounds a refinement proves on every member, where it proves them. */
-export const refinementBounds = (refinement: TextRefinement): TextBounds | undefined =>
-	refinement.check.kind === "tautology" ? undefined : refinement.check.bounds
 
 const boundsOfMembers = (members: ReadonlyArray<string>): TextBounds => {
 	let length = 0
@@ -385,25 +379,12 @@ export const analyzeText = (
  * What a text descriptor carries of its analyzed patterns (ir/scalar.ts TextLanguage): a proved tautology admits every
  * value; any other conjunction carries its language's key and its enforcement, with the bounds that proves.
  */
-const textLanguage = (refinement: TextRefinement): PatternLanguage => {
+export const textLanguage = (refinement: TextRefinement): PatternLanguage => {
 	const check = refinement.check
 	return check.kind === "tautology"
 		? Object.freeze({ kind: "every" })
 		: Object.freeze({ kind: "refined", key: refinement.digest, check })
 }
-
-/**
- * The text metadata of the refinement's ScalarType (ir/scalar.ts textInfoOf): a proved tautology is the canonical
- * wildcard, which is unbounded; any other conjunction keeps its patterns as the declaration wrote them, with its
- * language's key, its enforcement and its proved bounds.
- */
-export const textInfo = (refinement: TextRefinement): TextInfo =>
-	textInfoOf(
-		mapNonEmpty(refinement.members, (pattern) =>
-			Object.freeze({ source: pattern.source, flags: pattern.flags })
-		),
-		textLanguage(refinement)
-	)
 
 /**
  * The analyzed language of a conjunction of patterns, a refusal located at the patterns: what a text descriptor is

@@ -91,8 +91,6 @@ export interface CarrierHost {
 	readonly exactMoney: Money
 }
 
-export type HostOf<S extends CarrierSpec> = CarrierHost[S["carrier"]]
-
 /** What each carrier's spec holds beside its carrier: the CarrierSpec variant's other members. */
 interface SpecExtras {
 	readonly int2: unknown

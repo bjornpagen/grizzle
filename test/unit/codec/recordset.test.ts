@@ -19,7 +19,6 @@ import { double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record, String as Str } from "effect"
 import {
-	arraysEncoder,
 	arrayTexts,
 	normalArray,
 	normalForm,
@@ -37,6 +36,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
+import { arraysEncoder } from "#test/support/arrays.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"

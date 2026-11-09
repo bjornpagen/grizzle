@@ -133,13 +133,6 @@ import {
 export type Password = ParsedConnection["password"]
 
 /**
- * No password, for a role the server authenticates without one (trust, peer, a client certificate): the empty text,
- * which pg's password function yields (passwordOf), so pg reads neither PGPASSWORD nor ~/.pgpass for it, as it would
- * for an empty text given as the password itself. A server that asks for a password refuses it.
- */
-export const noPassword: Redacted.Redacted = Redacted.make("")
-
-/**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
  * transport, database, password and connect timeout, the login role, and whose session it is: a login's, every session
  * of a pool, or an owner's, one outside any pool.

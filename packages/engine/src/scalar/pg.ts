@@ -89,10 +89,11 @@ const floatDoublePrecision: Limit = derived({
 })
 
 /** Whether a JavaScript caller's precision is one float(p) admits: an entry of floatDescriptors. */
-const isFloatPrecision = (value: unknown): value is FloatPrecision =>
+export const isFloatPrecision = (value: unknown): value is FloatPrecision =>
 	isInteger(value) && Object.hasOwn(floatDescriptors, value)
 
-const refuseFloat = (): never => {
+/** The refusal of a precision float(p) admits no descriptor for. */
+export const refuseFloat = (): never => {
 	throw malformedDescription(
 		captureLoc("pg.float", []),
 		`a float binary precision: an integer 1-${floatRealPrecision.value} (real) or ${floatRealPrecision.value + 1}-${floatDoublePrecision.value} (double precision)`
@@ -104,15 +105,6 @@ const refuseFloat = (): never => {
  * float(P) is the descriptor P resolves to. A JavaScript caller's precision of no entry is a malformed description.
  */
 const float = <const P extends FloatPrecision>(precision: P): FloatDescriptor<P> =>
-	isFloatPrecision(precision) ? floatDescriptors[precision] : refuseFloat()
-
-/**
- * float(p) over a precision known only at run time, as a JavaScript caller passes it: the real or double precision
- * descriptor it resolves to, or a malformed description.
- */
-export const floatOf = (
-	precision: unknown
-): ColumnDescriptor<"real", number> | ColumnDescriptor<"double precision", number> =>
 	isFloatPrecision(precision) ? floatDescriptors[precision] : refuseFloat()
 
 const doublePrecision: FloatDescriptorConstructor = defineField(
@@ -128,7 +120,7 @@ const doublePrecision: FloatDescriptorConstructor = defineField(
  * The descriptor of each binary precision float(p) admits: real through floatRealPrecision, double precision past it
  * through floatDoublePrecision, the two Limits' values (FloatPrecision, types/fields/field.ts).
  */
-const floatDescriptors: FloatDescriptors = Object.freeze({
+export const floatDescriptors: FloatDescriptors = Object.freeze({
 	1: real,
 	2: real,
 	3: real,

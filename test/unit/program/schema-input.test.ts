@@ -13,7 +13,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identity } from "#compiler/core/identity.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -32,8 +31,7 @@ import {
 	compileTestWorkload,
 	schemaInputOf,
 	testArtifacts,
-	testCompile,
-	allocatedLevels
+	testCompile
 } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { Account, Reports, Work } from "#test/support/fixtures/api/work.ts"
@@ -44,7 +42,6 @@ import {
 	type IdentifierFeature,
 	schemaNameGen
 } from "#test/support/kernel/dict.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { Spelling } from "#test/support/oracle/gen/domain.ts"
 import {
@@ -73,10 +70,10 @@ import { pickGen, pickFrom } from "#test/support/pick.ts"
  *   drawn change of content (a field added or removed, a field's type changed, a statement added), which installs.
  * - A schema's artifacts (program/schema.ts schemaArtifacts) are one value whichever input reaches the schema: the
  *   value its builder made, the Owned own() returned for it, or the description its builder recorded, so a schema is
- *   installed once under each naming. Each call computes them, so one value is one content: the owned schema's
- *   fingerprint and the names it installs under. They are the artifacts of that Owned, under the PostgreSQL schema and the vector
- *   schema the compilation names, or the declared ones. The space is exhaustive over the four fixture schemas, every
- *   ordered pair of their inputs and four namings.
+ *   installed once. Each call computes them, so one value is one content: the owned schema's fingerprint and the names
+ *   it installs under. They are the artifacts of that Owned, under its declared levels' PostgreSQL schemas and the
+ *   installer's vector schema. The space is exhaustive over the four fixture schemas and every ordered pair of their
+ *   inputs.
  * - A schema value the decoder refuses is refused with the decoder's own path, by parseSchemaInput and by a workload
  *   compiled against it, never by a generic "a schema value or SchemaDesc". The values are generated schemas (the
  *   differential oracle's, gen/schema.ts), each broken at one site of one decoder rule (a corruption,
@@ -202,107 +199,72 @@ const inputOf = (s: Subject, arm: Arm): unknown => {
 	}
 }
 
-/**
- * The names a case compiles under: the declared schema's own, or a PostgreSQL schema and a vector schema of its own.
- */
-interface Naming {
-	readonly installation: Identity<"schema"> | undefined
-	readonly vectorSchema: string | undefined
-}
-
-const namings = element<Naming>([
-	{ installation: undefined, vectorSchema: undefined },
-	{ installation: identity.schema(parsedSchemaName("installed_here")), vectorSchema: undefined },
-	{ installation: undefined, vectorSchema: "vectors_here" },
-	{
-		installation: identity.schema(parsedSchemaName("installed_here")),
-		vectorSchema: "vectors_here"
-	}
-])
-
-type ArtifactsFeature = `${Arm} and ${Arm}` | "names of its own"
+type ArtifactsFeature = `${Arm} and ${Arm}`
 
 describe("the artifacts of a schema", () => {
-	it.effect(
-		"are one value whichever input reaches the schema, under the names the compilation states",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/program/schema-input-artifacts",
-						/** Each fixture schema, each ordered pair of its inputs, and each naming: 4 * 9 * 4. */
-						generator: (source) =>
-							[
-								source.draw(subjects),
-								source.draw((source) => [source.draw(arms), source.draw(arms)] as const),
-								source.draw(namings)
-							] as const,
-						literal: Formatter.format,
-						limit: 144,
-						coverage: requiredInSpace<ArtifactsFeature>([
-							"the built value and the Owned",
-							"the built value and its description",
-							"the Owned and its description",
-							"names of its own"
-						]),
-						caseHang
-					},
-					([s, [first, second], naming], c) =>
-						Effect.sync(() => {
-							c.note(`${first} and ${second}`)
-							if (naming.installation !== undefined || naming.vectorSchema !== undefined) {
-								c.note("names of its own")
-							}
-							const owned = ownedOf(s)
-							const options = {
-								levels:
-									naming.installation === undefined
-										? undefined
-										: allocatedLevels(naming.installation, owned.levels),
-								vectorSchema: naming.vectorSchema,
-								codes: firstCodebook(rostersOf(owned))
-							}
-							const artifactsOf = (arm: Arm) =>
-								succeeded(
-									Result.flatMap(parseSchemaInput(inputOf(s, arm)), (input) =>
-										schemaArtifacts(input, options)
-									),
-									`the artifacts of ${s.label} through ${arm}`
-								)
-							const a = artifactsOf(first)
-							const b = artifactsOf(second)
-							assert.equal(
-								b.fingerprint,
-								a.fingerprint,
-								`${s.label} through ${first} and ${second}: two installations`
+	it.effect("are one value whichever input reaches the schema, under its declared names", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
+					suite: "unit/program/schema-input-artifacts",
+					/** Each fixture schema and each ordered pair of its inputs: 4 * 9. */
+					generator: (source) =>
+						[
+							source.draw(subjects),
+							source.draw((source) => [source.draw(arms), source.draw(arms)] as const)
+						] as const,
+					literal: Formatter.format,
+					limit: 36,
+					coverage: requiredInSpace<ArtifactsFeature>([
+						"the built value and the Owned",
+						"the built value and its description",
+						"the Owned and its description"
+					]),
+					caseHang
+				},
+				([s, [first, second]], c) =>
+					Effect.sync(() => {
+						c.note(`${first} and ${second}`)
+						const owned = ownedOf(s)
+						const options = { codes: firstCodebook(rostersOf(owned)) }
+						const artifactsOf = (arm: Arm) =>
+							succeeded(
+								Result.flatMap(parseSchemaInput(inputOf(s, arm)), (input) =>
+									schemaArtifacts(input, options)
+								),
+								`the artifacts of ${s.label} through ${arm}`
 							)
-							assert.equal(
-								b.names.schema,
-								a.names.schema,
-								`${s.label} through ${first} and ${second}: two schemas`
-							)
-							assert.equal(
-								b.names.vectorSchema,
-								a.names.vectorSchema,
-								`${s.label}: two vector schemas`
-							)
-							assert.equal(
-								a.owned.fingerprint,
-								owned.fingerprint,
-								`${s.label} through ${first}: artifacts of another Owned`
-							)
-							const declared = installOptions(owned, undefined)
-							assert.equal(a.names.schema, (naming.installation ?? declared.levels[0]).identifier)
-							assert.equal<string>(
-								a.names.vectorSchema,
-								naming.vectorSchema ?? declared.vectorSchema
-							)
-						})
-				)
+						const a = artifactsOf(first)
+						const b = artifactsOf(second)
+						assert.equal(
+							b.fingerprint,
+							a.fingerprint,
+							`${s.label} through ${first} and ${second}: two installations`
+						)
+						assert.equal(
+							b.names.schema,
+							a.names.schema,
+							`${s.label} through ${first} and ${second}: two schemas`
+						)
+						assert.equal(
+							b.names.vectorSchema,
+							a.names.vectorSchema,
+							`${s.label}: two vector schemas`
+						)
+						assert.equal(
+							a.owned.fingerprint,
+							owned.fingerprint,
+							`${s.label} through ${first}: artifacts of another Owned`
+						)
+						const declared = installOptions(owned, undefined)
+						assert.equal(a.names.schema, declared.levels[0].identifier)
+						assert.equal<string>(a.names.vectorSchema, declared.vectorSchema)
+					})
 			)
+		)
 	)
 })
 

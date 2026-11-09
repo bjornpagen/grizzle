@@ -22,7 +22,7 @@ import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
+import { positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -46,6 +46,7 @@ import {
 	vectorSchemaOf,
 	wireSql
 } from "#test/pg/codec/support.ts"
+import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"

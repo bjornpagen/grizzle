@@ -15,7 +15,7 @@ import { deliveredAsOptimized, type FusedStatement } from "#compiler/lower/shape
 import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/program/schema.ts"
+import { schemaCatalog } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -32,7 +32,7 @@ import {
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { admitGenerated } from "#test/support/compile.ts"
+import { admitGenerated, installedCodes, testArtifacts } from "#test/support/compile.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -257,13 +257,10 @@ type Lowered = ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string
  * conservative and optimized statement.
  */
 const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
-	const artifacts = Result.flatMap(parseSchemaInput(schemaDesc(c.schema)), (schema) =>
-		schemaArtifacts(schema, {
-			levels: [identity.schema(parsedSchemaName("audit"))],
-			vectorSchema: undefined,
-			codes: schemaCodes(c.schema)
-		})
-	)
+	const artifacts = testArtifacts(schemaDesc(c.schema), {
+		installation: identity.schema(parsedSchemaName("audit")),
+		codes: installedCodes(schemaCodes(c.schema))
+	})
 	if (!artifacts.ok) {
 		throw failure("the installer", artifacts.error)
 	}

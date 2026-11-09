@@ -1,18 +1,3 @@
-/**
- * A conjunction of patterns (str.and) across the engines that decide it: for drawn pairs and triples of patterns of
- * every regex family, on texts drawn over the family's alphabet and walked over each member's own automaton, five
- * answers agree on every text:
- *
- * 1. ECMAScript's membership of every member (generators.ts jsAccepts), the oracle;
- * 2. the host's membership of the conjunction (scalar/regex/patterns.ts), which the evaluator and the witness read;
- * 3. the canonical DFA of the members' intersection, where the analysis builds one, which keys the conjunction;
- * 4. PostgreSQL's own CHECK verdict: the domain the analysis's enforcement installs (an IN list, `VALUE ~ p AND VALUE ~
- *    q`, or no domain for a tautology), asked through pg_input_is_valid;
- * 5. every member's ARE alone under PostgreSQL's `~`, joined by AND.
- *
- * A conjunction no drawn text holds while its product proves it empty is refused, and a case reaches a text the first
- * member holds and the conjunction does not, so a CHECK of the first member alone fails here.
- */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -36,10 +21,26 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { analyzeText, textDomainDdl, textInfo } from "#compiler/text/refinement.ts"
+import { analyzeText, textDomainDdl } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+/**
+ * A conjunction of patterns (str.and) across the engines that decide it: for drawn pairs and triples of patterns of
+ * every regex family, on texts drawn over the family's alphabet and walked over each member's own automaton, five
+ * answers agree on every text:
+ *
+ * 1. ECMAScript's membership of every member (generators.ts jsAccepts), the oracle;
+ * 2. the host's membership of the conjunction (scalar/regex/patterns.ts), which the evaluator and the witness read;
+ * 3. the canonical DFA of the members' intersection, where the analysis builds one, which keys the conjunction;
+ * 4. PostgreSQL's own CHECK verdict: the domain the analysis's enforcement installs (an IN list, `VALUE ~ p AND VALUE ~
+ *    q`, or no domain for a tautology), asked through pg_input_is_valid;
+ * 5. every member's ARE alone under PostgreSQL's `~`, joined by AND.
+ *
+ * A conjunction no drawn text holds while its product proves it empty is refused, and a case reaches a text the first
+ * member holds and the conjunction does not, so a CHECK of the first member alone fails here.
+ */
+import { textInfo } from "#test/support/text.ts"
 import {
 	type Family,
 	families,

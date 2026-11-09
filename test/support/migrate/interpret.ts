@@ -22,15 +22,10 @@ import {
 } from "#compiler/sql/ast.ts"
 import { namedType } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
-import {
-	identityHooks,
-	transformExpr,
-	transformOperand,
-	transformSelect
-} from "#compiler/sql/transform.ts"
+import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
-import { testTypeSchema } from "#test/support/sql.ts"
+import { transformOperand, testTypeSchema } from "#test/support/sql.ts"
 
 /** Where a cell's value came from.
  *

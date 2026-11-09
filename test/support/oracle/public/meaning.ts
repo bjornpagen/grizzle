@@ -19,6 +19,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import { noExtension } from "#test/support/compute.ts"
 
 import {
 	type AggregateSpec,
@@ -43,7 +44,6 @@ import {
 	type LowerEnv,
 	lowerTerm,
 	noClosedRelations,
-	noExtension,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"

@@ -41,7 +41,7 @@ import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/de
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { isBytes } from "#compiler/scalar/values/bytes.ts"
+import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
@@ -51,6 +51,10 @@ import {
 	strictDelivered,
 	strictReader as strictCellReader
 } from "#test/support/kernel/strict.ts"
+
+/** Whether a value has the bytes host type: a Uint8Array over an ArrayBuffer. */
+const isBytes = (value: unknown): value is Bytes =>
+	value instanceof Uint8Array && value.buffer instanceof ArrayBuffer
 
 export class CellDisagreement extends Data.TaggedError("CellDisagreement")<{
 	readonly report: string

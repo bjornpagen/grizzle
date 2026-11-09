@@ -17,7 +17,7 @@ import {
 	Roster,
 	rosterOf,
 	type ScalarType,
-	type StorageCarrier,
+	type ExactValueCarrier,
 	textOf,
 	textPatterns,
 	vectorTypmodOf
@@ -30,6 +30,9 @@ import { defined } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
+
+/** The carriers a field, a parameter or a literal of a descriptor can have: every carrier but the exact ones. */
+export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
 
 /**
  * Scalar types and small value domains for the oracle generators.

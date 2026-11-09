@@ -15,10 +15,11 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/ir/scalar.ts"
-import { floatOf, pgDescriptors } from "#compiler/scalar/pg.ts"
+import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { nativeCapabilities } from "#compiler/scalar/registry.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, contains, defined } from "#test/support/assert.ts"
+import { floatOf } from "#test/support/descriptors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

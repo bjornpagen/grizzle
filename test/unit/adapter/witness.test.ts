@@ -50,13 +50,14 @@ import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/write/program/artifact.ts"
 import type { Refuser, StatementAt } from "#compiler/write/program/witness.ts"
-import { type ConcurrentChangeTag, encodeRefusalDetail } from "#compiler/write/refusal.ts"
+import { type ConcurrentChangeTag } from "#compiler/write/refusal.ts"
 import { awkwardCode, Clubs } from "#test/pg/laws/outcomes/schemas.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
 /**
@@ -114,8 +115,6 @@ const Rosters = schema("RosterDomains", { Kind, Node, Tag }, [
 const rostersOwned = succeeded(own(defined(schemaDescOf(Rosters), "Rosters is a built schema")))
 const rostersArtifacts = succeeded(
 	schemaArtifacts(succeeded(parseSchemaInput(Rosters)), {
-		levels: undefined,
-		vectorSchema: undefined,
 		codes: succeeded(
 			draftCodebook(
 				keptRosters(

@@ -33,7 +33,7 @@ import {
 	rostersOf
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { allocatedDesc, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -116,28 +116,6 @@ export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	}
 	return login.value
 }
-
-/**
- * The declared name the level at `depth` of a schema takes under the allocation `allocated`, the substrate's unique name
- * for one installation, the root at depth 0: the root's is the allocation itself, and each level above it is the
- * allocation and its depth, so every level's PostgreSQL schema, and every role over it, is the allocation's alone. A test
- * that rebuilds a level to open it rebuilds it under this name.
- */
-export const levelNameAt = (allocated: string, depth: number): string =>
-	depth === 0 ? allocated : `${allocated}_${depth}`
-
-/** A description with every level declared under its allocated name (levelNameAt). */
-export const allocatedDesc = (desc: EngineSchemaDesc, allocated: string): EngineSchemaDesc => {
-	const below = desc.extends === undefined ? undefined : allocatedDesc(desc.extends, allocated)
-	const depth = below === undefined ? 0 : depthOf(below) + 1
-	return below === undefined
-		? { ...desc, name: levelNameAt(allocated, depth) }
-		: { ...desc, name: levelNameAt(allocated, depth), extends: below }
-}
-
-/** The depth of a description's top level, its root's 0. */
-const depthOf = (desc: EngineSchemaDesc): number =>
-	desc.extends === undefined ? 0 : depthOf(desc.extends) + 1
 
 /** A login value or a LoginDesc, owned with its base and its roles' read through `as`; anything else is refused as the
  * installer would refuse it. */

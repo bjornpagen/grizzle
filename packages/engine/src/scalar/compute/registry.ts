@@ -1578,30 +1578,6 @@ const listedOp = (id: OpId, overload: Overload): NativeOp =>
  */
 export const binaryCoercion: DefinedOp = definedOp(opId("coercion"))
 
-/**
- * Where an overload an expression names is defined: everywhere, the binary coercion, every range-polymorphic operator
- * the IR holds (definedRangeOp) and a listed overload or cast whose Totality is total, exact or ieee; partially, a listed
- * one whose Totality requires preconditions, each of which its node's proof proves (ir/proof.ts OperationProof); or
- * unknown, an identity the registry does not hold.
- */
-export const definedness = (
-	op: OpId
-):
-	| { readonly kind: "everywhere" }
-	| { readonly kind: "partial"; readonly preconditions: NonEmptyReadonlyArray<Precondition> }
-	| { readonly kind: "unknown" } => {
-	if (op === binaryCoercion) {
-		return { kind: "everywhere" }
-	}
-	const native = nativeOp(op)
-	if (native !== undefined) {
-		return native.totality.kind === "requires"
-			? { kind: "partial", preconditions: native.totality.preconditions }
-			: { kind: "everywhere" }
-	}
-	return typeof op === "string" ? { kind: "unknown" } : { kind: "everywhere" }
-}
-
 /** An overload's identity where it is defined everywhere, for a caller that builds an expression with no proof. */
 export const definedIdOf = (op: NativeOp): DefinedOp | undefined => (op.partial ? undefined : op.id)
 

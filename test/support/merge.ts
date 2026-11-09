@@ -6,7 +6,11 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { type CarrierSpec, compareValues, type HostOf } from "#compiler/scalar/values/identity.ts"
+import {
+	type CarrierHost,
+	type CarrierSpec,
+	compareValues
+} from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -34,7 +38,7 @@ const isSpanValue = (value: unknown): value is Span<number> | Span<bigint> =>
 		(typeof value.start === "bigint" && typeof value.end === "bigint"))
 
 /** A decoded value of an ordered column: the host value of some carrier (scalar/values/identity.ts CarrierHost). */
-const isHostValue = (value: unknown): value is HostOf<CarrierSpec> =>
+const isHostValue = (value: unknown): value is CarrierHost[keyof CarrierHost] =>
 	typeof value === "number" ||
 	typeof value === "bigint" ||
 	typeof value === "boolean" ||

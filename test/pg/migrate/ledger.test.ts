@@ -48,7 +48,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { printCatalogExpr, quoteIdent } from "#compiler/sql/print.ts"
+import { catalogExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
 	folderSource,
@@ -885,7 +885,7 @@ const realOf = (
 			Effect.gen(function* () {
 				c.note("busy")
 				yield* r.holder.values(
-					`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKey(r.schema))})`,
+					`SELECT pg_catalog.pg_advisory_lock(${catalogExpr(applyLockKey(r.schema)).text})`,
 					[]
 				)
 				yield* Effect.ensuring(
@@ -897,7 +897,7 @@ const realOf = (
 					),
 					Effect.ignore(
 						r.holder.values(
-							`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKey(r.schema))})`,
+							`SELECT pg_catalog.pg_advisory_unlock(${catalogExpr(applyLockKey(r.schema)).text})`,
 							[]
 						)
 					)

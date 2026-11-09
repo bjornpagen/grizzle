@@ -29,8 +29,7 @@ import {
 	type LowerEnv,
 	lowerPredicate,
 	lowerTerm,
-	noClosedRelations,
-	noExtension
+	noClosedRelations
 } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import {
@@ -49,6 +48,7 @@ import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
+import { noExtension } from "#test/support/compute.ts"
 import {
 	fieldDescOf,
 	floatSpecialSketches,

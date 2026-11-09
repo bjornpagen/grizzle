@@ -13,7 +13,14 @@ import {
 	parseSchemaName,
 	type SchemaName
 } from "#compiler/core/identity.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
+import {
+	installationsOf,
+	type Owned,
+	type OwnedLogin,
+	ownRole,
+	rostersOf
+} from "#compiler/schema/own.ts"
+import type { NativeKind } from "#test/support/native/model.ts"
 
 import type {
 	ColumnIdent,
@@ -37,7 +44,6 @@ import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	fieldNames,
 	type NativeColumn,
-	type NativeKind,
 	type NativeObject,
 	type NativeOf
 } from "#compiler/ir/law.ts"
@@ -60,7 +66,6 @@ import type {
 	AnySchema,
 	Statement
 } from "#compiler/public/schema.ts"
-import { type Owned, type OwnedLogin, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"

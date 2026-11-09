@@ -10,10 +10,11 @@ import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { carrierDigestHex, carrierName, isCarrierName } from "#compiler/sql/naming.ts"
+import { carrierDigestHex, carrierName } from "#compiler/sql/naming.ts"
 import { CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { isCarrierName } from "#test/support/sql.ts"
 import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 
 /**

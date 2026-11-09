@@ -29,9 +29,9 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
-import { definedness } from "#compiler/scalar/compute/registry.ts"
 import { commonType, mixesExact, widening } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { definedness } from "#test/support/compute.ts"
 import { widensTo } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	buildTerm,

@@ -108,7 +108,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							succeeded(
 								testArtifacts(S, {
 									installation: o.installed.installation.names.installation,
-									vectorSchema: undefined,
 									codes: installedCodes(names.codes)
 								})
 							)

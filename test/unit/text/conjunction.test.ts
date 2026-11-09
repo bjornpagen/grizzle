@@ -1,22 +1,3 @@
-/**
- * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
- * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
- * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsAccepts) the oracle of
- * the intersection:
- *
- * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
- *   DFA, where the analysis builds one, are ECMAScript's conjunction of its members' verdicts; every text of it lies
- *   within the bounds it proves, which a bounded member gives an unbounded one; and the key is the language's, so the
- *   members in either order, a member twice, or a member beside every text's pattern key alike;
- * - **inclusion:** a conjunction's inclusion in another (scalar/regex/inclusion.ts) holds exactly when brute force over
- *   every text of up to four code points of the alphabet, and walks of the inner members, finds no text of every inner
- *   member outside some outer one, and a refutation's witness is such a text;
- * - **a match guard:** Compute.matches over a refined subject types its branch by both languages, so a parse in the
- *   branch compiles exactly when the conjunction lies inside the parse's form, a case neither pattern alone proves among
- *   them;
- * - **its size:** its CHECK prints in no more bytes than its members' own tests joined by AND, so a conjunction's
- *   installation is linear in its members, the NCName conjunction of XML Schema's two name classes among them.
- */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -51,13 +32,32 @@ import {
 	analyzeText,
 	domainValue,
 	membership,
-	refinementBounds,
-	type TextRefinement,
-	textInfo
+	type TextRefinement
 } from "#compiler/text/refinement.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
+/**
+ * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
+ * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
+ * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsAccepts) the oracle of
+ * the intersection:
+ *
+ * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
+ *   DFA, where the analysis builds one, are ECMAScript's conjunction of its members' verdicts; every text of it lies
+ *   within the bounds it proves, which a bounded member gives an unbounded one; and the key is the language's, so the
+ *   members in either order, a member twice, or a member beside every text's pattern key alike;
+ * - **inclusion:** a conjunction's inclusion in another (scalar/regex/inclusion.ts) holds exactly when brute force over
+ *   every text of up to four code points of the alphabet, and walks of the inner members, finds no text of every inner
+ *   member outside some outer one, and a refutation's witness is such a text;
+ * - **a match guard:** Compute.matches over a refined subject types its branch by both languages, so a parse in the
+ *   branch compiles exactly when the conjunction lies inside the parse's form, a case neither pattern alone proves among
+ *   them;
+ * - **its size:** its CHECK prints in no more bytes than its members' own tests joined by AND, so a conjunction's
+ *   installation is linear in its members, the NCName conjunction of XML Schema's two name classes among them.
+ */
+import { textInfo } from "#test/support/text.ts"
+import { refinementBounds } from "#test/support/text.ts"
 import {
 	finiteLanguageOver,
 	flagsGen,

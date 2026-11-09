@@ -498,8 +498,6 @@ export type DomainCheckTerm =
 	| { readonly kind: "pattern"; readonly regex: RegexRef }
 	| { readonly kind: "predicate"; readonly predicate: ExprTable }
 
-export type NativeKind = NativeObject["kind"]
-
 /** What a law lowers to: the native objects the database enforces it by, every law's whole lowering. */
 export interface LawLowering {
 	readonly natives: ReadonlyArray<NativeObject>

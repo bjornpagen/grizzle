@@ -35,6 +35,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { allocatedDesc } from "#test/support/compile.ts"
 import { installationSql } from "#test/support/compile.ts"
 import * as graphApi from "#test/support/fixtures/api/graph.ts"
 import * as ledgerApi from "#test/support/fixtures/api/ledger.ts"
@@ -55,7 +56,6 @@ import {
 	generate
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
-import { allocatedDesc } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
@@ -118,7 +118,7 @@ const versionOf = (
 
 const noLogins = (): ReadonlyArray<AnyLogin> => []
 
-/** The description with every level declared under its allocated name (oracle/install/real.ts allocatedDesc), so the
+/** The description with every level declared under its allocated name (test/support/compile.ts allocatedDesc), so the
  * declared schema is the installed one. */
 const renamed = (desc: SchemaDesc, name: string): SchemaDesc => allocatedDesc(desc, name)
 

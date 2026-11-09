@@ -47,11 +47,9 @@ import {
 } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import * as Engine from "#compiler/core/result.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
-import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import type { CreateFunction, SqlStatement } from "#compiler/sql/ast.ts"
@@ -80,6 +78,7 @@ import {
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { installedCodes, testArtifacts } from "#test/support/compile.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { workloadOf } from "#test/support/installed.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
@@ -913,13 +912,10 @@ const precheck = (
 	Effect.gen(function* () {
 		const label = `${entry.label}'s precheck`
 		const artifacts = succeeded(
-			Engine.flatMap(parseSchemaInput(entry.role), (input) =>
-				schemaArtifacts(input, {
-					levels: cx.installed.installation.names.levels,
-					vectorSchema: undefined,
-					codes: cx.installed.installation.names.codes
-				})
-			)
+			testArtifacts(entry.role, {
+				installation: cx.installed.installation.names.installation,
+				codes: installedCodes(cx.installed.installation.names.codes)
+			})
 		)
 		const world = artifacts.world
 		if (world.kind !== "role") {

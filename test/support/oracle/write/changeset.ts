@@ -13,8 +13,7 @@ import type { HeadShape } from "#compiler/types/query/terms.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
-	type MemberInput,
-	type ReadBackInput
+	type MemberInput
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { nonEmpty } from "#test/support/assert.ts"
@@ -1540,7 +1539,7 @@ export const buildChangeSet = (
 		const sourceOf = (d: DeltaValue) =>
 			read.source === "state" ? rel(relation.name) : deltaSource(d, read.source, rel(relation.name))
 		const parent = read.parent
-		const readBack: ReadBackInput =
+		const readBack: (delta: DeltaValue) => unknown =
 			parent.kind === "none"
 				? (d) =>
 						query(schema).rule((r) => {

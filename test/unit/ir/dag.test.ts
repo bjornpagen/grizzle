@@ -37,13 +37,11 @@ import {
 	finishCells,
 	mergeDags,
 	nodeScopes,
-	normalizeDag,
-	rebuildDag,
 	relNode,
-	toTable,
 	topoOrder,
 	unchangedEdges
 } from "#compiler/ir/dag.ts"
+import { normalizeDag, toTable, rebuildDag } from "#test/support/dag.ts"
 
 import {
 	builtExpr,

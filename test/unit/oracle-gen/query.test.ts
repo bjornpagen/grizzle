@@ -14,7 +14,7 @@ import { caseHang } from "#test/support/limits.ts"
  * them. Which forms the population reaches is the gate's own required features
  * (test/pg/oracle/conservative.test.ts), never a share measured here.
  *
- * Normalized: identifiers by first occurrence from the root (dag.ts normalizeDag).
+ * Normalized: identifiers by first occurrence from the root (test/support/dag.ts normalizeDag).
  *
  * The edges of an acyclic closure pass a strict order filter: src < dst.
  */

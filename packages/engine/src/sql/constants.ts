@@ -7,18 +7,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Expr, ObjectName, PackConstant, TypeRef } from "#compiler/sql/ast.ts"
-import {
-	and,
-	binary,
-	call,
-	cast,
-	eq,
-	gt,
-	lit,
-	lt,
-	qualifiedCall,
-	types
-} from "#compiler/sql/build.ts"
+import { and, binary, call, cast, eq, lit, lt, qualifiedCall, types } from "#compiler/sql/build.ts"
 
 /**
  * The builders of the installation's constants, over sql/ast.ts Expr and its statements, which sql/print.ts prints. A
@@ -327,7 +316,7 @@ const cellAt = (constant: ObjectName, index: Expr, width: number): Expr =>
 	call("substring", [constantValue(constant), plus(times(index, width), int(1)), int(width)])
 
 /** A cell's value as an integer: 0 absent, 1 + c present with payload code c. */
-const cellCode = (constant: ObjectName, index: Expr, width: number): Expr =>
+export const cellCode = (constant: ObjectName, index: Expr, width: number): Expr =>
 	cast(cellAt(constant, index, width), types.integer)
 
 /**
@@ -336,10 +325,6 @@ const cellCode = (constant: ObjectName, index: Expr, width: number): Expr =>
  */
 export const inSet = (constant: ObjectName, index: Expr): Expr =>
 	eq(cellCode(constant, index, 1), int(1))
-
-/** A key is present: its cell is not 0. */
-export const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
-	gt(cellCode(constant, index, width), int(0))
 
 /** A key and its payload code are in the relation: the key's cell is 1 + the payload's code. */
 export const pairIn = (constant: ObjectName, index: Expr, width: number, payload: Expr): Expr =>

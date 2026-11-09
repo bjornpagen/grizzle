@@ -17,7 +17,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { nodeScopes, type OuterRefs, toTable } from "#compiler/ir/dag.ts"
+import { nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import type { TableExpr } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
@@ -30,6 +30,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"

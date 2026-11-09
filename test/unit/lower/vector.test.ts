@@ -10,7 +10,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
-import { rebuildDag, relNode, rooted, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
+import { relNode, rooted, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import { builtExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -29,14 +29,10 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
-import {
-	type AstHooks,
-	identityHooks,
-	transformOperand,
-	transformStatement
-} from "#compiler/sql/transform.ts"
+import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
+import { rebuildDag } from "#test/support/dag.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import {
 	candidates,
@@ -49,6 +45,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
+import { transformOperand } from "#test/support/sql.ts"
 import { nodeOfKind } from "#test/unit/lower/support.ts"
 
 /** A node rebuilt over its rebuilt inputs, the node itself where none changed (ir/dag.ts rebuildDag). */

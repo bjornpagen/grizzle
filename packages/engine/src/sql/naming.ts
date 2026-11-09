@@ -72,10 +72,10 @@ export const isDecimal = (text: string): boolean => {
 }
 
 /** What every carrier's name starts with. */
-const carrierPrefix = "__carrier_"
+export const carrierPrefix = "__carrier_"
 
 /** What parts a carrier's types digest from its ordinal. */
-const carrierSeparator = "_"
+export const carrierSeparator = "_"
 
 /**
  * The decimal digits of the longest ordinal a carrier's name holds: Number.MAX_SAFE_INTEGER's decimal length. An
@@ -120,36 +120,6 @@ const CarrierName = nominal<string, CarrierName>()
  */
 export const carrierName = (digest: string, ordinal: number): CarrierName =>
 	CarrierName(`${carrierPrefix}${digest}${carrierSeparator}${ordinal}`)
-
-const isLowerHex = (text: string): boolean => {
-	for (const ch of text) {
-		if (!((ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f"))) {
-			return false
-		}
-	}
-	return true
-}
-
-/**
- * Whether a value read from outside the process spells a carrier: a types digest of carrierDigestHex lowercase hex
- * digits, then an ordinal from 1 with no leading zero, a safe integer.
- */
-export const isCarrierName = (u: unknown): u is CarrierName => {
-	if (typeof u !== "string" || !u.startsWith(carrierPrefix)) {
-		return false
-	}
-	const digest = u.slice(carrierPrefix.length, carrierPrefix.length + carrierDigestHex.value)
-	const rest = u.slice(carrierPrefix.length + carrierDigestHex.value)
-	if (
-		digest.length !== carrierDigestHex.value ||
-		!isLowerHex(digest) ||
-		!rest.startsWith(carrierSeparator)
-	) {
-		return false
-	}
-	const ordinal = rest.slice(carrierSeparator.length)
-	return isDecimal(ordinal) && ordinal !== "0" && Number.isSafeInteger(Number(ordinal))
-}
 
 /**
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays

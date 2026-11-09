@@ -12,9 +12,9 @@ import type {
 	OrderItem,
 	Select,
 	SetOperand,
-	SetOperator,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
+import type { SetOperator } from "#test/support/kernel/shape.ts"
 
 import {
 	asc,

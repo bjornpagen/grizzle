@@ -223,23 +223,6 @@ export const nodesByLabel = (dag: RelDag): ReadonlyMap<NodeId, RelNode> => {
 }
 
 /**
- * The DAG with every node rebuilt by `step`, inputs first: `step` reads the node and its reading with each input
- * replaced by that input's rebuilt node (edgeValues), and returns the node standing in its place, under its label (a
- * re-annotation of its logical metadata, a completion of its orders, through relNode). A step that changes nothing
- * returns the node itself (unchangedEdges), so an unchanged part of the DAG stays the same objects.
- */
-export const rebuildDag = <R extends Roots>(
-	dag: ValidDag<R>,
-	step: (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>) => RelNode
-): ValidDag<R> => {
-	const rebuilt = new Fold<RelNode, RelNode>(function* (node) {
-		const inputs = yield* edgeValues<RelNode>(node)
-		return step(node, inputs)
-	})
-	return assembledDag(mapRoots(dag.roots, (root) => rebuilt.of(root)))
-}
-
-/**
  * The rows a root delivers and every delivery node on them: the nodes whose rows are the root's delivered rows
  * under its heading, outermost first; the attachments met on them, each with its child's own spine; the ordered
  * results met; and, where the walk ends at a union of several arms, each arm's own spine, in group then arm order.
@@ -734,58 +717,6 @@ export const mergeForbidding = (
 	return { dag: assembledDag([...base.roots, forbid]), forbid }
 }
 
-/** An expression's outside form: its arguments by label. */
-const tableExprOf = (e: ScalarExpr): TableExpr => {
-	const spec = withArgs<LiveArgs, TableArgs>(outsideSpec(e), (a) => a.id)
-	return Object.freeze({
-		...spec,
-		volatility: e.volatility,
-		id: e.id,
-		deps: e.deps
-	})
-}
-
-/**
- * The outside form of a DAG: every node its roots reach and every expression those nodes hold, keyed by label, each
- * reference a label, in topological order (topoOrder) and then first-visit order of the expressions. It is what the
- * tests' strict re-reader and the dumps read. Labels are unique by construction (one construction mints each once, a
- * merge renames); two distinct nodes or expressions under one label, which no construction makes, are
- * MalformedDescription.
- */
-export const toTable = (dag: RelDag): Result.Result<DagTable, CompileError> =>
-	catchRefusal(() => {
-		const nodes: Record<NodeId, TableNode> = {}
-		const exprs: Record<ExprId, TableExpr> = {}
-		const claimedNodes = new Map<NodeId, RelNode>()
-		const claimedExprs = new Map<ExprId, ScalarExpr>()
-		const order = topoOrder(dag)
-		for (const node of order) {
-			const prior = claimedNodes.get(node.id)
-			if (prior !== undefined) {
-				throw new Refusal(
-					malformed(["nodes", node.id], `one node per label; two nodes are labelled ${node.id}`)
-				)
-			}
-			claimedNodes.set(node.id, node)
-			const entry = drive(
-				mapNode<LiveRefs, TableRefs>(node, { ...keptRefs, expr: (e) => e.id, var: (v) => v.id }),
-				(input) => input.id
-			)
-			nodes[node.id] = Object.freeze({ ...entry, id: node.id })
-		}
-		for (const e of exprClosure(order.flatMap((node) => exprsOf(node)))) {
-			const prior = claimedExprs.get(e.id)
-			if (prior !== undefined) {
-				throw new Refusal(
-					malformed(["exprs", e.id], `one expression per label; two are labelled ${e.id}`)
-				)
-			}
-			claimedExprs.set(e.id, e)
-			exprs[e.id] = tableExprOf(e)
-		}
-		return { roots: dag.roots.map((root) => root.id), nodes, exprs }
-	})
-
 /** Fresh positional names of one namespace, "<ns>#<i>", by first occurrence of the label they rename. */
 class Numbering<A extends string> {
 	readonly #ns: string
@@ -831,7 +762,10 @@ class Numbering<A extends string> {
  * when first needed), so a sub-query's digest numbers the enclosing nodes it reads; a name `context` does not hold is
  * MalformedDescription. Each expression's dependencies are renamed with it.
  */
-const normalizeWithin = (context: RelDag, roots: Roots): Result.Result<DagTable, CompileError> =>
+export const normalizeWithin = (
+	context: RelDag,
+	roots: Roots
+): Result.Result<DagTable, CompileError> =>
 	catchRefusal(() => {
 		const n = new Numbering("n", NodeId)
 		const e = new Numbering("e", ExprId)
@@ -913,10 +847,6 @@ const normalizeWithin = (context: RelDag, roots: Roots): Result.Result<DagTable,
 		}
 		return deepFreeze({ roots: tableRoots, nodes, exprs })
 	})
-
-/** The normal form of a whole DAG (normalizeWithin from its own roots). */
-export const normalizeDag = (dag: RelDag): Result.Result<DagTable, CompileError> =>
-	normalizeWithin(dag, dag.roots)
 
 /**
  * The semantic fingerprint of a DAG: SHA-256 over its normalized canonical text, source locations excluded. Two DAGs

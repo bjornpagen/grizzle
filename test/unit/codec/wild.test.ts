@@ -41,10 +41,10 @@ import {
 	Record,
 	String as Str
 } from "effect"
-import { isCodecFault } from "#compiler/codec/fault.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
+import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -60,6 +60,16 @@ import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { echoed, outputText, paramText } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
+
+/** The codec's own refusal words beside the value carriers' ValueFault words (core/errors.ts CodecFault). */
+const codecWords: ReadonlySet<string> = new Set<Exclude<CodecFault, ValueFault>>([
+	"nullValue",
+	"refinedValue"
+])
+
+/** Whether an encoder's refusal is a codec fault word, never a value or a thrown error. */
+const isCodecFault = (value: unknown): value is CodecFault =>
+	isValueFault(value) || (typeof value === "string" && codecWords.has(value))
 
 /**
  * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure

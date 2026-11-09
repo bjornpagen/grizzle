@@ -26,7 +26,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
-import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -42,6 +42,7 @@ import {
 	twinsOf,
 	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
+import { textInfo } from "#test/support/text.ts"
 
 const roster = scalarOfSpec({
 	carrier: "code",

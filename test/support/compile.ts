@@ -11,6 +11,7 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
+import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
@@ -25,7 +26,7 @@ import {
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
+import { type Installation, installBasis } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
@@ -37,7 +38,9 @@ import {
 } from "#compiler/program/compile.ts"
 
 import {
+	baseArtifacts,
 	parseSchemaInput,
+	roleArtifacts,
 	type SchemaArtifacts,
 	type SchemaInput,
 	schemaArtifacts,
@@ -50,7 +53,6 @@ import {
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
 import {
-	levelChain,
 	type Owned,
 	type OwnedLogin,
 	type OwnedRole,
@@ -80,8 +82,8 @@ export const installedCodes = (codes: Codebook): TestCodes => ({ kind: "installe
 
 /**
  * A query compiled the way the runtime compiles it, for tests that compile a query directly: its schema's artifacts
- * (installed under `installation`, with the vector extension in `vectorSchema`, under the codes `codes` names, when the
- * test installs under names and codes of its own), for the context, read as rows or a page as the options state;
+ * (installed under the allocation `installation`, under the codes `codes` names, when the test installs under names
+ * and codes of its own), for the context, read as rows or a page as the options state;
  * testCompile states the runtime's own for a fresh installation, and a test spreads it with what it changes. A query
  * over a role is checked against that role, as the runtime checks it. Every field is stated.
  */
@@ -89,19 +91,17 @@ export interface TestCompileOptions {
 	readonly context: TemplateContext
 	readonly read: "rows" | "page"
 	readonly installation: Identity<"schema"> | undefined
-	readonly vectorSchema: string | undefined
 	readonly codes: TestCodes
 }
 
 /** The names and codes a schema's artifacts are compiled under. */
-export type TestNaming = Pick<TestCompileOptions, "installation" | "vectorSchema" | "codes">
+export type TestNaming = Pick<TestCompileOptions, "installation" | "codes">
 
 /** The runtime's compilation of a fresh installation: the snapshot context, rows, the declared schema's own names. */
 export const testCompile: TestCompileOptions = {
 	context: "snapshot",
 	read: "rows",
 	installation: undefined,
-	vectorSchema: undefined,
 	codes: firstCodes
 }
 
@@ -129,7 +129,8 @@ export const codebookFor = (
 
 /**
  * The artifacts of `schema`, parsed once as the runtime parses it (parseSchemaInput, idempotent on a parsed input),
- * under the test's naming.
+ * under the test's naming: its declared levels' own schemas, or every level renamed under the allocation
+ * `naming.installation` names (allocatedDesc), as the real-install harness installs it.
  */
 export const testArtifacts = (
 	schema: unknown,
@@ -137,23 +138,52 @@ export const testArtifacts = (
 ): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.flatMap(parseSchemaInput(schema), (input) =>
 		Result.flatMap(codebookFor(input, naming.codes), (codes) =>
-			schemaArtifacts(input, {
-				levels:
-					naming.installation === undefined
-						? undefined
-						: allocatedLevels(
-								naming.installation,
-								levelChain(input.kind === "role" ? input.desc.base : input.desc)
-							),
-				vectorSchema: naming.vectorSchema,
-				codes
-			})
+			naming.installation === undefined
+				? schemaArtifacts(input, { codes })
+				: allocatedArtifacts(input, identifierOf(naming.installation), codes)
 		)
 	)
 
+/** The artifacts of `input` with every level of its schema, a role's base among them, renamed under `allocated`. */
+const allocatedArtifacts = (
+	input: SchemaInput,
+	allocated: string,
+	codes: Codebook
+): Result.Result<SchemaArtifacts, CompileError> => {
+	const over = (owned: Owned) => Result.flatMap(installBasis(owned, codes), baseArtifacts)
+	return input.kind === "role"
+		? Result.flatMap(
+				ownRole({ ...input.desc, base: allocatedDesc(input.desc.base, allocated) }),
+				(role) => Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))
+			)
+		: Result.flatMap(own(allocatedDesc(input.desc, allocated)), over)
+}
+
+/**
+ * The declared name the level at `depth` of a schema takes under the allocation `allocated`, the substrate's unique name
+ * for one installation, the root at depth 0: the root's is the allocation itself, and each level above it is the
+ * allocation and its depth, so every level's PostgreSQL schema, and every role over it, is the allocation's alone. A test
+ * that rebuilds a level to open it rebuilds it under this name.
+ */
+export const levelNameAt = (allocated: string, depth: number): string =>
+	depth === 0 ? allocated : `${allocated}_${depth}`
+
+/** A description with every level declared under its allocated name (levelNameAt). */
+export const allocatedDesc = (desc: EngineSchemaDesc, allocated: string): EngineSchemaDesc => {
+	const below = desc.extends === undefined ? undefined : allocatedDesc(desc.extends, allocated)
+	const depth = below === undefined ? 0 : depthOf(below) + 1
+	return below === undefined
+		? { ...desc, name: levelNameAt(allocated, depth) }
+		: { ...desc, name: levelNameAt(allocated, depth), extends: below }
+}
+
+/** The depth of a description's top level, its root's 0. */
+const depthOf = (desc: EngineSchemaDesc): number =>
+	desc.extends === undefined ? 0 : depthOf(desc.extends) + 1
+
 /**
  * The PostgreSQL schemas of `levels` allocated under `installation`, the root's first: the root's is the allocation,
- * each level above it the allocation and its depth (oracle/install/real.ts levelNameAt).
+ * each level above it the allocation and its depth (levelNameAt).
  */
 export const allocatedLevels = (
 	installation: Identity<"schema">,

@@ -27,8 +27,7 @@ import type {
 	IdentifiedFact,
 	KeyedFacts,
 	LiteralBound,
-	NormalFacts,
-	RelationParamEncoder
+	NormalFacts
 } from "#compiler/ir/products.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
@@ -685,24 +684,4 @@ const parameterNormalizerOf = (built: BuiltSpec): ParameterNormalizer => {
 			})
 		)
 	}
-}
-
-/**
- * The arrays encoder of one relation parameter's input (ir/products.ts RelationParamEncoder): its normal facts as a
- * relation parameter's (parameterNormalizer), written as its arrays.
- */
-export const arraysEncoder = (spec: RelationSpec): RelationParamEncoder => {
-	const built = buildSpec(spec)
-	const normalize = parameterNormalizerOf(built)
-	const fields = built.columns.map((c) => c.field)
-	return (facts) =>
-		Result.flatMap(normalize(facts), (normalized) =>
-			Result.map(
-				arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value),
-				(arrays) => ({
-					arrays,
-					count: normalized.count
-				})
-			)
-		)
 }

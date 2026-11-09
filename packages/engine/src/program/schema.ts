@@ -10,7 +10,6 @@ import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -104,11 +103,6 @@ export type ArtifactsWorld =
 	  }
 
 interface SchemaArtifactOptions {
-	/** The identity of each level's PostgreSQL schema the installation targets, root first, or undefined for the
-	 * declared levels' own (Owned.levels). */
-	readonly levels: NonEmptyReadonlyArray<Identity<"schema">> | undefined
-	/** The schema the vector extension lives in, or undefined for the installer's. */
-	readonly vectorSchema: string | undefined
 	/**
 	 * The installation's codes (ir/codes.ts): the snapshot's for a layer, the drafted ones for generate, the first
 	 * codebook for a fresh installation. Codes are history, so the schema alone never determines them, and every code
@@ -294,8 +288,7 @@ export const schemaArtifacts = (
 	schema: SchemaInput,
 	options: SchemaArtifactOptions
 ): Result.Result<SchemaArtifacts, CompileError> => {
-	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, options.codes), (basis) => baseArtifacts(basis, options))
+	const over = (owned: Owned) => Result.flatMap(installBasis(owned, options.codes), baseArtifacts)
 	return schema.kind === "role"
 		? Result.flatMap(ownRole(schema.desc), (role) =>
 				Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))
@@ -310,16 +303,9 @@ export const schemaArtifacts = (
  * them once for a schema and hands them to every role and every compilation over the schema; generate installs its
  * draft over the same basis.
  */
-export const baseArtifacts = (
-	basis: InstallBasis,
-	options: Omit<SchemaArtifactOptions, "codes">
-): Result.Result<SchemaArtifacts, CompileError> =>
+export const baseArtifacts = (basis: InstallBasis): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.map(
-		installationOver(basis, {
-			...installOptions(basis.owned, namingOwner),
-			...(options.levels === undefined ? {} : { levels: options.levels }),
-			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema })
-		}),
+		installationOver(basis, installOptions(basis.owned, namingOwner)),
 		(installation): SchemaArtifacts => {
 			const derived = derivedAnalysis(installation.checked)
 			return {

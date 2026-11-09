@@ -11,7 +11,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
-import { type IntegerSpanCarrier, integerSpanCarriers } from "#compiler/ir/scalar.ts"
+import { integerSpanCarriers } from "#compiler/ir/scalar.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 
 /** A stored span: the canonical half-open [lo, hi) with lo < hi. */
@@ -23,7 +23,7 @@ export interface HalfOpen {
 export type RangeType = "int4range" | "int8range"
 
 /** The range type of each span carrier over integer endpoints, whose canonicalization this oracle states. */
-const rangeTypeOf: Readonly<Record<IntegerSpanCarrier, RangeType>> = {
+const rangeTypeOf: Readonly<Record<(typeof integerSpanCarriers)[number], RangeType>> = {
 	range4: "int4range",
 	range8: "int8range"
 }

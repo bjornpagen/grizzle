@@ -15,7 +15,7 @@ import {
 import { defect } from "#compiler/core/invariant.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { directions } from "#compiler/core/order.ts"
-import { assembledDag, relNode, toTable } from "#compiler/ir/dag.ts"
+import { assembledDag, relNode } from "#compiler/ir/dag.ts"
 import {
 	constraintKinds,
 	type EvidenceContext,
@@ -90,9 +90,10 @@ import {
 import { literalShape, scalarTypeShape, tableExprShape } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { definedness } from "#compiler/scalar/compute/registry.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
+import { definedness } from "#test/support/compute.ts"
+import { toTable } from "#test/support/dag.ts"
 import { nativeProofHolds, operationProofHolds } from "#test/support/oracle/proof.ts"
 
 /**
@@ -2255,7 +2256,7 @@ export const validateDag = <D extends RelDag>(dag: D): D => {
 }
 
 /**
- * A table (rel.ts DagTable) a test wrote, corrupted or normalized (dag.ts normalizeDag), read back into direct
+ * A table (rel.ts DagTable) a test wrote, corrupted or normalized (test/support/dag.ts normalizeDag), read back into direct
  * references: every node and expression it holds built by the one constructor under its own label, inputs first, each
  * region's references to its variables the region's own declarations. `node` reads any table node's live node,
  * reachable from the roots or not. Its labels are the table's whatever they spell ("n#0" included); its key proofs are

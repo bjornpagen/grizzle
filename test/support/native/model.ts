@@ -12,13 +12,16 @@ import {
 	type TypedLiteral,
 	withArgs
 } from "#compiler/ir/expr.ts"
-import type { DomainCheckTerm, LawField, NativeColumn, NativeKind } from "#compiler/ir/law.ts"
+import type { DomainCheckTerm, LawField, NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { type Atom, type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type EvalEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+
+/** The kind of a native object of a law: its constraint, index, trigger or domain constraint. */
+export type NativeKind = NativeObject["kind"]
 
 /**
  * A host model of the native constraints grizzle installs, read from the law model's native objects (the IR of what the

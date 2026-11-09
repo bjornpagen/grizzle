@@ -701,7 +701,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						ok(
 							testArtifacts(Content, {
 								installation: identity.schema(parsedSchemaName(name)),
-								vectorSchema: undefined,
 								codes: installedCodes(installation.names.codes)
 							}),
 							"artifacts"

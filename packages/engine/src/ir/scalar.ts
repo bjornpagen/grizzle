@@ -47,9 +47,6 @@ export type Carrier = (typeof carriers)[number]
 /** The exact arithmetic carriers: what integer and money arithmetic computes (ExactType). */
 export type ExactValueCarrier = "exactInteger" | "exactMoney"
 
-/** The carriers a field, a parameter or a literal of a descriptor can have: every carrier but the exact ones. */
-export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
-
 /**
  * Whether a column of each carrier holds few values, so that fixing it bounds no scan: a closed id holds one of a
  * roster's codes, a boolean one of two. A set over a roster holds one of 2^n sets, which bounds a scan as a text does. An index led by such a column narrows a lookup little, and a lookup that fixes
@@ -536,7 +533,6 @@ export class Roster implements Canonicalizable {
 /** The integer carriers, a serial field's among them. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = (typeof spanCarriers)[number]
-export type IntegerSpanCarrier = (typeof integerSpanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
 type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
@@ -1002,7 +998,8 @@ export const isRefined = (t: ScalarType): boolean => {
 	return contractOf(t) !== undefined || (text !== undefined && text.regex !== "wildcard")
 }
 
-const nativeNames: Readonly<Record<Carrier, string>> = {
+/** Each carrier's PostgreSQL type name, which typeLabel prints for a carrier of no parameters. */
+export const nativeNames: Readonly<Record<Carrier, string>> = {
 	int2: "smallint",
 	int4: "integer",
 	int8: "bigint",
@@ -1079,5 +1076,3 @@ export const typeLabel = (t: ScalarType): string => {
 			return `exact money of ${t.digits} digits`
 	}
 }
-
-export const nativeName = (carrier: Carrier): string => nativeNames[carrier]

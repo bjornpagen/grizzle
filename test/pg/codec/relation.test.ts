@@ -8,7 +8,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { arraysEncoder, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
+import { positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
@@ -21,6 +21,7 @@ import {
 	factIdentity,
 	type HeadingField
 } from "#compiler/scalar/values/identity.ts"
+import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -16,7 +16,7 @@ import {
 	type ArmRefusal,
 	readChangeDetail,
 	readLawDetail,
-	refusalDetailExpr,
+	raised as raisedBy,
 	refusalFunctionDdl,
 	refusalFunctionName
 } from "#compiler/write/refusal.ts"
@@ -126,7 +126,7 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 						yield* s.admin.query(printStatement(statement), [])
 					}
 					const sql = (refusal: ArmRefusal) =>
-						`SELECT "${schema}"."${refusalFunctionName}"($4::text, $5::text, ${printExpr(refusalDetailExpr(refusal))})`
+						`SELECT "${schema}"."${refusalFunctionName}"($4::text, $5::text, ${printExpr(raisedBy(refusal).detail)})`
 					assert.deepEqual(auditTextViolations(sql(law)), [])
 					assert.deepEqual(auditTextViolations(sql(change)), [])
 					/** One key's refusal raised through the installed function: the error PostgreSQL reports carries its SQLSTATE,

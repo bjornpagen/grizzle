@@ -10,12 +10,12 @@ import {
 	type LowerEnv,
 	lowerTerm,
 	noClosedRelations,
-	noExtension,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
+import { noExtension } from "#test/support/compute.ts"
 import { numeric, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
 import {
 	type ArgTerm,

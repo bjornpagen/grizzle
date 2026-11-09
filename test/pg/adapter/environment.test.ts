@@ -1,19 +1,3 @@
-/**
- * A login's sessions take nothing from the process environment node-postgres reads: no password from PGPASSWORD or a
- * password file, and no settings from PGOPTIONS.
- *
- * pg reads PGPASSWORD, then the password file PGPASSFILE names (else ~/.pgpass), for any password it is given as a
- * falsy value, and PGOPTIONS for options it is given as none. grizzle gives it a password function always and a login's
- * session its pinned defaults as options (wire/session.ts), so neither source reaches a login's session.
- *
- * One login of the file, made as an installation makes one, its defaults the pinned ones. A case draws the password the
- * pool is configured with, the login's own (a Redacted or an Effect), another, or none (noPassword); PGPASSWORD absent,
- * the login's own or another; a password file absent, holding the login's own or another; and PGOPTIONS absent, empty
- * or at a text whose settings or syntax would change or refuse a session that took it. The file never holds the real
- * ~/.pgpass: PGPASSFILE names a file of the case's, or one that does not exist. Properties:
- * - a lease succeeds exactly when the configured password is the login's own, whatever the environment holds;
- * - an admitted session runs under every pinned default at its stored value, whatever PGOPTIONS holds.
- */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -35,7 +19,7 @@ import {
 	Redacted,
 	String as Str
 } from "effect"
-import { noPassword, type Password } from "#adapter/wire/session.ts"
+import { type Password } from "#adapter/wire/session.ts"
 import { quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import {
 	defaultPool,
@@ -46,6 +30,23 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+/**
+ * A login's sessions take nothing from the process environment node-postgres reads: no password from PGPASSWORD or a
+ * password file, and no settings from PGOPTIONS.
+ *
+ * pg reads PGPASSWORD, then the password file PGPASSFILE names (else ~/.pgpass), for any password it is given as a
+ * falsy value, and PGOPTIONS for options it is given as none. grizzle gives it a password function always and a login's
+ * session its pinned defaults as options (wire/session.ts), so neither source reaches a login's session.
+ *
+ * One login of the file, made as an installation makes one, its defaults the pinned ones. A case draws the password the
+ * pool is configured with, the login's own (a Redacted or an Effect), another, or none (noPassword); PGPASSWORD absent,
+ * the login's own or another; a password file absent, holding the login's own or another; and PGOPTIONS absent, empty
+ * or at a text whose settings or syntax would change or refuse a session that took it. The file never holds the real
+ * ~/.pgpass: PGPASSFILE names a file of the case's, or one that does not exist. Properties:
+ * - a lease succeeds exactly when the configured password is the login's own, whatever the environment holds;
+ * - an admitted session runs under every pinned default at its stored value, whatever PGOPTIONS holds.
+ */
+import { noPassword } from "#test/support/pg.ts"
 import {
 	processEnvironment,
 	processValue,

@@ -22,7 +22,7 @@ import {
 import pgDriver from "pg"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
-import { makePool, noPassword, type Session } from "#adapter/wire/session.ts"
+import { makePool, type Session } from "#adapter/wire/session.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	caseHang,
@@ -31,6 +31,7 @@ import {
 	testIdleTimeout
 } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
+import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 

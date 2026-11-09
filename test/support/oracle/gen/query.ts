@@ -21,7 +21,7 @@ import { appendAll, indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { normalizeDag, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import {
 	type DefinedOp,
 	exprClosure,
@@ -48,6 +48,7 @@ import {
 	type TakeBound,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
+import { normalizeDag } from "#test/support/dag.ts"
 
 import {
 	baseOf,

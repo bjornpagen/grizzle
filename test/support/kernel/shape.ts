@@ -8,10 +8,16 @@ import type {
 	JoinChain,
 	OperandSelect,
 	SelectCore,
-	SetOperator,
+	SetOperation,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+
+/**
+ * The set operators. INTERSECT and EXCEPT have no ALL form here, and UNION ALL is set-making only over arms proved
+ * pairwise disjoint (sql/ast.ts UnionAll).
+ */
+export type SetOperator = SetOperation["op"]
 
 /** The role of a predicate's operand: what it is once casts and collations are seen through. */
 type Role = "column" | "param" | "literal" | "subquery" | "expression"

@@ -1,4 +1,27 @@
-import { String as Str } from "effect"
+import { Array as Arr, String as Str } from "effect"
+import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { RelationParamEncoder } from "#compiler/ir/products.ts"
+
+/**
+ * The arrays encoder of one relation parameter's input (ir/products.ts RelationParamEncoder): its normal facts as a
+ * relation parameter's (codec/recordset.ts parameterNormalizer), written as its arrays (arrayTexts).
+ */
+export const arraysEncoder = (spec: RelationSpec): RelationParamEncoder => {
+	const normalize = parameterNormalizer(spec)
+	const fields = Arr.map(spec.columns, (c) => c.field)
+	return (facts) =>
+		Result.flatMap(normalize(facts), (normalized) =>
+			Result.map(
+				arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value),
+				(arrays) => ({
+					arrays,
+					count: normalized.count
+				})
+			)
+		)
+}
 
 /**
  * A one-dimensional text-format array literal read as PostgreSQL's array_in reads it (src/backend/utils/adt/arrayfuncs.c

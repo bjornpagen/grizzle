@@ -16,12 +16,12 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import {
 	type ConcurrentChangeTag,
-	encodeRefusalDetail,
 	readChangeDetail,
 	readLawDetail
 } from "#compiler/write/refusal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { outputText } from "#test/support/wire.ts"
 
 /** The write refusal channel, without a database.

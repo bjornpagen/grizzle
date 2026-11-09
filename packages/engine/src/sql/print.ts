@@ -328,7 +328,7 @@ type Level = (typeof levels)[number]
 /** Whether level `a` binds more loosely than level `b`. */
 const looser = (a: Level, b: Level): boolean => levels.indexOf(a) < levels.indexOf(b)
 
-interface Printed {
+export interface Printed {
 	readonly text: string
 	readonly level: Level
 }
@@ -340,7 +340,7 @@ const printed = (text: string, level: Level): Printed => ({ text, level })
  * boolean or numeric constant PostgreSQL types itself, or a bit string's hex constant, `X'<digits>'`. A negative bare
  * number is parenthesized, the unary minus of its magnitude.
  */
-type Spelling =
+export type Spelling =
 	| { readonly kind: "quoted"; readonly text: string }
 	| { readonly kind: "bare"; readonly text: string }
 
@@ -351,7 +351,7 @@ type Spelling =
  *
  * Quoted, so NaN, the infinities and -0 reach the float input function exactly.
  */
-const spellingOf = (value: LiteralValue): Spelling => {
+export const spellingOf = (value: LiteralValue): Spelling => {
 	switch (value.kind) {
 		case "bool":
 			return { kind: "bare", text: value.value ? "true" : "false" }
@@ -377,9 +377,6 @@ const spellingOf = (value: LiteralValue): Spelling => {
 
 /** A bit string's hex constant, X'<digits>': its digits are 0-9 and A-F alone, so none needs quoting. */
 const hexConstant = (hex: string): string => `X'${hex}'`
-
-/** Whether the printer spells a literal quoted (spellingOf): text, every float and a special decimal. */
-export const printsQuoted = (value: LiteralValue): boolean => spellingOf(value).kind === "quoted"
 
 /**
  * PostgreSQL's boolean constants are typed boolean; a boolean domain casts them.
@@ -1732,7 +1729,7 @@ const catalogExprs = (list: ReadonlyArray<CatalogExpr>): string =>
 	list.map((e) => catalogExpr(e).text).join(", ")
 
 /** A catalog expression, parenthesized by the precedence levels grizzle's value SQL prints by. */
-const catalogExpr = (e: CatalogExpr): Printed => {
+export const catalogExpr = (e: CatalogExpr): Printed => {
 	switch (e.kind) {
 		case "column":
 			return printed(`${quoteIdent(e.from)}.${quoteIdent(e.column)}`, "atom")
@@ -1978,9 +1975,6 @@ const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void =>
 }
 
 const catalogTextLoc = SourceLoc("catalog statement text", [])
-
-/** A catalog expression's text, as a statement of the catalog language prints it. */
-export const printCatalogExpr = (e: CatalogExpr): string => catalogExpr(e).text
 
 /**
  * One catalog statement's text, without a terminator: what a driver sends (statementText). Its placeholders are the

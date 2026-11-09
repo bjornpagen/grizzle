@@ -44,12 +44,13 @@ import {
 	type Uncommitting,
 	writeFrame
 } from "#adapter/wire/batch.ts"
-import { connectSession, controlText, noPassword, type Session } from "#adapter/wire/session.ts"
+import { connectSession, controlText, type Session } from "#adapter/wire/session.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
 import { caseHang, testConnectTimeout } from "#test/support/limits.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"
+import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import { paramBinary, paramText } from "#test/support/wire.ts"

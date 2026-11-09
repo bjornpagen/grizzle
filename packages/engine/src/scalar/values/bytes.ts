@@ -72,10 +72,6 @@ export const admitBytes = (value: unknown): Result.Result<AdmittedBytes, ValueFa
 	return checked.ok ? Result.ok(new AdmittedBytes(checked.value)) : checked
 }
 
-/** Whether a value has the bytes host type: a Uint8Array over an ArrayBuffer. */
-export const isBytes = (value: unknown): value is Bytes =>
-	value instanceof Uint8Array && value.buffer instanceof ArrayBuffer
-
 /** Whether a value is an admitted bytes value (`AdmittedBytes`). */
 export const isAdmittedBytes = (value: unknown): value is AdmittedBytes =>
 	value instanceof AdmittedBytes

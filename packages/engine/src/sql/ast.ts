@@ -706,12 +706,6 @@ interface DistinctProjection {
 export type CoreProjection = ProvedProjection | OperandProjection | DistinctProjection
 
 /**
- * The set operators. INTERSECT and EXCEPT have no ALL form here, and UNION ALL is set-making only over arms proved
- * pairwise disjoint (UnionAll).
- */
-export type SetOperator = "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT"
-
-/**
  * A set-operation arm: a core, or a parenthesized full query with its own clauses. A set operation nests only as the
  * body of such a query, so a chain of one operator is one node however many arms it has.
  */

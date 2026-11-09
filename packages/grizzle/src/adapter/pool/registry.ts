@@ -328,7 +328,7 @@ export const artifactsUnder = (
 
 /** The artifacts of a base over its basis (physical/install/compile.ts installBasis), under its own installation. */
 export const artifactsOver = (basis: InstallBasis): Engine.Result<SchemaArtifacts, CompileError> =>
-	baseArtifacts(basis, { levels: undefined, vectorSchema: undefined })
+	baseArtifacts(basis)
 
 /** A built login owned over its base's Owned, which login(...) held each of its roles to. */
 export const ownLoginOver = (

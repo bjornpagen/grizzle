@@ -182,8 +182,10 @@ interface SourcedArm extends RefusalArm {
 	readonly from: FromItem
 }
 
-const keyTag = "k"
-const changeTag = "a"
+/** The DETAIL tag of a law's refusal by its key. */
+export const keyTag = "k"
+/** The DETAIL tag of a concurrent change's refusal. */
+export const changeTag = "a"
 const breachTag = "d"
 
 /** A value as the JSON string of the text its column's codec decodes: money through numeric (codec resultTextCasts). */
@@ -226,7 +228,7 @@ type BreachDelivered = Extract<ArmRefusal, { readonly kind: "breach" }>["deliver
 
 /** What an arm raises as its constraint field: a law's or a change's constraint name, a breach's delivered type, or the
  * query entry a fact is outside of. */
-type RaisedConstraint =
+export type RaisedConstraint =
 	| { readonly kind: "constraint"; readonly name: ConstraintName }
 	| { readonly kind: "breach"; readonly delivered: BreachDelivered }
 	| { readonly kind: "entry"; readonly entry: string }
@@ -244,7 +246,7 @@ const constraintText = (raised: RaisedConstraint): string => {
 }
 
 /** The SQLSTATE, constraint field and DETAIL one arm raises. */
-const raised = (
+export const raised = (
 	refusal: ArmRefusal
 ): { readonly state: Sqlstate; readonly constraint: RaisedConstraint; readonly detail: Expr } => {
 	switch (refusal.kind) {
@@ -274,9 +276,6 @@ const raised = (
 			}
 	}
 }
-
-/** The DETAIL expression one arm raises (see `refusalGuard`), for the audits of the encoding. */
-export const refusalDetailExpr = (refusal: ArmRefusal): Expr => raised(refusal).detail
 
 interface RefusalGuardInput {
 	readonly supply: NameSupply
@@ -498,17 +497,4 @@ export const readChangeDetail = (text: string): ChangeDetail | undefined => {
 	const read = reader.string()
 	const reason = concurrentChanges.find((c) => c === read)
 	return reason === undefined ? undefined : { reason, relation: reader.string() }
-}
-
-/** The DETAIL text an arm raises for constant values, as its SQL expression computes it: the encoding the unit tests
- * round-trip through readLawDetail and readChangeDetail. */
-export const encodeRefusalDetail = (
-	refusal:
-		| { readonly kind: "law"; readonly relation: string }
-		| { readonly kind: "change"; readonly reason: ConcurrentChangeTag; readonly relation: string },
-	key: ReadonlyArray<{ readonly field: string; readonly text: string }>
-): string => {
-	const leading = refusal.kind === "law" ? [refusal.relation] : [refusal.reason, refusal.relation]
-	const tag = refusal.kind === "law" ? keyTag : changeTag
-	return `${tag}${JSON.stringify([...leading, key.map((k) => k.field), key.map((k) => k.text)])}`
 }

@@ -28,7 +28,7 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
+import { positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
@@ -39,6 +39,7 @@ import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
+import { arraysEncoder } from "#test/support/arrays.ts"
 
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
@@ -152,7 +153,6 @@ const writeSteps = (
 		succeeded(
 			testArtifacts(Pairs, {
 				installation: installed.installation.names.installation,
-				vectorSchema: undefined,
 				codes: installedCodes(installed.names.codes)
 			})
 		)

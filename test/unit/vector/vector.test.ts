@@ -1,12 +1,12 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
@@ -17,12 +17,10 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { schemaNameGen } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { paramText } from "#test/support/wire.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
@@ -297,41 +295,31 @@ describe("the vector schema in a template's premise", () => {
 	type Reads = "a vector search" | "no vector"
 
 	it.effect(
-		"records the extension schema of a template reading a vector, which its SQL follows",
+		"records the installer's extension schema exactly for a template reading a vector",
 		(ctx) =>
 			searched(
 				ctx,
-				explore(
+				exhaust(
 					{
 						suite: "unit/vector/template-premise",
-						draw: drawn((source) => ({
-							reads: source.draw(boolean) ? ("a vector search" as const) : ("no vector" as const),
-							vectorSchema: source.draw(schemaNameGen).converted,
-							other: source.draw(schemaNameGen).converted
-						})),
+						generator: (source) => source.draw(element<Reads>(["a vector search", "no vector"])),
 						literal: Formatter.format,
-						coverage: required<Reads>(["a vector search", "no vector"], {
-							cases: 16,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: 16,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 4,
+						limit: 2,
+						coverage: requiredInSpace<Reads>(["a vector search", "no vector"]),
 						caseHang,
+						box: "a template reading the search fixture's vector search, and one reading a relation with no vector",
 						oracle: {
 							kind: "specification",
-							name: "a template's premise names the vector schema exactly when it reads a vector, and its SQL no other"
+							name: "a template's premise names the installation's vector schema exactly when it reads a vector"
 						}
 					},
-					({ reads, vectorSchema, other }, c) =>
+					(reads, c) =>
 						Effect.sync(() => {
 							c.note(reads)
 							const [q, s] =
 								reads === "a vector search" ? [search.byDistance, search.Search] : [notes, Notes]
 							const input = succeeded(parseSchemaInput(s))
-							const artifacts = succeeded(testArtifacts(s, { ...testCompile, vectorSchema }))
+							const artifacts = succeeded(testArtifacts(s, testCompile))
 							const template = succeeded(
 								templateFor(succeeded(queryInput(q)), input, artifacts, reading)
 							).template
@@ -340,16 +328,9 @@ describe("the vector schema in a template's premise", () => {
 								assert.deepEqual(template.requirements.extensionSchemas, {})
 								return
 							}
-							assert.deepEqual(template.requirements.extensionSchemas, { vector: vectorSchema })
-							if (other === vectorSchema) {
-								return
-							}
-							for (const statement of Arr.appendAll(template.optimized, template.conservative)) {
-								assert.ok(
-									!Str.includes(quoteIdent(other))(statement.sql),
-									`no statement names ${other}`
-								)
-							}
+							assert.deepEqual(template.requirements.extensionSchemas, {
+								vector: artifacts.names.vectorSchema
+							})
 						})
 				)
 			)

@@ -1,3 +1,14 @@
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { positionalColumns } from "#compiler/codec/recordset.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
+import { admitValue } from "#compiler/scalar/values/identity.ts"
 /**
  * Forged carrier inputs against PostgreSQL's own equality: every batch of forged and honest Decimal and Money inputs
  * grizzle admits is sent as a relation input's arrays, and PostgreSQL finds in those arrays exactly as many distinct
@@ -8,17 +19,7 @@
  * Oracle: PostgreSQL itself, its DISTINCT under the column's type, over both the arrays grizzle sends and the
  * independent texts of the values the inputs stand for.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
-import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { admitValue } from "#compiler/scalar/values/identity.ts"
+import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type CarrierName, carriers, forgedCases } from "#test/support/forged.ts"
 import { caseHang } from "#test/support/limits.ts"

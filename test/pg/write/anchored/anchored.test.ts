@@ -146,7 +146,6 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					succeeded(
 						testArtifacts(S, {
 							installation: o.installation.names.installation,
-							vectorSchema: undefined,
 							codes: installedCodes(names.codes)
 						})
 					)

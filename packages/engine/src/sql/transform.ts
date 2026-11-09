@@ -174,7 +174,7 @@ export const identityHooks: AstHooks = {
  *
  * A carrier is no schema object: its names are never rewritten.
  */
-class Transform {
+export class Transform {
 	readonly #expr: (e: Expr, original: Expr) => Expr
 	readonly #fromSource: (source: FromSource, original: FromSource) => FromSource
 	readonly #joins: (chain: JoinChain, original: JoinChain) => JoinChain
@@ -1361,10 +1361,6 @@ class Transform {
 export const transformExpr = (e: Expr, hooks: AstHooks): Expr => new Transform(hooks).expr(e)
 export const transformSelect = (s: Select, hooks: AstHooks): Select =>
 	new Transform(hooks).setQuery(s)
-/** A query that may stand only as an operand, rebuilt by `hooks`. */
-export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSelect =>
-	new Transform(hooks).select(s)
-
 export const transformCreateIndex = (s: CreateIndex, hooks: AstHooks): CreateIndex =>
 	new Transform(hooks).createIndex(s)
 

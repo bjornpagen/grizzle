@@ -260,10 +260,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const sets = writeChangeSets(f)
 	const checked = ok(checkedSchema(owned), "checked")
 	/** The keys of every view a write program's members and read-backs read, as the schema's artifacts know them. */
-	const artifacts = ok(
-		schemaArtifacts(input, { levels: [installedAt], vectorSchema: undefined, codes }),
-		"artifacts"
-	)
+	const artifacts = ok(schemaArtifacts(input, { codes }), "artifacts")
 	const writes = timed(`${f.label} writes`, () =>
 		Arr.map(
 			sets,

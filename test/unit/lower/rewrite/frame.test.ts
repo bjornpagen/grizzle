@@ -1,8 +1,3 @@
-/**
- * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly lowers its pass's
- * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), and the same
- * input rewrites identically.
- */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
@@ -12,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { rebuildDag, relNode } from "#compiler/ir/dag.ts"
+import { relNode } from "#compiler/ir/dag.ts"
 import {
 	conservativeMeta,
 	metaSpecOf,
@@ -30,6 +25,12 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+/**
+ * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly lowers its pass's
+ * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), and the same
+ * input rewrites identically.
+ */
+import { rebuildDag } from "#test/support/dag.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"

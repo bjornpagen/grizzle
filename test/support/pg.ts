@@ -38,6 +38,14 @@ import { testConnectTimeout, testIdleTimeout, testPoolMax } from "#test/support/
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
+
+/**
+ * No password, for a role the server authenticates without one (trust, peer, a client certificate): the empty text,
+ * which pg's password function yields (adapter/wire/session.ts passwordOf), so pg reads neither PGPASSWORD nor
+ * ~/.pgpass for it, as it would for an empty text given as the password itself. A server that asks for a password
+ * refuses it.
+ */
+export const noPassword: Redacted.Redacted = Redacted.make("")
 /**
  * The fields of a PostgreSQL ErrorResponse that tests assert on: `code` is the SQLSTATE; the fields PostgreSQL may omit
  * are decoded once, none where it sent none; `where` is the CONTEXT lines, where in a function or trigger the error was

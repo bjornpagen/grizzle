@@ -2,7 +2,6 @@ import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { StorageCarrier } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import type {
@@ -23,6 +22,7 @@ import { schema } from "#compiler/schema/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { argumentsOf } from "#test/support/list.ts"
+import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
 import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import {
 	inputRespelling,

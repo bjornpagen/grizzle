@@ -5,8 +5,7 @@ import {
 	type GuardTest,
 	type PreconditionKind,
 	prose,
-	type ProseTag,
-	unsupported
+	type ProseTag
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -31,6 +30,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	binary32Digits,
 	binary32FractionDigits,
@@ -98,9 +98,11 @@ import {
 	patternsText,
 	type RegexRef,
 	type TextInfo,
+	textBounds,
 	textOf,
 	textPatterns,
-	typeLabel
+	typeLabel,
+	wildcardPattern
 } from "#compiler/ir/scalar.ts"
 import {
 	absBounds,
@@ -194,7 +196,13 @@ import {
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
+import {
+	type CharMap,
+	charMapOf,
+	imageBytes,
+	imageFlags,
+	imageOf
+} from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	capabilitiesOf,
@@ -284,17 +292,11 @@ const isBareLiteral = <R extends Refs>(d: ExprDesc<Located, R>): boolean =>
 	d.kind === "literal" && d.type === undefined
 
 /** The predicates other packages lower: r.allen, r.pointIn and r.not. */
-type LowerExtension<R extends Refs> = (
+export type LowerExtension<R extends Refs> = (
 	desc: Extract<ExprDesc<Located, R>, { readonly kind: "allen" | "pointIn" | "absent" }>,
 	loc: SourceLoc,
 	lower: (child: ExprDesc<Located, R>) => Result.Result<Lowered, CompileError>
 ) => Result.Result<Lowered, CompileError>
-
-/** No package lowers a predicate of its own here: r.allen, r.pointIn and r.not are refused. */
-export const noExtension: LowerExtension<Spelled> = (desc, loc) =>
-	Result.err(
-		unsupported(loc, `${desc.kind}: lowered by its own package, not the Compute catalogue`)
-	)
 
 /** A closed relation's field, as an application of it reads the field: its name and its type. */
 export interface ClosedField {
@@ -944,6 +946,15 @@ const refinementOf = (target: ScalarType): RegexRef | undefined => {
 		? undefined
 		: regex
 }
+
+/**
+ * The most UTF-8 bytes a text term's value takes: a text literal's own, and any other term's its type's byte bound,
+ * none where its type bounds no bytes.
+ */
+const textBytes = (x: Lowered): number | undefined =>
+	x.expr.kind === "literal" && x.expr.value.kind === "text"
+		? utf8Length(x.expr.value.value)
+		: textOf(x.nominal)?.byteBound
 
 /**
  * The text of a translate map's `from` or `to`: a text literal, which the schema holds, so the map is seen when it
@@ -2174,6 +2185,28 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
+	 * Compute.concat(a, b), PostgreSQL's textcat: the node computes text, and the term is text of no pattern within the
+	 * sum of its operands' bytes where both are bounded, a text literal by its own and a term by its type's byte bound,
+	 * since a || b takes a's bytes and b's; any text where either is unbounded. A builder types the term as text of no
+	 * pattern.
+	 */
+	concat(first: ExprDesc<Located, R>, second: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const [a, b] = this.texts("concat", first, second, at)
+		const op = this.overload("concat", [a.actual, b.actual], at)
+		const node = this.native(op, [a, b], wildcardText, undefined, at, "Compute.concat")
+		const aBytes = textBytes(a)
+		const bBytes = textBytes(b)
+		return this.env.mode === "build" || aBytes === undefined || bBytes === undefined
+			? node
+			: this.restate(
+					node,
+					this.textWithin([wildcardPattern], aBytes + bBytes, this.env.patternLanguage, at),
+					node.actual,
+					node.facts
+				)
+	}
+
+	/**
 	 * An equation of a text with a concatenation, `t = p || q` or its negation, decided without building the
 	 * concatenation: `CASE WHEN char_length(t) = char_length(p) + char_length(q) THEN starts_with(t, p) AND right(t,
 	 * char_length(q)) = q ELSE <the lengths' equation> END`, which holds exactly where t is p then q, since its first
@@ -2379,11 +2412,11 @@ class Lowering<R extends Refs> {
 	 * Compute.translate(x, from, to), PostgreSQL's translate: x with each character of from replaced by the character of
 	 * to at its position. from and to are text literals the schema holds, of one length, from holding each character
 	 * once (scalar/regex/translate.ts charMapOf), so the map is seen here and replaces each character by one. The node
-	 * computes text; the term is text of the image of x's language under the map (image), which a bounded language keeps
-	 * bounded. PostgreSQL allocates the result for four bytes of every byte of x and refuses one past MaxAllocSize, and
-	 * a read never fails on a value, so a query translates only an x whose pattern bounds its bytes within
-	 * translateMaxBytes; a check or generated field translates any text, and its write fails on a longer one. A builder
-	 * types the term as text of no pattern: it sees no type's language.
+	 * computes text; the term is text of the image of x's language under the map, within the bytes the image of a value
+	 * of x's type takes where its type bounds them (translatedType). PostgreSQL allocates the result for four bytes of
+	 * every byte of x and refuses one past MaxAllocSize, and a read never fails on a value, so a query translates only an
+	 * x whose type bounds its bytes within translateMaxBytes; a check or generated field translates any text, and its
+	 * write fails on a longer one. A builder types the term as text of no pattern: it sees no type's language.
 	 */
 	translate(
 		subjectDesc: ExprDesc<Located, R>,
@@ -2422,49 +2455,56 @@ class Lowering<R extends Refs> {
 			? node
 			: this.restate(
 					node,
-					this.image(text.regex, map.value, this.env.patternLanguage, at),
+					this.translatedType(text, map.value, this.env.patternLanguage, at),
 					node.actual,
 					node.facts
 				)
 	}
 
 	/**
-	 * Text of patterns this lowering computes, typed as a str.regex of one, or a str.and of several, is: their language
-	 * analyzed by `analyze`, the text analysis, where they are computed, which the descriptor then carries as a declared
-	 * one does.
+	 * Text of the image of `text`'s language under a map (image), typed as str.bytes declares it (textWithin): within
+	 * the most bytes the image of a text of `text`'s byte and character bounds over its patterns' characters takes
+	 * (scalar/regex/translate.ts imageBytes), where its type bounds its bytes, which is its own bound for a map that
+	 * takes no character to a wider one, an ASCII case fold or whiteSpace replace among them.
 	 */
-	computedText(
-		patterns: Patterns,
-		analyze: TextLookup,
-		at: SourceLoc
-	): Result.Result<ScalarType, CompileError> {
-		return Result.flatMap(analyze(patterns), (language) =>
-			this.env.fieldType({ kind: "text", patterns, bytes: undefined, language }, at)
+	translatedType(text: TextInfo, map: CharMap, analyze: TextLookup, at: SourceLoc): ScalarType {
+		return this.textWithin(
+			this.image(text.regex, map, analyze),
+			text.byteBound === undefined
+				? undefined
+				: imageBytes(
+						textPatterns(text.regex),
+						map,
+						textBounds(text.lengthBound, text.byteBound),
+						this.env.patterns
+					),
+			analyze,
+			at
 		)
 	}
 
 	/**
-	 * Text of the image of a language under a map, the conjunction of its patterns' images (scalar/regex/translate.ts
-	 * imageOf), which holds the image of every value of the language: each the exact image, or, where the exact source
-	 * passes a measure of PostgreSQL's regex compile space that the pattern itself fits, the image of that pattern alone,
-	 * which holds every value of the image.
+	 * The patterns of the image of a language under a map, the conjunction of its patterns' images
+	 * (scalar/regex/translate.ts imageOf), which holds the image of every value of the language: each the exact image,
+	 * or, where the exact source passes a measure of PostgreSQL's regex compile space that the pattern itself fits, the
+	 * image of that pattern alone, which holds every value of the image.
 	 */
-	image(regex: TextInfo["regex"], map: CharMap, analyze: TextLookup, at: SourceLoc): ScalarType {
-		const images = mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
+	image(regex: TextInfo["regex"], map: CharMap, analyze: TextLookup): Patterns {
+		return mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
 			const sources = imageOf(pattern, map, this.env.patterns)
 			const exact = { source: sources.exact, flags: imageFlags }
 			return analyze([exact]).ok ? exact : { source: sources.within, flags: imageFlags }
 		})
-		return unwrap(this.computedText(images, analyze, at))
 	}
 
 	/**
 	 * Compute.collapse(x), XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at
 	 * either end, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`. The node computes text; the term is text of a
-	 * language holding the image of x's (collapseType), exactly where it is cheap to state. PostgreSQL's regex engine
-	 * widens x to four bytes a byte before it matches, and refuses past 1 GB, and a read never fails on a value, so a
-	 * query collapses only an x whose pattern bounds its bytes within regexTextMaxBytes; a check or generated field
-	 * collapses any text, and its write fails on a longer one. A builder types the term as text of no pattern.
+	 * language holding the image of x's, exactly where it is cheap to state, within x's byte bound (collapseType).
+	 * PostgreSQL's regex engine widens x to four bytes a byte before it matches, and refuses past 1 GB, and a read never
+	 * fails on a value, so a query collapses only an x whose type bounds its bytes within regexTextMaxBytes; a check or
+	 * generated field collapses any text, and its write fails on a longer one. A builder types the term as text of no
+	 * pattern.
 	 */
 	collapse(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
 		const x = this.term(subjectDesc, childLoc(at, 0))
@@ -2490,7 +2530,8 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Text of a language holding the image of `text`'s under collapse: the conjunction of each of its patterns' images
+	 * Text of a language holding the image of `text`'s under collapse, within `text`'s byte bound, which collapse never
+	 * lengthens, typed as str.bytes declares it (textWithin): the conjunction of each of its patterns' images
 	 * (scalar/regex/whitespace.ts collapseSources), each the first of its sources the text analysis admits, held to its
 	 * measures as a str.regex is; a pattern none of whose sources it admits states nothing, and a text none of whose
 	 * patterns states anything is any text.
@@ -2502,7 +2543,12 @@ class Lowering<R extends Refs> {
 			)
 			return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
 		})
-		return isNonEmpty(images) ? unwrap(this.computedText(images, analyze, at)) : wildcardText
+		return this.textWithin(
+			isNonEmpty(images) ? images : [wildcardPattern],
+			text.byteBound,
+			analyze,
+			at
+		)
 	}
 
 	/**
@@ -3570,9 +3616,7 @@ class Lowering<R extends Refs> {
 						"concat in a query beside an equation: a concatenation allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; a query compares a text with a concatenation, which is decided without building it, and every other concatenation stands in contract predicates, row checks, generated fields and folds"
 					)
 				}
-				const [a, b] = this.texts("concat", arg(0), arg(1), here)
-				const op = this.overload("concat", [a.actual, b.actual], here)
-				return this.native(op, [a, b], wildcardText, undefined, here, "Compute.concat")
+				return this.concat(arg(0), arg(1), here)
 			}
 			case "startsWith":
 			case "endsWith": {

@@ -49,16 +49,12 @@ import {
 } from "#compiler/sql/build.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames } from "#compiler/sql/naming.ts"
-import { printsQuoted, printType } from "#compiler/sql/print.ts"
-import {
-	identityHooks,
-	transformExpr,
-	transformOperand,
-	transformStatement
-} from "#compiler/sql/transform.ts"
+import { printType, spellingOf } from "#compiler/sql/print.ts"
+import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
 import { type auditStatementViolations, isUnitRead } from "#test/support/oracle/verify/sql.ts"
+import { transformOperand } from "#test/support/sql.ts"
 
 /**
  * The Wild operators of the structural audit (test/support/oracle/verify/sql.ts), and its faithful rewrites.
@@ -670,7 +666,7 @@ const breakTable = <const N extends string>(
  * type
  *
  * literal: a number or a boolean the printer spells bare, a constant PostgreSQL types itself, typed as an array is a
- * cast PostgreSQL refuses at analysis (class 42); one it spells quoted (print.ts printsQuoted), a string the type's
+ * cast PostgreSQL refuses at analysis (class 42); one it spells quoted (print.ts spellingOf), a string the type's
  * input function reads, is a malformed array literal (22P02).
  *
  * columnList
@@ -902,7 +898,10 @@ const requiredBreakTable = breakTable([
 		holes: {
 			...noHoles,
 			expr: (e) =>
-				e.kind === "literal" && e.value.kind !== "text" && !printsQuoted(e.value) && !e.type.array
+				e.kind === "literal" &&
+				e.value.kind !== "text" &&
+				spellingOf(e.value).kind !== "quoted" &&
+				!e.type.array
 					? Arr.map(arrayTypes(e.type), (type) => ({ ...e, type }))
 					: []
 		}
@@ -913,7 +912,10 @@ const requiredBreakTable = breakTable([
 		holes: {
 			...noHoles,
 			expr: (e) =>
-				e.kind === "literal" && e.value.kind !== "text" && printsQuoted(e.value) && !e.type.array
+				e.kind === "literal" &&
+				e.value.kind !== "text" &&
+				spellingOf(e.value).kind === "quoted" &&
+				!e.type.array
 					? Arr.map(arrayTypes(e.type), (type) => ({ ...e, type }))
 					: []
 		}

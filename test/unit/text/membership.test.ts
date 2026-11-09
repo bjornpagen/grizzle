@@ -19,11 +19,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { analyzeText, refinementBounds, type TextRefinement } from "#compiler/text/refinement.ts"
+import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
+import { refinementBounds } from "#test/support/text.ts"
 import {
 	type Flags,
 	families,

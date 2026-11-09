@@ -16,15 +16,11 @@ import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import {
-	analyzeText,
-	refinementBounds,
-	type TextRefinement,
-	textDomainDdl
-} from "#compiler/text/refinement.ts"
+import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { refinementBounds } from "#test/support/text.ts"
 import {
 	type FiniteLanguage,
 	families,

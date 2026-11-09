@@ -52,12 +52,7 @@ import {
 	higherOver,
 	overName
 } from "#compiler/write/changeset/levels.ts"
-import {
-	type DeltaValue,
-	delta,
-	memberRelation,
-	memberRelationNamed
-} from "#compiler/write/delta/source.ts"
+import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
 export type MemberOp = MemberDesc["op"]
 
@@ -161,9 +156,6 @@ export type ChangeSetInput =
  * query value; an ordered value is refused with its own diagnostic. A Stream's channels are types no run-time check
  * can see, so a Stream member is admitted only at this type. A JavaScript caller passing anything else is refused. */
 export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | QueryBase | OrderedBase
-
-/** A read-back: a function from the change's Delta to a query or ordered query, which is checked. */
-export type ReadBackInput = (delta: DeltaValue) => unknown
 
 /** What a JavaScript caller sees: a ChangeSet of any schema, parameters, writes and read-backs, each method taking what
  * such a caller may pass. It is a view of the typed values make builds, never a second builder: every
