@@ -215,6 +215,10 @@ const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<MemberSlot> =
 	}
 }
 
+/** The member slots whose facts an enumerated input writes as rows: none of a deletion's, every other input's. */
+export const writingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> =>
+	input.kind === "single" && input.act.op === "delete" ? [] : inputSlots(input)
+
 /** The enumerated inputs of one relation in one stratum, one per operation, which the host normalizes together
  * (normalize/): a same-key refusal compares their additions. */
 export interface SlotGroup {
@@ -2090,28 +2094,17 @@ const compile = (
 			carried: [
 				...slots.flatMap((g) =>
 					g.stratum === stratum && g.relation.name === owner
-						? g.inputs.flatMap((input): ReadonlyArray<ReadonlyArray<string>> => {
-								switch (input.kind) {
-									case "single":
-										return input.act.op === "delete"
-											? []
-											: [input.slot.input.stated.map((c) => fieldKey(c.name))]
-									case "nested":
-										return [input.slot.input.stated.map((c) => fieldKey(c.name))]
-									case "classed":
-										return [input.complete, input.generated].map((slot) =>
-											slot.input.stated.map((c) => fieldKey(c.name))
-										)
-								}
-							})
+						? g.inputs.flatMap((input) =>
+								writingSlots(input).map((slot) => slot.input.stated.map((c) => fieldKey(c.name)))
+							)
 						: []
 				),
 				...nestedWrites.flatMap((n) => {
-					const at = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
-					if (at === undefined) {
+					const laid = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
+					if (laid === undefined) {
 						return []
 					}
-					const sent = sentLayout(at)
+					const sent = sentLayout(laid)
 					return [[...sent.key, ...sent.columns].map((c) => c.key)]
 				})
 			],

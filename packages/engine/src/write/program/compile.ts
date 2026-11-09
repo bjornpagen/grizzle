@@ -111,7 +111,8 @@ import {
 	type SlotGroup,
 	type StratumEdit,
 	type WriteFrontend,
-	type WrittenRelation
+	type WrittenRelation,
+	writingSlots
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { plainRefills, type StratumRefill } from "#compiler/write/frontend/refill.ts"
@@ -573,21 +574,9 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							(owner) => {
 								const fromSlots = frontend.slots.flatMap((group) =>
 									group.stratum === s && group.relation.name === owner
-										? group.inputs.flatMap((input): ReadonlyArray<OwnerRows> => {
-												switch (input.kind) {
-													case "single":
-														return input.act.op === "delete"
-															? []
-															: [{ kind: "slot", slot: input.slot }]
-													case "nested":
-														return [{ kind: "slot", slot: input.slot }]
-													case "classed":
-														return [
-															{ kind: "slot", slot: input.complete },
-															{ kind: "slot", slot: input.generated }
-														]
-												}
-											})
+										? group.inputs.flatMap((input) =>
+												writingSlots(input).map((slot): OwnerRows => ({ kind: "slot", slot }))
+											)
 										: []
 								)
 								const layout = nestedRows.get(owner)

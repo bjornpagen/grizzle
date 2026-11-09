@@ -488,9 +488,9 @@ export const familyWrites = (
  * What a step must do from a lawful `state`:
  * - `uncompiled`: refused when it compiles, for any cause that applies: StaleDerivedRead where its refills update an
  *   immutable relation's rows (its relation one of `immutable`), where a put from a query leaves a value stale
- *   (`query`), where the refills reach a family they refill again (`cycle`), or where a value it leaves stale is a
- *   tree's (`tree`, one of `trees`), each naming one of the writes whose path first reaches a refill (`origins`, fill.ts
- *   writesVerdict); UnsupportedOperation where its refills fall in a
+ *   (`query`), where the refills reach a family they refill again (`cycle`), where a value it leaves stale is a
+ *   tree's (`tree`, one of `trees`), or where one reads what a refill itself changes (`chained`, the refill one of
+ *   `refills`), each naming one of the writes whose path first reaches a refill (`origins`, fill.ts writesVerdict); UnsupportedOperation where its refills fall in a
  *   stratum after another (`later`), a refill being planned from one read before the ChangeSet's writes;
  * - `refused`: invariant-rejected, naming only laws of `laws`, where two facts share a key, a family's member names no
  *   owner, an immediate law fails at the end of a stratum, or any law fails at the end;
@@ -505,6 +505,7 @@ export type StepVerdict =
 			readonly query: boolean
 			readonly cycle: boolean
 			readonly trees: ReadonlyArray<number>
+			readonly refills: ReadonlyArray<number>
 			readonly later: boolean
 			readonly origins: ReadonlyArray<{
 				readonly relation: string
@@ -545,6 +546,7 @@ export const expectStep = (
 			query: step.kind === "query put" && stale,
 			cycle: verdict.kind === "cycle",
 			trees: verdict.kind === "tree" ? verdict.trees : [],
+			refills: verdict.kind === "chained" ? verdict.refills : [],
 			later: earlier && stale,
 			origins: Arr.map(
 				verdict.kind === "written"
@@ -560,6 +562,7 @@ export const expectStep = (
 			uncompiled.query ||
 			uncompiled.cycle ||
 			Arr.isReadonlyArrayNonEmpty(uncompiled.trees) ||
+			Arr.isReadonlyArrayNonEmpty(uncompiled.refills) ||
 			uncompiled.later
 		) {
 			return uncompiled

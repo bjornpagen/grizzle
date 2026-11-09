@@ -167,6 +167,17 @@ post-beta swarm's fixes for the next release.
   rows by parent for each parent's ends and last copies; then one UPDATE of every node whose values change. No node
   moves, so slots, counts and intervals stay. Estimated at 500 to 900 lines with a tree variant of the scan. The
   families swarm's tree kept case and fill.ts writesVerdict's `tree` arm turn back into refills when it lands.
+- **Refilling what a refill itself changes, in the flight (the owner, 2026-11-09: refused for now, built later):** a value
+  that reads what a refill itself changes (an owner's end or last copy, a member's predecessor copy or fold plane) is
+  refused when it compiles (StaleDerivedRead, cause `chained`; write/frontend/refill.ts stratumRefill). The sized design,
+  in write/family/removals.ts and write/frontend/refill.ts, three parts: (1) riders of riders, the removals statement's
+  two rider levels (the edited members, then those riding their redraws) generalized to the refill closure's order,
+  each redrawn family's scan the next level's root rows, about 150 lines; (2) a redraw order within one relation, so a
+  family whose fold steps a plane another family of the same relation redraws scans that redraw's output, not the
+  stored rows, about 150 lines; (3) riders rooted at the removals statement's own recount, an owner's ends and last
+  copies as it writes them, read by the owner's own families or carried into another family's members, like the
+  additions statement's recount roots, about 200 lines. 400 to 800 lines in all, no recursion: the closure holds no
+  cycle. fill.ts writesVerdict's `chained` arm turns back into refills when it lands.
 
 ## Upstream, for the owner to file
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's

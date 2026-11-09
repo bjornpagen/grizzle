@@ -2330,7 +2330,9 @@ export const followUpMembers = (
  * cycle, where refills reach a family they refill again (StaleDerivedRead, `cycle`, every family the compiler names
  * among `cycle`, the families whose refill reaches them again); or, failing those, tree, where a value it leaves stale
  * is a tree's, which grizzle draws only when a node is written (StaleDerivedRead, `tree`, the tree the compiler names
- * one of `trees`). A refusal names the write a refused refill's path starts from, one of `origins`.
+ * one of `trees`); or, failing those, chained, where a value it leaves stale reads what a refill itself changes, which
+ * grizzle does not refill again in turn (StaleDerivedRead, `chained`, the refill the compiler names one of `refills`,
+ * the families the writes refill). A refusal names the write a refused refill's path starts from, one of `origins`.
  */
 export type WritesVerdict =
 	| { readonly kind: "written"; readonly stale: ReadonlyArray<StaleSpec> }
@@ -2350,6 +2352,12 @@ export type WritesVerdict =
 			readonly kind: "tree"
 			readonly stale: ReadonlyArray<StaleSpec>
 			readonly trees: Arr.NonEmptyReadonlyArray<number>
+			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
+	  }
+	| {
+			readonly kind: "chained"
+			readonly stale: ReadonlyArray<StaleSpec>
+			readonly refills: Arr.NonEmptyReadonlyArray<number>
 			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
 	  }
 
@@ -2391,13 +2399,25 @@ export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>):
 		}
 	}
 	const treed = Arr.filter(stale, (s) => familyAt(spec, s.family).kind === "tree")
-	return Arr.isReadonlyArrayNonEmpty(treed)
+	if (Arr.isReadonlyArrayNonEmpty(treed)) {
+		return {
+			kind: "tree",
+			stale,
+			trees: Arr.sort(Arr.dedupe(Arr.map(treed, (s) => s.family)), Order.Number),
+			origins: Arr.dedupeWith(
+				Arr.map(treed, (s) => s.origin),
+				sameWrite
+			)
+		}
+	}
+	const chained = Arr.filter(stale, (s) => s.from === "refill")
+	return Arr.isReadonlyArrayNonEmpty(chained) && Arr.isReadonlyArrayNonEmpty(stale)
 		? {
-				kind: "tree",
+				kind: "chained",
 				stale,
-				trees: Arr.sort(Arr.dedupe(Arr.map(treed, (s) => s.family)), Order.Number),
+				refills: Arr.sort(Arr.dedupe(Arr.map(stale, (s) => s.family)), Order.Number),
 				origins: Arr.dedupeWith(
-					Arr.map(treed, (s) => s.origin),
+					Arr.map(chained, (s) => s.origin),
 					sameWrite
 				)
 			}

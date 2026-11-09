@@ -645,13 +645,15 @@ const derivedReaderText = (reader: DerivedReader): string => {
  * `relation`, which is immutable: the family's members, which it updates in place, or its owner, whose family is fixed
  * when it is inserted (`immutable`); or the value is one of the tree `tree`'s, a node's copy of its parent's, a
  * sibling's predecessor copy or fold, or a parent's end or last copy, which grizzle draws only when the node is written
- * (`tree`).
+ * (`tree`); or the value reads what the refill of `refill` itself changes, an owner's end or last copy or a member's
+ * predecessor copy or fold, which grizzle does not refill again in turn (`chained`).
  */
 export type StaleCause =
 	| { readonly kind: "query" }
 	| { readonly kind: "cycle"; readonly refills: NonEmptyReadonlyArray<FamilyName> }
 	| { readonly kind: "immutable"; readonly relation: string }
 	| { readonly kind: "tree"; readonly tree: FamilyName }
+	| { readonly kind: "chained"; readonly refill: FamilyName }
 
 /** Why a StaleDerivedRead's value cannot be drawn again, of a write of `member`. */
 const staleCauseText = (member: string, cause: StaleCause): string => {
@@ -664,6 +666,8 @@ const staleCauseText = (member: string, cause: StaleCause): string => {
 			return `refilling it would update rows of the immutable ${cause.relation} in place: declare mutable(${cause.relation}), or change the column in a schema whose family reads it from a column fixed once its row is written`
 		case "tree":
 			return `it is a value of the tree ${familyNameText(cause.tree)}, which grizzle draws only when the node is written and never again on a stored tree`
+		case "chained":
+			return `it reads what the refill of ${familyNameText(cause.refill)} itself changes, which grizzle does not refill again in turn`
 	}
 }
 

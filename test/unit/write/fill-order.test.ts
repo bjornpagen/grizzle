@@ -121,7 +121,7 @@ type FillSituation =
 	| "refilled: a value through a copy after a put"
 	| "refilled: a value of an owner an edit recounts"
 	| "refilled: a value through a copy after an edit"
-	| "refilled: a value a refill's own change leaves stale"
+	| "refused: a refill reading another refill's change"
 	| "refilled: a predecessor copy"
 	| "refilled: a last copy"
 	| "refused: a refill of a tree's values"
@@ -165,7 +165,9 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 	const at = relationName(reader.member)
 	return [
 		stale.from === "refill"
-			? "refilled: a value a refill's own change leaves stale"
+			? assert.fail(
+					"a written verdict leaves no value a refill's own change makes stale: the reference refuses it"
+				)
 			: stale.changed.by === "put"
 				? "refilled: a value through a copy after a put"
 				: stale.changed.relation === at
@@ -195,8 +197,8 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 /**
  * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
  * is written, noting every value it refills; else refused with StaleDerivedRead naming a refill of an immutable
- * relation's rows the reference names, refills on a cycle the reference finds, or a tree whose values the reference
- * finds stale, at the write a refused refill's path starts from.
+ * relation's rows the reference names, refills on a cycle the reference finds, a tree whose values the reference
+ * finds stale, or a refill whose own change a value reads, at the write a refused refill's path starts from.
  */
 const judged = (
 	spec: FillSpec,
@@ -264,6 +266,20 @@ const judged = (
 				)
 			}
 			note("refused: a refill of a tree's values")
+			return
+		case "chained":
+			assert.equal(cause.kind, "chained", `${label}: a refill reading another refill's change`)
+			if (cause.kind === "chained") {
+				const from = cause.refill
+				assert.ok(
+					Arr.some(verdict.refills, (k) => {
+						const named = familyNamed(spec, k)
+						return named.owner === from.owner && named.count === from.count
+					}),
+					`a family the writes refill, not ${Formatter.format(from)}: ${Formatter.format(Arr.map(verdict.refills, (k) => familyNamed(spec, k)))}`
+				)
+			}
+			note("refused: a refill reading another refill's change")
 	}
 }
 
@@ -1319,6 +1335,7 @@ const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refilled: a predecessor copy",
 	"refilled: a last copy",
 	"refused: a refill of a tree's values",
+	"refused: a refill reading another refill's change",
 	"refilled: a copy of an owner an edit re-places",
 	"compiled: a put beneath an immutable owner, which re-places nothing",
 	"refilled: a fold over a copy",

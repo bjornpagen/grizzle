@@ -9,6 +9,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { apply } from "#adapter/apply/index.ts"
 import { openDbContext } from "#adapter/db/open.ts"
+import type { FamilyName, StaleCause } from "#compiler/core/causes.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
 import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
@@ -106,6 +107,7 @@ type Situation =
 	| "a refill after an earlier stratum refused"
 	| "refills reaching a family again refused"
 	| "a refill of a tree's values refused"
+	| "a refill reading another refill's change refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -137,6 +139,47 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"every fact stated twice written once",
 	"one member per fact"
 ]
+
+/** Whether the reference states `cause` among an uncompiled step's causes, a family it names by its owner and count. */
+const statesCause = (
+	spec: SwarmSpec,
+	expected: Extract<StepVerdict, { readonly kind: "uncompiled" }>,
+	cause: StaleCause
+): boolean => {
+	const among = (families: ReadonlyArray<number>, name: FamilyName): boolean =>
+		Arr.some(families, (k) => {
+			const named = familyNamed(spec.fill, k)
+			return named.owner === name.owner && named.count === name.count
+		})
+	switch (cause.kind) {
+		case "immutable":
+			return expected.immutable.includes(cause.relation)
+		case "query":
+			return expected.query
+		case "cycle":
+			return expected.cycle
+		case "tree":
+			return among(expected.trees, cause.tree)
+		case "chained":
+			return among(expected.refills, cause.refill)
+	}
+}
+
+/** The situation a stale value's refusal reaches, by its cause. */
+const causeNote = (cause: StaleCause): Situation => {
+	switch (cause.kind) {
+		case "immutable":
+			return "a refill of an immutable relation refused"
+		case "query":
+			return "a put from a query refused for a value it leaves stale"
+		case "cycle":
+			return "refills reaching a family again refused"
+		case "tree":
+			return "a refill of a tree's values refused"
+		case "chained":
+			return "a refill reading another refill's change refused"
+	}
+}
 
 /** Whether the families of a spec form a cycle: an owner reaches itself through families' owner-to-member steps. */
 const familyCycle = (spec: SwarmSpec): boolean =>
@@ -1584,22 +1627,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											}
 											if (reason._tag === "StaleDerivedRead") {
 												const cause = reason.cause
-												const stated =
-													cause.kind === "immutable"
-														? expected.immutable.includes(cause.relation)
-														: cause.kind === "query"
-															? expected.query
-															: cause.kind === "tree"
-																? Arr.some(expected.trees, (k) => {
-																		const named = familyNamed(spec.fill, k)
-																		return (
-																			named.owner === cause.tree.owner &&
-																			named.count === cause.tree.count
-																		)
-																	})
-																: expected.cycle
 												assert.ok(
-													stated,
+													statesCause(spec, expected, cause),
 													`${label}: refused as stale (${Formatter.format(cause)}), a cause the reference does not state: ${Formatter.format(expected)}`
 												)
 												assert.ok(
@@ -1609,15 +1638,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 													),
 													`${label}: the refusal names a ${reason.op} of ${reason.member} as the write that leaves a value stale, none of the writes whose path first reaches a refill (${Formatter.format(expected.origins)}): ${failure.reason.message}`
 												)
-												c.note(
-													cause.kind === "immutable"
-														? "a refill of an immutable relation refused"
-														: cause.kind === "query"
-															? "a put from a query refused for a value it leaves stale"
-															: cause.kind === "tree"
-																? "a refill of a tree's values refused"
-																: "refills reaching a family again refused"
-												)
+												c.note(causeNote(cause))
 												return
 											}
 										}

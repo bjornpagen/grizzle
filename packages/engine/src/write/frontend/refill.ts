@@ -361,6 +361,7 @@ const readRelations = (read: RefillRead): ReadonlyArray<RelationInfo> => {
  * - a refill of an immutable relation's rows (StaleDerivedRead, `immutable`);
  * - refills that reach a family they refill again (StaleDerivedRead, `cycle`);
  * - a refill of a tree's values, which grizzle draws only when a node is written (StaleDerivedRead, `tree`);
+ * - a refill of a value that reads what another refill itself changes (StaleDerivedRead, `chained`);
  * - a refill a role does not hold the rows of whole (OutsideRole): the members it rewrites, which its write list names,
  *   and every row its reads pass, which it holds.
  *
@@ -451,6 +452,17 @@ export const stratumRefill = (
 			stale(treePath, treePath.reader, {
 				kind: "tree",
 				tree: { owner: tree.owner, count: tree.count }
+			})
+		)
+	}
+	const [chained] = closure.paths.flatMap((p) =>
+		p.change.kind === "refill" ? [{ path: p, from: p.change.family.id }] : []
+	)
+	if (chained !== undefined) {
+		return Result.err(
+			stale(chained.path, chained.path.reader, {
+				kind: "chained",
+				refill: { owner: chained.from.owner, count: chained.from.count }
 			})
 		)
 	}
