@@ -1,3 +1,4 @@
+import { createSecureContext, type SecureContext } from "node:tls"
 import {
 	Array as Arr,
 	Brand,
@@ -137,7 +138,8 @@ const pemText = Brand.nominal<PemText>()
 /**
  * A transport as the parse admits it (parseTransport), the one a connection reaches its server through: its host a
  * network host, its port from 1 to 65535, the caller's `open`, its CA bundle a nonempty list of PEM texts, so a
- * certificate always has an authority to chain to, and its servername nonempty. Only the parse makes one.
+ * certificate always has an authority to chain to, the bundle parsed once into the trust store every connection's TLS
+ * verifies against (`authority`), and its servername nonempty. Only the parse makes one.
  */
 export interface ParsedTransport {
 	readonly kind: "sslRequest"
@@ -145,6 +147,12 @@ export interface ParsedTransport {
 	readonly port: number
 	readonly open: () => PgSocket
 	readonly ca: Arr.NonEmptyReadonlyArray<PemText>
+	/**
+	 * The CA bundle as TLS reads it, `ca` parsed once, where the transport is: each session's and each CancelRequest's
+	 * connection verifies against it, so no connection parses the bundle again. It holds the bundle's certificates and
+	 * none of Node's own roots.
+	 */
+	readonly authority: SecureContext
 	readonly servername: string
 }
 
@@ -283,14 +291,21 @@ const parseTransport = (
 			`${where}.servername must be a nonempty string: the name the server certificate must carry`
 		)
 	}
-	return Result.succeed({
-		kind: "sslRequest",
-		host: networkHost(host),
-		port,
-		open: typed.open,
-		ca: ca.value,
-		servername
-	})
+	const bundle = ca.value
+	return Result.map(
+		readHost(`${where}.ca must be PEM certificate text TLS reads as certificates`, () =>
+			Result.succeed(createSecureContext({ ca: [...bundle] }))
+		),
+		(authority): ParsedTransport => ({
+			kind: "sslRequest",
+			host: networkHost(host),
+			port,
+			open: typed.open,
+			ca: bundle,
+			authority,
+			servername
+		})
+	)
 }
 
 /**

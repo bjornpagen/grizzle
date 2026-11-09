@@ -253,14 +253,14 @@ const rawText = { getTypeParser: () => (text: string) => text } as const
 
 /**
  * verify-full against the CA bundle and `servername`. The identity check names the server explicitly, so it holds
- * whatever pg sets as the SNI; the SNI is never an IP address. The bundle is a nonempty list of PEM texts, handed to TLS
- * as a list: Node trusts its own root certificates only in place of a `ca` that is falsy, never in place of a list, so
- * no bundle ever lets a public authority's certificate verify.
+ * whatever pg sets as the SNI; the SNI is never an IP address. The bundle is the transport's authority, parsed once
+ * from its nonempty list of PEM texts (connection/config.ts ParsedTransport): a context built from a list trusts that
+ * list alone, never Node's own root certificates, so no bundle ever lets a public authority's certificate verify.
  */
 const verifyFull = (transport: ParsedTransport): ConnectionOptions => {
 	const servername = transport.servername
 	return {
-		ca: [...transport.ca],
+		secureContext: transport.authority,
 		rejectUnauthorized: true,
 		...(isIP(servername) === 0 ? { servername } : {}),
 		checkServerIdentity: (...[, certificate]) => checkServerIdentity(servername, certificate)
