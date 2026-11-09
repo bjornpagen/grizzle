@@ -2103,17 +2103,33 @@ const roleEntryDescShape: S.Shape<RoleEntryDesc> = S.tagged("kind", {
 	world: S.located(S.structWith({ name, query: unorderedQueryShape }, loc))
 })
 
+const roleRelations = S.nonEmptyUniqueArray(
+	roleEntryDescShape,
+	(e) => e.name,
+	"role relation names"
+)
+const roleWrite = S.uniqueStrings("written relations", name)
+const roleRefresh = S.uniqueStrings("refreshed relations", name)
+
 const roleDescShape: S.Shape<RoleDesc> = S.located(
 	S.structWith(
 		{
 			name,
 			base: schemaDescShape,
-			relations: S.nonEmptyUniqueArray(roleEntryDescShape, (e) => e.name, "role relation names"),
-			write: S.uniqueStrings("written relations", name),
-			refresh: S.uniqueStrings("refreshed relations", name)
+			relations: roleRelations,
+			write: roleWrite,
+			refresh: roleRefresh
 		},
 		loc
 	)
+)
+
+/** What a role states over its base: the role's own parts, which a role's Description holds beside the base. */
+type RoleParts = Omit<RoleDesc, "base">
+
+/** A role's own parts as a decode of the whole role reads them, its base passed over. */
+const rolePartsShape: S.Shape<RoleParts> = S.located(
+	S.structWith({ name, relations: roleRelations, write: roleWrite, refresh: roleRefresh }, loc)
 )
 
 const loginDescShape: S.Shape<LoginDesc> = S.located(
@@ -2250,6 +2266,64 @@ const subjects: Readonly<Record<DescKind, string>> = {
 	field: "field description",
 	changeSet: "ChangeSet description",
 	workload: "workload description"
+}
+
+/**
+ * A Description node built from parts already decoded, held as a decode holds one: frozen, its location kept
+ * (ir/shape.ts keptLoc). Every part is read by its own decode once, where it enters, so a node over decoded parts
+ * reads none of them again; a list the node's builder made is frozen by it.
+ */
+const builtNode = <N extends Located>(node: N): N =>
+	Object.freeze({ ...node, loc: S.keptLoc(node.loc) })
+
+/** A role's Description over its base from its own parts, each already decoded. */
+const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
+	builtNode({
+		name: role.name,
+		base,
+		relations: Object.freeze(role.relations),
+		write: Object.freeze(role.write),
+		refresh: Object.freeze(role.refresh),
+		loc: role.loc
+	})
+
+/**
+ * A role's Description over its base, decoded already: the role's own parts, which its caller wrote, decoded as a
+ * decode of the whole role decodes them.
+ */
+export const decodeRoleOver = (
+	base: SchemaDesc,
+	role: unknown
+): Result.Result<RoleDesc, CompileError> =>
+	Result.map(S.decodeWith(rolePartsShape, role, subjects.role), (parts) =>
+		roleDescOver(base, parts)
+	)
+
+/** A login's Description over its base and its roles, each already decoded, under distinct names. */
+const loginDescOver = (
+	base: SchemaDesc,
+	login: {
+		readonly name: string
+		readonly roles: NonEmptyReadonlyArray<RoleDesc>
+		readonly loc: SourceLoc
+	}
+): LoginDesc =>
+	builtNode({ name: login.name, base, roles: Object.freeze(login.roles), loc: login.loc })
+
+/**
+ * A login's Description over its base and its roles, each already decoded, as its caller listed them: refused, as a
+ * decode of the whole login refuses it, at the first role whose name repeats an earlier one's.
+ */
+export const admitLoginRoles = (
+	base: SchemaDesc,
+	login: {
+		readonly name: string
+		readonly roles: NonEmptyReadonlyArray<RoleDesc>
+		readonly loc: SourceLoc
+	}
+): Result.Result<LoginDesc, CompileError> => {
+	const repeated = S.repeatedAt(subjects.login, ["roles"], login.roles, (r) => r.name, "role names")
+	return repeated === undefined ? Result.ok(loginDescOver(base, login)) : Result.err(repeated)
 }
 
 /** A contained statement's Description, decoded as the statement decoder decodes one. */

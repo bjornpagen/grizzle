@@ -2,15 +2,18 @@ import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
+	admitLoginRoles,
 	type ContentDigest,
 	type ContextDesc,
 	contentDigest,
 	contextFieldAdmits,
 	decodeDesc,
+	decodeRoleOver,
 	type FieldDesc,
 	heldRelation,
 	type LoginDesc,
@@ -434,9 +437,8 @@ export const admitRole = (
 		}
 	}
 	const desc = orThrow(
-		decodeDesc("role", {
+		decodeRoleOver(baseDesc, {
 			name: roleName,
-			base: baseDesc,
 			relations: entries,
 			write,
 			refresh,
@@ -670,10 +672,10 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 	const baseDesc = baseEntry.desc
 	const label = `login ${baseDesc.name}.${typeof name === "string" ? name : "?"}`
 	const loginName = requireName(name, label, "a login name")
-	if (!isList(roles) || roles.length === 0) {
+	if (!isList(roles) || !isNonEmpty(roles)) {
 		throw malformed(label, "a nonempty list of roles built by role(...)")
 	}
-	const descs = roles.map((r, i) => {
+	const descs = mapNonEmpty(roles, (r, i) => {
 		const entry = ownedEntry(r, "role")
 		if (entry === undefined) {
 			throw malformed(`${label} role ${i}`, "a role built by role(...)")
@@ -702,9 +704,8 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 		return desc
 	})
 	return orThrow(
-		decodeDesc("login", {
+		admitLoginRoles(baseDesc, {
 			name: loginName,
-			base: baseDesc,
 			roles: descs,
 			loc: builderLoc(label, [baseDesc.name, loginName])
 		})

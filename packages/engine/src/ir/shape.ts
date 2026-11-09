@@ -521,9 +521,10 @@ const setOwn = <T extends object, K extends keyof T & string>(
 
 /**
  * A source location as a decode keeps it: frozen with its path and call site, so a value holding one is frozen
- * throughout. A path or call site already frozen is shared, since it cannot change.
+ * throughout. A path or call site already frozen is shared, since it cannot change. A node built from parts already
+ * decoded keeps its location by it, as a decode of the node would.
  */
-const keptLoc = (loc: SourceLoc): SourceLoc =>
+export const keptLoc = (loc: SourceLoc): SourceLoc =>
 	Object.freeze({
 		path: Object.isFrozen(loc.path) ? loc.path : Object.freeze(loc.path.slice()),
 		label: loc.label,
@@ -771,6 +772,23 @@ const nonEmptyOf = <A>(
 	}
 })
 
+/** The first item of `items` whose key repeats an earlier one's: its index and the capability it refuses. */
+const firstRepeat = <A>(
+	items: ReadonlyArray<A>,
+	key: (a: A) => string,
+	what: string
+): { readonly at: number; readonly capability: string } | undefined => {
+	const seen = new Set<string>()
+	for (const [at, a] of items.entries()) {
+		const k = key(a)
+		if (seen.has(k)) {
+			return { at, capability: `distinct ${what}; ${JSON.stringify(k)} repeats` }
+		}
+		seen.add(k)
+	}
+	return undefined
+}
+
 const distinctOf = <A>(
 	item: Shape<A>,
 	key: (a: A) => string,
@@ -782,17 +800,27 @@ const distinctOf = <A>(
 		/** Refuses the first item whose key repeats an earlier one's. */
 		parse: function* (value, path) {
 			const out = yield* inner.parse(value, path)
-			const seen = new Set<string>()
-			for (const [i, a] of out.entries()) {
-				const k = key(a)
-				if (seen.has(k)) {
-					refuseAt(path, i, `distinct ${what}; ${JSON.stringify(k)} repeats`)
-				}
-				seen.add(k)
-			}
-			return out
+			const repeat = firstRepeat(out, key, what)
+			return repeat === undefined ? out : refuseAt(path, repeat.at, repeat.capability)
 		}
 	}
+}
+
+/**
+ * Items already decoded, held to distinct keys as a decode of their list (uniqueArray) holds it: the refusal a decode of
+ * `subject` gives at the first item, under `path`, whose key repeats an earlier one's, or none.
+ */
+export const repeatedAt = <A>(
+	subject: string,
+	path: Path,
+	items: ReadonlyArray<A>,
+	key: (a: A) => string,
+	what: string
+): CompileError | undefined => {
+	const repeat = firstRepeat(items, key, what)
+	return repeat === undefined
+		? undefined
+		: malformedAt(subject, [...path, repeat.at], repeat.capability)
 }
 
 export const array = <A>(item: Shape<A>): Shape<ReadonlyArray<A>> => plain(arrayOf(item))
