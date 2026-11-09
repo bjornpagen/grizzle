@@ -237,8 +237,11 @@ export interface InstalledNames {
 	readonly installation: Identity<"schema">
 	/** The root level's PostgreSQL schema, which holds what is the installation's own: its ledger and guard. */
 	readonly schema: string
-	/** Each level's PostgreSQL schema, the root's first. */
-	readonly levels: Arr.NonEmptyReadonlyArray<string>
+	/**
+	 * The identity of each level's PostgreSQL schema, the root's first: the worlds stand on the last, whose identity the
+	 * naming door mints each role's identity, its schema, filter functions and key probes under.
+	 */
+	readonly levels: Arr.NonEmptyReadonlyArray<Identity<"schema">>
 	/** Each relation's table or materialized view, in the schema of the level declaring it. */
 	readonly tables: Readonly<Record<string, ObjectName>>
 	readonly columns: Readonly<Record<string, Readonly<Record<string, string>>>>

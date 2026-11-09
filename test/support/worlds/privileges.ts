@@ -349,8 +349,9 @@ const installedColumns = (
 }
 
 /** A role's identity at the naming door, under the installation's (core/identity.ts). */
+/** A role's theory role, minted under the identity of the level the worlds stand on, the top one. */
 const theoryRoleOf = (names: InstalledNames, role: string) =>
-	roleIdentity(names.installation, parsedName(role), SourceLoc(`role ${role}`, []))
+	roleIdentity(Arr.lastNonEmpty(names.levels), parsedName(role), SourceLoc(`role ${role}`, []))
 
 /** A role's own schema of views, which the naming door mints from the role's identity. */
 const roleSchemaOf = (names: InstalledNames, role: string): string =>
@@ -443,7 +444,9 @@ const roleFacts = (
 	const grantee: PrivilegeHolder = { kind: "role", name: role.name }
 	const own = roleSchemaOf(names, role.name)
 	const schemas = [
-		...Arr.map(names.levels, (schema) => privilege(grantee, { kind: "schema", schema }, "USAGE")),
+		...Arr.map(names.levels, (level) =>
+			privilege(grantee, { kind: "schema", schema: identifierOf(level) }, "USAGE")
+		),
 		privilege(grantee, { kind: "schema", schema: own }, "USAGE")
 	]
 	const views = Arr.flatMap(Record.toEntries(role.entries), ([name, entry]) =>
@@ -862,7 +865,7 @@ export const installedPrivileges = (
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const read = (sql: string, grantees: ReadonlyArray<string>) =>
-			admin.queryValues(sql, [names.levels, grantees])
+			admin.queryValues(sql, [Arr.map(names.levels, identifierOf), grantees])
 		const known = [...Record.values(names.logins), ...Record.values(names.roles)]
 		const granteeRead = yield* read(queries.grantees, known)
 		const granteeRows = trusted<NameRows>(granteeRead)
@@ -1003,7 +1006,7 @@ export const installedObjects = (
 ): Effect.Effect<ReadonlyArray<InstalledObject>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const rows = yield* admin.queryValues(objectsQuery, [names.levels, []])
+		const rows = yield* admin.queryValues(objectsQuery, [Arr.map(names.levels, identifierOf), []])
 		return Arr.map(
 			trusted<ObjectRows>(rows),
 			([kind, schema, name, column, target, columns, arity, trigger]): InstalledObject => ({

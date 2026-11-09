@@ -5,7 +5,6 @@ import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { conversionOf, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
@@ -259,7 +258,7 @@ export const namesOfBuiltAt = (
 		return {
 			installation: installation.names.installation,
 			schema,
-			levels: mapNonEmpty(installation.names.levels, identifierOf),
+			levels: installation.names.levels,
 			tables: Rec.fromEntries(
 				Arr.map(stored, ([name]) => [name, installation.names.relation(name)] as const)
 			),
