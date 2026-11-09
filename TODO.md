@@ -36,6 +36,15 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
     0.33 s with native foreign keys), though each probe alone is index lookups.
+  - The runtime's snapshot in a file of its own (main, 2026-11-09: after the qti-pie hash and the larger waste items,
+    coordinated with edullm). An application imports the whole snapshot.json for DbLayer.make (23.6 MB on Qti), and
+    the layer reads about 1.9 MB of it (deploy/snapshot/served.ts): the fingerprint, the levels, constraintToLaw, the
+    rosters' codes, the extensions and the grants on schemas. Split the file, duplicating nothing: the runtime's part
+    and the migration's part (the DDL manifest, the theory's tables and laws, the logins, the workload access, the
+    access paths) become two files under the one fingerprint, which digests both, and only generate, check and migrate
+    read the migration's part. On Qti the import's JSON.parse falls from 107 to 8 ms of CPU (edullm measured the
+    import at 0.4 s, 118 ms of it GC, with a 266 MB heap after it). It changes the import line qti-pie, edullm, the
+    README and the SKILL use.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
