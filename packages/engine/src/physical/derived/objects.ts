@@ -8,7 +8,7 @@ import {
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
 	type Identity,
@@ -16,12 +16,10 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
-import type { InstallationManifest } from "#compiler/ir/products.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
@@ -46,8 +44,7 @@ import type {
 	CreateMaterializedView,
 	ObjectName,
 	Refresh,
-	Revoke,
-	SqlStatement
+	Revoke
 } from "#compiler/sql/ast.ts"
 import { columnKey } from "#compiler/sql/build.ts"
 
@@ -286,52 +283,6 @@ export const withDerivedRelations = (options: InstallOptions): InstallOptions =>
 	...options,
 	extensions: [...options.extensions, derivedRelationExtension()]
 })
-
-/** One installed derived relation as the manifest records it: what admission compares with the catalog (the
- * materialized view's definition and unique indexes) and what db.refresh names. */
-interface InstalledDerivedRelation {
-	readonly view: ObjectName
-	readonly create: CreateMaterializedView
-	readonly indexes: ReadonlyArray<CreateIndex>
-}
-
-const sameName = (a: ObjectName, b: ObjectName): boolean =>
-	a.schema === b.schema && a.name === b.name
-
-/** Every materialized view a manifest installs, in install order, each with its unique indexes in install order. */
-export const installedDerivedRelations = (
-	manifest: InstallationManifest<SqlStatement>
-): Result.Result<ReadonlyArray<InstalledDerivedRelation>, CompileError> => {
-	const views: Array<{ readonly view: ObjectName; readonly create: CreateMaterializedView }> = []
-	for (const o of manifest.objects) {
-		if (o.kind !== "materializedView") {
-			continue
-		}
-		const [create, revoke] = o.ddl
-		if (
-			o.ddl.length !== 2 ||
-			create?.kind !== "createMaterializedView" ||
-			revoke?.kind !== "revoke"
-		) {
-			return Result.err(
-				malformedDescription(
-					SourceLoc("the installation manifest", []),
-					`a materialized view and its PUBLIC revocation on ${o.ident}`
-				)
-			)
-		}
-		views.push({ view: create.name, create })
-	}
-	const indexes = manifest.objects.flatMap((o) =>
-		o.kind === "uniqueIndex" ? o.ddl.flatMap((s) => (s.kind === "createIndex" ? [s] : [])) : []
-	)
-	return Result.ok(
-		views.map((v): InstalledDerivedRelation => ({
-			...v,
-			indexes: indexes.filter((i) => sameName(i.table, v.view))
-		}))
-	)
-}
 
 /** REFRESH MATERIALIZED VIEW, plain for a view's first population and CONCURRENTLY after it, because the concurrent
  * form needs a populated view; the runtime decides which from pg_class.relispopulated.

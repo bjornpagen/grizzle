@@ -74,7 +74,6 @@ import { lateralParentMax } from "#compiler/core/limits.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { installedDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -524,18 +523,19 @@ export default defineGate({
 				throw new GateSetupError({ what: `the refresh targets: ${targets.failure.message}` })
 			}
 			const [target] = targets.success
-			const views = installedDerivedRelations(reports.installed.installation.manifest)
-			if (!views.ok) {
-				throw new GateSetupError({ what: `the installed views: ${views.error.message}` })
-			}
+			const created = Arr.flatMap(reports.installed.installation.manifest.objects, (o) =>
+				o.kind === "materializedView"
+					? Arr.flatMap(o.ddl, (s) => (s.kind === "createMaterializedView" ? [s] : []))
+					: []
+			)
 			const view = Option.getOrThrowWith(
 				Arr.findFirst(
-					views.value,
-					(v) => v.view.schema === target.view.schema && v.view.name === target.view.name
+					created,
+					(c) => c.name.schema === target.view.schema && c.name.name === target.view.name
 				),
 				() => new GateSetupError({ what: `the manifest installs no view ${target.view.name}` })
 			)
-			const definition = view.create.query
+			const definition = view.query
 			const definitionShape = shapeOf(definition)
 			const refreshOnce = Effect.gen(function* () {
 				const start = performance.now()
