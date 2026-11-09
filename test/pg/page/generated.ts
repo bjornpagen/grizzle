@@ -21,7 +21,7 @@ import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
-import type { CursorError, CursorFault } from "#compiler/core/errors.ts"
+import type { CompileError, CursorError, CursorFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -1039,13 +1039,22 @@ const checkRuntime = (
 		}
 	})
 
+/** A case's page as the compiler built it, and the template a run pages through: the same one, or its artifact the page
+ * oracle's baseline. */
+interface PagedTemplates {
+	readonly compiled: PageTemplate
+	readonly paged: PageTemplate
+}
+
 /**
- * What a case reached besides its skip and its relation parameters: its query's node kinds, its template's
- * shapes and its D. A distinct is read from the statements' ASTs, never their text.
+ * What a case reached besides its skip and its relation parameters: its query's node kinds, the shapes of the template
+ * it pages through, a per-execution form of the page the compiler built (`compiled`), which the conservative baseline
+ * lowers in its one form, and its D. A distinct is read from the statements' ASTs, never their text.
  */
 const coverage = (
 	query: LogicalQuery,
 	template: PageTemplate,
+	compiled: PageTemplate,
 	full: Full,
 	note: Case<PageFeature>["note"]
 ): void => {
@@ -1071,7 +1080,7 @@ const coverage = (
 	) {
 		note("attachments")
 	}
-	if (Arr.some(flight(template.artifact.requests.first.roots), (s) => s.forms.kind === "chosen")) {
+	if (Arr.some(flight(compiled.artifact.requests.first.roots), (s) => s.forms.kind === "chosen")) {
 		note("per-execution form")
 	}
 	if (template.heading.length === 0) {
@@ -1254,17 +1263,19 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				names,
 				stated: { keys: ordered.stated, at: statedAt }
 			}
-			const compiled = compilePage(pageInput)
-			const page =
-				!compiled.ok || artifact === "optimized"
-					? compiled
-					: EngineResult.map(
-							conservativePage(pageInput, compiled.value),
-							(conservativeArtifact): PageTemplate => ({
-								...compiled.value,
-								artifact: conservativeArtifact
-							})
-						)
+			const page = EngineResult.flatMap(
+				compilePage(pageInput),
+				(compiled): EngineResult.Result<PagedTemplates, CompileError> =>
+					artifact === "optimized"
+						? EngineResult.ok({ compiled, paged: compiled })
+						: EngineResult.map(
+								conservativePage(pageInput, compiled),
+								(conservativeArtifact): PagedTemplates => ({
+									compiled,
+									paged: { ...compiled, artifact: conservativeArtifact }
+								})
+							)
+			)
 			if (
 				!page.ok &&
 				page.error.reason._tag === "UnsupportedOperation" &&
@@ -1278,7 +1289,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					report: `page compiler: ${page.error.message}\n${printCase(o)}`
 				})
 			}
-			const template = page.value
+			const { compiled, paged: template } = page.value
 			const runtime = pageRuntimeOf({
 				page: template,
 				params: query.params,
@@ -1349,7 +1360,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						c.note,
 						sizes
 					)
-					coverage(query, template, full, c.note)
+					coverage(query, template, compiled, full, c.note)
 					if (negativeZeroRelation(o)) {
 						c.note("float -0 in a relation parameter")
 					}
