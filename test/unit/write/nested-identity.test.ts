@@ -5,7 +5,7 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -21,15 +21,11 @@ import type { MemberFacts } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
-import {
-	nestedRowsColumn,
-	realityWrite,
-	testArtifacts,
-	testCompile
-} from "#test/support/compile.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -182,6 +178,12 @@ const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, lengt
 }
 
 /** An array literal's elements, `{"a","b"}` or `{a,b}`: uuids, which hold no quote or comma, unquoted. */
+const arrayItems = (literal: string): ReadonlyArray<string> =>
+	literal === "{}"
+		? []
+		: Arr.map(Str.split(Str.slice(1, -1)(literal), ","), (item) =>
+				Str.startsWith('"')(item) && Str.endsWith('"')(item) ? Str.slice(1, -1)(item) : item
+			)
 
 type IdentityFeature =
 	| "a fact stated twice"
@@ -309,7 +311,21 @@ describe("a nested write's identities", () => {
 								distinct.length,
 								"each distinct Owner is written once"
 							)
-							const written = nestedRowsColumn(program, bound.flights.chunks, "Member", 0)
+							const { chunks } = bound.flights
+							const step = Option.getOrUndefined(
+								Arr.findFirst(
+									program.artifact.statements,
+									(s) =>
+										s.step.kind === "family" &&
+										s.step.relation === "Member" &&
+										s.step.statement === "insert"
+								)
+							)
+							const written = Arr.flatMap(
+								succeeded(chunks(defined(step, "the Member insert step"))),
+								(chunk) =>
+									arrayItems(textOfParam(defined(chunk[0], "the owners' array, the key's first")))
+							)
 							assert.deepEqual(
 								Arr.sort(written, Str.Order),
 								Arr.sort(

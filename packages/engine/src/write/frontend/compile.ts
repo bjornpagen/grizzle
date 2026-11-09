@@ -1963,20 +1963,18 @@ const compile = (
 		const nested = nestedWrites.flatMap((n) =>
 			n.stratum === stratum ? [...n.nesting.layouts.keys()] : []
 		)
-		if ((edited.length === 0 && nested.length === 0) || refill !== undefined) {
+		if (edited.length === 0 || refill !== undefined || nested.length > 0) {
 			return undefined
 		}
 		const by = (ops: ReadonlyArray<"insert" | "put" | "delete">) => [
 			...new Set(own.flatMap((e) => (ops.some((op) => op === e.write.op) ? [e.relation] : [])))
 		]
-		const ownersOf = (members: ReadonlyArray<string>) => {
-			const counted = members.flatMap((relation) =>
-				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
-			)
-			return [...new Set(counted.map((f) => f.owner.name))].map((relation) => ({
+		/** The owners of `drawn`, the families a family statement draws, each changed at its counts and ends. */
+		const ownersOfFamilies = (drawn: ReadonlyArray<Family>) =>
+			[...new Set(drawn.map((f) => f.owner.name))].map((relation) => ({
 				relation,
 				changes: generating(
-					counted.flatMap((f) =>
+					drawn.flatMap((f) =>
 						f.owner.name === relation
 							? [
 									columnKey({ kind: "field", field: f.count }),
@@ -1987,9 +1985,25 @@ const compile = (
 					generatedOf(relation)
 				)
 			}))
-		}
+		/** The families a family statement draws its slots' rows of `members` by: every one but a member's own tree. */
+		const slotFamilies = (members: ReadonlyArray<string>) =>
+			members.flatMap((relation) =>
+				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
+			)
+		const ownersOf = (members: ReadonlyArray<string>) => ownersOfFamilies(slotFamilies(members))
 		const removing = by(["put", "delete"])
-		const adding = [...new Set([...by(["insert", "put"]), ...nested])]
+		const slotted = by(["insert", "put"])
+		const adding = [...new Set([...slotted, ...nested])]
+		/** The owners the additions draw: every family's of a member they append by slots, and a counted family's of a
+		 * member they append from a nesting, whose walk drew its sequences (write/family/additions.ts RowSource). */
+		const appendedOwners = ownersOfFamilies([
+			...new Set([
+				...slotFamilies(slotted),
+				...nested.flatMap((relation) =>
+					memberFamilies(relation, families).filter((f) => !isSequence(f))
+				)
+			])
+		])
 		/**
 		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
 		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
@@ -2012,8 +2026,8 @@ const compile = (
 				)
 		)
 		const recounted = [
-			...ownersOf(adding),
-			...put.filter((o) => !ownersOf(adding).some((a) => a.relation === o.relation))
+			...appendedOwners,
+			...put.filter((o) => !appendedOwners.some((a) => a.relation === o.relation))
 		]
 		return [
 			...(isNonEmpty(removing)
