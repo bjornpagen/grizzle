@@ -359,35 +359,6 @@ const cutLeases = Effect.gen(function* () {
 				 * session's backend, once read.
 				 */
 				const progress: Array<Progress> = Arr.map(leases, () => "asking")
-				/** The leases whose fibers have ended, kept to their end or cut. */
-				const ended = new Set<number>()
-				/**
-				 * Whether the pool can hand no lease still running anything: each of them asks, no session is leased and pg
-				 * answered every connection, and so still once the fibers its answers woke have run. A pool that keeps its
-				 * permits never stays so, since a lease's release or pg's answer hands a permit on at once; a permit or client
-				 * lost to a lease that left leaves the rest asking for good, so the drawn cuts and the settling end there
-				 * rather than wait for it.
-				 */
-				const starvedNow = Effect.map(pool.leased, (leasedNow) => {
-					const running = Arr.filter(
-						Arr.map(leases, (_, i) => i),
-						(i) => !ended.has(i)
-					)
-					return (
-						running.length > 0 &&
-						Arr.every(running, (i) => progress[i] === "asking") &&
-						leasedNow === 0 &&
-						inFlight() === 0
-					)
-				})
-				const starved = Effect.gen(function* () {
-					if (!(yield* starvedNow)) {
-						return false
-					}
-					yield* Effect.yieldNow
-					yield* Effect.yieldNow
-					return yield* starvedNow
-				})
 				const ran = new Set<Session>()
 				const backends = new Map<Session, number>()
 				const leaseOf = (plan: LeasePlan, index: number) =>
@@ -409,22 +380,41 @@ const cutLeases = Effect.gen(function* () {
 						})
 					)
 				const fibers = yield* Effect.forEach(leases, (plan, index) => {
-					const lease = Effect.provideService(
-						Effect.ensuring(
-							leaseOf(plan, index),
-							Effect.sync(() => {
-								ended.add(index)
-							})
-						),
-						AskingLease,
-						Option.some(index)
-					)
+					const lease = Effect.provideService(leaseOf(plan, index), AskingLease, Option.some(index))
 					return Effect.forkChild(
 						plan.cut.kind === "cut" && plan.cut.at.kind === "turns"
 							? Effect.provideService(lease, Scheduler.MaxOpsBeforeYield, plan.cut.at.ops)
 							: lease,
 						{ startImmediately: true }
 					)
+				})
+				/** Whether a lease's fiber has ended, kept to its end or cut, as the fiber itself tells. */
+				const ended = (i: number): boolean => fibers[i]?.pollUnsafe() !== undefined
+				/**
+				 * Whether the pool can hand no lease still running anything: each of them asks, no session is leased and pg
+				 * answered every connection, and so still a turn of the event loop later, once the fibers its answers woke have
+				 * run. A pool that keeps its permits never stays so, since a lease's release or pg's answer hands a permit on at
+				 * once; a permit or client lost to a lease that left leaves the rest asking for good, so the drawn cuts and the
+				 * settling end there rather than wait for it.
+				 */
+				const starvedNow = Effect.map(pool.leased, (leasedNow) => {
+					const running = Arr.filter(
+						Arr.map(leases, (_, i) => i),
+						(i) => !ended(i)
+					)
+					return (
+						running.length > 0 &&
+						Arr.every(running, (i) => progress[i] === "asking") &&
+						leasedNow === 0 &&
+						inFlight() === 0
+					)
+				})
+				const starved = Effect.gen(function* () {
+					if (!(yield* starvedNow)) {
+						return false
+					}
+					yield* wallClock(0)
+					return yield* starvedNow
 				})
 				yield* Effect.forEach(
 					leases,
@@ -485,13 +475,11 @@ const cutLeases = Effect.gen(function* () {
 						}),
 					{ concurrency: "unbounded", discard: true }
 				)
-				yield* until(
-					Effect.map(starved, (stuck) => stuck || Arr.every(fibers, (_, i) => ended.has(i)))
-				)
+				yield* until(Effect.map(starved, (stuck) => stuck || Arr.every(fibers, (_, i) => ended(i))))
 				/** The leases still asking once the pool could hand them nothing, cut here so the case settles. */
 				const waiting = Arr.filter(
 					Arr.map(leases, (_, i) => i),
-					(i) => !ended.has(i)
+					(i) => !ended(i)
 				)
 				yield* Effect.forEach(waiting, (i) => {
 					const fiber = fibers[i]
