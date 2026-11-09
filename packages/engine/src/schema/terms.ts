@@ -280,6 +280,21 @@ export const rowHelpers = Object.freeze({
 })
 
 /**
+ * A callback's row: the helpers, and each field a getter that builds the field's term (`term`) where the callback reads
+ * it, so a field it never reads has no term built. A field named like a helper is the field.
+ */
+const rowOf = <A>(
+	fields: Iterable<readonly [string, A]>,
+	term: (name: string, field: A) => RowTerm
+): Readonly<Record<string, unknown>> => {
+	const row: Record<string, unknown> = { ...rowHelpers }
+	for (const [name, field] of fields) {
+		Object.defineProperty(row, name, { enumerable: true, get: () => term(name, field) })
+	}
+	return Object.freeze(row)
+}
+
+/**
  * The scalar terms a row check is built from.
  *
  * `check(name, R, (row) => predicate)` runs its callback once, at construction, over a RowScalars value and records the
@@ -304,17 +319,14 @@ export const rowScalars = (
 	fields: Readonly<Record<string, FieldDesc>>,
 	descriptors: Readonly<Record<string, unknown>>,
 	rosterOf: (field: string) => ReadonlyArray<string> | undefined
-): Readonly<Record<string, unknown>> => {
-	const row: Record<string, unknown> = { ...rowHelpers }
-	for (const [name, desc] of Object.entries(fields)) {
+): Readonly<Record<string, unknown>> =>
+	rowOf(Object.entries(fields), (name, desc) => {
 		const roster = rosterOf(name)
-		row[name] = rowTerm(
+		return rowTerm(
 			{ kind: "field", field: name },
 			{ desc, roster, typing: typingOf(desc, descriptors[name], roster) }
 		)
-	}
-	return Object.freeze(row)
-}
+	})
 
 /**
  * The row a check's or a selection's callback over a derived relation receives: each field of its definition's heading
@@ -324,13 +336,8 @@ export const rowScalars = (
  */
 export const derivedRowScalars = (
 	heading: ReadonlyMap<string, HeadingTyping>
-): Readonly<Record<string, unknown>> => {
-	const row: Record<string, unknown> = { ...rowHelpers }
-	for (const [name, typing] of heading) {
-		row[name] = termOver({ kind: "field", field: name }, undefined, typing)
-	}
-	return Object.freeze(row)
-}
+): Readonly<Record<string, unknown>> =>
+	rowOf(heading, (name, typing) => termOver({ kind: "field", field: name }, undefined, typing))
 
 /**
  * The ExprDesc a check's callback returned, refusing anything but a predicate and any input a row check cannot have:
