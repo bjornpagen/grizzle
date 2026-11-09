@@ -49,18 +49,31 @@ post-beta swarm's fixes for the next release.
     under text/ would be a side table. The one representation that removes it: the regex analysis types (RegexNode,
     the DFA and Known, PatternAnalysis, TextRefinement, Pattern) moved into ir, after which a registered descriptor's
     refinement reaches its ScalarType and the built matches and when nodes carry their Pattern and narrowed refinement.
-  - A generated CHECK's trial lowering (LAWS-BASIS, 2026-11-09; not cut). laws/model/model.ts #lowerCheck lowers each
-    family and fold CHECK predicate into a throwaway DAG, then lowers it again for real: over its contract-typed
+  - A generated CHECK's trial lowering (LAWS-BASIS, 2026-11-09; held by main). laws/model/model.ts #lowerCheck lowers
+    each family and fold CHECK predicate into a throwaway DAG, then lowers it again for real: over its contract-typed
     leaves as they are where that typing admits it, else over their bases (baseLeaves), which changes the installed
     CHECK's text. On the kit's qti layer (author_app) at e2a0249a it runs 123 times and the trial refuses 8 (the 8
-    stack captures): #lowerCheck is 29–46 profile-ms, the trial about half; the Ledger's slice plans no generated
-    CHECK, so 0 there. The blocker: no fact the builder (laws/model/plan.ts RowConditions) holds decides it, since of
-    the 22 predicates with a compute node 14 lower plain and 8 do not (the lowering's "a contract and its bare base
-    never meet"), and the layer cannot skip lowering, since the witness judges a CHECK by evaluating its lowered
-    predicate on the host (write/program/witness.ts checkOf, write/family/fold.ts hostEvaluator) and pattern-order.ts
-    and lawPatterns read its lowered matches; no host evaluator reads the unlowered predicate. Lowering plain into
-    the extension DAG and base only on refusal is a try-then-alternative that leaves unreachable nodes and moves DAG
-    labels, ruled out (main, 2026-11-09).
+    stack captures), all `C(natural) = add(C(natural), 1)` from count and sum fold steps and a tree's start and end;
+    the 14 other predicates with a compute node lower plain (concat over plain text, union over plain bits, greatest
+    over natural, which keeps the contract). #lowerCheck is 29–46 profile-ms there, the trial about half.
+    - **The exact fix:** a pure function in scalar/compute, beside the Lowering, giving the contract an operation's
+      result carries over its operands' contracts: arithmetic none, greatest and least the common one, the set
+      operations the first operand's, concat what concat() gives. The four Lowering sites (arithmetic, whose nominal is
+      now the overload's plain result type; greatest/least, through commonType; union/intersection/difference, which
+      return a.nominal; concat) derive their nominal's contract from it, carriers and bounds unchanged. RowConditions
+      (laws/model/plan.ts) states plain or base as a typed fact on GeneratedCheck from it plus types.ts `meets`
+      (already the one "a contract and its bare base never meet"), so #lowerCheck lowers once in the chosen form, with no
+      trial and no throwaway DAG. A unit search over add, union, greatest and concat with contract or base operand types
+      asserts the fact matches the Lowering's verdict (Qti reaches no union or concat over a contract), and a plant
+      flipping the function's result for one operation must fail both the search and the dump.
+    - **Cost:** 2–3 h; lower.ts is shared, so coordinate with whoever is editing it; the proof is the whole suite plus
+      both kit dumps byte-identical (the same 8 base, the same 115 plain), since the four sites serve every compile
+      mode (queries, row checks, generated fields, contract predicates, folds).
+    - **Gain:** 10–20 ms of CPU on author_app's layer; 0 on the Ledger, whose slice plans no generated CHECK.
+    - **Ruled out:** a second copy of the rule in plan.ts; skipping the lowering at the layer, since the witness judges
+      a CHECK by its lowered predicate on the host (write/program/witness.ts checkOf, write/family/fold.ts
+      hostEvaluator) and pattern-order.ts and lawPatterns read its lowered matches; lowering plain into the extension
+      DAG and base only on refusal, a try-then-alternative that leaves unreachable nodes and moves DAG labels.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
