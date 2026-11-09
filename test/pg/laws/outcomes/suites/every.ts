@@ -202,10 +202,10 @@ const ruleOf = (naming: Naming, law: Law): Rule =>
  * repeat, alone or with its parts, through both installations. The oracle is the rules restated over the drawn values,
  * the count the parts' number and the end their sum: a write whose new cell breaks none is accepted; any other is
  * refused by the first CHECK of the cell's in its installation's order, the rule PostgreSQL reports, since the INSERT
- * writes no stored cell. A stored cell inserted again alone is one no read of the write looks up, which the host cannot
- * tell from a new one: where the new cell has no parts, so no read looks it up either, and a stored cell breaks the
- * reported rule at an empty family's count and end, either may be the refused row, and the refusal names that rule
- * alone, `first`, its witness `unreported`. Every other refusal names `every` law the new cell breaks, exactly those,
+ * writes no stored cell. The write's family work is its one additions statement, which reads no row, so no read looks
+ * up a cell it inserts: the host cannot tell a stored cell inserted again alone from a new one, and where such a stored
+ * cell breaks the reported rule at an empty family's count and end, either may be the refused row, and the refusal names
+ * that rule alone, `first`, its witness `unreported`. Every other refusal names `every` law the new cell breaks, exactly those,
  * each once, its witness the new cell's key, never a stored cell's, whichever CHECK PostgreSQL tried first. Each
  * installation lists the laws it names in one order across every case: a law named before another is never named
  * after it.
@@ -468,10 +468,7 @@ export const everyLawSuite = (): void => {
 												),
 												"the rule PostgreSQL reports, the first of the new cell's in its CHECKs' order"
 											)
-											if (
-												Arr.isReadonlyArrayEmpty(row.parts) &&
-												Arr.some(unread, (st) => breaks(reported, { ...st.cell, parts: [] }))
-											) {
+											if (Arr.some(unread, (st) => breaks(reported, { ...st.cell, parts: [] }))) {
 												assert.deepEqual(
 													outcome.witness,
 													{ kind: "unreported" },
