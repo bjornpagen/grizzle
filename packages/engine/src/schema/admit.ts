@@ -6,11 +6,11 @@ import * as Result from "#compiler/core/result.ts"
 import {
 	type AdmittedClosedRelation,
 	admittedRelation,
-	decodeDesc,
 	decodeUnadmittedSchema,
 	type RelationDesc,
 	recordAdmitted,
 	type SchemaDesc,
+	schemaLevelDesc,
 	type UnadmittedSchemaDesc
 } from "#compiler/ir/desc.ts"
 import { baseOf, Roster, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
@@ -88,20 +88,26 @@ const admitted = (r: ClosedRelationOf, env: ScalarEnv): AdmittedClosedRelation =
 	return recordAdmitted(r)
 }
 
-/** A schema level and the levels below it with each closed relation no admission made admitted (admitted). */
-const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): unknown => ({
-	...desc,
-	relations: desc.relations.map((r) =>
-		r.kind === "closedRelation" ? (admittedRelation(r) ?? admitted(r, env)) : r
-	),
-	extends: desc.extends === undefined ? undefined : admittedLevels(desc.extends, env)
-})
+/**
+ * A decoded schema level and the levels below it, each closed relation no admission made admitted (admitted): every
+ * other part is as its decode made it, so the levels are built over them (ir/desc.ts schemaLevelDesc), read no further.
+ */
+const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): SchemaDesc =>
+	schemaLevelDesc({
+		name: desc.name,
+		relations: desc.relations.map((r) =>
+			r.kind === "closedRelation" ? (admittedRelation(r) ?? admitted(r, env)) : r
+		),
+		statements: desc.statements,
+		extends: desc.extends === undefined ? undefined : admittedLevels(desc.extends, env),
+		loc: desc.loc
+	})
 
 /**
  * A schema description from outside the builders, decoded and admitted: the one door from `unknown` to a SchemaDesc
  * whose closed relations no builder admitted (a decoded description's, an authored fixture's). Each closed relation is
- * admitted once against the schema's rosters and its fields' base types, and the schema is then decoded as one, so
- * every closed relation a SchemaDesc holds is admitted (ir/desc.ts SchemaRelationDesc). A closed relation a builder
+ * admitted once against the schema's rosters and its fields' base types, so every closed relation a SchemaDesc holds is
+ * admitted (ir/desc.ts SchemaRelationDesc), and the levels are built over the decoded parts. A closed relation a builder
  * admitted is taken as it stands. A refusal is MalformedDescription at the first cell that is no value of its field.
  */
 export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, CompileError> =>
@@ -114,8 +120,5 @@ export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, Compi
 				return handles === undefined ? undefined : new Roster(name, handles)
 			}
 		}
-		return Result.flatMap(
-			catchRefusal(() => admittedLevels(unadmitted, env)),
-			(levels) => decodeDesc("schema", levels)
-		)
+		return catchRefusal(() => admittedLevels(unadmitted, env))
 	})
