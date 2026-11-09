@@ -1,6 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
+import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
@@ -2041,6 +2041,24 @@ const compile = (
 					(f) => !isTreeOf(f, member) && (slotted.includes(member) || !isSequence(f))
 				)
 			)
+		/** The owners whose rows `member`'s additions copy a column of into their appended rows (an owner copy, fill.ts
+		 * FillRule), which the statement reads as the stratum's earlier statements leave them. */
+		const copiedOwners = (member: string) => [
+			...new Set(
+				memberFamilies(member, families).flatMap((f) =>
+					!isTreeOf(f, member) &&
+					(slotted.includes(member) || !isSequence(f)) &&
+					defined(
+						laws.theory.fill.layouts.get(layoutKey(member, { kind: "member", family: f })),
+						`the fill layout of ${member} as a member of ${f.id.owner}.${f.id.count}`
+					).columns.some(
+						(c) => c.rule.kind === "ownerCopy" && familyKey(c.rule.family.id) === familyKey(f.id)
+					)
+						? [f.owner.name]
+						: []
+				)
+			)
+		]
 		const recountedOnly = [
 			...new Set(families.flatMap((f) => (removing.includes(f.member.name) ? [f.member.name] : [])))
 		].filter((m) => !adding.includes(m))
@@ -2056,6 +2074,7 @@ const compile = (
 					kind: "additions" as const,
 					appends: "rows" as const,
 					member,
+					copies: copiedOwners(member),
 					owners: [
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))

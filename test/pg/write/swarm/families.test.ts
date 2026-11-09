@@ -1292,6 +1292,53 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a member owning a family written"]
+	},
+	{
+		note: "found: a put of a stored ordered member that owns a counted family, beside a member appended to it, once written with the put fact's count at its start over the stored one by the family planner",
+		sketch: {
+			spec: bare(
+				coreOf(
+					[false, true, true, true, false],
+					[
+						{ kind: "counted", owner: 1, member: 2, fold: "sum" },
+						{ kind: "ordered", owner: 3, member: 1, fold: "count" }
+					],
+					[{ family: 0, axis: "owner", source: { kind: "index", family: 1 } }],
+					[]
+				)
+			),
+			steps: [
+				inserted(
+					[
+						{ relation: 3, id: 1, v: 0n, memberOf: [] },
+						{ relation: 3, id: 2, v: 0n, memberOf: [] },
+						{ relation: 1, id: 3, v: -2n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+						{ relation: 1, id: 4, v: 2n, memberOf: [{ family: 1, owner: 2, slot: 1 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 1,
+						row: 4,
+						put: Option.some(1n),
+						inserted: [
+							{ relation: 2, id: 6, v: -2n, memberOf: [{ family: 0, owner: 4, slot: 0 }] }
+						],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up refilling a value", "a member owning a family written"]
 	}
 ]
 

@@ -110,7 +110,7 @@ import {
 } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, MemberSlot, SlotGroup } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
-import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
+import { isCarried, type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
 import {
 	type MemberFacts,
 	type NormalizedSlot,
@@ -709,9 +709,19 @@ export const bindWrite = (
 	let unreadable: FamilyRowBound | undefined
 	for (const editProgram of programEdits) {
 		const { edit, target } = editProgram
+		/** A member fact as the family planner reads it: the fields its caller states, never the counts and ends its slot
+		 * carries for an owner the stratum's additions write in the flight, which the planner draws itself. */
+		const stated = (fact: Fact): Fact =>
+			Object.freeze(
+				Object.fromEntries(
+					Object.entries(fact).filter(([name]) =>
+						target.relation.fields.some((f) => f.name === name && isCarried(f))
+					)
+				)
+			)
 		const changes: RelationChanges = {
-			inserts: factsAt(edit.inserts),
-			puts: factsAt(edit.puts),
+			inserts: factsAt(edit.inserts).map(stated),
+			puts: factsAt(edit.puts).map(stated),
 			deletes: factsAt(edit.deletes),
 			nested: [
 				...(normalized.nested.get(edit.stratum)?.get(target.relation.name)?.values() ?? [])

@@ -406,6 +406,26 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"counted: a lawful write accepted",
 										"owners with one member: a lawful write accepted"
 									]
+								},
+								{
+									note: "found: an owner inserted with no member its mirror names, once an UnorderableStratum: the members' additions followed the owner's insert to recount it, and the owner's insert followed the additions by its law's immediate key",
+									sketch: {
+										spec: {
+											family: "counted",
+											law: "mirrors",
+											owners: "every owner",
+											byOwner: true,
+											checked: false,
+											bare: true,
+											referrer: false
+										},
+										owners: [{ id: 1, x: 0n, flag: false }],
+										members: [],
+										referrers: [],
+										separately: false
+									},
+									draws: "",
+									reaches: ["an unlawful write refused with a law it breaks"]
 								}
 							],
 							runs: 16,

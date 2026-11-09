@@ -59,6 +59,9 @@ export type FamilyAdditions =
 			readonly kind: "additions"
 			readonly appends: "rows"
 			readonly member: string
+			/** The owner relations whose rows its appended members copy a column of, read as the stratum's earlier
+			 * statements leave them, so it follows each statement that writes them. */
+			readonly copies: ReadonlyArray<string>
 			readonly owners: ReadonlyArray<OwnerChanges>
 	  }
 	| {
@@ -516,10 +519,12 @@ const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
 
 /**
  * Orders an action `x` and a stratum's family additions or removals `y` (FamilyAdditions, FamilyRemovals): the additions
- * follow every action of a relation they insert into or recount, whose rows they read as landed; and the immediate
- * references between them order them as any two writes' do, the additions adding the rows they insert, the removals
- * removing and changing the rows they delete, re-place and update, and either adding and changing an owner's facts at
- * the columns its recount changes.
+ * follow every action of a relation they insert into, every put or delete of an owner they recount, whose rows they read
+ * as landed, and an owner's insert where they copy its columns; an owner the stratum inserts carries its counts and ends
+ * in its own row (write/program/bind.ts freshOwners), which no recount changes; and the immediate references between
+ * them order them as any two writes' do, the additions adding the rows they insert, the removals removing and changing
+ * the rows they delete, re-place and update, and either adding and changing an owner's facts at the columns its recount
+ * changes.
  */
 const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	action: Scheduled,
@@ -532,7 +537,9 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	const members = writtenMembers(node)
 	if (
 		node.kind === "additions" &&
-		(members.includes(a) || node.owners.some((o) => o.relation === a))
+		(members.includes(a) ||
+			(node.owners.some((o) => o.relation === a) &&
+				(action.action.op !== "insert" || (node.appends === "rows" && node.copies.includes(a)))))
 	) {
 		y.follows.add(x)
 	}
@@ -568,7 +575,8 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
  * Orders two of a stratum's family additions, or two of its removals, `x` writing `n`'s member and `y` writing `m`'s, by
  * the immediate references from `m`'s member into `n`'s, as the family planner's own statements of the two relations are
  * (`scheduleStratum`): the referenced member's additions before the referencing one's, and the referencing member's
- * removals before the referenced one's. An additions and a removals are ordered already, every removals first, and an
+ * removals before the referenced one's; and an additions that copies a column of `n`'s member's rows into its own
+ * after `n`'s additions, which insert them. An additions and a removals are ordered already, every removals first, and an
  * owner's recount orders nothing against another statement's, as a count statement's does not.
  */
 const orderFamilyWrites = <V extends { readonly follows: Set<V> }>(
@@ -580,6 +588,10 @@ const orderFamilyWrites = <V extends { readonly follows: Set<V> }>(
 ): void => {
 	const referenced = writtenMembers(n)
 	const referencing = writtenMembers(m)
+	const copied = m.kind === "additions" && m.appends === "rows" ? m.copies : []
+	if (n.kind === "additions" && referenced.some((r) => copied.includes(r))) {
+		y.follows.add(x)
+	}
 	if (
 		!references.some(
 			(r) => r.from !== r.to && referencing.includes(r.from) && referenced.includes(r.to)
