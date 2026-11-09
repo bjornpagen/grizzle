@@ -45,7 +45,7 @@ import {
 	type CompareOp,
 	conjunctsOf,
 	type ContextDesc,
-	decodeDesc,
+	decodeRoleOver,
 	descText,
 	type ExprDesc,
 	type FieldDesc,
@@ -62,6 +62,7 @@ import {
 	type RoleEntryDesc,
 	type SchemaDesc,
 	type SchemaRelationDesc,
+	schemaLevelDesc,
 	type SelectionDesc,
 	type SideDesc,
 	type SlotsDesc,
@@ -541,9 +542,11 @@ const canonicalComparison = (expr: Extract<ExprDesc, { readonly kind: "compare" 
 			: expr.op === "eq" || expr.op === "ne"
 				? compareText(textOf(left), textOf(right)) > 0
 				: expr.op === "gt" || expr.op === "ge"
-	return swapped
-		? { ...expr, op: mirrorOf[expr.op], left: right, right: left }
-		: { ...expr, left, right }
+	return Object.freeze(
+		swapped
+			? { ...expr, op: mirrorOf[expr.op], left: right, right: left }
+			: { ...expr, left, right }
+	)
 }
 
 /**
@@ -561,19 +564,23 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 				text: textOf(e)
 			}))
 			const sorted = sortNonEmpty(keyed, (a, b) => compareText(a.text, b.text))
-			return { ...expr, args: mapNonEmpty(sorted, (a) => a.e) }
+			const args = mapNonEmpty(sorted, (a) => a.e)
+			Object.freeze(args)
+			return Object.freeze({ ...expr, args })
 		}
 		case "not":
-			return { ...expr, arg: canonicalPredicate(expr.arg) }
+			return Object.freeze({ ...expr, arg: canonicalPredicate(expr.arg) })
 		case "compare":
 			return canonicalComparison(expr)
 		case "in": {
 			const byText = new Map(expr.values.map((v) => [textOf(v), v] as const))
-			return {
+			return Object.freeze({
 				...expr,
 				arg: canonicalPredicate(expr.arg),
-				values: [...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, v]) => v)
-			}
+				values: Object.freeze(
+					[...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, v]) => v)
+				)
+			})
 		}
 		case "var":
 		case "field":
@@ -609,16 +616,16 @@ export const canonicalSelection = (selection: SelectionDesc): SelectionDesc => {
 			.map(canonicalPredicate)
 			.map((c) => [textOf(c), c] as const)
 	)
-	return {
-		conjuncts: [...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, conjunct]) => conjunct)
-	}
+	return Object.freeze({
+		conjuncts: Object.freeze(
+			[...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, conjunct]) => conjunct)
+		)
+	})
 }
 
 /** A side in canonical form: its selection's (`canonicalSelection`). */
-const canonicalSide = (side: SideDesc): SideDesc => ({
-	...side,
-	selection: canonicalSelection(side.selection)
-})
+const canonicalSide = (side: SideDesc): SideDesc =>
+	Object.freeze({ ...side, selection: canonicalSelection(side.selection) })
 
 /**
  * A statement in canonical form: a check's predicate and each side's selection with their operands ordered.
@@ -627,13 +634,13 @@ const canonicalSide = (side: SideDesc): SideDesc => ({
 const canonicalStatement = (s: StatementDesc): StatementDesc => {
 	switch (s.kind) {
 		case "check":
-			return { ...s, predicate: canonicalPredicate(s.predicate) }
+			return Object.freeze({ ...s, predicate: canonicalPredicate(s.predicate) })
 		case "key":
-			return { ...s, side: canonicalSide(s.side) }
+			return Object.freeze({ ...s, side: canonicalSide(s.side) })
 		case "contained":
-			return { ...s, left: canonicalSide(s.left), right: canonicalSide(s.right) }
+			return Object.freeze({ ...s, left: canonicalSide(s.left), right: canonicalSide(s.right) })
 		case "fold":
-			return { ...s, step: canonicalSide(s.step) }
+			return Object.freeze({ ...s, step: canonicalSide(s.step) })
 		case "mutable":
 		case "family":
 		case "tree":
@@ -1896,8 +1903,11 @@ class Owner {
 	 */
 	#canonicalDesc(): SchemaDesc {
 		const placed = new Set<string>()
-		let below: SchemaDesc | undefined
-		for (const [level, schema] of this.#levels.entries()) {
+		const canonicalLevel = (
+			level: number,
+			schema: SchemaDesc,
+			below: SchemaDesc | undefined
+		): SchemaDesc => {
 			const relations = schema.relations
 				.filter((r) => this.#relations.get(r.name)?.level === level && !placed.has(r.name))
 				.toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
@@ -1908,16 +1918,20 @@ class Owner {
 				.filter((s) => s.level === level)
 				.toSorted((a, b) => (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))
 				.map((s) => s.desc)
-			const next: SchemaDesc = {
+			return schemaLevelDesc({
 				name: schema.name,
 				relations,
 				statements,
 				extends: below,
 				loc: schema.loc
-			}
-			below = next
+			})
 		}
-		return unwrap(decodeDesc("schema", below))
+		const [root, ...above] = this.#levels
+		let top = canonicalLevel(0, root, undefined)
+		for (const [i, schema] of above.entries()) {
+			top = canonicalLevel(i + 1, schema, top)
+		}
+		return top
 	}
 }
 
@@ -2253,9 +2267,8 @@ export const fullRoleDesc = (
 		if (first === undefined) {
 			return Result.err(malformedDescription(loc, "a base with at least one relation"))
 		}
-		return decodeDesc("role", {
+		return decodeRoleOver(base, {
 			name,
-			base,
 			relations: [first, ...rest],
 			write: relations.filter((r) => r.kind === "relation").map((r) => r.name),
 			refresh: relations.filter((r) => r.kind === "derived").map((r) => r.name),
