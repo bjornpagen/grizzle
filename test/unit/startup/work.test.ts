@@ -62,9 +62,10 @@ import { upTo } from "#test/support/up-to.ts"
  *   once (its law model and closed constants, physical/install/plan.ts installBasis), packing every closed relation's
  *   cells once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
  *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
- *   programs once, into its served file, exactly as the layer does (adapter/served/compile.ts compileServed): the
- *   layer's plan's basis from the closed constants' names the snapshot records (planBasis), packing no cell, planned
- *   once, and its roles' programs (adapter/served/login.ts loginRoles), building no DDL.
+ *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
+ *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs
+ *   (adapter/served/login.ts loginRoles), building no DDL. A layer compiling a login in process plans its basis from the
+ *   closed constants' names the snapshot records (planBasis), packing no cell, planned once.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -310,11 +311,11 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 1,
 		schemaLevel: 1,
-		compileLaws: 2,
+		compileLaws: 1,
 		installBasis: 1,
-		planBasis: 1,
+		planBasis: 0,
 		planClosed: 1,
-		plan: 3,
+		plan: 2,
 		installation: 1,
 		loginRoles: 1
 	},
@@ -323,11 +324,11 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 1,
 		schemaLevel: 1,
-		compileLaws: 2,
+		compileLaws: 1,
 		installBasis: 1,
-		planBasis: 1,
+		planBasis: 0,
 		planClosed: 1,
-		plan: 3,
+		plan: 2,
 		installation: 1,
 		loginRoles: 1
 	},

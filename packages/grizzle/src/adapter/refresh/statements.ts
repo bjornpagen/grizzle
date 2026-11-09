@@ -100,7 +100,7 @@ export const populatedParams = (
 ]
 
 /** The refresh statement's text for one view: CONCURRENTLY exactly when it is populated. */
-export const refreshSql = (view: ObjectName, populated: boolean): EmittedText =>
+const refreshSql = (view: ObjectName, populated: boolean): EmittedText =>
 	emitText(refreshStatement(view, populated), emptyNameMap).text
 
 /**
