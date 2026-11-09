@@ -645,8 +645,10 @@ const derivedReaderText = (reader: DerivedReader): string => {
  * `relation`, which is immutable: the family's members, which it updates in place, or its owner, whose family is fixed
  * when it is inserted (`immutable`); or the value is one of the tree `tree`'s, a node's copy of its parent's, a
  * sibling's predecessor copy or fold, or a parent's end or last copy, which grizzle draws only when the node is written
- * (`tree`); or the value reads what the refill of `refill` itself changes, an owner's end or last copy or a member's
- * predecessor copy or fold, which grizzle does not refill again in turn (`chained`).
+ * (`tree`); the value reads what the refill of `refill` itself changes, an owner's end or last copy or a member's
+ * predecessor copy or fold, which grizzle does not refill again in turn (`chained`); or the value is one of `family`'s,
+ * which a family member's put or delete reaches through an owner axis, or an edit's or an append's recount of its owner
+ * reaches beyond its own family's members' copies (`edit`).
  */
 export type StaleCause =
 	| { readonly kind: "query" }
@@ -654,6 +656,7 @@ export type StaleCause =
 	| { readonly kind: "immutable"; readonly relation: string }
 	| { readonly kind: "tree"; readonly tree: FamilyName }
 	| { readonly kind: "chained"; readonly refill: FamilyName }
+	| { readonly kind: "edit"; readonly family: FamilyName }
 
 /** Why a StaleDerivedRead's value cannot be drawn again, of a write of `member`. */
 const staleCauseText = (member: string, cause: StaleCause): string => {
@@ -668,6 +671,8 @@ const staleCauseText = (member: string, cause: StaleCause): string => {
 			return `it is a value of the tree ${familyNameText(cause.tree)}, which grizzle draws only when the node is written and never again on a stored tree`
 		case "chained":
 			return `it reads what the refill of ${familyNameText(cause.refill)} itself changes, which grizzle does not refill again in turn`
+		case "edit":
+			return `it is a value of ${familyNameText(cause.family)}, which a family member's own write reaches through an owner axis or its owner's recount, and grizzle refills only a plain relation's put that way`
 	}
 }
 

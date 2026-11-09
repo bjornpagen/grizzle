@@ -2332,7 +2332,10 @@ export const followUpMembers = (
  * is a tree's, which grizzle draws only when a node is written (StaleDerivedRead, `tree`, the tree the compiler names
  * one of `trees`); or, failing those, chained, where a value it leaves stale reads what a refill itself changes, which
  * grizzle does not refill again in turn (StaleDerivedRead, `chained`, the refill the compiler names one of `refills`,
- * the families the writes refill). A refusal names the write a refused refill's path starts from, one of `origins`.
+ * the families the writes refill); or, failing those, edit, where a stale value starts at a family member's write and
+ * is neither the copy a re-placed owner's members hold of the edit's redrawn column nor its own family's members' copy
+ * of an append's recount, through no further owner axis (StaleDerivedRead, `edit`, the family the compiler names one of
+ * `families`). A refusal names the write a refused refill's path starts from, one of `origins`.
  */
 export type WritesVerdict =
 	| { readonly kind: "written"; readonly stale: ReadonlyArray<StaleSpec> }
@@ -2358,6 +2361,12 @@ export type WritesVerdict =
 			readonly kind: "chained"
 			readonly stale: ReadonlyArray<StaleSpec>
 			readonly refills: Arr.NonEmptyReadonlyArray<number>
+			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
+	  }
+	| {
+			readonly kind: "edit"
+			readonly stale: ReadonlyArray<StaleSpec>
+			readonly families: Arr.NonEmptyReadonlyArray<number>
 			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
 	  }
 
@@ -2411,13 +2420,56 @@ export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>):
 		}
 	}
 	const chained = Arr.filter(stale, (s) => s.from === "refill")
-	return Arr.isReadonlyArrayNonEmpty(chained) && Arr.isReadonlyArrayNonEmpty(stale)
+	if (Arr.isReadonlyArrayNonEmpty(chained) && Arr.isReadonlyArrayNonEmpty(stale)) {
+		return {
+			kind: "chained",
+			stale,
+			refills: Arr.sort(Arr.dedupe(Arr.map(stale, (s) => s.family)), Order.Number),
+			origins: Arr.dedupeWith(
+				Arr.map(chained, (s) => s.origin),
+				sameWrite
+			)
+		}
+	}
+	/** The columns family `k`'s owner carries of it: its count, its fold's end and its last copies. */
+	const ownerColumns = (k: number): ReadonlyArray<string> => [
+		countName(k),
+		...(familyAt(spec, k).fold === "none" ? [] : [foldName(k)]),
+		...Arr.flatMap(spec.copies, (c, j) =>
+			c.family === k && c.axis === "last" ? [copyName(j)] : []
+		)
+	]
+	/** Whether a stale value of a member relation's write is one grizzle refills: the copy a re-placed owner's members
+	 * hold of a column the edit redraws, or its own family's members' copy of an append's recount of their owner, each
+	 * through no further owner axis. */
+	const refilledOfMember = (s: StaleSpec): boolean => {
+		const w = s.origin
+		const f = familyAt(spec, s.family)
+		if (s.passed.length !== 1 || s.reader.kind !== "owner") {
+			return false
+		}
+		return w.op === "insert"
+			? s.changed.by === "owner" &&
+					s.changed.relation === relationName(f.owner) &&
+					ownerColumns(s.family).includes(s.changed.column) &&
+					f.member === w.relation &&
+					relationAt(spec, f.owner).mutable
+			: s.changed.by === "member" &&
+					s.changed.relation === relationName(w.relation) &&
+					f.owner === w.relation &&
+					f.member !== w.relation
+	}
+	const edited = Arr.filter(
+		stale,
+		(s) => Arr.some(spec.families, (f) => f.member === s.origin.relation) && !refilledOfMember(s)
+	)
+	return Arr.isReadonlyArrayNonEmpty(edited)
 		? {
-				kind: "chained",
+				kind: "edit",
 				stale,
-				refills: Arr.sort(Arr.dedupe(Arr.map(stale, (s) => s.family)), Order.Number),
+				families: Arr.sort(Arr.dedupe(Arr.map(edited, (s) => s.family)), Order.Number),
 				origins: Arr.dedupeWith(
-					Arr.map(chained, (s) => s.origin),
+					Arr.map(edited, (s) => s.origin),
 					sameWrite
 				)
 			}

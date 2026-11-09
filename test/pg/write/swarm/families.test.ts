@@ -109,6 +109,7 @@ type Situation =
 	| "refills reaching a family again refused"
 	| "a refill of a tree's values refused"
 	| "a refill reading another refill's change refused"
+	| "a member's own write reaching another family's value refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -163,6 +164,8 @@ const statesCause = (
 			return among(expected.trees, cause.tree)
 		case "chained":
 			return among(expected.refills, cause.refill)
+		case "edit":
+			return among(expected.edits, cause.family)
 	}
 }
 
@@ -179,6 +182,8 @@ const causeNote = (cause: StaleCause): Situation => {
 			return "a refill of a tree's values refused"
 		case "chained":
 			return "a refill reading another refill's change refused"
+		case "edit":
+			return "a member's own write reaching another family's value refused"
 	}
 }
 

@@ -122,37 +122,15 @@ const sameWay = (a: PlainRefillWay, b: PlainRefillWay): boolean =>
 	})
 
 /**
- * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
- * host: a put of a plain relation whose change cascades along one owner axis or a chain of them into a counted or
- * ordered family's member, through members the stratum neither puts nor deletes, read there by its fold, predecessor or
- * last axis, a member the stratum may put or delete too, whose removals statement draws both; an edit of a family member
- * relation that redraws a column of its rows a counted or ordered family it owns copies into its members, read there as
- * that copy; or an append to a counted or ordered family of a mutable owner, whose recount changes a count or an end
- * the family's stored members copy. Each of the last two reaches a member relation the stratum does not put or delete.
+ * The way a path that starts at a family member relation's write rides in the call's flight, whatever the stratum
+ * edits: an edit of the relation that redraws a column of its rows a counted or ordered family it owns copies into its
+ * members, read there as that copy, the rider of the edit's removals statement; or an append to a counted or ordered
+ * family of a mutable owner, whose recount changes a count or an end the family's stored members copy. None for any
+ * other path of a member's write, which grizzle refuses (StaleDerivedRead, `edit`).
  */
-const flightWay = (
-	path: RefillPath,
-	managed: (relation: string) => boolean,
-	edited: ReadonlySet<string>
-): PlainRefillWay | undefined => {
-	const { change, changed, reader } = path
-	const hops = path.copies.map((h) => h.family)
-	if (change.kind !== "write") {
-		return undefined
-	}
-	if (!managed(change.relation.name)) {
-		return change.op === "put" &&
-			isNonEmpty(hops) &&
-			(reader.kind === "fold" || reader.kind === "predecessor" || reader.kind === "last") &&
-			lastNonEmpty(hops).member.name === reader.family.member.name &&
-			hops.every((h) => !edited.has(h.member.name))
-			? { root: { kind: "put", relation: change.relation.name }, hops }
-			: undefined
-	}
+const memberWay = (change: WriteChange, path: RefillPath): PlainRefillWay | undefined => {
+	const { changed, reader } = path
 	const [hop] = path.copies
-	if (edited.has(reader.family.member.name)) {
-		return undefined
-	}
 	if (change.op === "insert") {
 		return hop === undefined &&
 			changed.by === "owner" &&
@@ -180,10 +158,38 @@ const flightWay = (
 }
 
 /**
+ * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
+ * host: a put of a plain relation whose change cascades along one owner axis or a chain of them into a counted or
+ * ordered family's member, through members the stratum neither puts nor deletes, read there by its fold, predecessor or
+ * last axis, a member the stratum may put or delete too, whose removals statement draws both; or a member relation's
+ * write (`memberWay`) whose refilled member the stratum does not put or delete.
+ */
+const flightWay = (
+	path: RefillPath,
+	managed: (relation: string) => boolean,
+	edited: ReadonlySet<string>
+): PlainRefillWay | undefined => {
+	const { change, reader } = path
+	const hops = path.copies.map((h) => h.family)
+	if (change.kind !== "write") {
+		return undefined
+	}
+	if (!managed(change.relation.name)) {
+		return change.op === "put" &&
+			isNonEmpty(hops) &&
+			(reader.kind === "fold" || reader.kind === "predecessor" || reader.kind === "last") &&
+			lastNonEmpty(hops).member.name === reader.family.member.name &&
+			hops.every((h) => !edited.has(h.member.name))
+			? { root: { kind: "put", relation: change.relation.name }, hops }
+			: undefined
+	}
+	return edited.has(reader.family.member.name) ? undefined : memberWay(change, path)
+}
+
+/**
  * Where a stratum's refills are drawn in the call's flight: every refilled family's ways from the stratum's puts of
  * relations no family has as a member (`managed`), by member relation, when every path of its closure is one
- * (`flightWay`) and no refilled member is one the stratum edits; none otherwise, where the family planner refills on
- * the host.
+ * (`flightWay`); none otherwise, where the family planner refills on the host.
  */
 export const plainRefills = (
 	refill: StratumRefill,
@@ -365,6 +371,9 @@ const readRelations = (read: RefillRead): ReadonlyArray<RelationInfo> => {
  * - refills that reach a family they refill again (StaleDerivedRead, `cycle`);
  * - a refill of a tree's values, which grizzle draws only when a node is written (StaleDerivedRead, `tree`);
  * - a refill of a value that reads what another refill itself changes (StaleDerivedRead, `chained`);
+ * - a family member's put or delete whose change reaches another family's value through an owner axis, but the copies
+ *   a re-placed owner's members hold, and an edit's or an append's recount of an owner that a value other than its own
+ *   family's members' copies reads (StaleDerivedRead, `edit`);
  * - a refill a role does not hold the rows of whole (OutsideRole): the members it rewrites, which its write list names,
  *   and every row its reads pass, which it holds.
  *
@@ -466,6 +475,23 @@ export const stratumRefill = (
 			stale(chained.path, chained.path.reader, {
 				kind: "chained",
 				refill: { owner: chained.from.owner, count: chained.from.count }
+			})
+		)
+	}
+	const [edit] = closure.paths.flatMap((p) => {
+		const change = p.change
+		return change.kind === "write" &&
+			families.some((f) => f.member.name === change.relation.name) &&
+			memberWay(change, p) === undefined
+			? [p]
+			: []
+	})
+	if (edit !== undefined) {
+		const reached = edit.reader.family.id
+		return Result.err(
+			stale(edit, edit.reader, {
+				kind: "edit",
+				family: { owner: reached.owner, count: reached.count }
 			})
 		)
 	}

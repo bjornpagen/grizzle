@@ -178,6 +178,17 @@ post-beta swarm's fixes for the next release.
   copies as it writes them, read by the owner's own families or carried into another family's members, like the
   additions statement's recount roots, about 200 lines. 400 to 800 lines in all, no recursion: the closure holds no
   cycle. fill.ts writesVerdict's `chained` arm turns back into refills when it lands.
+- **Refilling what a family member's own write reaches, in the flight (the owner, 2026-11-09: refused for now, built
+  later):** a value a member relation's put, delete or append reaches beyond the two the flight refills (a re-placed
+  owner's members' copies, and its own family's members' copy of an append's recount) is refused when it compiles
+  (StaleDerivedRead, cause `edit`; write/frontend/refill.ts memberWay). The sized design: (1) generalized edit riders,
+  an edit's root rows its own put-updated rows for a change of its caller fields and its redraw scan for a redrawn index
+  or copy, carried along a chain of owner axes (removals.ts cascaded's hops) to a fold, predecessor or last copy, about
+  150 to 250 lines in write/family/removals.ts, write/frontend/refill.ts and the schedule's rider effects; (2)
+  recount-rooted riders, the additions statement's recount (450d0984) and the removals statement's own recount feeding
+  rider members updated in the same statement, about 200 to 300 lines. They are the chained refills' parts (1) and (3)
+  (the entry above): whoever builds one builds both together, which leaves only the chained part (2), a redraw order
+  within one relation, apart. fill.ts writesVerdict's `edit` arm turns back into refills when they land.
 
 ## Upstream, for the owner to file
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's

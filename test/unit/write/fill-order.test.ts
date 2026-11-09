@@ -120,9 +120,9 @@ type FillSituation =
 	| "admitted: a nesting three deep"
 	| "written: a follow-up over the stored instance"
 	| "refilled: a value through a copy after a put"
-	| "refilled: a value of an owner an edit recounts"
 	| "refilled: a value through a copy after an edit"
 	| "refused: a refill reading another refill's change"
+	| "refused: a member's own write reaching another family's value"
 	| "refilled: a predecessor copy"
 	| "refilled: a last copy"
 	| "refused: a refill of a tree's values"
@@ -172,7 +172,9 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 			: stale.changed.by === "put"
 				? "refilled: a value through a copy after a put"
 				: stale.changed.relation === at
-					? "refilled: a value of an owner an edit recounts"
+					? assert.fail(
+							"a written verdict leaves no value an edit's recount reaches in its own relation: the reference refuses it"
+						)
 					: "refilled: a value through a copy after an edit",
 		...((): ReadonlyArray<FillSituation> => {
 			switch (stale.reader.kind) {
@@ -199,7 +201,8 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
  * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
  * is written, noting every value it refills; else refused with StaleDerivedRead naming a refill of an immutable
  * relation's rows the reference names, refills on a cycle the reference finds, a tree whose values the reference
- * finds stale, or a refill whose own change a value reads, at the write a refused refill's path starts from.
+ * finds stale, a refill whose own change a value reads, or a family member's own write reaching a value grizzle
+ * refills only from a plain relation's put, at the write a refused refill's path starts from.
  */
 const judged = (
 	spec: FillSpec,
@@ -281,6 +284,24 @@ const judged = (
 				)
 			}
 			note("refused: a refill reading another refill's change")
+			return
+		case "edit":
+			assert.equal(
+				cause.kind,
+				"edit",
+				`${label}: a member's own write reaching another family's value`
+			)
+			if (cause.kind === "edit") {
+				const reached = cause.family
+				assert.ok(
+					Arr.some(verdict.families, (k) => {
+						const named = familyNamed(spec, k)
+						return named.owner === reached.owner && named.count === reached.count
+					}),
+					`a family the reference finds a member's write reaches, not ${Formatter.format(reached)}: ${Formatter.format(Arr.map(verdict.families, (k) => familyNamed(spec, k)))}`
+				)
+			}
+			note("refused: a member's own write reaching another family's value")
 	}
 }
 
@@ -1331,7 +1352,7 @@ const staleSpec = (shape: StaleShape): FillSpec | undefined => {
  */
 const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refilled: a value through a copy after a put",
-	"refilled: a value of an owner an edit recounts",
+	"refused: a member's own write reaching another family's value",
 	"refilled: a value through a copy after an edit",
 	"refilled: a predecessor copy",
 	"refilled: a last copy",

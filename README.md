@@ -2066,15 +2066,19 @@ narrowed into its column's type unproved.
   families its count and ends. A member's copy of a changed column follows by cascade; a member appended in the same
   ChangeSet takes the new value.
 - **A value drawn from a changed column is refilled.** A fold's step or selection, a predecessor or last copy, and a
-  tree node's copy of its parent's are drawn when their row is written. A write that changes a column one of them reads,
-  on a stored row, through such a copy, or as the count or end of an owner that is itself a member, refills that value's
-  family: the first flight's read finds every group the change reaches along the copies that carry it, and grizzle draws
-  each value there again and rewrites those rows in place, members first, before the change cascades into them, so a
-  fold's CHECK holds at every statement. A value that reads what a refill itself changes, an owner's ends or last copy
-  or a member's predecessor copy or fold, is not refilled in turn: such a change is refused when the ChangeSet compiles
-  (`StaleDerivedRead`, cause `chained`). A tree's values are not refilled either: a node's copy of its parent's, a
-  sibling's predecessor copy or fold, and a parent's ends and last copy are drawn only when the node is written, so a
-  change that reaches one on a stored tree is refused when the ChangeSet compiles (`StaleDerivedRead`, cause `tree`).
+  tree node's copy of its parent's are drawn when their row is written. A put of a relation no family has as a member
+  that changes a column one of them reads, on a stored row, through such a copy, refills that value's family: grizzle
+  finds every group the change reaches along the copies that carry it, draws each value there again and rewrites those
+  rows in place, members first, before the change cascades into them, so a fold's CHECK holds at every statement, and
+  the same ChangeSet may put, delete and append those members too. A family member's own write refills two values only:
+  its re-placed rows' copies that its owned families' members hold, and the copy of a count or an end its own family's
+  stored members hold, which an append recounts. Any other value a member's put, delete or append reaches, through an
+  owner axis or as its owner's count or end, is refused when the ChangeSet compiles (`StaleDerivedRead`, cause `edit`).
+  A value that reads what a refill itself changes, an owner's ends or last copy or a member's predecessor copy or fold,
+  is not refilled in turn: such a change is refused when the ChangeSet compiles (`StaleDerivedRead`, cause `chained`). A
+  tree's values are not refilled either: a node's copy of its parent's, a sibling's predecessor copy or fold, and a
+  parent's ends and last copy are drawn only when the node is written, so a change that reaches one on a stored tree is
+  refused when the ChangeSet compiles (`StaleDerivedRead`, cause `tree`).
 - **A re-placed row is drawn whole.** A put that moves a member to another group or changes what its ordered family
   reads of it, and a delete of an ordered family's member, delete rows and insert them again, which no cascade
   follows. Every family the re-placed rows own is refilled where its members copy a column the ChangeSet changes
@@ -2086,9 +2090,9 @@ narrowed into its column's type unproved.
   elsewhere is `UnsupportedOperation` when it compiles. A refill is refused when the ChangeSet compiles
   (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query states; refills that reach a family
   they refill again; a refill of an immutable relation's rows or an immutable owner's family; a refill of a tree's
-  values; a refill of a value that reads what another refill changes. A role refills only
-  relations it holds whole: the members it rewrites in its `write` list, and every relation the refill's read passes
-  among its entries (`OutsideRole`).
+  values; a refill of a value that reads what another refill changes; a refill of a value a family member's own write
+  reaches beyond the two it refills. A role refills only relations it holds whole: the members it rewrites in its
+  `write` list, and every relation the refill's read passes among its entries (`OutsideRole`).
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later, or an owner you put. A delete of a member of an immutable owner's family and a put of an immutable
   owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
@@ -2941,7 +2945,7 @@ is the server's 42501. Nothing committed. Grant the privilege to the role or to 
 | `FoldOverProjection`                            | the match's `source` and the `key` it must bind for an aggregate to read each row once                   |
 | `QueriedOwnerAppend`                            | an insert or put (`op`), at `at`, of the `owner` from a query beside an append of `member` to its `family` (`{ owner, count }`) |
 | `CascadedCopyAppend`                            | a write (`op`) of `member` of its `family` whose `copy` reads its `owner`'s `through`, which the owner copies from `changed`, a relation the same stratum puts from a query, whose rows grizzle never sees |
-| `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of an immutable owner's family or an immutable relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; or `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes |
+| `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of an immutable owner's family or an immutable relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes; or `{ kind: "edit", family }`, a refill of a value of `family` (`{ owner, count }`) that a family member's own put, delete or append reaches beyond the two values such a write refills |
 | `UnfillableField`                               | the `relation`'s `field`, the `law` filling it, the `source` column it reads along `axis` of its `family`, and why that column is filled `later` |
 | `UnwritableRelation`                            | the `relation` no write fills, and its `cause`                                                           |
 | `UnorderableStratum`                            | the `cycle` of a stratum's writes (`{ relation, op }`: an insert, put or delete, or a family's insert, update or delete of its members' rows or count of its owners), each of which immediate keys order before the next and the last before the first, so no order of the stratum's statements keeps them all |
