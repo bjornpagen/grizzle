@@ -86,7 +86,7 @@ export interface CompiledPage {
  * the builder keeps it inside the attachment and describes it to no one (query/build/state.ts
  * publicDesc), so the page refuses it here as the checker refuses its Description, with AttachedPage.
  */
-export const compilePageTemplate = (
+const compilePageTemplate = (
 	ctx: DbContext,
 	query: unknown
 ): Result.Result<CompiledPage, ReadFailure> =>
