@@ -453,10 +453,11 @@ const sizesOf = (installation: Installation) => {
 	const snapshot = succeeded(
 		finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 	)
+	const files = succeeded(writeSnapshot(snapshot))
 	return {
 		largest: Arr.reduce(sizes, 0, (m, x) => Math.max(m, x)),
 		total: Arr.reduce(sizes, 0, (n, x) => n + x),
-		snapshot: succeeded(writeSnapshot(snapshot)).length
+		snapshot: files.snapshot.length + files.manifest.length
 	}
 }
 

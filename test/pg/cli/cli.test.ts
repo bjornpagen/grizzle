@@ -120,10 +120,13 @@ type CliFeature =
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-const snapshotText = (dir: string, schema: string) =>
+/** The texts of a schema's committed snapshot files. */
+const snapshotFilesOf = (dir: string, schema: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		return yield* fs.readFileString(`${dir}/migrations/${schema}/snapshot.json`)
+		const snapshot = yield* fs.readFileString(`${dir}/migrations/${schema}/snapshot.json`)
+		const manifest = yield* fs.readFileString(`${dir}/migrations/${schema}/manifest.json`)
+		return { snapshot, manifest }
 	})
 
 const foldersOf = (dir: string, schema: string) =>
@@ -131,7 +134,10 @@ const foldersOf = (dir: string, schema: string) =>
 		const fs = yield* FileSystem.FileSystem
 		const entries = yield* fs.readDirectory(`${dir}/migrations/${schema}`)
 		return Arr.sort(
-			Arr.filter(entries, (n) => n !== "snapshot.json" && !Str.startsWith(".")(n)),
+			Arr.filter(
+				entries,
+				(n) => n !== "snapshot.json" && n !== "manifest.json" && !Str.startsWith(".")(n)
+			),
 			Order.String
 		)
 	})
@@ -328,12 +334,12 @@ const configurations = (ctx: TestContext) =>
 								`${name}'s ledger records its own folders`
 							)
 							assert.equal(state.partial, undefined, `${name}'s ledger records no partial folder`)
-							const snapshot = yield* snapshotText(ws, name)
-							assert.equal(state.latest, succeeded(readSnapshot(snapshot)).fingerprint)
+							const files = yield* snapshotFilesOf(ws, name)
+							assert.equal(state.latest, succeeded(readSnapshot(files)).fingerprint)
 							yield* roundTrip(
 								name,
 								defined(sketch.schemas[i], "the schema's fixture"),
-								snapshot,
+								files.snapshot,
 								i + 1
 							)
 							ledgers.push(state)

@@ -266,7 +266,7 @@ const databaseRun = Effect.fn("databaseRun")(function* (options: ColdOptions) {
 		schema: work.schema,
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
-		snapshot: Result.getOrThrow(toResult(writeSnapshot(work.snapshot))),
+		snapshot: Result.getOrThrow(toResult(writeSnapshot(work.snapshot))).snapshot,
 		account: a1,
 		connectTimeoutMs: benchConnectTimeout.value,
 		idleTimeoutMs: benchIdleTimeout.value

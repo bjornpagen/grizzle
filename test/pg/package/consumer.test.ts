@@ -125,7 +125,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const App = declared(installed.declared)
 					const own = fullWorld(App)
 					const snapshot = path.join(published.project, "snapshot.json")
-					yield* fs.writeFileString(snapshot, succeeded(writeSnapshot(installed.snapshot)))
+					yield* fs.writeFileString(snapshot, succeeded(writeSnapshot(installed.snapshot)).snapshot)
 					const program = path.join(published.project, "consumer.mjs")
 					yield* fs.writeFileString(program, consumerProgram)
 					const config = path.join(published.project, "config.json")

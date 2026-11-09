@@ -32,7 +32,7 @@ import {
 	rosterFates
 } from "#compiler/deploy/snapshot/build.ts"
 import { installed } from "#compiler/deploy/snapshot/objects.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { DeploySnapshot, SnapshotFiles } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { draftCodebook, firstCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -838,7 +838,7 @@ const judged = (
 		codes,
 		`${at}: the snapshot records the model's codes`
 	)
-	const read = readBack(draft.snapshotText, at)
+	const read = readBack(draft.snapshotFiles, at)
 	assert.deepEqual(
 		codebookOf(read).rosters.get(roster)?.codes,
 		codes,
@@ -853,9 +853,9 @@ const judged = (
 	return { answer: took, snapshot: read }
 }
 
-/** A snapshot as the next draft reads it: its written text read back, as `grizzle generate` reads snapshot.json. */
-const readBack = (text: string, at: string): DeploySnapshot => {
-	const read = readSnapshot(text)
+/** A snapshot as the next draft reads it: its written files read back, as `grizzle generate` reads them. */
+const readBack = (files: SnapshotFiles, at: string): DeploySnapshot => {
+	const read = readSnapshot(files)
 	if (Result.isFailure(read)) {
 		return assert.fail(`${at}: the written snapshot reads back: ${read.failure.message}`)
 	}
@@ -872,7 +872,7 @@ const firstSnapshot = (): DeploySnapshot => {
 	if (Result.isFailure(drafted)) {
 		return assert.fail(`the first state drafts: ${drafted.failure.message}`)
 	}
-	const snapshot = readBack(drafted.success.draft.snapshotText, "the first state")
+	const snapshot = readBack(drafted.success.draft.snapshotFiles, "the first state")
 	first = snapshot
 	return snapshot
 }

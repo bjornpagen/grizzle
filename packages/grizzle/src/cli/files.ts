@@ -18,31 +18,38 @@ import {
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
-import { metaFileName, type MigrationFolder, snapshotFileName } from "#compiler/plan/migration.ts"
+import {
+	manifestFileName,
+	metaFileName,
+	type MigrationFolder,
+	type SnapshotFiles,
+	snapshotFileName
+} from "#compiler/plan/migration.ts"
 
 /**
  * The migrations directory on disk.
  *
  * Each declared schema has its own directory `<migrations>/<schema>/`, `<schema>` its PostgreSQL schema identifier,
- * holding `snapshot.json` and one folder `<YYYYMMDDHHMMSS>_<name>/` per migration, each with its `meta.json` and its
- * `NN-<phase>.sql` files. The command line owns this filesystem work; the compiler and
- * the apply runner only ever see texts.
+ * holding the snapshot's two files, `snapshot.json` and `manifest.json`, and one folder `<YYYYMMDDHHMMSS>_<name>/` per
+ * migration, each with its `meta.json` and its `NN-<phase>.sql` files. The command line owns this filesystem work; the
+ * compiler and the apply runner only ever see texts.
  *
- * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds snapshot.json and
- * migration folders, a folder holds meta.json and its SQL files, and anything else is refused, except hidden entries
- * (a leading dot), which no generator writes and an editor or the operating system may leave. Writing is atomic per
- * entry: a folder is written whole into a hidden scratch directory beside it and renamed into place, then snapshot.json
- * is replaced by rename, so an interrupted generate leaves either nothing or a complete folder; a complete folder
- * without its snapshot is the one inconsistency left, and the next generate refuses it because the newest folder's
- * target is not snapshot.json's fingerprint (generate.ts).
+ * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds the snapshot's two
+ * files, both or neither, and migration folders, a folder holds meta.json and its SQL files, and anything else is
+ * refused, except hidden entries (a leading dot), which no generator writes and an editor or the operating system may
+ * leave. Writing is atomic per entry: a folder is written whole into a hidden scratch directory beside it and renamed
+ * into place, then manifest.json and snapshot.json are each replaced by rename, so an interrupted generate leaves
+ * either nothing or a complete folder; a complete folder without its snapshot, or the files of two snapshots, are the
+ * inconsistencies left, and the next generate refuses them: the newest folder's target is not snapshot.json's
+ * fingerprint (generate.ts), or the files' fingerprint does not hold (boundary/snapshot.ts readSnapshot).
  */
 export interface SchemaTree {
 	readonly directory: string
 	/**
-	 * The text of snapshot.json, or none before the schema's first drafted migration: the empty snapshot is never a
-	 * file.
+	 * The texts of snapshot.json and manifest.json, or none before the schema's first drafted migration: the empty
+	 * snapshot is no file.
 	 */
-	readonly snapshotText: Option.Option<string>
+	readonly snapshotFiles: Option.Option<SnapshotFiles>
 	/** Every migration folder, in name order. */
 	readonly folders: ReadonlyArray<FolderSource>
 }
@@ -109,19 +116,19 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
 		if (!(yield* fs.exists(directory))) {
-			const empty: SchemaTree = { directory, folders: [], snapshotText: Option.none() }
+			const empty: SchemaTree = { directory, folders: [], snapshotFiles: Option.none() }
 			return empty
 		}
 		if ((yield* entryType(fs, directory)) !== "Directory") {
 			return yield* strayIn(schema, { kind: "notDirectory", directory })
 		}
-		let snapshotText = Option.none<string>()
+		const snapshotTexts = new Map<string, string>()
 		const folders: Array<FolderSource> = []
 		for (const entry of yield* visibleEntries(fs, directory)) {
 			const type = yield* entryType(fs, path.join(directory, entry))
-			if (entry === snapshotFileName && type === "File") {
+			if ((entry === snapshotFileName || entry === manifestFileName) && type === "File") {
 				const text = yield* fs.readFileString(path.join(directory, entry))
-				snapshotText = Option.some(text)
+				snapshotTexts.set(entry, text)
 				continue
 			}
 			if (type !== "Directory") {
@@ -130,7 +137,25 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 			const folder = yield* readFolder(schema, directory, entry)
 			folders.push(folder)
 		}
-		const tree: SchemaTree = { directory, folders, snapshotText }
+		const snapshot = snapshotTexts.get(snapshotFileName)
+		const manifest = snapshotTexts.get(manifestFileName)
+		if (snapshot === undefined && manifest === undefined) {
+			const unsnapshotted: SchemaTree = { directory, folders, snapshotFiles: Option.none() }
+			return unsnapshotted
+		}
+		if (snapshot === undefined || manifest === undefined) {
+			return yield* strayIn(schema, {
+				kind: "halfSnapshot",
+				directory,
+				present: snapshot === undefined ? manifestFileName : snapshotFileName,
+				missing: snapshot === undefined ? snapshotFileName : manifestFileName
+			})
+		}
+		const tree: SchemaTree = {
+			directory,
+			folders,
+			snapshotFiles: Option.some({ snapshot, manifest })
+		}
 		return tree
 	},
 	(effect, schema, directory) =>
@@ -201,17 +226,27 @@ export const writeFolder = Effect.fn("writeFolder")(
 )
 
 /**
- * Replaces the schema's snapshot.json by rename; returns its path.
+ * Replaces the schema's manifest.json and then its snapshot.json, each by rename; returns their paths. snapshot.json,
+ * which records the fingerprint over both, is replaced last, so an interrupted write leaves the files of two snapshots,
+ * whose fingerprint does not hold, and the next generate refuses them.
  */
-export const writeSnapshotFile = Effect.fn("writeSnapshotFile")(
+export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 	function* (
-		...[, directory, text]: [schema: string, directory: string, text: string]
-	): Effect.fn.Return<string, PlatformError.PlatformError, FileSystem.FileSystem | Path.Path> {
+		...[, directory, files]: [schema: string, directory: string, files: SnapshotFiles]
+	): Effect.fn.Return<
+		ReadonlyArray<string>,
+		PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path
+	> {
 		const fs = yield* FileSystem.FileSystem
 		yield* fs.makeDirectory(directory, { recursive: true })
-		return yield* writeAtomically(directory, snapshotFileName, (scratch) =>
-			fs.writeFileString(scratch, text)
+		const manifest = yield* writeAtomically(directory, manifestFileName, (scratch) =>
+			fs.writeFileString(scratch, files.manifest)
 		)
+		const snapshot = yield* writeAtomically(directory, snapshotFileName, (scratch) =>
+			fs.writeFileString(scratch, files.snapshot)
+		)
+		return [manifest, snapshot]
 	},
 	(effect, schema) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>

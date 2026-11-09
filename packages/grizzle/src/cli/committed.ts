@@ -23,23 +23,23 @@ import {
 } from "#compiler/plan/migration.ts"
 
 /**
- * A schema's committed migration state as the command line reads it: its snapshot.json and its folders.
+ * A schema's committed migration state as the command line reads it: its snapshot's two files and its folders.
  *
- * The snapshot is read by the generator's own reader, which trusts it once its fingerprint holds. A schema without snapshot.json is at
+ * The snapshot is read by the generator's own reader, which trusts it once its fingerprint holds. A schema without them is at
  * its empty snapshot, whose fingerprint depends on the installed schema identifier alone (snapshot/build.ts
  * emptySnapshot): the empty snapshot is never a file. The snapshot must be the configured schema's: its PostgreSQL
  * schema and declared name are the configuration's. It names no owner: the migration identity is whoever connects.
  *
- * The snapshot the schema's directory commits, or its empty snapshot when it has no snapshot.json.
+ * The snapshot the schema's directory commits, or its empty snapshot when it has neither snapshot file.
  */
 export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	schema: ConfiguredSchema,
 	tree: SchemaTree
 ): Effect.fn.Return<DeploySnapshot, CliError> {
-	if (Option.isNone(tree.snapshotText)) {
+	if (Option.isNone(tree.snapshotFiles)) {
 		return emptySnapshot({ schemaName: schema.root, schema: schema.ident })
 	}
-	const read = readSnapshot(tree.snapshotText.value)
+	const read = readSnapshot(tree.snapshotFiles.value)
 	if (Result.isFailure(read)) {
 		return yield* cliError(
 			new SnapshotUnreadable({

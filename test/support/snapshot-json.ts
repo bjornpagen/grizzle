@@ -12,4 +12,4 @@ export const snapshotJson = (text: string): { readonly fingerprint: string } =>
 
 /** The JSON value of the snapshot.json `grizzle generate` writes for `snapshot`: what an application gives DbLayer.make. */
 export const snapshotValue = (snapshot: DeploySnapshot): { readonly fingerprint: string } =>
-	snapshotJson(succeeded(writeSnapshot(snapshot), "the installation's snapshot.json"))
+	snapshotJson(succeeded(writeSnapshot(snapshot), "the installation's snapshot files").snapshot)

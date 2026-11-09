@@ -50,7 +50,12 @@ import {
 import { customMigration, generateMigration } from "#compiler/deploy/render/generate.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import {
+	type DeploySnapshot,
+	manifestFileName,
+	type SnapshotFiles,
+	snapshotFileName
+} from "#compiler/deploy/snapshot/types.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -1010,21 +1015,26 @@ const foldersOnDisk = (r: Workspace, s: SchemaState) =>
 		}
 		const entries = yield* fs.readDirectory(dir)
 		return Arr.sort(
-			Arr.filter(entries, (n) => n !== snapshotFileName && !Str.startsWith(".")(n)),
+			Arr.filter(
+				entries,
+				(n) => n !== snapshotFileName && n !== manifestFileName && !Str.startsWith(".")(n)
+			),
 			Order.String
 		)
 	})
 
-/** The text of a schema's snapshot.json, none where it holds none. */
-const snapshotTextOf = (r: Workspace, s: SchemaState) =>
+/** The texts of a schema's snapshot files, none where it holds none: generate writes snapshot.json and manifest.json
+ * together. */
+const snapshotFilesOf = (r: Workspace, s: SchemaState) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		const file = `${directoryOf(r, s)}/${snapshotFileName}`
-		if (s.blocked || !(yield* fs.exists(file))) {
-			return Option.none<string>()
+		const directory = directoryOf(r, s)
+		if (s.blocked || !(yield* fs.exists(`${directory}/${snapshotFileName}`))) {
+			return Option.none<SnapshotFiles>()
 		}
-		const text = yield* fs.readFileString(file)
-		return Option.some(text)
+		const snapshot = yield* fs.readFileString(`${directory}/${snapshotFileName}`)
+		const manifest = yield* fs.readFileString(`${directory}/${manifestFileName}`)
+		return Option.some({ snapshot, manifest })
 	})
 
 /** The SQL files of a folder of a schema, by name, with their texts. */
@@ -1127,7 +1137,7 @@ const statusOf = (answer: Answer<Refusal>): number =>
  */
 const oracleDraft = (
 	spec: SchemaSpec,
-	previousText: Option.Option<string>,
+	previousText: Option.Option<SnapshotFiles>,
 	naming: FolderNaming,
 	timestamp: string,
 	declared: Declarations,
@@ -1136,7 +1146,7 @@ const oracleDraft = (
 	const b = builtOf(spec)
 	const previous: DeploySnapshot = Option.match(previousText, {
 		onNone: () => emptySnapshot({ schemaName: spec.name, schema: identOf(spec.name) }),
-		onSome: (text) => succeeded(readSnapshot(text), "the committed snapshot")
+		onSome: (files) => succeeded(readSnapshot(files), "the committed snapshot")
 	})
 	const plan = succeeded(
 		compileTestWorkload(
@@ -1214,7 +1224,7 @@ const runGenerate = (
 	Effect.gen(function* () {
 		const argv = generateArgv(before, p)
 		const listed = yield* contents(r)
-		const previous = yield* Effect.forEach(before.schemas, (s) => snapshotTextOf(r, s))
+		const previous = yield* Effect.forEach(before.schemas, (s) => snapshotFilesOf(r, s))
 		const ran = yield* cliOver(r.dir, configOf(before), argv, instantOf(before.clock + p.advance))
 		const answer = answerOf(ran)
 		assert.equal(ran.code, statusOf(answer), `grizzle ${Arr.join(argv, " ")}: ${ran.stderr}`)
@@ -1263,7 +1273,7 @@ const runGenerate = (
 		}
 		for (const [i, s] of after.schemas.entries()) {
 			const was = defined(before.schemas[i], "a schema before")
-			const text = yield* snapshotTextOf(r, s)
+			const text = yield* snapshotFilesOf(r, s)
 			const previousText = defined(previous[i], "a schema's committed snapshot")
 			if (!Arr.contains(written, i)) {
 				assert.deepEqual(text, previousText, `${s.current.name}'s snapshot.json stands`)
@@ -1321,7 +1331,7 @@ const runGenerate = (
 			)
 			assert.equal(name, draft.folder.name)
 			yield* confirmFolder(dir, draft.folder)
-			assert.deepEqual(text, Option.some(draft.snapshotText), "snapshot.json is the draft's")
+			assert.deepEqual(text, Option.some(draft.snapshotFiles), "the snapshot's files are the draft's")
 			const placeholders = Arr.flatMap(draft.folder.files, (f) =>
 				Arr.filter(findMarkers(f.text), (m) => m.kind === "placeholder")
 			).length

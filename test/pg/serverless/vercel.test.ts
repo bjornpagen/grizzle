@@ -76,7 +76,7 @@ const shopUnder = (name: string) => {
 				workload: noWorkload
 			}),
 			"the shop's first migration"
-		).snapshotText
+		).snapshotFiles.snapshot
 	)
 	return { app, worker: login(shop, "worker", [app]), snapshot }
 }

@@ -20,7 +20,7 @@ import { refusalText } from "#cli/refusals.ts"
 import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -219,7 +219,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									const schemaDir = `migrations/${headNonEmpty(owned.levels).installation.identifier}`
 									const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									const folder = `${schemaDir}/${defined(
-										Arr.filter(entries, (n) => n !== snapshotFileName)[0],
+										Arr.filter(entries, (n) => n !== snapshotFileName && n !== manifestFileName)[0],
 										"the drafted folder"
 									)}`
 									const named = yield* fs.readDirectory(`${ws}/${folder}`)

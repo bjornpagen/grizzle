@@ -371,7 +371,7 @@ const migrates = (h: History) =>
 				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 				pool: clusterPool,
 				login,
-				snapshot: snapshotJson(committed.snapshotText),
+				snapshot: snapshotJson(committed.snapshotFiles.snapshot),
 				verify: testVerify
 			})
 			for (const role of Rec.values(login.roles)) {

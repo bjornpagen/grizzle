@@ -410,7 +410,7 @@ const realizeWith = (
 			declared: noDeclarations
 		})
 		const earlier = earlierDraft.ok
-			? snapshotJson(earlierDraft.value.snapshotText)
+			? snapshotJson(earlierDraft.value.snapshotFiles.snapshot)
 			: yield* Effect.die(earlierDraft.error)
 		/**
 		 * The current version, and the snapshot.json an older release of the installation had, which the ledger has
@@ -464,7 +464,7 @@ const realizeWith = (
 			declared: noDeclarations
 		})
 		const foreign = foreignDraft.ok
-			? snapshotJson(foreignDraft.value.snapshotText)
+			? snapshotJson(foreignDraft.value.snapshotFiles.snapshot)
 			: yield* Effect.die(foreignDraft.error)
 
 		/**

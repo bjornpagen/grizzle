@@ -112,7 +112,7 @@ export default defineConfig({
    drift check judges what it built.
 5. Run `grizzle check grizzle.config.ts` until it passes. It prints `<schema>: ok (<n> migrations, snapshot
    <fingerprint>)`.
-6. Commit the folder and `snapshot.json`.
+6. Commit the folder, `snapshot.json` and `manifest.json`.
 7. Run `grizzle migrate grizzle.config.ts` from CI or the deploy, where its connection reaches the database. It prints
    `<schema>: applied <n> migrations, now at <fingerprint>` and each folder's files, or `<schema>: up to date at
    <fingerprint>`.
@@ -278,11 +278,12 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
 
 ## Never edit
 
-- `snapshot.json`: it is the diff base, and its fingerprint is what every `Db` transaction and the drift check compare
-  with.
-  `check` says: snapshot.json does not decode as a snapshot, or is the snapshot of another schema; restore it from
-  git. It lists each installed statement compact on a line of its own, so a review of its diff reads each changed
-  statement as one changed line.
+- `snapshot.json` and `manifest.json`: together they are the diff base, one snapshot under the fingerprint
+  `snapshot.json` records, which every `Db` transaction and the drift check compare with. The app imports
+  `snapshot.json` alone; `manifest.json` holds the rest, which only `generate`, `check`, `drift` and `migrate` read.
+  `check` says: snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema;
+  restore them from git. They list each installed statement compact on a line of its own, so a review of their diff
+  reads each changed statement as one changed line.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, and every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
   every reviewed file against. `check` says: meta.json does not decode as a
@@ -326,7 +327,7 @@ schema or workload that does not compile) are `check`'s alone.
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
-| snapshot.json does not decode as a snapshot, or is the snapshot of another schema | restore it from git |
+| snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema | restore them from git |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
 | broken chain: the newest migration does not reach snapshot.json | regenerate; never hand-edit meta.json |
@@ -385,7 +386,7 @@ The command line's own refusals, by stage:
 | config | fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } }) |
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
-| snapshot | restore snapshot.json and the migration folders from git |
+| snapshot | restore snapshot.json, manifest.json and the migration folders from git |
 | codes | append new handles; a roster's order is its codes' order |
 | generate | fix the schema or workload it names, then run grizzle generate again |
 

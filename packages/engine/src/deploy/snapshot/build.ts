@@ -8,7 +8,7 @@ import {
 	withoutSourceLocs,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -19,7 +19,7 @@ import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
-import { isList } from "#compiler/core/record.ts"
+import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
@@ -28,15 +28,18 @@ import {
 	ledgerPrivilegesObject
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
-import type {
-	DeploySnapshot,
-	SnapshotContent,
-	SnapshotField,
-	SnapshotLaw,
-	SnapshotLevel,
-	SnapshotRelation,
-	SnapshotTheory,
-	SnapshotWriting
+import {
+	type DeploySnapshot,
+	manifestFileName,
+	type SnapshotContent,
+	type SnapshotFiles,
+	snapshotFileName,
+	type SnapshotField,
+	type SnapshotLaw,
+	type SnapshotLevel,
+	type SnapshotRelation,
+	type SnapshotTheory,
+	type SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { rosterCodebook } from "#compiler/deploy/snapshot/served.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -631,8 +634,16 @@ const codesForm = (codes: RosterCodes): FormOf<never> =>
 		slot.kind === "live" ? { kind: slot.kind, handle: slot.handle } : { kind: slot.kind }
 	)
 
+/** What every relation's record of the theory states: its kind, ident, mutability and level. */
+const relationHead = (r: SnapshotRelation): SnapshotForm => ({
+	kind: r.kind,
+	ident: r.ident,
+	mutable: r.mutable,
+	level: r.level
+})
+
 const relationForm = (r: SnapshotRelation): SnapshotForm => {
-	const of = { kind: r.kind, ident: r.ident, mutable: r.mutable, level: r.level }
+	const of = relationHead(r)
 	switch (r.kind) {
 		case "derived":
 			return of
@@ -664,11 +675,28 @@ const valuesForm = <V>(
 ): SnapshotForm =>
 	Object.fromEntries(Object.entries(record).map(([key, value]) => [key, form(value)] as const))
 
-const theoryForm = (t: SnapshotTheory): SnapshotForm => ({
+/** A relation's record as manifest.json writes it: a roster's without its codes, which snapshot.json holds
+ * (rostersForm), any other's whole. */
+const laidOutRelationForm = (r: SnapshotRelation): SnapshotForm =>
+	r.kind === "closed" ? relationHead(r) : relationForm(r)
+
+/** The theory's form, each relation's record written by `relation`. */
+const theoryForm = (
+	t: SnapshotTheory,
+	relation: (r: SnapshotRelation) => SnapshotForm
+): SnapshotForm => ({
 	schema: t.schema,
-	relations: valuesForm(t.relations, relationForm),
+	relations: valuesForm(t.relations, relation),
 	laws: valuesForm(t.laws, lawForm)
 })
+
+/** Each roster's codes, by its declared name, as snapshot.json writes them. */
+const rostersForm = (t: SnapshotTheory): SnapshotForm =>
+	Object.fromEntries(
+		Object.entries(t.relations).flatMap(([name, r]) =>
+			r.kind === "closed" ? [[name, codesForm(r.codes)] as const] : []
+		)
+	)
 
 const reasonForm = (r: PhysicalReason): SnapshotForm => {
 	switch (r.kind) {
@@ -728,28 +756,45 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 	}))
 })
 
-/** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint. */
-const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
-	schemaName: c.schemaName,
-	schema: c.schema,
-	levels: c.levels.map((l): RecordOf<S> => ({
+const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): FormOf<S> =>
+	levels.map((l): RecordOf<S> => ({
 		name: l.name,
 		schema: l.schema,
 		fingerprint: l.fingerprint,
 		laws: l.laws.map(units.law)
-	})),
-	theory: theoryForm(c.theory),
+	}))
+
+/** The members of the content manifest.json holds, the theory's relations written by `relation`: every member but
+ * the ones snapshot.json holds (runtimeForm). */
+const migrationForm = <S>(
+	c: SnapshotContent,
+	units: Units<S>,
+	relation: (r: SnapshotRelation) => SnapshotForm
+): RecordOf<S> => ({
+	schemaName: c.schemaName,
+	schema: c.schema,
+	theory: theoryForm(c.theory, relation),
 	manifest: manifestForm(c.manifest, units),
-	constraintToLaw: c.constraintToLaw,
 	logins: valuesForm(c.logins, (l): SnapshotForm => ({ role: l.role })),
 	workload: valuesForm(c.workload, (programs) => valuesForm(programs, accessForm)),
 	accessPaths: c.accessPaths.map(requestForm)
 })
 
-/** The JSON form of a snapshot: its content's, with its fingerprint. */
-const snapshotForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
-	...contentForm(s, units),
-	fingerprint: s.fingerprint
+/** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint, the one value the
+ * fingerprint digests, whichever file holds each member. */
+const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
+	...migrationForm(c, units, relationForm),
+	levels: levelsForm(c.levels, units),
+	constraintToLaw: c.constraintToLaw
+})
+
+/** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the
+ * constraint-to-law map and each roster's codes (`rosters`), which manifest.json's theory records without. */
+const runtimeForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
+	fingerprint: s.fingerprint,
+	levels: levelsForm(s.levels, units),
+	constraintToLaw: s.constraintToLaw,
+	rosters: rostersForm(s.theory)
 })
 
 /** The finished snapshot: the target state, fingerprinted. */
@@ -844,16 +889,69 @@ const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: s
 	return nestedValue(out, head, value, tail, formValue)
 }
 
-/** The text of snapshot.json. The file `migrations/<schema>/snapshot.json` is the snapshot's canonical JSON form,
- * written with object keys in code point order and indented by tabs for review, each installed statement compact on a
- * line of its own, so a changed statement is one changed line and the same snapshot is the same bytes on every machine.
- * The layout is the writer's: the fingerprint digests the form's canonical text, which no layout changes. */
-export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, CompileError> =>
-	catchRefusal(() =>
-		valueOf(
-			textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
-				formValue(out, "", snapshotForm(snapshot, asLines), "")
-				out.line("")
-			})
-		)
+/** A snapshot file's text of its form: written with object keys in code point order and indented by tabs for review,
+ * each installed statement compact on a line of its own (formValue), ending in a newline. */
+const fileText = (form: RecordOf<CompactLine>): string =>
+	valueOf(
+		textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
+			formValue(out, "", form, "")
+			out.line("")
+		})
 	)
+
+/** The texts of a snapshot's two files in `migrations/<schema>/`: snapshot.json, what an application imports
+ * (runtimeForm), and manifest.json, every other member (migrationForm), each member in one of them. Together they are
+ * the snapshot's canonical JSON form laid out for review, so a changed statement is one changed line and the same
+ * snapshot is the same bytes on every machine. The layout is the writer's: the fingerprint digests the content's
+ * canonical text (contentForm), which no layout changes, and joinedSnapshot puts the two back together. */
+export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<SnapshotFiles, CompileError> =>
+	catchRefusal(() => ({
+		snapshot: fileText(runtimeForm(snapshot, asLines)),
+		manifest: fileText(migrationForm(snapshot, asLines, laidOutRelationForm))
+	}))
+
+/** A member a snapshot file must hold that it does not: no pair grizzle wrote. */
+const unjoined = (file: string, at: ReadonlyArray<string>, what: string): CompileError =>
+	malformedArtifact("snapshot", at, `${file} ${what}`)
+
+/**
+ * The JSON form of a whole snapshot from the JSON values of its two files, the layout writeSnapshot writes undone:
+ * manifest.json's members and snapshot.json's, which share none, each roster's codes put back into the record of the
+ * theory manifest.json holds for it. A pair that does not join so is none grizzle wrote, refused as MalformedArtifact;
+ * what joins is trusted only once its fingerprint holds over the whole (the shell's boundary/snapshot.ts).
+ */
+export const joinedSnapshot = (
+	runtime: unknown,
+	migration: unknown
+): Result.Result<Readonly<Record<string, unknown>>, CompileError> => {
+	if (!isRecord(runtime)) {
+		return Result.err(unjoined(snapshotFileName, [], "holding an object"))
+	}
+	if (!isRecord(migration)) {
+		return Result.err(unjoined(manifestFileName, [], "holding an object"))
+	}
+	const { rosters, ...served } = runtime
+	const theory = migration["theory"]
+	const relations = isRecord(theory) ? theory["relations"] : undefined
+	if (!isRecord(rosters)) {
+		return Result.err(unjoined(snapshotFileName, ["rosters"], "recording each roster's codes"))
+	}
+	if (!isRecord(theory) || !isRecord(relations)) {
+		return Result.err(unjoined(manifestFileName, ["theory", "relations"], "recording the theory's relations"))
+	}
+	const shared = Object.keys(served).find((key) => Object.hasOwn(migration, key))
+	if (shared !== undefined) {
+		return Result.err(unjoined(manifestFileName, [shared], "holding no member snapshot.json holds"))
+	}
+	const joined: Record<string, unknown> = { ...relations }
+	for (const [name, codes] of Object.entries(rosters)) {
+		const relation = relations[name]
+		if (!isRecord(relation) || relation["kind"] !== "closed" || Object.hasOwn(relation, "codes")) {
+			return Result.err(
+				unjoined(manifestFileName, ["theory", "relations", name], "recording the roster whose codes snapshot.json holds")
+			)
+		}
+		joined[name] = { ...relation, codes }
+	}
+	return Result.ok({ ...migration, ...served, theory: { ...theory, relations: joined } })
+}

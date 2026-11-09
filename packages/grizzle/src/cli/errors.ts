@@ -2,7 +2,12 @@ import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
-import { maxMigrationNameLength, metaFileName, snapshotFileName } from "#compiler/plan/migration.ts"
+import {
+	manifestFileName,
+	maxMigrationNameLength,
+	metaFileName,
+	snapshotFileName
+} from "#compiler/plan/migration.ts"
 
 /**
  * The failure of a `grizzle` command outside the apply runner.
@@ -365,12 +370,19 @@ export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
 
 /**
  * The migrations directory of `schema` holds what no generator writes: `directory`, its directory, is no directory; it
- * holds `entry`, neither snapshot.json nor a migration folder; or the migration folder at `folder` has no meta.json, or
- * holds `entry`, which is no file.
+ * holds `entry`, neither a snapshot file nor a migration folder; it holds one of the snapshot's two files, `present`,
+ * without the other, `missing`, which generate writes together; or the migration folder at `folder` has no meta.json,
+ * or holds `entry`, which is no file.
  */
 type TreeFault =
 	| { readonly kind: "notDirectory"; readonly directory: string }
 	| { readonly kind: "strayEntry"; readonly directory: string; readonly entry: string }
+	| {
+			readonly kind: "halfSnapshot"
+			readonly directory: string
+			readonly present: string
+			readonly missing: string
+	  }
 	| { readonly kind: "noMeta"; readonly folder: string }
 	| { readonly kind: "notAFile"; readonly folder: string; readonly entry: string }
 
@@ -384,7 +396,9 @@ export class TreeRefused extends Data.TaggedError("TreeRefused")<{
 			case "notDirectory":
 				return `${fault.directory} is not a directory; it is schema ${this.schema}'s migrations directory`
 			case "strayEntry":
-				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName} nor a migration folder`
+				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName}, ${manifestFileName} nor a migration folder`
+			case "halfSnapshot":
+				return `${fault.directory} holds ${fault.present} without ${fault.missing}; grizzle generate writes the two together, so restore ${fault.missing} from version control`
 			case "noMeta":
 				return `migration folder ${fault.folder} has no ${metaFileName}; every drafted folder has one`
 			case "notAFile":
@@ -425,13 +439,13 @@ export class FolderUnwritten extends Data.TaggedError("FolderUnwritten")<{
 	}
 }
 
-/** The snapshot.json of `schema` could not be written, for `cause`. */
+/** The snapshot's files of `schema`, snapshot.json and manifest.json, could not be written, for `cause`. */
 export class SnapshotUnwritten extends Data.TaggedError("SnapshotUnwritten")<{
 	readonly schema: string
 	readonly cause: Error
 }> {
 	override get message(): string {
-		return `${snapshotFileName} of ${this.schema} could not be written${codeOf(this.cause)}`
+		return `${snapshotFileName} and ${manifestFileName} of ${this.schema} could not be written${codeOf(this.cause)}`
 	}
 }
 
@@ -448,14 +462,14 @@ export class MigrationsUnread extends Data.TaggedError("MigrationsUnread")<{
 	}
 }
 
-/** The snapshot.json of `schema` in `directory` does not decode as a snapshot, for `error`. */
+/** The snapshot.json and manifest.json of `schema` in `directory` do not decode as a snapshot, for `error`. */
 export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
 	readonly schema: string
 	readonly directory: string
 	readonly error: CompileError
 }> {
 	override get message(): string {
-		return `${this.directory}/snapshot.json is not a snapshot the generator wrote: ${compileReasonText(this.error.reason)}`
+		return `${this.directory}/${snapshotFileName} and ${manifestFileName} are not a snapshot the generator wrote: ${compileReasonText(this.error.reason)}`
 	}
 }
 

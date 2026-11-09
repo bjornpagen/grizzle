@@ -1378,7 +1378,7 @@ export const WebLayer = DbLayer.make({
 })
 ```
 
-`DbLayer.make` builds one login's connection pool, which serves every role of the login. It takes the `snapshot.json` that `grizzle generate` writes ([Migrating and deploying](#migrating-and-deploying)), and the connection:
+`DbLayer.make` builds one login's connection pool, which serves every role of the login. It takes the `snapshot.json` that `grizzle generate` writes ([Migrating and deploying](#migrating-and-deploying)), the part of the snapshot an app reads (the `manifest.json` beside it is for `grizzle` alone), and the connection:
 
 - `driver`: the `pg` you import.
 - `transport`: how each connection reaches the server. `open` makes a new, unconnected socket, which pg connects to `host` and `port`; then come an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca` and naming `servername`. `host` is a name or an IP address, never a Unix socket's path, since PostgreSQL offers no TLS over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own connection the same way.
@@ -1514,7 +1514,7 @@ Each piece is PostgreSQL's to enforce or TypeScript's to check, so the guarantee
 Before the app's first request, install the schema. `grizzle.config.ts` names `Blog`, both logins, the migrations directory and the connection of the role that owns the database; [Migrations](#migrations) shows it in full. Then:
 
 ```sh
-pnpm exec grizzle generate grizzle.config.ts   # draft migrations/blog/<timestamp>_<name>/ and snapshot.json
+pnpm exec grizzle generate grizzle.config.ts   # draft migrations/blog/<timestamp>_<name>/, snapshot.json, manifest.json
 pnpm exec grizzle check grizzle.config.ts      # offline: generated, resolved and untampered?
 pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the owner
 ```
@@ -2482,7 +2482,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   The root's schema also holds what belongs to the whole installation: the migrations ledger, the contract and text
   domains, the constants and grizzle's functions. Every reference across schemas is qualified.
 - **One installation.** The config lists `Ledger`, its top level, and both levels install together: one migrations
-  directory, `migrations/qti/`, named by the root, one `snapshot.json` recording each level and one ledger. A migration
+  directory, `migrations/qti/`, named by the root, one snapshot recording each level and one ledger. A migration
   spans every level, so a change of `Qti` that a view or foreign key of `Ledger` reads drops and recreates it in one
   transaction, and a rename of a `Qti` table or field reaches `Ledger`'s foreign keys and views in place. A level added
   on top later is the next migration of the same installation. A relation moved to another level is a new table there:
@@ -2577,9 +2577,12 @@ markers, run `grizzle check grizzle.config.ts`, commit, and run `grizzle migrate
 deploy.
 
 - **Drafted from a snapshot, never from a live database.** `generate` compares your schemas, their roles and logins,
-  and every login's workloads with the committed `migrations/<root>/snapshot.json`, and writes the new snapshot and
-  a folder `migrations/<root>/<timestamp>_<name>/` of numbered SQL files and a `meta.json`, `<root>` the PostgreSQL
-  schema of the installation's root level.
+  and every login's workloads with the committed snapshot, and writes the new snapshot and a folder
+  `migrations/<root>/<timestamp>_<name>/` of numbered SQL files and a `meta.json`, `<root>` the PostgreSQL schema of
+  the installation's root level. A snapshot is two files in `migrations/<root>/`, one value under the one fingerprint
+  `snapshot.json` records: `snapshot.json`, what an app imports for `DbLayer.make` (the fingerprint, the levels, the
+  constraints' laws and the rosters' codes), and `manifest.json`, the rest, which only `generate`, `check`, `drift`
+  and `migrate` read. Commit both.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
   caller writes: by a cast, or by the expression you write at a `-- grizzle: placeholder` marker, which also asks for
@@ -2639,7 +2642,7 @@ deploy.
   snapshot.
 - **`check` reads no database.** It reports, each with its fix, a schema change you haven't generated, a drop no
   declaration names, a workload program whose index needs differ from the snapshot's (naming it), an unresolved marker
-  or data loss, and an edited `snapshot.json` or `meta.json`.
+  or data loss, and an edited `snapshot.json`, `manifest.json` or `meta.json`.
 - **`migrate`** connects as the role that owns the schema and the database, applies the pending files, records each in
   the schema's ledger, and refuses an applied file edited, removed or added since. Then it refuses drift, a database
   that is not exactly the snapshot's, so on a database changed by hand it applies its files, then refuses. `drift`
@@ -2925,8 +2928,8 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 Build each `DbLayer` once per process. Building it parses the snapshot, compiles the login's roles and every workload
 program for every role it runs on (the compilation `grizzle generate` ran), and checks the workloads' index needs
-against the snapshot. It trusts the snapshot's recorded fingerprint: `grizzle check` and `grizzle migrate` refuse a
-snapshot.json edited by hand. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse, a schema
+against the snapshot. It reads `snapshot.json` alone and trusts its recorded fingerprint: `grizzle check` and `grizzle
+migrate` refuse a `snapshot.json` or `manifest.json` edited by hand. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse, a schema
 that is not the snapshot's, a role or program that does not compile, or a workload program added,
 renamed, removed or changed since `grizzle generate`; the error names the program and says to run `grizzle generate`.
 

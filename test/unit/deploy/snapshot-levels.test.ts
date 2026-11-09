@@ -167,8 +167,8 @@ describe("snapshot.json", () => {
 							const snapshot = succeeded(
 								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
 							)
-							const text = succeeded(writeSnapshot(snapshot))
-							const read = succeeded(readSnapshot(text))
+							const files = succeeded(writeSnapshot(snapshot))
+							const read = succeeded(readSnapshot(files))
 							const lawsOf = (levels: typeof snapshot.levels) =>
 								Arr.map(levels, (l) => Arr.map(l.laws, (law) => law.law))
 							const codesOf = (book: ReturnType<typeof codebookOf>) =>
@@ -176,7 +176,7 @@ describe("snapshot.json", () => {
 							assert.equal(read.fingerprint, snapshot.fingerprint)
 							assert.deepEqual(lawsOf(read.levels), lawsOf(snapshot.levels))
 							for (const level of read.levels.keys()) {
-								const served = succeeded(parseSnapshot(snapshotJson(text), level))
+								const served = succeeded(parseSnapshot(snapshotJson(files.snapshot), level))
 								assert.equal(served.fingerprint, read.fingerprint)
 								assert.deepEqual(
 									served.schemas,

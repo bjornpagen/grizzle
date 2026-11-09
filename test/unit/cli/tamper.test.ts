@@ -20,7 +20,7 @@ import { decodeMeta } from "#adapter/boundary/meta.ts"
 import type { CliStage } from "#cli/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import {
 	cli,
 	cliClock,
@@ -41,7 +41,8 @@ const nextNow = cliClock()
  * tampered entry, and check reports it.
  *
  * A case takes a committed directory of one or two drafted migrations and tampers with one entry, the newest or the
- * oldest folder where the tampering applies to either: snapshot.json replaced by another schema's or removed;
+ * oldest folder where the tampering applies to either: the snapshot's files replaced by another schema's or removed,
+ * or manifest.json removed from beside snapshot.json;
  * a folder renamed out of `<YYYYMMDDHHMMSS>_<name>`, removed, or holding a directory; a meta.json removed, malformed,
  * naming another schema, or breaking the chain (a source that is no previous target); a stray
  * file beside the folders. `grizzle generate` must refuse at the stage that reads the
@@ -51,6 +52,7 @@ const nextNow = cliClock()
 type Kind =
 	| "snapshot of another schema"
 	| "snapshot removed"
+	| "manifest.json removed"
 	| "folder misnamed"
 	| "folder removed"
 	| "directory in a folder"
@@ -63,6 +65,7 @@ type Kind =
 const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"snapshot of another schema",
 	"snapshot removed",
+	"manifest.json removed",
 	"folder misnamed",
 	"folder removed",
 	"directory in a folder",
@@ -156,20 +159,20 @@ const tamper = (c: Case, dir: string, other: string) =>
 		const schema = `${dir}/${schemaDir}`
 		const entries = yield* fs.readDirectory(schema)
 		const folders = Arr.sort(
-			Arr.filter(entries, (n) => n !== snapshotFileName),
+			Arr.filter(entries, (n) => n !== snapshotFileName && n !== manifestFileName),
 			Order.String
 		)
 		const newest = folderAt(Arr.last(folders))
 		const oldest = folderAt(Arr.head(folders))
 		const folder = c.newest ? newest : oldest
 		const snapshot = `${schema}/${snapshotFileName}`
+		const manifest = `${schema}/${manifestFileName}`
 		const meta = `${schema}/${newest}/${metaFileName}`
 		switch (c.kind) {
 			case "snapshot of another schema": {
-				yield* fs.copyFile(
-					`${other}/migrations/${identifierOf(identity.schema(parsedSchemaName("TamperOther")))}/${snapshotFileName}`,
-					snapshot
-				)
+				const others = `${other}/migrations/${identifierOf(identity.schema(parsedSchemaName("TamperOther")))}`
+				yield* fs.copyFile(`${others}/${snapshotFileName}`, snapshot)
+				yield* fs.copyFile(`${others}/${manifestFileName}`, manifest)
 				const tampered: Tampered = {
 					names: "TamperOther",
 					stage: "snapshot",
@@ -179,7 +182,17 @@ const tamper = (c: Case, dir: string, other: string) =>
 			}
 			case "snapshot removed": {
 				yield* fs.remove(snapshot)
+				yield* fs.remove(manifest)
 				const tampered: Tampered = { names: newest, stage: "snapshot", entry: snapshotFileName }
+				return tampered
+			}
+			case "manifest.json removed": {
+				yield* fs.remove(manifest)
+				const tampered: Tampered = {
+					names: manifestFileName,
+					stage: "filesystem",
+					entry: manifestFileName
+				}
 				return tampered
 			}
 			case "folder misnamed": {

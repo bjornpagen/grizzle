@@ -173,7 +173,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 												...offlineConnection,
 												pool: clusterPool,
 												login: pairs.login,
-												snapshot: snapshotJson(draft.success.snapshotText)
+												snapshot: snapshotJson(draft.success.snapshotFiles.snapshot)
 											})
 										)
 									)

@@ -50,6 +50,7 @@ export {
 	emptyFingerprint,
 	emptySnapshot,
 	isEmptySnapshot,
+	joinedSnapshot,
 	noWorkload,
 	rosterFates,
 	snapshotFingerprint
@@ -57,7 +58,9 @@ export {
 export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
 export {
 	type DeploySnapshot,
+	manifestFileName,
 	type ServedSnapshot,
+	type SnapshotFiles,
 	type SnapshotLevel,
 	snapshotFileName
 } from "#compiler/deploy/snapshot/types.ts"

@@ -24,7 +24,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { noTransactionMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -288,7 +288,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					)
 					assert.equal(custom.code, 0, custom.stderr)
 					const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-					assert.deepEqual(Arr.sort(committed, Order.String), [init, seed, snapshotFileName])
+					assert.deepEqual(Arr.sort(committed, Order.String), [init, seed, manifestFileName, snapshotFileName])
 					const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
 					const layout: Layout = {
 						setup: phaseFile(files, "setup"),

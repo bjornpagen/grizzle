@@ -476,7 +476,7 @@ const drafted = (
 			`${at}: a step that declares what it drops and renames drafts: ${g.error.message}`
 		)
 	}
-	const read = readSnapshot(g.value.snapshotText)
+	const read = readSnapshot(g.value.snapshotFiles)
 	if (Result.isFailure(read)) {
 		return assert.fail(`${at}: the written snapshot reads back: ${read.failure.message}`)
 	}

@@ -107,7 +107,7 @@ const otherSnapshot = snapshotJson(
 			workload: noWorkload
 		}),
 		"the other schema's first migration"
-	).snapshotText
+	).snapshotFiles.snapshot
 )
 
 /** The pair of the dictionary's first name and the first name after it that converts to another identifier. */

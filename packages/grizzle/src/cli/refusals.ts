@@ -63,8 +63,9 @@ export const refusalText = {
 		fix: "to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder"
 	},
 	unreadableSnapshot: {
-		problem: "snapshot.json does not decode as a snapshot, or is the snapshot of another schema",
-		fix: "restore it from git"
+		problem:
+			"snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema",
+		fix: "restore them from git"
 	},
 	unreadableMeta: {
 		problem: "meta.json does not decode as a migration's meta.json, or names another schema",
@@ -131,7 +132,7 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 	environment:
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",
-	snapshot: "restore snapshot.json and the migration folders from git",
+	snapshot: "restore snapshot.json, manifest.json and the migration folders from git",
 	codes: appendHandles,
 	generate: "fix the schema or workload it names, then run grizzle generate again"
 }

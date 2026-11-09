@@ -35,7 +35,7 @@ import {
 	withAttnums,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { DeploySnapshot, SnapshotFiles } from "#compiler/deploy/snapshot/types.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
@@ -67,15 +67,15 @@ interface GenerateInput extends DraftInput {
  * workload. */
 type DraftChange = "none" | "schema"
 
-/** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot and its text,
- * and the plan the folder's files render. */
+/** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot and its
+ * files' texts, and the plan the folder's files render. */
 interface DraftOf<F> {
 	readonly change: DraftChange
 	readonly folder: F
 	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord). */
 	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
-	readonly snapshotText: string
+	readonly snapshotFiles: SnapshotFiles
 	readonly plan: MigrationPlan
 }
 
@@ -202,7 +202,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			folder: { meta, metaText: unwrap(writeMeta(meta)), files },
 			record: record.value,
 			snapshot,
-			snapshotText: unwrap(writeSnapshot(snapshot)),
+			snapshotFiles: unwrap(writeSnapshot(snapshot)),
 			plan
 		}
 	})

@@ -91,7 +91,7 @@ const renderGenerate = (
 	const folderOf = (r: (typeof written)[number]) => relative(r.path)
 	const files = Arr.flatMap(written, (r) => [
 		...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
-		...(r.kind === "drafted" ? [relative(r.snapshotPath)] : [])
+		...(r.kind === "drafted" ? Arr.map(r.snapshotPaths, relative) : [])
 	])
 	const markers = Arr.flatMap(written, (r) => Arr.map(r.markers, (m) => markerLine(folderOf(r), m)))
 	const losses = Arr.flatMap(written, (r) =>

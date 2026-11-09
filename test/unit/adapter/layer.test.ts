@@ -159,7 +159,7 @@ const shelfSnapshot = snapshotJson(
 			declared: noDeclarations
 		}),
 		"Shelf's first migration"
-	).snapshotText
+	).snapshotFiles.snapshot
 )
 
 /** A valid config: every rule parseConnection states holds, the password a Redacted or an Effect yielding one. */

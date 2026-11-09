@@ -238,7 +238,10 @@ const foldersOnDisk = (r: Workspace) =>
 		}
 		const entries = yield* fs.readDirectory(schemaDir(r))
 		return Arr.sort(
-			Arr.filter(entries, (n) => n !== "snapshot.json" && !Str.startsWith(".")(n)),
+			Arr.filter(
+				entries,
+				(n) => n !== "snapshot.json" && n !== "manifest.json" && !Str.startsWith(".")(n)
+			),
 			Order.String
 		)
 	})

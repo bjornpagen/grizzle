@@ -29,7 +29,7 @@ import {
 	RosterReordered,
 	SchemaChoiceRefused
 } from "#cli/errors.ts"
-import { readSchemaTree, writeFolder, writeSnapshotFile } from "#cli/files.ts"
+import { readSchemaTree, writeFolder, writeSnapshotFiles } from "#cli/files.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import { type CompileError, draftCodebook, Engine, rostersOf } from "#compiler/plan/common.ts"
 import {
@@ -55,6 +55,7 @@ import {
 	type MigrationFolder,
 	noWorkload,
 	rosterFates,
+	type SnapshotFiles,
 	snapshotFileName,
 	workloadExtension
 } from "#compiler/plan/migration.ts"
@@ -82,7 +83,7 @@ interface DraftLoss {
 
 /**
  * What generate wrote for one schema: nothing; an empty custom folder, its name and path; or a drafted folder and the
- * snapshot.json it replaced.
+ * snapshot files it replaced, manifest.json's path and snapshot.json's.
  */
 type Written =
 	| { readonly kind: "unchanged" }
@@ -91,7 +92,7 @@ type Written =
 			readonly kind: "drafted"
 			readonly folder: string
 			readonly path: string
-			readonly snapshotPath: string
+			readonly snapshotPaths: ReadonlyArray<string>
 	  }
 
 /**
@@ -103,13 +104,13 @@ type Written =
  * timestamp to the pure generator (compiler/deploy/render/generate.ts). The generator diffs the snapshots and renders
  * the phased files and meta.json; this command supplies the clock (clock.ts) and writes the result (files.ts):
  *
- * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot.json;
- * - otherwise the folder `<migrations>/<schema>/<timestamp>_<name>/` is written whole, then snapshot.json is replaced
- *   by the new snapshot. A folder may hold no SQL file when only the snapshot changed, such as a workload program whose
+ * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot's files;
+ * - otherwise the folder `<migrations>/<schema>/<timestamp>_<name>/` is written whole, then manifest.json and
+ *   snapshot.json are replaced by the new snapshot's. A folder may hold no SQL file when only the snapshot changed, such as a workload program whose
  *   access moved onto an index that already exists. Its name is `--name`, else derived from the change (compiler/deploy/render/naming.ts).
  *
  * A custom migration is the empty folder whose source and target are both the committed snapshot, for hand-written
- * data steps, named `--name`; snapshot.json does not change.
+ * data steps, named `--name`; the snapshot's files do not change.
  *
  * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
  * schema, and a name the previous snapshot holds that the schema no longer does is refused unless the command line
@@ -169,11 +170,15 @@ const selectSchemas = (
 	return Result.succeed(config.schemas)
 }
 
-/** A schema's draft: nothing to write; an empty custom folder; or a drafted folder and its new snapshot.json text. */
+/** A schema's draft: nothing to write; an empty custom folder; or a drafted folder and its new snapshot's files. */
 type SchemaDraft = (
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "custom"; readonly folder: MigrationFolder }
-	| { readonly kind: "drafted"; readonly folder: MigrationFolder; readonly snapshotText: string }
+	| {
+			readonly kind: "drafted"
+			readonly folder: MigrationFolder
+			readonly snapshotFiles: SnapshotFiles
+	  }
 ) & {
 	readonly schema: ConfiguredSchema
 	/** The snapshot the schema's directory commits once the draft is written. */
@@ -349,7 +354,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		schema,
 		folder: generated.folder,
 		snapshot: generated.snapshot,
-		snapshotText: generated.snapshotText,
+		snapshotFiles: generated.snapshotFiles,
 		kind: "drafted"
 	} satisfies SchemaDraft
 })
@@ -436,7 +441,7 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 	const drafted: SchemaGenerateReport = {
 		...written,
 		kind: "drafted",
-		snapshotPath: yield* writeSnapshotFile(schema.declared, schema.directory, draft.snapshotText)
+		snapshotPaths: yield* writeSnapshotFiles(schema.declared, schema.directory, draft.snapshotFiles)
 	}
 	return drafted
 })
