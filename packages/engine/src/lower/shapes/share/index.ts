@@ -21,6 +21,47 @@ interface ShareGroup {
 	readonly statement: ConservativeStatement
 }
 
+/** An attachment statement the runtime sends, the child it delivers, and its rows. */
+interface SentSibling {
+	readonly statement: ConservativeStatement
+	readonly child: RelNode
+	readonly rows: Sent
+}
+
+/**
+ * The attachment statements under one parent's rows, in flight order. Until one has the text and parameters of an
+ * earlier one, none is fed, so every one is sent and no share key decides anything: they are held as sent. From the
+ * first that has, each is held by its child's share key, the first of each key its group's feeder.
+ */
+type Siblings =
+	| { readonly kind: "sent"; readonly sent: Array<SentSibling> }
+	| { readonly kind: "keyed"; readonly groups: Map<string, ShareGroup> }
+
+/** Whether two statements are one text with the same parameters, so in one snapshot they deliver the same rows. */
+const sameStatement = (a: ConservativeStatement, b: ConservativeStatement): boolean =>
+	a.sql.text === b.sql.text && canonicalEquals(a.params, b.params, everyProperty)
+
+/** The share key of `child` within `dag`; a DAG it cannot key is refused. */
+const keyOf = (dag: RelDag, child: RelNode): string => {
+	const key = shareKey(dag, child)
+	if (!key.ok) {
+		throw new Refusal(key.error)
+	}
+	return key.value
+}
+
+/** The share groups of statements all sent, in flight order: each key's first statement is its group's feeder. */
+const groupsOf = (dag: RelDag, sent: ReadonlyArray<SentSibling>): Map<string, ShareGroup> => {
+	const groups = new Map<string, ShareGroup>()
+	for (const sibling of sent) {
+		const key = keyOf(dag, sibling.child)
+		if (!groups.has(key)) {
+			groups.set(key, { feeder: sibling.rows, statement: sibling.statement })
+		}
+	}
+	return groups
+}
+
 /**
  * Sharing a sub-query across statements in one snapshot (R25).
  *
@@ -43,7 +84,8 @@ interface ShareGroup {
  * Each statement of a delivered program with how the runtime has its rows, in one walk in flight order: every delivered
  * statement is sent, and an attachment statement is fed by its group's first statement, keyed by its child's share key
  * under its parent's rows (the sent statement whose rows they are), when it has that statement's text and parameters;
- * otherwise it is sent, and the first of its group.
+ * otherwise it is sent, and the first of its group. A share key is read only where it can decide: under parent rows
+ * where a statement has an earlier one's text and parameters (Siblings).
  */
 export const arrivalsOf = <S extends ConservativeStatement>(
 	dag: RelDag,
@@ -52,30 +94,43 @@ export const arrivalsOf = <S extends ConservativeStatement>(
 	catchRefusal(() => {
 		let answers = 0
 		const send = (): Sent => ({ kind: "sent", answer: answers++ })
-		const groups = new Map<Sent, Map<string, ShareGroup>>()
+		const siblings = new Map<Sent, Siblings>()
+		const keyed = (parent: Sent, held: Siblings): Map<string, ShareGroup> => {
+			if (held.kind === "keyed") {
+				return held.groups
+			}
+			const groups = groupsOf(dag, held.sent)
+			siblings.set(parent, { kind: "keyed", groups })
+			return groups
+		}
+		const arrivalUnder = (parent: Sent, statement: S, child: RelNode): Arrival => {
+			const held = siblings.get(parent) ?? { kind: "sent", sent: [] }
+			siblings.set(parent, held)
+			if (held.kind === "sent" && !held.sent.some((s) => sameStatement(s.statement, statement))) {
+				const rows = send()
+				held.sent.push({ statement, child, rows })
+				return rows
+			}
+			const groups = keyed(parent, held)
+			const key = keyOf(dag, child)
+			const group = groups.get(key)
+			if (group !== undefined && sameStatement(statement, group.statement)) {
+				return { kind: "fed", feeder: group.feeder }
+			}
+			const rows = send()
+			if (group === undefined) {
+				groups.set(key, { feeder: rows, statement })
+			}
+			return rows
+		}
 		const attached = (
 			tree: AttachedTree<S>,
 			parent: Sent
 		): AttachedTree<S & { readonly arrival: Arrival }> => {
-			const key = shareKey(dag, tree.attach.child)
-			if (!key.ok) {
-				throw new Refusal(key.error)
-			}
-			const statement = tree.statement
-			const byKey = groups.get(parent) ?? new Map<string, ShareGroup>()
-			groups.set(parent, byKey)
-			const group = byKey.get(key.value)
-			const fed =
-				group !== undefined &&
-				statement.sql.text === group.statement.sql.text &&
-				canonicalEquals(statement.params, group.statement.params, everyProperty)
-			const arrival: Arrival = fed ? { kind: "fed", feeder: group.feeder } : send()
+			const arrival = arrivalUnder(parent, tree.statement, tree.attach.child)
 			const rows = arrival.kind === "fed" ? arrival.feeder : arrival
-			if (group === undefined) {
-				byKey.set(key.value, { feeder: rows, statement })
-			}
 			return {
-				statement: { ...statement, arrival },
+				statement: { ...tree.statement, arrival },
 				attach: tree.attach,
 				attachments: tree.attachments.map((a) => attached(a, rows))
 			}
