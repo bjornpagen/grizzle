@@ -183,7 +183,7 @@ const refreshedIn = (text: string): ReadonlyArray<string> => {
 		`the served member ${memberName}`
 	)
 	assert.equal(member.kind, "refresh", `${memberName} is a refresh member`)
-	return member.kind === "refresh" ? Arr.map(member.targets, (t) => t.relation) : []
+	return member.kind === "refresh" ? Arr.map(member.refresh.targets, (t) => t.relation) : []
 }
 
 const callGen: Gen<Arr.NonEmptyReadonlyArray<number>> = (source) =>
