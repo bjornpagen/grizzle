@@ -6,17 +6,11 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 const pathText = (path: ReadonlyArray<string | number>): string =>
 	path.length === 0 ? "(the root)" : Arr.join(Arr.map(path, String), ".")
 
-/**
- * The first member at which two served values differ as the runtime reads them, its path dotted, or none: the same
- * primitive; arrays of equal length, element by element; Maps of the same entries in the same order and Sets of the same
- * members in the same order; canonical values (a Roster, a Decimal, a Money, an IR literal's text) of one class with one
- * canonical payload; records with the same members that are not undefined, whatever their prototypes, which the runtime
- * reads none of, a member left undefined being one left out.
- */
-export const runtimeDifference = (
+/** The first member at which two served values under `path` differ (runtimeDifference), its path dotted, or none. */
+const differenceAt = (
 	a: unknown,
 	b: unknown,
-	path: ReadonlyArray<string | number> = []
+	path: ReadonlyArray<string | number>
 ): string | undefined => {
 	if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
 		return Object.is(a, b) ? undefined : pathText(path)
@@ -26,7 +20,7 @@ export const runtimeDifference = (
 			return pathText(path)
 		}
 		for (const [i, item] of a.entries()) {
-			const differs = runtimeDifference(item, b[i], [...path, i])
+			const differs = differenceAt(item, b[i], [...path, i])
 			if (differs !== undefined) {
 				return differs
 			}
@@ -37,13 +31,13 @@ export const runtimeDifference = (
 		if (!(a instanceof Map) || !(b instanceof Map) || a.size !== b.size) {
 			return pathText(path)
 		}
-		return runtimeDifference([...a], [...b], [...path, "entries"])
+		return differenceAt([...a], [...b], [...path, "entries"])
 	}
 	if (a instanceof Set || b instanceof Set) {
 		if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) {
 			return pathText(path)
 		}
-		return runtimeDifference([...a], [...b], [...path, "members"])
+		return differenceAt([...a], [...b], [...path, "members"])
 	}
 	const taggedA = taggedValueOf(a)
 	const taggedB = taggedValueOf(b)
@@ -66,10 +60,20 @@ export const runtimeDifference = (
 		Order.String
 	)
 	for (const key of keys) {
-		const differs = runtimeDifference(a[key], b[key], [...path, key])
+		const differs = differenceAt(a[key], b[key], [...path, key])
 		if (differs !== undefined) {
 			return differs
 		}
 	}
 	return undefined
 }
+
+/**
+ * The first member at which two served values differ as the runtime reads them, its path dotted, or none: the same
+ * primitive; arrays of equal length, element by element; Maps of the same entries in the same order and Sets of the same
+ * members in the same order; canonical values (a Roster, a Decimal, a Money, an IR literal's text) of one class with one
+ * canonical payload; records with the same members that are not undefined, whatever their prototypes, which the runtime
+ * reads none of, a member left undefined being one left out.
+ */
+export const runtimeDifference = (a: unknown, b: unknown): string | undefined =>
+	differenceAt(a, b, [])
