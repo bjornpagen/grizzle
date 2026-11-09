@@ -20,18 +20,18 @@ import {
 } from "#compiler/ir/rel.ts"
 import { contractOf, type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import {
-	type ArrayPart,
-	type ArraySlot,
-	type ConservativeOptions,
-	type ConservativeParamSlot,
-	type DeclaredParamSlot,
-	type MemberParamSlot,
-	type NestedRowsParamSlot,
-	type OwnParamSlot,
-	type RelationColumn,
-	type RelationParamSlot,
-	type ScalarParamSlot
+import type {
+	ArrayPart,
+	ArraySlot,
+	ConservativeOptions,
+	ConservativeParamSlot,
+	DeclaredParamSlot,
+	MemberParamSlot,
+	NestedRowsParamSlot,
+	OwnParamSlot,
+	RelationColumn,
+	RelationParamSlot,
+	ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"

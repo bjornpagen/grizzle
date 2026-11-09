@@ -50,12 +50,12 @@ import {
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { completedOrderItems, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
-import {
-	type ConservativeOptions,
-	type ConservativeStatement,
-	type PageParamSlot,
-	type PageStatementSlot,
-	type StatementPlacement
+import type {
+	ConservativeOptions,
+	ConservativeStatement,
+	PageParamSlot,
+	PageStatementSlot,
+	StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"

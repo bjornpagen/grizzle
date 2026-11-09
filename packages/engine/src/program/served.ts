@@ -10,7 +10,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { type PageStatementSlot } from "#compiler/lower/conservative/types.ts"
+import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import type {
 	PageProbeProgram,

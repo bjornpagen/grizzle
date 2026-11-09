@@ -7,7 +7,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { DeltaSource } from "#compiler/lower/conservative/types.ts"
+import type { DeltaCarrier } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import {
 	type WriteCarrier,
@@ -34,7 +34,7 @@ interface ReadBackOptions {
  * each column of the entry's heading read from the target field its head field writes (deltaSourceIn). */
 const deltaSourceOf =
 	(plan: DeltaPlan, entries: ReadonlyMap<string, CheckedEntry>) =>
-	(relation: string, side: "added" | "removed"): DeltaSource | undefined =>
+	(relation: string, side: "added" | "removed"): DeltaCarrier | undefined =>
 		deltaSourceIn(relation, entries, (target) => {
 			const carriers = plan.carriers.get(target)
 			return carriers === undefined ? undefined : sideCarrier(carriers, side)
@@ -48,7 +48,7 @@ export const deltaSourceIn = (
 	relation: string,
 	entries: ReadonlyMap<string, CheckedEntry>,
 	carrierOf: (relation: string) => WriteCarrier | undefined
-): DeltaSource | undefined => {
+): DeltaCarrier | undefined => {
 	const entry = entries.get(relation)
 	const carrier = carrierOf(entry === undefined ? relation : entry.target.name)
 	if (carrier === undefined) {

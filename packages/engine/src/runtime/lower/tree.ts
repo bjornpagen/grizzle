@@ -4,7 +4,7 @@ import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 
 /** A parent key column: the parent statement's own column it reads, and its position `at` in that statement's heading. */
-export interface KeyColumn extends HeadingColumn {
+export interface ParentKeyColumn extends HeadingColumn {
 	readonly at: number
 }
 
@@ -25,7 +25,7 @@ export type RowsRole =
  */
 export type StatementRole =
 	| RowsRole
-	| { readonly kind: "attachment"; readonly parentKey: ReadonlyArray<KeyColumn> }
+	| { readonly kind: "attachment"; readonly parentKey: ReadonlyArray<ParentKeyColumn> }
 
 /** The name of the private column a zero-column relation carries. */
 export const unitColumn = "__unit"
@@ -36,10 +36,10 @@ const unitHeading: Heading = Object.freeze([{ name: unitColumn, type: plainType(
 export const deliveredHeading = (heading: Heading): Heading =>
 	heading.length === 0 ? unitHeading : heading
 
-const noKey: ReadonlyArray<KeyColumn> = Object.freeze([])
+const noKey: ReadonlyArray<ParentKeyColumn> = Object.freeze([])
 
 /** The output columns a statement's role puts before its own: an attachment's parent key, none otherwise. */
-export const keyColumns = (role: StatementRole): ReadonlyArray<KeyColumn> =>
+export const keyColumns = (role: StatementRole): ReadonlyArray<ParentKeyColumn> =>
 	role.kind === "attachment" ? role.parentKey : noKey
 
 /**

@@ -34,13 +34,13 @@ import {
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
-import {
-	type ConservativeParamSlot,
-	type ConservativeProgram,
-	type ConservativeStatement,
-	type DeclaredParamSlot,
-	type PageParamSlot,
-	type StatementPlacement
+import type {
+	ConservativeParamSlot,
+	ConservativeProgram,
+	ConservativeStatement,
+	DeclaredParamSlot,
+	PageParamSlot,
+	StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"

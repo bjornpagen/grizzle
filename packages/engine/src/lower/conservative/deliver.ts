@@ -35,7 +35,7 @@ import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.t
 import {
 	type AttachedTree,
 	deliveredHeading,
-	type KeyColumn,
+	type ParentKeyColumn,
 	statementOutput,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
@@ -264,7 +264,7 @@ export const parentColumnsOf = (
 	attach: NodeOf<"Attach">,
 	spine: ReadonlyArray<RelNode>,
 	delivered: Heading
-): ReadonlyArray<KeyColumn> => {
+): ReadonlyArray<ParentKeyColumn> => {
 	const needed = new Set([
 		...attach.correlation.map((c) => c.parent),
 		...parentColumnsRead(cx, attach, spine)
@@ -436,7 +436,7 @@ export const positions = (): Place => {
 interface AttachmentQuery {
 	readonly rows: Select
 	readonly delivered: Select
-	readonly parentKey: ReadonlyArray<KeyColumn>
+	readonly parentKey: ReadonlyArray<ParentKeyColumn>
 }
 
 /**

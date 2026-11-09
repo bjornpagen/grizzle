@@ -22,7 +22,7 @@ import type { CarrierName, NameSupply } from "#compiler/sql/naming.ts"
  * The SQL a Delta node reads in a read-back: the carrier the write program built, whose columns are the delta's
  * heading, position by position.
  */
-export interface DeltaSource {
+export interface DeltaCarrier {
 	readonly carrier: CarrierName
 	readonly columns: ReadonlyArray<string>
 }
@@ -59,7 +59,7 @@ export type BreachGuard = (
  */
 export interface ReadBackLowering {
 	readonly kind: "readBack"
-	readonly deltas: (relation: string, side: "added" | "removed") => DeltaSource | undefined
+	readonly deltas: (relation: string, side: "added" | "removed") => DeltaCarrier | undefined
 	readonly breach: BreachGuard
 }
 
