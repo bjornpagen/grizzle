@@ -14,7 +14,7 @@ import type { OutputText, Param, ParamBinary, ParamText } from "#compiler/core/w
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import type { IndexOpclass, LawIndexRequest, LawLowering, NormalizedLaw } from "#compiler/ir/law.ts"
+import type { IndexOpclass, LawIndexRequest, NormalizedLaw } from "#compiler/ir/law.ts"
 import type { Heading, RootedDag, ValidDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
@@ -163,7 +163,6 @@ export interface CheckedTheory {
 	readonly schema: SchemaFingerprint
 	readonly classes: ReadonlyArray<CompatibilityClass>
 	readonly laws: ReadonlyArray<NormalizedLaw>
-	readonly lowerings: Readonly<Record<LawId, LawLowering>>
 	/** The nodes and expressions the theory and its law model lower, in one DAG: no law's violation query, which only
 	 * analysis/theory/violations.ts writes. */
 	readonly dag: ValidDag

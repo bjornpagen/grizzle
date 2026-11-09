@@ -181,9 +181,12 @@ export const ridingLaws = (model: LawModel, axis: AxisKind): ReadonlyArray<LawId
 			: []
 	)
 
-/** The natives a law's lowering lists. */
+/** The native objects that discharge a law: each whose law list names it. */
 export const loweringOf = (model: LawModel, law: LawId): ReadonlyArray<NativeObject> =>
-	defined(model.theory.lowerings[law], `the lowering of ${law}`).natives
+	Arr.map(
+		Arr.filter(model.natives, (n) => Arr.contains(n.object.lawIds, law)),
+		(n) => n.object
+	)
 
 /** The generated CHECKs a law installs on a relation: at most one. */
 export const checksOf = (

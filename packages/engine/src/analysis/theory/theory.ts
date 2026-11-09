@@ -181,10 +181,10 @@ interface TheoryEvidence {
  * - the capability obligations the laws carry (btree_gist for span keys and coverage with scalar parts, the vector
  *   extension for vector fields).
  *
- * lowerings is empty here, and no evidence is stated: law specialization (laws/) recognizes each normalized law and
- * fills it, and states the evidence each law gives with the validity context its plans prove (theoryEvidence). A law's identity
- * is the naming door's (core/identity.ts), minted from what the law is (lawIdentityOf), so every build of a schema names
- * its laws alike.
+ * No evidence is stated here: law specialization (laws/) recognizes each normalized law, lowers it to its natives,
+ * and states the evidence each law gives with the validity context its plans prove (theoryEvidence). A law's identity
+ * is the naming door's (core/identity.ts), minted from what the law is (lawIdentityOf), so every build of a schema
+ * names its laws alike.
  */
 /** An ordinary relation with the law of its primary key. */
 export interface PrimaryKeyLaw {
@@ -573,7 +573,6 @@ class Builder {
 			classes,
 			laws,
 			primaryKeys,
-			lowerings: Object.freeze({}),
 			dag,
 			dependencies: this.#dependencies(laws),
 			capabilities: this.#capabilities(laws),

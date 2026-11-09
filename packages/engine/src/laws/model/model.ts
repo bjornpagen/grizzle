@@ -54,7 +54,6 @@ import {
 	fieldNames,
 	type LawColumnValue,
 	type LawField,
-	type LawLowering,
 	type LawRelation,
 	type NativeColumn,
 	type NativeObject,
@@ -312,7 +311,7 @@ export interface LawModel {
 	/** The owned schema the model specializes: every installed identifier a law reads (a table, a column, a roster's
 	 * domain, a declared key or check) is the one ownership registered there. */
 	readonly owned: Owned
-	/** The theory with every law's lowering, its DAG extended, and the evidence its laws give, each containment's
+	/** The theory with its DAG extended, and the evidence its laws give, each containment's
 	 * validity context the one its plans prove. */
 	readonly theory: EvidencedTheory
 	/** Every native object of the schema's laws, once each, in law order. */
@@ -974,31 +973,26 @@ class Specializer {
 			...placed.filter((p) => isKeyLaw(p.plan.law)),
 			...placed.filter((p) => !isKeyLaw(p.plan.law))
 		]
-		const nativeObjects = keysFirst.map(({ plan, natives: placedNatives }) => {
-			const objects: Array<NativeObject> = []
+		for (const { plan, natives: placedNatives } of keysFirst) {
 			for (const n of placedNatives) {
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
 				const key = structuralKey(nativeIdentity(object))
 				const known = byKey.get(key)
 				if (known === undefined) {
 					const laws = this.#firstLaws(n, plan, implyingKey)
-					const seen: NativeObject = { ...object, lawIds: laws }
 					byKey.set(key, {
 						kind: "native",
-						object: seen,
+						object: { ...object, lawIds: laws },
 						laws,
 						law: this.#lawOf(laws[0])
 					})
-					objects.push(seen)
 					continue
 				}
 				if (!known.laws.includes(plan.law.id)) {
 					known.laws.push(plan.law.id)
 				}
-				objects.push(known.object)
 			}
-			return { plan, objects }
-		})
+		}
 
 		/** Names and the constraint map, each object once, in the order it was first seen; each primary key with its
 		 * relation. */
@@ -1036,19 +1030,10 @@ class Specializer {
 			}
 		}
 		this.#refuseWideRows(natives)
-		const lowered: Record<LawId, LawLowering> = {}
-		for (const { plan, objects } of nativeObjects) {
-			lowered[plan.law.id] = Object.freeze({ natives: [...new Set(objects)] })
-		}
 		const evidence = theoryEvidence(this.theory.laws, immediate)
 		return {
 			owned: this.owned,
-			theory: Object.freeze({
-				...this.theory,
-				dag: merged.dag,
-				lowerings: Object.freeze(lowered),
-				evidence
-			}),
+			theory: Object.freeze({ ...this.theory, dag: merged.dag, evidence }),
 			natives,
 			families: this.theory.families,
 			constraints,
@@ -1683,9 +1668,9 @@ const specialize = (
 ): Result.Result<LawModel, CompileError> =>
 	catchRefusal(() => new Specializer(theory, checked).run())
 
-/** Law specialization: an owned schema's CheckedTheory with every law's LawLowering. It runs theory normalization with
- * the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized law (`Recognizer`),
- * and settles what depends on the whole schema at once:
+/** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
+ * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
+ * law (`Recognizer`), and settles what depends on the whole schema at once:
  *
  * - Law columns: each term of a selected side and each pred term is a STORED generated column of its relation, a
  *   constant selection of a target a STORED constant column of its source, and a family's ‹n›, counted index, tree's

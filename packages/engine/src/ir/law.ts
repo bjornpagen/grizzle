@@ -219,9 +219,10 @@ export interface LawSource {
  *
  * Every law means a violation query that must be empty (rel.ts Forbid, analysis/theory/violations.ts); the public
  * constructors produce its recognized shapes. A NormalizedLaw records one recognized obligation with its source
- * identity, and the law model lowers it to native objects alone (LawLowering): keys, foreign keys, table CHECKs, domains
- * and a family's drawn columns, which PostgreSQL enforces on every statement or at commit. A law over closed relations
- * alone is checked once, by its violation query, in the migration that installs it.
+ * identity, and the law model lowers it to native objects alone, each listing the laws it discharges
+ * (NativeObject.lawIds): keys, foreign keys, table CHECKs, domains and a family's drawn columns, which PostgreSQL
+ * enforces on every statement or at commit. A law over closed relations alone is checked once, by its violation
+ * query, in the migration that installs it.
  */
 export interface NormalizedLaw {
 	readonly id: LawId
@@ -495,8 +496,3 @@ export type DomainCheck =
 export type DomainCheckTerm =
 	| { readonly kind: "pattern"; readonly regex: RegexRef }
 	| { readonly kind: "predicate"; readonly predicate: ExprTable }
-
-/** What a law lowers to: the native objects the database enforces it by, every law's whole lowering. */
-export interface LawLowering {
-	readonly natives: ReadonlyArray<NativeObject>
-}
