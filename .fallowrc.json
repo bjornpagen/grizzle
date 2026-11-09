@@ -1,37 +1,24 @@
 {
 	"$schema": "./node_modules/fallow/schema.json",
 	"entry": [
-		"test/**/*.test.ts",
 		"test/**/*.child.ts",
-		"test/types/**/fixtures/**/*.ts",
 		"test/support/programs/**/*.ts",
-		"test/unit/deps/fixtures/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",
 		"test/types/batch/build.ts",
 		"test/types/batch/global-setup.ts",
-		"vitest.config.ts",
-		"vitest.network.config.ts",
-		"bench/**/*.bench.ts",
 		"bench/**/main.ts",
-		"bench/cold/probe.ts",
-		"scripts/build.ts",
-		"scripts/dev/mutate/main.ts",
-		"scripts/dev/mutate/vitest.config.ts",
 		"scripts/dev/mutate/reporter.ts",
 		"scripts/dev/mutate/take-coverage.ts",
-		"scripts/dev/mutate/oracle/*.test.ts",
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",
-		"oxlint.config.ts",
 		"packages/devtools/src/oxlint/fixtures.config.ts",
 		"packages/testing/src/vitest/coverage.ts",
 		"packages/testing/src/vitest/mutated-setup.ts",
 		"packages/testing/src/witness.fixtures.ts"
 	],
 	"ignorePatterns": [
-		"!packages/engine/src/laws/families/coverage/**",
 		"!packages/engine/src/query/build/**",
 		"!test/unit/query/build/**",
 		"packages/devtools/src/*/fixtures/**"
@@ -467,7 +454,7 @@
 			"exports": ["CompareOp", "Spelled", "compareOps", "everyFact"]
 		},
 		{ "file": "packages/engine/src/ir/family.ts", "exports": ["Family"] },
-		{ "file": "packages/engine/src/ir/law.ts", "exports": ["DomainCheck", "LawSide"] },
+		{ "file": "packages/engine/src/ir/law.ts", "exports": ["DomainCheck"] },
 		{ "file": "packages/engine/src/ir/products.ts", "exports": ["StatementRole"] },
 		{
 			"file": "packages/engine/src/ir/rel.ts",
@@ -500,16 +487,10 @@
 			"file": "packages/engine/src/lower/conservative/context.ts",
 			"exports": ["columnType", "refuse"]
 		},
-		{
-			"file": "packages/engine/src/lower/conservative/types.ts",
-			"exports": ["KeyColumn", "StatementRole"]
-		},
+		{ "file": "packages/engine/src/lower/conservative/types.ts", "exports": ["KeyColumn"] },
 		{ "file": "packages/engine/src/lower/shapes/index.ts", "exports": ["asDelivered"] },
 		{ "file": "packages/engine/src/lower/shapes/take/index.ts", "exports": ["RelationInput"] },
-		{
-			"file": "packages/engine/src/physical/ddl/names.ts",
-			"exports": ["ColumnType", "columnType"]
-		},
+		{ "file": "packages/engine/src/physical/ddl/names.ts", "exports": ["ColumnType"] },
 		{ "file": "packages/engine/src/program/schema.ts", "exports": ["BuiltSchema"] },
 		{ "file": "packages/engine/src/program/workload/value.ts", "exports": ["workload"] },
 		{ "file": "packages/engine/src/scalar/values/identity.ts", "exports": ["compareValues"] },
@@ -517,12 +498,8 @@
 			"file": "packages/engine/src/schema/protocol.ts",
 			"exports": ["PredicateValue", "predicateValue"]
 		},
-		{ "file": "packages/engine/src/schema/relation.ts", "exports": ["NamedRelation", "derived"] },
-		{ "file": "packages/engine/src/schema/world.ts", "exports": ["loginRoleOf"] },
-		{
-			"file": "packages/engine/src/sql/ast.ts",
-			"exports": ["Call", "FrameBound", "IndexKey", "KeyColumn"]
-		},
+		{ "file": "packages/engine/src/schema/relation.ts", "exports": ["NamedRelation"] },
+		{ "file": "packages/engine/src/sql/ast.ts", "exports": ["Call", "IndexKey"] },
 		{
 			"file": "packages/engine/src/sql/build.ts",
 			"exports": [
@@ -546,29 +523,11 @@
 				"setOperation"
 			]
 		},
-		{
-			"file": "packages/engine/src/sql/catalog.ts",
-			"exports": [
-				"and",
-				"cast",
-				"countStar",
-				"cte",
-				"eq",
-				"exists",
-				"gt",
-				"join",
-				"ne",
-				"not",
-				"notExists",
-				"or",
-				"param",
-				"select"
-			]
-		},
+		{ "file": "packages/engine/src/sql/catalog.ts", "exports": ["and", "or", "param"] },
 		{ "file": "packages/engine/src/sql/naming.ts", "exports": ["freshNames"] },
 		{
 			"file": "packages/engine/src/types/changeset/changeset.ts",
-			"exports": ["Delta", "LawSide", "LawSourceSide", "Member", "Stratum", "Witness", "Written"]
+			"exports": ["LawSide", "Member", "Stratum", "Witness"]
 		},
 		{
 			"file": "packages/engine/src/types/core/phantom.ts",
@@ -579,8 +538,7 @@
 			"file": "packages/engine/src/types/query/query.ts",
 			"exports": ["AttachedHeads", "Ordered", "Query"]
 		},
-		{ "file": "packages/engine/src/types/schema/statements.ts", "exports": ["Ordered", "TermOf"] },
-		{ "file": "packages/engine/src/types/schema/world.ts", "exports": ["Context"] },
+		{ "file": "packages/engine/src/types/schema/statements.ts", "exports": ["TermOf"] },
 		{ "file": "packages/engine/src/write/changeset/value.ts", "exports": ["MemberOp"] },
 		{ "file": "packages/engine/src/write/delta/net.ts", "exports": ["netStrata", "outcomeKind"] },
 		{ "file": "packages/engine/src/write/family/order.ts", "exports": ["Plan"] },
@@ -595,7 +553,11 @@
 	// and the lowering calls StatementParams' through the Placeholders that LowerContext.params returns. _tag:
 	// KeyConflict's tag, read through the error unions that discriminate on it. matches: the interface again, and the
 	// evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
-	// (scalar/compute/evaluate.ts, a Compute.matches).
+	// (scalar/compute/evaluate.ts, a Compute.matches). discriminantSpine: fallow does not type a callback's parameter
+	// from the type it is passed as, and the simplifier's rules call DagEditor.discriminantSpine on the editor of the cx
+	// each Rule's at receives (lower/optimize/simplify/rules.ts). freshVar, freshOccurrence and freshScope: fallow does
+	// not follow a class's property to its type, and the catalog shapes call CatalogEditor's through CatalogContext.ed
+	// (lower/shapes/catalog/neighbor.ts).
 	"usedClassMembers": [
 		"discriminantSpine",
 		"use",
