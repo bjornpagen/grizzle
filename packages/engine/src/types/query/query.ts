@@ -1,7 +1,7 @@
 import type { Option, Stream } from "effect"
 import type { Delivered, Delivery, FieldHost, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, Delivering, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { Requires } from "#compiler/types/compute/scalar.ts"
 import type {
 	Carrier,
@@ -409,7 +409,7 @@ export interface Query<
 	Cx = never,
 	Arms extends UnionArms = readonly [ArmOf<Head, Hc>]
 >
-	extends SchemaSource<S, Head>, Headed<Hc>, Decoders<Head, IHead> {
+	extends SchemaSource<S, Head>, Headed<Hc>, Decoders<Head, IHead>, Delivering<Head> {
 	readonly [phantom]?: QueryPhantom<S, Head, Ev, P, Cx, Arms> | undefined
 
 	/**
@@ -895,6 +895,7 @@ export interface Ordered<
 	extends
 		Headed<Hc>,
 		Decoders<Head, IHead>,
+		Delivering<Head>,
 		Phantom<{
 			readonly evidence: Ev
 			readonly params: P

@@ -72,7 +72,7 @@ export {
 } from "#compiler/core/limits.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-export { builtMark, type Phantom, type phantom } from "#compiler/core/phantom.ts"
+export { builtMark, type Delivering, type Phantom, type phantom } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
 export type { Result } from "#compiler/core/result.ts"

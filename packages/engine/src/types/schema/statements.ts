@@ -1,3 +1,4 @@
+import type { Delivering } from "#compiler/core/phantom.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { ScalarHelpers } from "#compiler/types/compute/compute.ts"
@@ -64,10 +65,13 @@ export type KeyRef<R extends AnyRelation> = R | CandidateKey<R>
  * relation and its fields it is a candidate key of the relation; over a selection or a pred term it constrains only
  * the facts the side reads.
  */
-export interface Key<S> {
+export interface Key<S> extends Delivering<SideRecords<S>> {
 	readonly kind: "key"
 	readonly side: S
 }
+
+/** The records a key's side delivers: its source's, a candidate key's relation's facts. */
+type SideRecords<S> = S extends { readonly source: Delivering<infer A> } ? A : never
 
 export interface Mutable<R> {
 	readonly kind: "mutable"

@@ -1,7 +1,7 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
-import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, Delivering, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
@@ -596,15 +596,18 @@ export interface ChangeSet<
 	Done extends Strata = Strata,
 	Last extends Stratum = Stratum,
 	Arrays = unknown
-> extends Phantom<{
-	readonly params: Params
-	readonly paramsInvariant: Invariant<Params>
-	readonly writes: Writes
-	readonly contexts: Cx
-	readonly schema: Invariant<S>
-	readonly strata: readonly [...Done, Last]
-	readonly arrays: Arrays
-}> {
+>
+	extends
+		Delivering<Reads>,
+		Phantom<{
+			readonly params: Params
+			readonly paramsInvariant: Invariant<Params>
+			readonly writes: Writes
+			readonly contexts: Cx
+			readonly schema: Invariant<S>
+			readonly strata: readonly [...Done, Last]
+			readonly arrays: Arrays
+		}> {
 	/** The decoder of the outcome's read-backs, by name. */
 	readonly reads: RowDecoder<Reads>
 	/**

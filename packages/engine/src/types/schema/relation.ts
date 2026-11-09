@@ -1,6 +1,6 @@
 import type { Decoded, RowDecoder } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Phantom } from "#compiler/core/phantom.ts"
+import type { Delivering, Phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
 	Carrier,
@@ -208,7 +208,8 @@ export interface Relation<
 	Name extends string,
 	Fields,
 	PrimaryKey extends ReadonlyArray<keyof Fields & string>
-> extends AnyRelation {
+>
+	extends AnyRelation, Delivering<FactOfFields<Fields>> {
 	readonly kind: "relation"
 	readonly name: Name
 	readonly fields: Fields
@@ -230,10 +231,8 @@ export interface AnyRoster {
 	readonly heading: unknown
 }
 
-export interface Roster<
-	Name extends string,
-	Handles extends NonEmptyReadonlyArray<string>
-> extends AnyRoster {
+export interface Roster<Name extends string, Handles extends NonEmptyReadonlyArray<string>>
+	extends AnyRoster, Delivering<RosterFactOf<Handles[number]>> {
 	readonly kind: "closed"
 	readonly name: Name
 	readonly handles: Handles
@@ -352,7 +351,8 @@ export interface ClosedRelation<
 	Name extends string,
 	Fields extends Readonly<Record<string, FieldBase>>,
 	Key extends NonEmptyReadonlyArray<keyof Fields & string>
-> extends AnyClosedRelation {
+>
+	extends AnyClosedRelation, Delivering<FactOfFields<Fields>> {
 	readonly kind: "closedRelation"
 	readonly name: Name
 	readonly fields: Fields

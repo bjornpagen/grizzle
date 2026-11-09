@@ -67,6 +67,18 @@ export declare const constants: unique symbol
 /** The key a delta source's relation rides under (types/changeset DeltaSource): a phantom, as `domain` is. */
 export declare const delta: unique symbol
 
+/** The key the records a program delivers ride under: a phantom, as `domain` is. */
+declare const delivers: unique symbol
+
+/**
+ * What a program states, in one place, of the records a handle of it delivers: a query's or ordered query's rows, a
+ * ChangeSet's read-backs, a relation's, roster's or closed relation's facts, and a candidate key's relation's facts. Each
+ * form's own type sets it where the form is built, and a workload handle reads its records here alone.
+ */
+export interface Delivering<out A> {
+	readonly [delivers]?: A | undefined
+}
+
 export const built: unique symbol = Symbol("grizzle.built")
 
 /** What a builder sets on every value it makes: the brand. */

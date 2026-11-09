@@ -20,6 +20,7 @@ import type {
 	Carriers,
 	CompileError,
 	CursorError,
+	Delivering,
 	Evidence,
 	Invariant,
 	KeyValues,
@@ -347,16 +348,11 @@ export interface Compiled<S, X, A> extends Phantom<{ readonly schema: Invariant<
 	): Effect.Effect<ApplyOutcome<A>, ApplyError>
 }
 
-/** The records a program's handle delivers: a query's rows, a ChangeSet's read-backs, a key's relation's facts. */
-type RecordsOf<X> = X extends { readonly rows: RowDecoder<infer A> }
-	? A
-	: X extends { readonly reads: RowDecoder<infer A> }
-		? A
-		: X extends { readonly fact: RowDecoder<infer A> }
-			? A
-			: X extends { readonly relation: { readonly fact: RowDecoder<infer A> } }
-				? A
-				: never
+/**
+ * The records a program's handle delivers, as the program's own type states them (Delivering): a query's rows, a
+ * ChangeSet's read-backs, a relation's or closed relation's facts, a candidate key's relation's facts.
+ */
+type RecordsOf<X> = X extends Delivering<infer A> ? A : never
 
 /**
  * A served change member's apply, for a ChangeSet X that holds array members (ArraysOf): each call takes their facts,
