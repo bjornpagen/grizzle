@@ -30,9 +30,15 @@
  * pull into its join, fails here, the judge naming the scan. The judge's bound is relative to what a probe needs, so the
  * README-shaped worlds over the one-share key, which installGen draws among the documents bases' roles, are judged
  * here at the population's volume.
+ *
+ * Its kept cases: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
+ * functions that PostgreSQL plans at their calls, a role session's first, each reading the index ends of the join of
+ * OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
+ * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
+ * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims).
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -55,7 +61,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
-import { docsBases } from "#test/support/worlds/model/bases/docs.ts"
+import { docsBase, docsBases } from "#test/support/worlds/model/bases/docs.ts"
 import type { BaseSpec } from "#test/support/worlds/model/types.ts"
 
 /** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from a relation a declared key
@@ -161,6 +167,86 @@ const caseGen: Gen<WorldCase> = (source) => {
 	return { install: source.draw(installGen(base)), witnesses: [first, ...more] }
 }
 
+/** The cases kept from failure reports, each replayed first by value (see the header). */
+const kept: ReadonlyArray<Kept<WorldCase, WorldServingFeature>> = [
+	{
+		note: "a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose filter function plans a join of OrgDocs and Share: a precheck's three calls, its role session's first, plan each body at its call and read 12 buffers of index ends apiece",
+		sketch: {
+			install: {
+				base: docsBase,
+				roles: [
+					{
+						name: "alpha",
+						entries: { Org: { kind: "whole", relation: "Org" } },
+						write: [],
+						refresh: []
+					}
+				],
+				logins: [{ name: "web", roles: ["alpha"] }]
+			},
+			witnesses: [
+				{
+					target: "Org",
+					source: "Doc",
+					link: { from: "id", to: "id" },
+					second: { kind: "none" },
+					negated: false
+				},
+				{
+					target: "Doc",
+					source: "OrgDocs",
+					link: { from: "org", to: "org" },
+					second: {
+						kind: "joined",
+						to: "doc",
+						source: "Share",
+						link: { from: "owner", to: "user" },
+						field: "doc"
+					},
+					negated: true
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a filter function's probe of a derived relation",
+			"a filter function's probe bound by its argument and a joined source",
+			"a precheck calling the filter function"
+		]
+	},
+	{
+		note: "a link from Note's doc into Doc's org, Doc's id the tenant's claim: a read by key through the view joins the claimed Doc to Note, and PostgreSQL reads Note through its index on doc at the Doc's org, rechecking no on the note's 54 neighbours, rather than through Note's primary key, which serves the read alone",
+		sketch: {
+			install: {
+				base: docsBase,
+				roles: [
+					{
+						name: "alpha",
+						entries: { Org: { kind: "whole", relation: "Org" } },
+						write: [],
+						refresh: []
+					}
+				],
+				logins: [{ name: "web", roles: ["alpha"] }]
+			},
+			witnesses: [
+				{
+					target: "Note",
+					source: "Doc",
+					link: { from: "doc", to: "org" },
+					second: { kind: "claim", to: "id", context: "Tenant", field: "org" },
+					negated: false
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a read through a narrowed entry's view calling the filter function",
+			"a world function's scan read through another planned index than one serving it alone"
+		]
+	}
+]
+
 /** The situations every run reaches (see the header). */
 const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
 	"a filter function's probe that finds its fact",
@@ -190,7 +276,7 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 					cases: runs,
 					sense: notesOnly
 				}),
-				kept: [],
+				kept,
 				runs,
 				shrink: { kind: "bounded", candidates: 24 },
 				concurrency: 1,

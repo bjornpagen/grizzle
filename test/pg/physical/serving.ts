@@ -753,7 +753,7 @@ const sorts: ReadonlySet<string> = new Set(["Sort", "Incremental Sort"])
  * Only Scan of an index the installation planned (`planned`, by name), with an index condition when its probe fixes a
  * column (`fixes`); or why it is none.
  */
-export const plannedScan = (
+const plannedScan = (
 	scan: PlanNode,
 	planned: ReadonlyMap<string, PlannedIndex>,
 	fixes: boolean
@@ -815,7 +815,7 @@ export const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
  * Why a scan of `index` descended into it more often than it looped (see judgeServing), as a B-tree skip scan over a
  * column the probe leaves unbound does; none for a scan that descends once per loop.
  */
-export const extraDescents = (scan: PlanNode, index: string): Option.Option<string> => {
+const extraDescents = (scan: PlanNode, index: string): Option.Option<string> => {
 	const loops = Math.max(1, scan.actualLoops)
 	return Option.isSome(scan.indexSearches) && scan.indexSearches.value > loops
 		? Option.some(
@@ -827,11 +827,7 @@ export const extraDescents = (scan: PlanNode, index: string): Option.Option<stri
 }
 
 /** Why a scan of `index` touched more buffers than its bound (scanReads); none for a scan within it. */
-export const overBound = (
-	scan: PlanNode,
-	index: string,
-	scanned: IndexFacts
-): Option.Option<string> => {
+const overBound = (scan: PlanNode, index: string, scanned: IndexFacts): Option.Option<string> => {
 	const read = scanReads(scan, scanned)
 	return read.touched > read.bound
 		? Option.some(
@@ -841,11 +837,104 @@ export const overBound = (
 }
 
 /**
- * The verdict on a probe's plan (see the header), `planned` the indexes the installation planned on the probe's
- * relation, by name, `facts` every planned index's facts, and `claimed` whether a scan of an index is held to the
- * engine's claim, every condition the probe states on its keys the index's: the index searches each, or, unique, it
- * searches a condition on each of its keys and finds the rows of one key, on which a filter rechecks the rest. A scan of
- * an index not held to the claim, one PostgreSQL chose by its cost over the request's own, is held to what it read.
+ * What the judgment holds a scan of a planned index to (see judgeServing): the engine's claim, over the conditions a
+ * probe states on its keys (`stated`), or over a statement whose conditions the judgment states none of, a world
+ * function's body (world-serving.ts, `unstated`); or, for an index PostgreSQL chose by its cost over the one the engine
+ * planned, only what it read (`read`).
+ */
+type Claim =
+	| { readonly kind: "stated"; readonly conditions: ReadonlyArray<KeyCondition> }
+	| { readonly kind: "unstated" }
+	| { readonly kind: "read" }
+
+/** What bounds a scan's read: its own buffers (`scan`), or, when functions it calls read under it, the statement's. */
+type BoundedBy = "scan" | "statement"
+
+/**
+ * Why a scan of `index` does not hold `claim`, none when it does: a stated condition the index does not search, unless
+ * the index is unique and searches a condition on each of its keys, so it finds the rows of one key, on which a filter
+ * rechecks the rest; and, under either claim, a row removed by a filter but the one entry a unique index finds per
+ * descent, which a key probe's membership and a unique key's recheck read.
+ */
+const claimProblem = (
+	claim: Claim,
+	scan: PlanNode,
+	index: string,
+	scanned: IndexFacts
+): Option.Option<string> => {
+	const removed = (): Option.Option<string> => {
+		const read = scanReads(scan, scanned)
+		return scan.rowsRemovedByFilter > 0 && !(scanned.unique && read.entries <= read.loops)
+			? Option.some(
+					`a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter, past the one entry of a unique key per descent`
+				)
+			: Option.none()
+	}
+	switch (claim.kind) {
+		case "read":
+			return Option.none()
+		case "unstated":
+			return removed()
+		case "stated": {
+			const unsearched = Arr.filter(
+				claim.conditions,
+				(c) => !Arr.some(scanned.keys, (k) => searchedBy(k, c))
+			)
+			const keyed =
+				scanned.unique &&
+				Arr.every(scanned.keys, (k) => Arr.some(claim.conditions, (c) => searchedBy(k, c)))
+			return Arr.isReadonlyArrayNonEmpty(unsearched) && !keyed
+				? Option.some(
+						`a scan of ${index}, which does not search ${Arr.join(
+							Arr.map(unsearched, (c) => `${c.field} by ${c.operator}`),
+							", "
+						)}, so a filter rechecks them`
+					)
+				: removed()
+		}
+	}
+}
+
+/**
+ * The verdict on one scan of a stored relation (see judgeServing), `planned` the indexes the installation planned, by
+ * name, `facts` every planned index's facts, `fixes` whether its statement fixes a column, so the scan needs an index
+ * condition, `claimOf` what the scan of the index PostgreSQL chose is held to (Claim), and `bounded` what bounds its
+ * read: a scan of a planned index, held to its claim, in one descent per loop and, bounded by its own buffers, within
+ * the bound of its result; swept when it reads past them; or not served, and why. Both judges read every scan through
+ * it: this file's probe of a request (verdictOf), and world-serving.ts's every scan of a world function's statement.
+ */
+export const judgeScan = (
+	scan: PlanNode,
+	planned: ReadonlyMap<string, PlannedIndex>,
+	facts: ReadonlyMap<string, IndexFacts>,
+	fixes: boolean,
+	claimOf: (index: PlannedIndex) => Claim,
+	bounded: BoundedBy
+): Verdict => {
+	const read = plannedScan(scan, planned, fixes)
+	if (Result.isFailure(read)) {
+		return { kind: "unserved", why: read.failure }
+	}
+	const through = read.success
+	const index = through.index.name
+	const scanned = defined(facts.get(index), `the facts of ${index}`)
+	const problem = claimProblem(claimOf(through), scan, index, scanned)
+	if (Option.isSome(problem)) {
+		return { kind: "unserved", why: problem.value }
+	}
+	const swept = Option.orElse(extraDescents(scan, index), () =>
+		bounded === "scan" ? overBound(scan, index, scanned) : Option.none()
+	)
+	const touched = scanReads(scan, scanned).touched
+	return Option.isSome(swept)
+		? { kind: "swept", through, touched, why: swept.value }
+		: { kind: "served", through, touched }
+}
+
+/**
+ * The verdict on a probe's plan (see the header): its one scan of its relation judged (judgeScan), `claimed` whether
+ * the index PostgreSQL chose is held to the engine's claim over the probe's conditions, or, one PostgreSQL chose by its
+ * cost over the request's own, only to what it read; and no sort above it when the probe asks for an order.
  */
 const verdictOf = (
 	probe: Probe,
@@ -863,45 +952,22 @@ const verdictOf = (
 	if (scan === undefined || more.length > 0) {
 		return { kind: "unserved", why: `${scans.length} scans of the relation` }
 	}
-	const read = plannedScan(scan, planned, Arr.isReadonlyArrayNonEmpty(probe.conditions))
-	if (Result.isFailure(read)) {
-		return { kind: "unserved", why: read.failure }
-	}
-	const through = read.success
-	const index = through.index.name
-	const scanned = facts.get(index)
-	if (scanned === undefined) {
-		return assert.fail(`${probe.label}: no facts read for ${index}`)
-	}
-	if (claimed(index)) {
-		const unsearched = unsearchedOf(scanned, probe)
-		const keyed =
-			scanned.unique &&
-			Arr.every(scanned.keys, (k) => Arr.some(probe.conditions, (c) => searchedBy(k, c)))
-		if (Arr.isReadonlyArrayNonEmpty(unsearched) && !keyed) {
-			return {
-				kind: "unserved",
-				why: `a scan of ${index}, which does not search ${Arr.join(
-					Arr.map(unsearched, (c) => `${c.field} by ${c.operator}`),
-					", "
-				)}, so a filter rechecks them`
-			}
-		}
-		if (scan.rowsRemovedByFilter > 0) {
-			return {
-				kind: "unserved",
-				why: `a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter`
-			}
-		}
-	}
-	if (orderedShape[probe.shape] && Arr.some(nodes, (n) => sorts.has(n.nodeType))) {
-		return { kind: "unserved", why: `a sort above the scan of ${index}` }
-	}
-	const swept = Option.orElse(extraDescents(scan, index), () => overBound(scan, index, scanned))
-	const touched = scanReads(scan, scanned).touched
-	return Option.isSome(swept)
-		? { kind: "swept", through, touched, why: swept.value }
-		: { kind: "served", through, touched }
+	const verdict = judgeScan(
+		scan,
+		planned,
+		facts,
+		Arr.isReadonlyArrayNonEmpty(probe.conditions),
+		(index): Claim =>
+			claimed(index.index.name)
+				? { kind: "stated", conditions: probe.conditions }
+				: { kind: "read" },
+		"scan"
+	)
+	return verdict.kind !== "unserved" &&
+		orderedShape[probe.shape] &&
+		Arr.some(nodes, (n) => sorts.has(n.nodeType))
+		? { kind: "unserved", why: `a sort above the scan of ${verdict.through.index.name}` }
+		: verdict
 }
 
 const analyzed = { serialize: { kind: "off" }, wal: false } as const
@@ -940,6 +1006,43 @@ const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
 				}),
 			() => Effect.ignore(admin.query("ROLLBACK", []))
 		)
+	})
+
+/**
+ * The statements that drop every planned index of `host`'s relation but `host`, each with the key or exclusion
+ * constraint that owns it, so a statement run after them in a transaction rolled back reads the relation through `host`
+ * alone.
+ */
+export const withoutOthers = (
+	installed: Judged,
+	host: PlannedIndex
+): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const q = installed.installation.names.relation(host.relation)
+		const table = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
+		const statements: Array<string> = []
+		for (const i of Arr.filter(
+			installed.installation.indexes,
+			(i) => i.relation === host.relation && i.index.name !== host.index.name
+		)) {
+			const index = `${quoteIdent(q.schema)}.${quoteIdent(i.index.name)}`
+			const [owner] = yield* Effect.map(
+				admin.queryValues(
+					"SELECT c.conname::text FROM pg_catalog.pg_constraint AS c WHERE c.conindid = $1::text::regclass " +
+						"AND c.conrelid = $2::text::regclass AND c.contype IN ('p'::\"char\", 'u'::\"char\", 'x'::\"char\")",
+					[index, table]
+				),
+				textsOf
+			)
+			const constraint = owner?.[0]
+			statements.push(
+				constraint === undefined
+					? `DROP INDEX ${index}`
+					: `ALTER TABLE ${table} DROP CONSTRAINT ${quoteIdent(constraint)} CASCADE`
+			)
+		}
+		return statements
 	})
 
 /** The upstream notes (upstream/<name>) a residue awaits: each a PostgreSQL behaviour a patch there changes. */
@@ -1164,38 +1267,6 @@ export const judgeServing = (
 			}
 		}
 		/**
-		 * The statements that drop every planned index of `host`'s relation but `host`, each with the key or exclusion
-		 * constraint that owns it.
-		 */
-		const withoutOthers = (host: PlannedIndex) =>
-			Effect.gen(function* () {
-				const { admin } = yield* Substrate
-				const q = installed.installation.names.relation(host.relation)
-				const table = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-				const statements: Array<string> = []
-				for (const i of Arr.filter(
-					indexes,
-					(i) => i.relation === host.relation && i.index.name !== host.index.name
-				)) {
-					const index = `${quoteIdent(q.schema)}.${quoteIdent(i.index.name)}`
-					const [owner] = yield* Effect.map(
-						admin.queryValues(
-							"SELECT c.conname::text FROM pg_catalog.pg_constraint AS c WHERE c.conindid = $1::text::regclass " +
-								"AND c.conrelid = $2::text::regclass AND c.contype IN ('p'::\"char\", 'u'::\"char\", 'x'::\"char\")",
-							[index, table]
-						),
-						textsOf
-					)
-					const constraint = owner?.[0]
-					statements.push(
-						constraint === undefined
-							? `DROP INDEX ${index}`
-							: `ALTER TABLE ${table} DROP CONSTRAINT ${quoteIdent(constraint)} CASCADE`
-					)
-				}
-				return statements
-			})
-		/**
 		 * What PostgreSQL's read of a probe of `host`'s comes to (see the header): a problem; or none, served through the
 		 * index it chose, held to the engine's claim when it is `host`, and through `host` alone too when it is another,
 		 * every other index of the relation dropped; or, when that other is swept, the residue no plan the engine makes
@@ -1214,7 +1285,7 @@ export const judgeServing = (
 						? problem(verdict.why)
 						: Result.succeed(Option.none<Residue>())
 				}
-				const isolated = yield* withoutOthers(host)
+				const isolated = yield* withoutOthers(installed, host)
 				const [alone] = yield* planned([probe], isolated)
 				if (alone === undefined) {
 					return assert.fail(`${probe.label}: no plan through ${host.index.name} alone`)

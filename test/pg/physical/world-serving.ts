@@ -16,21 +16,28 @@
  * - a function's body, the statement it returns (`SELECT <body>`), its arguments bound as the statement's parameters:
  *   at the values of T's middle row in physical order, at values no row holds, and, for a witness, at the linked
  *   source's own middle row's values, which the link's probe finds. Every scan of a stored relation in its plan is
- *   held to the serving judge's rules (judged): an Index Scan or Index Only Scan of an index the installation planned,
- *   with an index condition, one descent per loop, its buffers within the bound of its result's entries, and no row
- *   removed by a filter but the one entry a unique index finds per descent, which a key probe's membership and a
- *   unique key's recheck read;
+ *   judged by the serving judge (serving.ts judgeScan): an Index Scan or Index Only Scan of an index the installation
+ *   planned, with an index condition, one descent per loop and its buffers within the bound of its result's entries,
+ *   whichever planned index PostgreSQL chose; and the claim, no row removed by a filter but the one entry a unique index
+ *   finds per descent, which a key probe's membership and a unique key's recheck read, held by that index or, when
+ *   PostgreSQL chose it by its cost over another, by another planned index of the relation alone, every other index of
+ *   it dropped under a savepoint rolled back, as the serving judge holds a request's own index alone;
  * - a policy row: as the role, under row security, T's middle row read by its primary key, the role's policy judging
  *   it: a call of the filter function, or a membership reading no other relation. PostgreSQL counts the buffers a
  *   function reads in the node that calls it, so the statement may touch no more than the bound of its own scans and,
- *   for each entry its scan of T matched, the bound of the filter function's body at that row;
+ *   for each entry its scan of T matched, the bound of the filter function's call at that row: its body's bound, and
+ *   its body's planning, which PostgreSQL does at the call while it gives the function a custom plan, as it does a
+ *   function's first calls in a session (callBound). An index PostgreSQL chose by its cost is resolved as a body's is,
+ *   the owner taking on the role in its own transaction, since the role can drop no index;
  * - a read through the entry's view: as the role, T's middle row asked for by its key through the role's view of the
  *   entry, as a workload program over the role reads it, judged as the policy row: the view's filter is the entry's
  *   membership, so a key's equality pushed past it reads T by its key, and the filter's call is bounded as above;
  * - a precheck: as the role, the statement grizzle's write compiler builds to judge an insert of one fact into a
  *   witness's entry (write/entry/precheck.ts buildEntryCheck), bound as db.apply binds it, reading no more than its
- *   own scans and the bound of each world function it calls at the fact's values: the filter function, then each key
- *   and unique probe.
+ *   own scans and the bound of each world function's call at the fact's values (callBound): the filter function, then
+ *   each key and unique probe. Its calls are the function's first in the role's session, so PostgreSQL plans each body
+ *   at its call: a body that joins two relations reads their index ends for the join's selectivity, 12 buffers a call,
+ *   36 of the 42 a precheck of three such calls touched, where their bodies read 6.
  *
  * Volume makes a scan plain: a world function whose lowering deduplicated each relation it read, which PostgreSQL could
  * not pull into its join, read every entry of the relation's index on every call, thousands of buffers over a bound of
@@ -40,6 +47,7 @@ import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from 
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
+	type Explained,
 	explainStatementWith,
 	type PlanNode,
 	parsePlan,
@@ -66,15 +74,14 @@ import { relationUniques } from "#compiler/write/insert/unique.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
-	extraDescents,
 	type IndexFacts,
+	judgeScan,
 	loadRows,
-	overBound,
 	plannedFacts,
-	plannedScan,
 	scanReads,
 	touchedBy,
-	type VolumeLoad
+	type VolumeLoad,
+	withoutOthers
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -171,6 +178,7 @@ export type WorldServingFeature =
 	| "a read through a narrowed entry's view calling the filter function"
 	| "a precheck calling the filter function"
 	| "a drawn entry's filter function"
+	| "a world function's scan read through another planned index than one serving it alone"
 
 /** The variable a witness's rule binds a field of T to. */
 const own = (field: string): Term => ({ kind: "var", name: `v_${field}` })
@@ -603,30 +611,58 @@ interface ScanSeen {
 const entriesOfScan = (n: PlanNode): number =>
 	(n.actualRows + n.rowsRemovedByFilter) * n.actualLoops
 
-/** What one statement's plan read: the problems the serving rules find, its scans, and the bound on their buffers. */
+/**
+ * A scan whose index PostgreSQL chose does not hold the claim (serving.ts Claim, `unstated`): the relation as EXPLAIN
+ * names it, the index, and why. It is a problem unless another planned index of the relation, alone, serves the
+ * statement's scans of it (resolveClaims).
+ */
+interface Unclaimed {
+	readonly relation: string
+	readonly through: PlannedIndex
+	readonly why: string
+}
+
+/**
+ * What one statement's plan read: the problems the serving rules find, its scans, the bound on their buffers, the scans
+ * whose index PostgreSQL chose does not hold the claim, and the buffers PostgreSQL's planning of the statement touched
+ * (EXPLAIN's Planning Buffers).
+ */
 interface Reading {
 	readonly problems: ReadonlyArray<string>
 	readonly scans: ReadonlyArray<ScanSeen>
 	readonly bound: number
+	readonly unclaimed: ReadonlyArray<Unclaimed>
+	readonly planning: number
 }
 
 /**
- * A plan judged (see the header): every scan of a stored relation held to the serving rules, but a scan of the
- * statement's input (`inputs`, a precheck's carriers of the facts it judges), a temporary table it reads whole through
- * local buffers, which no bound counts; each scan's buffers to its own bound for a statement that calls no world
- * function (`calls` none), or, for one that does, the statement's buffers to the bound of its scans and the buffers its
- * calls may read.
+ * The buffers a call of a world function may read at the values its body was judged at: its body's scans' bound, and its
+ * body's planning. PostgreSQL plans an SQL function's body at the call's arguments while it gives the function a custom
+ * plan, as it does a function's first calls in a session, and counts that planning's buffers in the node that calls it.
+ */
+const callBound = (body: Reading): number => body.bound + body.planning
+
+/**
+ * A plan judged (see the header): every scan of a stored relation held to the serving rules by serving.ts's judge
+ * (judgeScan), but a scan of the statement's input (`inputs`, a precheck's carriers of the facts it judges), a temporary
+ * table it reads whole through local buffers, which no bound counts. Each scan's index, whichever PostgreSQL chose, is
+ * held to what it read; one that does not hold the claim too is Unclaimed. Each scan's buffers are held to its own bound
+ * for a statement that calls no world function (`calls` none), or, for one that does, the statement's buffers to the
+ * bound of its scans and the buffers its calls may read.
  */
 const readingOf = (
 	cx: Judging,
 	label: string,
-	plan: PlanNode,
+	explained: Explained,
 	inputs: ReadonlySet<string>,
 	calls: Option.Option<number>
 ): Reading => {
+	const plan = explained.plan
+	const bounded = Option.isNone(calls) ? "scan" : "statement"
 	const problems: Array<string> = []
 	const scans: Array<ScanSeen> = []
 	const bounds: Array<number> = []
+	const unclaimed: Array<Unclaimed> = []
 	for (const n of planNodes(plan)) {
 		if (Option.isNone(n.relation)) {
 			continue
@@ -636,26 +672,28 @@ const readingOf = (
 			continue
 		}
 		scans.push({ relation, loops: n.actualLoops, entries: entriesOfScan(n) })
-		const through = plannedScan(n, cx.planned, true)
-		if (Result.isFailure(through)) {
-			problems.push(`${label}: ${relation}: ${through.failure}`)
+		const read = judgeScan(n, cx.planned, cx.facts, true, () => ({ kind: "read" }), bounded)
+		if (read.kind === "unserved") {
+			problems.push(`${label}: ${relation}: ${read.why}`)
 			continue
 		}
-		const index = through.success.index.name
-		const scanned = defined(cx.facts.get(index), `the facts of ${index}`)
-		const read = scanReads(n, scanned)
-		if (n.rowsRemovedByFilter > 0 && !(scanned.unique && read.entries <= read.loops)) {
-			problems.push(
-				`${label}: ${relation}: a scan of ${index} removing ${n.rowsRemovedByFilter} rows by a filter, past the one entry of a unique key per descent`
+		const index = read.through.index.name
+		if (read.kind === "swept") {
+			problems.push(`${label}: ${relation}: ${read.why}`)
+		} else {
+			const claimed = judgeScan(
+				n,
+				cx.planned,
+				cx.facts,
+				true,
+				() => ({ kind: "unstated" }),
+				bounded
 			)
+			if (claimed.kind === "unserved") {
+				unclaimed.push({ relation, through: read.through, why: claimed.why })
+			}
 		}
-		const swept = Option.orElse(extraDescents(n, index), () =>
-			Option.isNone(calls) ? overBound(n, index, scanned) : Option.none()
-		)
-		if (Option.isSome(swept)) {
-			problems.push(`${label}: ${relation}: ${swept.value}`)
-		}
-		bounds.push(read.bound)
+		bounds.push(scanReads(n, defined(cx.facts.get(index), `the facts of ${index}`)).bound)
 	}
 	const bound = Arr.reduce(bounds, 0, (sum, b) => sum + b)
 	if (Option.isSome(calls) && touchedBy(plan) > bound + calls.value) {
@@ -663,7 +701,13 @@ const readingOf = (
 			`${label}: ${touchedBy(plan)} buffers, over the ${bound} its scans may read and the ${calls.value} its world function calls may`
 		)
 	}
-	return { problems, scans, bound }
+	return {
+		problems,
+		scans,
+		bound,
+		unclaimed,
+		planning: explained.planningBuffers.sharedHit + explained.planningBuffers.sharedRead
+	}
 }
 
 /** No input a statement reads whole: a body's and a policy row's. */
@@ -672,7 +716,10 @@ const noInputs: ReadonlySet<string> = new Set()
 /** EXPLAIN's options beside ANALYZE and BUFFERS, as the serving judge captures a probe. */
 const analyzed = { serialize: { kind: "off" }, wal: false } as const
 
-/** A statement's plan, run twice under EXPLAIN (ANALYZE, BUFFERS), the second run's: the first plans what it calls. */
+/**
+ * A statement's EXPLAIN (ANALYZE, BUFFERS), run twice, the second run's: the first plans what it calls and reads the
+ * catalog rows its plan needs.
+ */
 const explained = (
 	run: (
 		sql: string,
@@ -681,14 +728,14 @@ const explained = (
 	label: string,
 	sql: string,
 	params: ReadonlyArray<string>
-): Effect.Effect<PlanNode, SqlError> =>
+): Effect.Effect<Explained, SqlError> =>
 	Effect.gen(function* () {
 		const explain = explainStatementWith(sql, analyzed)
 		yield* run(explain, params)
 		const rows = yield* run(explain, params)
 		const plan = parsePlan(rows[0]?.[0])
 		return Result.isSuccess(plan)
-			? plan.success.plan
+			? plan.success
 			: assert.fail(`${label}: no plan: ${plan.failure.message}`)
 	})
 
@@ -765,8 +812,93 @@ interface Call {
 const argsOf = (fn: WorldFunction, row: Row): ReadonlyArray<string> =>
 	Arr.map(fn.params, (f) => defined(row[f.name], `${fn.label}'s argument ${f.name}`))
 
-/** The calls' bodies judged, in one transaction of the owner rolled back. */
-const judgeCalls = (cx: Judging, calls: ReadonlyArray<Call>) =>
+/**
+ * A statement the judgment runs: what the report calls it, its SQL and parameters, the statements it needs first (a
+ * precheck's carriers and their ANALYZE), and whom it runs as: the owner, or a world's role.
+ */
+interface Statement {
+	readonly label: string
+	readonly sql: string
+	readonly params: ReadonlyArray<string>
+	readonly before: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+	readonly as: { readonly kind: "owner" } | { readonly kind: "role"; readonly role: string }
+}
+
+/**
+ * The problems of a statement's Unclaimed scans, in a transaction of the owner under the judged settings: none for a
+ * relation another planned index of which serves the statement alone, every other index of the relation dropped under a
+ * savepoint rolled back, the owner taking on the statement's role there to run it as the role does, and every scan of
+ * the relation in its plan then holding the claim, its buffers bounded as the statement's (`bounded`). PostgreSQL chose
+ * the index it read by its cost over that one, and serving.ts's judge holds it only to what it read, as it holds a
+ * request's probe read through another index than its own; `excused` notes each such scan.
+ */
+const resolveClaims = (
+	cx: Judging,
+	statement: Statement,
+	unclaimed: ReadonlyArray<Unclaimed>,
+	bounded: "scan" | "statement",
+	excused: () => void
+) =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const run = (sql: string, values: ReadonlyArray<string>) => admin.queryValues(sql, values)
+		const judged = { schema: cx.installed.schema, installation: cx.installed.installation }
+		const problems: Array<string> = []
+		for (const u of unclaimed) {
+			const others = Arr.filter(
+				cx.installed.installation.indexes,
+				(i) => i.relation === u.through.relation && i.index.name !== u.through.index.name
+			)
+			let served = false
+			for (const host of others) {
+				yield* admin.query("SAVEPOINT alone", [])
+				for (const drop of yield* withoutOthers(judged, host)) {
+					yield* admin.query(drop, [])
+				}
+				if (statement.as.kind === "role") {
+					const role = quoteIdent(statement.as.role)
+					yield* admin.query(`GRANT ${role} TO CURRENT_USER WITH INHERIT FALSE, SET TRUE`, [])
+					yield* admin.query(`SET LOCAL ROLE ${role}`, [])
+				}
+				for (const [sql, params] of statement.before) {
+					yield* run(sql, params)
+				}
+				const alone = yield* explained(
+					run,
+					`${statement.label}, ${host.index.name} alone`,
+					statement.sql,
+					statement.params
+				)
+				yield* admin.query("ROLLBACK TO SAVEPOINT alone", [])
+				const scans = Arr.filter(
+					[...planNodes(alone.plan)],
+					(n) => Option.isSome(n.relation) && n.relation.value === u.relation
+				)
+				served =
+					Arr.isReadonlyArrayNonEmpty(scans) &&
+					Arr.every(
+						scans,
+						(n) =>
+							judgeScan(n, cx.planned, cx.facts, true, () => ({ kind: "unstated" }), bounded)
+								.kind === "served"
+					)
+				if (served) {
+					break
+				}
+			}
+			if (served) {
+				excused()
+			} else {
+				problems.push(
+					`${statement.label}: ${u.relation}: ${u.why}, and no other planned index of ${u.relation} serves the statement alone`
+				)
+			}
+		}
+		return problems
+	})
+
+/** `body` in a transaction of the owner rolled back, under the judged settings and the case's claims. */
+const asOwner = <A, E, R>(cx: Judging, body: Effect.Effect<A, E, R>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		return yield* Effect.acquireUseRelease(
@@ -776,22 +908,73 @@ const judgeCalls = (cx: Judging, calls: ReadonlyArray<Call>) =>
 					for (const [sql, params] of judgedSettings(cx)) {
 						yield* admin.query(sql, params)
 					}
-					const readings: Array<readonly [Call, Reading]> = []
-					for (const call of calls) {
-						const label = `${call.fn.label} at ${call.at}`
-						const plan = yield* explained(
-							(sql, params) => admin.queryValues(sql, params),
-							label,
-							call.fn.sql,
-							argsOf(call.fn, call.row)
-						)
-						readings.push([call, readingOf(cx, label, plan, noInputs, Option.none())])
-					}
-					return readings
+					return yield* body
 				}),
 			() => Effect.ignore(admin.query("ROLLBACK", []))
 		)
 	})
+
+/** The feature an excused scan notes (resolveClaims). */
+const excusedFeature: WorldServingFeature =
+	"a world function's scan read through another planned index than one serving it alone"
+
+/**
+ * A role's statement's reading with its Unclaimed scans resolved (resolveClaims) in a transaction of the owner: the
+ * role's own session can drop no index.
+ */
+const resolvedAsRole = (
+	cx: Judging,
+	statement: Statement,
+	reading: Reading,
+	note: (feature: WorldServingFeature) => void
+) =>
+	Arr.isReadonlyArrayNonEmpty(reading.unclaimed)
+		? Effect.map(
+				asOwner(
+					cx,
+					resolveClaims(cx, statement, reading.unclaimed, "statement", () => note(excusedFeature))
+				),
+				(unresolved): Reading => ({ ...reading, problems: [...reading.problems, ...unresolved] })
+			)
+		: Effect.succeed(reading)
+
+/**
+ * The calls' bodies judged, in one transaction of the owner rolled back, an Unclaimed scan resolved by the relation's
+ * other planned indexes alone (resolveClaims).
+ */
+const judgeCalls = (
+	cx: Judging,
+	calls: ReadonlyArray<Call>,
+	note: (feature: WorldServingFeature) => void
+) =>
+	asOwner(
+		cx,
+		Effect.gen(function* () {
+			const { admin } = yield* Substrate
+			const readings: Array<readonly [Call, Reading]> = []
+			for (const call of calls) {
+				const statement: Statement = {
+					label: `${call.fn.label} at ${call.at}`,
+					sql: call.fn.sql,
+					params: argsOf(call.fn, call.row),
+					before: [],
+					as: { kind: "owner" }
+				}
+				const plan = yield* explained(
+					(sql, params) => admin.queryValues(sql, params),
+					statement.label,
+					statement.sql,
+					statement.params
+				)
+				const reading = readingOf(cx, statement.label, plan, noInputs, Option.none())
+				const unresolved = yield* resolveClaims(cx, statement, reading.unclaimed, "scan", () =>
+					note(excusedFeature)
+				)
+				readings.push([call, { ...reading, problems: [...reading.problems, ...unresolved] }])
+			}
+			return readings
+		})
+	)
 
 /**
  * Statements run as an entry's role, on a session of its login that has taken it on, in one SERIALIZABLE transaction
@@ -840,30 +1023,38 @@ const entriesOf = (cx: Judging, target: string, plan: PlanNode): number =>
  * bound by its scans' and, per entry it matched, the filter function's body at that row (`call`, none for a membership
  * reading no other relation).
  */
-const policyRow = (cx: Judging, entry: WorldEntry, row: Row, call: Option.Option<Reading>) =>
-	asRole(cx, entry, (run) =>
-		Effect.gen(function* () {
-			const target = entry.target
-			const label = `${entry.label}'s policy row`
-			const plan = yield* explained(
-				run,
-				label,
-				`SELECT 1 FROM ${tableSql(cx, target.name)} WHERE ${Arr.join(
-					Arr.map(target.key, (f, at) => `${columnSql(cx, target.name, f)} = $${at + 1}`),
-					" AND "
-				)}`,
-				Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`))
-			)
-			const each = Option.match(call, { onNone: () => 0, onSome: (r) => r.bound })
-			return readingOf(
-				cx,
-				label,
-				plan,
-				noInputs,
-				Option.some(entriesOf(cx, target.name, plan) * each)
-			)
-		})
-	)
+const policyRow = (
+	cx: Judging,
+	entry: WorldEntry,
+	row: Row,
+	call: Option.Option<Reading>,
+	note: (feature: WorldServingFeature) => void
+) =>
+	Effect.gen(function* () {
+		const target = entry.target
+		const statement: Statement = {
+			label: `${entry.label}'s policy row`,
+			sql: `SELECT 1 FROM ${tableSql(cx, target.name)} WHERE ${Arr.join(
+				Arr.map(target.key, (f, at) => `${columnSql(cx, target.name, f)} = $${at + 1}`),
+				" AND "
+			)}`,
+			params: Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`)),
+			before: [],
+			as: { kind: "role", role: cx.installed.world(entry.role).role }
+		}
+		const plan = yield* asRole(cx, entry, (run) =>
+			explained(run, statement.label, statement.sql, statement.params)
+		)
+		const each = Option.match(call, { onNone: () => 0, onSome: callBound })
+		const reading = readingOf(
+			cx,
+			statement.label,
+			plan,
+			noInputs,
+			Option.some(entriesOf(cx, target.name, plan.plan) * each)
+		)
+		return yield* resolvedAsRole(cx, statement, reading, note)
+	})
 
 /**
  * A read through the entry's view (see the header): T's middle row asked for by its key through the view of the role's
@@ -871,31 +1062,39 @@ const policyRow = (cx: Judging, entry: WorldEntry, row: Row, call: Option.Option
  * scan of T matched, so the statement's buffers are bound by its scans' and, per entry, the filter function's body at
  * that row (`call`, none for a membership reading no other relation).
  */
-const viewRow = (cx: Judging, entry: WorldEntry, row: Row, call: Option.Option<Reading>) =>
-	asRole(cx, entry, (run) =>
-		Effect.gen(function* () {
-			const target = entry.target
-			const label = `${entry.label}'s read through its view`
-			const names = roleNamesOf(cx.installed, entry.role)
-			const plan = yield* explained(
-				run,
-				label,
-				`SELECT 1 FROM ${names.view(entry.entry)} WHERE ${Arr.join(
-					Arr.map(target.key, (f, at) => `${names.column(entry.entry, f)} = $${at + 1}`),
-					" AND "
-				)}`,
-				Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`))
-			)
-			const each = Option.match(call, { onNone: () => 0, onSome: (r) => r.bound })
-			return readingOf(
-				cx,
-				label,
-				plan,
-				noInputs,
-				Option.some(entriesOf(cx, target.name, plan) * each)
-			)
-		})
-	)
+const viewRow = (
+	cx: Judging,
+	entry: WorldEntry,
+	row: Row,
+	call: Option.Option<Reading>,
+	note: (feature: WorldServingFeature) => void
+) =>
+	Effect.gen(function* () {
+		const target = entry.target
+		const names = roleNamesOf(cx.installed, entry.role)
+		const statement: Statement = {
+			label: `${entry.label}'s read through its view`,
+			sql: `SELECT 1 FROM ${names.view(entry.entry)} WHERE ${Arr.join(
+				Arr.map(target.key, (f, at) => `${names.column(entry.entry, f)} = $${at + 1}`),
+				" AND "
+			)}`,
+			params: Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`)),
+			before: [],
+			as: { kind: "role", role: cx.installed.world(entry.role).role }
+		}
+		const plan = yield* asRole(cx, entry, (run) =>
+			explained(run, statement.label, statement.sql, statement.params)
+		)
+		const each = Option.match(call, { onNone: () => 0, onSome: callBound })
+		const reading = readingOf(
+			cx,
+			statement.label,
+			plan,
+			noInputs,
+			Option.some(entriesOf(cx, target.name, plan.plan) * each)
+		)
+		return yield* resolvedAsRole(cx, statement, reading, note)
+	})
 
 /**
  * A precheck (see the header): the statement grizzle's write compiler builds to judge an insert of `fact` into the
@@ -907,7 +1106,8 @@ const precheck = (
 	base: BaseSpec,
 	entry: WorldEntry,
 	fact: Row,
-	calls: number
+	calls: number,
+	note: (feature: WorldServingFeature) => void
 ): Effect.Effect<Reading, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const label = `${entry.label}'s precheck`
@@ -963,23 +1163,27 @@ const precheck = (
 		const inputs = new Set(
 			Arr.flatMap(before, (st) => (st.step.kind === "carrier" ? [st.step.carrier] : []))
 		)
-		return yield* asRole(cx, entry, (run) =>
+		const judged: Statement = {
+			label,
+			sql: bound.form(statement).sql,
+			params: textsOfParams(succeeded(bound.values(statement))),
+			before: Arr.map(before, (st) =>
+				st.step.kind === "carrier" || st.step.kind === "analyze"
+					? ([bound.form(st).sql, textsOfParams(succeeded(bound.values(st)))] as const)
+					: assert.fail(`${label}: a ${st.step.kind} statement before the check`)
+			),
+			as: { kind: "role", role: cx.installed.world(entry.role).role }
+		}
+		const plan = yield* asRole(cx, entry, (run) =>
 			Effect.gen(function* () {
-				for (const st of before) {
-					if (st.step.kind !== "carrier" && st.step.kind !== "analyze") {
-						return assert.fail(`${label}: a ${st.step.kind} statement before the check`)
-					}
-					yield* run(bound.form(st).sql, textsOfParams(succeeded(bound.values(st))))
+				for (const [sql, params] of judged.before) {
+					yield* run(sql, params)
 				}
-				const plan = yield* explained(
-					run,
-					label,
-					bound.form(statement).sql,
-					textsOfParams(succeeded(bound.values(statement)))
-				)
-				return readingOf(cx, label, plan, inputs, Option.some(calls))
+				return yield* explained(run, label, judged.sql, judged.params)
 			})
 		)
+		const reading = readingOf(cx, label, plan, inputs, Option.some(calls))
+		return yield* resolvedAsRole(cx, judged, reading, note)
 	})
 
 /** The claims every judged statement runs under: a fact of each context of the base, each field a value the load
@@ -1245,7 +1449,8 @@ export const judgeCase = (
 		)
 		const readings = yield* judgeCalls(
 			cx,
-			Arr.flatMap(argued, ({ entry, args }) => callsOf(entry, args))
+			Arr.flatMap(argued, ({ entry, args }) => callsOf(entry, args)),
+			note
 		)
 		const problems: Array<string> = []
 		for (const [call, reading] of readings) {
@@ -1262,7 +1467,8 @@ export const judgeCase = (
 				cx,
 				entry,
 				args.row,
-				Option.map(filterAtRow, ([, reading]) => reading)
+				Option.map(filterAtRow, ([, reading]) => reading),
+				note
 			)
 			appendAll(problems, policy.problems)
 			note(
@@ -1274,7 +1480,8 @@ export const judgeCase = (
 				cx,
 				entry,
 				args.row,
-				Option.map(filterAtRow, ([, reading]) => reading)
+				Option.map(filterAtRow, ([, reading]) => reading),
+				note
 			)
 			appendAll(problems, viewed.problems)
 			if (Option.isSome(entry.filter)) {
@@ -1284,9 +1491,9 @@ export const judgeCase = (
 				const calls = Arr.reduce(
 					readingAt(entry, "fact"),
 					0,
-					(sum, [, reading]) => sum + reading.bound
+					(sum, [, reading]) => sum + callBound(reading)
 				)
-				const checked = yield* precheck(cx, base, entry, fact, calls)
+				const checked = yield* precheck(cx, base, entry, fact, calls, note)
 				appendAll(problems, checked.problems)
 				if (Option.isSome(entry.filter)) {
 					note("a precheck calling the filter function")
