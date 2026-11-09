@@ -931,14 +931,35 @@ const cyclic = (order: ReadonlyArray<Precedes>): boolean => {
 }
 
 /**
+ * The laws a stratum is refused by, each with the facts its witness may name; none when it commits. `deleted` are the
+ * keys two facts the stratum deletes at one value break, a refusal before any SQL, whatever S' holds: a key names one
+ * fact. The refusal may name any key the stratum's additions break too, since the host judges a stratum's relations in
+ * an order the model leaves open; a key both break is one violation (byLaw), so its witness may name a deleted fact or
+ * an added one. Without such a deletion, a stratum is refused by the immediate laws its final state breaks, raised at
+ * their statements before any deferred law, and otherwise by every law it breaks.
+ */
+export const refusedBy = (
+	deleted: ReadonlyArray<Violation>,
+	all: ReadonlyArray<Violation>
+): ReadonlyArray<Violation> => {
+	if (Arr.isReadonlyArrayNonEmpty(deleted)) {
+		return byLaw(
+			Arr.appendAll(
+				deleted,
+				Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
+			)
+		)
+	}
+	const immediate = Arr.filter(all, (v) => v.immediate)
+	return Arr.isReadonlyArrayNonEmpty(immediate) ? immediate : all
+}
+
+/**
  * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (stratumOrder) runs in a
  * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
  * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
- * laws pass.
- * Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a value) are
- * that key's refusal before any SQL, whatever S' holds: a key names one fact. The refusal may name any key the
- * stratum's additions break too, since the host judges a stratum's relations in an order the model leaves open; a key
- * both break is one violation (byLaw), so its witness may name a deleted fact or an added one.
+ * laws pass. Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a
+ * value) are that key's violation (deletedAtOneKey), refused by `refusedBy`.
  */
 export const expect = (
 	schema: HostSchema,
@@ -950,25 +971,8 @@ export const expect = (
 		return { kind: "unorderable", order }
 	}
 	const next = transition(keyedSchema(schema), state, ops)
-	const all = violations(schema, next)
-	const deleted = deletedAtOneKey(schema, ops)
-	if (deleted.length > 0) {
-		return {
-			kind: "invariant-rejected",
-			violations: byLaw(
-				Arr.appendAll(
-					deleted,
-					Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
-				)
-			)
-		}
-	}
-	const immediate = Arr.filter(all, (v) => v.immediate)
-	if (immediate.length > 0) {
-		return { kind: "invariant-rejected", violations: immediate }
-	}
-	if (all.length > 0) {
-		return { kind: "invariant-rejected", violations: all }
-	}
-	return { kind: sameState(schema, state, next) ? "no-change" : "accepted", state: next }
+	const refused = refusedBy(deletedAtOneKey(schema, ops), violations(schema, next))
+	return Arr.isReadonlyArrayNonEmpty(refused)
+		? { kind: "invariant-rejected", violations: refused }
+		: { kind: sameState(schema, state, next) ? "no-change" : "accepted", state: next }
 }
