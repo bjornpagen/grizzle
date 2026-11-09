@@ -1,0 +1,36 @@
+CHECKLIST: ArkType's reporting policy, applied to a literal U+200B in an ArkRegex pattern
+
+Outcome: a bug report for github.com/arktypeio/arktype. Nothing has been sent.
+
+Sources:
+  T  https://github.com/arktypeio/arktype/blob/main/.github/ISSUE_TEMPLATE/bug_report.md
+  C  https://github.com/arktypeio/arktype/blob/main/.github/CONTRIBUTING.md
+  A  https://github.com/arktypeio/arktype/blob/main/AGENTS.md
+
+A. GATES BEFORE REPORTING
+  [x] Search for an existing report, closed issues and pull requests included. Done on 2026-11-09, with no match
+      (EVIDENCE.txt 5). T asks for the search terms, and issue.txt lists them.
+  [x] Reproduce on the latest release: arkregex 0.0.14 is the latest, and arktype's main at 326cdce3 still carries the
+      markers (EVIDENCE.txt 1 and 3).
+  [x] The simplest code that reproduces it (T): one file that imports only regex, which arktype re-exports. T: "If
+      your repro requires dependencies besides arktype, it's probably either not a minimal repro or not an arktype
+      bug."
+  [x] Check that it is an ArkRegex bug, not a misuse: every pattern is a valid regex whose RegExp matches what its
+      source says, and the same patterns with U+200C infer exactly (EVIDENCE.txt 1 and 2).
+
+B. REPORT CONTENT (T)
+  [x] Search Terms: issue.txt.
+  [x] ArkType version: arktype 2.2.9, arkregex 0.0.14.
+  [x] TypeScript version (5.1+): 7.0.2, also 5.9.3.
+  [x] Other context: macOS, Node 26.13.0. T offers `npx envinfo --system --binaries --npmPackages
+      "{arktype,@ark/*,typescript}" --fullTree` as an easy way to collect it; it is optional.
+  [ ] Playground Link: the owner pastes the code from issue.txt into https://arktype.io/playground, checks that it
+      reports the same U+200B errors, and copies the link (T, steps 1 to 3).
+  [x] Reproduction code in the ts block (T): issue.txt.
+
+C. ETIQUETTE
+  [ ] C and A say nothing about issues an agent helped write. The owner reads issue.txt and runs repro.sh against the
+      current release before posting.
+  [ ] The author is the owner's GitHub account. The reproduction is self-contained and quotes nothing of grizzle.
+  [x] One cause per issue: the three shapes share one cause, ArkRegex's markers in the text it reads, and go together.
+  [x] Short, with no generated filler.

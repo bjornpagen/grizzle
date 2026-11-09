@@ -157,3 +157,6 @@ post-beta swarm's fixes for the next release.
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
   union-typed value, so .fallowrc.json keeps use and useRelation. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.
+- upstream/arkregex-zero-width-space-marker: ArkRegex reads a literal U+200B in a pattern as its own error or anchor
+  marker, so grizzle's scan writes it as NUL and the host type writes it back (types/fields/source.ts, regex.ts). File
+  at arktypeio/arktype, then delete the stand-in once repro.sh reports the control alone.

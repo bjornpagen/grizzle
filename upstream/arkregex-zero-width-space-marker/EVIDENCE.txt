@@ -1,0 +1,68 @@
+EVIDENCE: arkregex-zero-width-space-marker
+
+Environment, for every section: macOS 27.0.1 on arm64 (10 cores); Node 26.13.0; arkregex 0.0.14, grizzle's pin and the
+latest npm release (published 2026-10-20), on which arktype 2.2.9 depends; TypeScript 7.0.2, the latest release, and
+5.9.3. Measured 2026-11-09.
+
+1. The reproduction (repro.sh), on both TypeScript releases.
+   `sh repro.sh 0.0.14 7.0.2` and `sh repro.sh 0.0.14 5.9.3` print the same diagnostics, with U+200B and U+200C written
+   as escapes:
+
+     repro.ts(8,41): error TS2339: Property 'infer' does not exist on type '"a\u200B"'.
+     repro.ts(11,21): error TS2339: Property 'infer' does not exist on type '"x|\u200B"'.
+     repro.ts(17,14): error TS2322: Type 'true' is not assignable to type '"\u200Bb"'.
+     repro.ts(19,14): error TS2322: Type 'true' is not assignable to type '"\u200Bb"'.
+     repro.ts(22,21): error TS2345: Argument of type '"^a<\u200B\\^\u200B>b$"' is not assignable to parameter of type
+       '"Anchor ^ may not appear mid-pattern\u200B"'.
+     repro.ts(23,45): error TS2339: Property 'infer' does not exist on type
+       '"Anchor ^ may not appear mid-pattern\u200B"'.
+     repro.ts(25,14): error TS2322: Type 'boolean' is not assignable to type 'string'.
+     repro.ts(47,14): error TS2322: Type 'true' is not assignable to type '`${string}a\u200C${string}`'.
+
+   Every U+200C line passes. Line 47 is the control.
+
+2. The three shapes.
+   - A source ending in U+200B (lines 8 and 11). regex("a\u200B") and regex("x|\u200B") are accepted and typed as the
+     strings "a\u200B" and "x|\u200B", with no infer, test or exec. regex.infer of either is never. A source holding
+     U+200B anywhere but at its end, such as "^a\u200B$", is read correctly.
+   - U+200B in a class (lines 17 and 19). "^[a\u200B]b$" and "^[\u200Ba]b$" both infer "\u200Bb" alone and drop "ab",
+     whichever side of the U+200B the "a" stands on.
+   - U+200B on both sides of a literal ^ or $ (lines 22, 23 and 25). "^a<\u200B\\^\u200B>b$" is refused with "Anchor ^
+     may not appear mid-pattern", and "^<\u200B\\$\u200B>$" with "Anchor $ may not appear mid-pattern". The unanchored
+     "<\u200B\\$\u200B>" infers string, so its type admits "b", which it does not match.
+   - At runtime, under Node 26.13.0, each is a RegExp that matches what its source says: regex("a\u200B") matches
+     "a\u200B", "^[a\u200B]b$" matches "ab", "^a<\u200B\\^\u200B>b$" matches "a<\u200B^\u200B>b", and
+     "<\u200B\\$\u200B>" does not match "b".
+
+3. The cause, in arktype's source at main 326cdce3 (2026-10-27), where ark/regex is still 0.0.14.
+   - ark/util/errors.ts: ErrorMessage<message> is `${message}${ZeroWidthSpace}`, with ZeroWidthSpace "\u{200B}".
+   - ark/regex/parse.ts, parseState: `s["unscanned"] extends ErrorMessage ? s["unscanned"]`, checked before each step.
+     A source ending in U+200B matches before its first character is read, so the parse returns the source itself.
+     regex.validate passes an error message through as is, so the argument is accepted, and the call's type is
+     regex.parse's result, the source string.
+   - ark/regex/charset.ts, parseNonNegatedCharset: `result extends ErrorMessage ? result`. The member U+200B matches,
+     so the class's set is that one character, without the members read before it or after it.
+   - ark/regex/state.ts: an anchor is written into the inferred text as AnchorMarker,
+     `<${ZeroWidthSpace}${inner}${ZeroWidthSpace}>`. finalizeRegexOrError strips a leading start marker and a trailing
+     end marker (applyAnchors), then refuses any marker left (contains<pattern, StartAnchorMarker> and
+     contains<pattern, EndAnchorMarker>). The literal text "<\u200B^\u200B>" is the same string as the start marker.
+     Unanchored, "<\u200B$\u200B>" is the whole inferred text, so applyAnchors strips it as the end marker and prefixes
+     string to the empty rest.
+
+4. grizzle's own case.
+   - test/types/text/regex.test.ts at TEST_SEED=3860715490, before 94ee991b: str.regex("\u200B", "su") was typed never,
+     refusing all 24 values the run drew for it, and every value of the two conjunctions that hold it.
+   - At 94ee991b, with the stand-in planted out (the scan writing U+200B as is), the kept cases in
+     test/types/text/contained.ts fail: "\u200B" typed never, "[a\u200B]b" refusing "ab", and "a<\u200B\\^\u200B>b"
+     refused as a mid-pattern anchor. With the write-back planted out instead, the same cases fail with NUL in the
+     inferred text.
+
+5. Duplicate search, 2026-11-09, issues and pull requests of arktypeio/arktype, closed ones included.
+   - Queries: "zero width space", "zero-width", "ZeroWidthSpace", "u200B", "200B", "invisible character regex",
+     "arkregex", "arkregex never", "regex infer never", "regex character class", "character set regex", "charset",
+     "regex literal never", "anchor may not appear mid-pattern", "regex mid-pattern", "AnchorMarker", "ErrorMessage
+     marker", "error message suffix", "in-band", "regex returns string", "Property infer does not exist",
+     "regex unicode literal".
+   - Nothing reports a pattern holding U+200B. The only match on the character is #854 (closed), on the ArkDark editor
+     theme. The open ArkRegex issues (#1529, #1530, #1532, #1533, #1576, #1663, #1664) and the closed #1690 are other
+     shapes.

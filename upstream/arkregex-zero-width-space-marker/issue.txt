@@ -1,0 +1,100 @@
+DRAFT: github.com/arktypeio/arktype issue, using the Bug template's fields (.github/ISSUE_TEMPLATE/bug_report.md).
+Not filed.
+
+Title: ArkRegex: a literal U+200B (zero-width space) in a pattern is read as ArkRegex's own error or anchor marker
+
+### Search Terms
+
+zero width space, zero-width, ZeroWidthSpace, u200B, invisible character regex, arkregex never, regex infer never,
+regex character class, charset, anchor may not appear mid-pattern, AnchorMarker, ErrorMessage marker, regex returns
+string
+
+### Context
+
+- ArkType version: arktype 2.2.9, arkregex 0.0.14 (the markers below are unchanged on main at 326cdce3)
+- TypeScript version (5.1+): 7.0.2, also 5.9.3
+- Other context you think may be relevant (JS flavor, OS, etc.): macOS, Node 26.13.0
+
+### Repro
+
+Playground Link: <the owner's playground link>
+
+```ts
+import { regex } from "arktype"
+
+// true when t is exactly u, else t itself, so a mismatch names the inferred type
+type Exact<t, u> = [t] extends [u] ? ([u] extends [t] ? true : t) : t
+
+// A source ending in U+200B: read as an error message, so the call is typed as its source string
+const end = regex("a\u200B")
+export const endExact: Exact<typeof end.infer, `${string}a\u200B${string}`> = true
+const alternative = regex("x|\u200B")
+export const alternativeExact: Exact<
+	typeof alternative.infer,
+	`${string}x${string}` | `${string}\u200B${string}`
+> = true
+
+// U+200B in a class: read as an error ending the class, so the class's other members are dropped
+const before = regex("^[a\u200B]b$")
+export const beforeExact: Exact<typeof before.infer, "ab" | "\u200Bb"> = true
+const after = regex("^[\u200Ba]b$")
+export const afterExact: Exact<typeof after.infer, "ab" | "\u200Bb"> = true
+
+// U+200B on both sides of a literal ^ or $: read as an anchor marker, so the pattern is refused or widened to string
+const caret = regex("^a<\u200B\\^\u200B>b$")
+export const caretExact: Exact<typeof caret.infer, "a<\u200B^\u200B>b"> = true
+const dollar = regex("<\u200B\\$\u200B>")
+export const dollarExact: Exact<typeof dollar.infer, `${string}<\u200B$\u200B>${string}`> = true
+
+// The same patterns with U+200C: each inferred exactly
+const endControl = regex("a\u200C")
+export const endControlExact: Exact<typeof endControl.infer, `${string}a\u200C${string}`> = true
+const alternativeControl = regex("x|\u200C")
+export const alternativeControlExact: Exact<
+	typeof alternativeControl.infer,
+	`${string}x${string}` | `${string}\u200C${string}`
+> = true
+const beforeControl = regex("^[a\u200C]b$")
+export const beforeControlExact: Exact<typeof beforeControl.infer, "ab" | "\u200Cb"> = true
+const afterControl = regex("^[\u200Ca]b$")
+export const afterControlExact: Exact<typeof afterControl.infer, "ab" | "\u200Cb"> = true
+const caretControl = regex("^a<\u200C\\^\u200C>b$")
+export const caretControlExact: Exact<typeof caretControl.infer, "a<\u200C^\u200C>b"> = true
+const dollarControl = regex("<\u200C\\$\u200C>")
+export const dollarControlExact: Exact<
+	typeof dollarControl.infer,
+	`${string}<\u200C$\u200C>${string}`
+> = true
+```
+
+Every U+200C line passes. Each U+200B line fails (tsc 7.0.2 and 5.9.3; U+200B written as an escape here, since it is
+invisible):
+
+```
+(8,41): error TS2339: Property 'infer' does not exist on type '"a\u200B"'.
+(11,21): error TS2339: Property 'infer' does not exist on type '"x|\u200B"'.
+(17,14): error TS2322: Type 'true' is not assignable to type '"\u200Bb"'.
+(19,14): error TS2322: Type 'true' is not assignable to type '"\u200Bb"'.
+(22,21): error TS2345: Argument of type '"^a<\u200B\\^\u200B>b$"' is not assignable to parameter of type '"Anchor ^ may not appear mid-pattern\u200B"'.
+(23,45): error TS2339: Property 'infer' does not exist on type '"Anchor ^ may not appear mid-pattern\u200B"'.
+(25,14): error TS2322: Type 'boolean' is not assignable to type 'string'.
+```
+
+At runtime each regex matches what its source says (`regex("^[a\u200B]b$").test("ab")` is true), so the types refuse
+values the regex matches or, for the widened one, admit values it never matches.
+
+The cause: ArkRegex ends an error message with U+200B (`ErrorMessage` in @ark/util) and writes an anchor into the
+inferred text between two of them (`AnchorMarker` in ark/regex/state.ts). Both share one string with the source being
+read, so a literal U+200B is taken for a marker:
+
+- `parseState` returns `s["unscanned"]` as an error whenever it ends in U+200B, so a source ending in one is accepted
+  and typed as the source string, not a `Regex`.
+- `parseNonNegatedCharset` returns a member that is U+200B as an error, so the class infers that one character and
+  loses the rest.
+- `finalizeRegexOrError` strips the leading and trailing anchor markers and refuses any marker left, and the literal
+  text `<\u200B^\u200B>` is the same string as the start marker. Unanchored, `<\u200B$\u200B>` is stripped as the end
+  marker and leaves `string`.
+
+One way to fix it: carry errors and anchors outside the text, an error as its own parse state that `parseState` checks
+for, and an anchor as a flag on its branch rather than marker text in the inferred pattern. Then no source can spell
+either.

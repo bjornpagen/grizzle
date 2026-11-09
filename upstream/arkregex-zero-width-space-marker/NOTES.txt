@@ -1,0 +1,56 @@
+NOTES: arkregex-zero-width-space-marker
+
+Status: ready to file, NOT filed. Nothing has been sent anywhere. The owner files it by hand.
+
+1. What this is.
+   - ArkRegex (arkregex on npm, ark/regex in arktypeio/arktype) reads a regex source at the type level. It ends its
+     own error messages with U+200B, the zero-width space (@ark/util ErrorMessage), and writes each anchor into the
+     inferred text between two of them (ark/regex state.ts AnchorMarker). Those markers share one string with the
+     source being read, so a source holding a literal U+200B is read as one of ArkRegex's own markers:
+       - a source ending in U+200B is read as an error message: regex() accepts it and is typed as the source string,
+         not a Regex, and regex.infer of it is never;
+       - U+200B in a class is read as an error ending the class: the class infers U+200B alone, dropping its other
+         members;
+       - U+200B on both sides of a literal ^ or $ is read as an anchor: an anchored source is refused as "Anchor ^ may
+         not appear mid-pattern", and an unanchored one is widened to string.
+   - U+200B is ordinary text. At runtime each of these regexes is a RegExp that matches what its source says.
+   - Reproduced on arkregex 0.0.14, the latest release (2026-10-20), under TypeScript 7.0.2 and 5.9.3. The markers are
+     unchanged on arktype's main at 326cdce3 (EVIDENCE.txt 1 and 3).
+
+2. What grizzle does about it now.
+   - str.regex's host type is ArkRegex's inference over the source that the scan in types/fields/source.ts rewrites
+     (types/fields/regex.ts RegexInfer). A source holding U+200B inferred never or dropped members, so a program was
+     refused a value the database admits (test/types/text/regex.test.ts at TEST_SEED=3860715490, fixed in 94ee991b).
+   - The scan writes each literal U+200B as NUL before ArkRegex reads the source (source.ts ZeroWidthSpace and Stood),
+     and every inferred member is rebuilt with each NUL written back as U+200B (regex.ts Restored). NUL is a safe
+     stand-in: PostgreSQL text cannot hold it, so the compiler's grammar check refuses it however a pattern spells it,
+     and ArkRegex reads it as any other character. A lone surrogate would not do, since one is also half of an astral
+     character.
+   - The fix lives in grizzle, not in a pnpm patch to arkregex: grizzle is published to npm, and a patch in grizzle's
+     workspace would not reach qti-pie or any other consumer.
+   - test/types/text/contained.ts keeps one case of each shape, with the values the old inference refused.
+
+3. When an arkregex release fixes it.
+   - Run `sh repro.sh <new arkregex version> 7.0.2`. The fix is in when tsc reports the `control` line alone.
+     `control` shows that tsc checked the file: a run that reports nothing proves nothing.
+   - Then bump arkregex in pnpm-workspace.yaml and delete the stand-in: ZeroWidthSpace and Stood in
+     packages/engine/src/types/fields/source.ts, where Outside and InClass then write the literal as is, and Restored
+     in packages/engine/src/types/fields/regex.ts, where Rebuilt then appends a member's text whole and ReadToken a
+     code unit as is. Keep the cases in contained.ts: they then guard ArkRegex's fix. Delete this folder and its
+     TODO.md line.
+
+4. Where it goes.
+   - github.com/arktypeio/arktype, using its Bug issue template (.github/ISSUE_TEMPLATE/bug_report.md): search terms,
+     context, and a playground link with the code. arktype 2.2.9 re-exports ArkRegex's regex, so the code runs in the
+     arktype playground as `import { regex } from "arktype"`.
+   - .github/CONTRIBUTING.md asks for an issue before a large change, and says nothing about issues an agent helped
+     write. The fix changes how ArkRegex carries errors and anchors, so it goes as an issue, not a pull request.
+
+5. Files.
+   - NOTES.txt      this file.
+   - CHECKLIST.txt  ArkType's reporting policy, item by item.
+   - EVIDENCE.txt   the reproduction's output on both TypeScript releases, the three shapes, the cause in ArkRegex's
+                    source, grizzle's own case, and the duplicate search.
+   - issue.txt      the draft issue, under the bug template's headings.
+   - repro.sh       writes the reproduction project to a temporary directory, installs the given arkregex and
+                    TypeScript releases, and type-checks it.
