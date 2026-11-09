@@ -51,7 +51,8 @@ import {
 	objectTable,
 	type PartOf,
 	type Parts,
-	relationParts,
+	partsAt,
+	partsByTable,
 	refuse,
 	same
 } from "#compiler/deploy/snapshot/objects.ts"
@@ -418,6 +419,9 @@ class Differ {
 	readonly steps: Array<Step> = []
 	readonly prev: ReadonlyMap<string, ManifestObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
+	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
+	readonly prevParts: ReadonlyMap<string, Parts>
+	readonly nextParts: ReadonlyMap<string, Parts>
 	/** The domains of the previous and the target installation (domainsOf), which a column of each is read through to
 	 * what it holds (representationOf). */
 	readonly prevDomains: ReadonlyMap<string, DomainReading>
@@ -475,6 +479,8 @@ class Differ {
 		const targetObjects = input.target.manifest.objects
 		this.prev = new Map(previousObjects.map((o) => [o.ident, o]))
 		this.next = new Map(targetObjects.map((o) => [o.ident, o]))
+		this.prevParts = partsByTable(this.prev.values(), this.prev)
+		this.nextParts = partsByTable(this.next.values(), this.next)
 		this.prevDomains = domainsOf(
 			input.previous.manifest,
 			rosterConstantsOf(input.previous.schema, input.rosters)
@@ -1392,8 +1398,8 @@ class Differ {
 	planKept(kept: KeptTable): KeptPlan {
 		const t = kept.create.table
 		const old = kept.old.columns
-		const before = this.partsOf(t, this.prev).sequence
-		const after = this.partsOf(t, this.next).sequence
+		const before = partsAt(this.prevParts, t).sequence
+		const after = partsAt(this.nextParts, t).sequence
 		const sequences = [...before.values()].flatMap((was) => {
 			const now = [...after.values()].find((s) => s.column === was.column)
 			return now !== undefined && columnFate(kept, was.column).kind === "kept" ? [{ was, now }] : []
@@ -1644,11 +1650,6 @@ class Differ {
 		}
 	}
 
-	/** The parts of a table among `objects` (objectParts), of each kind by name. */
-	partsOf(t: ObjectName, objects: ReadonlyMap<string, ManifestObject>): Parts {
-		return relationParts(t, objects.values(), objects)
-	}
-
 	/** A column a law adds: added with its table's other objects, kept while its definition is the previous one's, and
 	 * dropped and added again when it changes. */
 	lawColumn(
@@ -1806,7 +1807,7 @@ class Differ {
 				continue
 			}
 			const targetKeys = new Set(
-				[...this.partsOf(t, this.next).constraint.values()].flatMap((k) =>
+				[...partsAt(this.nextParts, t).constraint.values()].flatMap((k) =>
 					k.constraint.kind === "primaryKey" || k.constraint.kind === "unique"
 						? [keyAfter(t, constraintColumns(k.constraint))]
 						: []
@@ -1826,7 +1827,7 @@ class Differ {
 	 * none when the target holds one of them no longer. */
 	keyImage(kept: KeptTable, key: TableConstraint): KeyAfter | undefined {
 		const t = kept.create.table
-		const tags = this.partsOf(t, this.next).column
+		const tags = partsAt(this.nextParts, t).column
 		const columns = constraintColumns(key)
 		return columns.every((c) => kept.create.columns.some((x) => x.name === c) || tags.has(c))
 			? keyAfter(t, columns)

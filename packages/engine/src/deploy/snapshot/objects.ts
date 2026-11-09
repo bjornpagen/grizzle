@@ -691,24 +691,49 @@ const objectParts = (
 /** The parts of a relation of each kind, by name, in the order of the objects that hold them. */
 export type Parts = { readonly [K in PartKind]: ReadonlyMap<string, PartOf<K>> }
 
-/** The parts of the relation `t` among `among`, of each kind by name, in their order (objectParts); a constraint
- * declared inside its table's CREATE TABLE read from `objects`. */
-export const relationParts = (
-	t: ObjectName,
+/** The parts of a relation that holds none. */
+export const noParts: Parts = {
+	constraint: new Map(),
+	index: new Map(),
+	statistics: new Map(),
+	column: new Map(),
+	sequence: new Map()
+}
+
+/** The parts of the relation `t` in `parts` (partsByTable), none where it holds none. */
+export const partsAt = (parts: ReadonlyMap<string, Parts>, t: ObjectName): Parts =>
+	parts.get(nameKey(t)) ?? noParts
+
+/** The parts of every relation among `among`, by its name key, each of each kind by name, in the order of the objects
+ * that hold them (objectParts); a constraint declared inside its table's CREATE TABLE read from `objects`. One pass reads
+ * every object once, whatever number of relations a caller then reads the parts of. */
+export const partsByTable = (
 	among: Iterable<ManifestObject>,
 	objects: ReadonlyMap<string, ManifestObject>
-): Parts => {
-	const parts = {
-		constraint: new Map<string, PartOf<"constraint">>(),
-		index: new Map<string, PartOf<"index">>(),
-		statistics: new Map<string, PartOf<"statistics">>(),
-		column: new Map<string, PartOf<"column">>(),
-		sequence: new Map<string, PartOf<"sequence">>()
-	}
+): ReadonlyMap<string, Parts> => {
+	const byTable = new Map<
+		string,
+		{
+			readonly constraint: Map<string, PartOf<"constraint">>
+			readonly index: Map<string, PartOf<"index">>
+			readonly statistics: Map<string, PartOf<"statistics">>
+			readonly column: Map<string, PartOf<"column">>
+			readonly sequence: Map<string, PartOf<"sequence">>
+		}
+	>()
 	for (const o of among) {
 		for (const part of objectParts(installed(o), (c) => keyOrCheckDefinition(c, objects))) {
-			if (nameKey(part.table) !== nameKey(t)) {
-				continue
+			const key = nameKey(part.table)
+			const known = byTable.get(key)
+			const parts = known ?? {
+				constraint: new Map<string, PartOf<"constraint">>(),
+				index: new Map<string, PartOf<"index">>(),
+				statistics: new Map<string, PartOf<"statistics">>(),
+				column: new Map<string, PartOf<"column">>(),
+				sequence: new Map<string, PartOf<"sequence">>()
+			}
+			if (known === undefined) {
+				byTable.set(key, parts)
 			}
 			switch (part.kind) {
 				case "constraint":
@@ -729,7 +754,7 @@ export const relationParts = (
 			}
 		}
 	}
-	return parts
+	return byTable
 }
 
 /** The key of a name in a set or map: `<schema>.<name>`. */

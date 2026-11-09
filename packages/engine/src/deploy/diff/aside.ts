@@ -10,7 +10,8 @@ import {
 	nameKey,
 	type Parts,
 	type QualifiedRenames,
-	relationParts,
+	partsAt,
+	partsByTable,
 	renameQualified
 } from "#compiler/deploy/snapshot/objects.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -115,7 +116,7 @@ export const relationAside = (
 		name,
 		cause,
 		to: asideName(temporaries, name.name),
-		owned: ownedBy(name, relationParts(name, holders, byIdent), temporaries)
+		owned: ownedBy(name, partsAt(partsByTable(holders, byIdent), name), temporaries)
 	}
 }
 
@@ -158,9 +159,9 @@ export const asidesOf = (
 		}
 	}
 	const holders = previous.manifest.objects
-	const byIdent = new Map(holders.map((o) => [o.ident, o]))
+	const parts = partsByTable(holders, new Map(holders.map((o) => [o.ident, o])))
 	const owned = (holder: ObjectName): ReadonlyArray<Owned> =>
-		ownedBy(holder, relationParts(holder, holders, byIdent), temporaries)
+		ownedBy(holder, partsAt(parts, holder), temporaries)
 	return holders.flatMap((o): ReadonlyArray<Aside> => {
 		const held = heldName(o.ident)
 		if (held === undefined || kept.has(o.ident)) {

@@ -28,7 +28,8 @@ import {
 	type ManifestObject,
 	nameKey,
 	type PartOf,
-	relationParts,
+	partsAt,
+	partsByTable,
 	same
 } from "#compiler/deploy/snapshot/objects.ts"
 import type {
@@ -923,9 +924,11 @@ const pairedParts = (
 	const relations = new Map<string, string>()
 	const statistics = new Map<string, string>()
 	const keys = new Map<string, ReadonlyMap<string, string>>()
+	const wasParts = partsByTable(previous.manifest.objects, wasIdent)
+	const nowParts = partsByTable(target.manifest.objects, nowIdent)
 	for (const table of tables) {
-		const was = relationParts(table, previous.manifest.objects, wasIdent)
-		const now = relationParts(table, target.manifest.objects, nowIdent)
+		const was = partsAt(wasParts, table)
+		const now = partsAt(nowParts, table)
 		const pairs = [
 			...pairBy(constraintKind, was.constraint, now.constraint, (a, b) =>
 				same({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
