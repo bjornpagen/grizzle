@@ -5,9 +5,10 @@ import type { ResolvedConjunct, TheoryLaw } from "#compiler/analysis/theory/laws
 import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
 import {
 	buildTheory,
+	type EvidencedTheory,
 	type PrimaryKeyLaw,
-	provisionalTheory,
 	type Theory,
+	theoryEvidence,
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
 import { sameMembers, sameOrder } from "#compiler/core/array.ts"
@@ -309,8 +310,9 @@ export interface LawModel {
 	/** The owned schema the model specializes: every installed identifier a law reads (a table, a column, a roster's
 	 * domain, a declared key or check) is the one ownership registered there. */
 	readonly owned: Owned
-	/** The theory with every law's lowering, and its DAG extended. */
-	readonly theory: Theory
+	/** The theory with every law's lowering, its DAG extended, and the evidence its laws give, each containment's
+	 * validity context the one its plans prove. */
+	readonly theory: EvidencedTheory
 	/** Every native object of the schema's laws, once each, in law order. */
 	readonly natives: ReadonlyArray<NamedNative>
 	/**
@@ -603,8 +605,7 @@ const deferrable = (
 
 /**
  * The laws whose containment evidence holds at every statement: each a plan discharges by an immediate foreign key, a
- * ClosedCheck or a table CHECK of a containment, declared or generated. It reads the plans and the deferral alone, which
- * no evidence context changes, so a theory of any contexts decides it alike.
+ * ClosedCheck or a table CHECK of a containment, declared or generated. It reads the plans and the deferral alone.
  */
 const immediateOf = (plans: ReadonlyArray<LawPlan>, deferred: Deferral): ReadonlySet<LawId> =>
 	new Set(
@@ -911,10 +912,9 @@ class Specializer {
 		return immediateOf(plans, this.#deferral(plans))
 	}
 
-	run(): LawModel {
+	run(immediate: ReadonlySet<LawId>): LawModel {
 		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
 		const deferred = this.#deferral(plans)
-		const immediate = immediateOf(plans, deferred)
 
 		/** The extension DAG: each generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
@@ -1042,7 +1042,12 @@ class Specializer {
 		}
 		return {
 			owned: this.owned,
-			theory: Object.freeze({ ...this.theory, dag: merged.dag, lowerings: Object.freeze(lowered) }),
+			theory: Object.freeze({
+				...this.theory,
+				dag: merged.dag,
+				lowerings: Object.freeze(lowered),
+				evidence: theoryEvidence(this.theory.laws, immediate)
+			}),
 			natives,
 			families: this.theory.families,
 			constraints,
@@ -1672,9 +1677,10 @@ const baseLeaves = (
 
 const specialize = (
 	theory: Theory,
-	checked: CheckedSchema
+	checked: CheckedSchema,
+	immediate: ReadonlySet<LawId>
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked).run())
+	catchRefusal(() => new Specializer(theory, checked).run(immediate))
 
 /** The laws a theory's specialization proves immediate (Specializer.immediate), or the refusal of a plan. */
 const immediateLaws = (
@@ -1706,8 +1712,8 @@ const immediateLaws = (
  *   facts covering a referenced span can be replaced by others that still cover it, a span cut or split, and the
  *   target's WITHOUT OVERLAPS key admits the replacements only once the facts they overlap are deleted. Any role
  *   over the schema may write any ordinary relation, and roles are defined beside the schema, never in it, so the
- *   schema's own laws are the same whoever writes. Otherwise it is immediate, and so is the evidence it gives, which
- *   the theory is rebuilt with.
+ *   schema's own laws are the same whoever writes. Otherwise it is immediate, and so is the evidence it gives
+ *   (theoryEvidence).
  * - Naming and the constraint-to-LawId map: every native object's installed identifier, minted at the naming door
  *   from its identity, and for each table constraint every law it discharges; a law column reports no violation, and
  *   an unnamed native has no identifier to report. A primary key native is the relation's declared primary key, which
@@ -1724,19 +1730,14 @@ const immediateLaws = (
  *   value.
  *
  * The law model of an owned schema, or the first refusal: a theory refusal, a law shape the compiler does not
- * admit (UnsupportedLawFamily) or an unrepresentable key. A first normalization's plans settle foreign key deferral
- * and so the laws it proves immediate (Specializer.immediate), and the theory rebuilt with the immediate evidence that
- * deferral gives is specialized once. */
+ * admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once; its plans settle foreign key
+ * deferral and so the laws they prove immediate (Specializer.immediate), and specialization states the evidence each
+ * law gives with that validity context (theoryEvidence). */
 export const compileLaws = (owned: Owned): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
-		Result.flatMap(buildTheory(checked, provisionalTheory), (first) =>
-			Result.flatMap(immediateLaws(first, checked), (immediate) =>
-				Result.flatMap(
-					buildTheory(checked, {
-						containmentContext: (law) => (immediate.has(law.id) ? "immediate" : "committedSnapshot")
-					}),
-					(theory) => specialize(theory, checked)
-				)
+		Result.flatMap(buildTheory(checked), (theory) =>
+			Result.flatMap(immediateLaws(theory, checked), (immediate) =>
+				specialize(theory, checked, immediate)
 			)
 		)
 	)

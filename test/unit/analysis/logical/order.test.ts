@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
@@ -26,7 +25,7 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { logicalEnv, theoryUnder } from "#test/unit/analysis/logical/support.ts"
+import { logicalEnv, noImmediate, theoryUnder } from "#test/unit/analysis/logical/support.ts"
 
 /**
  * Order completion: the page completion policy, union roster-order completion included.
@@ -434,7 +433,7 @@ describe("completing an order over a union of different headings", () => {
 					],
 			conservativeMeta
 		)
-	const work = theoryUnder(W.WorkDesc, provisionalTheory)
+	const work = theoryUnder(W.WorkDesc, noImmediate)
 	const subjectAt = (built: BuiltQuery, at: RelNode) => {
 		const analysis = succeeded(analyzeLogical(built.dag, logicalEnv(work)))
 		return orderSubjectOf(at, analysis.of(at).props, [], (k) =>

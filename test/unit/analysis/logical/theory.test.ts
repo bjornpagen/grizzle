@@ -20,12 +20,7 @@ import type { Source } from "@grizzle/testing/source"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import {
-	immediateEvidence,
-	lawIdentityOf,
-	provisionalTheory,
-	type Theory
-} from "#compiler/analysis/theory/theory.ts"
+import { immediateEvidence, lawIdentityOf, type Theory } from "#compiler/analysis/theory/theory.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { FieldId, type LawId } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -60,7 +55,12 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
-import { theoryUnder, theoryResultUnder, violated } from "#test/unit/analysis/logical/support.ts"
+import {
+	noImmediate,
+	theoryResultOf,
+	theoryUnder,
+	violated
+} from "#test/unit/analysis/logical/support.ts"
 import { type HostFacts, uuidOf } from "#test/unit/analysis/theory/support.ts"
 import { type DeclaredSketch, declaredGen, numericGen, textGen } from "#test/unit/ir/types.ts"
 
@@ -167,11 +167,11 @@ describe("span laws", () => {
 							}
 							if (spans > 1) {
 								c.note("several span fields")
-								refused(theoryResultUnder(desc, provisionalTheory), "UnsupportedLawFamily")
+								refused(theoryResultOf(desc), "UnsupportedLawFamily")
 								return
 							}
 							c.note(spans === 1 ? "one span field" : "no span field")
-							succeeded(theoryResultUnder(desc, provisionalTheory))
+							succeeded(theoryResultOf(desc))
 						})
 				)
 			)
@@ -342,19 +342,16 @@ describe("field-compatibility classes", () => {
 						Effect.sync(() => {
 							c.note(pairing)
 							const rosters = { ...a.rosters, ...b.rosters }
-							const result = theoryResultUnder(
-								{
-									name: "R",
-									relations: [
-										...Arr.map(Rec.toEntries(rosters), ([name, handles]) => closed(name, handles)),
-										relation("A", { id: f.uuid, x: a.desc }, ["id"]),
-										relation("B", { id: f.uuid, y: b.desc }, ["id"])
-									],
-									statements: [contained(on("A", ["x"]), on("B", ["y"]))],
-									extends: undefined
-								},
-								provisionalTheory
-							)
+							const result = theoryResultOf({
+								name: "R",
+								relations: [
+									...Arr.map(Rec.toEntries(rosters), ([name, handles]) => closed(name, handles)),
+									relation("A", { id: f.uuid, x: a.desc }, ["id"]),
+									relation("B", { id: f.uuid, y: b.desc }, ["id"])
+								],
+								statements: [contained(on("A", ["x"]), on("B", ["y"]))],
+								extends: undefined
+							})
 							if (identityOf(a.desc) !== identityOf(b.desc)) {
 								c.note("another identity")
 								refused(result, "MalformedDescription")
@@ -376,7 +373,7 @@ describe("field-compatibility classes", () => {
 })
 
 describe("violation queries mean what their laws say", () => {
-	const t = theoryUnder(W.WorkDesc, provisionalTheory)
+	const t = theoryUnder(W.WorkDesc, noImmediate)
 	/** The law a statement of Work declares from `from` into `to`. */
 	const containedOf = (from: string, to: string) =>
 		Option.getOrThrowWith(
@@ -632,7 +629,7 @@ describe("violation queries mean what their laws say", () => {
 					statements: [check("NotOwnManager", "Report", ne(field("employee"), field("manager")))],
 					extends: undefined
 				},
-				provisionalTheory
+				noImmediate
 			)
 			const checkLaw = defined(lawsOf(rt, "check")[0])
 			const people = [G.a1, G.a2, G.a3]
@@ -691,7 +688,7 @@ describe("violation queries mean what their laws say", () => {
 					statements: [key(on("Account", ["name"]))],
 					extends: undefined
 				},
-				provisionalTheory
+				noImmediate
 			)
 			const nameKey = Option.getOrThrow(Arr.findFirst(kt.laws, (l) => l.shape === "key")).id
 			const ids = [G.a1, G.a2, G.a3]
@@ -845,7 +842,7 @@ describe("evidence and its validity context", () => {
 					(desc, c) =>
 						Effect.sync(() => {
 							const owned = ownedFixture(desc).owned
-							const t = theoryUnder(desc, provisionalTheory)
+							const t = theoryUnder(desc, noImmediate)
 							for (const r of Rec.values(t.relations)) {
 								if (r.kind !== "relation") {
 									continue
@@ -885,7 +882,7 @@ describe("evidence and its validity context", () => {
 	)
 
 	it.effect(
-		"law specialization states which containments are immediate through the containmentContext option",
+		"law specialization states which containments are immediate through the immediate set theoryEvidence reads",
 		(ctx) =>
 			searched(
 				ctx,
@@ -897,7 +894,7 @@ describe("evidence and its validity context", () => {
 							const desc = source.draw(evidenceSchemaGen)
 							const containedLaws = Arr.map(
 								Arr.filter(
-									theoryUnder(desc, provisionalTheory).laws,
+									theoryUnder(desc, noImmediate).laws,
 									(l) => l.source.kind === "contained"
 								),
 								(l) => l.id
@@ -916,18 +913,14 @@ describe("evidence and its validity context", () => {
 						caseHang,
 						oracle: {
 							kind: "specification",
-							name: "the containmentContext option, a closed target aside"
+							name: "theoryEvidence's immediate set, a closed target aside"
 						}
 					},
 					([desc, named], c) =>
 						Effect.sync(() => {
 							c.note(named.length === 0 ? "none named" : "some named")
-							const t = theoryUnder(desc, {
-								...provisionalTheory,
-								containmentContext: (law) =>
-									named.includes(law.id) ? "immediate" : "committedSnapshot"
-							})
-							/** A containment into a closed relation is immediate whatever the option says. */
+							const t = theoryUnder(desc, new Set(named))
+							/** A containment into a closed relation is immediate whatever the immediate set says. */
 							const intoClosed = (k: (typeof t.evidence.containments)[number]) =>
 								t.relations[k.to.relation]?.kind === "closed"
 							for (const k of t.evidence.containments) {
@@ -963,7 +956,7 @@ describe("evidence and its validity context", () => {
 })
 
 describe("law identities", () => {
-	const base = theoryUnder(W.WorkDesc, provisionalTheory)
+	const base = theoryUnder(W.WorkDesc, noImmediate)
 	it.effect(
 		"are deterministic, independent of declaration order and of unrelated statements",
 		(ctx) => {
@@ -1022,7 +1015,7 @@ describe("law identities", () => {
 									defined(extra[which])
 								)
 							}
-							const moved = theoryUnder({ ...W.WorkDesc, statements }, provisionalTheory)
+							const moved = theoryUnder({ ...W.WorkDesc, statements }, noImmediate)
 							for (const law of base.laws) {
 								assert.deepEqual(
 									Option.map(
@@ -1094,7 +1087,7 @@ describe("law identities", () => {
 							const statements = Arr.flatten(declared)
 							const both = theoryUnder(
 								{ ...W.WorkDesc, statements: [...W.WorkDesc.statements, ...statements] },
-								provisionalTheory
+								noImmediate
 							)
 							const declaredInto = (from: string, to: string) =>
 								Arr.filter(

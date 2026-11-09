@@ -1,7 +1,7 @@
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
-import { buildTheory, provisionalTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
+import { buildTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -49,9 +49,7 @@ export const schemaOf = (
 
 /** The theory of a schema description, or its first refusal. */
 export const theoryResult = (desc: SchemaDesc): Result.Result<Theory, CompileError> =>
-	Result.flatMap(Result.flatMap(own(decodedSchema(desc)), checkedSchema), (c) =>
-		buildTheory(c, provisionalTheory)
-	)
+	Result.flatMap(Result.flatMap(own(decodedSchema(desc)), checkedSchema), buildTheory)
 
 /** The theory of a schema the test states is lawful. */
 export const theoryOf = (desc: SchemaDesc): Theory =>

@@ -1,6 +1,11 @@
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
-import { buildTheory, type Theory, type TheoryOptions } from "#compiler/analysis/theory/theory.ts"
+import {
+	buildTheory,
+	type EvidencedTheory,
+	type Theory,
+	theoryEvidence
+} from "#compiler/analysis/theory/theory.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -39,15 +44,19 @@ import { equal, type Row, valueIdentity } from "#test/support/oracle/reference/v
 import { ownedInput } from "#test/support/policy.ts"
 import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
 
-/** The theory of a schema, provisional unless the test states the options law specialization would. */
-export const theoryUnder = (desc: SchemaDesc, options: TheoryOptions): Theory =>
-	succeeded(buildTheory(succeeded(Result.flatMap(ownedInput(desc), checkedSchema)), options))
+/** No containment into an open relation proved immediate: every one holds in lawful committed snapshots. */
+export const noImmediate: ReadonlySet<LawId> = new Set()
 
-export const theoryResultUnder = (
-	desc: SchemaDesc,
-	options: TheoryOptions
-): Result.Result<Theory, CompileError> =>
-	Result.flatMap(Result.flatMap(ownedInput(desc), checkedSchema), (c) => buildTheory(c, options))
+/** The theory of a schema with its laws' evidence, a containment into an open relation immediate exactly when the test
+ * names it among `immediate`, as law specialization would prove it. */
+export const theoryUnder = (desc: SchemaDesc, immediate: ReadonlySet<LawId>): EvidencedTheory => {
+	const t = succeeded(theoryResultOf(desc))
+	return Object.freeze({ ...t, evidence: theoryEvidence(t.laws, immediate) })
+}
+
+/** The theory of a schema, or its first refusal. */
+export const theoryResultOf = (desc: SchemaDesc): Result.Result<Theory, CompileError> =>
+	Result.flatMap(Result.flatMap(ownedInput(desc), checkedSchema), buildTheory)
 
 /** The schema as the reference evaluator reads it. */
 const genSchemaOf = (t: Theory): GenSchema => ({
@@ -131,7 +140,7 @@ export const violated = (
  * Shared helpers for the logical analysis tests: owning a fixture schema, building its theory, and evaluating violation
  * queries and query DAGs with the brute-force reference evaluator (test/support/oracle/reference).
  */
-export const logicalEnv = (t: Theory): LogicalEnv => ({
+export const logicalEnv = (t: EvidencedTheory): LogicalEnv => ({
 	...checkerEvidence,
 	containments: t.evidence.containments
 })

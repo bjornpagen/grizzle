@@ -82,14 +82,6 @@ import {
 import type { Owned } from "#compiler/schema/own.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
-export interface TheoryOptions {
-	/**
-	 * The validity context of a containment's evidence beyond a closed roster's descriptor fact: committedSnapshot
-	 * until law specialization proves a containment immediate (see the header).
-	 */
-	readonly containmentContext: (law: TheoryLaw) => EvidenceContext
-}
-
 /** A key of a relation as immediate evidence: the PRIMARY KEY or UNIQUE that holds at every statement. */
 interface KeyEvidence {
 	readonly relation: string
@@ -166,6 +158,7 @@ const evidenceSides = (
 	}
 }
 
+/** The evidence a theory's laws give queries: each key, row check and containment's, with its validity context. */
 interface TheoryEvidence {
 	readonly keys: ReadonlyArray<KeyEvidence>
 	readonly checks: ReadonlyArray<CheckEvidence>
@@ -185,14 +178,11 @@ interface TheoryEvidence {
  * - every family, a tree's included, resolved (families.ts): its axes' carried pairs and its folds, and their fill
  *   order (fill.ts), every column and relation no write fills refused;
  * - the relation dependency graph: each relation and the relations its laws read;
- * - the evidence each law gives queries, with its validity context: keys and row checks are validated immediate
- *   storage facts, and so is a containment into a closed relation; every other containment holds in lawful committed
- *   snapshots only, unless law specialization proves it immediate (a non-deferred native FK), which it states through
- *   the containmentContext option;
  * - the capability obligations the laws carry (btree_gist for span keys and coverage with scalar parts, the vector
  *   extension for vector fields).
  *
- * lowerings is empty here: law specialization (laws/) recognizes each normalized law and fills it. A law's identity
+ * lowerings is empty here, and no evidence is stated: law specialization (laws/) recognizes each normalized law and
+ * fills it, and states the evidence each law gives with the validity context its plans prove (theoryEvidence). A law's identity
  * is the naming door's (core/identity.ts), minted from what the law is (lawIdentityOf), so every build of a schema names
  * its laws alike.
  */
@@ -223,6 +213,11 @@ export interface Theory extends CheckedTheory {
 	 * fills by.
 	 */
 	readonly fill: FillOrder
+}
+
+/** A theory with the evidence its laws give queries (theoryEvidence), each containment's validity context the one law
+ * specialization proves. */
+export interface EvidencedTheory extends Theory {
 	readonly evidence: TheoryEvidence
 }
 
@@ -441,7 +436,6 @@ export const typingEnv = (
 
 class Builder {
 	readonly owned: Owned
-	readonly options: TheoryOptions
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The admitted patterns the theory's compile reads (typingEnv). */
 	readonly patterns: PatternAutomata
@@ -455,7 +449,7 @@ class Builder {
 	/** Each derived relation's definition, by name. */
 	readonly definitions: ReadonlyMap<string, QueryDesc>
 
-	constructor(checked: CheckedSchema, options: TheoryOptions) {
+	constructor(checked: CheckedSchema) {
 		this.checked = checked
 		this.definitions = new Map(
 			Object.values(checked.owned.relations).flatMap((r) =>
@@ -463,7 +457,6 @@ class Builder {
 			)
 		)
 		this.owned = checked.owned
-		this.options = options
 		const typing = typingEnv(checked.owned)
 		this.fieldType = typing.fieldType
 		this.patterns = typing.patterns
@@ -577,8 +570,7 @@ class Builder {
 			dependencies: this.#dependencies(laws),
 			capabilities: this.#capabilities(laws),
 			families,
-			fill: fill.value,
-			evidence: this.#evidence(laws)
+			fill: fill.value
 		})
 	}
 
@@ -762,59 +754,6 @@ class Builder {
 		}
 		return Object.freeze([...caps].toSorted(compareText))
 	}
-
-	/**
-	 * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement
-	 * "alternatives"). A family's, a tree's and a fold's laws give none of their own: a containment riding a family's
-	 * axis gives its evidence as a containment.
-	 */
-	#evidence(laws: ReadonlyArray<TheoryLaw>): TheoryEvidence {
-		const keys: Array<KeyEvidence> = []
-		const checks: Array<CheckEvidence> = []
-		const containments: Array<ContainmentEvidence> = []
-		for (const law of laws) {
-			const d = law.detail
-			if (d.kind === "key") {
-				keys.push({
-					relation: d.relation,
-					fields: fieldNames(d.key.fields),
-					spans: d.key.span === undefined ? [] : [d.key.span.name],
-					primary: d.key.primary,
-					constraint: identifierOf(d.key.named),
-					law: law.id,
-					context: "immediate"
-				})
-			} else if (d.kind === "check") {
-				checks.push({ relation: d.relation, name: d.name, law: law.id, context: "immediate" })
-			} else if (d.kind === "containment") {
-				const sides = evidenceSides(d.from, d.to)
-				if (sides !== undefined) {
-					containments.push({
-						law: law.id,
-						from: sides.from,
-						to: sides.to,
-						coverage: d.pairing.kind === "span",
-						statement: law.source.kind === "alternatives" ? "alternatives" : "contained",
-						context: this.#containmentContext(law, d)
-					})
-				}
-			}
-		}
-		return Object.freeze({ keys, checks, containments })
-	}
-
-	/**
-	 * A containment into a closed relation holds at every statement: the roster's domain types a lone field contained
-	 * in its own roster, a table CHECK reads every other's constant, and one between closed relations holds of their
-	 * declared facts, which the migration installing them checks. Any other is a native reference, which holds in lawful
-	 * committed snapshots unless the option says otherwise.
-	 */
-	#containmentContext(
-		law: TheoryLaw,
-		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>
-	): EvidenceContext {
-		return d.to.rel.kind === "closed" ? "immediate" : this.options.containmentContext(law)
-	}
 }
 
 /**
@@ -822,21 +761,60 @@ class Builder {
  * or fold, or a drawn or accumulated field no statement names or two do (MalformedDescription), multi-span coverage
  * (UnsupportedLawFamily), a literal or operator the catalogue does not admit, or the violation DAG's own validation.
  *
- * Theory normalization: field-compatibility classes, normalized laws with their violation queries, the families,
- * relation dependencies, and evidence with its validity context.
+ * Theory normalization: field-compatibility classes, normalized laws with their violation queries, the families and
+ * relation dependencies.
  */
-export const buildTheory = (
-	checked: CheckedSchema,
-	options: TheoryOptions
-): Result.Result<Theory, CompileError> => catchRefusal(() => new Builder(checked, options).run())
+export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, CompileError> =>
+	catchRefusal(() => new Builder(checked).run())
 
 /**
- * The options of a theory built before law specialization: every containment into an open relation holds in lawful
- * committed snapshots.
+ * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement
+ * "alternatives"), with its validity context: keys and row checks are validated immediate storage facts, and so is a
+ * containment into a closed relation, since the roster's domain types a lone field contained in its own roster, a table
+ * CHECK reads every other's constant, and one between closed relations holds of their declared facts, which the
+ * migration installing them checks. Any other containment is a native reference, immediate where law specialization
+ * proves it (`immediate`, a non-deferred native FK) and holding in lawful committed snapshots otherwise. A family's, a
+ * tree's and a fold's laws give none of their own: a containment riding a family's axis gives its evidence as a
+ * containment.
  */
-export const provisionalTheory: TheoryOptions = Object.freeze({
-	containmentContext: () => "committedSnapshot"
-})
+export const theoryEvidence = (
+	laws: ReadonlyArray<TheoryLaw>,
+	immediate: ReadonlySet<LawId>
+): TheoryEvidence => {
+	const keys: Array<KeyEvidence> = []
+	const checks: Array<CheckEvidence> = []
+	const containments: Array<ContainmentEvidence> = []
+	for (const law of laws) {
+		const d = law.detail
+		if (d.kind === "key") {
+			keys.push({
+				relation: d.relation,
+				fields: fieldNames(d.key.fields),
+				spans: d.key.span === undefined ? [] : [d.key.span.name],
+				primary: d.key.primary,
+				constraint: identifierOf(d.key.named),
+				law: law.id,
+				context: "immediate"
+			})
+		} else if (d.kind === "check") {
+			checks.push({ relation: d.relation, name: d.name, law: law.id, context: "immediate" })
+		} else if (d.kind === "containment") {
+			const sides = evidenceSides(d.from, d.to)
+			if (sides !== undefined) {
+				containments.push({
+					law: law.id,
+					from: sides.from,
+					to: sides.to,
+					coverage: d.pairing.kind === "span",
+					statement: law.source.kind === "alternatives" ? "alternatives" : "contained",
+					context:
+						d.to.rel.kind === "closed" || immediate.has(law.id) ? "immediate" : "committedSnapshot"
+				})
+			}
+		}
+	}
+	return Object.freeze({ keys, checks, containments })
+}
 
 const admitted = (c: EvidenceContext): boolean => c === "immediate"
 

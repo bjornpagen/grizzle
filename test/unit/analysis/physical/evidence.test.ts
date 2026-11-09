@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
-import { buildTheory, provisionalTheory } from "#compiler/analysis/theory/theory.ts"
+import { buildTheory, theoryEvidence } from "#compiler/analysis/theory/theory.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
@@ -48,8 +48,9 @@ const Crm: SchemaDesc = {
 	extends: undefined
 }
 const crm = ownedFixture(Crm)
-const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned)), provisionalTheory))
-const personKeys = Arr.filter(theory.evidence.keys, (k) => k.relation === "Person")
+const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned))))
+const evidence = theoryEvidence(theory.laws, new Set())
+const personKeys = Arr.filter(evidence.keys, (k) => k.relation === "Person")
 
 type CatalogFeature = "no key proves the scan" | "a key proves the scan" | "a key not read"
 
@@ -84,7 +85,7 @@ describe("catalogs", () => {
 							if (read.length === 0) {
 								return
 							}
-							const catalog = theoryCatalog(theory.evidence, {
+							const catalog = theoryCatalog(evidence, {
 								containments: [],
 								relations: theory.relations
 							})

@@ -4,7 +4,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -22,7 +21,12 @@ import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { analyze, logicalEnv, theoryUnder } from "#test/unit/analysis/logical/support.ts"
+import {
+	analyze,
+	logicalEnv,
+	noImmediate,
+	theoryUnder
+} from "#test/unit/analysis/logical/support.ts"
 
 /**
  * Normative logical evidence: the delivered type of attachments, on the shapes the small-scope suite
@@ -31,8 +35,8 @@ import { analyze, logicalEnv, theoryUnder } from "#test/unit/analysis/logical/su
  * closed facts, relation parameters and filters fixing a key are judged there against the universe's truth.
  */
 
-const work = theoryUnder(W.ReportsDesc, provisionalTheory)
-const payroll = theoryUnder(P.ReportingDesc, provisionalTheory)
+const work = theoryUnder(W.ReportsDesc, noImmediate)
+const payroll = theoryUnder(P.ReportingDesc, noImmediate)
 
 const attachments = (dag: RelDag) =>
 	Arr.sort(
@@ -592,7 +596,7 @@ describe("the delivered type of an attachment", () => {
 									])
 									return
 								case "a span coverage": {
-									const payrollOnly = theoryUnder(P.PayrollDesc, provisionalTheory)
+									const payrollOnly = theoryUnder(P.PayrollDesc, noImmediate)
 									assert.ok(
 										Arr.some(
 											payrollOnly.evidence.containments,
