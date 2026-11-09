@@ -6,7 +6,7 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { artifactsOver, loginRoles } from "#adapter/pool/registry.ts"
+import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -21,7 +21,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { loginSlice } from "#compiler/schema/reach.ts"
 import { defineConfig } from "#index.ts"
 import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -153,19 +152,19 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
 							const compiled = yield* Effect.result(
-								Effect.flatMap(
-									fromEngine(
-										Engine.flatMap(
-											installBasis(
-												compiledLogin.owned.base,
-												codes,
-												loginSlice(compiledLogin.owned)
-											),
-											artifactsOver
-										)
-									),
-									(artifacts) =>
-										loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove)
+								Effect.flatMap(workloadSlice(compiledLogin.login, compiledLogin.owned), (slice) =>
+									Effect.flatMap(
+										fromEngine(
+											layerOver(slice, (sliced) =>
+												Engine.flatMap(
+													installBasis(compiledLogin.owned.base, codes, sliced),
+													artifactsOver
+												)
+											)
+										),
+										(layer) =>
+											loginRoles(compiledLogin.login, compiledLogin.owned, layer, noLevelAbove)
+									)
 								)
 							)
 							assert.equal(

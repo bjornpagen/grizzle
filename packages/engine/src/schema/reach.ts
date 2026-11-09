@@ -1,5 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
-import type { Owned, OwnedLogin, OwnedWrite } from "#compiler/schema/own.ts"
+import type { ProgramDesc } from "#compiler/ir/desc.ts"
+import type { Owned, OwnedRole, OwnedWrite } from "#compiler/schema/own.ts"
+import { queryUses } from "#compiler/schema/walk.ts"
 
 declare const sliceBrand: unique symbol
 
@@ -20,8 +22,8 @@ interface SliceSets {
  * only on a family's owner axis, and a rule's trigger reads and never writes.
  *
  * `names` holds `writes` and every relation a compile over the slice names. An installation serves every role over its
- * schema, so its slice is every relation (everySlice); a login's runtime serves its roles, which the database holds to
- * their write lists, and names every relation of its base (loginSlice).
+ * schema, so its slice is every relation (everySlice); a login's runtime serves the programs of its workloads, and
+ * each program it compiles at a call outside them its own slice (sliceOf).
  */
 export type Slice = SliceSets & { readonly [sliceBrand]: true }
 
@@ -58,15 +60,86 @@ const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
 	return out
 }
 
-/** The slice of a login's roles over its base: every relation one of them writes, closed (`Slice`), and every
- * relation of the base named. */
-export const loginSlice = (login: OwnedLogin): Slice => {
-	const writes = coupled(login.base)
-	const written = new Set(login.roles.flatMap((role) => [...role.writes.values()].map(writtenBy)))
+/** A program a slice serves, by its Description, with the role it is compiled for. */
+export interface RoleProgram {
+	readonly role: OwnedRole
+	readonly program: ProgramDesc
+}
+
+/** The relations of the base a name a role's program reads stands for: a whole entry's relation, a query entry's
+ * reads, or the base's own relation of a program over the base. */
+const entryReads = (base: Owned, role: OwnedRole, name: string): ReadonlyArray<string> => {
+	const entry = role.relations[name]
+	if (entry === undefined) {
+		return base.relations[name] === undefined ? [] : [name]
+	}
+	return entry.kind === "whole" ? [entry.relation.name] : entry.reads
+}
+
+/**
+ * The slice of a set of programs over a base: each relation their ChangeSets' members write, each by its role's write
+ * list, closed under family coupling (`Slice`); and each relation they read, write or apply, through their queries,
+ * members and read-backs, as the base relations a role's entries stand for, a query entry a member writes through
+ * standing for its reads too, closed under what a derived one's definition reads. A name is what the programs name and no more: the relations a compile over them needs besides, the
+ * reads of the laws over a name and the rosters and closed relations its fields and laws apply, are the law model's
+ * to compile without naming them.
+ */
+export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slice => {
+	const written = new Set<string>()
+	const named = new Set<string>()
+	const name = (role: OwnedRole, relation: string): void => {
+		for (const r of entryReads(base, role, relation)) {
+			named.add(r)
+		}
+	}
+	for (const { role, program } of programs) {
+		if (program.kind === "query") {
+			for (const r of queryUses(program.query).relations) {
+				name(role, r)
+			}
+			continue
+		}
+		for (const member of program.changeSet.strata.flatMap((s) => s.members)) {
+			const write = role.writes.get(member.relation)
+			if (write !== undefined) {
+				written.add(writtenBy(write))
+				for (const r of write.kind === "rows" ? write.entry.reads : []) {
+					named.add(r)
+				}
+			}
+			name(role, member.relation)
+			if (member.member.kind === "query") {
+				for (const r of queryUses(member.member.query).relations) {
+					name(role, r)
+				}
+			}
+		}
+		for (const read of program.changeSet.reads) {
+			for (const r of queryUses(read.query).relations) {
+				name(role, r)
+			}
+		}
+	}
+	const writes = coupled(base)
 	for (const relation of written) {
 		for (const other of writes.get(relation) ?? []) {
 			written.add(other)
 		}
 	}
-	return slice({ writes: written, names: new Set(Object.keys(login.base.relations)) })
+	for (const relation of written) {
+		named.add(relation)
+	}
+	for (const relation of named) {
+		const owned = base.relations[relation]
+		for (const read of owned?.kind === "derived" ? owned.reads : []) {
+			named.add(read)
+		}
+	}
+	return slice({ writes: written, names: named })
 }
+
+/** Whether `outer` serves every compile `inner` does: it writes every relation `inner` writes and names every relation
+ * it names, so a compile over `outer` reads, of each relation `inner` names, exactly what one over `inner` does. */
+export const within = (inner: Slice, outer: Slice): boolean =>
+	[...inner.writes].every((r) => outer.writes.has(r)) &&
+	[...inner.names].every((r) => outer.names.has(r))

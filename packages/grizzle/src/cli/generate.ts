@@ -237,8 +237,9 @@ const draftInput = Effect.fn("draftInput")(function* (
 	}
 	const codes = drafted.value
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
+	const slice = everySlice(owned)
 	const basis = yield* Effect.mapError(
-		fromEngine(installBasis(owned, codes, everySlice(owned))),
+		fromEngine(installBasis(owned, codes, slice)),
 		refusedAt("schema")
 	)
 	/**
@@ -266,7 +267,16 @@ const draftInput = Effect.fn("draftInput")(function* (
 	if (planned !== undefined) {
 		for (const login of logins) {
 			yield* Effect.mapError(
-				loginRoles(login.login, login.owned, planned.artifacts, noLevelAbove),
+				loginRoles(
+					login.login,
+					login.owned,
+					{
+						slice,
+						artifacts: planned.artifacts,
+						over: (sliced) => Engine.flatMap(installBasis(owned, codes, sliced), artifactsOver)
+					},
+					noLevelAbove
+				),
 				refusedAt("workload")
 			)
 		}

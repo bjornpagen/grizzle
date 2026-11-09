@@ -137,8 +137,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	if (!compiled.ok) {
 		return yield* new ReadFailure({ reason: compiled.error })
 	}
-	const read = compiled.value
-	const template = read.template
+	const template = compiled.value.compiled.template
 	const values = yield* hostParams(template.params, params)
 	const ready = executionInputs(paramCodecs(template.params, ctx.artifacts.names.codes), values)
 	if (Result.isFailure(ready)) {

@@ -514,7 +514,7 @@ const recordingCompile = (ctx: DbContext) => {
 	const pages = new WeakMap<object, Recorded>()
 	const compile: DbContext["compile"] = (input, request) =>
 		Engine.map(ctx.compile(input, request), (prepared) => {
-			const recorded: Recorded = { prepared, desc: input.desc }
+			const recorded: Recorded = { prepared: prepared.compiled, desc: input.desc }
 			last = Option.some(recorded)
 			if (request.read === "page") {
 				pages.set(input.desc, recorded)

@@ -86,7 +86,8 @@ export default defineConfig({
 1. Edit the schema, its roles and logins in code. A program the application runs on every request belongs in a
    workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup. `grizzle
    generate` compiles it the same way for every role of its login first, so a program the layer would refuse fails
-   generate with the same CompileError.
+   generate with the same CompileError. DbLayer.make compiles the laws of the relations its workloads name and write
+   alone, so a program outside them that names or writes another relation compiles that relation's laws at its call.
 2. Run `grizzle generate grizzle.config.ts`, declaring what became of every name the schema no longer holds: a
    `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
    It prints one line per written file, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its

@@ -102,6 +102,7 @@ export {
 	descText,
 	type FieldDesc,
 	type LoginDesc,
+	type ProgramDesc,
 	type QueryDesc,
 	type QueryStageDesc,
 	type RoleDesc,

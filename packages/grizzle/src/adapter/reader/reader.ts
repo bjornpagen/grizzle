@@ -235,7 +235,7 @@ const compileArtifacts = (
 		toResult(
 			Engine.flatMap(queryInput(query), (input) => role.compile(input, { context, read: "rows" }))
 		),
-		(compiled): ReadArtifacts => ({
+		({ compiled }): ReadArtifacts => ({
 			compiled,
 			program: templateProgram(
 				compiled.template,

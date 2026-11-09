@@ -159,8 +159,17 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 			reason: new RoleOutsideLayers({ role: reached.role.name, login: sessions.login.name })
 		})
 	}
-	const { schema, declared, artifacts, compile, theory, contexts, witness, bind, workload } =
-		held.value
+	const {
+		schema,
+		declared,
+		artifacts,
+		compile,
+		theory,
+		contexts,
+		programArtifacts,
+		bind,
+		workload
+	} = held.value
 	const desc = schema.desc
 	const snapshot = sessions.snapshot
 	const claims = yield* dbClaims(sessions, contexts, token)
@@ -172,7 +181,7 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 		claims: claims.present,
 		artifacts,
 		compile,
-		witness,
+		programArtifacts,
 		bind,
 		pool: sessions.pool
 	}

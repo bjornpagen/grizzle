@@ -82,39 +82,45 @@ const parsedChange = (
 		return change
 	})
 
-/** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of. */
+/** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
+ * role's artifacts for it (db/context.ts RoleContext.programArtifacts). */
 const writeEntry = (
 	role: RoleContext,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
-): Result.Result<WriteEntry, CompileError> => {
-	const world = role.artifacts.world
-	return Result.map(
-		toResult(
-			compileWrite(
-				world.kind === "role" ? world.checked : role.artifacts.derived.schema,
-				change.desc,
-				{
-					names: role.artifacts.names,
-					reads: role.artifacts.reads,
-					claims: { kind: "facts", present: claims },
-					world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
-					laws: role.artifacts.laws,
-					derived: role.artifacts.derived
-				}
+): Result.Result<WriteEntry, CompileError> =>
+	Result.flatMap(
+		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
+		({ artifacts, witness }) => {
+			const world = artifacts.world
+			return Result.map(
+				toResult(
+					compileWrite(
+						world.kind === "role" ? world.checked : artifacts.derived.schema,
+						change.desc,
+						{
+							names: artifacts.names,
+							reads: artifacts.reads,
+							claims: { kind: "facts", present: claims },
+							world:
+								world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
+							laws: artifacts.laws,
+							derived: artifacts.derived
+						}
+					)
+				),
+				(program): WriteEntry => ({
+					program,
+					schema: artifacts.fingerprint,
+					names: artifacts.names,
+					violation: witness.classify,
+					readBacks: readBacks(program, artifacts.names.codes),
+					codecs: paramCodecs(program.params, artifacts.names.codes),
+					bind: role.bind
+				})
 			)
-		),
-		(program): WriteEntry => ({
-			program,
-			schema: role.artifacts.fingerprint,
-			names: role.artifacts.names,
-			violation: role.witness.classify,
-			readBacks: readBacks(program, role.artifacts.names.codes),
-			codecs: paramCodecs(program.params, role.artifacts.names.codes),
-			bind: role.bind
-		})
+		}
 	)
-}
 
 /**
  * A ChangeSet value compiled for a role and the contexts `claims` holds a fact of: a Db's apply compiles it for the

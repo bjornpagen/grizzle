@@ -131,12 +131,12 @@ export const compiledPageTemplate = (
 				})
 			)
 		),
-		(compiled) =>
+		({ compiled, artifacts }) =>
 			Result.map(
 				pageTemplateFor({
 					template: compiled.template,
 					desc: compiled.desc,
-					artifacts: role.artifacts
+					artifacts
 				}),
 				(runtime): CompiledPage => ({
 					compiled,

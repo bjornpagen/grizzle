@@ -2331,7 +2331,7 @@ Every read takes a query and its parameters and runs in one READ ONLY transactio
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`, `{ first, after }`, `{ last }` or `{ last, before }`. A size is any safe integer of at least 1, with no default and no largest.
 - **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, in the order the program's statements would run, never EXPLAIN ANALYZE; a ChangeSet's are taken in a transaction that is rolled back. A plan node holds only its node type, estimated startup and total cost, rows, width and children; the relation and index names and conditions PostgreSQL reports are dropped.
 - **`db.workload.<name>`** is a program in the login's workloads, compiled when the layer was built, with exactly the operations it allows: `page` only for a member `paged(orderedQuery)`, whose page template the layer compiles beside its rows.
-- **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send it as unnamed statements, with no index promised for it.
+- **Any other program**, one built at run time included, still runs: `db.execute` and the others compile it for the call and send it as unnamed statements, with no index promised for it. A layer compiles the laws of the relations its workloads name and write, and no others, so a program that names or writes a relation outside them first compiles the laws of its own relations where it is compiled: at every call of `db.apply`, `db.execute` and the others, and once for a `db.compile` handle. Put the programs of your hot paths in a workload.
 - **`db.compile(program)`** compiles a query, ordered query or ChangeSet once and returns a handle with exactly the operations it allows. Its compiled form drops when the handle's `Scope` ends.
 
 ## Writes
@@ -2926,8 +2926,9 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 ## Deploying
 
-Build each `DbLayer` once per process. Building it parses the snapshot, compiles the login's roles and every workload
-program for every role it runs on (the compilation `grizzle generate` ran), and checks the workloads' index needs
+Build each `DbLayer` once per process. Building it parses the snapshot, compiles the laws of the relations the login's
+workloads name and write, the login's roles and every workload program for every role it runs on (the compilation
+`grizzle generate` ran), and checks the workloads' index needs
 against the snapshot. It reads `snapshot.json` alone and trusts its recorded fingerprint: `grizzle check` and `grizzle
 migrate` refuse a `snapshot.json` or `manifest.json` edited by hand. It fails with an `OpenError` at stage `schema` for a snapshot that does not parse, a schema
 that is not the snapshot's, a role or program that does not compile, or a workload program added,

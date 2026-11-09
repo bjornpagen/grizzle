@@ -85,12 +85,40 @@ const changeVariants = (
 	})
 }
 
+/** A program of a workload, as the layer compiles it (program/workload/value.ts). */
+type WorkloadProgram = NonNullable<ReturnType<typeof workloadState>>["programs"][number]
+
 /**
- * The workload of a role: every program of the login's workloads over the role or a level of it, compiled once for the
- * role (the workloads' order, each one's programs in its record's order). A workload over a role is the role's own; a
- * workload over the base or a level of it runs on a full role, whose levels hold the base (program/schema.ts
- * levelSchema), and on no partial one. A program that does not compile for the role is its CompileError, which fails
- * the layer, and so is a workload value no workload(...) built: the login's workloads are the DbConfig's, read here.
+ * The programs of the login's workloads that run on a role, in the workloads' order, each one's programs in its record's
+ * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a full
+ * role, whose levels hold the base (program/schema.ts levelSchema), and on no partial one. A workload value no
+ * workload(...) built is refused.
+ */
+export const programsOn = (
+	role: RoleContext["schema"],
+	workloads: ReadonlyArray<AnyWorkload>
+): Result.Result<ReadonlyArray<WorkloadProgram>, CompileError> =>
+	Result.gen(function* () {
+		const programs: Array<WorkloadProgram> = []
+		for (const workload of workloads) {
+			const state = workloadState(workload)
+			if (state === undefined) {
+				return yield* Result.fail(malformedDescription(loc, "a workload built by workload(...)"))
+			}
+			const over = state.schema
+			const runs =
+				over.kind === "role" ? over.value === role.value : levelSchema(over, role, loc).ok
+			if (runs) {
+				programs.push(...state.programs)
+			}
+		}
+		return programs
+	})
+
+/**
+ * The workload of a role: every program of the login's workloads that runs on the role (programsOn), compiled once for
+ * the role. A program that does not compile for the role is its CompileError, which fails the layer, and so is a
+ * workload value no workload(...) built: the login's workloads are the DbConfig's, read here.
  */
 export const compileRoleWorkload = (
 	role: RoleContext,
@@ -99,51 +127,33 @@ export const compileRoleWorkload = (
 ): Result.Result<ReadonlyArray<WorkloadForm>, CompileError> =>
 	Result.gen(function* () {
 		const forms: Array<WorkloadForm> = []
-		for (const workload of workloads) {
-			const state = workloadState(workload)
-			if (state === undefined) {
-				return yield* Result.fail(malformedDescription(loc, "a workload built by workload(...)"))
-			}
-			const over = state.schema
-			const runs =
-				over.kind === "role"
-					? over.value === role.schema.value
-					: levelSchema(over, role.schema, loc).ok
-			if (!runs) {
-				continue
-			}
-			for (const program of state.programs) {
-				switch (program.kind) {
-					case "query":
-					case "ordered": {
-						const query = program.value
-						const form = yield* compileRowsForm(role, query, () => query.rows)
-						forms.push({ name: program.name, kind: "read", form })
-						break
-					}
-					case "paged": {
-						const query = program.value
-						const form = yield* compileReadForm(role, query, () => query.rows)
-						forms.push({ name: program.name, kind: "paged", form })
-						break
-					}
-					case "key": {
-						const target = program.target
-						const fact = target.relation.fact
-						const form = yield* compileRowsForm(
-							role,
-							keyQuery(role.schema.value, target),
-							() => fact
-						)
-						forms.push({ name: program.name, kind: "key", fields: target.fields, form })
-						break
-					}
-					case "changeSet": {
-						const fill = fillContexts(owned.writes, program.desc.changeSet)
-						const variants = yield* changeVariants(role, program.value, fill, [])
-						forms.push({ name: program.name, kind: "change", variants })
-						break
-					}
+		for (const program of yield* programsOn(role.schema, workloads)) {
+			switch (program.kind) {
+				case "query":
+				case "ordered": {
+					const query = program.value
+					const form = yield* compileRowsForm(role, query, () => query.rows)
+					forms.push({ name: program.name, kind: "read", form })
+					break
+				}
+				case "paged": {
+					const query = program.value
+					const form = yield* compileReadForm(role, query, () => query.rows)
+					forms.push({ name: program.name, kind: "paged", form })
+					break
+				}
+				case "key": {
+					const target = program.target
+					const fact = target.relation.fact
+					const form = yield* compileRowsForm(role, keyQuery(role.schema.value, target), () => fact)
+					forms.push({ name: program.name, kind: "key", fields: target.fields, form })
+					break
+				}
+				case "changeSet": {
+					const fill = fillContexts(owned.writes, program.desc.changeSet)
+					const variants = yield* changeVariants(role, program.value, fill, [])
+					forms.push({ name: program.name, kind: "change", variants })
+					break
 				}
 			}
 		}

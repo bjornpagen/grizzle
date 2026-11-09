@@ -48,7 +48,6 @@ import {
 } from "#compiler/lower/template.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
@@ -159,11 +158,11 @@ export const conservativePageRuntime = (
 const conservativeCompile =
 	(ctx: DbContext): DbContext["compile"] =>
 	(input, request) =>
-		Result.flatMap(ctx.compile(input, request), (prepared) =>
-			Result.map(
-				withConservative(prepared.template, ctx.artifacts.reads),
-				(oracle): CompiledTemplate => ({ ...prepared, template: conservativeRunning(oracle) })
-			)
+		Result.flatMap(ctx.compile(input, request), ({ compiled, artifacts }) =>
+			Result.map(withConservative(compiled.template, artifacts.reads), (oracle) => ({
+				compiled: { ...compiled, template: conservativeRunning(oracle) },
+				artifacts
+			}))
 		)
 
 /**
