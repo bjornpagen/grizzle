@@ -76,6 +76,7 @@ export type ShapeFeature =
 	| "case"
 	| "greatest"
 	| "least"
+	| "coalesce"
 	| "nullif"
 	| "subscript"
 	| "complement"
@@ -141,6 +142,7 @@ const roleOf = (e: Expr): Role => {
 		case "call":
 		case "greatest":
 		case "least":
+		case "coalesce":
 		case "mergeAction":
 		case "domainValue":
 		case "plVar":
@@ -244,6 +246,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 			return ["case"]
 		case "greatest":
 		case "least":
+		case "coalesce":
 		case "nullif":
 		case "subscript":
 		case "complement":

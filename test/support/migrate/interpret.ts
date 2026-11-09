@@ -876,6 +876,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		}
 		case "array":
 		case "between":
+		case "coalesce":
 		case "collate":
 		case "complement":
 		case "excluded":
@@ -926,6 +927,7 @@ const callsAggregate = (e: Expr): boolean => {
 		case "or":
 		case "greatest":
 		case "least":
+		case "coalesce":
 			return Arr.some(e.args, callsAggregate)
 		case "case":
 			return (

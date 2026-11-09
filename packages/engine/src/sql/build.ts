@@ -288,6 +288,12 @@ export const conjunction = (predicates: ReadonlyArray<Expr>): Expr | undefined =
 export const row = (items: NonEmptyReadonlyArray<Expr>): Expr => ({ kind: "row", items })
 
 export const exists = (query: OperandSelect): Expr => ({ kind: "exists", query, not: false })
+
+/** COALESCE(value, …, otherwise): the first of `args` that is not NULL. */
+export const coalesce = (args: NonEmptyReadonlyArray<Expr>): Expr => ({
+	kind: "coalesce",
+	args
+})
 export const notExists = (query: OperandSelect): Expr => ({ kind: "exists", query, not: true })
 
 /** A plain call of a function of its arguments: no DISTINCT, ORDER BY, WITHIN GROUP or OVER. */

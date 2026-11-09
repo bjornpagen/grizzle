@@ -234,6 +234,7 @@ export class Tracer {
 			}
 			case "greatest":
 			case "least":
+			case "coalesce":
 				return e.args.flatMap((a) => this.expr(a, scope, claim))
 			case "case":
 				return [

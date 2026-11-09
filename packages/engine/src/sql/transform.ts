@@ -288,7 +288,8 @@ export class Transform {
 				return args === e.args ? e : { ...e, args }
 			}
 			case "greatest":
-			case "least": {
+			case "least":
+			case "coalesce": {
 				const args = this.nonEmptyExprs(e.args)
 				return args === e.args ? e : { ...e, args }
 			}
@@ -1799,7 +1800,8 @@ class Visit {
 			case "and":
 			case "or":
 			case "greatest":
-			case "least": {
+			case "least":
+			case "coalesce": {
 				inKeyOrder(keys, [["args", this.exprs(e.args)]])
 				return
 			}

@@ -50,6 +50,7 @@ import {
 	binary,
 	call,
 	cast,
+	coalesce,
 	col,
 	cte,
 	cteRefAs,
@@ -701,53 +702,39 @@ const appendScan = (
 			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
 		)
 		const o = supply.relation(internal("row owner"))
-		const ov = supply.relation(internal("row owner value"))
-		const stored = {
-			when: exists(simpleSelect([target(one)], [tableAs(w, owner.name, o)], ownerAt(o))),
-			result: {
-				kind: "subquery" as const,
-				query: simpleSelect(
-					[target(cast(col(ov, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
-					[tableAs(w, owner.name, ov)],
-					ownerAt(ov)
-				)
-			}
+		const stored: Expr = {
+			kind: "subquery",
+			query: simpleSelect(
+				[target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
+				[tableAs(w, owner.name, o)],
+				ownerAt(o)
+			)
 		}
 		/** The owner among the rows this statement's nested writes insert, which no scan finds stored. */
-		const inserted = (owners: Shaped) => {
+		const inserted = (owners: Shaped): Expr => {
 			const n = supply.relation(internal("nested owner"))
-			const nv = supply.relation(internal("nested owner value"))
-			const at = (alias: string): Expr =>
-				and(
-					mapNonEmpty(family.group, (g, i) =>
-						eq(
-							col(alias, columnAt(owners, fieldKey(g.owner.name))),
-							defined(aGroup[i], "a group key")
+			return {
+				kind: "subquery",
+				query: simpleSelect(
+					[target(cast(col(n, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type)))],
+					[cteRefAs(owners.name, n)],
+					and(
+						mapNonEmpty(family.group, (g, i) =>
+							eq(
+								col(n, columnAt(owners, fieldKey(g.owner.name))),
+								defined(aGroup[i], "a group key")
+							)
 						)
 					)
 				)
-			return {
-				when: exists(simpleSelect([target(one)], [cteRefAs(owners.name, n)], at(n))),
-				result: {
-					kind: "subquery" as const,
-					query: simpleSelect(
-						[
-							target(
-								cast(col(nv, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type))
-							)
-						],
-						[cteRefAs(owners.name, nv)],
-						at(nv)
-					)
-				}
 			}
 		}
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: nestedOwner === undefined ? [stored] : [stored, inserted(nestedOwner())],
-			else: lowerLiteral(w.names, base, read.type)
-		}
+		/** The stored owner's copy, else the nested owner's, else the base: an owner's column is never NULL (rule 0). */
+		return coalesce([
+			stored,
+			...(nestedOwner === undefined ? [] : [inserted(nestedOwner())]),
+			lowerLiteral(w.names, base, read.type)
+		])
 	}
 	const kept = col(g2, groups.kept)
 	ctes.push(
@@ -868,23 +855,16 @@ const insertOf = (
 				),
 				eq(col(s, scan.slot), binary("-", col(s, scan.count), lit.int(1, types.bigint)))
 			])
+		/** The scan's value where it appends to the row's group, else the row's own: a drawn value is never NULL. */
 		const fromLast = (key: ColumnKey, value: (s: string) => Expr): Expr => {
 			const s = supply.relation(internal("owned scan"))
-			const sv = supply.relation(internal("owned scan value"))
-			return {
-				kind: "case",
-				operand: undefined,
-				whens: [
-					{
-						when: exists(simpleSelect([target(one)], [cteRefAs(scan.name, s)], at(s))),
-						result: {
-							kind: "subquery",
-							query: simpleSelect([target(value(sv))], [cteRefAs(scan.name, sv)], at(sv))
-						}
-					}
-				],
-				else: col(a, columnAt(d.appended, key))
-			}
+			return coalesce([
+				{
+					kind: "subquery",
+					query: simpleSelect([target(value(s))], [cteRefAs(scan.name, s)], at(s))
+				},
+				col(a, columnAt(d.appended, key))
+			])
 		}
 		recounted.set(
 			fieldKey(family.count.name),
@@ -1130,27 +1110,19 @@ const recountOf = (
 		const l = supply.relation(internal("recount source"))
 		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
 	}
-	/** A family's recounted value of an owner column, its stored one where it recounts no group of the row. */
+	/**
+	 * A family's recounted value of an owner column, its stored one where it recounts no group of the row: a recounted
+	 * count or end is never NULL.
+	 */
 	const valueAt = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
 		const l = supply.relation(internal("recount value"))
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [
-				{
-					when: hasGroup(family, last),
-					result: {
-						kind: "subquery",
-						query: simpleSelect(
-							[target(col(l, column))],
-							[cteRefAs(last.name, l)],
-							at(family, last, l)
-						)
-					}
-				}
-			],
-			else: stored
-		}
+		return coalesce([
+			{
+				kind: "subquery",
+				query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last, l))
+			},
+			stored
+		])
 	}
 	const sets: Array<Assignment> = []
 	const changed: Array<Expr> = []

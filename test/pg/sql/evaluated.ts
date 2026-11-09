@@ -86,6 +86,7 @@ const expressionFeatures = [
 	"negate",
 	"case",
 	"greatest",
+	"coalesce",
 	"char_length",
 	"comparison",
 	"connectives",
@@ -166,7 +167,15 @@ class Expressions {
 		 * operators, below + and -.
 		 */
 		const form = this.#choose<
-			"leaf" | "arithmetic" | "shift" | "qualified" | "negate" | "case" | "greatest" | "char_length"
+			| "leaf"
+			| "arithmetic"
+			| "shift"
+			| "qualified"
+			| "negate"
+			| "case"
+			| "greatest"
+			| "coalesce"
+			| "char_length"
 		>("leaf", depth, [
 			["arithmetic", "arithmetic"],
 			["shift", "shift"],
@@ -174,6 +183,7 @@ class Expressions {
 			["negate", "negate"],
 			["case", "case"],
 			["greatest", "greatest"],
+			["coalesce", "coalesce"],
 			["char_length", "char_length"]
 		])
 		switch (form) {
@@ -240,6 +250,20 @@ class Expressions {
 					type: "int",
 					expr: { kind, args: [a.expr, b.expr] },
 					value: kind === "greatest" ? greater : lesser
+				}
+			}
+			case "coalesce": {
+				/** COALESCE(NULLIF(a, b), c): `a` unless it equals `b`, where the NULL falls back to `c`. */
+				const a = this.int(depth - 1)
+				const b = this.int(depth - 1)
+				const c = this.int(depth - 1)
+				return {
+					type: "int",
+					expr: {
+						kind: "coalesce",
+						args: [{ kind: "nullif", expr: a.expr, absent: b.expr }, c.expr]
+					},
+					value: a.value === b.value ? c.value : a.value
 				}
 			}
 			case "char_length": {

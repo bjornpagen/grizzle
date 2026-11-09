@@ -199,7 +199,8 @@ class CoreBinder {
 			case "and":
 			case "or":
 			case "greatest":
-			case "least": {
+			case "least":
+			case "coalesce": {
 				const args = mapNonEmpty(e.args, at)
 				return args.every((a, i) => a === e.args[i]) ? e : { ...e, args }
 			}

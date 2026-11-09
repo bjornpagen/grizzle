@@ -49,6 +49,7 @@ import {
 	binary,
 	call,
 	cast,
+	coalesce,
 	col,
 	countStar,
 	cte,
@@ -687,25 +688,18 @@ const redraw = (
 				)
 			)
 		const u = supply.relation(internal("put overlay"))
-		const uv = supply.relation(internal("put overlay value"))
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [
-				{
-					when: exists(simpleSelect([target(one)], [cteRefAs(read.updated.name, u)], uAt(u))),
-					result: {
-						kind: "subquery",
-						query: simpleSelect(
-							[target(col(uv, columnAt(read.updated, k)))],
-							[cteRefAs(read.updated.name, uv)],
-							uAt(uv)
-						)
-					}
-				}
-			],
-			else: stored
-		}
+		/** The put's value where it updates the member, else the stored one: a column is never NULL (rule 0). */
+		return coalesce([
+			{
+				kind: "subquery",
+				query: simpleSelect(
+					[target(col(u, columnAt(read.updated, k)))],
+					[cteRefAs(read.updated.name, u)],
+					uAt(u)
+				)
+			},
+			stored
+		])
 	}
 	const ownerColumn = (g: string, to: NativeColumn): Expr => {
 		const o = supply.relation(internal("redrawn owner"))
@@ -1196,25 +1190,18 @@ const writesOf = (
 				mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
 			)
 		const s = supply.relation(internal("final drawn"))
-		const sv = supply.relation(internal("final drawn value"))
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [
-				{
-					when: exists(simpleSelect([target(one)], [cteRefAs(drawer.scan.name, s)], at(s))),
-					result: {
-						kind: "subquery",
-						query: simpleSelect(
-							[target(col(sv, columnAt(drawer.scan, key)))],
-							[cteRefAs(drawer.scan.name, sv)],
-							at(sv)
-						)
-					}
-				}
-			],
-			else: ownValue
-		}
+		/** The drawer's value where it redrew the row, else the row's own: a drawn value is never NULL. */
+		return coalesce([
+			{
+				kind: "subquery",
+				query: simpleSelect(
+					[target(col(s, columnAt(drawer.scan, key)))],
+					[cteRefAs(drawer.scan.name, s)],
+					at(s)
+				)
+			},
+			ownValue
+		])
 	}
 	const out: Array<FamilyReturning> = []
 	/** Whether the written row `a` is one the statement re-places, where its relation re-places only some. */
@@ -1503,26 +1490,16 @@ const recountOf = (
 		const l = supply.relation(internal("recount source"))
 		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
 	}
+	/** A family's recounted value of an owner column, else its stored one: a recounted count or end is never NULL. */
 	const recounted = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
 		const l = supply.relation(internal("recount value"))
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [
-				{
-					when: hasGroup(family, last),
-					result: {
-						kind: "subquery",
-						query: simpleSelect(
-							[target(col(l, column))],
-							[cteRefAs(last.name, l)],
-							at(family, last, l)
-						)
-					}
-				}
-			],
-			else: stored
-		}
+		return coalesce([
+			{
+				kind: "subquery",
+				query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last, l))
+			},
+			stored
+		])
 	}
 	const sets: Array<Assignment> = []
 	const changed: Array<Expr> = []

@@ -461,6 +461,14 @@ export type Expr =
 	  }
 	| FunctionCall
 	| { readonly kind: "greatest" | "least"; readonly args: NonEmptyReadonlyArray<Expr> }
+	| {
+			/**
+			 * COALESCE(value, …, otherwise): the first of its arguments that is not NULL, each evaluated only while every one
+			 * before it is NULL.
+			 */
+			readonly kind: "coalesce"
+			readonly args: NonEmptyReadonlyArray<Expr>
+	  }
 	| { readonly kind: "mergeAction" }
 	| { readonly kind: "domainValue" }
 	| User

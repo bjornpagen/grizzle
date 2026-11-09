@@ -132,7 +132,7 @@ const builtinFunctions: ReadonlySet<string> = new Set(builtinFunctionNames)
 /**
  * The rule a call of the builtin function `name` breaks, or undefined for a function of the catalogue. The AST type
  * admits only the catalogue; this holds it for data that bypassed the type, so it reads the name as the string it is.
- * NULLIF is an expression of its own (Expr nullif), and COALESCE is the pack's own spelling, neither a call.
+ * NULLIF and COALESCE are expressions of their own (Expr nullif, Expr coalesce), neither a call.
  */
 const builtinCallRule = (name: string): AuditRule | undefined =>
 	builtinFunctions.has(name) ? undefined : "function"
@@ -821,6 +821,7 @@ class StatementAuditor {
 				return
 			case "greatest":
 			case "least":
+			case "coalesce":
 				this.exprs(e.args, ctx, "args")
 				return
 			case "mergeAction":
@@ -2756,6 +2757,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "or":
 		case "greatest":
 		case "least":
+		case "coalesce":
 			all(e.args)
 			return
 		case "between":
@@ -2885,7 +2887,7 @@ export interface StatementAudit {
  *   CHECK ((...) IS TRUE), a domain CHECK not of the form CHECK (VALUE IS NULL OR (...) IS TRUE), whose VALUE IS NULL
  *   is the one null test admitted, a CASE expression without ELSE, and a COLLATE naming any collation but
  *   pg_catalog.pg_c_utf8. NULLIF, a closed read's absence that IS TRUE or NOT NULL around it refuses, and COALESCE, the
- *   pack's absent cell, are admitted. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
+ *   pack's absent cell and a family write's value where no row supplies one, are admitted. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
  *   refuses, and the printer's output must pass it.
  *
  * An audit failure is a compiler defect, reported as a CompileError: MalformedDescription for a structurally malformed

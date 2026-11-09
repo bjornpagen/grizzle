@@ -530,6 +530,7 @@ const statementFeatures = [
 	"cast",
 	"collate",
 	"greatest",
+	"coalesce",
 	"zero width"
 ] as const
 
@@ -755,6 +756,7 @@ type ExprForm =
 	| "abs"
 	| "case"
 	| "greatest"
+	| "coalesce"
 	| "cast"
 	| "scalar subquery"
 	| "concat"
@@ -792,6 +794,7 @@ const formsOf = (env: Env, type: SqlColumnType, depth: number): Forms => {
 				["concat", "concat"],
 				["collate", "collate"],
 				["greatest", "greatest"],
+				["coalesce", "coalesce"],
 				["case", "case"]
 			]
 		case "integer":
@@ -806,6 +809,7 @@ const formsOf = (env: Env, type: SqlColumnType, depth: number): Forms => {
 				["arithmetic", "negate"],
 				["arithmetic", "abs"],
 				["greatest", "greatest"],
+				["coalesce", "coalesce"],
 				["case", "case"],
 				...casts,
 				...counts,
@@ -883,6 +887,8 @@ const formOf = (d: Draw, env: Env, type: SqlColumnType, depth: number): Expr => 
 			}
 		case "greatest":
 			return { kind: d.from(["greatest", "least"] as const), args: [sub(type), sub(type)] }
+		case "coalesce":
+			return { kind: "coalesce", args: [sub(type), sub(type)] }
 		case "cast": {
 			const sources = nonEmpty(castSources[type])
 			return sources === undefined ? leaf(d, env, type) : cast(sub(d.from(sources)), typeRefs[type])
@@ -2070,6 +2076,7 @@ const valueShaping: ReadonlyArray<StatementFeature> = [
 	"case",
 	"cast",
 	"greatest",
+	"coalesce",
 	"concat",
 	"collate",
 	"scalar subquery",

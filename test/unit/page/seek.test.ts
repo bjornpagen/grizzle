@@ -129,6 +129,7 @@ const evaluate = (e: Expr, tuple: ReadonlyArray<number>, bound: ReadonlyArray<nu
 		case "call":
 		case "case":
 		case "cast":
+		case "coalesce":
 		case "collate":
 		case "domainValue":
 		case "excluded":

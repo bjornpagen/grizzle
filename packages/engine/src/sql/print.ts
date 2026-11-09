@@ -593,6 +593,8 @@ const expr = (e: Expr): Printed => {
 				`${e.kind === "greatest" ? "GREATEST" : "LEAST"}(${e.args.map((arg) => printExpr(arg)).join(", ")})`,
 				"atom"
 			)
+		case "coalesce":
+			return printed(`COALESCE(${e.args.map((arg) => printExpr(arg)).join(", ")})`, "atom")
 		case "mergeAction":
 			return printed("merge_action()", "atom")
 		case "domainValue":

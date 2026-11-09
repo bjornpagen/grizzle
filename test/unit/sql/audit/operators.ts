@@ -601,6 +601,7 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "or":
 		case "greatest":
 		case "least":
+		case "coalesce":
 			return any(e.args)
 		case "between":
 			return any([e.expr, e.low, e.high])

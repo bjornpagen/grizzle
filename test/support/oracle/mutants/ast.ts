@@ -240,6 +240,7 @@ class Rewriter {
 			case "excluded":
 			case "field":
 			case "greatest":
+			case "coalesce":
 			case "inList":
 			case "least":
 			case "literal":
@@ -305,6 +306,7 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "or":
 		case "greatest":
 		case "least":
+		case "coalesce":
 			return Arr.some(e.args, (a) => readsAlias(a, alias))
 		case "call":
 			return (

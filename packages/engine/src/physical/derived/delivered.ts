@@ -139,6 +139,7 @@ class Delivered {
 			case "case":
 			case "greatest":
 			case "least":
+			case "coalesce":
 			case "call":
 			case "mergeAction":
 			case "domainValue":

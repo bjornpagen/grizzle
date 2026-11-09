@@ -191,7 +191,12 @@ class Agreement {
 				}
 			},
 			expr: (e) => {
-				if (e.kind === "case" || e.kind === "greatest" || e.kind === "least") {
+				if (
+					e.kind === "case" ||
+					e.kind === "greatest" ||
+					e.kind === "least" ||
+					e.kind === "coalesce"
+				) {
 					this.#expr(e, noCtes)
 				}
 			}
@@ -257,7 +262,7 @@ class Agreement {
 						else: castAt(e.else, e.whens.length)
 					}
 				}
-				if (e.kind === "greatest" || e.kind === "least") {
+				if (e.kind === "greatest" || e.kind === "least" || e.kind === "coalesce") {
 					return { ...e, args: mapNonEmpty(e.args, castAt) }
 				}
 				return e
@@ -316,6 +321,7 @@ class Agreement {
 				)
 			case "greatest":
 			case "least":
+			case "coalesce":
 				return this.#unify(
 					e.args,
 					(i, base) => {
@@ -568,6 +574,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "case":
 			case "greatest":
 			case "least":
+			case "coalesce":
 			case "mergeAction":
 			case "domainValue":
 			case "user":
