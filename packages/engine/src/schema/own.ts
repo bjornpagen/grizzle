@@ -9,6 +9,7 @@ import {
 } from "#compiler/core/errors.ts"
 import { type SchemaLevel, schemaLevel } from "#compiler/core/fingerprint.ts"
 import {
+	conversionOf,
 	type DeclaredName,
 	DeclaredNamespace,
 	decodedColumnFits,
@@ -1297,17 +1298,19 @@ class Owner {
 	 * fits a name, and no other field of the relation converts to it.
 	 */
 	#checkDecodedColumns(entry: RelationEntry, r: OrdinaryRelationOf): void {
-		const columns = new Map<string, string>()
-		for (const field of Object.keys(r.fields)) {
-			const declared = unwrap(this.#fieldName(field, entry))
-			columns.set(identifierOf(identity.column(declared)), field)
-		}
-		for (const [field, decl] of Object.entries(r.fields)) {
+		const fields = Object.entries(r.fields).map(([field, decl]) => ({
+			field,
+			decl,
+			declared: unwrap(this.#fieldName(field, entry))
+		}))
+		const columns = new Map(
+			fields.map(({ field, declared }) => [conversionOf(declared), field] as const)
+		)
+		for (const { field, decl, declared } of fields) {
 			if (closedIdBase(decl.type) === undefined) {
 				continue
 			}
 			const loc = labeledChildLoc(entry.desc.loc, field, `field ${r.name}.${field}`)
-			const declared = unwrap(this.#fieldName(field, entry))
 			if (!decodedColumnFits(declared)) {
 				fail(
 					"MalformedDescription",
