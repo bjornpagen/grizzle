@@ -71,6 +71,9 @@ const brand = nominal<Float32Array, Float32Array & Brand.Brand<"Vector">>()
 const isDimensions = (n: unknown): n is number =>
 	typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions.value
 
+/** What a vector's read answers for a buffer it could not read: no vector. */
+const notVector = (): ValueFault => "vectorType"
+
 /** Whether a value has the vector host type: a Float32Array, branded without checking (nominal). */
 export const isVector = (value: unknown): value is Vector => value instanceof Float32Array
 
@@ -101,7 +104,7 @@ const shaped = <const N extends number>(
 	dimensions: N,
 	read: (buffer: Float32Array) => Float32Array
 ): Result.Result<Vector<N>, ValueFault> =>
-	hostRead("vectorType", (): Result.Result<Vector<N>, ValueFault> => {
+	hostRead(notVector, (): Result.Result<Vector<N>, ValueFault> => {
 		if (!isDimensions(dimensions)) {
 			return Result.err("vectorDimensions")
 		}

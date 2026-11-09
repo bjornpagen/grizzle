@@ -224,7 +224,8 @@ export const workload = <S, P extends object>(
 	 * the copy the value holds: a record whose reading throws is refused, never escaping as a defect.
 	 */
 	const read = hostRead(
-		malformed(label, "programs: a plain object of named programs whose reading throws nothing"),
+		() =>
+			malformed(label, "programs: a plain object of named programs whose reading throws nothing"),
 		() =>
 			isPlainRecord(programs)
 				? Result.ok(copyRecord(programs))

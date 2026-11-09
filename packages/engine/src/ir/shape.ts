@@ -429,7 +429,7 @@ const ownForm = (value: unknown, decoded: unknown, asIs: WeakSet<object>): boole
  * the value there (core/host.ts hostRead), which no union alternative repairs. Every read of a value being decoded goes
  * through here, so a throw anywhere else in a decode is the decoder's own and escapes decodeWith as the defect it is.
  */
-const unreadable = "a value whose reading throws nothing: no refusing proxy or getter"
+const unreadable = (): string => "a value whose reading throws nothing: no refusing proxy or getter"
 const readAt = <A>(path: DecodePath, read: () => A): A => {
 	const r = hostRead(unreadable, () => Result.ok(read()))
 	return r.ok ? r.value : abort(path, r.error)

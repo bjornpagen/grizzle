@@ -215,30 +215,30 @@ const admitters: Admitters = {
 
 /**
  * What admission answers for a value it could not read, a proxy whose traps throw or a getter that throws: the word for
- * a value not of the carrier's host type. Every carrier names its own; a literal operand's admission (scalar/registry.ts
- * literalDescFor) answers the same.
+ * a value not of the carrier's host type, made when a read throws (core/host.ts hostRead). Every carrier names its own;
+ * a literal operand's admission (scalar/registry.ts literalDescFor) answers the same.
  */
-export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
-	int2: "integerType",
-	int4: "integerType",
-	int8: "integerType",
-	numeric: "decimalType",
-	float4: "floatType",
-	float8: "floatType",
-	money: "moneyType",
-	bool: "boolType",
-	uuid: "uuidSyntax",
-	date: "dateSyntax",
-	text: "textType",
-	bytes: "bytesType",
-	code: "codeHandle",
-	bits: "bitsType",
-	range4: "spanType",
-	range8: "spanType",
-	rangeDate: "spanType",
-	vector: "vectorType",
-	exactInteger: "integerType",
-	exactMoney: "moneyType"
+export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
+	int2: () => "integerType",
+	int4: () => "integerType",
+	int8: () => "integerType",
+	numeric: () => "decimalType",
+	float4: () => "floatType",
+	float8: () => "floatType",
+	money: () => "moneyType",
+	bool: () => "boolType",
+	uuid: () => "uuidSyntax",
+	date: () => "dateSyntax",
+	text: () => "textType",
+	bytes: () => "bytesType",
+	code: () => "codeHandle",
+	bits: () => "bitsType",
+	range4: () => "spanType",
+	range8: () => "spanType",
+	rangeDate: () => "spanType",
+	vector: () => "vectorType",
+	exactInteger: () => "integerType",
+	exactMoney: () => "moneyType"
 }
 
 /** The stored value PostgreSQL holds for a host value of this carrier, or the boundary's refusal. */
@@ -249,7 +249,7 @@ export const admitValue = <C extends Carrier>(
 	const own: SpecOf<C> = spec
 	const admit: (value: unknown, spec: SpecOf<C>) => Result.Result<CarrierHost[C], ValueFault> =
 		admitters[own.carrier]
-	return hostRead(unreadableFault[own.carrier], () => admit(value, own))
+	return hostRead(unreadableOf[own.carrier], () => admit(value, own))
 }
 
 const isNumber = (value: unknown): value is number => typeof value === "number"
@@ -491,20 +491,26 @@ export const headingPlan = (heading: ReadonlyArray<HeadingField>): HeadingPlan =
 	}
 }
 
+/** What reading a fact answers for a fact whose shape could not be read. */
+const unshapedFact = (): FactFault => ({ fault: "factShape", field: undefined })
+
 /**
  * One own field of a fact, read once through its descriptor: a data property's value, or what its getter returns
  * when called once; none when the fact has no such own field.
  */
 const ownField = (fact: object, name: string): Result.Result<unknown, FactFault> =>
-	hostRead<unknown, FactFault>({ fault: "factShape", field: name }, () => {
-		const descriptor = Reflect.getOwnPropertyDescriptor(fact, name)
-		if (descriptor === undefined) {
-			return Result.err({ fault: "factShape", field: name })
+	hostRead<unknown, FactFault>(
+		() => ({ fault: "factShape", field: name }),
+		() => {
+			const descriptor = Reflect.getOwnPropertyDescriptor(fact, name)
+			if (descriptor === undefined) {
+				return Result.err({ fault: "factShape", field: name })
+			}
+			const value: unknown =
+				descriptor.get === undefined ? descriptor.value : Reflect.apply(descriptor.get, fact, [])
+			return Result.ok(value)
 		}
-		const value: unknown =
-			descriptor.get === undefined ? descriptor.value : Reflect.apply(descriptor.get, fact, [])
-		return Result.ok(value)
-	})
+	)
 
 /**
  * A fact read against its heading and its values admitted, its bytes values not yet digested: each field's value in the
@@ -530,7 +536,7 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 	if (typeof fact !== "object" || fact === null) {
 		return Result.err({ fault: "factShape", field: undefined })
 	}
-	const keys = hostRead<number, FactFault>({ fault: "factShape", field: undefined }, () =>
+	const keys = hostRead<number, FactFault>(unshapedFact, () =>
 		isPlainRecord(fact)
 			? Result.ok(Reflect.ownKeys(fact).length)
 			: Result.err({ fault: "factShape", field: undefined })

@@ -32,10 +32,13 @@ const dataOnly = (value: unknown, seen: Set<object>): boolean => {
 	return true
 }
 
+/** A reading that throws, which readableArguments answers as no data, with nothing to say. */
+const noFault = (): undefined => undefined
+
 /** Whether every argument reads as data, a reading that throws counting as one that does not. */
 const readableArguments = (args: ReadonlyArray<unknown>): boolean => {
 	const seen = new Set<object>()
-	const read = hostRead(undefined, () => Result.ok(args.every((a) => dataOnly(a, seen))))
+	const read = hostRead(noFault, () => Result.ok(args.every((a) => dataOnly(a, seen))))
 	return read.ok && read.value
 }
 

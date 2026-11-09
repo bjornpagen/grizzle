@@ -27,6 +27,9 @@ const isCanonicalInteger = (text: string): boolean => {
 	return text.charCodeAt(start) !== 0x30 || text.length === 1
 }
 
+/** What a Money's make answers for minor units it could not read. */
+const notMoney = (): ValueFault => "moneyType"
+
 /** The key the one mint takes, which no other module holds. */
 const minting: unique symbol = Symbol("Money")
 
@@ -114,7 +117,7 @@ export class Money implements Canonicalizable {
 		if (value instanceof Money) {
 			return value
 		}
-		const made = hostRead("moneyType", () => Money.make(value.minorUnits))
+		const made = hostRead(notMoney, () => Money.make(value.minorUnits))
 		if (!made.ok) {
 			throw faultError(made.error, SourceLoc("Money value", []))
 		}

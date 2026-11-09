@@ -43,7 +43,7 @@ import {
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
-import { unreadableFault } from "#compiler/scalar/values/identity.ts"
+import { unreadableOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -500,10 +500,11 @@ export const refusedField = (
 	 * it is read once through hostRead, so a value whose reading throws is refused, never escaping as a defect.
 	 */
 	const copy = hostRead(
-		malformedDescription(
-			loc,
-			"a field descriptor a builder made, whose properties can be read: no refusing proxy"
-		),
+		() =>
+			malformedDescription(
+				loc,
+				"a field descriptor a builder made, whose properties can be read: no refusing proxy"
+			),
 		() => Result.ok(isDescriptorCopy(value))
 	)
 	return Result.flatMap(copy, (isCopy) =>
@@ -891,7 +892,7 @@ export const literalDescFor = (
 	value: unknown
 ): Result.Result<LiteralDesc, ValueFault> => {
 	const base = baseOf(t)
-	return hostRead(unreadableFault[base.carrier], () => hostLiteral(base, value))
+	return hostRead(unreadableOf[base.carrier], () => hostLiteral(base, value))
 }
 
 /**

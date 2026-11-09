@@ -103,6 +103,12 @@ export type FiniteDecimal = Decimal & { readonly parts: FiniteParts }
 const finiteParts = (negative: boolean, coefficient: bigint, minScale: number): FiniteParts =>
 	Object.freeze({ kind: "finite", negative: negative && coefficient !== 0n, coefficient, minScale })
 
+/** What a Decimal's parse answers for an input it could not read: no Decimal. */
+const notDecimal = (): ValueFault => "decimalType"
+
+/** The refusal of an IR decimal value whose payload could not be read. */
+const unrevived = (): CompileError => faultError("decimalType", SourceLoc("Decimal value", []))
+
 /** The key the one mint takes, which no other module holds. */
 const minting: unique symbol = Symbol("Decimal")
 
@@ -235,9 +241,7 @@ export class Decimal implements Canonicalizable {
 		if (value instanceof Decimal) {
 			return value
 		}
-		const revived = hostRead(faultError("decimalType", SourceLoc("Decimal value", [])), () =>
-			Decimal.fromCanonical(decimalPayload(value))
-		)
+		const revived = hostRead(unrevived, () => Decimal.fromCanonical(decimalPayload(value)))
 		if (!revived.ok) {
 			throw revived.error
 		}
@@ -369,7 +373,7 @@ export class Decimal implements Canonicalizable {
 	 * reading throws is refused as no Decimal; `admit` and `of` read through here.
 	 */
 	static parse(input: unknown): Result.Result<Decimal, ValueFault> {
-		return hostRead("decimalType", (): Result.Result<Decimal, ValueFault> => {
+		return hostRead(notDecimal, (): Result.Result<Decimal, ValueFault> => {
 			if (input instanceof Decimal) {
 				return Result.ok(input)
 			}

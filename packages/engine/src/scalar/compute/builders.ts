@@ -168,7 +168,11 @@ const readField = (value: unknown): FieldReading => {
  */
 const describedField = (value: unknown, loc: SourceLoc): DescribedField => {
 	const reading = hostRead(
-		malformedDescription(loc, "a field descriptor whose properties can be read: no refusing proxy"),
+		() =>
+			malformedDescription(
+				loc,
+				"a field descriptor whose properties can be read: no refusing proxy"
+			),
 		() => Result.ok(readField(value))
 	)
 	if (!reading.ok) {

@@ -814,7 +814,7 @@ const insertRows = (
 	label: string
 ): ReadonlyArray<readonly [string, MemberInput]> => {
 	const read = hostRead(
-		malformed(label, "a record of members by relation name whose reading throws nothing"),
+		() => malformed(label, "a record of members by relation name whose reading throws nothing"),
 		() =>
 			isPlainRecord(rows) && Object.getOwnPropertySymbols(rows).length === 0
 				? Result.ok(Object.entries(rows))
@@ -916,7 +916,7 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
 ): ChangeSetOf<S, unknown, W, Rd, never, Done, Last> & SchemaMember => {
 	const label = "ChangeSet.bind"
 	const read = hostRead(
-		malformed(label, "a record of parameter values whose reading throws nothing"),
+		() => malformed(label, "a record of parameter values whose reading throws nothing"),
 		() =>
 			isPlainRecord(params)
 				? Result.ok(
@@ -1153,11 +1153,14 @@ const relationSplit = (relation: string, families: ReadonlyArray<Family>): Relat
 	return { owned, counts: new Set(owned.map((f) => f.count.name)) }
 }
 
+/** What reading a caller's fact answers for a fact that could not be read. */
+const unshapedFact = (): ChangeSetRefusal["fault"] => "factShape"
+
 /** A caller's fact read once as a plain record, or factShape for anything else, a throwing getter among them. */
 const factRecord = (
 	value: unknown
 ): Result.Result<Readonly<Record<string, unknown>>, ChangeSetRefusal["fault"]> =>
-	hostRead<Readonly<Record<string, unknown>>, ChangeSetRefusal["fault"]>("factShape", () =>
+	hostRead<Readonly<Record<string, unknown>>, ChangeSetRefusal["fault"]>(unshapedFact, () =>
 		isPlainRecord(value) ? Result.ok(Object.freeze({ ...value })) : Result.err("factShape")
 	)
 
