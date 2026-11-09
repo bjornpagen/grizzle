@@ -3,13 +3,18 @@
  * are read as, each part's rows behind its tag; the facts a member slot carries, read from its arrays; and the small
  * builders of the SQL the two write in common.
  */
+import { maxOf } from "#compiler/core/array.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { completeClass } from "#compiler/ir/write.ts"
-import { arraysSource, relationColumns, type WriteParams } from "#compiler/lower/conservative/context.ts"
+import {
+	arraysSource,
+	relationColumns,
+	type WriteParams
+} from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { Cte, EmittedSql, Expr, FromSource, Select, SetArm } from "#compiler/sql/ast.ts"
 import {
@@ -73,7 +78,7 @@ export interface FamilyWriteSql {
 }
 
 /** A data-modifying CTE's returned columns and the part they are. */
-export interface Returning {
+export interface FamilyReturning {
 	readonly cte: string
 	readonly columns: ReadonlyArray<ReturnedColumn>
 	readonly relation: string
@@ -118,12 +123,12 @@ export const sameGroupExprs = (
 	group: NonEmptyReadonlyArray<string>
 ): Expr => and(mapNonEmpty(group, (c, i) => eq(defined(keys[i], "a group key"), col(alias, c))))
 
-/** Whether two key lists name one row, column by column. */
-export const sameKey = (a: NonEmptyReadonlyArray<Expr>, b: ReadonlyArray<Expr>): Expr =>
-	and(mapNonEmpty(a, (e, i) => eq(e, defined(b[i], "a key column of each side"))))
-
 /** A CTE's name and one fresh column name per key. */
-export const shapedCte = (supply: NameSupply, purpose: string, keys: ReadonlyArray<ColumnKey>): Shaped => ({
+export const shapedCte = (
+	supply: NameSupply,
+	purpose: string,
+	keys: ReadonlyArray<ColumnKey>
+): Shaped => ({
 	name: supply.relation(internal(purpose)),
 	columns: new Map(keys.map((k) => [k, supply.column(internal(purpose))] as const))
 })
@@ -160,7 +165,10 @@ export const deletedResult = (relation: RelationInfo): DeleteResult => ({
 })
 
 /** An update's result at `fields`, the key's first: each row's values there after the update and before. */
-export const updatedResult = (relation: RelationInfo, fields: NonEmptyReadonlyArray<LawField>): UpdateResult => {
+export const updatedResult = (
+	relation: RelationInfo,
+	fields: NonEmptyReadonlyArray<LawField>
+): UpdateResult => {
 	const columns = fields.map((f) => ({ name: f.name, type: rowType(f) }))
 	return {
 		kind: "update",
@@ -207,13 +215,21 @@ export const updateReturning = (
 	return {
 		returning: [
 			...fresh.map((p) =>
-				targetAs({ kind: "returning", side: "new", column: w.names.column(relation.name, p.field.name) }, p.alias)
+				targetAs(
+					{ kind: "returning", side: "new", column: w.names.column(relation.name, p.field.name) },
+					p.alias
+				)
 			),
 			...old.map((p) =>
-				targetAs({ kind: "returning", side: "old", column: w.names.column(relation.name, p.field.name) }, p.alias)
+				targetAs(
+					{ kind: "returning", side: "old", column: w.names.column(relation.name, p.field.name) },
+					p.alias
+				)
 			)
 		],
-		columns: [...fresh, ...old].map((p) => returnedColumn(col(cteName, p.alias), rowType(p.field), p.alias))
+		columns: [...fresh, ...old].map((p) =>
+			returnedColumn(col(cteName, p.alias), rowType(p.field), p.alias)
+		)
 	}
 }
 
@@ -251,7 +267,12 @@ const slotFacts = (
 	const slots = w.cx.member(
 		slot.slot,
 		relation,
-		() => relationColumns(heading, () => supply.column(origin), (t) => w.cx.baseTypeRef(t)),
+		() =>
+			relationColumns(
+				heading,
+				() => supply.column(origin),
+				(t) => w.cx.baseTypeRef(t)
+			),
 		`a family write of ${relation}`
 	)
 	const raw = supply.relation(origin)
@@ -290,10 +311,13 @@ const slotFacts = (
 export const taggedRows = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
-	returnings: NonEmptyReadonlyArray<Returning>,
+	returnings: NonEmptyReadonlyArray<FamilyReturning>,
 	params: WriteParams
 ): FamilyWriteSql => {
-	const width = Math.max(...returnings.map((r) => r.columns.length))
+	const width = maxOf(
+		returnings.map((r) => r.columns.length),
+		0
+	)
 	const arms = mapNonEmpty(returnings, (r, tag): SetArm => {
 		const rows = returnedRows("keyed", r.columns, [cteRefAs(r.cte, r.cte)], undefined)
 		const partName = supply.relation(internal("family write part"))
@@ -304,7 +328,9 @@ export const taggedRows = (
 			[
 				target(lit.int(tag, types.integer)),
 				...partColumns.map((c) => target(col(partName, c))),
-				...Array.from({ length: width - partColumns.length }, () => target(lit.text("", types.text)))
+				...Array.from({ length: width - partColumns.length }, () =>
+					target(lit.text("", types.text))
+				)
 			],
 			[cteRefAs(partName, partName)],
 			undefined

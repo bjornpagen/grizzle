@@ -98,9 +98,11 @@ import {
 } from "#compiler/write/frontend/refill.ts"
 import {
 	canonicalActionOrder,
+	type FamilyAdditions,
 	type FamilyAt,
 	type FamilyNode,
 	type FamilyPair,
+	type FamilyRemovals,
 	type GeneratedColumn,
 	generating,
 	type ImmediateReference,
@@ -689,6 +691,22 @@ const drawnBy = (f: Family): ReadonlyArray<string> => [
 			: []
 	)
 ]
+
+/**
+ * Where a stratum's family additions or removals stands in a cycle its stratum cannot order: the removals' first
+ * member's delete; the additions' first member's insert, or its first owner's count where it appends to none.
+ */
+const familyWriteAt = (
+	node: FamilyAdditions | FamilyRemovals
+): { readonly relation: string; readonly op: "insert" | "delete" | "count" } => {
+	if (node.kind === "removals") {
+		return { relation: node.members[0], op: "delete" }
+	}
+	const [member] = node.members
+	return member === undefined
+		? { relation: node.owners[0].relation, op: "count" }
+		: { relation: member, op: "insert" }
+}
 
 /** Whether a member relation's row column is a field its caller writes, a caller's or a serial one. */
 const callerWritten = (c: RowColumn): boolean =>
@@ -1961,23 +1979,52 @@ const compile = (
 			return [...new Set(counted.map((f) => f.owner.name))].map((relation) => ({
 				relation,
 				changes: generating(
-					counted
-						.filter((f) => f.owner.name === relation)
-						.flatMap((f) => [
-							columnKey({ kind: "field", field: f.count }),
-							...endColumns(f).map((field) => columnKey({ kind: "field", field }))
-						]),
+					counted.flatMap((f) =>
+						f.owner.name === relation
+							? [
+									columnKey({ kind: "field", field: f.count }),
+									...endColumns(f).map((field) => columnKey({ kind: "field", field }))
+								]
+							: []
+					),
 					generatedOf(relation)
 				)
 			}))
 		}
 		const removing = by(["put", "delete"])
 		const adding = by(["insert", "put"])
+		/**
+		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
+		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
+		 * stratum appends to it.
+		 */
+		const put = ownersOf(removing).filter(
+			(o) =>
+				families.some(
+					(f) =>
+						f.owner.name === o.relation &&
+						f.owner.mutable &&
+						f.members.kind !== "tree" &&
+						removing.includes(f.member.name)
+				) &&
+				slots.some(
+					(g) =>
+						g.stratum === stratum &&
+						g.relation.name === o.relation &&
+						g.inputs.some((i) => i.kind === "single" && i.act.op === "put")
+				)
+		)
+		const recounted = [
+			...ownersOf(adding),
+			...put.filter((o) => !ownersOf(adding).some((a) => a.relation === o.relation))
+		]
 		return [
-			...(removing.length === 0
-				? []
-				: [{ kind: "removals" as const, members: removing, owners: ownersOf(removing) }]),
-			...(adding.length === 0 ? [] : [{ kind: "additions" as const, members: adding, owners: ownersOf(adding) }])
+			...(isNonEmpty(removing)
+				? [{ kind: "removals" as const, members: removing, owners: ownersOf(removing) }]
+				: []),
+			...(isNonEmpty(recounted)
+				? [{ kind: "additions" as const, members: adding, owners: recounted }]
+				: [])
 		]
 	}
 
@@ -2002,10 +2049,7 @@ const compile = (
 						w.kind === "action"
 							? { relation: w.action.action.relation, op: w.action.action.op }
 							: w.node.kind === "additions" || w.node.kind === "removals"
-								? {
-										relation: defined(w.node.members[0], "a family write's member"),
-										op: w.node.kind === "additions" ? "insert" : "delete"
-									}
+								? familyWriteAt(w.node)
 								: {
 										relation: w.node.relation,
 										op:

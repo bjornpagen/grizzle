@@ -29,10 +29,10 @@
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
@@ -117,7 +117,7 @@ export const readAt =
 	}
 
 /** Whether two rows' group key columns name one group, column by column. */
-export const sameGroup = (
+const sameGroup = (
 	a: string,
 	aGroup: NonEmptyReadonlyArray<string>,
 	b: string,
@@ -162,11 +162,7 @@ const combine = (
 }
 
 /** A row expression's value over a row's columns, each field it reads by `value` at its key. */
-export const generation = (
-	w: WriteContext,
-	expr: ScalarExpr,
-	value: (key: ColumnKey) => Expr
-): Expr => {
+const generation = (w: WriteContext, expr: ScalarExpr, value: (key: ColumnKey) => Expr): Expr => {
 	const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
 	for (const read of columnReads(expr)) {
 		const columns = new Map(env.get(read.node) ?? [])
@@ -191,7 +187,7 @@ const selection = (
  * field's generation over its other columns. A column the row neither holds nor generates is a defect: a caller's rows
  * hold every column a rule or a generation reads.
  */
-export const ownValue =
+const ownValue =
 	(relation: LawRelation, own: Read, w: WriteContext) =>
 	(key: ColumnKey): Expr => {
 		const value = (k: ColumnKey): Expr => {
@@ -316,7 +312,9 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 			readAt(r, { name: rows.name, columns: rows.owner })
 		)
 		return [
-			...mapNonEmpty(rows.group, (c, i) => targetAs(col(r, c), defined(group[i], "a scan group column"))),
+			...mapNonEmpty(rows.group, (c, i) =>
+				targetAs(col(r, c), defined(group[i], "a scan group column"))
+			),
 			targetAs(col(r, rows.slot), slot),
 			targetAs(col(r, rows.first), first),
 			targetAs(col(r, rows.count), count),

@@ -42,14 +42,17 @@ export type FamilyNode =
 	| FamilyRemovals
 
 /**
- * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members`, and changes
- * the rows of `owners` at the columns `changes` names of each, their counts and ends, each generated column that reads
- * one of them among them.
+ * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members`, none where
+ * it only recounts owners its stratum puts, and changes the rows of `owners` at the columns `changes` names of each,
+ * their counts and ends, each generated column that reads one of them among them.
  */
 export interface FamilyAdditions {
 	readonly kind: "additions"
 	readonly members: ReadonlyArray<string>
-	readonly owners: ReadonlyArray<{ readonly relation: string; readonly changes: ReadonlyArray<string> }>
+	readonly owners: NonEmptyReadonlyArray<{
+		readonly relation: string
+		readonly changes: ReadonlyArray<string>
+	}>
 }
 
 /**
@@ -59,8 +62,11 @@ export interface FamilyAdditions {
  */
 export interface FamilyRemovals {
 	readonly kind: "removals"
-	readonly members: ReadonlyArray<string>
-	readonly owners: ReadonlyArray<{ readonly relation: string; readonly changes: ReadonlyArray<string> }>
+	readonly members: NonEmptyReadonlyArray<string>
+	readonly owners: ReadonlyArray<{
+		readonly relation: string
+		readonly changes: ReadonlyArray<string>
+	}>
 }
 
 /** The relations a family statement writes: a member relation's rows, an owner's counts, or an additions statement's
@@ -498,7 +504,10 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	references: ReadonlyArray<ImmediateReference>
 ): void => {
 	const a = action.action.relation
-	if (node.kind === "additions" && (node.members.includes(a) || node.owners.some((o) => o.relation === a))) {
+	if (
+		node.kind === "additions" &&
+		(node.members.includes(a) || node.owners.some((o) => o.relation === a))
+	) {
 		y.follows.add(x)
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
@@ -630,7 +639,11 @@ const cycleAmong = <A>(
 export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
 	switch (a.kind) {
 		case "owners":
-			return b.kind === "owners" && a.family.owner === b.family.owner && a.family.count === b.family.count
+			return (
+				b.kind === "owners" &&
+				a.family.owner === b.family.owner &&
+				a.family.count === b.family.count
+			)
 		case "rows":
 			return b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
 		case "additions":

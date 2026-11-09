@@ -31,6 +31,7 @@
  * act at the statement's end.
  */
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
@@ -69,7 +70,13 @@ import {
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
-import { type PerGroup, type Scanned, type ScanRows, scanOf, type Shaped } from "#compiler/write/family/scan.ts"
+import {
+	type PerGroup,
+	type Scanned,
+	type ScanRows,
+	scanOf,
+	type Shaped
+} from "#compiler/write/family/scan.ts"
 import { endColumns, type RowLayout } from "#compiler/write/family/statements.ts"
 import {
 	columnAt,
@@ -80,7 +87,7 @@ import {
 	internal,
 	one,
 	recountFields,
-	type Returning,
+	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
 	shapedCte,
@@ -164,7 +171,14 @@ interface Read {
 interface Redrawn {
 	readonly family: Family
 	readonly member: EditedMember
-	readonly groups: PerGroup & { readonly stored: string; readonly kept: string; readonly first: string }
+	readonly groups: PerGroup & {
+		readonly stored: string
+		readonly kept: string
+		readonly first: string
+		/** Whether this statement recounts the group's owner: a mutable owner whose group the stratum neither appends to
+		 * nor puts or deletes the owner of. */
+		readonly recounted: string
+	}
 	readonly scan: Scanned
 }
 
@@ -193,9 +207,11 @@ export const removalsSql = (
 	const deferred = deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
 	const reads = members.map((member) => readEdit(w, supply, ctes, member, slots))
 	const redrawn = reads.flatMap((read) =>
-		read.member.families.map((f) => redraw(w, supply, ctes, read, f.family, f.drawn, f.inputs))
+		read.member.families.map((f) =>
+			redraw(w, supply, ctes, read, f.family, f.drawn, f.inputs, deferred)
+		)
 	)
-	const returnings: Array<Returning> = []
+	const returnings: Array<FamilyReturning> = []
 	/** The deletions every insert and update of the statement waits on. */
 	const deletions: Array<string> = []
 	for (const read of reads) {
@@ -205,7 +221,7 @@ export const removalsSql = (
 	}
 	const barrier = barrierOf(supply, ctes, deletions)
 	for (const read of reads) {
-		returnings.push(...writesOf(w, supply, ctes, read, redrawn, barrier))
+		appendAll(returnings, writesOf(w, supply, ctes, read, redrawn, barrier))
 	}
 	const owners = new Map<string, Array<Redrawn>>()
 	for (const r of redrawn) {
@@ -220,7 +236,7 @@ export const removalsSql = (
 		const [first, ...rest] = list
 		if (first !== undefined) {
 			const owner = defined(relations.get(ownerName), `the owner relation ${ownerName}`)
-			returnings.push(recountOf(w, supply, ctes, owner, [first, ...rest], deferred, barrier))
+			returnings.push(recountOf(w, supply, ctes, owner, [first, ...rest], barrier))
 		}
 	}
 	const [firstReturning, ...restReturnings] = returnings
@@ -285,7 +301,10 @@ const readEdit = (
 			(field) => col(p, columnAt(puts, fieldKey(field))),
 			(field) => col(s, w.names.column(name, field))
 		)
-		const where = and([at(p, puts, s), ...(groups === undefined ? [] : [moved ? not(groups) : groups])])
+		const where = and([
+			at(p, puts, s),
+			...(groups === undefined ? [] : [moved ? not(groups) : groups])
+		])
 		return exists(simpleSelect([target(one)], [cteRefAs(puts.name, p)], where))
 	}
 	const moved = putAt(true)
@@ -296,7 +315,9 @@ const readEdit = (
 		...(moved === undefined ? [] : [moved])
 	]
 	const removed = shapedCte(supply, "removed member", keys)
-	const storedColumns = keys.map((k) => targetAs(col(s, installed(w, name, columnOf(k))), columnAt(removed, k)))
+	const storedColumns = keys.map((k) =>
+		targetAs(col(s, installed(w, name, columnOf(k))), columnAt(removed, k))
+	)
 	ctes.push(
 		cte(
 			removed.name,
@@ -323,7 +344,9 @@ const readEdit = (
 				select(
 					provedCore(
 						"keyed",
-						keys.map((k) => targetAs(col(s2, installed(w, name, columnOf(k))), columnAt(updated, k))),
+						keys.map((k) =>
+							targetAs(col(s2, installed(w, name, columnOf(k))), columnAt(updated, k))
+						),
 						[tableAs(w, name, s2)],
 						lit.bool(false)
 					)
@@ -367,6 +390,71 @@ const readEdit = (
 }
 
 /**
+ * Whether the stratum leaves the recount of the group `groupKeys` names, in `family` of `member`, to its additions: some
+ * insert into the member relation no stored row repeats exactly, or some put at no key a row stores in the same groups,
+ * names the group; or the stratum puts or deletes its owner. None where no slot of the stratum can.
+ */
+const deferralOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	member: EditedMember,
+	family: Family,
+	deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>,
+	groupKeys: ReadonlyArray<Expr>
+): Expr | undefined => {
+	const memberName = member.relation.name
+	const groupFields = [
+		...new Set(member.families.flatMap((f) => f.family.group.map((g) => g.member.name)))
+	]
+	const names = (keys: ReadonlyArray<Expr>): Expr =>
+		and(
+			mapNonEmpty(family.group, (_, i) =>
+				eq(defined(keys[i], "a fact's group key"), defined(groupKeys[i], "a group key"))
+			)
+		)
+	const ways = deferred.flatMap((d): ReadonlyArray<Expr> => {
+		const x = supply.relation(internal("deferring fact"))
+		if (d.as === "owners") {
+			if (d.relation !== family.owner.name) {
+				return []
+			}
+			const keys = family.group.map((g) => col(x, columnAt(d.facts, fieldKey(g.owner.name))))
+			return [exists(simpleSelect([target(one)], [cteRefAs(d.facts.name, x)], names(keys)))]
+		}
+		if (d.relation !== memberName) {
+			return []
+		}
+		const y = supply.relation(internal("deferring stored"))
+		const keyAt = and(
+			mapNonEmpty(member.relation.primaryFields, (f) =>
+				eq(col(y, w.names.column(memberName, f.name)), col(x, columnAt(d.facts, fieldKey(f.name))))
+			)
+		)
+		const compared = d.as === "inserts" ? d.slot.heading.map((c) => c.name) : groupFields
+		const stored = notExists(
+			simpleSelect(
+				[target(one)],
+				[tableAs(w, memberName, y)],
+				and([
+					keyAt,
+					...compared.map((field) =>
+						eq(
+							col(y, w.names.column(memberName, field)),
+							col(x, columnAt(d.facts, fieldKey(field)))
+						)
+					)
+				])
+			)
+		)
+		const keys = family.group.map((g) => col(x, columnAt(d.facts, fieldKey(g.member.name))))
+		return [
+			exists(simpleSelect([target(one)], [cteRefAs(d.facts.name, x)], and([names(keys), stored])))
+		]
+	})
+	return isNonEmpty(ways) ? or(ways) : undefined
+}
+
+/**
  * A family's touched groups drawn again (see the header): its removed and changed members' groups with their stored and
  * kept counts and least changed slots, the members from that slot at their final slots, each group's seed, and the
  * scan, each a CTE pushed onto `ctes`.
@@ -378,7 +466,8 @@ const redraw = (
 	read: Read,
 	family: Family,
 	drawnColumns: ReadonlyArray<FillColumn>,
-	inputs: ReadonlyArray<LawField>
+	inputs: ReadonlyArray<LawField>,
+	deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>
 ): Redrawn => {
 	const member = read.member
 	const name = member.relation.name
@@ -406,7 +495,16 @@ const redraw = (
 		const column = read.updated.columns.get(key)
 		return column === undefined
 			? []
-			: [not(typedEq(f.type, col(u0, column), col(s0, w.names.column(name, f.name)), w.names.vectorSchema))]
+			: [
+					not(
+						typedEq(
+							f.type,
+							col(u0, column),
+							col(s0, w.names.column(name, f.name)),
+							w.names.vectorSchema
+						)
+					)
+				]
 	})
 	const memberKeyOf = (alias: string, shape: Shaped): NonEmptyReadonlyArray<Expr> =>
 		mapNonEmpty(member.relation.primaryFields, (f) => col(alias, columnAt(shape, fieldKey(f.name))))
@@ -425,7 +523,9 @@ const redraw = (
 					provedCore(
 						"keyed",
 						[
-							...mapNonEmpty(touched.group, (c, i) => targetAs(defined(groupOf(r0, read.removed)[i], "a group key"), c)),
+							...mapNonEmpty(touched.group, (c, i) =>
+								targetAs(defined(groupOf(r0, read.removed)[i], "a group key"), c)
+							),
 							targetAs(slotOf(r0, read.removed), touched.slot),
 							targetAs(lit.bool(true), touched.removed)
 						],
@@ -435,11 +535,19 @@ const redraw = (
 					provedCore(
 						"keyed",
 						[
-							...mapNonEmpty(touched.group, (c, i) => targetAs(defined(groupOf(u0, read.updated)[i], "a group key"), c)),
+							...mapNonEmpty(touched.group, (c, i) =>
+								targetAs(defined(groupOf(u0, read.updated)[i], "a group key"), c)
+							),
 							targetAs(slotOf(u0, read.updated), touched.slot),
 							targetAs(lit.bool(false), touched.removed)
 						],
-						[join(cteRefAs(read.updated.name, u0), tableAs(w, name, s0), storedAtKey(s0, memberKeyOf(u0, read.updated)))],
+						[
+							join(
+								cteRefAs(read.updated.name, u0),
+								tableAs(w, name, s0),
+								storedAtKey(s0, memberKeyOf(u0, read.updated))
+							)
+						],
 						isNonEmpty(changes) ? or(changes) : lit.bool(false)
 					)
 				])
@@ -453,6 +561,7 @@ const redraw = (
 		stored: supply.column(internal("stored count")),
 		kept: supply.column(internal("kept count")),
 		first: supply.column(internal("first changed slot")),
+		recounted: supply.column(internal("recounted here")),
 		columns: new Map<ColumnKey, string>()
 	}
 	const t0 = supply.relation(internal("touched row"))
@@ -470,7 +579,11 @@ const redraw = (
 	const keptCount = binary("-", storedCount, { kind: "subquery", query: removals(undefined) })
 	const leastOf = (where: Expr): Expr => ({
 		kind: "subquery",
-		query: simpleSelect([target(call("min", [col(t1, touched.slot)]))], [cteRefAs(touched.name, t1)], and([inGroup, where]))
+		query: simpleSelect(
+			[target(call("min", [col(t1, touched.slot)]))],
+			[cteRefAs(touched.name, t1)],
+			and([inGroup, where])
+		)
 	})
 	const counted = !isSequence(family)
 	const first: Expr = counted
@@ -482,17 +595,25 @@ const redraw = (
 				]
 			}
 		: leastOf(lit.bool(true))
+	const deferredHere = deferralOf(w, supply, member, family, deferred, tGroup)
+	const recounted: Expr =
+		!owner.mutable || isTree(family)
+			? lit.bool(false)
+			: deferredHere === undefined
+				? lit.bool(true)
+				: not(deferredHere)
 	ctes.push(
 		cte(
 			groups.name,
-			[...groups.group, groups.stored, groups.kept, groups.first],
+			[...groups.group, groups.stored, groups.kept, groups.first, groups.recounted],
 			select(
 				distinctCore(
 					[
 						...mapNonEmpty(groups.group, (c, i) => targetAs(defined(tGroup[i], "a group key"), c)),
 						targetAs(cast(storedCount, bigint), groups.stored),
 						targetAs(cast(keptCount, bigint), groups.kept),
-						targetAs(cast(first, bigint), groups.first)
+						targetAs(cast(first, bigint), groups.first),
+						targetAs(recounted, groups.recounted)
 					],
 					[
 						join(
@@ -500,7 +621,10 @@ const redraw = (
 							tableAs(w, owner.name, o0),
 							and(
 								mapNonEmpty(family.group, (g, i) =>
-									eq(col(o0, w.names.column(owner.name, g.owner.name)), defined(tGroup[i], "a group key"))
+									eq(
+										col(o0, w.names.column(owner.name, g.owner.name)),
+										defined(tGroup[i], "a group key")
+									)
 								)
 							)
 						)
@@ -512,7 +636,9 @@ const redraw = (
 	)
 	/** The members from each group's least changed slot at their final slots, every column as the edit leaves it. */
 	const ownerReads = new Map(
-		drawnColumns.flatMap((c) => (c.rule.kind === "ownerCopy" ? [[columnKey(c.rule.to), c.rule.to] as const] : []))
+		drawnColumns.flatMap((c) =>
+			c.rule.kind === "ownerCopy" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
+		)
 	)
 	const rows: ScanRows = {
 		name: supply.relation(internal("redrawn rows")),
@@ -521,7 +647,11 @@ const redraw = (
 		first: supply.column(internal("redrawn first slot")),
 		count: supply.column(internal("redrawn count")),
 		columns: new Map(keys.map((k) => [k, supply.column(internal("redrawn column"))] as const)),
-		owner: new Map([...ownerReads.keys()].map((k) => [k, supply.column(internal("redrawn owner column"))] as const))
+		owner: new Map(
+			[...ownerReads.keys()].map(
+				(k) => [k, supply.column(internal("redrawn owner column"))] as const
+			)
+		)
 	}
 	/** A member's value of each column as the edit leaves it: the put's where it updates the member, else stored. */
 	const memberColumn = (m: string, k: ColumnKey): Expr => {
@@ -530,7 +660,10 @@ const redraw = (
 			installed(
 				w,
 				name,
-				defined([...member.layout.key, ...member.layout.columns].find((c) => c.key === k), `the column ${k}`).column
+				defined(
+					[...member.layout.key, ...member.layout.columns].find((c) => c.key === k),
+					`the column ${k}`
+				).column
 			)
 		)
 		const u = supply.relation(internal("put overlay"))
@@ -547,7 +680,11 @@ const redraw = (
 					when: exists(simpleSelect([target(one)], [cteRefAs(read.updated.name, u)], uAt)),
 					result: {
 						kind: "subquery",
-						query: simpleSelect([target(col(u, columnAt(read.updated, k)))], [cteRefAs(read.updated.name, u)], uAt)
+						query: simpleSelect(
+							[target(col(u, columnAt(read.updated, k)))],
+							[cteRefAs(read.updated.name, u)],
+							uAt
+						)
 					}
 				}
 			],
@@ -563,7 +700,10 @@ const redraw = (
 				[tableAs(w, owner.name, o)],
 				and(
 					mapNonEmpty(family.group, (gr, i) =>
-						eq(col(o, w.names.column(owner.name, gr.owner.name)), col(g, defined(groups.group[i], "a group column")))
+						eq(
+							col(o, w.names.column(owner.name, gr.owner.name)),
+							col(g, defined(groups.group[i], "a group column"))
+						)
 					)
 				)
 			)
@@ -577,43 +717,66 @@ const redraw = (
 				[cteRefAs(read.removed.name, x)],
 				and(
 					mapNonEmpty(member.relation.primaryFields, (f) =>
-						eq(col(x, columnAt(read.removed, fieldKey(f.name))), col(m, w.names.column(name, f.name)))
+						eq(
+							col(x, columnAt(read.removed, fieldKey(f.name))),
+							col(m, w.names.column(name, f.name))
+						)
 					)
 				)
 			)
 		)
 	}
-	const rowTargets = (m: string, g: string, slot: Expr): ReadonlyArray<ReturnType<typeof targetAs>> => [
-		...mapNonEmpty(rows.group, (c, i) => targetAs(col(g, defined(groups.group[i], "a group column")), c)),
+	const rowTargets = (
+		m: string,
+		g: string,
+		slot: Expr
+	): ReadonlyArray<ReturnType<typeof targetAs>> => [
+		...mapNonEmpty(rows.group, (c, i) =>
+			targetAs(col(g, defined(groups.group[i], "a group column")), c)
+		),
 		targetAs(cast(slot, bigint), rows.slot),
 		targetAs(col(g, groups.first), rows.first),
-		targetAs(col(g, groups.stored), rows.count),
+		targetAs(
+			counted
+				? col(g, groups.stored)
+				: {
+						kind: "case",
+						operand: undefined,
+						whens: [{ when: col(g, groups.recounted), result: col(g, groups.kept) }],
+						else: col(g, groups.stored)
+					},
+			rows.count
+		),
 		...keys.map((k) => targetAs(memberColumn(m, k), columnAt(rows, k))),
-		...[...ownerReads].map(([k, to]) => targetAs(ownerColumn(g, to), defined(rows.owner.get(k), "an owner column")))
+		...[...ownerReads].map(([k, to]) =>
+			targetAs(ownerColumn(g, to), defined(rows.owner.get(k), "an owner column"))
+		)
 	]
 	const m1 = supply.relation(internal("kept member"))
 	const g1 = supply.relation(internal("kept group"))
 	const memberInGroup = (m: string, g: string): Expr =>
 		and(
 			mapNonEmpty(family.group, (gr, i) =>
-				eq(col(m, w.names.column(name, gr.member.name)), col(g, defined(groups.group[i], "a group column")))
+				eq(
+					col(m, w.names.column(name, gr.member.name)),
+					col(g, defined(groups.group[i], "a group column"))
+				)
 			)
 		)
 	const arms: Array<SetArm> = []
 	if (counted) {
 		/** Every kept member at its own slot from the least changed one below the kept count. */
-		arms.push(
-			provedCore(
-				"keyed",
-				rowTargets(m1, g1, col(m1, index)),
-				[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
-				and([
-					ge(col(m1, index), col(g1, groups.first)),
-					lt(col(m1, index), col(g1, groups.kept)),
-					notRemoved(m1)
-				])
-			)
+		const inPlace = provedCore(
+			"keyed",
+			rowTargets(m1, g1, col(m1, index)),
+			[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
+			and([
+				ge(col(m1, index), col(g1, groups.first)),
+				lt(col(m1, index), col(g1, groups.kept)),
+				notRemoved(m1)
+			])
 		)
+		arms.push(inPlace)
 		/** Each kept member at or above the kept count, moved into a freed slot below it: the highest into the least. */
 		const movers = {
 			name: supply.relation(internal("mover")),
@@ -633,11 +796,25 @@ const redraw = (
 					provedCore(
 						"keyed",
 						[
-							...mapNonEmpty(movers.group, (c, i) => targetAs(defined(mGroup[i], "a group key"), c)),
+							...mapNonEmpty(movers.group, (c, i) =>
+								targetAs(defined(mGroup[i], "a group key"), c)
+							),
 							targetAs(col(m2, index), movers.slot),
-							targetAs(rowNumber(mGroup, [binary("-", lit.int(0, bigint), col(m2, index))]), movers.rank),
+							targetAs(
+								rowNumber(mGroup, [binary("-", lit.int(0, bigint), col(m2, index))]),
+								movers.rank
+							),
 							...mapNonEmpty(movers.key, (c, i) =>
-								targetAs(col(m2, w.names.column(name, defined(member.relation.primaryFields[i], "a key field").name)), c)
+								targetAs(
+									col(
+										m2,
+										w.names.column(
+											name,
+											defined(member.relation.primaryFields[i], "a key field").name
+										)
+									),
+									c
+								)
 							)
 						],
 						[join(cteRefAs(groups.name, g2), tableAs(w, name, m2), memberInGroup(m2, g2))],
@@ -667,7 +844,13 @@ const redraw = (
 							targetAs(col(t2, touched.slot), freed.slot),
 							targetAs(rowNumber(fGroup, [col(t2, touched.slot)]), freed.rank)
 						],
-						[join(cteRefAs(touched.name, t2), cteRefAs(groups.name, g3), sameGroupExprs(fGroup, g3, groups.group))],
+						[
+							join(
+								cteRefAs(touched.name, t2),
+								cteRefAs(groups.name, g3),
+								sameGroupExprs(fGroup, g3, groups.group)
+							)
+						],
 						and([col(t2, touched.removed), lt(col(t2, touched.slot), col(g3, groups.kept))])
 					)
 				)
@@ -690,21 +873,32 @@ const redraw = (
 								kind: "on",
 								source: cteRefAs(freed.name, fr),
 								on: and([
-									sameGroupExprs(movers.group.map((c) => col(mv, c)), fr, freed.group),
+									sameGroupExprs(
+										movers.group.map((c) => col(mv, c)),
+										fr,
+										freed.group
+									),
 									eq(col(mv, movers.rank), col(fr, freed.rank))
 								])
 							},
 							{
 								kind: "on",
 								source: cteRefAs(groups.name, g4),
-								on: sameGroupExprs(movers.group.map((c) => col(mv, c)), g4, groups.group)
+								on: sameGroupExprs(
+									movers.group.map((c) => col(mv, c)),
+									g4,
+									groups.group
+								)
 							},
 							{
 								kind: "on",
 								source: tableAs(w, name, m3),
 								on: and(
 									mapNonEmpty(member.relation.primaryFields, (f, i) =>
-										eq(col(m3, w.names.column(name, f.name)), col(mv, defined(movers.key[i], "a mover key")))
+										eq(
+											col(m3, w.names.column(name, f.name)),
+											col(mv, defined(movers.key[i], "a mover key"))
+										)
 									)
 								)
 							}
@@ -723,7 +917,11 @@ const redraw = (
 				rowTargets(
 					m1,
 					g1,
-					binary("-", binary("+", col(g1, groups.first), rowNumber(mGroup, [col(m1, index)])), lit.int(1, bigint))
+					binary(
+						"-",
+						binary("+", col(g1, groups.first), rowNumber(mGroup, [col(m1, index)])),
+						lit.int(1, bigint)
+					)
 				),
 				[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
 				and([ge(col(m1, index), col(g1, groups.first)), notRemoved(m1)])
@@ -737,18 +935,29 @@ const redraw = (
 	ctes.push(
 		cte(
 			rows.name,
-			[...rows.group, rows.slot, rows.first, rows.count, ...rows.columns.values(), ...rows.owner.values()],
+			[
+				...rows.group,
+				rows.slot,
+				rows.first,
+				rows.count,
+				...rows.columns.values(),
+				...rows.owner.values()
+			],
 			select(unionAll("disjoint", [firstArm, ...restArms]))
 		)
 	)
 	/** Each group's seed: its member at the slot before its least changed one, with every column a predecessor reads. */
 	const seedReads = new Map<ColumnKey, NativeColumn>(
-		drawnColumns.flatMap((c) => (c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []))
+		drawnColumns.flatMap((c) =>
+			c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
+		)
 	)
 	const seed: PerGroup = {
 		name: supply.relation(internal("redraw seed")),
 		group: mapNonEmpty(family.group, () => supply.column(internal("redraw seed group"))),
-		columns: new Map([...seedReads.keys()].map((k) => [k, supply.column(internal("redraw seed column"))] as const))
+		columns: new Map(
+			[...seedReads.keys()].map((k) => [k, supply.column(internal("redraw seed column"))] as const)
+		)
 	}
 	const g5 = supply.relation(internal("seeded group"))
 	const m5 = supply.relation(internal("seed member"))
@@ -760,8 +969,12 @@ const redraw = (
 				provedCore(
 					"keyed",
 					[
-						...mapNonEmpty(seed.group, (c, i) => targetAs(col(g5, defined(groups.group[i], "a group column")), c)),
-						...[...seedReads].map(([k, column]) => targetAs(col(m5, installed(w, name, column)), columnAt(seed, k)))
+						...mapNonEmpty(seed.group, (c, i) =>
+							targetAs(col(g5, defined(groups.group[i], "a group column")), c)
+						),
+						...[...seedReads].map(([k, column]) =>
+							targetAs(col(m5, installed(w, name, column)), columnAt(seed, k))
+						)
 					],
 					[
 						join(
@@ -778,7 +991,13 @@ const redraw = (
 			)
 		)
 	)
-	const scan = scanOf(w, supply, { family, member: member.relation, drawn: drawnColumns, rows, seed })
+	const scan = scanOf(w, supply, {
+		family,
+		member: member.relation,
+		drawn: drawnColumns,
+		rows,
+		seed
+	})
 	ctes.push(scan.cte)
 	return { family, member, groups, scan: scan.rows }
 }
@@ -790,7 +1009,7 @@ const deleteOf = (
 	ctes: Array<Cte>,
 	read: Read,
 	redrawn: ReadonlyArray<Redrawn>
-): Returning => {
+): FamilyReturning => {
 	const relation = read.member.relation
 	const name = relation.name
 	const t = supply.relation(internal("deleted row"))
@@ -809,8 +1028,14 @@ const deleteOf = (
 			return exists(simpleSelect([target(one)], [cteRefAs(x.scan.name, s)], keyAt(s, x.scan)))
 		})
 	]
-	const fields = [...relation.primaryFields, ...relation.heading.filter((f) => !relation.primaryFields.includes(f))]
-	const returned = fields.map((field) => ({ field, alias: supply.column(internal("deleted returned")) }))
+	const fields = [
+		...relation.primaryFields,
+		...relation.heading.filter((f) => !relation.primaryFields.includes(f))
+	]
+	const returned = fields.map((field) => ({
+		field,
+		alias: supply.column(internal("deleted returned"))
+	}))
 	const del = supply.relation(internal("family delete"))
 	ctes.push(
 		cte(del, [], {
@@ -834,7 +1059,11 @@ const deleteOf = (
 
 /** One row of the deletions' total count, which every insert and update of the statement joins, so PostgreSQL finishes
  * every deletion before any of them writes a row. */
-const barrierOf = (supply: NameSupply, ctes: Array<Cte>, deletions: ReadonlyArray<string>): string => {
+const barrierOf = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	deletions: ReadonlyArray<string>
+): string => {
 	const name = supply.relation(internal("deletions finished"))
 	const column = supply.column(internal("deletions"))
 	const [first, ...rest] = deletions.map((d): Expr => ({
@@ -845,7 +1074,9 @@ const barrierOf = (supply: NameSupply, ctes: Array<Cte>, deletions: ReadonlyArra
 		throw defect("a removals statement deletes")
 	}
 	const total = rest.reduce((a, b) => binary("+", a, b), first)
-	ctes.push(cte(name, [column], select(provedCore("oneRow", [targetAs(total, column)], [], undefined))))
+	ctes.push(
+		cte(name, [column], select(provedCore("oneRow", [targetAs(total, column)], [], undefined)))
+	)
 	return name
 }
 
@@ -861,7 +1092,7 @@ const writesOf = (
 	read: Read,
 	redrawn: ReadonlyArray<Redrawn>,
 	barrier: string
-): ReadonlyArray<Returning> => {
+): ReadonlyArray<FamilyReturning> => {
 	const member = read.member
 	const relation = member.relation
 	const name = relation.name
@@ -897,12 +1128,21 @@ const writesOf = (
 	if (firstKeyed === undefined) {
 		throw defect("a member's writes read its updates")
 	}
-	ctes.push(cte(written_.name, [...written_.columns.values()], select(unionAll("disjoint", [firstKeyed, ...restKeyed]))))
+	ctes.push(
+		cte(
+			written_.name,
+			[...written_.columns.values()],
+			select(unionAll("disjoint", [firstKeyed, ...restKeyed]))
+		)
+	)
 	/** A written row's final value of a column: the scan of the family that draws it where it redrew the row, else the
 	 * row's own as the edit leaves it. */
 	const finalOf = (a: string, key: ColumnKey): Expr => {
 		const drawer = own.find((x) => {
-			const family = defined(member.families.find((f) => f.family === x.family), "a redrawn family")
+			const family = defined(
+				member.families.find((f) => f.family === x.family),
+				"a redrawn family"
+			)
 			return family.drawn.some((c) => columnKey(c.column) === key)
 		})
 		const ownValue = col(a, columnAt(written_, key))
@@ -910,20 +1150,29 @@ const writesOf = (
 			return ownValue
 		}
 		const s = supply.relation(internal("final drawn"))
-		const at = and(mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key"))))
+		const at = and(
+			mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
+		)
 		return {
 			kind: "case",
 			operand: undefined,
 			whens: [
 				{
 					when: exists(simpleSelect([target(one)], [cteRefAs(drawer.scan.name, s)], at)),
-					result: { kind: "subquery", query: simpleSelect([target(col(s, columnAt(drawer.scan, key)))], [cteRefAs(drawer.scan.name, s)], at) }
+					result: {
+						kind: "subquery",
+						query: simpleSelect(
+							[target(col(s, columnAt(drawer.scan, key)))],
+							[cteRefAs(drawer.scan.name, s)],
+							at
+						)
+					}
 				}
 			],
 			else: ownValue
 		}
 	}
-	const out: Array<Returning> = []
+	const out: Array<FamilyReturning> = []
 	const isReplaced = (a: string): Expr => {
 		if (sequence === undefined) {
 			return lit.bool(false)
@@ -933,15 +1182,25 @@ const writesOf = (
 			simpleSelect(
 				[target(one)],
 				[cteRefAs(sequence.scan.name, s)],
-				and(mapNonEmpty(keyOf(s, sequence.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key"))))
+				and(
+					mapNonEmpty(keyOf(s, sequence.scan), (x, j) =>
+						eq(x, defined(keyOf(a, written_)[j], "a key"))
+					)
+				)
 			)
 		)
 	}
 	const b = supply.relation(internal("after deletions"))
 	if (sequence !== undefined) {
 		const a = supply.relation(internal("re-inserted row"))
-		const fields = [...relation.primaryFields, ...relation.heading.filter((f) => !relation.primaryFields.includes(f))]
-		const returned = fields.map((field) => ({ field, alias: supply.column(internal("re-inserted returned")) }))
+		const fields = [
+			...relation.primaryFields,
+			...relation.heading.filter((f) => !relation.primaryFields.includes(f))
+		]
+		const returned = fields.map((field) => ({
+			field,
+			alias: supply.column(internal("re-inserted returned"))
+		}))
 		const into = supply.relation(internal("re-inserted table"))
 		const insert = supply.relation(internal("family re-insert"))
 		ctes.push(
@@ -958,13 +1217,26 @@ const writesOf = (
 					query: select(
 						provedCore(
 							"keyed",
-							columns.map((c) => targetAs(written(w, finalOf(a, c.key), c.type), supply.column(internal("re-inserted column")))),
-							[{ kind: "joins", first: cteRefAs(written_.name, a), steps: [{ kind: "cross", source: cteRefAs(barrier, b) }] }],
+							columns.map((c) =>
+								targetAs(
+									written(w, finalOf(a, c.key), c.type),
+									supply.column(internal("re-inserted column"))
+								)
+							),
+							[
+								{
+									kind: "joins",
+									first: cteRefAs(written_.name, a),
+									steps: [{ kind: "cross", source: cteRefAs(barrier, b) }]
+								}
+							],
 							isReplaced(a)
 						)
 					)
 				},
-				returning: returned.map((x) => targetAs(col(into, w.names.column(name, x.field.name)), x.alias))
+				returning: returned.map((x) =>
+					targetAs(col(into, w.names.column(name, x.field.name)), x.alias)
+				)
 			})
 		)
 		out.push({
@@ -985,9 +1257,19 @@ const writesOf = (
 			value: written(w, finalOf(a, c.key), c.type)
 		}))
 		const changed = mapNonEmpty([firstSettable, ...restSettable], (c) =>
-			not(typedEq(c.type, col(t, installed(w, name, c.column)), written(w, finalOf(a, c.key), c.type), w.names.vectorSchema))
+			not(
+				typedEq(
+					c.type,
+					col(t, installed(w, name, c.column)),
+					written(w, finalOf(a, c.key), c.type),
+					w.names.vectorSchema
+				)
+			)
 		)
-		const fields = [...relation.primaryFields, ...relation.heading.filter((f) => !relation.primaryFields.includes(f))]
+		const fields = [
+			...relation.primaryFields,
+			...relation.heading.filter((f) => !relation.primaryFields.includes(f))
+		]
 		const [firstField, ...restFields] = fields
 		if (firstField === undefined) {
 			throw defect(`the fields of ${name}`)
@@ -1001,7 +1283,13 @@ const writesOf = (
 				table: w.names.relation(name),
 				alias: t,
 				set,
-				from: [{ kind: "joins", first: cteRefAs(written_.name, a), steps: [{ kind: "cross", source: cteRefAs(barrier, b) }] }],
+				from: [
+					{
+						kind: "joins",
+						first: cteRefAs(written_.name, a),
+						steps: [{ kind: "cross", source: cteRefAs(barrier, b) }]
+					}
+				],
 				where: and([
 					...mapNonEmpty(relation.primaryFields, (f) =>
 						eq(col(t, w.names.column(name, f.name)), col(a, columnAt(written_, fieldKey(f.name))))
@@ -1035,92 +1323,38 @@ const recountOf = (
 	ctes: Array<Cte>,
 	owner: RelationInfo,
 	list: NonEmptyReadonlyArray<Redrawn>,
-	deferred: ReadonlyArray<Deferring & { readonly facts: Shaped }>,
 	barrier: string
-): Returning => {
+): FamilyReturning => {
 	const name = owner.name
 	const bigint = types.bigint
 	const lasts = mapNonEmpty(list, (r) => {
 		const family = r.family
 		const memberName = r.member.relation.name
-		const ends = family.axes.last.filter((p) => p.from.kind === "field" && p.from.field.writing.kind === "accumulated")
+		const ends = family.axes.last.filter(
+			(p) => p.from.kind === "field" && p.from.field.writing.kind === "accumulated"
+		)
 		const last = {
 			name: supply.relation(internal("recount last")),
 			group: mapNonEmpty(family.group, () => supply.column(internal("recount group"))),
 			count: supply.column(internal("recount count")),
-			columns: new Map(ends.map((p) => [columnKey(p.from), supply.column(internal("recount end"))] as const))
+			columns: new Map(
+				ends.map((p) => [columnKey(p.from), supply.column(internal("recount end"))] as const)
+			)
 		}
 		const g = supply.relation(internal("recount group row"))
 		const groupTargets = (alias: string) =>
-			mapNonEmpty(last.group, (c, i) => targetAs(col(alias, defined(r.groups.group[i], "a group column")), c))
-		/** Whether the stratum leaves this group's recount to its additions. */
-		const deferredHere = deferred.flatMap((d) => {
-			const x = supply.relation(internal("deferring fact"))
-			const y = supply.relation(internal("deferring stored"))
-			const memberKeyAt = and(
-				mapNonEmpty(r.member.relation.primaryFields, (f) =>
-					eq(col(y, w.names.column(memberName, f.name)), col(x, columnAt(d.facts, fieldKey(f.name))))
-				)
+			mapNonEmpty(last.group, (c, i) =>
+				targetAs(col(alias, defined(r.groups.group[i], "a group column")), c)
 			)
-			const appending = (fields: ReadonlyArray<string>): Expr => {
-				const [first, ...rest] = fields
-				return first === undefined
-					? notExists(simpleSelect([target(one)], [tableAs(w, memberName, y)], memberKeyAt))
-					: notExists(
-							simpleSelect(
-								[target(one)],
-								[tableAs(w, memberName, y)],
-								and([
-									memberKeyAt,
-									...mapNonEmpty([first, ...rest], (field) =>
-										eq(col(y, w.names.column(memberName, field)), col(x, columnAt(d.facts, fieldKey(field))))
-									)
-								])
-							)
-						)
-			}
-			const groupFields = [
-				...new Set(r.member.families.flatMap((f) => f.family.group.map((gr) => gr.member.name)))
-			]
-			switch (d.as) {
-				case "inserts":
-				case "puts": {
-					if (d.relation !== memberName) {
-						return []
-					}
-					const keys = family.group.map((gr) => col(x, columnAt(d.facts, fieldKey(gr.member.name))))
-					return [
-						exists(
-							simpleSelect(
-								[target(one)],
-								[cteRefAs(d.facts.name, x)],
-								and([
-									sameGroupExprs(keys, g, r.groups.group),
-									appending(
-										d.as === "inserts" ? d.slot.heading.map((c) => c.name) : groupFields
-									)
-								])
-							)
-						)
-					]
-				}
-				case "owners": {
-					if (d.relation !== owner.name) {
-						return []
-					}
-					const keys = family.group.map((gr) => col(x, columnAt(d.facts, fieldKey(gr.owner.name))))
-					return [
-						exists(simpleSelect([target(one)], [cteRefAs(d.facts.name, x)], sameGroupExprs(keys, g, r.groups.group)))
-					]
-				}
-			}
-		})
-		const here = isNonEmpty(deferredHere) ? not(or(deferredHere)) : lit.bool(true)
+		const here = col(g, r.groups.recounted)
 		const s = supply.relation(internal("recount scanned"))
 		const m = supply.relation(internal("recount stored last"))
 		const memberInGroup = and(
 			mapNonEmpty(family.group, (gr, i) =>
-				eq(col(m, w.names.column(memberName, gr.member.name)), col(g, defined(r.groups.group[i], "a group column")))
+				eq(
+					col(m, w.names.column(memberName, gr.member.name)),
+					col(g, defined(r.groups.group[i], "a group column"))
+				)
 			)
 		)
 		const indexColumn = installed(w, memberName, family.index)
@@ -1130,14 +1364,20 @@ const recountOf = (
 				[
 					...groupTargets(g),
 					targetAs(col(g, r.groups.kept), last.count),
-					...ends.map((p) => targetAs(col(s, columnAt(r.scan, columnKey(p.to))), columnAt(last, columnKey(p.from))))
+					...ends.map((p) =>
+						targetAs(col(s, columnAt(r.scan, columnKey(p.to))), columnAt(last, columnKey(p.from)))
+					)
 				],
 				[
 					join(
 						cteRefAs(r.groups.name, g),
 						cteRefAs(r.scan.name, s),
 						and([
-							sameGroupExprs(r.scan.group.map((c) => col(s, c)), g, r.groups.group),
+							sameGroupExprs(
+								r.scan.group.map((c) => col(s, c)),
+								g,
+								r.groups.group
+							),
 							eq(col(s, r.scan.slot), binary("-", col(g, r.groups.kept), lit.int(1, bigint)))
 						])
 					)
@@ -1149,13 +1389,18 @@ const recountOf = (
 				[
 					...groupTargets(g),
 					targetAs(col(g, r.groups.kept), last.count),
-					...ends.map((p) => targetAs(col(m, installed(w, memberName, p.to)), columnAt(last, columnKey(p.from))))
+					...ends.map((p) =>
+						targetAs(col(m, installed(w, memberName, p.to)), columnAt(last, columnKey(p.from)))
+					)
 				],
 				[
 					join(
 						cteRefAs(r.groups.name, g),
 						tableAs(w, memberName, m),
-						and([memberInGroup, eq(col(m, indexColumn), binary("-", col(g, r.groups.kept), lit.int(1, bigint)))])
+						and([
+							memberInGroup,
+							eq(col(m, indexColumn), binary("-", col(g, r.groups.kept), lit.int(1, bigint)))
+						])
 					)
 				],
 				and([
@@ -1172,9 +1417,14 @@ const recountOf = (
 					...groupTargets(g),
 					targetAs(col(g, r.groups.kept), last.count),
 					...ends.map((p) => {
-						const base = defined(baseLiteral(family, p.from), `the start of ${name}'s end ${columnKey(p.from)}`)
+						const base = defined(
+							baseLiteral(family, p.from),
+							`the start of ${name}'s end ${columnKey(p.from)}`
+						)
 						const type = defined(
-							endColumns(family).find((f) => columnKey({ kind: "field", field: f }) === columnKey(p.from)),
+							endColumns(family).find(
+								(f) => columnKey({ kind: "field", field: f }) === columnKey(p.from)
+							),
 							"an end field"
 						).type
 						return targetAs(lowerLiteral(w.names, base, type), columnAt(last, columnKey(p.from)))
@@ -1184,7 +1434,13 @@ const recountOf = (
 				and([here, eq(col(g, r.groups.kept), lit.int(0, bigint))])
 			)
 		]
-		ctes.push(cte(last.name, [...last.group, last.count, ...last.columns.values()], select(unionAll("disjoint", arms))))
+		ctes.push(
+			cte(
+				last.name,
+				[...last.group, last.count, ...last.columns.values()],
+				select(unionAll("disjoint", arms))
+			)
+		)
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))
@@ -1200,7 +1456,10 @@ const recountOf = (
 		whens: [
 			{
 				when: hasGroup(family, last),
-				result: { kind: "subquery", query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last)) }
+				result: {
+					kind: "subquery",
+					query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last))
+				}
 			}
 		],
 		else: stored
@@ -1216,7 +1475,13 @@ const recountOf = (
 		}
 		assign(family.count, last.count)
 		for (const [key, column] of last.columns) {
-			assign(defined(endColumns(family).find((f) => fieldKey(f.name) === key), `the end ${key} of ${name}`), column)
+			assign(
+				defined(
+					endColumns(family).find((f) => fieldKey(f.name) === key),
+					`the end ${key} of ${name}`
+				),
+				column
+			)
 		}
 	}
 	const [firstSet, ...restSets] = sets

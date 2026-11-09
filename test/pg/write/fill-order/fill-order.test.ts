@@ -39,9 +39,9 @@ import {
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { oneFlight } from "#test/support/one-flight.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { oneFlight } from "#test/support/one-flight.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
 
 /**
@@ -440,6 +440,39 @@ const replacedCountedMember: ClusterCase = {
 }
 
 /**
+ * The case the search found leaving an owner's recount to an additions statement its stratum lacked: R1 owns R2's
+ * ordered family, and copies its last member's v along the last axis. A follow-up puts R1 and deletes its first member,
+ * re-placing the second at slot 0, and appends nothing: the removals leave R1's recount to the additions, after the put,
+ * so the additions recount R1's count and its last copy.
+ */
+const ownerPutBesideRemoval: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true }
+		],
+		families: [{ kind: "ordered", owner: 1, member: 2, fold: "none" }],
+		copies: [{ family: 0, axis: "last", source: { kind: "caller" } }],
+		steps: []
+	},
+	rows: [
+		{ relation: 1, id: 1, v: 1n, memberOf: [] },
+		{ relation: 2, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 2, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] }
+	],
+	followUp: Option.some({
+		owner: 1,
+		row: 1,
+		put: Option.some(4n),
+		inserted: [],
+		removed: Option.some({ id: 2, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
+/**
  * The case the search found binding a refill's read wrong: R2's put changes the `v` R3's counted members copy, which
  * their fold steps, beside an insert of two more members under it. The refill reads the put's rows by their keys alone,
  * and was bound an empty array of groups it never names.
@@ -603,6 +636,12 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								]
 							},
 							{
+								note: "an owner's put beside a delete of its ordered family's first member, which appends nothing",
+								sketch: ownerPutBesideRemoval,
+								draws: "",
+								reaches: ["a last copy", "a follow-up written over the stored instance"]
+							},
+							{
 								note: "a counted fold stepping its member's copy along an ordered family's owner axis, the member moved to another owner",
 								sketch: movedSequenceCopy,
 								draws: "",
@@ -685,7 +724,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 											return cs.delete(relation, m.facts)
 									}
 								})
-								const second = yield* flight.judged("the follow-up", apply(ctx, next, next.reads, {}))
+								const second = yield* flight.judged(
+									"the follow-up",
+									apply(ctx, next, next.reads, {})
+								)
 								assert.equal(
 									second.kind,
 									"accepted",

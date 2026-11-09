@@ -17,9 +17,11 @@
  * - its scan (write/family/scan.ts), which draws each appended member's index, copy of the count, owner copies,
  *   predecessor copies and fold planes in slot order.
  *
- * The appended rows are inserted whole, each with every family's columns. Each mutable owner they join is recounted by
- * one UPDATE of its relation, where its count or an end changes: each family's count, and each end from its last
- * member, which the owner axis cascades into its stored members at the statement's end. An owner the stratum inserts
+ * The appended rows are inserted whole, each with every family's columns. Each mutable owner they join, and each the
+ * stratum puts whose groups its edits touch, whose recount the removals leave to this statement after the put, is
+ * recounted by one UPDATE of its relation, where its count or an end changes: each family's count, and each end from
+ * its last member, which the owner axis cascades into its stored members at the statement's end; a stratum that
+ * appends nothing still writes this statement for those puts. An owner the stratum inserts
  * carries its counts and ends in its own insert, which its appends meet (write/program/bind.ts), and an immutable
  * owner's family is fixed when it is inserted, so no role holds UPDATE on it and this statement writes none.
  * Immediate foreign keys are checked at the statement's end, so a member and its owner's new count are judged together.
@@ -29,7 +31,7 @@
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { baseLiteral, type Family } from "#compiler/ir/family.ts"
+import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
@@ -60,7 +62,14 @@ import {
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
-import { type PerGroup, readAt, type Scanned, type ScanRows, scanOf, type Shaped } from "#compiler/write/family/scan.ts"
+import {
+	type PerGroup,
+	readAt,
+	type Scanned,
+	type ScanRows,
+	scanOf,
+	type Shaped
+} from "#compiler/write/family/scan.ts"
 import { endColumns, type RowLayout } from "#compiler/write/family/statements.ts"
 import {
 	columnAt,
@@ -71,7 +80,7 @@ import {
 	internal,
 	one,
 	recountFields,
-	type Returning,
+	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
 	shapedCte,
@@ -84,7 +93,12 @@ import {
 	written
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
-import { returnedColumn, rowType, startOf, type WriteContext } from "#compiler/write/insert/statement.ts"
+import {
+	returnedColumn,
+	rowType,
+	startOf,
+	type WriteContext
+} from "#compiler/write/insert/statement.ts"
 
 /** A member relation a stratum appends to by its insert slot, with what draws its rows. */
 export interface AppendedMember {
@@ -125,7 +139,7 @@ interface Drawn {
  */
 export const additionsSql = (
 	w: WriteContext,
-	members: NonEmptyReadonlyArray<AppendedMember>,
+	members: ReadonlyArray<AppendedMember>,
 	putOwners: ReadonlyArray<PutOwner>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
@@ -136,16 +150,21 @@ export const additionsSql = (
 	const slots = slotReader(w, supply, ctes)
 	const drawn = members.map((member): Drawn => {
 		const appended = appendedOf(w, supply, ctes, member, slots)
-		return {
-			member,
-			appended,
-			scans: member.families.map(({ family, drawn: columns }) => ({
-				family,
-				scan: appendScan(w, supply, ctes, member, family, columns, appended)
-			}))
+		/** The member's sequence first, each family after reading the rows with every column the families before it
+		 * drew: a counted family's fold may step or select the copy a sequence's owner axis gives the member. */
+		const ordered = member.families.toSorted(
+			(a, b) => Number(!isSequence(a.family)) - Number(!isSequence(b.family))
+		)
+		const scans: Array<{ readonly family: Family; readonly scan: Scanned }> = []
+		let rows = appended
+		for (const { family, drawn: columns } of ordered) {
+			const scan = appendScan(w, supply, ctes, member, family, columns, rows)
+			scans.push({ family, scan })
+			rows = withDrawn(supply, ctes, member, rows, scan, columns)
 		}
+		return { member, appended, scans }
 	})
-	const returnings: Array<Returning> = drawn.map((d) => insertOf(w, supply, ctes, d))
+	const returnings: Array<FamilyReturning> = drawn.map((d) => insertOf(w, supply, ctes, d))
 	/** Each mutable owner relation's recounted families, each with its appends' scan and the facts of its put, by owner
 	 * name. */
 	const owners = new Map<string, Map<Family, Recounted>>()
@@ -182,9 +201,55 @@ export const additionsSql = (
 	}
 	const [firstReturning, ...restReturnings] = returnings
 	if (firstReturning === undefined) {
-		throw defect("a family write that appends returns its inserts")
+		throw defect("a family additions statement appends or recounts a put owner")
 	}
 	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params)
+}
+
+/** `rows` with every column `scan` drew beside its own, by the member's key: what the next family's scan reads. */
+const withDrawn = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	member: AppendedMember,
+	rows: Shaped,
+	scan: Scanned,
+	columns: ReadonlyArray<FillColumn>
+): Shaped => {
+	const added = columns.map((c) => columnKey(c.column)).filter((k) => !rows.columns.has(k))
+	const next = shapedCte(supply, "appended with drawn", [...rows.columns.keys(), ...added])
+	const a = supply.relation(internal("drawn row"))
+	const s = supply.relation(internal("drawn scan"))
+	ctes.push(
+		cte(
+			next.name,
+			[...next.columns.values()],
+			select(
+				provedCore(
+					"keyed",
+					[
+						...[...rows.columns].map(([k, c]) => targetAs(col(a, c), columnAt(next, k))),
+						...added.map((k) => targetAs(col(s, columnAt(scan, k)), columnAt(next, k)))
+					],
+					[
+						join(
+							cteRefAs(rows.name, a),
+							cteRefAs(scan.name, s),
+							and(
+								mapNonEmpty(member.relation.primaryFields, (f) =>
+									eq(
+										col(s, columnAt(scan, fieldKey(f.name))),
+										col(a, columnAt(rows, fieldKey(f.name)))
+									)
+								)
+							)
+						)
+					],
+					undefined
+				)
+			)
+		)
+	)
+	return next
 }
 
 /**
@@ -239,7 +304,13 @@ const appendedOf = (
 	if (firstArm === undefined) {
 		throw defect(`an appended member ${name} with no slot`)
 	}
-	ctes.push(cte(appended.name, [...appended.columns.values()], select(unionAll("disjoint", [firstArm, ...restArms]))))
+	ctes.push(
+		cte(
+			appended.name,
+			[...appended.columns.values()],
+			select(unionAll("disjoint", [firstArm, ...restArms]))
+		)
+	)
 	return appended
 }
 
@@ -323,7 +394,9 @@ const appendScan = (
 	const seed: PerGroup = {
 		name: supply.relation(internal("seed")),
 		group: mapNonEmpty(family.group, () => supply.column(internal("seed group key"))),
-		columns: new Map([...seedReads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const))
+		columns: new Map(
+			[...seedReads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const)
+		)
 	}
 	const g1 = supply.relation(internal("seeded group"))
 	const m1 = supply.relation(internal("seed member"))
@@ -384,7 +457,9 @@ const appendScan = (
 	const a = supply.relation(internal("appended row"))
 	const g2 = supply.relation(internal("row group"))
 	const aGroup = memberGroup(a, appended)
-	const aKey = member.relation.primaryFields.map((f) => col(a, columnAt(appended, fieldKey(f.name))))
+	const aKey = member.relation.primaryFields.map((f) =>
+		col(a, columnAt(appended, fieldKey(f.name)))
+	)
 	const o = supply.relation(internal("row owner"))
 	const ownerAt = and(
 		mapNonEmpty(family.group, (g, i) =>
@@ -409,7 +484,9 @@ const appendScan = (
 					result: {
 						kind: "subquery",
 						query: simpleSelect(
-							[target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
+							[
+								target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))
+							],
 							[tableAs(w, owner.name, o)],
 							ownerAt
 						)
@@ -462,7 +539,13 @@ const appendScan = (
 			)
 		)
 	)
-	const scan = scanOf(w, supply, { family, member: member.relation, drawn: drawnColumns, rows, seed })
+	const scan = scanOf(w, supply, {
+		family,
+		member: member.relation,
+		drawn: drawnColumns,
+		rows,
+		seed
+	})
 	ctes.push(scan.cte)
 	return scan.rows
 }
@@ -477,26 +560,31 @@ const keyFirstFields = (relation: RelationInfo): ReadonlyArray<LawField> => [
  * The insert of a member relation's appended rows, whole: each column its families draw from their scans, each field
  * its facts carry from them, and each count and end of a family the member owns at its start, the family empty.
  */
-const insertOf = (w: WriteContext, supply: NameSupply, ctes: Array<Cte>, d: Drawn): Returning => {
+const insertOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	d: Drawn
+): FamilyReturning => {
 	const relation = d.member.relation
 	const name = relation.name
 	const a = supply.relation(internal("inserted fact"))
 	const scans = d.scans.map((s) => ({ ...s, alias: supply.relation(internal("inserted scan")) }))
-	const appendedKey = relation.primaryFields.map((f) => col(a, columnAt(d.appended, fieldKey(f.name))))
-	const steps = scans.map(
-		(s): JoinStep => ({
-			kind: "on",
-			source: cteRefAs(s.scan.name, s.alias),
-			on: and(
-				mapNonEmpty(relation.primaryFields, (f, i) =>
-					eq(
-						col(s.alias, columnAt(s.scan, fieldKey(f.name))),
-						defined(appendedKey[i], "a key column")
-					)
+	const appendedKey = relation.primaryFields.map((f) =>
+		col(a, columnAt(d.appended, fieldKey(f.name)))
+	)
+	const steps = scans.map((s): JoinStep => ({
+		kind: "on",
+		source: cteRefAs(s.scan.name, s.alias),
+		on: and(
+			mapNonEmpty(relation.primaryFields, (f, i) =>
+				eq(
+					col(s.alias, columnAt(s.scan, fieldKey(f.name))),
+					defined(appendedKey[i], "a key column")
 				)
 			)
-		})
-	)
+		)
+	}))
 	const from: FromItem = isNonEmpty(steps)
 		? { kind: "joins", first: cteRefAs(d.appended.name, a), steps }
 		: cteRefAs(d.appended.name, a)
@@ -549,7 +637,11 @@ const insertOf = (w: WriteContext, supply: NameSupply, ctes: Array<Cte>, d: Draw
 						"keyed",
 						columns.map((c) =>
 							targetAs(
-								written(w, valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined), c.type),
+								written(
+									w,
+									valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined),
+									c.type
+								),
 								supply.column(internal("inserted column"))
 							)
 						),
@@ -558,7 +650,9 @@ const insertOf = (w: WriteContext, supply: NameSupply, ctes: Array<Cte>, d: Draw
 					)
 				)
 			},
-			returning: returned.map((r) => targetAs(col(into, w.names.column(name, r.field.name)), r.alias))
+			returning: returned.map((r) =>
+				targetAs(col(into, w.names.column(name, r.field.name)), r.alias)
+			)
 		})
 	)
 	return {
@@ -590,7 +684,7 @@ const recountOf = (
 	ctes: Array<Cte>,
 	owner: RelationInfo,
 	recounted: NonEmptyReadonlyArray<Recounted>
-): Returning => {
+): FamilyReturning => {
 	const name = owner.name
 	const bigint = types.bigint
 	const lasts = mapNonEmpty(recounted, ({ family, scans, puts }) => {
@@ -602,7 +696,9 @@ const recountOf = (
 			name: supply.relation(internal("last member")),
 			group: mapNonEmpty(family.group, () => supply.column(internal("last group key"))),
 			count: supply.column(internal("last count")),
-			columns: new Map(ends.map((p) => [columnKey(p.from), supply.column(internal("last column"))] as const))
+			columns: new Map(
+				ends.map((p) => [columnKey(p.from), supply.column(internal("last column"))] as const)
+			)
 		}
 		const index = installed(w, memberName, family.index)
 		const arms: Array<SetArm> = scans.map((scan) => {
@@ -628,20 +724,31 @@ const recountOf = (
 			const appended = scans.map((scan) => {
 				const sc = supply.relation(internal("appended to"))
 				return notExists(
-					simpleSelect([target(one)], [cteRefAs(scan.name, sc)], sameGroupExprs(putKey, sc, scan.group))
+					simpleSelect(
+						[target(one)],
+						[cteRefAs(scan.name, sc)],
+						sameGroupExprs(putKey, sc, scan.group)
+					)
 				)
 			})
 			const m = supply.relation(internal("put owner's member"))
 			const inGroup = (alias: string): Expr =>
 				and(
 					mapNonEmpty(family.group, (g, i) =>
-						eq(col(alias, w.names.column(memberName, g.member.name)), defined(putKey[i], "a group key"))
+						eq(
+							col(alias, w.names.column(memberName, g.member.name)),
+							defined(putKey[i], "a group key")
+						)
 					)
 				)
 			const m2 = supply.relation(internal("put owner's last"))
 			const lastIndex: Expr = {
 				kind: "subquery",
-				query: simpleSelect([target(call("max", [col(m2, index)]))], [tableAs(w, memberName, m2)], inGroup(m2))
+				query: simpleSelect(
+					[target(call("max", [col(m2, index)]))],
+					[tableAs(w, memberName, m2)],
+					inGroup(m2)
+				)
 			}
 			arms.push(
 				provedCore(
@@ -653,7 +760,13 @@ const recountOf = (
 							targetAs(col(m, installed(w, memberName, e.to)), columnAt(last, columnKey(e.from)))
 						)
 					],
-					[join(cteRefAs(facts.name, p), tableAs(w, memberName, m), and([inGroup(m), eq(col(m, index), lastIndex)]))],
+					[
+						join(
+							cteRefAs(facts.name, p),
+							tableAs(w, memberName, m),
+							and([inGroup(m), eq(col(m, index), lastIndex)])
+						)
+					],
 					isNonEmpty(appended) ? and(appended) : undefined
 				)
 			)
@@ -666,13 +779,18 @@ const recountOf = (
 						targetAs(lit.int(0, bigint), last.count),
 						...ends.map((e) => {
 							const type = defined(
-								endColumns(family).find((f) => columnKey({ kind: "field", field: f }) === columnKey(e.from)),
+								endColumns(family).find(
+									(f) => columnKey({ kind: "field", field: f }) === columnKey(e.from)
+								),
 								"an end field"
 							).type
 							return targetAs(
 								lowerLiteral(
 									w.names,
-									defined(baseLiteral(family, e.from), `the start of ${name}'s end ${columnKey(e.from)}`),
+									defined(
+										baseLiteral(family, e.from),
+										`the start of ${name}'s end ${columnKey(e.from)}`
+									),
 									type
 								),
 								columnAt(last, columnKey(e.from))
