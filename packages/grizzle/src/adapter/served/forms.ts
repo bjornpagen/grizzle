@@ -154,9 +154,7 @@ interface PageTemplateInput {
  * ordered query's semantic fingerprint (program/workload/fingerprint.ts) and its schema's cursor generation, and run as
  * a served page runs (page/template.ts pageRuntimeOf).
  */
-const pageTemplateFor = (
-	input: PageTemplateInput
-): Result.Result<PageRuntime, CompileError> =>
+const pageTemplateFor = (input: PageTemplateInput): Result.Result<PageRuntime, CompileError> =>
 	Result.map(compiledPageTemplateFor(input), (compiled) => compiled.runtime)
 
 /** A page's runtime beside the page template it was served from, which a bench's variants rewrite. */
