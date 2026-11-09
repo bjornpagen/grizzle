@@ -129,6 +129,9 @@ const lawColumnFields = (
 	return out
 }
 
+/** The law columns of a relation the law model adds none to. */
+const noLawColumns: ReadonlyMap<string, TargetField> = new Map()
+
 /**
  * An object of the installation that evaluating a statement can run: a constant, a function of no argument whose body
  * runs where it is called, or a domain, whose base type and CHECKs run wherever a value is written or cast into it.
@@ -317,6 +320,12 @@ export class InstallBuilder {
 	name<K extends IdentityKind>(of: Identity<K>): Identifier<K> {
 		this.#named.push(of)
 		return of.identifier
+	}
+
+	/** The law columns the law model adds to `relation`, by identifier (`lawColumnFields`): none for a relation it adds
+	 * none to. */
+	lawColumnsOf(relation: string): ReadonlyMap<string, TargetField> {
+		return this.#lawColumns.get(relation) ?? noLawColumns
 	}
 
 	/** Every identity `name` minted, in order. */

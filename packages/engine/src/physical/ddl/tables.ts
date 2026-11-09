@@ -721,7 +721,7 @@ const lawColumnsRead = (
 	relation: TableRelation,
 	predicate: Expr
 ): ReadonlyArray<string> => {
-	const lawColumns = lawColumnsOfRelation(b, relation)
+	const lawColumns = b.lawColumnsOf(relation.name)
 	const read = new Set<string>()
 	transformExpr(predicate, {
 		...identityHooks,
@@ -735,14 +735,6 @@ const lawColumnsRead = (
 	return [...read]
 }
 
-/** The identifiers of the law columns the law model adds to `relation`. */
-const lawColumnsOfRelation = (b: InstallBuilder, relation: TableRelation): ReadonlySet<string> =>
-	new Set<string>(
-		b.natives.flatMap(({ object: o }) =>
-			o.kind === "LawColumn" && o.relation.name === relation.name ? [o.column] : []
-		)
-	)
-
 /** A row expression of `relation`'s own columns, a CHECK's predicate, a generated field's expression or a law column's
  * selection or term, lowered as persistent SQL over the table's columns: a field's by its name, or a law column the
  * law model adds to the relation by its identifier, which a family's CHECKs and a generated law column read (`at <
@@ -753,7 +745,7 @@ const lowerRow = (
 	expr: ScalarExpr,
 	label: string
 ): Expr => {
-	const lawColumns = lawColumnsOfRelation(b, relation)
+	const lawColumns = b.lawColumnsOf(relation.name)
 	return lowerPersistent(b.names, expr, {
 		reads: {
 			kind: "row",
