@@ -1,200 +1,208 @@
-import { Array as Arr, Effect, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 
 /**
- * The untyped-member program: every builder that captures a list or a record as a type (schema, schema.extend, role,
- * login, workload), called once with every member typed and once for each way a list or record it captures holds a
- * member typed `any`, generated over an exhaustive box. A list or record holds one beside its typed members, or, for a
- * statement list, as a library overload types it when it gives up: `Object.values` over a union of law records yields
- * `any[]`, the leak that left a schema's insert types without its families' nestings.
+ * The untyped-member program: the box of every builder that captures a list or a record as a type (schema,
+ * schema.extend, role, login, workload) by every typing of the lists and records it captures, each one holding typed
+ * members only or a member typed `any` beside them, exhausted and printed as one program the type batch checks. Beside
+ * the box stands one kept case: a statement list that `Object.values` over a union of law records types `any[]`, the
+ * leak that left a schema's insert types without its families' nestings.
  *
- * The oracle: a call is refused exactly when a list or record it captures holds a member typed `any`, at that
- * argument, by MembersTyped (through UnderOwnNames and StatementsWithin for a schema's). Every call it admits keeps its
- * types: a schema's insert types nest each family's members at their owner's count field.
+ * The oracle: a call is refused exactly when a list or record it captures holds a member typed `any` (MembersTyped,
+ * through UnderOwnNames and StatementsWithin for a schema's), at the first argument that holds one, since a call
+ * reports the first argument its parameter refuses. Every call it admits keeps its types: a schema's insert types nest
+ * each family's members at their owner's count field.
  */
 
-/** How a list or record a builder captures holds a member typed `any`. */
-export type Leak = "member" | "values"
+/** The builders that capture a list or a record as a type. */
+const builderNames = ["schema", "schema.extend", "role", "login", "workload"] as const
 
-/** A list or record a builder captures: the parameter it is written at, its source typed, and leaked each way it can be. */
+type BuilderName = (typeof builderNames)[number]
+
+/** How a list or record a builder captures types its members: each typed, or one typed `any` beside them. */
+const memberTypings = ["typed", "any"] as const
+
+type MemberTyping = (typeof memberTypings)[number]
+
+/** A list or record a builder captures: the parameter it is written at, whether it is a list, and its typed members. */
 interface Captured {
-	readonly at: number
-	readonly typed: string
-	readonly leaked: Arr.NonEmptyReadonlyArray<readonly [Leak, string]>
+	readonly param: number
+	readonly holder: "list" | "record"
+	readonly members: Arr.NonEmptyReadonlyArray<string>
 }
 
 /**
- * A builder of the box over the lists and records it captures, K: its callee, its arguments' sources by parameter, each
- * written with the lists and records it holds as `spelled` spells them, and the types its typed call keeps: a schema's
- * nesting of each family's members at their owner's count field, which a statement list typed `any[]` loses. A typed
- * role, login or workload keeps its types where its call typechecks.
+ * A builder's call: its callee, the lists and records it captures, and its parameters' sources, each written with the
+ * captured lists and records it holds as `spell` writes them.
  */
-interface Builder<K extends string> {
+interface Shape {
 	readonly callee: string
-	readonly captured: { readonly [A in K]: Captured }
-	readonly params: (name: string, spelled: { readonly [A in K]: string }) => ReadonlyArray<string>
-	readonly kept: (value: string) => ReadonlyArray<string>
+	readonly captured: Arr.NonEmptyReadonlyArray<Captured>
+	readonly params: (name: string, spell: (captured: Captured) => string) => ReadonlyArray<string>
 }
+
+/** The program's member typed `any`, which a list holds as an element and a record as a shorthand property. */
+const untyped = "untyped"
+
+const list = (param: number, ...members: Arr.NonEmptyReadonlyArray<string>): Captured => ({
+	param,
+	holder: "list",
+	members
+})
+const record = (param: number, ...members: Arr.NonEmptyReadonlyArray<string>): Captured => ({
+	param,
+	holder: "record",
+	members
+})
+
+/** A captured list or record as its call writes it, its members typed or one typed `any` beside them. */
+const spelledOf = (captured: Captured, typing: MemberTyping): string => {
+	const members = Arr.join(
+		typing === "any" ? [...captured.members, untyped] : captured.members,
+		", "
+	)
+	return captured.holder === "list" ? `[${members}]` : `{ ${members} }`
+}
+
+const schemaRelations = record(1, "Parent", "Kid")
+const schemaStatements = list(2, "nesting")
+const levelRelations = record(2, "Bag", "Item")
+const levelStatements = list(3, "bagging")
+const roleEntries = record(2, "Parent", "Labels")
+const roleWrites = list(3, '"Parent"')
+const roleRefreshes = list(3, '"Labels"')
+const loginRoles = list(2, "member")
+const loginWorkloads = list(3, "names")
+const workloadPrograms = record(1, "ids")
+
+/** Each builder's call over the program's relations, roles and workloads. */
+const shapes: { readonly [B in BuilderName]: Shape } = {
+	schema: {
+		callee: "schema",
+		captured: [schemaRelations, schemaStatements],
+		params: (name, spell) => [jsonText(name), spell(schemaRelations), spell(schemaStatements)]
+	},
+	"schema.extend": {
+		callee: "schema.extend",
+		captured: [levelRelations, levelStatements],
+		params: (name, spell) => ["Root", jsonText(name), spell(levelRelations), spell(levelStatements)]
+	},
+	role: {
+		callee: "role",
+		captured: [roleEntries, roleWrites, roleRefreshes],
+		params: (name, spell) => [
+			"Up",
+			jsonText(name),
+			spell(roleEntries),
+			`{ write: ${spell(roleWrites)}, refresh: ${spell(roleRefreshes)} }`
+		]
+	},
+	login: {
+		callee: "login",
+		captured: [loginRoles, loginWorkloads],
+		params: (name, spell) => [
+			"Root",
+			jsonText(name),
+			spell(loginRoles),
+			`{ workload: ${spell(loginWorkloads)} }`
+		]
+	},
+	workload: {
+		callee: "workload",
+		captured: [workloadPrograms],
+		params: (_name, spell) => ["Root", spell(workloadPrograms)]
+	}
+}
+
+/**
+ * One case: its builder, what its comment says of it, its call's parameters, and the parameters of the lists and
+ * records that hold a member typed `any`.
+ */
+export interface UntypedCase {
+	readonly builder: BuilderName
+	readonly said: string
+	readonly params: (name: string) => ReadonlyArray<string>
+	readonly holdingAny: ReadonlyArray<number>
+}
+
+/** Every typing of the captured lists and records: the box's product of memberTypings over them. */
+const typingsOf = (
+	captured: ReadonlyArray<Captured>
+): ReadonlyArray<ReadonlyArray<readonly [Captured, MemberTyping]>> =>
+	Arr.reduce(
+		captured,
+		[[]],
+		(rows: ReadonlyArray<ReadonlyArray<readonly [Captured, MemberTyping]>>, c) =>
+			Arr.flatMap(rows, (row) => Arr.map(memberTypings, (typing) => [...row, [c, typing] as const]))
+	)
+
+/** The box: every builder by every typing of the lists and records it captures. */
+const boxCases: ReadonlyArray<UntypedCase> = Arr.flatMap(builderNames, (builder) => {
+	const shape = shapes[builder]
+	return Arr.map(typingsOf(shape.captured), (typings): UntypedCase => {
+		const holders = new Set(Arr.flatMap(typings, ([c, typing]) => (typing === "any" ? [c] : [])))
+		return {
+			builder,
+			said: Arr.join(
+				Arr.map(typings, ([c, typing]) => `the ${c.holder} at ${c.param} ${typing}`),
+				", "
+			),
+			params: (name) => shape.params(name, (c) => spelledOf(c, holders.has(c) ? "any" : "typed")),
+			holdingAny: Arr.map([...holders], (c) => c.param)
+		}
+	})
+})
+
+/** The kept case: schema.extend's statement list as `Object.values` over a union of law records types it, `any[]`. */
+const keptCase: UntypedCase = {
+	builder: "schema.extend",
+	said: "the statement list typed any[] by Object.values over a union of law records",
+	params: (name) => ["Root", jsonText(name), spelledOf(levelRelations, "typed"), "lawValues"],
+	holdingAny: [levelStatements.param]
+}
+
+/** Every case: the box, and the kept case beside it. */
+export const untypedCases: ReadonlyArray<UntypedCase> = [...boxCases, keptCase]
+
+/** The parameter a case's call is refused at: the first argument that holds a member typed `any`, none if none does. */
+export const refusedAt = (c: UntypedCase): Option.Option<number> =>
+	Arr.head(Arr.sort(c.holdingAny, Order.Number))
 
 const memberRefusal: TypeRefusal =
 	"a member typed any, which every check admits: type each member of the list or record"
 
-/** One case: its builder, the list or record it leaks and how, its call's parameters, and its refusal or what it keeps. */
-export interface UntypedCase {
-	readonly builder: string
-	readonly leak: Option.Option<readonly [argument: string, leak: Leak]>
-	readonly callee: string
-	readonly params: (name: string) => ReadonlyArray<string>
-	readonly verdict:
-		| { readonly kind: "refused"; readonly at: number }
-		| { readonly kind: "admitted"; readonly kept: (value: string) => ReadonlyArray<string> }
-}
-
-/** A builder's cases: its call with every member typed, and with each list or record leaked each way it can be. */
-const casesOf = <K extends string>(
-	builder: string,
-	spec: Builder<K>
-): ReadonlyArray<UntypedCase> => {
-	const typed = Rec.map(spec.captured, (captured) => captured.typed)
-	return [
-		{
-			builder,
-			leak: Option.none(),
-			callee: spec.callee,
-			params: (name) => spec.params(name, typed),
-			verdict: { kind: "admitted", kept: spec.kept }
-		},
-		...Arr.flatMap(Rec.toEntries(spec.captured), ([argument, captured]) =>
-			Arr.map(captured.leaked, ([leak, source]): UntypedCase => ({
-				builder,
-				leak: Option.some([argument, leak]),
-				callee: spec.callee,
-				params: (name) => spec.params(name, { ...typed, [argument]: source }),
-				verdict: { kind: "refused", at: captured.at }
-			}))
-		)
-	]
-}
-
-/** Every case of the box: each builder typed, and each list or record it captures leaked each way it can be. */
-export const untypedCases: ReadonlyArray<UntypedCase> = [
-	...casesOf("schema", {
-		callee: "schema",
-		captured: {
-			relations: {
-				at: 1,
-				typed: "{ Parent, Kid }",
-				leaked: [["member", "{ Parent, Kid, Other: untyped }"]]
-			},
-			statements: {
-				at: 2,
-				typed: "[nesting]",
-				leaked: [
-					["member", "[nesting, untyped]"],
-					["values", "lawValues"]
-				]
-			}
-		},
-		params: (name, spelled) => [jsonText(name), spelled.relations, spelled.statements],
-		kept: (value) => [`InsertAllRowsOf<typeof ${value}>["Parent"][number]["kids"]`]
-	}),
-	...casesOf("schema.extend", {
-		callee: "schema.extend",
-		captured: {
-			relations: {
-				at: 2,
-				typed: "{ Bag, Item }",
-				leaked: [["member", "{ Bag, Item, Other: untyped }"]]
-			},
-			statements: {
-				at: 3,
-				typed: "[bagging]",
-				leaked: [
-					["member", "[bagging, untyped]"],
-					["values", "lawValues"]
-				]
-			}
-		},
-		params: (name, spelled) => ["Root", jsonText(name), spelled.relations, spelled.statements],
-		kept: (value) => [
-			`InsertAllRowsOf<typeof ${value}>["Parent"][number]["kids"]`,
-			`InsertAllRowsOf<typeof ${value}>["Bag"][number]["items"]`
-		]
-	}),
-	...casesOf("role", {
-		callee: "role",
-		captured: {
-			relations: {
-				at: 2,
-				typed: "{ Parent, Labels }",
-				leaked: [["member", "{ Parent, Labels, Other: untyped }"]]
-			},
-			write: { at: 3, typed: '["Parent"]', leaked: [["member", '["Parent", untyped]']] },
-			refresh: { at: 3, typed: '["Labels"]', leaked: [["member", '["Labels", untyped]']] }
-		},
-		params: (name, spelled) => [
-			"Up",
-			jsonText(name),
-			spelled.relations,
-			`{ write: ${spelled.write}, refresh: ${spelled.refresh} }`
-		],
-		kept: () => []
-	}),
-	...casesOf("login", {
-		callee: "login",
-		captured: {
-			roles: { at: 2, typed: "[member]", leaked: [["member", "[member, untyped]"]] },
-			workloads: { at: 3, typed: "[names]", leaked: [["member", "[names, untyped]"]] }
-		},
-		params: (name, spelled) => [
-			"Root",
-			jsonText(name),
-			spelled.roles,
-			`{ workload: ${spelled.workloads} }`
-		],
-		kept: () => []
-	}),
-	...casesOf("workload", {
-		callee: "workload",
-		captured: {
-			programs: { at: 1, typed: "{ ids }", leaked: [["member", "{ ids, other: untyped }"]] }
-		},
-		params: (_name, spelled) => ["Root", spelled.programs],
-		kept: () => []
-	})
-]
-
-/** Whether a case's call is refused: a list or record it captures holds a member typed `any`. */
-export const untypedRefused = (c: UntypedCase): boolean => c.verdict.kind === "refused"
-
-const leakText = (leak: Leak): string => {
-	switch (leak) {
-		case "member":
-			return "beside its typed members"
-		case "values":
-			return "by Object.values over a union of law records"
+/** What a schema's admitted call keeps: each family's members nested at their owner's count field. */
+const keptOf = (builder: BuilderName, value: string): ReadonlyArray<string> => {
+	switch (builder) {
+		case "schema":
+			return [`InsertAllRowsOf<typeof ${value}>["Parent"][number]["kids"]`]
+		case "schema.extend":
+			return [
+				`InsertAllRowsOf<typeof ${value}>["Parent"][number]["kids"]`,
+				`InsertAllRowsOf<typeof ${value}>["Bag"][number]["items"]`
+			]
+		case "role":
+		case "login":
+		case "workload":
+			return []
 	}
 }
 
 const caseBlock = (c: UntypedCase, index: number): string => {
 	const value = `c${index}`
-	const lines = Arr.map(c.params(`n${index}`), (param, at) =>
-		c.verdict.kind === "refused" && c.verdict.at === at
+	const at = refusedAt(c)
+	const lines = Arr.map(c.params(`n${index}`), (param, p) =>
+		Option.contains(at, p)
 			? `\t// @ts-expect-error -- TS2345 refusal: ${memberRefusal}\n\t${param}`
 			: `\t${param}`
 	)
-	const kept =
-		c.verdict.kind === "admitted"
-			? Arr.map(c.verdict.kept(value), (type, k) => `export type Kept${index}_${k} = ${type}\n`)
-			: []
-	const said = Option.match(c.leak, {
-		onNone: () => "every member typed",
-		onSome: ([argument, leak]) => `${argument} holding a member typed any ${leakText(leak)}`
-	})
-	return `// ${c.builder}, ${said}
-export const ${value} = ${c.callee}(
+	const kept = Option.isNone(at)
+		? Arr.map(keptOf(c.builder, value), (type, k) => `export type Kept${index}_${k} = ${type}\n`)
+		: []
+	return `// ${c.builder}, ${c.said}
+export const ${value} = ${shapes[c.builder].callee}(
 ${Arr.join(lines, ",\n")}
 )
 ${Arr.join(kept, "")}`
@@ -207,7 +215,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/untyped
 export const untypedEntriesFrom = (entry: (path: string) => string): PreludeAt =>
 	preludeFrom(prelude, entry)
 
-/** The program over the box, its imports read through its prelude as `entries` reaches it. */
+/** The program over every case, its imports read through its prelude as `entries` reaches it. */
 export const untypedSource = (entries: PreludeAt): string =>
 	preludeProgram(
 		`// Generated by test/types/api/untyped.ts over ${untypedCases.length} cases.`,
@@ -233,7 +241,7 @@ export const ids = query(Root).rule((r) => {
 	return r.match(Parent, { id }).find({ id })
 })
 export const names = workload(Root, { ids })
-declare const untyped: any
+declare const ${untyped}: any
 const lawGroups = [{ nesting: [nesting] }, { mutable: [mutable(Parent)], bagging: [bagging] }] as const
 export const lawValues = lawGroups.flatMap((group) => Object.values(group).flat())
 
