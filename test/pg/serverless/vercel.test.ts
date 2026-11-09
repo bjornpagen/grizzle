@@ -7,7 +7,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
-import { compiledDbLayer, dbSessions } from "#adapter/pool/registry.ts"
+import { servedSessions } from "#adapter/pool/served.ts"
+import { compileServed } from "#adapter/public/compile.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -54,16 +56,17 @@ import { isNativePool } from "#test/support/worlds/execute/pool.ts"
  * timeout, over drawn bounds and bursts of leases held at once; and a serverless function's module, its layer built once
  * per instance, over a drawn number of warm invocations that reuse one pool, attached once and never put on globalThis.
  *
- * A login named `worker`, holding one role: the DbLayer a serverless function builds once is the layer of a login.
+ * A login named `worker`, holding one role: the DbLayer a serverless function builds once is the layer of the login's
+ * served file.
  */
 /**
- * A shop under the schema `name`, its role `app` and the login `worker` that holds it: a layer of the login logs in as
- * `<name>__worker`, the role the substrate creates for the schema.
+ * A shop under the schema `name`, its role `app` and the login `worker` that holds it, and the shop's snapshot.json: a
+ * layer of the login logs in as `<name>__worker`, the role the substrate creates for the schema.
  */
 const shopUnder = (name: string) => {
 	const shop = schemaOf(name, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
 	const app = role(shop, "app", wholeEntriesOf(shop))
-	/** The shop's snapshot.json, as an import of it yields: what its login's layer is given. */
+	/** The shop's snapshot.json, as an import of it yields: what its login's served file is compiled under. */
 	const snapshot = snapshotJson(
 		succeeded(
 			generate({
@@ -345,6 +348,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							const schema = yield* s.schema(freshSchema)
 							const worker = yield* substrateLogin(schema, "worker", roleDefaults)
 							const shop = shopUnder(schema)
+							/** The login's served file, as `grizzle generate` compiles it under the shop's snapshot.json. */
+							const json = yield* compileServed(shop.worker, shop.snapshot, shop.worker.workload)
+							const file = served<typeof shop.worker>(json, "worker")
 							const globalsBefore = new Set(Reflect.ownKeys(globalThis))
 							const { attached, attach } = recordedAttach()
 							/**
@@ -353,15 +359,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							 */
 							const instance = ManagedRuntime.make(
 								Layer.fresh(
-									compiledDbLayer({
+									DbLayer.make({
 										...clusterConnection(
 											s.cluster,
 											s.database,
 											Redacted.make(Redacted.value(worker.password))
 										),
 										pool: clusterPool,
-										login: shop.worker,
-										snapshot: shop.snapshot,
+										login: file,
 										attachPool: attach
 									})
 								)
@@ -369,7 +374,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							yield* Effect.addFinalizer(() => Effect.promise(() => instance.dispose()))
 							const invocation = Effect.scoped(
 								Effect.gen(function* () {
-									const sessions = yield* dbSessions<typeof shop.app>(shop.worker, shop.app.name)
+									const { sessions } = yield* servedSessions(file.roles.app)
 									/** The pool logs in as the substrate's worker, whose name the layer derived when it was built. */
 									const pool = sessions.pool
 									const session = yield* pool.lease
