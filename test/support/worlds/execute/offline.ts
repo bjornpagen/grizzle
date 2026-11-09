@@ -65,6 +65,6 @@ export const offlineBind = (
 	program: CompiledWrite,
 	change: ParsedChangeSet
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
-	Effect.map(collectInputs(program.frontend, change.inputs), (members) =>
+	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
 		withinMessage(bindWrite(program, { members, params: {}, transport: inForce(bindFrame) }))
 	)

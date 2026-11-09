@@ -16,7 +16,7 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
-import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { FamilyId, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
@@ -27,6 +27,14 @@ export type FillPosition =
 	| { readonly kind: "top" }
 	| { readonly kind: "member"; readonly family: Family }
 	| { readonly kind: "root"; readonly family: Family }
+
+/**
+ * A position as a fill reads it (`FillPosition`), its family by its id alone: what the host's fill data names a position
+ * by (write/family/fold.ts HostFill). Every FillPosition is one.
+ */
+export type FillAt =
+	| { readonly kind: "top" }
+	| { readonly kind: "member" | "root"; readonly family: { readonly id: FamilyId } }
 
 /**
  * How a column of a row is filled:

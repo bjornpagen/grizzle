@@ -1,5 +1,5 @@
 import { type GeneratedLaw, generatedLaw } from "#compiler/analysis/theory/description.ts"
-import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
+import { layoutKey, tableReads } from "#compiler/analysis/theory/fill.ts"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -35,16 +35,20 @@ import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
-import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseLiteral, type Family, type FamilyFold, isTreeOf } from "#compiler/ir/family.ts"
-import type { FillLayout, FillOrder, FillPosition, FillRule } from "#compiler/ir/fill.ts"
-import type { FamilyId, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { MonoidName } from "#compiler/ir/desc.ts"
+import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
+import { baseLiteral, type Family, isTreeOf } from "#compiler/ir/family.ts"
+import type { FillAt, FillPosition } from "#compiler/ir/fill.ts"
+import type { FamilyId, NativeColumn } from "#compiler/ir/law.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import type { PatternSource, ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type EvalLeaves,
 	type EvalStop,
@@ -100,21 +104,27 @@ export interface FilledNode {
 	readonly relation: string
 	readonly values: ReadonlyMap<ColumnKey, unknown>
 	readonly families: ReadonlyArray<{
-		readonly family: Family
+		readonly family: FamilyId
 		readonly members: ReadonlyArray<FilledNode>
 	}>
 }
 
+/** The fields of a relation an expression over one of its rows reads, each by its name with its type: a LawRelation's,
+ * or a fill's relation (`FillRelation`). */
+export interface EvaluatedRelation {
+	readonly fields: ReadonlyArray<HeadingColumn>
+}
+
 /**
- * The host's evaluation of an expression over one row of `relation`, a generated field's generation expression or a
- * fold step's selection: `read` gives each field the row holds by its name, as its codec's host value, undefined where
- * the row holds none; the result is the codec's host value of the expression's type, NULL (sqlNull) where the
+ * The host's evaluation of an expression's table over one row of `relation`, a generated field's generation expression
+ * or a fold step's selection: `read` gives each field the row holds by its name, as its codec's host value, undefined
+ * where the row holds none; the result is the codec's host value of the expression's type, NULL (sqlNull) where the
  * expression is, as a closed read at a key its relation holds no row at leaves it, or why the host has none. A
  * selection holds only where its value is true: NULL, unknown, holds of no row.
  */
 export type HostEvaluator = (
-	relation: LawRelation,
-	expr: ScalarExpr,
+	relation: EvaluatedRelation,
+	table: ExprTable,
 	read: (field: string) => unknown
 ) => Result.Result<unknown, EvalStop>
 
@@ -176,15 +186,15 @@ export const fillRefusal = (
  * selection there; `unevaluated` is the stop of a conjunct the host cannot evaluate.
  */
 export const selects = <E>(
-	relation: LawRelation,
-	fold: FamilyFold,
+	relation: EvaluatedRelation,
+	where: ReadonlyArray<ExprTable>,
 	evaluate: HostEvaluator,
 	read: (field: string) => Result.Result<unknown, E>,
 	unevaluated: (stop: EvalStop) => E
 ): Result.Result<boolean, E> => {
-	for (const w of fold.where) {
+	for (const w of where) {
 		const values = new Map<string, unknown>()
-		for (const field of readsOf(w)) {
+		for (const field of tableReads(w)) {
 			const value = read(field)
 			if (!value.ok) {
 				return value
@@ -205,10 +215,7 @@ export const selects = <E>(
 /** A nesting's fills, built once for the families of a schema and the installation's codes: a row and what it owns,
  * filled where it stands (`position`), the walk's start, a tree's root or the insert's own row, or a family's member
  * whose own columns there its values already hold, whose counted families' counts and ends a fresh fill draws. */
-export type Filler = (
-	root: HostNode,
-	position: FillPosition
-) => Result.Result<FilledNode, FillRefusal>
+export type Filler = (root: HostNode, position: FillAt) => Result.Result<FilledNode, FillRefusal>
 
 /** Where a walk of a nesting of `relation` starts its root: a tree's root where `relation` is a tree's, else the
  * ChangeSet's own row. */
@@ -220,8 +227,89 @@ export const walkStart = (families: ReadonlyArray<Family>, relation: string): Fi
 /** A family's key: one count counts one family. */
 export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}`
 
+/** A relation as the host fills its rows (`HostFill`): its name, its fields with their types, which an expression over a
+ * row reads, and its declared keys by their fields' names, the primary key first, which a refusal states a row by. */
+export interface FillRelation extends EvaluatedRelation {
+	readonly name: string
+	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
+}
+
+/** A family as the host walks it (`HostFill`): its id, its count field, which a refusal's path names, its member
+ * relation, and whether its members are a tree of that relation, its owner. */
+export interface FillFamily {
+	readonly id: FamilyId
+	readonly count: string
+	readonly member: string
+	readonly tree: boolean
+}
+
+/** A fold as the host steps it (ir/family.ts FamilyFold): its monoid, and its step side's selection, each conjunct the
+ * table of an expression over the member's row. */
+export interface FillFold {
+	readonly monoid: MonoidName
+	readonly where: ReadonlyArray<ExprTable>
+}
+
 /**
- * How the host fills one column of a row at its position (ir/fill.ts FillRule), its targets by column key and its bases
+ * How the host fills one column of a row at its position, as data (ir/fill.ts FillRule): its targets by column key, its
+ * families by id, its bases as their literals, a fold as `FillFold`, and a generated field's expression as its table.
+ * A tree root's parent (`self`) is its own column, as `own` is.
+ */
+export type FillRuleData =
+	| { readonly kind: "given" | "index" | "copy" | "start" | "end" | "parentStart" }
+	| { readonly kind: "owner" | "own" | "ownerCopy"; readonly to: ColumnKey }
+	| { readonly kind: "count"; readonly family: FamilyId }
+	| { readonly kind: "predecessor"; readonly to: ColumnKey; readonly base: TypedLiteral }
+	| {
+			readonly kind: "last"
+			readonly family: FamilyId
+			readonly to: ColumnKey
+			readonly base: TypedLiteral
+	  }
+	| {
+			readonly kind: "after"
+			readonly family: FamilyId
+			readonly fold: FillFold
+			readonly plane: 0 | 1
+			readonly befores: ReadonlyArray<ColumnKey>
+			readonly x: ColumnKey | undefined
+	  }
+	| { readonly kind: "generated"; readonly expr: ExprTable }
+
+/** A column of a relation at one position, as data (ir/fill.ts FillColumn): its key, its name as a refusal names it, its
+ * type, its rule, and the stage that fills it, a sequence's members' by the family's id. */
+export interface FillColumnData {
+	readonly key: ColumnKey
+	readonly name: string
+	readonly type: ScalarType
+	readonly rule: FillRuleData
+	readonly stage:
+		| { readonly kind: "entering" | "settling" }
+		| { readonly kind: "after"; readonly family: FamilyId }
+}
+
+/** A relation's layout at one position, as data (ir/fill.ts FillLayout): its relation by name, its columns, and the
+ * families its rows own, by id, in the order the walk fills them. */
+export interface FillLayoutData {
+	readonly relation: string
+	readonly columns: ReadonlyArray<FillColumnData>
+	readonly owns: ReadonlyArray<FamilyId>
+}
+
+/**
+ * What the host fills a write's rows by, as data: each layout one of its walks or fresh fills meets, by its key
+ * (analysis/theory/fill.ts layoutKey), the relations those layouts are of and the families their rows own. A write's
+ * compile slices it from the schema's fill order (write/program/decide.ts), so it holds no layout the write never
+ * meets.
+ */
+export interface HostFill {
+	readonly relations: ReadonlyArray<FillRelation>
+	readonly families: ReadonlyArray<FillFamily>
+	readonly layouts: ReadonlyMap<string, FillLayoutData>
+}
+
+/**
+ * How the host fills one column of a row at its position (`FillRuleData`), its targets by column key and its bases
  * as host values:
  * - given: the caller's, the row's own value;
  * - owner: its owner's column `to`; own: its own column `to`, a tree root's parent and copies of itself;
@@ -252,12 +340,12 @@ type Rule =
 	| {
 			readonly kind: "after"
 			readonly family: FamilyId
-			readonly fold: FamilyFold
+			readonly fold: FillFold
 			readonly plane: 0 | 1
 			readonly befores: ReadonlyArray<ColumnKey>
 			readonly x: ColumnKey | undefined
 	  }
-	| { readonly kind: "generated"; readonly expr: ScalarExpr }
+	| { readonly kind: "generated"; readonly expr: ExprTable }
 
 /** A column the host fills of a relation: its key, its name as a refusal names it, its carrier's spec, and its rule. */
 interface Column {
@@ -274,20 +362,17 @@ interface Column {
  * that sequence's key, and the families its rows own.
  */
 interface Layout {
-	readonly relation: LawRelation
+	readonly relation: FillRelation
 	readonly columns: ReadonlyMap<ColumnKey, Column>
 	readonly entering: ReadonlyArray<Column>
 	readonly after: ReadonlyMap<string, ReadonlyArray<Column>>
 	readonly settling: ReadonlyArray<Column>
-	/** The families its rows own, its sequences first: the order the walk fills their members in. */
-	readonly owns: ReadonlyArray<Family>
+	/** The families its rows own, by key, its sequences first: the order the walk fills their members in. */
+	readonly owns: ReadonlyArray<string>
 }
 
-/** A carried column's base as a host value, of the column's carrier. */
-const baseHost = (spec: CarrierSpec, base: TypedLiteral): unknown => literalHost(spec, base)
-
 /** A fill rule as the host fills it, under the installation's codes. */
-const hostRule = (rule: FillRule, spec: CarrierSpec): Rule => {
+const hostRule = (rule: FillRuleData, spec: CarrierSpec): Rule => {
 	switch (rule.kind) {
 		case "given":
 		case "index":
@@ -297,39 +382,28 @@ const hostRule = (rule: FillRule, spec: CarrierSpec): Rule => {
 		case "parentStart":
 			return { kind: rule.kind }
 		case "owner":
-			return { kind: "owner", to: columnKey(rule.to) }
-		case "self":
 		case "own":
-			return { kind: "own", to: columnKey(rule.to) }
-		case "count":
-			return { kind: "count", family: familyKey(rule.family.id) }
 		case "ownerCopy":
-			return { kind: "ownerCopy", to: columnKey(rule.to) }
+			return { kind: rule.kind, to: rule.to }
+		case "count":
+			return { kind: "count", family: familyKey(rule.family) }
 		case "predecessor":
-			return { kind: "predecessor", to: columnKey(rule.to), base: baseHost(spec, rule.base) }
+			return { kind: "predecessor", to: rule.to, base: literalHost(spec, rule.base) }
 		case "last":
 			return {
 				kind: "last",
-				family: familyKey(rule.family.id),
-				to: columnKey(rule.to),
-				base: baseHost(spec, rule.base)
+				family: familyKey(rule.family),
+				to: rule.to,
+				base: literalHost(spec, rule.base)
 			}
 		case "after":
-			return {
-				kind: "after",
-				family: rule.family.id,
-				fold: rule.fold,
-				plane: rule.plane,
-				befores: rule.befores.map(columnKey),
-				x: rule.x === undefined ? undefined : columnKey(rule.x)
-			}
 		case "generated":
-			return { kind: "generated", expr: rule.expr }
+			return rule
 	}
 }
 
-/** A fill order's layout as the host fills it, under the installation's codes. */
-const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
+/** A layout as the host fills it (`FillLayoutData`), of `relation`, under the installation's codes. */
+const hostLayout = (layout: FillLayoutData, relation: FillRelation, codes: Codebook): Layout => {
 	const columns = new Map<ColumnKey, Column>()
 	const entering: Array<Column> = []
 	const after = new Map<string, Array<Column>>()
@@ -337,7 +411,7 @@ const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
 	for (const c of layout.columns) {
 		const spec = carrierSpecOf(c.type, codes)
 		const column: Column = {
-			key: columnKey(c.column),
+			key: c.key,
 			name: c.name,
 			spec,
 			rule: hostRule(c.rule, spec),
@@ -349,7 +423,7 @@ const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
 				entering.push(column)
 				break
 			case "after": {
-				const key = familyKey(c.stage.family.id)
+				const key = familyKey(c.stage.family)
 				after.set(key, [...(after.get(key) ?? []), column])
 				break
 			}
@@ -358,7 +432,7 @@ const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
 				break
 		}
 	}
-	return { relation: layout.relation, columns, entering, after, settling, owns: layout.owns }
+	return { relation, columns, entering, after, settling, owns: layout.owns.map(familyKey) }
 }
 
 /**
@@ -479,8 +553,7 @@ export const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =
  */
 export const hostEvaluator =
 	(codes: Codebook, closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
-	(relation, expr, read) => {
-		const table = predicateTable(expr)
+	(relation, table, read) => {
 		const specOf = new Map(
 			relation.fields.map((f) => [f.name, carrierSpecOf(f.type, codes)] as const)
 		)
@@ -497,10 +570,20 @@ export const hostEvaluator =
 			},
 			closed
 		}
+		const type = defined(table.exprs[table.root], "an expression table's root").type
 		return Result.map(evaluateTable(table.exprs, table.root, leaves, patterns), (v) =>
-			v === sqlNull ? sqlNull : hostValue(carrierSpecOf(expr.type, codes), v)
+			v === sqlNull ? sqlNull : hostValue(carrierSpecOf(type, codes), v)
 		)
 	}
+
+/**
+ * What the host's evaluator reads beside a row, for the expressions a write evaluates: each closed relation they read,
+ * by name, and every admitted pattern they are checked against (scalar/regex/patterns.ts tablePatterns, typePatterns).
+ */
+export interface Evaluation {
+	readonly closed: ReadonlyMap<string, ClosedRows>
+	readonly patterns: ReadonlyArray<PatternSource>
+}
 
 /** A closed relation as the host reads it: its heading's names, its key's width, and its rows in heading order. */
 export interface ClosedRows {
@@ -591,7 +674,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
  * carrier as PostgreSQL would store it; stopped where it leaves the carrier, as PostgreSQL would refuse its row (22003).
  */
 export const stepped = (
-	fold: FamilyFold,
+	fold: { readonly monoid: MonoidName },
 	family: FamilyId,
 	plane: 0 | 1,
 	befores: ReadonlyArray<unknown>,
@@ -609,7 +692,7 @@ export const stepped = (
 /** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
  * leaves it. */
 const combineHost = (
-	fold: FamilyFold,
+	fold: { readonly monoid: MonoidName },
 	plane: 0 | 1,
 	befores: ReadonlyArray<unknown>,
 	x: unknown,
@@ -759,12 +842,12 @@ const keyHostOf = (value: CarrierHost[Carrier]): KeyHost | undefined =>
  * row holds, by field name; none where none is whole.
  */
 const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
-	for (const key of row.layout.relation.keyNames) {
+	for (const key of row.layout.relation.keys) {
 		const values: Record<string, KeyHost> = {}
 		let whole = true
-		for (const f of key.fields) {
-			const column = row.layout.columns.get(fieldKey(f.name))
-			const raw = row.values.get(fieldKey(f.name))
+		for (const name of key) {
+			const column = row.layout.columns.get(fieldKey(name))
+			const raw = row.values.get(fieldKey(name))
 			const value =
 				column === undefined || raw === undefined
 					? undefined
@@ -773,7 +856,7 @@ const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
 				whole = false
 				break
 			}
-			values[f.name] = value
+			values[name] = value
 		}
 		if (whole) {
 			return Object.freeze(values)
@@ -861,7 +944,7 @@ const ruleValue = (
 			}
 			const selected = selects(
 				row.layout.relation,
-				rule.fold,
+				rule.fold.where,
 				evaluate,
 				(field) => fieldOf(row, field, evaluate),
 				(stop) => refusalAt(row, column, { kind: "evaluation", stop })
@@ -915,7 +998,7 @@ const readerOf =
 
 /** A family a node owns, resolved, with its members, and its place among the node's families as the caller nested them. */
 interface Owned {
-	readonly family: Family
+	readonly family: FillFamily
 	readonly members: ReadonlyArray<HostNode>
 	readonly place: number
 }
@@ -931,7 +1014,7 @@ interface Frame {
 	/** The last member of that family filled so far. */
 	previous: Row | undefined
 	/** Each of its families' filled members, at its place among the node's families. */
-	readonly filled: ReadonlyArray<{ readonly family: Family; readonly members: Array<FilledNode> }>
+	readonly filled: ReadonlyArray<{ readonly family: FamilyId; readonly members: Array<FilledNode> }>
 	/** The counter of the tree it is a node of: the start of the next node the tree meets. */
 	readonly tree: { next: number } | undefined
 }
@@ -955,8 +1038,8 @@ const fillStage = (
  * The size of each tree node's subtree in a nesting, itself included, by node: one pass over the nesting, members before
  * their owners, so any depth sizes. Only the nodes of the tree `tree` is the family of are sized.
  */
-const subtreeSizes = (root: HostNode, tree: Family): ReadonlyMap<HostNode, number> => {
-	const id = familyKey(tree.id)
+const subtreeSizes = (root: HostNode, tree: FamilyId): ReadonlyMap<HostNode, number> => {
+	const id = familyKey(tree)
 	const order: Array<HostNode> = []
 	const pending: Array<HostNode> = [root]
 	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
@@ -990,15 +1073,16 @@ const subtreeSizes = (root: HostNode, tree: Family): ReadonlyMap<HostNode, numbe
 }
 
 /**
- * The filler of nestings by a schema's fill order (laws/model/model.ts LawModel.theory.fill): each relation's columns
- * at each position it stands at, laid out under the installation's codes when the walk first meets them. The fill
- * order admits no column whose source is filled after it, so every fill finds what it reads.
+ * The filler of nestings by a write's host fill (`HostFill`): each relation's columns at each position it stands at,
+ * laid out under the installation's codes when the walk first meets them. The fill order the write's fill is sliced
+ * from admits no column whose source is filled after it, so every fill finds what it reads.
  */
-export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator): Filler => {
+export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator): Filler => {
 	const byKey = new Map(fill.families.map((f) => [familyKey(f.id), f] as const))
+	const relations = new Map(fill.relations.map((r) => [r.name, r] as const))
 	const layouts = new Map<string, Layout>()
-	/** A row's layout at a position, which the fill order laid out. */
-	const laidOut = (relation: string, position: FillPosition): Layout => {
+	/** A row's layout at a position, which the write's fill laid out. */
+	const laidOut = (relation: string, position: FillAt): Layout => {
 		const key = layoutKey(relation, position)
 		const known = layouts.get(key)
 		if (known !== undefined) {
@@ -1006,9 +1090,13 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 		}
 		const layout = fill.layouts.get(key)
 		if (layout === undefined) {
-			throw defect(`the layout of ${relation} at a position the fill order lays out`)
+			throw defect(`the layout of ${relation} at a position the write's fill lays out`)
 		}
-		const built = hostLayout(layout, codes)
+		const built = hostLayout(
+			layout,
+			defined(relations.get(layout.relation), `the fill's relation ${layout.relation}`),
+			codes
+		)
 		layouts.set(key, built)
 		return built
 	}
@@ -1017,17 +1105,16 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 		const owned = node.families.map((g, place): Owned => {
 			const family = byKey.get(familyKey(g.family))
 			if (family === undefined) {
-				throw defect(`the family ${g.family.owner}.${g.family.count} of the law model`)
+				throw defect(`the family ${g.family.owner}.${g.family.count} of the write's fill`)
 			}
 			return { family, members: g.members, place }
 		})
-		const rank = (o: Owned): number =>
-			layout.owns.findIndex((f) => familyKey(f.id) === familyKey(o.family.id))
+		const rank = (o: Owned): number => layout.owns.indexOf(familyKey(o.family.id))
 		return owned.toSorted((a, b) => rank(a) - rank(b))
 	}
 	const rowOf = (
 		node: HostNode,
-		position: FillPosition,
+		position: FillAt,
 		at: {
 			readonly step: Row["step"]
 			readonly owner: Row | undefined
@@ -1053,17 +1140,11 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 		family: 0,
 		member: 0,
 		previous: undefined,
-		filled: node.families.map((g) => {
-			const family = byKey.get(familyKey(g.family))
-			if (family === undefined) {
-				throw defect(`the family ${g.family.owner}.${g.family.count} of the law model`)
-			}
-			return { family, members: [] }
-		}),
+		filled: node.families.map((g) => ({ family: g.family, members: [] })),
 		tree
 	})
-	return (root: HostNode, position: FillPosition): Result.Result<FilledNode, FillRefusal> => {
-		const tree = position.kind === "root" ? position.family : undefined
+	return (root: HostNode, position: FillAt): Result.Result<FilledNode, FillRefusal> => {
+		const tree = position.kind === "root" ? position.family.id : undefined
 		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
 		const intervalOf = (node: HostNode, start: number, parentStart: number): Row["tree"] => {
 			const size = sizes.get(node)
@@ -1104,7 +1185,8 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 				}
 				const at = frame.member
 				frame.member += 1
-				const inTree = isTreeOf(current.family, frame.row.layout.relation.name)
+				const inTree =
+					current.family.tree && current.family.member === frame.row.layout.relation.name
 				const counter = inTree ? frame.tree : undefined
 				const start = counter === undefined ? undefined : counter.next
 				if (counter !== undefined) {
@@ -1114,7 +1196,7 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 					node,
 					{ kind: "member", family: current.family },
 					{
-						step: { count: current.family.count.name, at },
+						step: { count: current.family.count, at },
 						owner: frame.row,
 						predecessor: frame.previous,
 						at,

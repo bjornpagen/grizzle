@@ -2,10 +2,11 @@
  * A nested write: an insert of an owner, or of a tree's roots, with every family it owns nested at its count fields,
  * to any depth.
  *
- * At compile time a nesting is the insert's relation and every family its rows reach, each at its depth (`Reached`), the
- * heading each level's own fields are admitted by, and the filler that draws and fills the rest (fold.ts). At bind time
- * each fact is split along its families (write/changeset/value.ts encodeAddition), each level's own fields admitted
- * through its carriers' codecs, the whole nesting filled in one walk, and its rows cut into each family's write: every
+ * At compile time a nesting is the insert's relation and every family its rows reach, each at its depth (`Reached`), and
+ * the heading each level's own fields are admitted by. At bind time each fact is split along its families
+ * (write/changeset/value.ts encodeAddition), each level's own fields admitted through its carriers' codecs, the whole
+ * nesting filled in one walk by the write's filler, which draws and fills the rest (`NestedWalk`, fold.ts), and its
+ * rows cut into each family's write: every
  * owner the ChangeSet inserts is fresh, so each sequence's write is each owner's members placed at slots 0 … n − 1 with
  * no count statement, and a tree's every node in pre-order. The insert's own relation is written by its own insert with
  * its drawn counts and its accumulated ends (`NestingRoot` plain), or, a tree's roots or a counted family's members,
@@ -25,20 +26,24 @@ import {
 import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { FillOrder, FillPosition } from "#compiler/ir/fill.ts"
-import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
+import type { FillAt, FillOrder, FillPosition } from "#compiler/ir/fill.ts"
+import type { FamilyId, LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { MessageBound } from "#compiler/ir/products.ts"
-import type { Heading } from "#compiler/ir/rel.ts"
+import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
-import { encodeAddition, type NestedAddition } from "#compiler/write/changeset/value.ts"
+import {
+	encodeAddition,
+	type NestedAddition,
+	type SplitFamily
+} from "#compiler/write/changeset/value.ts"
 import type { MemberKey, Row } from "#compiler/write/family/draw.ts"
 import {
 	type ColumnKey,
@@ -48,15 +53,19 @@ import {
 	type FilledNode,
 	type FillRefusal,
 	fillRefusal,
-	filler as fillerOf,
 	type GeneratedNull,
 	type Filler,
-	type HostEvaluator,
 	type HostNode,
 	walkStart
 } from "#compiler/write/family/fold.ts"
 import type { Transport } from "#compiler/write/family/order.ts"
-import { type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
+import {
+	type LaidColumn,
+	type LaidLayout,
+	laidLayout,
+	type RowLayout,
+	rowLayout
+} from "#compiler/write/family/statements.ts"
 
 /** A family a nesting reaches, at its depth: 1 for a family of the insert's own rows, n + 1 for one whose owners are a
  * depth-n family's members. */
@@ -102,6 +111,91 @@ export interface NestedLayout {
 	readonly position: FillPosition
 }
 
+/** A relation whose rows a nesting's family statements write, as a binding holds it (`NestedLayout`): its row layout as
+ * binding reads it, the columns its counted families fill after the walk, and where its rows stand in the walk. */
+export interface NestedLayoutData {
+	readonly layout: LaidLayout
+	readonly pending: ReadonlySet<ColumnKey>
+	readonly position: FillAt
+}
+
+/** Where a level of a nesting stands (`LevelOf`), its family by id. */
+type LevelAt =
+	| { readonly kind: "top" }
+	| { readonly kind: "root" | "member"; readonly family: { readonly id: FamilyId } }
+
+/**
+ * A nested write as a binding holds it (`Nesting`), every family by id and every relation by name: its relation and its
+ * primary key's fields, where its own rows stand, the sequences its facts split along, where the walk starts, its
+ * levels with the heading each one's own fields are admitted by, the layout of each relation its family statements
+ * write, and the fields its own row writes.
+ */
+export interface NestingData {
+	readonly relation: string
+	readonly primary: NonEmptyReadonlyArray<HeadingColumn>
+	readonly root:
+		| { readonly kind: "plain" | "counted" }
+		| { readonly kind: "tree"; readonly family: { readonly id: FamilyId } }
+	readonly sequences: ReadonlyArray<SplitFamily>
+	readonly start: FillAt
+	readonly levels: ReadonlyArray<{
+		readonly relation: string
+		readonly at: LevelAt
+		readonly heading: Heading
+	}>
+	readonly layouts: ReadonlyMap<string, NestedLayoutData>
+	readonly top: Heading
+}
+
+/** A heading as a binding holds it, each column its name and type alone. */
+export const headingData = (heading: Heading): Heading =>
+	heading.map((c) => ({ name: c.name, type: c.type }))
+
+/** A family's id as a binding holds it, a record of its owner and count alone. */
+const idData = (id: FamilyId): { readonly id: FamilyId } => ({
+	id: { owner: id.owner, count: id.count }
+})
+
+/** A position as a binding holds it, its family by id. */
+const atData = (at: LevelOf | FillPosition): LevelAt =>
+	at.kind === "top" ? { kind: "top" } : { kind: at.kind, family: idData(at.family.id) }
+
+/** A nesting as a binding holds it (`NestingData`). */
+export const nestingData = (nesting: Nesting): NestingData => ({
+	relation: nesting.relation.name,
+	primary: mapNonEmpty(nesting.relation.primaryFields, (f) => ({ name: f.name, type: f.type })),
+	root:
+		nesting.root.kind === "tree"
+			? { kind: "tree", family: idData(nesting.root.family.id) }
+			: { kind: nesting.root.kind },
+	sequences: nesting.families.filter(isSequence).map((f) => ({
+		id: idData(f.id).id,
+		owner: f.owner.name,
+		member: f.member.name,
+		count: f.count.name
+	})),
+	start: atData(nesting.start),
+	levels: nesting.levels.map((l) => ({
+		relation: l.relation,
+		at: atData(l.at),
+		heading: headingData(l.heading)
+	})),
+	layouts: new Map(
+		[...nesting.layouts].map(([relation, at]) => [
+			relation,
+			{ layout: laidLayout(at.layout), pending: at.pending, position: atData(at.position) }
+		])
+	),
+	top: headingData(nesting.top)
+})
+
+/** What a nested write's walk fills its rows by when it binds: the write's filler (fold.ts filler) and the installation's
+ * codes, which every level's own fields are admitted by. */
+export interface NestedWalk {
+	readonly fill: Filler
+	readonly codes: Codebook
+}
+
 /** A nested write as compiled: see the module's header. */
 export interface Nesting {
 	readonly relation: RelationInfo
@@ -109,8 +203,6 @@ export interface Nesting {
 	readonly families: ReadonlyArray<Family>
 	/** Every family the nesting reaches, in the order its writes are composed: shallowest first. */
 	readonly reached: ReadonlyArray<Reached>
-	readonly codes: Codebook
-	readonly filler: Filler
 	/** Where the walk starts its rows: a tree's root, or the insert's own row. */
 	readonly start: FillPosition
 	readonly levels: ReadonlyArray<Level>
@@ -122,7 +214,7 @@ export interface Nesting {
 }
 
 /** A level's key in a nesting's normalizers. */
-const levelKey = (relation: string, at: LevelOf): string =>
+const levelKey = (relation: string, at: LevelAt): string =>
 	at.kind === "top"
 		? `${relation}\u0000top`
 		: `${relation}\u0000${at.kind}\u0000${familyKey(at.family.id)}`
@@ -169,17 +261,12 @@ const pendingOf = (fill: FillOrder, relation: string): ReadonlySet<ColumnKey> =>
 	)
 
 /**
- * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, its
- * levels' headings, and its filler. The fill order admits no sequences that nest each other in a cycle, so each
- * sequence is reached once, a tree's own members by its recursion, and every reached row is filled by the walk, but
- * the columns its counted families fill.
+ * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, and
+ * its levels' headings. The fill order admits no sequences that nest each other in a cycle, so each sequence is reached
+ * once, a tree's own members by its recursion, and every reached row is filled by the walk, but the columns its counted
+ * families fill.
  */
-export const nestingOf = (
-	relation: RelationInfo,
-	fill: FillOrder,
-	codes: Codebook,
-	evaluate: HostEvaluator
-): Nesting => {
+export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 	const families = fill.families
 	const tree = families.find((f) => isTreeOf(f, relation.name))
 	const root: NestingRoot =
@@ -204,7 +291,6 @@ export const nestingOf = (
 		}
 		frontier = next
 	}
-	const built = fillerOf(fill, codes, evaluate)
 	const layouts = new Map<string, NestedLayout>()
 	const start = walkStart(families, relation.name)
 	/** The insert's own relation as a family's member, a tree's or a counted family's, when its family statements write
@@ -240,8 +326,6 @@ export const nestingOf = (
 		root,
 		families,
 		reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
-		codes,
-		filler: built,
 		start,
 		levels: Object.freeze(levels),
 		layouts,
@@ -328,7 +412,8 @@ const nestedRefusal = (
  * (write/family/order.ts).
  */
 export const nestedRows = (
-	nesting: Nesting,
+	nesting: NestingData,
+	walk: NestedWalk,
 	member: string,
 	facts: Iterable<unknown>,
 	into: NestedSet,
@@ -345,18 +430,18 @@ export const nestedRows = (
 				relation: l.relation,
 				columns: positionalColumns(l.heading),
 				slot: { kind: "slot", name: member },
-				codes: nesting.codes
+				codes: walk.codes
 			})
 		])
 	)
-	const sequences = nesting.families.filter(isSequence)
+	const sequences = nesting.sequences
 	const tops: Array<NestedFact> = []
-	const relation = nesting.relation.name
+	const relation = nesting.relation
 	const byKey =
 		into.tops.get(relation) ??
 		new TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
-	const keyFields = nesting.relation.primaryFields
+	const keyFields = nesting.primary
 	const hosts: Array<HostNode> = []
 	for (const fact of facts) {
 		const split = encodeAddition(relation, fact, sequences)
@@ -371,7 +456,7 @@ export const nestedRows = (
 	}
 	let stopped: NestedGeneratedNull | undefined
 	for (const host of hosts) {
-		const filled = nesting.filler(host, nesting.start)
+		const filled = walk.fill(host, nesting.start)
 		if (!filled.ok) {
 			const refusal = nestedRefusal(filled.error, slotPlace(member))
 			if (refusal._tag !== "GeneratedNull") {
@@ -386,12 +471,12 @@ export const nestedRows = (
 				nesting.top.map((c) => [c.name, root.values.get(fieldKey(c.name))] as const)
 			)
 		)
-		const key = keyFields.map((f) => text(nesting, f.type, root.values.get(fieldKey(f.name))))
+		const key = keyFields.map((f) => text(walk.codes, f.type, root.values.get(fieldKey(f.name))))
 		const signature: Array<Signed> =
 			nesting.root.kind === "plain"
-				? nesting.top.map((c) => canonical(nesting, c.type, own[c.name]))
+				? nesting.top.map((c) => canonical(walk.codes, c.type, own[c.name]))
 				: []
-		for (const [reached, list] of rowsOf(nesting, root)) {
+		for (const [reached, list] of rowsOf(nesting, walk.codes, root)) {
 			const known =
 				into.rows.get(reached) ??
 				new TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>()
@@ -474,19 +559,19 @@ export const nestedRowsOf = (
 	)
 
 /** A key value's text in its column's carrier, as the transport writes it. */
-const text = (nesting: Nesting, type: LawField["type"], value: unknown): ParamText =>
-	admittedParam(carrierSpecOf(type, nesting.codes), value)
+const text = (codes: Codebook, type: LawField["type"], value: unknown): ParamText =>
+	admittedParam(carrierSpecOf(type, codes), value)
 
 /** A value's canonical text in its column's carrier, its identity (scalar/values/identity.ts canonicalText). */
-const canonical = (nesting: Nesting, type: LawField["type"], value: unknown): string =>
-	admittedText(carrierSpecOf(type, nesting.codes), value)
+const canonical = (codes: Codebook, type: LawField["type"], value: unknown): string =>
+	admittedText(carrierSpecOf(type, codes), value)
 
 /**
  * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, iteratively, members
  * built before their owners, so any depth converts.
  */
 const hostNodes = (
-	nesting: Nesting,
+	nesting: NestingData,
 	normalizers: ReadonlyMap<string, RelationNormalizer>,
 	root: NestedAddition,
 	write: {
@@ -496,8 +581,8 @@ const hostNodes = (
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
 	/** Every addition in pre-order, with the level it stands at. */
-	const order: Array<{ readonly addition: NestedAddition; readonly at: LevelOf }> = []
-	const pending: Array<{ readonly addition: NestedAddition; readonly at: LevelOf }> = [
+	const order: Array<{ readonly addition: NestedAddition; readonly at: LevelAt }> = []
+	const pending: Array<{ readonly addition: NestedAddition; readonly at: LevelAt }> = [
 		{
 			addition: root,
 			at:
@@ -506,11 +591,11 @@ const hostNodes = (
 					: { kind: "top" }
 		}
 	]
-	const byId = new Map(nesting.families.map((f) => [familyKey(f.id), f] as const))
+	const byId = new Map(nesting.sequences.map((f) => [familyKey(f.id), f] as const))
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
 		order.push(next)
 		for (const g of next.addition.families) {
-			const family = defined(byId.get(familyKey(g.family)), "a nested family of the law model")
+			const family = defined(byId.get(familyKey(g.family)), "a sequence the nesting splits along")
 			for (const m of g.members) {
 				pending.push({ addition: m, at: { kind: "member", family } })
 			}
@@ -563,7 +648,18 @@ const hostNodes = (
  * fill after the walk (`NestedLayout` pending), which each of its nested rows holds (`NestedRow`) and a family write
  * sends them with (write/family/additions.ts RowSource).
  */
-export const sentLayout = (at: NestedLayout): RowLayout => ({
+export const sentLayout = <C extends LaidColumn>(at: {
+	readonly layout: {
+		readonly relation: string
+		readonly key: NonEmptyReadonlyArray<C>
+		readonly columns: ReadonlyArray<C>
+	}
+	readonly pending: ReadonlySet<ColumnKey>
+}): {
+	readonly relation: string
+	readonly key: NonEmptyReadonlyArray<C>
+	readonly columns: ReadonlyArray<C>
+} => ({
 	relation: at.layout.relation,
 	key: at.layout.key,
 	columns: at.layout.columns.filter((c) => !at.pending.has(c.key))
@@ -571,7 +667,7 @@ export const sentLayout = (at: NestedLayout): RowLayout => ({
 
 /** A filled row as its relation's set holds it (`NestedRow`): every column of its row layout the walk filled, its
  * fields' host values, and its identity. */
-const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): NestedRow => {
+const nestedRowOf = (codes: Codebook, at: NestedLayoutData, row: FilledNode): NestedRow => {
 	const sent = sentLayout(at)
 	const filled = [...sent.key, ...sent.columns]
 	const values = new Map<ColumnKey, unknown>()
@@ -589,8 +685,8 @@ const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): Neste
 		)
 	)
 	return {
-		identity: Object.freeze(filled.map((c) => canonical(nesting, c.type, values.get(c.key)))),
-		key: mapNonEmpty(at.layout.key, (c) => text(nesting, c.type, values.get(c.key))),
+		identity: Object.freeze(filled.map((c) => canonical(codes, c.type, values.get(c.key)))),
+		key: mapNonEmpty(at.layout.key, (c) => text(codes, c.type, values.get(c.key))),
 		values,
 		fact
 	}
@@ -602,10 +698,10 @@ const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): Neste
  */
 export const rowOfValues = (
 	codes: Codebook,
-	layout: RowLayout,
+	layout: LaidLayout,
 	values: ReadonlyMap<ColumnKey, unknown>
 ): Row => {
-	const valueOf = (c: RowLayout["columns"][number]): unknown => {
+	const valueOf = (c: LaidColumn): unknown => {
 		if (!values.has(c.key)) {
 			throw defect(`a column ${c.key} of ${layout.relation} its fills filled`)
 		}
@@ -623,7 +719,8 @@ export const rowOfValues = (
  * every sequence's members in ascending slot order, each after its owner.
  */
 const rowsOf = (
-	nesting: Nesting,
+	nesting: NestingData,
+	codes: Codebook,
 	root: FilledNode
 ): ReadonlyMap<string, ReadonlyArray<NestedRow>> => {
 	const out = new Map<string, Array<NestedRow>>()
@@ -635,7 +732,7 @@ const rowsOf = (
 				throw defect(`the row layout of ${row.relation}, a relation the nesting reaches`)
 			}
 			const list = out.get(row.relation) ?? []
-			list.push(nestedRowOf(nesting, layout, row))
+			list.push(nestedRowOf(codes, layout, row))
 			out.set(row.relation, list)
 		}
 		const members = row.families.flatMap((g) => g.members)

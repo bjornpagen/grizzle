@@ -1,5 +1,5 @@
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import {
 	builtNode,
 	contentDigest,
@@ -16,7 +16,6 @@ import {
 	builderLoc,
 	frozenCopy,
 	frozenTuple,
-	isPlainRecord,
 	malformed,
 	ownedDesc,
 	ownedEntry,

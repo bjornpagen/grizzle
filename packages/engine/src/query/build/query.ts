@@ -4,7 +4,7 @@ import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { isList } from "#compiler/core/record.ts"
+import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import {
 	decodeDesc,
 	type FieldDesc,
@@ -70,7 +70,6 @@ import { levelOf } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	fieldDescOf,
-	isPlainRecord,
 	malformed,
 	orThrow,
 	ownedKind,

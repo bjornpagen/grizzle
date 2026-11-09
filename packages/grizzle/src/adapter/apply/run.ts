@@ -241,7 +241,7 @@ export const hostInputs = (
 ): Effect.Effect<HostInputs, InputFailure> =>
 	Effect.gen(function* () {
 		const program = compiled.program
-		const members = yield* collectInputs(program.frontend, compiled.change.inputs)
+		const members = yield* collectInputs(program.binding.groups, compiled.change.inputs)
 		const host = yield* declaredParams(program.params, params, compiled.change.values)
 		/**
 		 * `host` holds every bound value under its private name with its Stream collected, so the statements bind the
@@ -415,8 +415,8 @@ export const runWrite = <R>(
 		const context: WitnessContext = {
 			violation: entry.violation,
 			statement: (at) => ({
-				relations: statementRelations(program.frontend, at),
-				judge: (refuser) => hostJudgement(program.frontend, stated, at, refuser)
+				relations: statementRelations(program.prepared.witness, at),
+				judge: (refuser) => hostJudgement(program.prepared.witness, stated, at, refuser)
 			})
 		}
 		const readBackFlights = yield* Effect.mapError(

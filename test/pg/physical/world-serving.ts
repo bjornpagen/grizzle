@@ -1193,7 +1193,7 @@ const precheck = (
 				derived: artifacts.derived
 			})
 		)
-		const members = yield* Effect.orDie(collectInputs(program.frontend, change.inputs))
+		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))
 		const bound = succeeded(
 			bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 		)

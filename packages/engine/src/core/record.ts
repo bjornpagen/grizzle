@@ -15,3 +15,13 @@ export const hasProperties = (value: unknown): value is Readonly<Record<string, 
 	(typeof value === "object" || typeof value === "function") && value !== null
 
 export const isList = (value: unknown): value is ReadonlyArray<unknown> => Array.isArray(value)
+
+/** A plain record: a non-null object that is no list, whose prototype is Object's or none, as a caller's record is read
+ * at the boundary. */
+export const isPlainRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
+	if (typeof value !== "object" || value === null || isList(value)) {
+		return false
+	}
+	const proto: unknown = Object.getPrototypeOf(value)
+	return proto === Object.prototype || proto === null
+}

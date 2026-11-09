@@ -5,7 +5,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import {
 	admitLoginRoles,
 	type ContentDigest,
@@ -31,7 +31,6 @@ import {
 	describedField,
 	frozenCopy,
 	frozenTuple,
-	isPlainRecord,
 	malformed,
 	orThrow,
 	ownedDesc,

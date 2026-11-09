@@ -145,7 +145,11 @@ import {
 	type WriteStep,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import type { Binding } from "#compiler/write/program/binding.ts"
+import {
+	type Binding,
+	type PreparedBinding,
+	prepareBinding
+} from "#compiler/write/program/binding.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { type OutcomeContext, writtenOutcome } from "#compiler/write/program/outcome.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
@@ -200,6 +204,8 @@ export interface CompiledWrite extends WriteProgram {
 	readonly outcomeContext: OutcomeContext
 	/** What binding one application reads besides its values, decided here (decide.ts decideBinding). */
 	readonly binding: Binding
+	/** The binding's closures, built once (binding.ts prepareBinding). */
+	readonly prepared: PreparedBinding
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -1454,6 +1460,7 @@ const compile = (
 		relations: frontend.schema.definitions().relations,
 		codes: options.names.codes
 	})
+	const binding = decideBinding(frontend)
 	const program: CompiledWrite = {
 		edits: family.edits,
 		refills: family.refills,
@@ -1475,7 +1482,8 @@ const compile = (
 		params: frontend.params,
 		slots: frontend.slots,
 		outcomeContext,
-		binding: decideBinding(frontend)
+		binding,
+		prepared: prepareBinding(binding, frontend.codes)
 	}
 	return program
 }

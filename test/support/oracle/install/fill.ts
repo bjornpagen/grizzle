@@ -31,6 +31,7 @@ import {
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
+import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import {
 	type ColumnType,
@@ -227,7 +228,18 @@ export const familyRows = (
 			}))
 		}
 	}
-	const fill = filler(order, codes, hostEvaluator(codes, closedLeaf(closed), patterns))
+	const fill = filler(
+		hostFillOf(
+			order,
+			Arr.flatMap([...relations.keys()], (name) =>
+				memberOf.has(name) || factsOf(name).length === 0
+					? []
+					: [{ relation: name, position: { kind: "top" } as const }]
+			)
+		),
+		codes,
+		hostEvaluator(codes, closedLeaf(closed), patterns)
+	)
 	const rows = new Map<string, Array<ReadonlyMap<ColumnKey, unknown>>>()
 	const collect = (node: FilledNode): void => {
 		rows.set(node.relation, [...(rows.get(node.relation) ?? []), node.values])

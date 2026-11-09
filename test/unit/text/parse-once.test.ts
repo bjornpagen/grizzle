@@ -23,6 +23,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
+import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
@@ -267,7 +268,9 @@ describe("an admitted pattern", () => {
 								Effect.sync(() =>
 									Arr.map(relations, ({ relation, generated, encoders }) => ({
 										matched: Arr.map(c.texts, (text) =>
-											evaluate(relation, generated, (field) => (field === "t0" ? text : undefined))
+											evaluate(relation, predicateTable(generated), (field) =>
+												field === "t0" ? text : undefined
+											)
 										),
 										bound: Arr.map(encoders, (encode) =>
 											Arr.map(c.texts, (text) => encode(text).ok)

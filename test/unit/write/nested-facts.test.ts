@@ -196,7 +196,7 @@ describe("a nested addition's facts", () => {
 							Effect.gen(function* () {
 								const value = ChangeSet.empty(Sequenced).insert(Owner, additionsOf(owners))
 								const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
-								const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 								const bound = withinMessage(
 									bindWrite(program, {
 										members,

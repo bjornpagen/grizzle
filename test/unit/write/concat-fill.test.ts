@@ -14,6 +14,7 @@ import {
 	type HostNode,
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
+import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	decodedSchema,
@@ -96,7 +97,7 @@ const fills = Arr.map([false, true] as const, (selected) => {
 	return {
 		family: defined(model.families[0], "the fold's family"),
 		fill: filler(
-			model.theory.fill,
+			hostFillOf(model.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
 			codes,
 			hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
 		)

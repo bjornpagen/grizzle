@@ -26,7 +26,11 @@ export { type BindFrame, inForce, type Unsendable } from "#compiler/write/family
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
-export { type MemberFacts, memberSlots } from "#compiler/write/normalize/normalize.ts"
+export {
+	type GroupData,
+	type MemberFacts,
+	memberSlots
+} from "#compiler/write/normalize/normalize.ts"
 export type {
 	ArtifactStatement,
 	UniqueAbort,

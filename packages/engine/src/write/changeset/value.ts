@@ -13,7 +13,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -26,7 +26,6 @@ import {
 	type ReadBackDesc,
 	renameQueryParams
 } from "#compiler/ir/desc.ts"
-import type { Family } from "#compiler/ir/family.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
@@ -34,7 +33,7 @@ import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { isLevelOver, type Level } from "#compiler/schema/level.ts"
-import { isPlainRecord, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
+import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
 	ChangeSetConstructor,
@@ -1140,17 +1139,25 @@ const pathOf = (at: PathStep | undefined): ReadonlyArray<string | number> => {
 	return steps.toReversed()
 }
 
+/** A family an addition splits along: its id, its owner and member relations and its count field, each by name. */
+export interface SplitFamily {
+	readonly id: FamilyId
+	readonly owner: string
+	readonly member: string
+	readonly count: string
+}
+
 /** What splitting a fact of one relation reads off `families`: the families it owns, and their count fields, which
  * hold its members' arrays. */
 interface RelationSplit {
-	readonly owned: ReadonlyArray<Family>
+	readonly owned: ReadonlyArray<SplitFamily>
 	readonly counts: ReadonlySet<string>
 }
 
 /** How a fact of `relation` splits along `families`. */
-const relationSplit = (relation: string, families: ReadonlyArray<Family>): RelationSplit => {
-	const owned = families.filter((f) => f.owner.name === relation)
-	return { owned, counts: new Set(owned.map((f) => f.count.name)) }
+const relationSplit = (relation: string, families: ReadonlyArray<SplitFamily>): RelationSplit => {
+	const owned = families.filter((f) => f.owner === relation)
+	return { owned, counts: new Set(owned.map((f) => f.count)) }
 }
 
 /** What reading a caller's fact answers for a fact that could not be read. */
@@ -1178,7 +1185,7 @@ const factRecord = (
 export const encodeAddition = (
 	relation: string,
 	fact: unknown,
-	families: ReadonlyArray<Family>
+	families: ReadonlyArray<SplitFamily>
 ): Result.Result<NestedAddition, ChangeSetRefusal> => {
 	const relationSplits = new Map<string, RelationSplit>()
 	const splitOf = (name: string): RelationSplit => {
@@ -1208,8 +1215,8 @@ export const encodeAddition = (
 		)
 		const groups: Array<{ readonly family: FamilyId; readonly members: ReadonlyArray<number> }> = []
 		for (const family of owned) {
-			const at: PathStep = { parent: next.at, step: family.count.name }
-			const members = read.value[family.count.name]
+			const at: PathStep = { parent: next.at, step: family.count }
+			const members = read.value[family.count]
 			if (!isList(members)) {
 				return Result.err({ fault: "factShape", path: pathOf(at) })
 			}
@@ -1218,7 +1225,7 @@ export const encodeAddition = (
 				const slot = splits.length
 				splits.push(undefined)
 				pending.push({
-					relation: family.member.name,
+					relation: family.member,
 					value: member,
 					at: { parent: at, step: position },
 					slot

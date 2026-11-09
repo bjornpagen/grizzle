@@ -1,7 +1,7 @@
 import { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties } from "#compiler/core/record.ts"
+import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import type { RuleDesc, VarDesc } from "#compiler/ir/desc.ts"
 import type {
 	BuilderScope,
@@ -55,7 +55,7 @@ import {
 import * as T from "#compiler/query/build/terms.ts"
 import { spellRule } from "#compiler/query/build/walk.ts"
 import { type PredicateValue, predicateValue, type Typing } from "#compiler/scalar/compute/term.ts"
-import { isPlainRecord, malformed, requireName } from "#compiler/schema/protocol.ts"
+import { malformed, requireName } from "#compiler/schema/protocol.ts"
 import { headRecord, record } from "#compiler/schema/record.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"

@@ -18,7 +18,7 @@
  */
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ColumnIdent, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -128,6 +128,40 @@ export interface RowLayout {
 	readonly relation: string
 	readonly key: NonEmptyReadonlyArray<RowColumn>
 	readonly columns: ReadonlyArray<RowColumn>
+}
+
+/** A row layout's column as binding reads it (`RowColumn`): its key, its type, and what it is, a field by its name or a law
+ * column by its identifier. A RowColumn is one. */
+export interface LaidColumn {
+	readonly key: ColumnKey
+	readonly type: ScalarType
+	readonly column:
+		| { readonly kind: "field"; readonly field: { readonly name: string } }
+		| { readonly kind: "law"; readonly column: ColumnIdent }
+}
+
+/** A row layout as binding reads it (`RowLayout`): its relation, its key's columns and its others'. A RowLayout is one. */
+export interface LaidLayout {
+	readonly relation: string
+	readonly key: NonEmptyReadonlyArray<LaidColumn>
+	readonly columns: ReadonlyArray<LaidColumn>
+}
+
+/** A row layout as a binding holds it (`LaidLayout`), each column projected to what binding reads of it. */
+export const laidLayout = (layout: LaidLayout): LaidLayout => {
+	const laid = (c: LaidColumn): LaidColumn => ({
+		key: c.key,
+		type: c.type,
+		column:
+			c.column.kind === "field"
+				? { kind: "field", field: { name: c.column.field.name } }
+				: { kind: "law", column: c.column.column }
+	})
+	return {
+		relation: layout.relation,
+		key: mapNonEmpty(layout.key, laid),
+		columns: layout.columns.map(laid)
+	}
 }
 
 const unbuildable = (relation: string, what: string): CompileError =>

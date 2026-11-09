@@ -4,14 +4,6 @@ import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
-import {
-	positionalColumns,
-	type RelationNormalizer,
-	type RelationSlot,
-	type RelationSpec,
-	relationNormalizer
-} from "#compiler/codec/recordset.ts"
-import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { type LawId, ParamId } from "#compiler/core/ids.ts"
@@ -79,8 +71,7 @@ import {
 	columnKey,
 	familyKey,
 	type HostEvaluator,
-	hostEvaluator,
-	literalHost
+	hostEvaluator
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
@@ -116,7 +107,7 @@ import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
-import { type HostChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
+import { type HostChecks, hostChecks, type StartData } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProof } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {
@@ -161,12 +152,6 @@ export interface MemberSlot {
 	readonly input: RelationInput
 }
 
-/** A member an enumerated input reads, by its member slot, with what admits its facts, whose faults name the member. */
-export interface InputMember<N> {
-	readonly name: string
-	readonly normalize: N
-}
-
 /** An operation an enumerated input of one slot is read by: a deletion, a put, or an insertion into an unclassed
  * target, whose every fact is complete. */
 export type SingleAct =
@@ -174,12 +159,13 @@ export type SingleAct =
 	| { readonly op: "put" }
 	| { readonly op: "insert"; readonly serial: Extract<SerialClass, { readonly kind: "complete" }> }
 
-/** The enumerated members of one operation on one relation in one stratum, and the slot each of their facts travels
- * in: one slot, for a deletion, a put and an insertion into an unclassed target; an insertion into a classed target,
- * every fact of which the host routes to exactly one of its two slots or refuses; or an insertion whose facts nest
- * families at their count fields (write/family/nesting.ts), split, filled and cut into its families' writes on the
- * host, its relation's own rows in its slot, every column but a generated one, and none for a tree's roots, which
- * their tree's write inserts. */
+/** The enumerated members of one operation on one relation in one stratum, by their member slots' names, whose faults
+ * name them, and the slot each of their facts travels in: one slot, for a deletion, a put and an insertion into an
+ * unclassed target; an insertion into a classed target, every fact of which the host routes to exactly one of its two
+ * slots or refuses; or an insertion whose facts nest families at their count fields (write/family/nesting.ts), split,
+ * filled and cut into its families' writes on the host, its relation's own rows in its slot, every column but a
+ * generated one, and none for a tree's roots, which their tree's write inserts. A classed or nested slot's facts are
+ * admitted by its heading (write/normalize/normalize.ts bindGroup). */
 export type EnumeratedInput =
 	| {
 			readonly kind: "nested"
@@ -188,31 +174,28 @@ export type EnumeratedInput =
 			readonly nesting: Nesting
 			/** Each member relation its families reach, as its same-key checks judge its nested rows. */
 			readonly reached: ReadonlyMap<string, SlotFacts>
-			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+			readonly members: NonEmptyReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "single"
 			readonly act: SingleAct
 			readonly slot: MemberSlot
-			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+			readonly members: NonEmptyReadonlyArray<string>
+			/** The fields its members' facts are admitted by: its slot's but those it starts. */
+			readonly admitted: Heading
 			/**
 			 * The fields its slot carries beyond the ones its facts do, each at its start: an owner's counts and ends,
 			 * which an owner of counted families inserted on the plain path writes from its slot, so the stratum's
 			 * appends to it ride its own row (write/program/bind.ts); none for any other input.
 			 */
-			readonly starts: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
+			readonly starts: ReadonlyArray<StartData>
 	  }
 	| {
 			readonly kind: "classed"
 			readonly serial: NonEmptyReadonlyArray<string>
 			readonly complete: MemberSlot
 			readonly generated: MemberSlot
-			readonly members: NonEmptyReadonlyArray<
-				InputMember<{
-					readonly complete: RelationNormalizer
-					readonly generated: RelationNormalizer
-				}>
-			>
+			readonly members: NonEmptyReadonlyArray<string>
 	  }
 
 /** The member slots an enumerated input fills, in the order the front end drafts them: its one slot, or the complete
@@ -851,7 +834,7 @@ const compile = (
 					...written.relation,
 					keyLaws,
 					uniques,
-					host: hostChecks(keyLaws, uniques, codes)
+					host: hostChecks(keyLaws, uniques)
 				})
 			]
 		})
@@ -913,7 +896,7 @@ const compile = (
 		if (known !== undefined) {
 			return known
 		}
-		const built = nestingOf(relation, laws.theory.fill, codes, evaluate)
+		const built = nestingOf(relation, laws.theory.fill)
 		nestings.set(relation.name, built)
 		return built
 	}
@@ -1399,65 +1382,51 @@ const compile = (
 				const queries = ofOp.flatMap((m) => (m.source.kind === "described" ? [m.source] : []))
 				const loc = firstOfOp.loc
 				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
-				/** The member slot of one class of the operation's enumerated members, its facts carrying `carried`, and
-				 * the normalizer that admits a member's facts against it. */
-				const classSlot = (
-					act: ActionOp,
-					carried: Heading,
-					admitted: Heading
-				): {
-					readonly slot: MemberSlot
-					readonly normalizer: (member: string) => RelationNormalizer
-				} => {
-					const spec = (slot: RelationSlot, over: Heading): RelationSpec => ({
-						relation: written.name,
-						columns: positionalColumns(over),
-						slot,
-						codes
-					})
+				/** The member slot of one class of the operation's enumerated members, its facts carrying `carried`. */
+				const classSlot = (act: ActionOp, carried: Heading): MemberSlot => {
 					const id = writeSlotId(s, act, classes, written.name)
-					return {
-						slot: Object.freeze({
-							slot: id,
-							transport,
-							heading: carried,
-							input: relationInput(id, carried, relation)
-						}),
-						normalizer: (member) =>
-							relationNormalizer(spec({ kind: "slot", name: member }, admitted))
-					}
+					return Object.freeze({
+						slot: id,
+						transport,
+						heading: carried,
+						input: relationInput(id, carried, relation)
+					})
 				}
-				/** The operation's enumerated input of one slot, read as `act`, when it has enumerated members. */
+				/** The names of the operation's enumerated members, when it has any. */
+				const memberNames = isNonEmpty(enumerated)
+					? Object.freeze(mapNonEmpty(enumerated, (m) => m.slot))
+					: undefined
+				/** The operation's enumerated input of one slot, read as `act`, when it has enumerated members: its facts
+				 * carry `carried`, its members' admitted against `admitted`. */
 				const singleInput = (
 					act: SingleAct,
 					carried: Heading,
 					admitted: Heading
 				): MemberSlot | undefined => {
-					if (!isNonEmpty(enumerated)) {
+					if (memberNames === undefined) {
 						return undefined
 					}
-					const { slot, normalizer } = classSlot(act, carried, admitted)
-					const starts = slot.input.family.map((c) => {
+					const slot = classSlot(act, carried)
+					const starts = slot.input.family.map((c): StartData => {
 						const field = defined(
 							relation.fields.find((f) => f.name === c.name),
 							`the field ${relation.name}.${c.name} a slot carries`
 						)
-						const value =
-							field.writing.kind === "accumulated"
-								? literalHost(carrierSpecOf(field.type, codes), field.writing.start)
-								: 0n
-						return { name: c.name, value }
+						return {
+							name: c.name,
+							start:
+								field.writing.kind === "accumulated"
+									? { kind: "literal", type: field.type, literal: field.writing.start }
+									: { kind: "zero" }
+						}
 					})
 					groupInputs.push(
 						Object.freeze({
 							kind: "single",
 							act,
 							slot,
-							members: Object.freeze(
-								mapNonEmpty(enumerated, (m) =>
-									Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
-								)
-							),
+							members: memberNames,
+							admitted,
 							starts: Object.freeze(starts)
 						})
 					)
@@ -1468,39 +1437,21 @@ const compile = (
 				const classedInput = (
 					classed: Extract<InsertClasses<Heading>, { readonly kind: "classed" }>
 				): { readonly complete: MemberSlot; readonly generated: MemberSlot } | undefined => {
-					if (!isNonEmpty(enumerated)) {
+					if (memberNames === undefined) {
 						return undefined
 					}
-					const complete = classSlot(
-						{ op: "insert", serial: completeClass },
-						classed.complete,
-						classed.complete
-					)
-					const generated = classSlot(
-						{ op: "insert", serial: classed.drawn },
-						classed.generated,
-						classed.generated
-					)
+					const complete = classSlot({ op: "insert", serial: completeClass }, classed.complete)
+					const generated = classSlot({ op: "insert", serial: classed.drawn }, classed.generated)
 					groupInputs.push(
 						Object.freeze({
 							kind: "classed",
 							serial: classed.serial,
-							complete: complete.slot,
-							generated: generated.slot,
-							members: Object.freeze(
-								mapNonEmpty(enumerated, (m) =>
-									Object.freeze({
-										name: m.slot,
-										normalize: Object.freeze({
-											complete: complete.normalizer(m.slot),
-											generated: generated.normalizer(m.slot)
-										})
-									})
-								)
-							)
+							complete,
+							generated,
+							members: memberNames
 						})
 					)
-					return { complete: complete.slot, generated: generated.slot }
+					return { complete, generated }
 				}
 				/** The action `act` over its slot and the described members' `roots`, their facts carrying `carried`, when
 				 * it reads any: written whole, through its entry's fill, or refused outright when the fill can fill
@@ -1603,11 +1554,11 @@ const compile = (
 						const complete: SingleAct = { op, serial: completeClass }
 						if (nests(relation.name)) {
 							const nesting = nestingFor(relation)
-							if (isNonEmpty(enumerated)) {
+							if (memberNames !== undefined) {
 								/** A nested insert's facts are its rows as its nesting writes them (Nesting.top), each count and end
 								 * drawn from its members: never a put's, which state their caller's fields, so the host refuses the
 								 * two at one key (normalize/ step 3). */
-								const { slot, normalizer } = classSlot(complete, nesting.top, nesting.top)
+								const slot = classSlot(complete, nesting.top)
 								groupInputs.push(
 									Object.freeze({
 										kind: "nested",
@@ -1620,11 +1571,7 @@ const compile = (
 												return [member.name, { name: member.name, host: member.host }] as const
 											})
 										),
-										members: Object.freeze(
-											mapNonEmpty(enumerated, (m) =>
-												Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
-											)
-										)
+										members: memberNames
 									})
 								)
 								nestedWrites.push(Object.freeze({ stratum, nesting, slot }))

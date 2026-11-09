@@ -23,8 +23,8 @@ import {
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { fieldKey } from "#compiler/write/family/fold.ts"
 import { inForce } from "#compiler/write/family/order.ts"
-import { inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
+import { inputSlotsOf } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
@@ -193,7 +193,7 @@ describe("a nested write through the program", () => {
 							}))
 							const value = ChangeSet.empty(Nested).insert(Doc, docs).insert(Node, roots)
 							const program = programOf(value)
-							const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
 								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 							)
@@ -229,9 +229,9 @@ describe("a nested write through the program", () => {
 								additions.index > owner.index,
 								"the stratum's family additions follow its own statements"
 							)
-							const group = defined(program.frontend.slots[0], "the owner's slot group")
+							const group = defined(program.binding.groups[0], "the owner's slot group")
 							const [input] = group.inputs
-							const [slot] = inputSlots(input)
+							const [slot] = inputSlotsOf(input)
 							const tops = bound.flights.stated.slot(group, input, slot)
 							for (const doc of docs) {
 								const top = defined(
@@ -364,7 +364,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 								.insert(Doc, Arr.take(stated, box.inArray))
 								.insert(Doc, Stream.fromIterable(Arr.drop(stated, box.inArray)))
 							setShaped ??= compiled(value)
-							const members = yield* collectInputs(setShaped.frontend, parsedOf(value).inputs)
+							const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
 								bindWrite(setShaped, { members, params: {}, transport: inForce(bindFrame) })
 							)
@@ -487,7 +487,10 @@ describe("a nested tree at depth and width", () => {
 							const root = box.shape === "chain" ? chainOf(box.n, 1000) : starOf(box.n, 1000)
 							const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
 							treeShaped ??= compiled(value)
-							const members = yield* collectInputs(treeShaped.frontend, parsedOf(value).inputs)
+							const members = yield* collectInputs(
+								treeShaped.binding.groups,
+								parsedOf(value).inputs
+							)
 							const bound = succeeded(
 								bindWrite(treeShaped, { members, params: {}, transport: inForce(bindFrame) })
 							)

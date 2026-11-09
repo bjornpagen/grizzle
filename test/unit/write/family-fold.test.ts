@@ -20,6 +20,7 @@ import {
 	type HostNode,
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
+import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, folded, identityOf, type Planes } from "#test/support/families/fold.ts"
 import {
@@ -290,7 +291,7 @@ const fillOf = (s: Shape): Compiled | undefined => {
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	const family = defined(model.value.families[0], "the fold's family")
 	const fill = filler(
-		model.value.theory.fill,
+		hostFillOf(model.value.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), model.value.patterns)
 	)

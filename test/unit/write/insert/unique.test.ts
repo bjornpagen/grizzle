@@ -53,7 +53,7 @@ const program = (changes: unknown): CompiledWrite =>
 /** The value's program bound to its members, as the runtime collects them. */
 const bind = Effect.fn("bind")(function* (value: ReturnType<typeof ChangeSet.empty>) {
 	const p = program(value)
-	const members = yield* collectInputs(p.frontend, parsedOf(value).inputs)
+	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
 	return succeeded(bindWrite(p, { members, params: {}, transport: inForce(bindFrame) }))
 })
 

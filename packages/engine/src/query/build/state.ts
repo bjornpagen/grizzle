@@ -1,7 +1,7 @@
 import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties } from "#compiler/core/record.ts"
+import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import type { FieldDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenSource } from "#compiler/ir/open.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
@@ -27,7 +27,6 @@ import type { Level } from "#compiler/schema/level.ts"
 import {
 	fieldDescOf as fieldDesc,
 	type HeadingTyping,
-	isPlainRecord,
 	malformed,
 	type OwnedKind,
 	ownedKind,

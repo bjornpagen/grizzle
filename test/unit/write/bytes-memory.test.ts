@@ -121,7 +121,10 @@ describe("a write of large bytes values", () => {
 										? ChangeSet.empty(Large).insert(One, facts)
 										: ChangeSet.empty(Large).insert(Two, facts)
 								const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
-								const members = yield* collectInputs(program.frontend, parsedOf(change).inputs)
+								const members = yield* collectInputs(
+									program.binding.groups,
+									parsedOf(change).inputs
+								)
 								const before = process.memoryUsage().arrayBuffers
 								const bound = bindWrite(program, {
 									members,
@@ -142,7 +145,12 @@ describe("a write of large bytes values", () => {
 									grown < copied(d) + slack,
 									`a bound member's ${copied(d)} bytes allocated ${grown}, more than one copy`
 								)
-								const normalized = normalizeChangeSet(program.frontend, members, inForce(bindFrame))
+								const normalized = normalizeChangeSet(
+									program.prepared.groups,
+									{ fill: program.prepared.fill, codes: program.frontend.codes },
+									members,
+									inForce(bindFrame)
+								)
 								if (!normalized.ok || normalized.value.kind !== "normalized") {
 									return assert.fail("a member within the message normalizes")
 								}

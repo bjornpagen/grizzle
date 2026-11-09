@@ -16,8 +16,11 @@ import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type NestedSet, nestedRows, nestedSet } from "#compiler/write/family/nesting.ts"
 import { inForce } from "#compiler/write/family/order.ts"
-import { type EnumeratedInput, inputSlots } from "#compiler/write/frontend/compile.ts"
-import type { MemberFacts } from "#compiler/write/normalize/normalize.ts"
+import {
+	type InputData,
+	inputSlotsOf,
+	type MemberFacts
+} from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
@@ -131,17 +134,14 @@ const programOf = (value: unknown): CompiledWrite => {
 
 /** The program's nested input: its nesting and its one member slot. */
 const nestedInput = (program: CompiledWrite) => {
-	const inputs = Arr.flatMap(
-		program.frontend.slots,
-		(g): ReadonlyArray<EnumeratedInput> => g.inputs
-	)
+	const inputs = Arr.flatMap(program.binding.groups, (g): ReadonlyArray<InputData> => g.inputs)
 	const [input] = Arr.flatMap(
 		inputs,
-		(i): ReadonlyArray<Extract<EnumeratedInput, { readonly kind: "nested" }>> =>
+		(i): ReadonlyArray<Extract<InputData, { readonly kind: "nested" }>> =>
 			i.kind === "nested" ? [i] : []
 	)
 	const nested = defined(input, "the owners' nested insert")
-	return { nesting: nested.nesting, member: Arr.headNonEmpty(nested.members).name }
+	return { nesting: nested.nesting, member: Arr.headNonEmpty(nested.members) }
 }
 
 /** Every text `set` keys a fact or a row by, its relations' names apart: each key's texts, each signature's own texts
@@ -176,7 +176,15 @@ const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, lengt
 	const { nesting, member } = nestedInput(program)
 	const set = nestedSet()
 	succeeded(
-		nestedRows(nesting, member, factsOf(facts, length), set, new DigestBook(), inForce(bindFrame))
+		nestedRows(
+			nesting,
+			{ fill: program.prepared.fill, codes: program.frontend.codes },
+			member,
+			factsOf(facts, length),
+			set,
+			new DigestBook(),
+			inForce(bindFrame)
+		)
 	)
 	return keyedTexts(set)
 }
@@ -229,7 +237,7 @@ describe("a nested write's identities", () => {
 							const value = ChangeSet.empty(Bodies).insert(Owner, factsOf(box.facts, box.length))
 							const program = programOf(value)
 							const members: MemberFacts = yield* collectInputs(
-								program.frontend,
+								program.binding.groups,
 								parsedOf(value).inputs
 							)
 							const bound = succeeded(
@@ -301,9 +309,9 @@ describe("a nested write's identities", () => {
 								"write",
 								"a nested write reads nothing first: every group it writes is its own new owner's"
 							)
-							const group = defined(program.frontend.slots[0], "the owners' slot group")
+							const group = defined(program.binding.groups[0], "the owners' slot group")
 							const [input] = group.inputs
-							const [slot] = inputSlots(input)
+							const [slot] = inputSlotsOf(input)
 							assert.equal(
 								bound.flights.stated.slot(group, input, slot).length,
 								distinct.length,

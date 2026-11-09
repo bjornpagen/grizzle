@@ -35,7 +35,7 @@ import { sameOrder } from "#compiler/core/array.ts"
 import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type ReadonlyTupleMap,
@@ -45,8 +45,10 @@ import {
 } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { predicateTable } from "#compiler/ir/expr.ts"
 import { type Family, familyColumnType, type FoldPlane, isSequence } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
 import type { CountRow, MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
@@ -172,8 +174,16 @@ const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
 	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
 
 /** A row's key texts in its layout. */
-export const keyOf = (ctx: FillContext, layout: RowLayout, values: Values): MemberKey =>
-	mapNonEmpty(layout.key, (c) => textOf(ctx, c.type, values.get(c.key)))
+export const keyOf = (
+	ctx: FillContext,
+	layout: {
+		readonly key: NonEmptyReadonlyArray<{
+			readonly key: ColumnKey
+			readonly type: LawField["type"]
+		}>
+	},
+	values: Values
+): MemberKey => mapNonEmpty(layout.key, (c) => textOf(ctx, c.type, values.get(c.key)))
 
 /** A fact's key texts in its relation's layout. */
 export const factKey = (ctx: FillContext, layout: RowLayout, fact: Fact): MemberKey =>
@@ -223,8 +233,17 @@ export const membersByGroup = (
 	return out
 }
 
+/** A family by its group alone: each member field with the owner key field it pairs with, in key order, by name and
+ * type. A Family is one. */
+export interface Grouped {
+	readonly group: NonEmptyReadonlyArray<{
+		readonly member: HeadingColumn
+		readonly owner: HeadingColumn
+	}>
+}
+
 /** A row's group key texts in a family. */
-export const groupOf = (ctx: FillContext, family: Family, values: Values): Owner =>
+export const groupOf = (ctx: FillContext, family: Grouped, values: Values): Owner =>
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.member.type, values.get(fieldKey(g.member.name))))
 
 /**
@@ -295,7 +314,7 @@ export const ownersOf = (
 }
 
 /** An owner's group key texts, its key fields paired with the family's group in order. */
-export const groupOfOwner = (ctx: FillContext, family: Family, values: Values): Owner =>
+export const groupOfOwner = (ctx: FillContext, family: Grouped, values: Values): Owner =>
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.owner.type, values.get(fieldKey(g.owner.name))))
 
 /** The fields a family's drawn values read of a member: its step value, its selections' fields, every column its axes
@@ -347,7 +366,7 @@ const rowValue = (
 	if (field?.writing.kind !== "generated") {
 		return { kind: "none" }
 	}
-	const v = ctx.evaluate(relation, field.writing.expr, (name) =>
+	const v = ctx.evaluate(relation, predicateTable(field.writing.expr), (name) =>
 		valueAt(ctx, relation, values, fieldKey(name))
 	)
 	if (!v.ok) {
@@ -724,7 +743,7 @@ const fillGroup = (
 			const befores = fold.planes.map((p) => values.get(columnKey(p.before)))
 			const selected = selects(
 				relation,
-				fold,
+				fold.where.map(predicateTable),
 				ctx.evaluate,
 				(name) => carriedAt(ctx, relation, values, fieldKey(name)),
 				(stop): FillStop => ({ kind: "evaluation", stop })

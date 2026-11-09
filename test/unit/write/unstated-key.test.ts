@@ -195,7 +195,7 @@ describe("a write that names rows by a primary key", () => {
 							const expected = expectedOf(box)
 							if (expected.kind === "bound") {
 								const program = succeeded(compiled, "a write that names its rows by stated fields")
-								const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 								const bound = succeeded(
 									bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 								)

@@ -7,7 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { lastNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type ContentDigest,
@@ -54,7 +54,6 @@ import {
 	describedField,
 	frozenCopy,
 	frozenTuple,
-	isPlainRecord,
 	malformed,
 	orThrow,
 	ownedDesc,

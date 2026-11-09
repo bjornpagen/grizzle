@@ -1,6 +1,6 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { hasProperties } from "#compiler/core/record.ts"
+import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type WorkloadDesc, decodeDesc, type ProgramDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -17,7 +17,7 @@ import {
 	type OrderedValue,
 	type QueryValue
 } from "#compiler/query/build/query.ts"
-import { builderLoc, isPlainRecord, malformed } from "#compiler/schema/protocol.ts"
+import { builderLoc, malformed } from "#compiler/schema/protocol.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import type { Paged, Workload } from "#compiler/types/db/workload.ts"
 import {

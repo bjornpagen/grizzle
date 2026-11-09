@@ -90,7 +90,10 @@ describe("a write's enumerated members", () => {
 							c.note(rows.length >= 100_000 ? "a hundred thousand facts or more" : "a few facts")
 							const changes = ChangeSet.empty(Shop).insert(Item, rows)
 							const compiled = program(changes)
-							const members = yield* collectInputs(compiled.frontend, parsedOf(changes).inputs)
+							const members = yield* collectInputs(
+								compiled.binding.groups,
+								parsedOf(changes).inputs
+							)
 							const bound = succeeded(
 								bindWrite(compiled, { members, params: {}, transport: inForce(bindFrame) })
 							)

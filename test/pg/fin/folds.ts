@@ -58,6 +58,7 @@ import {
 	type HostNode,
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
+import { hostFillOf } from "#compiler/write/program/decide.ts"
 import {
 	type Catalogued,
 	cleared,
@@ -962,7 +963,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 	const { spec } = f
 	const codes = f.seat.installed.names.codes
 	const built = filler(
-		f.seat.model.theory.fill,
+		hostFillOf(f.seat.model.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), f.seat.model.patterns)
 	)
@@ -1001,7 +1002,14 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 		return Result.fail(`the filler refuses the family: ${Formatter.format(filled.error)}`)
 	}
 	const [owned] = filled.value.families
-	const fold = owned?.family.folds[0]
+	const folded =
+		owned === undefined
+			? Option.none()
+			: Arr.findFirst(
+					f.seat.model.families,
+					(g) => g.id.owner === owned.family.owner && g.id.count === owned.family.count
+				)
+	const fold = Option.isSome(folded) ? folded.value.folds[0] : undefined
 	if (owned === undefined || fold === undefined) {
 		return Result.fail("the filled owner holds no folded family")
 	}

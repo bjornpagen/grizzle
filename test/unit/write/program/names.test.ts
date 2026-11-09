@@ -28,7 +28,7 @@ import {
  * identifier dictionary's names) binds exactly as one named "items" does: every statement's placeholder texts, the
  * oracle being the program's invariance under renaming its parameter. */
 const membersOf = (program: CompiledWrite, value: unknown) =>
-	collectInputs(program.frontend, parsedOf(value).inputs)
+	collectInputs(program.binding.groups, parsedOf(value).inputs)
 
 const fact = (n: number) => ({ id: uuidOf(n), label: "a", qty: 1n })
 

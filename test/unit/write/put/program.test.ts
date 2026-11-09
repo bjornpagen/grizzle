@@ -100,7 +100,7 @@ describe("the write program's relation parameters", () => {
 									}
 								})
 							)
-							const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 							const bound = bindWrite(program, { members, params, transport: inForce(bindFrame) })
 							const faulty = Arr.filter(drawnMembers, (m) => m.given.kind !== "facts")
 							if (faulty.length === 0) {

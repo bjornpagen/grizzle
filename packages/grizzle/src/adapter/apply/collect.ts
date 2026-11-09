@@ -1,9 +1,9 @@
 import { Array as Arr, Effect, Stream } from "effect"
 import {
 	type ChangeSetInput,
+	type GroupData,
 	type MemberFacts,
-	memberSlots,
-	type WriteFrontend
+	memberSlots
 } from "#compiler/plan/change.ts"
 
 /**
@@ -13,10 +13,10 @@ import {
  * the input the value holds.
  */
 const slotInputs = (
-	frontend: WriteFrontend,
+	groups: ReadonlyArray<GroupData>,
 	inputs: ReadonlyMap<string, ChangeSetInput>
 ): ReadonlyArray<readonly [string, ChangeSetInput]> =>
-	Arr.flatMap(memberSlots(frontend), (member) => {
+	Arr.flatMap(memberSlots(groups), (member) => {
 		const input = inputs.get(member)
 		return input === undefined ? [] : [[member, input] as const]
 	})
@@ -28,11 +28,11 @@ const slotInputs = (
  * the caller handled its failures and provided its services before it became a member, so a caller's retry after a
  * TransientFailure replays it here. The engine receives arrays only. */
 export const collectInputs = (
-	frontend: WriteFrontend,
+	groups: ReadonlyArray<GroupData>,
 	inputs: ReadonlyMap<string, ChangeSetInput>
 ): Effect.Effect<MemberFacts> =>
 	Effect.map(
-		Effect.forEach(slotInputs(frontend, inputs), ([member, input]) =>
+		Effect.forEach(slotInputs(groups, inputs), ([member, input]) =>
 			input.kind === "array"
 				? Effect.succeed([member, input.facts] as const)
 				: Effect.map(Stream.runCollect(input.stream), (facts) => [member, facts] as const)

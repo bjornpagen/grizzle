@@ -2384,7 +2384,7 @@ const bound = (
 	if (parsed === undefined) {
 		throw new Error("a ChangeSet the facade built does not parse")
 	}
-	const members = Effect.runSync(collectInputs(program.frontend, parsed.inputs))
+	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
 	return bindWrite(program, { members, params, transport: inForce(bindFrame) })
 }

@@ -1,5 +1,5 @@
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import {
 	type ArmDesc,
 	builtNode,
@@ -25,7 +25,6 @@ import {
 	frozenTuple,
 	type HeadingTyping,
 	isName,
-	isPlainRecord,
 	malformed,
 	orThrow,
 	ownedDesc,

@@ -198,7 +198,7 @@ export const entryFacts = (
 	const mapped = (fields: ReadonlyArray<HostKeyField>): ReadonlyArray<HostKeyField> =>
 		fields.flatMap((f) => {
 			const head = headOf.get(f.field)
-			return head === undefined ? [] : [{ field: head, spec: f.spec }]
+			return head === undefined ? [] : [{ field: head, type: f.type }]
 		})
 	return {
 		name: entry.entry,
@@ -218,8 +218,7 @@ export const entryFacts = (
 								law: check.law,
 								described: check.described,
 								equal: mapped(check.equal),
-								span: { field: span, spec: check.span.spec },
-								witness: mapped(check.witness)
+								span: { field: span, type: check.span.type }
 							}
 						]
 			})

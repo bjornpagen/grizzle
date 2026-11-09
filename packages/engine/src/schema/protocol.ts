@@ -1,3 +1,29 @@
+/**
+ * The runtime protocols the schema builders read and write.
+ *
+ * Builders are pure and synchronous. They record Descriptions (ir/desc.ts) and never touch a database. A malformed
+ * argument that the TypeScript signatures already forbid, from a JavaScript caller, throws CompileError
+ * MalformedDescription synchronously; every semantic diagnostic is reported later, by ownership (own.ts).
+ *
+ * Three protocols cross package boundaries here:
+ *
+ * - Field descriptors, str.regex's included. A descriptor is an owned value carrying, beside its public
+ *   members (its column among them), a non-enumerable `desc` holding its FieldDesc, aliases already normalized; a
+ *   str.regex descriptor is read from its pattern. A descriptor a builder made is read from the registry
+ *   (scalar/registry.ts), and a copy of one, an object spread that keeps the brand (core/phantom.ts) and the source's
+ *   host type, is refused. Anything else, a JavaScript look-alike included, is refused: it has no column a builder
+ *   made.
+ * - Scalar terms and predicates (contract predicates, Compute, queries). A term is a value with an
+ *   `expr` member holding its expression; a predicate also has `predicate: true`; a parameter is a value with a string
+ *   `param` member and no `expr`. Terms and predicates are admitted by identity: every builder registers the value it
+ *   made in scalar/compute/term.ts's registry, and termExpr and predicateExpr read that, never the members. Row checks
+ *   (terms.ts) build and read terms this way, so a Compute expression over a row's fields composes with the row's own
+ *   comparisons.
+ * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
+ *   expansions of mirrors and alternatives, sides, selections, schemas, contexts, world relations, roles and logins)
+ *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
+ *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
+ */
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -36,40 +62,6 @@ import type {
 	Statement
 } from "#compiler/types/schema/statements.ts"
 import type { AnyContext, AnyLogin, AnyRole, AnyWorld } from "#compiler/types/schema/world.ts"
-
-/**
- * The runtime protocols the schema builders read and write.
- *
- * Builders are pure and synchronous. They record Descriptions (ir/desc.ts) and never touch a database. A malformed
- * argument that the TypeScript signatures already forbid, from a JavaScript caller, throws CompileError
- * MalformedDescription synchronously; every semantic diagnostic is reported later, by ownership (own.ts).
- *
- * Three protocols cross package boundaries here:
- *
- * - Field descriptors, str.regex's included. A descriptor is an owned value carrying, beside its public
- *   members (its column among them), a non-enumerable `desc` holding its FieldDesc, aliases already normalized; a
- *   str.regex descriptor is read from its pattern. A descriptor a builder made is read from the registry
- *   (scalar/registry.ts), and a copy of one, an object spread that keeps the brand (core/phantom.ts) and the source's
- *   host type, is refused. Anything else, a JavaScript look-alike included, is refused: it has no column a builder
- *   made.
- * - Scalar terms and predicates (contract predicates, Compute, queries). A term is a value with an
- *   `expr` member holding its expression; a predicate also has `predicate: true`; a parameter is a value with a string
- *   `param` member and no `expr`. Terms and predicates are admitted by identity: every builder registers the value it
- *   made in scalar/compute/term.ts's registry, and termExpr and predicateExpr read that, never the members. Row checks
- *   (terms.ts) build and read terms this way, so a Compute expression over a row's fields composes with the row's own
- *   comparisons.
- * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
- *   expansions of mirrors and alternatives, sides, selections, schemas, contexts, world relations, roles and logins)
- *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
- *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
- */
-export const isPlainRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
-	if (typeof value !== "object" || value === null || isList(value)) {
-		return false
-	}
-	const proto: unknown = Object.getPrototypeOf(value)
-	return proto === Object.prototype || proto === null
-}
 
 /** A builder location: the label and the user's call site (core/loc.ts). */
 export const builderLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>

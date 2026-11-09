@@ -1,4 +1,5 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
@@ -11,7 +12,7 @@ import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
-import { isPlainRecord, malformed } from "#compiler/schema/protocol.ts"
+import { malformed } from "#compiler/schema/protocol.ts"
 
 /**
  * A float literal: the special values wrapped, every finite value through its type's normalization, toReal for a

@@ -1,6 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { isCapturedStack, readSite } from "#compiler/core/loc.ts"
-import { isPlainRecord } from "#compiler/schema/protocol.ts"
+import { isPlainRecord } from "#compiler/core/record.ts"
 
 /**
  * A value with every stack a builder captured (core/loc.ts CapturedStack) as the call site it reads to, which is what a

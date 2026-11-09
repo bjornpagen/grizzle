@@ -547,7 +547,7 @@ const property = (
 		if (!program.ok) {
 			return
 		}
-		const members = yield* collectInputs(program.value.frontend, parsedOf(all).inputs)
+		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
 		const bound = bindWrite(program.value, { members, params: {}, transport: inForce(bindFrame) })
 		if (!bound.ok || bound.value.kind !== "bound") {
 			return assert.fail(
@@ -574,7 +574,12 @@ const property = (
 		const expected = writtenRows(spec, rows)
 		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
 		const normalized = succeeded(
-			normalizeChangeSet(program.value.frontend, members, inForce(bindFrame))
+			normalizeChangeSet(
+				program.value.prepared.groups,
+				{ fill: program.value.prepared.fill, codes: program.value.frontend.codes },
+				members,
+				inForce(bindFrame)
+			)
 		)
 		if (normalized.kind !== "normalized") {
 			return assert.fail(`the instance normalizes, not ${Formatter.format(normalized)}`)

@@ -1,8 +1,5 @@
-import type { CheckedEntry, RoleWorld } from "#compiler/analysis/schema.ts"
-import { contractLaw } from "#compiler/analysis/theory/description.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -20,16 +17,11 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
-import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import type { Action } from "#compiler/ir/write.ts"
-import type {
-	ConstraintLawOf,
-	ConstraintNativeKind,
-	DomainUse
-} from "#compiler/laws/model/model.ts"
+import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
 	compareValues,
 	type EvalLeaves,
@@ -39,28 +31,25 @@ import {
 	sqlNull,
 	valueMember
 } from "#compiler/scalar/compute/evaluate.ts"
-import { type CarrierValue, irLiteral } from "#compiler/scalar/compute/literal.ts"
+import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import {
-	type ClosedRows,
 	type ColumnKey,
 	closedLeaf,
+	type Evaluation,
 	evalValue,
 	fieldKey,
 	literalHost
 } from "#compiler/write/family/fold.ts"
-import { rowLayout } from "#compiler/write/family/statements.ts"
 import {
-	type ActionInfo,
-	type EnumeratedInput,
-	inputSlots,
-	type MemberSlot,
-	type SlotGroup,
-	type WriteFrontend
-} from "#compiler/write/frontend/compile.ts"
-import { entryKey } from "#compiler/write/frontend/entry.ts"
+	type GroupData,
+	type InputData,
+	inputSlotsOf,
+	type SlotData
+} from "#compiler/write/normalize/normalize.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
 
 /** A fact as the host states it: each field it carries, by name, its codec's admitted host value. */
@@ -100,17 +89,107 @@ export interface JudgedRow {
  * slot of a slot group's enumerated input, and a stratum's nested rows of a relation.
  */
 export interface StatedRows {
-	readonly slot: (
-		group: SlotGroup,
-		input: EnumeratedInput,
-		slot: MemberSlot
-	) => ReadonlyArray<JudgedRow>
-	readonly nested: (stratum: StratumAt, relation: RelationInfo) => ReadonlyArray<JudgedRow>
+	readonly slot: (group: GroupData, input: InputData, slot: SlotData) => ReadonlyArray<JudgedRow>
+	readonly nested: (stratum: StratumAt, relation: string) => ReadonlyArray<JudgedRow>
+}
+
+/** A field of a written relation as the witness reads it: its name, its installed column, its type, and how it is
+ * written, a generated field with its generation expression's table. */
+export interface WitnessField {
+	readonly name: string
+	readonly column: ColumnIdent
+	readonly type: ScalarType
+	readonly writing:
+		| { readonly kind: "caller" | "drawn" | "serial" | "accumulated" }
+		| { readonly kind: "generated"; readonly expr: ExprTable }
+}
+
+/**
+ * How a CHECK of a table that states laws judges a row: its row predicate (`CHECK ((p) IS TRUE)`); its containment into
+ * a closed relation, its guard's conjuncts, its pairs, each a field of the row with the field of the closed side it
+ * meets, unless one reads a law column, which the host leaves unjudged, and the side's key and payload fields and rows;
+ * or a span field's endpoint at a contract's level.
+ */
+export type CheckTest =
+	| { readonly kind: "row"; readonly predicate: ExprTable }
+	| {
+			readonly kind: "closed"
+			readonly guard: ReadonlyArray<ExprTable>
+			readonly pairs:
+				| {
+						readonly kind: "fields"
+						readonly pairs: NonEmptyReadonlyArray<{
+							readonly source: HeadingColumn
+							readonly target: HeadingColumn
+						}>
+				  }
+				| { readonly kind: "law" }
+			readonly side: {
+				readonly key: NonEmptyReadonlyArray<string>
+				readonly payload: ReadonlyArray<string>
+				readonly rows: ReadonlyArray<Split<TypedLiteral>>
+			}
+	  }
+	| { readonly kind: "endpoint"; readonly field: string; readonly level: ScalarType }
+
+/** A CHECK of a table that states laws, as data: its installed name, the laws it states, and how it judges a row. */
+export interface LawCheckData {
+	readonly name: ConstraintName
+	readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
+	readonly test: CheckTest
+}
+
+/**
+ * A relation the ChangeSet writes, as the witness judges its rows: its name and installed table, its fields, its declared
+ * keys by their fields' names, the primary key first, the law columns its families draw on it by key with their types,
+ * and every CHECK of its table that states laws, the law model's and its spans' endpoint CHECKs.
+ */
+export interface WitnessTable {
+	readonly name: string
+	readonly ident: RelationIdent
+	readonly fields: ReadonlyArray<WitnessField>
+	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
+	readonly lawColumns: ReadonlyMap<ColumnKey, ScalarType>
+	readonly checks: ReadonlyArray<LawCheckData>
+}
+
+/** A query entry a slot group writes through, as the witness reads it: its name, each head field with the target field
+ * it writes, and each literal-fixed target field with its literal. */
+export interface WitnessEntry {
+	readonly entry: string
+	readonly head: ReadonlyArray<{ readonly head: string; readonly field: string }>
+	readonly fixed: ReadonlyArray<{
+		readonly field: string
+		readonly type: ScalarType
+		readonly literal: TypedLiteral
+	}>
+}
+
+/** An action of a stratum as the witness reads it: the relation it writes, and its source, described or a member slot. */
+export interface WitnessAction {
+	readonly relation: string
+	readonly source:
+		| { readonly kind: "described" }
+		| { readonly kind: "slot"; readonly slot: ParamId }
+}
+
+/**
+ * What the host judges a refused statement's stated rows by, decided when the write compiled
+ * (write/program/decide.ts): each written relation, each stratum's actions in order, each query entry a slot group
+ * writes through by its name, each law a CHECK states by its place in the theory's order of laws, and what the judge's
+ * evaluator reads.
+ */
+export interface WitnessData {
+	readonly tables: ReadonlyArray<WitnessTable>
+	readonly actions: ReadonlyArray<ReadonlyArray<WitnessAction>>
+	readonly entries: ReadonlyMap<string, WitnessEntry>
+	readonly lawOrder: ReadonlyMap<LawId, number>
+	readonly evaluation: Evaluation
 }
 
 /** A stated row's field as the host holds it: a field the ChangeSet states, or one its write fills; none for a
  * generated field, a field PostgreSQL draws, or a column the host does not hold. */
-const hostField = (row: JudgedRow, field: LawField): unknown => {
+const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">): unknown => {
 	switch (field.writing.kind) {
 		case "caller":
 		case "serial":
@@ -193,7 +272,7 @@ export interface HostJudgement {
 /** One row a statement states, as the host judges it: its written relation, its row as the write fills it, and its
  * witness in its caller's words. */
 interface StatedFact {
-	readonly relation: RelationInfo
+	readonly relation: WitnessTable
 	readonly row: JudgedRow
 	readonly witness: Witness
 }
@@ -223,18 +302,42 @@ const keyHost = (value: CarrierHost[Carrier]): KeyHost | undefined =>
 	isSet(value) || isAdmittedBytes(value) ? undefined : value
 
 /**
+ * What the witness reads, prepared once from its data under the installation's codes (`WitnessData`): its judge, its
+ * written relations by name, its slot groups, and each member slot with its group and input.
+ */
+export interface Witnessing {
+	readonly data: WitnessData
+	readonly codes: Codebook
+	readonly judge: Judge
+	readonly tables: ReadonlyMap<string, WitnessTable>
+	readonly groups: ReadonlyArray<GroupData>
+	readonly slots: ReadonlyMap<
+		ParamId,
+		{ readonly group: GroupData; readonly input: InputData; readonly slot: SlotData }
+	>
+}
+
+/** A written relation's field by its name, which its data holds. */
+const fieldOf = (relation: WitnessTable, name: string): WitnessField =>
+	defined(
+		relation.fields.find((f) => f.name === name),
+		`the field ${relation.name}.${name}`
+	)
+
+/**
  * The key a fact of `relation` states, its first declared key whose every field it carries, the primary key first;
  * undefined where it carries none whole, as a generated addition omits the serial fields its identity draws.
  */
 const statedKey = (
-	relation: RelationInfo,
+	relation: WitnessTable,
 	row: JudgedRow,
 	codes: Codebook
 ): Readonly<Record<string, KeyHost>> | undefined => {
-	for (const key of relation.keyNames) {
+	for (const key of relation.keys) {
 		const values: Record<string, KeyHost> = {}
 		let whole = true
-		for (const f of key.fields) {
+		for (const name of key) {
+			const f = fieldOf(relation, name)
 			const raw = hostField(row, f)
 			const value =
 				raw === undefined ? undefined : keyHost(admitted(carrierSpecOf(f.type, codes), raw))
@@ -253,39 +356,42 @@ const statedKey = (
 
 /** A query entry's fact as a fact of its target: each head field under the target field it writes, a literal-fixed
  * field at its literal; a context-fixed field, whose value the claims hold, left out. */
-const targetFact = (entry: CheckedEntry, fact: HostFact, codes: Codebook): HostFact => {
+const targetFact = (entry: WitnessEntry, fact: HostFact, codes: Codebook): HostFact => {
 	const out: Record<string, unknown> = {}
-	for (const [head, { field }] of entry.head) {
+	for (const { head, field } of entry.head) {
 		if (Object.hasOwn(fact, head)) {
-			out[field.name] = fact[head]
+			out[field] = fact[head]
 		}
 	}
 	for (const fixed of entry.fixed) {
-		if (fixed.value.kind === "literal") {
-			const carried = irLiteral(fixed.value.value, fixed.field.type)
-			if (carried.ok) {
-				out[fixed.field.name] = literalHost(
-					carrierSpecOf(fixed.field.type, codes),
-					carried.value.literal
-				)
-			}
-		}
+		out[fixed.field] = literalHost(carrierSpecOf(fixed.type, codes), fixed.literal)
 	}
 	return out
 }
 
-/** The entry a slot group writes through, by the name its facts are stated under, when it is no relation's own. */
-const entryOf = (frontend: WriteFrontend, group: SlotGroup): CheckedEntry | undefined => {
-	if (group.facts.name === group.relation.name) {
-		return undefined
+/** A target's key values in a query entry's words: each head field's, by the target field it writes
+ * (write/frontend/entry.ts entryKey). */
+const entryKey = <V>(
+	entry: WitnessEntry,
+	values: Readonly<Record<string, V>>
+): Readonly<Record<string, V>> => {
+	const out: Record<string, V> = {}
+	for (const { head, field } of entry.head) {
+		const value = values[field]
+		if (value !== undefined) {
+			out[head] = value
+		}
 	}
-	const world: { readonly kind: "reality" } | RoleWorld = frontend.schema.world
-	if (world.kind !== "role") {
-		return undefined
-	}
-	const write = world.writes.get(group.facts.name)
-	return write?.kind === "rows" ? write.writable : undefined
+	return Object.freeze(out)
 }
+
+/** The entry a slot group writes through, by the name its facts are stated under, when it is no relation's own. */
+const entryOf = (w: Witnessing, group: GroupData): WitnessEntry | undefined =>
+	group.facts.name === group.relation ? undefined : w.data.entries.get(group.facts.name)
+
+/** A written relation by its name, which the witness's data holds. */
+const tableOf = (w: Witnessing, name: string): WitnessTable =>
+	defined(w.tables.get(name), `the written relation ${name}`)
 
 /**
  * The facts one member slot of a slot group's input states that its statement adds or puts into `relation`, its
@@ -293,15 +399,15 @@ const entryOf = (frontend: WriteFrontend, group: SlotGroup): CheckedEntry | unde
  * stated at in the words it was stated in.
  */
 const slotFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
-	group: SlotGroup,
-	input: EnumeratedInput,
-	slot: MemberSlot,
-	relation: RelationInfo
+	group: GroupData,
+	input: InputData,
+	slot: SlotData,
+	relation: WitnessTable
 ): ReadonlyArray<StatedFact> => {
-	const codes = frontend.codes
-	const entry = entryOf(frontend, group)
+	const codes = w.codes
+	const entry = entryOf(w, group)
 	return stated.slot(group, input, slot).map((written): StatedFact => {
 		const row: JudgedRow =
 			entry === undefined
@@ -328,17 +434,15 @@ const slotFacts = (
 /** The facts one slot group of the ChangeSet states for `relation` (slotFacts): each insert's and put's, none of a
  * deletion's, which writes no row a CHECK judges. */
 const groupFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
-	group: SlotGroup,
-	relation: RelationInfo
+	group: GroupData,
+	relation: WitnessTable
 ): ReadonlyArray<StatedFact> =>
 	group.inputs.flatMap((input) =>
 		input.kind === "single" && input.act.op === "delete"
 			? []
-			: inputSlots(input).flatMap((slot) =>
-					slotFacts(frontend, stated, group, input, slot, relation)
-				)
+			: inputSlotsOf(input).flatMap((slot) => slotFacts(w, stated, group, input, slot, relation))
 	)
 
 /**
@@ -346,19 +450,19 @@ const groupFacts = (
  * (groupFacts), and each nested row the stratum inserts into it, each with its witness.
  */
 const writtenFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
 	stratum: StratumAt,
-	relation: RelationInfo
+	relation: WitnessTable
 ): ReadonlyArray<StatedFact> => {
 	const out: Array<StatedFact> = []
-	for (const group of frontend.slots) {
-		if (group.stratum === stratum && group.relation.name === relation.name) {
-			appendAll(out, groupFacts(frontend, stated, group, relation))
+	for (const group of w.groups) {
+		if (group.stratum === stratum && group.relation === relation.name) {
+			appendAll(out, groupFacts(w, stated, group, relation))
 		}
 	}
-	for (const row of stated.nested(stratum, relation)) {
-		const key = statedKey(relation, row, frontend.codes)
+	for (const row of stated.nested(stratum, relation.name)) {
+		const key = statedKey(relation, row, w.codes)
 		out.push({
 			relation,
 			row,
@@ -370,24 +474,24 @@ const writtenFacts = (
 
 /** The facts the ChangeSet states for each of `relations` at `stratum` (writtenFacts), relation by relation. */
 const relationsFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
 	stratum: StratumAt,
 	relations: ReadonlyArray<string>
 ): ReadonlyArray<StatedFact> =>
 	relations.flatMap((name) => {
-		const relation = frontend.written.find((r) => r.name === name)
-		return relation === undefined ? [] : writtenFacts(frontend, stated, stratum, relation)
+		const relation = w.tables.get(name)
+		return relation === undefined ? [] : writtenFacts(w, stated, stratum, relation)
 	})
 
-/** The actions of `stratum` a statement writes, by their indices among the stratum's (ir.strata[stratum].actions). */
+/** The actions of `stratum` a statement writes, by their indices among the stratum's. */
 const actionsAt = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	at: Extract<StatementAt, { readonly kind: "actions" }>
-): ReadonlyArray<Action<ActionInfo>> =>
+): ReadonlyArray<WitnessAction> =>
 	at.actions.map((index) =>
 		defined(
-			frontend.ir.strata[at.stratum]?.actions[index],
+			w.data.actions[at.stratum]?.[index],
 			`action ${index} of stratum ${at.stratum}, whose statement was refused`
 		)
 	)
@@ -397,18 +501,18 @@ const actionsAt = (
  * deletion's, which writes no row a CHECK judges.
  */
 const actionSlotFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
 	stratum: StratumAt,
 	slot: ParamId
 ): ReadonlyArray<StatedFact> => {
-	const at = frontend.slotsById.get(slot)
+	const at = w.slots.get(slot)
 	if (at === undefined || at.group.stratum !== stratum) {
 		throw defect(`the slot group of the member slot ${slot} an action of stratum ${stratum} reads`)
 	}
 	return at.input.kind === "single" && at.input.act.op === "delete"
 		? []
-		: slotFacts(frontend, stated, at.group, at.input, at.slot, at.group.relation)
+		: slotFacts(w, stated, at.group, at.input, at.slot, tableOf(w, at.group.relation))
 }
 
 /**
@@ -417,11 +521,11 @@ const actionSlotFacts = (
  * only PostgreSQL computes, `some`, the facts the ChangeSet states for their relations at the stratum.
  */
 const actionsFacts = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
 	at: Extract<StatementAt, { readonly kind: "actions" }>
 ): StatementFacts => {
-	const actions = actionsAt(frontend, at)
+	const actions = actionsAt(w, at)
 	const slots: Array<ParamId> = []
 	for (const action of actions) {
 		switch (action.source.kind) {
@@ -429,46 +533,42 @@ const actionsFacts = (
 				return {
 					rows: "some",
 					facts: relationsFacts(
-						frontend,
+						w,
 						stated,
 						at.stratum,
-						actions.map((a) => a.info.relation.name)
+						actions.map((a) => a.relation)
 					)
 				}
-			case "enumerated":
-			case "stream":
+			case "slot":
 				slots.push(action.source.slot)
 		}
 	}
 	return {
 		rows: "every",
-		facts: slots.flatMap((slot) => actionSlotFacts(frontend, stated, at.stratum, slot))
+		facts: slots.flatMap((slot) => actionSlotFacts(w, stated, at.stratum, slot))
 	}
 }
 
 /** The slot groups of a query entry's precheck: the entry's own at its stratum. */
 const precheckGroups = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	at: Extract<StatementAt, { readonly kind: "precheck" }>
-): ReadonlyArray<SlotGroup> =>
-	frontend.slots.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
+): ReadonlyArray<GroupData> =>
+	w.groups.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
 
 /**
  * The stored relations a refused statement writes or casts its facts into, by declared name: its actions', a write's
  * own, a query entry's precheck's target, whose types the precheck casts the entry's facts into, and none of a
  * statement that states no fact.
  */
-export const statementRelations = (
-	frontend: WriteFrontend,
-	at: StatementAt
-): ReadonlyArray<string> => {
+export const statementRelations = (w: Witnessing, at: StatementAt): ReadonlyArray<string> => {
 	switch (at.kind) {
 		case "actions":
-			return [...new Set(actionsAt(frontend, at).map((action) => action.info.relation.name))]
+			return [...new Set(actionsAt(w, at).map((action) => action.relation))]
 		case "write":
 			return at.relations
 		case "precheck":
-			return [...new Set(precheckGroups(frontend, at).map((group) => group.relation.name))]
+			return [...new Set(precheckGroups(w, at).map((group) => group.relation))]
 		case "unstated":
 			return []
 	}
@@ -479,21 +579,17 @@ export const statementRelations = (
  * (actionsFacts); a write's, relation by relation in its order (writtenFacts); a query entry's precheck's, the entry's
  * own slot groups' at its stratum (groupFacts).
  */
-const statedFacts = (
-	frontend: WriteFrontend,
-	stated: StatedRows,
-	at: StatementAt
-): StatementFacts => {
+const statedFacts = (w: Witnessing, stated: StatedRows, at: StatementAt): StatementFacts => {
 	switch (at.kind) {
 		case "actions":
-			return actionsFacts(frontend, stated, at)
+			return actionsFacts(w, stated, at)
 		case "write":
-			return { rows: "some", facts: relationsFacts(frontend, stated, at.stratum, at.relations) }
+			return { rows: "some", facts: relationsFacts(w, stated, at.stratum, at.relations) }
 		case "precheck":
 			return {
 				rows: "some",
-				facts: precheckGroups(frontend, at).flatMap((group) =>
-					groupFacts(frontend, stated, group, group.relation)
+				facts: precheckGroups(w, at).flatMap((group) =>
+					groupFacts(w, stated, group, tableOf(w, group.relation))
 				)
 			}
 		case "unstated":
@@ -513,35 +609,16 @@ type Evaluated =
  * evaluator holds it at a type, and whether a value is a member of a type.
  */
 interface Judge {
-	readonly evaluate: (relation: TableRelation, expr: ScalarExpr, row: JudgedRow) => Evaluated
+	readonly evaluate: (relation: WitnessTable, expr: ExprTable, row: JudgedRow) => Evaluated
 	readonly carried: (value: unknown, type: ScalarType) => CarrierValue | undefined
 	readonly member: (value: CarrierValue, type: ScalarType) => boolean | undefined
 }
 
-/** The judge of a write's facts by its law model's compiled patterns (LawModel.patterns), parsing none per fact. */
-const judgeOf = (frontend: WriteFrontend): Judge => {
-	const codes = frontend.codes
-	const patterns = frontend.laws.patterns
-	const closed = closedLeaf(
-		new Map(
-			[...frontend.schema.closed].map(([name, c]): readonly [string, ClosedRows] => [
-				name,
-				{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
-			])
-		)
-	)
-	/** Each member relation's law columns, by column key, with their types (write/family/statements.ts RowLayout). */
-	const lawColumns = new Map<string, ReadonlyMap<ColumnKey, ScalarType>>(
-		frontend.laws.families.map((f) => [
-			f.member.name,
-			new Map(
-				rowLayout(f.member, frontend.laws.families).columns.flatMap((c) =>
-					c.column.kind === "law" ? [[c.key, c.type] as const] : []
-				)
-			)
-		])
-	)
-	const evaluate = (relation: TableRelation, expr: ScalarExpr, row: JudgedRow): Evaluated => {
+/** The judge of a write's stated rows by what its witness data's evaluation reads, every pattern parsed here once. */
+const judgeOf = (evaluation: Evaluation, codes: Codebook): Judge => {
+	const patterns = ProgramPatterns.of(evaluation.patterns)
+	const closed = closedLeaf(evaluation.closed)
+	const evaluate = (relation: WitnessTable, expr: ExprTable, row: JudgedRow): Evaluated => {
 		/**
 		 * A column's value: a field the row states or its write fills, a generated field's as PostgreSQL generates it
 		 * from the row, NULL included, or a law column its write fills; none where the host does not hold it.
@@ -550,7 +627,7 @@ const judgeOf = (frontend: WriteFrontend): Judge => {
 			const declared = relation.fields.find((f) => f.name === name)
 			if (declared === undefined) {
 				const key: ColumnKey = `law:${name}`
-				const type = lawColumns.get(relation.name)?.get(key)
+				const type = relation.lawColumns.get(key)
 				const column = row.filled(key)
 				return type === undefined || column.kind === "unfilled"
 					? undefined
@@ -567,9 +644,8 @@ const judgeOf = (frontend: WriteFrontend): Judge => {
 			const value = hostField(row, declared)
 			return value === undefined ? undefined : evalValue(carrierSpecOf(declared.type, codes), value)
 		}
-		const table = predicateTable(expr)
 		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
-		const value = evaluateTable(table.exprs, table.root, leaves, patterns)
+		const value = evaluateTable(expr.exprs, expr.root, leaves, patterns)
 		return !value.ok
 			? { kind: "unknown" }
 			: value.value === sqlNull
@@ -584,15 +660,45 @@ const judgeOf = (frontend: WriteFrontend): Judge => {
 }
 
 /**
+ * The witness of a write, prepared once from its data and its slot groups under the installation's codes
+ * (`Witnessing`): where the write compiles, and where a served login loads it.
+ */
+export const prepareWitness = (
+	data: WitnessData,
+	groups: ReadonlyArray<GroupData>,
+	codes: Codebook
+): Witnessing => {
+	const slots = new Map<
+		ParamId,
+		{ readonly group: GroupData; readonly input: InputData; readonly slot: SlotData }
+	>()
+	for (const group of groups) {
+		for (const input of group.inputs) {
+			for (const slot of inputSlotsOf(input)) {
+				slots.set(slot.slot, { group, input, slot })
+			}
+		}
+	}
+	return Object.freeze({
+		data,
+		codes,
+		judge: judgeOf(data.evaluation, codes),
+		tables: new Map(data.tables.map((t) => [t.name, t] as const)),
+		groups,
+		slots
+	})
+}
+
+/**
  * A stated row's field as a domain's CHECK reads it: the host's value of a field the ChangeSet states or its write
  * fills, and a generated field's value as PostgreSQL generates it from the row, NULL included, which every domain
  * admits; none where the host does not hold or cannot evaluate it.
  */
 const domainValue = (
 	judge: Judge,
-	relation: TableRelation,
+	relation: WitnessTable,
 	row: JudgedRow,
-	field: LawField
+	field: WitnessField
 ): Evaluated => {
 	if (field.writing.kind === "generated") {
 		return judge.evaluate(relation, field.writing.expr, row)
@@ -638,34 +744,35 @@ const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
  * target's side meets the row at every pair. */
 const closedContainment = (
 	judge: Judge,
-	native: NativeOf<"ClosedCheck">,
+	relation: WitnessTable,
+	test: Extract<CheckTest, { readonly kind: "closed" }>,
 	row: JudgedRow,
 	codes: Codebook
 ): Verdict => {
-	for (const g of native.guard) {
-		const guard = checked(judge.evaluate(native.relation, g.predicate, row))
+	for (const g of test.guard) {
+		const guard = checked(judge.evaluate(relation, g, row))
 		if (guard !== "holds") {
 			return guard === "breaks" ? "holds" : "unjudged"
 		}
 	}
-	const sources: Array<{ readonly value: CarrierValue; readonly target: LawField }> = []
-	for (const pair of native.pairs) {
-		if (pair.source.kind !== "field") {
-			return "unjudged"
-		}
-		const raw = hostField(row, pair.source.field)
+	if (test.pairs.kind === "law") {
+		return "unjudged"
+	}
+	const sources: Array<{ readonly value: CarrierValue; readonly target: HeadingColumn }> = []
+	for (const pair of test.pairs.pairs) {
+		const raw = hostField(row, fieldOf(relation, pair.source.name))
 		const value =
-			raw === undefined ? undefined : evalValue(carrierSpecOf(pair.source.field.type, codes), raw)
+			raw === undefined ? undefined : evalValue(carrierSpecOf(pair.source.type, codes), raw)
 		if (value === undefined) {
 			return "unjudged"
 		}
 		sources.push({ value, target: pair.target })
 	}
 	const cellAt = (name: string, cells: Split<TypedLiteral>): TypedLiteral | undefined => {
-		const k = native.side.key.indexOf(name)
-		return k >= 0 ? cells.key[k] : cells.payload[native.side.payload.indexOf(name)]
+		const k = test.side.key.indexOf(name)
+		return k >= 0 ? cells.key[k] : cells.payload[test.side.payload.indexOf(name)]
 	}
-	for (const cells of native.side.rows.values()) {
+	for (const cells of test.side.rows) {
 		const meets = sources.every(({ value, target }) => {
 			const cell = cellAt(target.name, cells)
 			return cell !== undefined && compareValues(value, literalValue(cell), target.type) === 0
@@ -691,7 +798,7 @@ const endpointsOf = (value: unknown): ReadonlyArray<unknown> =>
  */
 const generatedNotNulls = (
 	judge: Judge,
-	relation: RelationInfo,
+	relation: WitnessTable,
 	row: JudgedRow
 ): "hold" | "refuse" | "unknown" => {
 	const values = relation.fields.flatMap((field) =>
@@ -721,102 +828,47 @@ interface LawCheck {
 	readonly verdict: (row: JudgedRow) => Verdict
 }
 
-/** The law CHECK a table constraint of the law model is, if it is a CHECK: a row CHECK or a containment into a closed
- * relation. */
-const checkOf = (
-	frontend: WriteFrontend,
-	judge: Judge,
-	name: ConstraintName,
-	laws: NonEmptyReadonlyArray<ConstraintLawOf>,
-	native: NativeOf<ConstraintNativeKind>
-): ReadonlyArray<LawCheck> => {
-	switch (native.kind) {
-		case "TableCheck":
-			return [
-				{
-					name,
-					laws,
-					verdict: (row) => checked(judge.evaluate(native.relation, native.predicate, row))
-				}
-			]
-		case "ClosedCheck":
-			return [
-				{
-					name,
-					laws,
-					verdict: (row) => closedContainment(judge, native, row, frontend.codes)
-				}
-			]
-		case "PrimaryKey":
-		case "Unique":
-		case "WithoutOverlaps":
-		case "ForeignKey":
-		case "PeriodForeignKey":
-			return []
-	}
-}
-
 /**
- * Every CHECK of `relation`'s table that states laws: its row CHECKs and its containments into closed relations, the
- * law model's (frontend.laws.constraints), and its spans' endpoint CHECKs of a contract, which state the contract's
- * law. Its span shape, width and date range CHECKs state none: the codec refuses what they would before any SQL.
+ * Every CHECK of `relation`'s table that states laws, as the host judges it (`LawCheckData`): its row CHECKs, its
+ * containments into closed relations, and its spans' endpoint CHECKs of a contract. Its span shape, width and date range
+ * CHECKs state none: the codec refuses what they would before any SQL.
  */
 const lawChecks = (
-	frontend: WriteFrontend,
 	judge: Judge,
-	relation: RelationInfo
-): ReadonlyArray<LawCheck> => {
-	const model = frontend.laws.constraints.flatMap((c): ReadonlyArray<LawCheck> => {
-		if (c.kind !== "constraint" || c.owner !== relation.ident) {
-			return []
+	relation: WitnessTable,
+	codes: Codebook
+): ReadonlyArray<LawCheck> =>
+	relation.checks.map((check): LawCheck => {
+		const test = check.test
+		switch (test.kind) {
+			case "row":
+				return {
+					name: check.name,
+					laws: check.laws,
+					verdict: (row) => checked(judge.evaluate(relation, test.predicate, row))
+				}
+			case "closed":
+				return {
+					name: check.name,
+					laws: check.laws,
+					verdict: (row) => closedContainment(judge, relation, test, row, codes)
+				}
+			case "endpoint": {
+				const field = fieldOf(relation, test.field)
+				return {
+					name: check.name,
+					laws: check.laws,
+					verdict: (row) =>
+						firstBreak(
+							endpointsOf(hostField(row, field)).map((endpoint) => {
+								const carried = judge.carried(endpoint, test.level)
+								return carried === undefined ? "unjudged" : breaksLevel(judge, carried, test.level)
+							})
+						)
+				}
+			}
 		}
-		const native = frontend.laws.natives.find(
-			(n) => n.namespace === "constraint" && n.owner === c.owner && identifierOf(n.named) === c.name
-		)
-		if (native?.namespace !== "constraint") {
-			throw defect(`the native object of the constraint ${c.name}, which the law model names it by`)
-		}
-		return checkOf(frontend, judge, c.name, c.laws, native.object)
 	})
-	const endpoints = relation.fields.flatMap((field): ReadonlyArray<LawCheck> => {
-		const span = spanOf(baseOf(field.type))
-		if (span === undefined) {
-			return []
-		}
-		return levels(span.endpoint).flatMap((level): ReadonlyArray<LawCheck> => {
-			const contract = contractOf(level)
-			const law =
-				contract === undefined
-					? undefined
-					: frontend.laws.natives
-							.flatMap((n) =>
-								n.namespace === "domain" && n.object.name === contract.name ? n.object.lawIds : []
-							)
-							.at(0)
-			return contract === undefined || law === undefined
-				? []
-				: [
-						{
-							name: identifierOf(
-								identity.spanCheck(relation.name, field.name, {
-									kind: "endpoint",
-									contract: contract.name
-								})
-							),
-							laws: [{ law, described: contractLaw(contract.name) }],
-							verdict: (row) =>
-								firstBreak(
-									endpointsOf(hostField(row, field)).map((endpoint) => {
-										const carried = judge.carried(endpoint, level)
-										return carried === undefined ? "unjudged" : breaksLevel(judge, carried, level)
-									})
-								)
-						}
-					]
-		})
-	})
-	return [...model, ...endpoints]
-}
 
 /**
  * A law CHECK's verdict on a stated row, as PostgreSQL meets it: a row whose generated field's NOT NULL refuses it
@@ -824,7 +876,7 @@ const lawChecks = (
  */
 const checkVerdict = (
 	judge: Judge,
-	relation: RelationInfo,
+	relation: WitnessTable,
 	check: LawCheck,
 	row: JudgedRow
 ): Verdict => {
@@ -839,9 +891,9 @@ const checkVerdict = (
  * PostgreSQL reported, where it leaves one unjudged, which the row may break too.
  */
 const refusedLaws = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	judge: Judge,
-	relation: RelationInfo,
+	relation: WitnessTable,
 	refusing: LawCheck,
 	checks: ReadonlyArray<LawCheck>,
 	row: JudgedRow
@@ -855,7 +907,7 @@ const refusedLaws = (
 		: {
 				kind: "every",
 				laws: brokenLaws(
-					frontend,
+					w,
 					refusing,
 					judged.flatMap((j) => (j.verdict === "breaks" ? [j.check] : []))
 				)
@@ -864,11 +916,12 @@ const refusedLaws = (
 
 /** The laws of `broken`, a row's broken law CHECKs, and of `refusing`, each once, in the theory's order of laws. */
 const brokenLaws = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	refusing: LawCheck,
 	broken: ReadonlyArray<LawCheck>
 ): NonEmptyReadonlyArray<Law> => {
-	const order = (law: LawId): number => frontend.laws.theory.laws.findIndex((l) => l.id === law)
+	const order = (law: LawId): number =>
+		defined(w.data.lawOrder.get(law), `the place of law ${law} in the theory's order`)
 	const [head, ...rest] = concatNonEmpty(
 		broken.flatMap((c) => c.laws),
 		refusing.laws
@@ -927,7 +980,7 @@ const unbroken = (verdict: Exclude<Verdict, "breaks">): RowJudgement =>
  * breaks it (`none`).
  */
 interface RefuserJudge {
-	readonly row: (relation: RelationInfo, row: JudgedRow) => RowJudgement
+	readonly row: (relation: WitnessTable, row: JudgedRow) => RowJudgement
 	readonly none: RefusedLaws
 }
 
@@ -941,7 +994,7 @@ interface RefuserJudge {
  */
 const domainRow = (
 	judge: Judge,
-	relation: RelationInfo,
+	relation: WitnessTable,
 	uses: ReadonlyArray<DomainUse>,
 	row: JudgedRow
 ): RowJudgement => {
@@ -988,7 +1041,8 @@ const domainRow = (
 }
 
 /** How the host judges stated rows against `refuser` (RefuserJudge). */
-const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): RefuserJudge => {
+const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
+	const judge = w.judge
 	switch (refuser.kind) {
 		case "generated":
 			return {
@@ -1014,8 +1068,8 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
 				none: refusedByObject
 			}
 		case "constraint": {
-			const table = frontend.written.find((r) => r.ident === refuser.owner)
-			const checks = table === undefined ? [] : lawChecks(frontend, judge, table)
+			const table = w.data.tables.find((r) => r.ident === refuser.owner)
+			const checks = table === undefined ? [] : lawChecks(judge, table, w.codes)
 			const refusing = checks.find((c) => c.name === refuser.name)
 			if (refusing === undefined) {
 				return { row: () => unjudged, none: refusedByObject }
@@ -1029,7 +1083,7 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
 					return verdict === "breaks"
 						? {
 								kind: "breaks",
-								laws: refusedLaws(frontend, judge, relation, refusing, checks, row)
+								laws: refusedLaws(w, judge, relation, refusing, checks, row)
 							}
 						: unbroken(verdict)
 				},
@@ -1081,13 +1135,13 @@ const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): 
  * owners no read looked up), the witness is `unreported`.
  */
 export const hostJudgement = (
-	frontend: WriteFrontend,
+	w: Witnessing,
 	stated: StatedRows,
 	at: StatementAt,
 	refuser: Refuser
 ): HostJudgement => {
-	const judging = refuserJudge(frontend, judgeOf(frontend), refuser)
-	const { rows, facts } = statedFacts(frontend, stated, at)
+	const judging = refuserJudge(w, refuser)
+	const { rows, facts } = statedFacts(w, stated, at)
 	const judged = facts.map((fact) => ({ fact, judged: judging.row(fact.relation, fact.row) }))
 	for (const { fact, judged: j } of judged) {
 		if (fact.row.kind === "known" && j.kind === "breaks") {

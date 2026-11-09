@@ -27,6 +27,8 @@ import type {
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
+import { prepareBinding } from "#compiler/write/program/binding.ts"
+import { decideBinding } from "#compiler/write/program/decide.ts"
 import {
 	assert,
 	assertVariant,
@@ -292,10 +294,19 @@ const withinBounds = (
 const normalizedOf = (changes: ChangeSetValue) =>
 	Effect.gen(function* () {
 		const frontend = compiled(Small, changes)
-		const facts = yield* collectInputs(frontend, parsedOf(changes).inputs)
+		const binding = decideBinding(frontend)
+		const prepared = prepareBinding(binding, frontend.codes)
+		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,
-			result: withinBounds(normalizeChangeSet(frontend, facts, inForce(bindFrame)))
+			result: withinBounds(
+				normalizeChangeSet(
+					prepared.groups,
+					{ fill: prepared.fill, codes: frontend.codes },
+					facts,
+					inForce(bindFrame)
+				)
+			)
 		}
 	})
 

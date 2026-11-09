@@ -1,20 +1,26 @@
 import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { normalFacts, type RelationNormalizer } from "#compiler/codec/recordset.ts"
+import {
+	normalFacts,
+	positionalColumns,
+	type RelationNormalizer,
+	relationNormalizer
+} from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareTextTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
-import type { LawField } from "#compiler/ir/law.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { LawField, SpanType } from "#compiler/ir/law.ts"
 import type {
 	KeyedFacts,
 	KeyNormalized,
@@ -22,8 +28,8 @@ import type {
 	MessageBound,
 	NormalFacts
 } from "#compiler/ir/products.ts"
-import type { KeySet } from "#compiler/ir/rel.ts"
-import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import type { Heading, KeySet } from "#compiler/ir/rel.ts"
+import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
@@ -38,17 +44,20 @@ import {
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
 import type { MemberKey } from "#compiler/write/family/draw.ts"
+import { literalHost } from "#compiler/write/family/fold.ts"
 import {
 	type NestedFact,
 	type NestedRow,
 	type NestedSet,
+	type NestedWalk,
+	type NestingData,
 	nestedConflict,
 	nestedRows,
 	nestedRowsOf,
 	nestedSet
 } from "#compiler/write/family/nesting.ts"
 import type { Transport } from "#compiler/write/family/order.ts"
-import type { MemberSlot, SlotFacts, WriteFrontend } from "#compiler/write/frontend/compile.ts"
+import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
@@ -57,7 +66,7 @@ type Fact = { readonly [field: string]: unknown }
 /** A slot's normal facts (ir/products.ts NormalFacts): the distinct admitted facts, in canonical order of their
  * identities, which every placeholder of the slot encodes without normalizing them again. */
 export type NormalizedSlot = KeyNormalized & {
-	readonly slot: MemberSlot
+	readonly slot: SlotData
 	readonly count: number
 }
 
@@ -71,7 +80,7 @@ const keyNormalized = nominal<KeyedFacts, KeyNormalized>()
  * and a value its caller changed since admission its EncodingFailure, before any SQL is sent.
  */
 const keyedFacts = (
-	slot: MemberSlot,
+	slot: SlotData,
 	relation: string,
 	normal: NormalFacts
 ): Result.Result<KeyedFacts, EncodingFailure | LiteralBound> => {
@@ -155,10 +164,115 @@ export type Normalization = Normalized | KeyRefusal | GeneratedRefusal
 /** The facts each member slot of the ChangeSet value supplies: an array's, or a Stream's collected. */
 export type MemberFacts = ReadonlyMap<string, Iterable<unknown>>
 
+/** A member slot as normalization reads it (frontend/compile.ts MemberSlot): its parameter, how its members travel, and
+ * the fields its facts carry, in heading order. */
+export interface SlotData {
+	readonly slot: ParamId
+	readonly transport: "enumerated" | "stream"
+	readonly heading: Heading
+}
+
+/** A count or an end an owner's slot carries beyond its facts, at its start: a count at 0, an end at its accumulated
+ * field's start. */
+export interface StartData {
+	readonly name: string
+	readonly start:
+		| { readonly kind: "zero" }
+		| { readonly kind: "literal"; readonly type: ScalarType; readonly literal: TypedLiteral }
+}
+
+/**
+ * An enumerated input as a binding holds it (frontend/compile.ts EnumeratedInput): its members by name, and what admits
+ * their facts: a single input's `admitted`, a classed input's each of its slots' headings, and a nested input's its
+ * nesting's own row, its slot's heading.
+ */
+export type InputData =
+	| {
+			readonly kind: "single"
+			readonly act: SingleAct
+			readonly slot: SlotData
+			readonly members: NonEmptyReadonlyArray<string>
+			readonly admitted: Heading
+			readonly starts: ReadonlyArray<StartData>
+	  }
+	| {
+			readonly kind: "classed"
+			readonly serial: NonEmptyReadonlyArray<string>
+			readonly complete: SlotData
+			readonly generated: SlotData
+			readonly members: NonEmptyReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "nested"
+			readonly act: Extract<SingleAct, { readonly op: "insert" }>
+			readonly slot: SlotData
+			readonly nesting: NestingData
+			readonly reached: ReadonlyMap<string, SlotFacts>
+			readonly members: NonEmptyReadonlyArray<string>
+	  }
+
+/** A slot group as a binding holds it (frontend/compile.ts SlotGroup): its stratum, its written relation by name, its
+ * facts as the host checks them, and its inputs. */
+export interface GroupData {
+	readonly stratum: StratumAt
+	readonly relation: string
+	readonly facts: SlotFacts
+	readonly inputs: NonEmptyReadonlyArray<InputData>
+}
+
+/** A member an enumerated input reads, by its member slot's name, with what admits its facts, whose faults name it. */
+export interface InputMember<N> {
+	readonly name: string
+	readonly normalize: N
+}
+
+/** An enumerated input as normalization runs it (`InputData`), each member with the normalizer that admits its facts. */
+export type BindInput =
+	| {
+			readonly kind: "single"
+			readonly act: SingleAct
+			readonly slot: SlotData
+			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+			readonly starts: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
+	  }
+	| {
+			readonly kind: "classed"
+			readonly serial: NonEmptyReadonlyArray<string>
+			readonly complete: SlotData
+			readonly generated: SlotData
+			readonly members: NonEmptyReadonlyArray<
+				InputMember<{
+					readonly complete: RelationNormalizer
+					readonly generated: RelationNormalizer
+				}>
+			>
+	  }
+	| {
+			readonly kind: "nested"
+			readonly act: Extract<SingleAct, { readonly op: "insert" }>
+			readonly slot: SlotData
+			readonly nesting: NestingData
+			readonly reached: ReadonlyMap<string, CheckedFacts>
+			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+	  }
+
+/** A slot group as normalization runs it (`GroupData`), under the installation's codes. */
+export interface BindGroup {
+	readonly stratum: StratumAt
+	readonly relation: string
+	readonly facts: CheckedFacts
+	readonly inputs: NonEmptyReadonlyArray<BindInput>
+}
+
+/** The member slots an enumerated input fills, in the order the front end drafts them (frontend/compile.ts
+ * inputSlots): its one slot, or the complete slot and then the generated one. */
+export const inputSlotsOf = (input: InputData): NonEmptyReadonlyArray<SlotData> =>
+	input.kind === "classed" ? [input.complete, input.generated] : [input.slot]
+
 /** The member slots a compiled ChangeSet reads, each once, in the order its slot groups name them: the slots whose
  * facts `MemberFacts` must hold. */
-export const memberSlots = (frontend: WriteFrontend): ReadonlyArray<string> => [
-	...new Set(frontend.slots.flatMap((g) => g.inputs.flatMap((i) => i.members.map((m) => m.name))))
+export const memberSlots = (groups: ReadonlyArray<GroupData>): ReadonlyArray<string> => [
+	...new Set(groups.flatMap((g) => g.inputs.flatMap((i) => i.members)))
 ]
 
 /** A fact or a nested row as the same-key checks judge it: its identity, and its host values by field name. */
@@ -268,28 +382,24 @@ const collect = (
 	}
 }
 
-/** A key field of a fact, by the name the fact holds it under, and its carrier's spec. */
+/** A key field of a fact, by the name the fact holds it under, and its type. */
 export interface HostKeyField {
 	readonly field: string
-	readonly spec: CarrierSpec
+	readonly type: ScalarType
 }
 
-/** The host's same-key checks of one written relation's additions (see `normalizeChangeSet`, step 3), built with the relation:
- * each declared key's law and fields, primary key first, but a key over a generated field, which PostgreSQL computes and
- * the host never does, so the statement that writes the facts compares them there (insert/unique.ts `hostHeld`); and
- * each span candidate key whose pairs the probe leaves to the host (`checks`, `Probed`), its law, its compared fields,
- * its span field with its range carrier's spec, and the fields a conflict at it names. */
+/** The host's same-key checks of one written relation's additions (see `normalizeChangeSet`, step 3), decided with the
+ * relation: each declared key's law and fields, primary key first, but a key over a generated field, which PostgreSQL
+ * computes and the host never does, so the statement that writes the facts compares them there (insert/unique.ts
+ * `hostHeld`); and each span candidate key whose pairs the probe leaves to the host (`checks`, `Probed`), its law, its
+ * compared fields and its span field. A conflict at a span key names its compared fields, then its span field. */
 export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
 		readonly described: Law
 		readonly equal: ReadonlyArray<HostKeyField>
-		readonly span: {
-			readonly field: string
-			readonly spec: Extract<CarrierSpec, { readonly carrier: SpanCarrier }>
-		}
-		readonly witness: ReadonlyArray<HostKeyField>
+		readonly span: { readonly field: string; readonly type: SpanType }
 	}>
 }
 
@@ -305,21 +415,18 @@ export interface HostKey {
 	readonly stated: boolean
 }
 
-/** A key field of the relation's facts, by its name, with its spec under the installation's codes. */
-const hostKeyField =
-	(codes: Codebook) =>
-	(f: LawField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type, codes) })
+/** A key field of the relation's facts, by its name, with its type. */
+const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, type: f.type })
 
 /** The host checks of a relation's keys whose every field it holds (insert/unique.ts `hostHeld`) and of its span
- * candidate keys, each field's spec its type's carrier's. */
+ * candidate keys. */
 export const hostChecks = (
 	keyLaws: ReadonlyArray<{
 		readonly fields: ReadonlyArray<LawField>
 		readonly law: LawId
 		readonly described: Law
 	}>,
-	uniques: RelationUniques,
-	codes: Codebook
+	uniques: RelationUniques
 ): HostChecks =>
 	Object.freeze({
 		keys: keyLaws.flatMap((k): ReadonlyArray<HostKey> =>
@@ -328,38 +435,169 @@ export const hostChecks = (
 						Object.freeze({
 							law: k.law,
 							described: k.described,
-							fields: k.fields.map(hostKeyField(codes)),
+							fields: k.fields.map(hostKeyField),
 							stated: k.fields.every(isCarried)
 						})
 					]
 				: []
 		),
-		spans: uniques.checks.flatMap(({ object: check, pairs }) => {
-			if (check.kind !== "span" || pairs !== "host") {
-				return []
-			}
-			const span = {
-				field: check.span.name,
-				spec: { carrier: check.span.type.carrier, width: check.span.type.span.width }
-			}
-			const equal = check.equal.map(hostKeyField(codes))
-			return [
-				Object.freeze({
+		spans: uniques.checks.flatMap(({ object: check, pairs }) =>
+			check.kind !== "span" || pairs !== "host"
+				? []
+				: [
+						Object.freeze({
+							law: check.law,
+							described: check.described,
+							equal: check.equal.map(hostKeyField),
+							span: { field: check.span.name, type: check.span.type }
+						})
+					]
+		)
+	})
+
+/** A key field as the host compares facts at it: its name, and its carrier's spec under the installation's codes. */
+interface KeySpec {
+	readonly field: string
+	readonly spec: CarrierSpec
+}
+
+/** A declared key as the host compares facts at it (`HostKey`), each field by its spec. */
+interface CheckedKey {
+	readonly law: LawId
+	readonly described: Law
+	readonly fields: ReadonlyArray<KeySpec>
+	readonly stated: boolean
+}
+
+/** The host's same-key checks under the installation's codes (`HostChecks`): each key's fields by their specs, and each
+ * span key's compared fields, its span field's range spec and the fields a conflict at it names. */
+interface CheckedKeys {
+	readonly keys: ReadonlyArray<CheckedKey>
+	readonly spans: ReadonlyArray<{
+		readonly law: LawId
+		readonly described: Law
+		readonly equal: ReadonlyArray<KeySpec>
+		readonly span: {
+			readonly field: string
+			readonly spec: Extract<CarrierSpec, { readonly carrier: SpanCarrier }>
+		}
+		readonly witness: ReadonlyArray<KeySpec>
+	}>
+}
+
+/** A slot group's facts as the host checks them under the installation's codes (`SlotFacts`). */
+export interface CheckedFacts {
+	readonly name: string
+	readonly host: CheckedKeys
+}
+
+/** The host checks of a slot group's facts under the installation's codes, built once (`CheckedFacts`). */
+const checkedFacts = (facts: SlotFacts, codes: Codebook): CheckedFacts => {
+	const specOf = (f: HostKeyField): KeySpec => ({
+		field: f.field,
+		spec: carrierSpecOf(f.type, codes)
+	})
+	return Object.freeze({
+		name: facts.name,
+		host: Object.freeze({
+			keys: facts.host.keys.map((k) => ({
+				law: k.law,
+				described: k.described,
+				fields: k.fields.map(specOf),
+				stated: k.stated
+			})),
+			spans: facts.host.spans.map((check) => {
+				const equal = check.equal.map(specOf)
+				const span = {
+					field: check.span.field,
+					spec: { carrier: check.span.type.carrier, width: check.span.type.span.width }
+				}
+				return {
 					law: check.law,
 					described: check.described,
 					equal,
 					span,
 					witness: [...equal, { field: span.field, spec: span.spec }]
-				})
-			]
+				}
+			})
 		})
 	})
+}
+
+/**
+ * A slot group as normalization runs it (`BindGroup`), built once from its data under the installation's codes: each
+ * member's normalizer over the heading its facts are admitted by, the name a refusal locates being its facts' (the
+ * relation's, or a query entry's), each single input's starts as their host values, and its facts' checks by their
+ * specs.
+ */
+export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
+	const normalizer =
+		(heading: Heading) =>
+		(member: string): RelationNormalizer =>
+			relationNormalizer({
+				relation: group.facts.name,
+				columns: positionalColumns(heading),
+				slot: { kind: "slot", name: member },
+				codes
+			})
+	const startOf = (st: StartData): unknown =>
+		st.start.kind === "zero"
+			? 0n
+			: literalHost(carrierSpecOf(st.start.type, codes), st.start.literal)
+	const inputOf = (input: InputData): BindInput => {
+		switch (input.kind) {
+			case "single": {
+				const admit = normalizer(input.admitted)
+				return {
+					kind: "single",
+					act: input.act,
+					slot: input.slot,
+					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admit(name) })),
+					starts: input.starts.map((st) => ({ name: st.name, value: startOf(st) }))
+				}
+			}
+			case "classed": {
+				const complete = normalizer(input.complete.heading)
+				const generated = normalizer(input.generated.heading)
+				return {
+					kind: "classed",
+					serial: input.serial,
+					complete: input.complete,
+					generated: input.generated,
+					members: mapNonEmpty(input.members, (name) => ({
+						name,
+						normalize: { complete: complete(name), generated: generated(name) }
+					}))
+				}
+			}
+			case "nested": {
+				const admit = normalizer(input.slot.heading)
+				return {
+					kind: "nested",
+					act: input.act,
+					slot: input.slot,
+					nesting: input.nesting,
+					reached: new Map(
+						[...input.reached].map(([name, facts]) => [name, checkedFacts(facts, codes)] as const)
+					),
+					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admit(name) }))
+				}
+			}
+		}
+	}
+	return Object.freeze({
+		stratum: group.stratum,
+		relation: group.relation,
+		facts: checkedFacts(group.facts, codes),
+		inputs: mapNonEmpty(group.inputs, inputOf)
+	})
+}
 
 /** The key of a fact at `fields`: each field's canonical text, in the fields' order, so two facts share it exactly when
  * they share every field's value. The fact was admitted against the same carriers, so its values are already their
  * carriers' host values and are not admitted again. */
 const keyTextsOf =
-	(fields: ReadonlyArray<HostKeyField>) =>
+	(fields: ReadonlyArray<KeySpec>) =>
 	(fact: Fact): ReadonlyArray<string> =>
 		fields.map(({ field, spec }) => admittedText(spec, fact[field]))
 
@@ -395,24 +633,21 @@ const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
 }
 
 /** A refused fact's values at a key's fields, each narrowed by its field's carrier (`admitted`). */
-const keyValues = (
-	fact: Fact,
-	fields: ReadonlyArray<HostKeyField>
-): Readonly<Record<string, KeyHost>> =>
+const keyValues = (fact: Fact, fields: ReadonlyArray<KeySpec>): Readonly<Record<string, KeyHost>> =>
 	Object.freeze(
 		Object.fromEntries(
 			fields.map(({ field, spec }) => [field, keyHost(admitted(spec, fact[field]))])
 		)
 	)
 
-const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) => f.field)
+const names = (fields: ReadonlyArray<KeySpec>): KeySet => fields.map((f) => f.field)
 
 /** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later. */
 const conflictOf = (
 	stratum: StratumAt,
-	facts: SlotFacts,
+	facts: CheckedFacts,
 	fact: Fact,
-	fields: ReadonlyArray<HostKeyField>,
+	fields: ReadonlyArray<KeySpec>,
 	law: { readonly law: LawId; readonly described: Law }
 ): KeyRefusal => {
 	const keyFields = names(fields)
@@ -434,7 +669,7 @@ const conflictOf = (
 
 /** The refusal of two nested facts or rows of `facts`'s relation at its primary key, the key a nested set holds them
  * by, `fact` the later. */
-const primaryConflict = (stratum: StratumAt, facts: SlotFacts, fact: NestedFact): KeyRefusal => {
+const primaryConflict = (stratum: StratumAt, facts: CheckedFacts, fact: NestedFact): KeyRefusal => {
 	const [primary] = facts.host.keys
 	if (primary === undefined) {
 		throw defect(`the primary key of ${facts.name}, which a nested write keys its rows by`)
@@ -448,9 +683,9 @@ const primaryConflict = (stratum: StratumAt, facts: SlotFacts, fact: NestedFact)
  */
 const keyConflictIn = <I>(
 	stratum: StratumAt,
-	facts: SlotFacts,
+	facts: CheckedFacts,
 	order: IdentityOrder<I>,
-	onKey: (key: HostKey) => ReadonlyArray<Entry<I>>
+	onKey: (key: CheckedKey) => ReadonlyArray<Entry<I>>
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
@@ -476,7 +711,7 @@ const keyConflictIn = <I>(
  */
 const sameKey = <I>(
 	stratum: StratumAt,
-	facts: SlotFacts,
+	facts: CheckedFacts,
 	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
 	complete: ReadonlyArray<Entry<I>>,
@@ -540,10 +775,10 @@ type AdmittedGroup =
 	| {
 			readonly kind: "admitted"
 			readonly stratum: StratumAt
-			readonly relation: SlotFacts
+			readonly relation: CheckedFacts
 			readonly serial: ReadonlyArray<string>
 			readonly sets: GroupSets
-			readonly slotOf: ReadonlyMap<keyof GroupSets, MemberSlot>
+			readonly slotOf: ReadonlyMap<keyof GroupSets, SlotData>
 	  }
 	| GeneratedRefusal
 
@@ -595,11 +830,14 @@ type AdmittedGroup =
  *    the put's, so it leaves the insert. Deleting an absent fact, or one a put displaces anyway, stays a
  *    request: the statement decides it against the stored state.
  *
+ * A nested write's facts are filled by `walk`, the write's filler (nesting.ts NestedWalk).
+ *
  * The result is each slot's distinct admitted facts in canonical order, the facts the statements read, which the codec
  * encodes. A described member is not normalized here: its DISTINCT and same-key check are in the
  * statement that reads it. */
 export const normalizeChangeSet = (
-	frontend: WriteFrontend,
+	groups: ReadonlyArray<BindGroup>,
+	walk: NestedWalk,
 	inputs: MemberFacts,
 	transport: Transport
 ): Result.Result<Normalization, EncodingFailure | MessageBound | LiteralBound> => {
@@ -610,7 +848,7 @@ export const normalizeChangeSet = (
 	 * copies no value (`keyedFacts`).
 	 */
 	const normals: Array<{
-		readonly slot: MemberSlot
+		readonly slot: SlotData
 		readonly relation: string
 		readonly normal: NormalFacts
 	}> = []
@@ -618,16 +856,16 @@ export const normalizeChangeSet = (
 	const book = new DigestBook()
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
 	const nested = new Map<StratumAt, NestedSet>()
-	const reached = new Map<StratumAt, Map<string, SlotFacts>>()
-	const groups: Array<AdmittedGroup> = []
-	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
+	const reached = new Map<StratumAt, Map<string, CheckedFacts>>()
+	const admittedGroups: Array<AdmittedGroup> = []
+	for (const { stratum, facts: relation, inputs: enumerated } of groups) {
 		const sets: GroupSets = {
 			insert: new TupleMap(),
 			generated: new TupleMap(),
 			put: new TupleMap(),
 			delete: new TupleMap()
 		}
-		const slotOf = new Map<keyof GroupSets, MemberSlot>()
+		const slotOf = new Map<keyof GroupSets, SlotData>()
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
 		 * input after it is admitted. */
 		let stopped: GeneratedRefusal | undefined
@@ -640,9 +878,9 @@ export const normalizeChangeSet = (
 					slotOf.set("insert", input.slot)
 					const set = nested.get(stratum) ?? nestedSet()
 					nested.set(stratum, set)
-					const relations = reached.get(stratum) ?? new Map<string, SlotFacts>()
+					const relations = reached.get(stratum) ?? new Map<string, CheckedFacts>()
 					reached.set(stratum, relations)
-					relations.set(input.nesting.relation.name, relation)
+					relations.set(input.nesting.relation, relation)
 					for (const [name, facts] of input.reached) {
 						relations.set(name, facts)
 					}
@@ -651,7 +889,7 @@ export const normalizeChangeSet = (
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const rows = nestedRows(input.nesting, member.name, given, set, book, transport)
+						const rows = nestedRows(input.nesting, walk, member.name, given, set, book, transport)
 						if (!rows.ok) {
 							if (rows.error._tag !== "GeneratedNull") {
 								return Result.err(rows.error)
@@ -737,9 +975,9 @@ export const normalizeChangeSet = (
 				}
 			}
 		}
-		groups.push(stopped ?? { kind: "admitted", stratum, relation, serial, sets, slotOf })
+		admittedGroups.push(stopped ?? { kind: "admitted", stratum, relation, serial, sets, slotOf })
 	}
-	for (const group of groups) {
+	for (const group of admittedGroups) {
 		if (group.kind === "generatedNull") {
 			return Result.ok(group)
 		}
@@ -773,7 +1011,7 @@ export const normalizeChangeSet = (
 	 * set holds once at its key may still share another declared key with another row. */
 	const rows = new Map<StratumAt, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>()
 	for (const [stratum, set] of nested) {
-		const factsOf = (name: string): SlotFacts =>
+		const factsOf = (name: string): CheckedFacts =>
 			defined(
 				reached.get(stratum)?.get(name),
 				`the facts of ${name}, a relation a nested write writes`
