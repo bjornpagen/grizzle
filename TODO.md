@@ -21,8 +21,9 @@ post-beta swarm's fixes for the next release.
     rule. A shared judgeScan is drafted: ~/.cache/grizzle-release/INDEXSERVE/worldW2.patch (against c0a7b1c7) and
     msgW.txt. Separately, with the DocsLevel base a role's view read fails `column "user" does not exist`
     (TEST_SEED=1723739030, replay in the lane's report).
-  - test/pg/api-errors/apply-errors: a planted parameter's EncodingFailure has place Fact, expected Slot (fails before
-    8e6635ee too).
+  - test/pg/api-errors/apply-errors: the test passes the whole fact, its key included, as the parameters argument,
+    which readParams has refused whole as factShape since e9227afd (correctly). A verified test-only fix is in
+    ~/.cache/grizzle-release/APIERR/APIERR.patch with commit-msg.txt; apply with --3way and re-run root oxlint.
   - Tests cull: the deferred test-only exports (CompileReasonTag, TransientTag, queryValueDesc, continued,
     ReaderValue), real test-only code in production, fallow dupes in test/, @internal tags in tests, the W6.Q10 title,
     and pg/fin/plans and pg/substrate/tree still checking generic plans of named statements that no longer exist.
