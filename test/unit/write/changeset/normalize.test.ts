@@ -15,6 +15,7 @@ import type { CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
@@ -90,6 +91,11 @@ const categorized = (
 	}
 }
 
+/** A case's strata that hold a member, each at its position among them: the strata its write runs, which a ChangeSet
+ * numbers its slot groups by (StratumAt), an empty stratum being the identity it drops. */
+const occupiedOf = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
+	strataAt(Arr.filter(strata, (members) => members.length > 0))
+
 /** The facts of the slot of a category on a relation in a stratum: a put's, a deletion's, an insertion's of complete
  * facts, or a generated addition's.
  *
@@ -97,7 +103,7 @@ const categorized = (
 const slotFacts = (
 	n: Extract<Normalization, { readonly kind: "normalized" }>,
 	frontend: WriteFrontend,
-	stratum: number,
+	stratum: StratumAt,
 	category: Category,
 	relationName: string
 ) => {
@@ -328,7 +334,7 @@ const slotInvariants = (
 	result: Extract<Normalization, { readonly kind: "normalized" }>,
 	strata: ReadonlyArray<ReadonlyArray<Member>>
 ): void => {
-	for (const [s, ms] of strata.entries()) {
+	for (const [s, ms] of occupiedOf(strata)) {
 		const raw = (op: string): ReadonlySet<string> =>
 			new Set(
 				Arr.flatMap(ms, (m: Member) =>
@@ -482,7 +488,7 @@ const normalizes = (
 			c.note("a later stratum restates an earlier stratum's key")
 		}
 		slotInvariants(frontend, normalization, strata)
-		const rebuilt = Arr.map(strata, (_, s) =>
+		const rebuilt = Arr.map(occupiedOf(strata), ([s]) =>
 			Arr.reduce(
 				Arr.filter(frontend.slots, (g) => g.stratum === s),
 				OracleChangeSet.empty(),
@@ -492,12 +498,11 @@ const normalizes = (
 					)
 			)
 		)
-		const [first, ...rest] = rebuilt
 		sameOutcome(
 			applyAddWins(
 				oracleSchema,
 				state,
-				OracleChangeSet.sequence(defined(first, "a first stratum"), ...argumentsOf(rest)),
+				OracleChangeSet.sequence(OracleChangeSet.empty(), ...argumentsOf(rebuilt)),
 				{ kind: "sequences" }
 			),
 			expected
