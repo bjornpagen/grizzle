@@ -139,6 +139,7 @@ export {
 	type SchemaArtifacts,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
+export { type SchemaContent, sameLevel } from "#compiler/schema/levels.ts"
 export {
 	levelChain,
 	own,

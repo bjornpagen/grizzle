@@ -41,7 +41,12 @@ import {
 } from "#compiler/physical/install/plan.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { contentOfDesc, isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
+import {
+	contentOfDesc,
+	isLevelOf,
+	type SchemaContent,
+	sameRoleLevel
+} from "#compiler/schema/levels.ts"
 import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -232,7 +237,7 @@ const levelOf = (carried: SchemaInput, named: SchemaInput): Level => {
 		return carried.kind !== "role" && isLevelOf(carried.content, named.content) ? level : none
 	}
 	if (carried.kind === "role") {
-		return carried.level.identity === named.level.identity ? level : none
+		return sameRoleLevel(carried.level, named.level) ? level : none
 	}
 	if (!isLevelOf(carried.content, named.level.base)) {
 		return none

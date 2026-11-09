@@ -10,7 +10,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { isRecord } from "#compiler/core/record.ts"
+import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareQuoted } from "#compiler/core/text.ts"
 
@@ -72,6 +72,73 @@ export const everyProperty: EncodeOptions = { omit: () => false }
 
 /** Every property but the SourceLocs: the text of the value's semantic identity. */
 export const withoutSourceLocs: EncodeOptions = { omit: omitSourceLocs }
+
+/** A record's members as withoutSourceLocs' text holds them: each one stated, read as memberOf reads it, and not omitted. */
+const identityMembers = (record: Readonly<Record<string, unknown>>): Map<string, unknown> => {
+	const members = new Map<string, unknown>()
+	for (const key of Object.keys(record)) {
+		const member = memberOf(record[key])
+		if (member !== undefined && !omitSourceLocs(key, member, [])) {
+			members.set(key, member)
+		}
+	}
+	return members
+}
+
+/**
+ * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
+ * one text, read by walking both at once and writing neither. A value implementing the protocol is its tag and payload;
+ * a list its items in order; a record its members by key in any order, a member the text leaves out left out here; a
+ * number its value, -0 being 0; any other scalar itself. One value met twice is one value at once, so a value is read
+ * only where it differs from the other. The pairs still to compare wait on a stack on the heap, so no depth of value
+ * deepens the call stack.
+ */
+export const sameContent = (a: unknown, b: unknown): boolean => {
+	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
+	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
+		const [x, y] = pair
+		if (x === y) {
+			continue
+		}
+		if (!isRecord(x) || !isRecord(y)) {
+			return false
+		}
+		const taggedX = taggedValueOf(x)
+		const taggedY = taggedValueOf(y)
+		if (taggedX !== undefined || taggedY !== undefined) {
+			if (
+				taggedX === undefined ||
+				taggedY === undefined ||
+				taggedX.tag !== taggedY.tag ||
+				taggedX.payload !== taggedY.payload
+			) {
+				return false
+			}
+			continue
+		}
+		if (isList(x) || isList(y)) {
+			if (!isList(x) || !isList(y) || x.length !== y.length) {
+				return false
+			}
+			for (const [i, item] of x.entries()) {
+				pending.push([item, y[i]])
+			}
+			continue
+		}
+		const membersX = identityMembers(x)
+		const membersY = identityMembers(y)
+		if (membersX.size !== membersY.size) {
+			return false
+		}
+		for (const [key, member] of membersX) {
+			if (!membersY.has(key)) {
+				return false
+			}
+			pending.push([member, membersY.get(key)])
+		}
+	}
+	return true
+}
 
 /** JSON text, admitted as an unknown value for the structural decode that follows; undefined for text that is not JSON. */
 const parseJsonText = (text: string): Result.Result<unknown, undefined> => {

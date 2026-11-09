@@ -32,7 +32,6 @@ import type * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
 	type AdmittedClosedRelation,
-	type ContentDigest,
 	type ContextDesc,
 	decodeDesc,
 	type FieldDesc,
@@ -44,17 +43,12 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Roster as TypedRoster, ScalarType } from "#compiler/ir/scalar.ts"
 import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/term.ts"
 import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
-import type {
-	DerivedDraft,
-	OrdinaryRelationDesc,
-	RosterContent,
-	RosterDesc
-} from "#compiler/schema/relation.ts"
+import type { DerivedDraft, OrdinaryRelationDesc, RosterDesc } from "#compiler/schema/relation.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -197,31 +191,32 @@ export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTypin
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
- * and the content it was built with, read once at its build: a relation's content digest, a roster's beside the roster
- * it types (relation.ts RosterContent), a statement's canonical form and text (own.ts CanonicalStatement), a mirrors'
- * its two containments', a schema's content (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing
- * for any other kind. A mirrors is sugar, owned as an expansion, the two containments it states, never as a statement.
+ * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts closed), a
+ * statement's canonical form and text (own.ts CanonicalStatement), a mirrors' its two containments', a schema's content
+ * (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity
+ * is its Description, compared by structure (core/canonical.ts sameContent). A mirrors is sugar, owned as an expansion,
+ * the two containments it states, never as a statement.
  */
 interface OwnedKinds {
 	readonly relation: {
 		readonly value: AnyRelation
 		readonly desc: OrdinaryRelationDesc
-		readonly content: ContentDigest
+		readonly content: undefined
 	}
 	readonly closed: {
 		readonly value: AnyRoster
 		readonly desc: RosterDesc
-		readonly content: RosterContent
+		readonly content: TypedRoster | undefined
 	}
 	readonly closedRelation: {
 		readonly value: AnyClosedRelation
 		readonly desc: AdmittedClosedRelation
-		readonly content: ContentDigest
+		readonly content: undefined
 	}
 	readonly derived: {
 		readonly value: AnyDerived
 		readonly desc: DerivedDraft
-		readonly content: ContentDigest
+		readonly content: undefined
 	}
 	readonly statement: {
 		readonly value: Exclude<Statement, MirrorsBase>

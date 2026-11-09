@@ -1,5 +1,5 @@
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
+import { isLevelOf, type SchemaContent, sameRoleLevel } from "#compiler/schema/levels.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -22,13 +22,13 @@ export type Level =
  * A schema records the schema it extends, so its levels are itself and every schema below it (`LevelsOf`). A rule over S
  * matches a query written over any level of S, and a ChangeSet over S accepts members and read-backs written over any
  * level of S. A level is its content, not its name, by the one level check every entry point shares, `isLevelOf`; two
- * roles are one level when their identities are. */
+ * roles are one level when they are one Description over one base (`sameRoleLevel`). */
 export const isLevelOver = (lower: Level, higher: Level): boolean => {
 	if (higher.kind === "schema") {
 		return lower.kind === "schema" && isLevelOf(lower.content, higher.content)
 	}
 	if (lower.kind === "role") {
-		return lower.identity === higher.identity
+		return sameRoleLevel(lower, higher)
 	}
 	return higher.whole !== undefined && isLevelOf(lower.content, higher.whole)
 }

@@ -22,8 +22,10 @@ import {
 	type Owned,
 	type OwnedLogin,
 	parseBuiltSchema,
+	type SchemaContent,
 	type SchemaDesc,
 	parseDeclaredName,
+	sameLevel,
 	schemaInstallation,
 	SourceLoc
 } from "#compiler/plan/common.ts"
@@ -46,7 +48,7 @@ import {
  *   PostgreSQL schema names its directory `<migrations>/<root>/` holding its snapshot.json and its folders. Two listed
  *   schemas over one root, one a level of the other among them, are refused.
  * - `logins`: the login(...) values whose roles the migrations install, each over a level of a configured schema (its
- *   base's content digest is that level's), every login and role of one installation under a name of its own, a login
+ *   base's content is that level's), every login and role of one installation under a name of its own, a login
  *   over a schema no configured installation holds refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
@@ -123,12 +125,12 @@ export interface ResolvedConfig {
 const rootOf = (desc: SchemaDesc): SchemaDesc =>
 	desc.extends === undefined ? desc : rootOf(desc.extends)
 
-/** Each level of a built schema, its declared name and its content's digest, the schema itself first: a schema's
- * content records the level below it as its description does (schema/levels.ts SchemaContent). */
+/** Each level of a built schema, its declared name and its content, the schema itself first: a schema's content records
+ * the level below it as its description does (schema/levels.ts SchemaContent). */
 const levelsOf = (
 	built: Pick<BuiltSchema, "desc" | "content">
-): ReadonlyArray<{ readonly name: string; readonly digest: string }> => [
-	{ name: built.desc.name, digest: built.content.digest },
+): ReadonlyArray<{ readonly name: string; readonly content: SchemaContent }> => [
+	{ name: built.desc.name, content: built.content },
 	...(built.desc.extends === undefined || built.content.below === undefined
 		? []
 		: levelsOf({ desc: built.desc.extends, content: built.content.below }))
@@ -196,7 +198,7 @@ export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledS
 						Result.mapError(
 							Result.map(
 								Result.flatMap(
-									l.login.base.content.digest === schema.built.content.digest
+									sameLevel(l.login.base.content, schema.built.content)
 										? Result.succeed(owned)
 										: toResult(ownBuilt(l.login.base)),
 									(base) => toResult(ownLoginOver(l.login, base))
@@ -309,7 +311,7 @@ const resolveConfigWith = (
 		if (
 			!Arr.some(
 				levelsOf(entry.built),
-				(level) => level.name === login.base.name && level.digest === read.base.content.digest
+				(level) => level.name === login.base.name && sameLevel(level.content, read.base.content)
 			)
 		) {
 			return Result.fail(

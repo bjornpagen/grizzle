@@ -2,7 +2,6 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import {
 	builtNode,
-	contentDigest,
 	type FieldDesc,
 	type RelationDesc,
 	type SchemaDesc,
@@ -10,7 +9,7 @@ import {
 	type StatementDesc,
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
-import { type LevelRelation, levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
+import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
@@ -22,7 +21,7 @@ import {
 	ownValue,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { derivedDraftOf, relationContentOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
+import { derivedDraftOf, relationDescOf, rosterHandlesOf } from "#compiler/schema/relation.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type {
@@ -170,7 +169,6 @@ export const admitSchema = (
 		throw malformed(label, "a record of relations and closed relations")
 	}
 	const descs: Array<SchemaRelationDesc> = []
-	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		if (derivedDraftOf(value) !== undefined) {
 			throw malformed(
@@ -178,9 +176,7 @@ export const admitSchema = (
 				"a relation or closed relation: a derived relation is declared in schema.extend"
 			)
 		}
-		const relation = relationContentOf(value, `${label} relation ${key}`)
-		descs.push(underOwnName(label, key, relation.desc))
-		digests.push({ name: key, digest: relation.digest })
+		descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
 	}
 	heldToRosters(label, relations, new Map(descs.map((d) => [d.name, d] as const)))
 	const stmts = statementList(statementValues(statements, label), label)
@@ -194,7 +190,7 @@ export const admitSchema = (
 	return {
 		desc,
 		content: levelContent(
-			digests,
+			descs.map((d) => ({ name: d.name, desc: d })),
 			stmts.map((s) => s.canonical),
 			undefined
 		)
@@ -266,13 +262,10 @@ const admitExtend = (
 	}
 	const below = levelRelations(baseDesc)
 	const descs: Array<SchemaRelationDesc> = []
-	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		const draft = derivedDraftOf(value)
 		if (draft === undefined) {
-			const relation = relationContentOf(value, `${label} relation ${key}`)
-			descs.push(underOwnName(label, key, relation.desc))
-			digests.push({ name: key, digest: relation.digest })
+			descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
 			continue
 		}
 		let level = 1
@@ -312,14 +305,15 @@ const admitExtend = (
 		extends: baseDesc,
 		loc: builderLoc(label, [levelName])
 	})
-	/** A derived relation's description is the level's own, digested as the level holds it. */
-	const derived = desc.relations.flatMap((r) =>
-		r.kind === "derived" ? [{ name: r.name, digest: contentDigest("relation", r) }] : []
-	)
+	/** A derived relation's description is the level's own, as the level holds it; any other its value's. */
+	const declared = [
+		...descs.flatMap((d) => (d.kind === "derived" ? [] : [{ name: d.name, desc: d }])),
+		...desc.relations.flatMap((r) => (r.kind === "derived" ? [{ name: r.name, desc: r }] : []))
+	]
 	return {
 		desc,
 		content: levelContent(
-			[...digests, ...derived],
+			declared,
 			stmts.map((s) => s.canonical),
 			baseEntry.content
 		)

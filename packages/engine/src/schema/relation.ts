@@ -11,8 +11,6 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
-	type ContentDigest,
-	contentDigest,
 	decodeDesc,
 	type DerivedStorage,
 	type ExprDesc,
@@ -99,17 +97,6 @@ import type { SlotField } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
 export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
-
-/**
- * What closed(name, handles) builds a roster with: its content digest, and the roster its admitted handles type, its
- * handles' digest taken once (ir/scalar.ts Roster), which every closed id over it reads (closedIdOf). The roster is
- * absent when the name is no declared name, which every reader of the roster refuses before it resolves one
- * (scalar/registry.ts rosterAt).
- */
-export interface RosterContent {
-	readonly digest: ContentDigest
-	readonly typed: IrRoster | undefined
-}
 
 /**
  * What derived records until schema.extend places it: the definition and the relations it reads. The Description
@@ -547,7 +534,7 @@ export const relation = <
 		},
 		"relation",
 		desc,
-		contentDigest("relation", desc)
+		undefined
 	)
 }
 
@@ -581,7 +568,7 @@ export const generatedRelation = <
 		},
 		"relation",
 		admitted.desc,
-		contentDigest("relation", admitted.desc)
+		undefined
 	)
 }
 
@@ -630,7 +617,9 @@ export const admitRoster = (
 /**
  * closed(name, handles): a roster. The id of every fact is the roster's closed id column, over the caller's handles,
  * which admission read; a fact is the handle under id. `handle(member)` is the member as a typed constant
- * (scalar/compute/builders.ts handleTerm).
+ * (scalar/compute/builders.ts handleTerm). Its owned entry holds the roster its admitted handles type, their digest
+ * taken once (ir/scalar.ts Roster), which every closed id over it reads (closedIdOf): none when the name is no declared
+ * name, which every reader of the roster refuses before it resolves one (scalar/registry.ts rosterAt).
  */
 export const closed = <
 	const Name extends string,
@@ -659,7 +648,7 @@ export const closed = <
 		},
 		"closed",
 		desc,
-		{ digest: contentDigest("relation", desc), typed }
+		typed
 	)
 	return value
 }
@@ -672,7 +661,7 @@ export const closedIdOf = (value: unknown): ClosedIdParts => {
 	const built = ownedEntry(value, "closed")
 	return built === undefined
 		? closedIdParts(value)
-		: builtRosterParts(built.desc.name, built.desc.handles, built.content.typed)
+		: builtRosterParts(built.desc.name, built.desc.handles, built.content)
 }
 
 /**
@@ -898,7 +887,7 @@ export const closedRelation = <
 		},
 		"closedRelation",
 		admitted.desc,
-		contentDigest("relation", admitted.desc)
+		undefined
 	)
 }
 
@@ -993,7 +982,7 @@ const derivedOf =
 			{ ...builtMark, kind: "derived", name, definition, heading, storage, fact: record(heading) },
 			"derived",
 			draft,
-			contentDigest("relation", draft)
+			undefined
 		)
 	}
 
@@ -1068,29 +1057,6 @@ export const finOf = (
 
 export const derivedDraftOf = (value: unknown): DerivedDraft | undefined =>
 	ownedDesc(value, "derived")
-
-/**
- * A relation, roster or closed relation of a schema's record, with its content digest: a built value's, which it carries
- * from its build, or a JavaScript look-alike's, admitted here (relationDescOf) and digested once, where it enters.
- */
-export const relationContentOf = (
-	value: unknown,
-	label: string
-): {
-	readonly desc: OrdinaryRelationDesc | RosterDesc | AdmittedClosedRelation
-	readonly digest: ContentDigest
-} => {
-	const roster = ownedEntry(value, "closed")
-	if (roster !== undefined) {
-		return { desc: roster.desc, digest: roster.content.digest }
-	}
-	const owned = ownedEntry(value, "relation") ?? ownedEntry(value, "closedRelation")
-	if (owned !== undefined) {
-		return { desc: owned.desc, digest: owned.content }
-	}
-	const desc = relationDescOf(value, label)
-	return { desc, digest: contentDigest("relation", desc) }
-}
 
 /**
  * The name and kind of anything a statement may name. A relation, a roster or a closed relation has a known heading:

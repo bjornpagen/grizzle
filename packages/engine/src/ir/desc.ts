@@ -2,14 +2,12 @@ import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
-	canonicalFormat,
 	type EncodeOptions,
 	encode,
 	encodeOver,
 	everyProperty,
 	type Json,
 	omitSourceLocs,
-	ownedText,
 	toJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -23,7 +21,6 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -2472,29 +2469,3 @@ export const descTextOver = (
 	desc: unknown,
 	written: ReadonlyMap<string, string>
 ): Result.Result<string, CompileError> => encodeOver(desc, identityOptions, written)
-
-declare const contentDigestBrand: unique symbol
-
-/**
- * The digest of a description's content, minted only by contentDigest: SHA-256 over its canonical text without source
- * locations, under the domain of what it digests, so two values of one content and domain share it and no others do.
- */
-export type ContentDigest = string & { readonly [contentDigestBrand]: true }
-
-/**
- * What a content digest digests: a relation's description, one level of a schema over the level below it
- * (schema/levels.ts SchemaContent), or a role over its base.
- */
-type ContentDomain = "relation" | "schema-level" | "role"
-
-const mintContentDigest = nominal<string, ContentDigest>()
-
-/**
- * The content digest of a value the builders made, which encodes by construction: the bytes hashed are
- * "<canonical format>\n<domain>\n<canonical text>", the text without source locations. Each value's is computed once,
- * when it is built, and every identity comparison of built values compares these digests.
- */
-export const contentDigest = (domain: ContentDomain, value: unknown): ContentDigest =>
-	mintContentDigest(
-		sha256Hex(`${canonicalFormat}\n${domain}\n${ownedText(value, identityOptions)}`)
-	)

@@ -50,9 +50,9 @@ import { upTo } from "#test/support/up-to.ts"
  * command and layer over it make to the schema's encoding and to its compilation, read off V8's call counts
  * (test/support/kernel/calls.ts).
  *
- * - A schema value's content is encoded once, when schema(...) builds it (schema/levels.ts levelContent, the level's
- *   one digest); roles, workloads and the login over it, and every level check they and every command and layer make,
- *   encode it again never, nor read it again from a description (contentOfDesc).
+ * - A schema value's content is read once, when schema(...) builds it (schema/levels.ts levelContent, its relations'
+ *   descriptions by name, compared by structure); roles, workloads and the login over it, and every level check they
+ *   and every command and layer make, read it again never from a description (contentOfDesc).
  * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
  *   the level's content: schema(...) reads none, and `grizzle generate`, `grizzle check` and DbLayer.make own the
  *   schema once, reading the texts its content carries (schema/own.ts ownBuilt), none again; generate and check hash
@@ -81,8 +81,8 @@ const linear = 2.5
 
 /**
  * The functions whose calls the guard counts: each the one entry of a whole-schema pass, called a handful of times, so
- * no optimizing compiler folds one call into another. The canonical encoder's own calls are no such entry: an encoding
- * of a schema's content is levelContent's, a content read again from a description is contentOfDesc's, a
+ * no optimizing compiler folds one call into another. The canonical encoder's own calls are no such entry: a schema's
+ * content is levelContent's, a content read again from a description is contentOfDesc's, a
  * description's identity text is descText's, which no builder over a built schema reads, and a literal held to its
  * type's base is literalProblem's, which no closed cell meets at compile.
  */
