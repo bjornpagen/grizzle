@@ -167,7 +167,7 @@ const keptCase: UntypedCase = {
 export const untypedCases: ReadonlyArray<UntypedCase> = [...boxCases, keptCase]
 
 /** The parameter a case's call is refused at: the first argument that holds a member typed `any`, none if none does. */
-export const refusedAt = (c: UntypedCase): Option.Option<number> =>
+export const untypedRefusalAt = (c: UntypedCase): Option.Option<number> =>
 	Arr.head(Arr.sort(c.holdingAny, Order.Number))
 
 const memberRefusal: TypeRefusal =
@@ -192,7 +192,7 @@ const keptOf = (builder: BuilderName, value: string): ReadonlyArray<string> => {
 
 const caseBlock = (c: UntypedCase, index: number): string => {
 	const value = `c${index}`
-	const at = refusedAt(c)
+	const at = untypedRefusalAt(c)
 	const lines = Arr.map(c.params(`n${index}`), (param, p) =>
 		Option.contains(at, p)
 			? `\t// @ts-expect-error -- TS2345 refusal: ${memberRefusal}\n\t${param}`

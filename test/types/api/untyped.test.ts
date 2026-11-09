@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { refusedAt, untypedCases } from "#test/types/api/untyped.ts"
+import { untypedRefusalAt, untypedCases } from "#test/types/api/untyped.ts"
 import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })(
@@ -15,7 +15,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 					const { expected, actual } = yield* checked("api/untyped")
 					assert.equal(
 						expected.length,
-						Arr.filter(untypedCases, (c) => Option.isSome(refusedAt(c))).length
+						Arr.filter(untypedCases, (c) => Option.isSome(untypedRefusalAt(c))).length
 					)
 					assert.deepEqual(actual, expected)
 				})
