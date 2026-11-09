@@ -205,14 +205,14 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
 			}
 			const step = s.step
-			for (const { sql, params, part } of executions.value) {
+			for (const { sql, params: sent, part } of executions.value) {
 				statements.push(
 					(step.kind === "carrier" && step.step === "create") ||
 						step.kind === "analyze" ||
 						part.kind === "create" ||
 						part.kind === "analyze"
-						? { statement: { sql, params }, planned: false }
-						: planned(sql, params)
+						? { statement: { sql, params: sent }, planned: false }
+						: planned(sql, sent)
 				)
 			}
 		}
