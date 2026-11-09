@@ -2,9 +2,12 @@
  * Two imports of unrelated packages whose Entry bytes pass one Bind message (write/program/staged.ts), in overlapping
  * SERIALIZABLE transactions, every interleaving: each is pantry's import shape, a fresh immutable Package with its
  * ordered Entry family of bytes nested in its insert, its rows staged through a carrier under a planted message bound
- * (Session.messageMaxBytes, which both the flight's builder and the cut read). A direct gate inserts the first import's
- * package key and rolls back, so in an interleaving where the gate's insert precedes the first import, that import waits
- * on the key inside its transaction while the second runs and commits, and both transactions overlap.
+ * (Session.messageMaxBytes, which both the flight's builder and the cut read), the longest Parse message of the
+ * member's statements (test/support/staged.ts textBound), which every entry passes beside two others; each is a call
+ * of the served login's `importPackage` member with its package's facts on a served writer of its own. A direct gate
+ * inserts the first import's package key and rolls back, so in an interleaving where the gate's insert precedes the
+ * first import, that import waits on the key inside its transaction while the second runs and commits, and both
+ * transactions overlap.
  *
  * Stored beside them are enough packages, each with one entry, keyed across the uuid range, that the two imports' keys
  * fall on index pages of their own at either end of it, so neither import's reads, made by key, meet the other's writes.
@@ -14,26 +17,27 @@
  *   and entries by key, locking only the index pages and rows they read. Some interleaving overlaps them (the first
  *   import waits on the gate's key while the second commits).
  *
- * Planted: the staged carriers' ANALYZE dropped (its text replaced by an empty SELECT), the planner reads a carrier of
- * one heap page as ten pages of rows, scans the stored relations whole, and the relation-level SIRead locks of those
- * scans make the overlapping imports a serialization conflict: one of them fails with 40001, so the exploration fails,
- * which the second test requires. If it does not, the ANALYZE is not what keeps the imports apart.
+ * Planted, in the served write's own data (its loaded statements' staged forms): the staged carriers' ANALYZE dropped
+ * (its text replaced by an empty SELECT), the planner reads a carrier of one heap page as ten pages of rows, scans the
+ * stored relations whole, and the relation-level SIRead locks of those scans make the overlapping imports a
+ * serialization conflict: one of them fails with 40001, so the exploration fails, which the second test requires. If it
+ * does not, the ANALYZE is not what keeps the imports apart.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
-import { runApplication } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { memberOps } from "#adapter/db/handles.ts"
+import { openServed } from "#adapter/db/served.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
-import { compiledWrite } from "#adapter/served/forms.ts"
+import { servedSessions } from "#adapter/pool/served.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { keyTextBytes, str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -51,9 +55,11 @@ import {
 } from "#test/support/schedules/interleave.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
 import { testSql } from "#test/support/sql.ts"
+import { textBound } from "#test/support/staged.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const EntryPath = str.regex("^.*$", "su")
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
+const EntryPath = str.bytes(keyTextBytes([uuid]), str.regex("^.*$", "su"))
 const Package = relation("Package", { id: uuid, entries: drawn(natural), name: pg.int4 }, ["id"])
 const Entry = relation(
 	"Entry",
@@ -61,7 +67,11 @@ const Entry = relation(
 	["package", "at"]
 )
 
-/** Pantry's import shape under a schema name, with a role `app` the imports open and a role `direct` the gate's. */
+/**
+ * Pantry's import shape under a schema name, with a role `app` the imports open, whose login's workload holds the empty
+ * ChangeSet a writer's first call applies and the insert of the packages, their entries nested, each call gives; and a
+ * role `direct` the gate's.
+ */
 const imports = (name: string) => {
 	const relations = { Package, Entry }
 	const base = schema(name, relations, [
@@ -74,16 +84,20 @@ const imports = (name: string) => {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app]),
+		server: login(base, "server", [app], {
+			workload: [
+				workload(app, {
+					noop: ChangeSet.empty(base),
+					importPackage: ChangeSet.empty(base).insert(Package, [])
+				})
+			]
+		}),
 		psql: login(base, "psql", [direct])
 	}
 }
 
 /** The one refusal the planted bug may meet: a serialization failure of one import. */
 const serializationFailure: TransientTag = "SerializationFailure"
-
-/** The message bound both imports' sessions hold: three entries of 1,800 bytes pass it, so every import stages. */
-const limit = 4_000
 
 /** The stored packages beside the imports, each with one entry, keyed across the uuid range. */
 const stored = 3_000
@@ -101,82 +115,142 @@ const uuidAt = (n: number, of: number): Key => {
 const first: Key = "00000000-0000-4000-8000-ffffffffffff"
 const second: Key = "ffffffff-ffff-4fff-bfff-ffffffffffff"
 
-/** One import: its package with three entries of 1,800 bytes, which pass the bound together. */
-const importOf = (rig: { readonly worlds: ReturnType<typeof imports> }, id: Key, name: number) =>
-	ChangeSet.empty(rig.worlds.schema).insert(Package, [
-		{
-			id,
-			name,
-			entries: Arr.makeBy(3, (e) => ({
-				path: `entry-${e}`,
-				content: Uint8Array.from({ length: 1_800 }, (_, i) => (name * 7 + e * 31 + i) % 251)
-			}))
-		}
-	])
+/**
+ * One import's facts under the message bound `limit`: its package with three entries of three fifths of the bound each,
+ * which a fill carries alone and which pass the bound together, so every import stages.
+ */
+const importOf = (id: Key, name: number, limit: number) => ({
+	insert: {
+		Package: [
+			{
+				id,
+				name,
+				entries: Arr.makeBy(3, (e) => ({
+					path: `entry-${e}`,
+					content: Uint8Array.from(
+						{ length: Math.floor((limit * 3) / 5) },
+						(_, i) => (name * 7 + e * 31 + i) % 251
+					)
+				}))
+			}
+		]
+	}
+})
 
-/** How an import's program reaches its write: as it is compiled, or with its carriers' ANALYZE planted away. */
-type Staging = (entry: CompiledChange) => CompiledChange
+/**
+ * How an import's loaded member reaches its call: as the served file loads it, or with its carriers' ANALYZE planted
+ * away.
+ */
+type Staging = (member: LoadedMember) => LoadedMember
 
-const asCompiled: Staging = (entry) => entry
+const asServed: Staging = (member) => member
 
-/** The planted bug: every staged form's ANALYZE replaced by an empty SELECT, so the carriers are never counted. */
-const unanalyzed: Staging = (entry) => {
-	const compiled = {
-		...entry.compiled,
-		artifact: {
-			...entry.compiled.artifact,
-			statements: Arr.map(entry.compiled.artifact.statements, (st) => ({
-				...st,
-				staged:
-					st.staged.kind === "carriers" ? { ...st.staged, analyze: testSql("SELECT") } : st.staged
-			}))
+/**
+ * The planted bug, in the served write's own data: every staged form of the member's loaded statements has its ANALYZE
+ * replaced by an empty SELECT, so the carriers are never counted.
+ */
+const unanalyzed: Staging = (member) => {
+	if (member.kind !== "change" || member.variants.kind !== "change") {
+		return member
+	}
+	const change = member.variants.change
+	const program = change.entry.program
+	return {
+		...member,
+		variants: {
+			kind: "change",
+			change: {
+				...change,
+				entry: {
+					...change.entry,
+					program: {
+						...program,
+						flight: {
+							...program.flight,
+							statements: Arr.map(program.flight.statements, (st) => ({
+								...st,
+								staged:
+									st.staged.kind === "carriers"
+										? { ...st.staged, analyze: testSql("SELECT") }
+										: st.staged
+							}))
+						}
+					}
+				}
+			}
 		}
 	}
-	return { ...entry, compiled, program: runnableWrite(compiled, entry.program.flight.codes) }
 }
 
-/** A pool whose sessions hold the planted message bound. */
-const plantedPool = (pool: SessionPool): SessionPool => ({
+/**
+ * The planted message bound of a change member of one variant: the longest Parse message of any statement it sends
+ * (test/support/staged.ts textBound), so only its rows' arrays meet the bound; none for another member.
+ */
+const textBoundOf = (member: LoadedMember): number | undefined =>
+	member.kind === "change" && member.variants.kind === "change"
+		? textBound(member.variants.change.entry.program.flight)
+		: undefined
+
+/** A pool whose sessions hold the planted message bound `limit`. */
+const plantedPool = (pool: SessionPool, limit: number): SessionPool => ({
 	...pool,
 	lease: Effect.map(pool.lease, (session): Session => ({ ...session, messageMaxBytes: limit }))
 })
 
-/** The exploration of every interleaving of the gate and the two imports, their programs as `staging` hands them over. */
+/** The exploration of every interleaving of the gate and the two imports, their members as `staging` hands them over. */
 const explored = (staging: Staging) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const rig = yield* openRig("StagedImports", imports)
 		const names = namesOf(rig.installed)
+		/** The role's loaded `importPackage` member, as the first writer's layer loaded it from the served file. */
+		const loaded: Array<LoadedMember> = []
 		const open = (name: string) =>
-			rig.writer(name, (context) =>
-				openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+			rig.servedWriter(
+				name,
+				(context) =>
+					Effect.gen(function* () {
+						const opened = yield* openServed(rig.served.roles.app, {})
+						const { role } = yield* servedSessions(rig.served.roles.app)
+						for (const member of role.members) {
+							if (member.name === "importPackage") {
+								loaded.push(member)
+							}
+						}
+						return opened
+					}).pipe(Effect.provideContext(context)),
+				(db) => db.workload.noop.apply({})
 			)
 		const a = yield* open("a")
 		const b = yield* open("b")
 		const loader = yield* open("loader")
+		const loadedMember = defined(loaded[0], "the loaded importPackage member")
+		const member = staging(loadedMember)
+		const limit = defined(
+			textBoundOf(loadedMember),
+			"importPackage is a change member of one variant"
+		)
+		/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
+		const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
+			Effect.suspend(() => {
+				const served = memberOps(
+					{ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) },
+					member
+				)
+				return served.kind === "facts"
+					? served.ops.apply(facts, {})
+					: Effect.die(new Error("importPackage applies with each call's facts"))
+			})
 		const direct = yield* openActors(s, { gate: { kind: "raw", as: rig.direct } })
-		const preload = ChangeSet.empty(rig.worlds.schema).insert(
-			Package,
-			Arr.makeBy(stored, (n) => ({
-				id: uuidAt(n + 1, stored + 2),
-				name: n,
-				entries: [{ path: "stored", content: Uint8Array.of(n % 251) }]
-			}))
-		)
-		const preloadEntry = succeeded(
-			compiledWrite(loader.ctx, preload, loader.ctx.claims),
-			"the stored packages compile"
-		)
-		const firstImport = importOf(rig, first, 1)
-		const secondImport = importOf(rig, second, 2)
-		const firstEntry = succeeded(
-			compiledWrite(a.ctx, firstImport, a.ctx.claims),
-			"an import compiles"
-		)
-		const secondEntry = succeeded(
-			compiledWrite(b.ctx, secondImport, b.ctx.claims),
-			"an import compiles"
-		)
+		const preload = {
+			insert: {
+				Package: Arr.makeBy(stored, (n) => ({
+					id: uuidAt(n + 1, stored + 2),
+					name: n,
+					entries: [{ path: "stored", content: Uint8Array.of(n % 251) }]
+				}))
+			}
+		}
 		/** Each import's answer in the current run, set by its move. */
 		const ran = new Map<string, string>()
 		const answer =
@@ -210,17 +284,7 @@ const explored = (staging: Staging) =>
 				steps: [
 					opStep(
 						"the first import",
-						Effect.tap(
-							Effect.result(
-								runApplication(
-									{ ...a.ctx, pool: plantedPool(a.ctx.pool) },
-									staging(firstEntry),
-									{},
-									firstImport.reads
-								)
-							),
-							answer("a")
-						),
+						Effect.tap(Effect.result(imported(a, importOf(first, 1, limit))), answer("a")),
 						everyRelation
 					)
 				],
@@ -232,17 +296,7 @@ const explored = (staging: Staging) =>
 				steps: [
 					opStep(
 						"the second import",
-						Effect.tap(
-							Effect.result(
-								runApplication(
-									{ ...b.ctx, pool: plantedPool(b.ctx.pool) },
-									staging(secondEntry),
-									{},
-									secondImport.reads
-								)
-							),
-							answer("b")
-						),
+						Effect.tap(Effect.result(imported(b, importOf(second, 2, limit))), answer("b")),
 						everyRelation
 					)
 				],
@@ -252,8 +306,8 @@ const explored = (staging: Staging) =>
 		const reset = Effect.gen(function* () {
 			ran.clear()
 			yield* rig.replace([])
-			const loaded = yield* runApplication(loader.ctx, preloadEntry, {}, preload.reads)
-			assert.equal(loaded.kind, "accepted", "the stored packages are stored")
+			const preloaded = yield* loader.db.workload.importPackage.apply(preload, {})
+			assert.equal(preloaded.kind, "accepted", "the stored packages are stored")
 		}).pipe(Effect.orDie)
 		const judge = (run: Interleaving): Judgment => {
 			for (const session of ["a", "b"]) {
@@ -286,7 +340,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 	(it) => {
 		it.effect("both commit in every interleaving, one waiting on the other's commit in some", () =>
 			Effect.gen(function* () {
-				const report = yield* explored(asCompiled)
+				const report = yield* explored(asServed)
 				assert.ok(
 					report.blocked > 0,
 					`of ${report.interleavings} interleavings none had the first import wait on the gate while the second ran`

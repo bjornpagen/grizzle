@@ -45,6 +45,32 @@ post-beta swarm's fixes for the next release.
     The fix: a GiST index serves an equality-prefix range only when the prefix is empty or holds a column of many
     values, so a B-tree is created for a prefix of few-valued columns alone. Neither qti-pie's install nor edullm's
     holds a GiST index, and edullm's one range (Section(start)) has no prefix. The fix is held by GENERATE.
+  - test/schedules/fin/staged-imports.test.ts, "both commit in every interleaving", TEST_SEED=300901379, schedule
+    `gate | a | b | gate`: two nested imports of unrelated packages (pantry's shape, a fresh immutable Package with its
+    ordered Entry family nested) in overlapping SERIALIZABLE transactions, and the first answers SerializationFailure
+    (40001). The cause is a family owner's insert (write/insert/protocol.ts markedBody `conflicts`), the first
+    statement of every nested import: its branch of stored owners whose payload differs reads
+    `FROM <owner> s WHERE EXISTS (SELECT 1 FROM r1 WHERE <key equal> AND <payload differs>)`. The `<>` join qual keeps
+    PostgreSQL from unique-ifying r1 and probing the owner by key, so the branch is a hash semi-join over a sequential
+    scan of the whole owner table, which takes a relation-level SIRead lock: two imports whose transactions overlap
+    form an rw cycle, each one's insert meeting the other's relation lock and each one's scan the other's new row. It
+    also reads the whole owner table on every import. The diagnostics: with the role's enable_seqscan off every
+    interleaving passes; ANALYZE of Package and Entry after the preload changes nothing; EXPLAIN shows that hash
+    semi-join as the import's one sequential scan (the staged Entry statement probes by index); pg_locks after the
+    second import commits holds its relation SIRead lock on the owner; and an insert of a relation that owns no
+    family (no such branch, a containment into Package judged at COMMIT) beside an import, or beside another such
+    insert, gives no 40001 in any interleaving. Neither downstream reaches it: edullm's app.json holds no family
+    write, and pantry never imports concurrently. The fix, first in line after the repin: drive the branch from the
+    call's rows by key, `FROM r1 JOIN <owner> s ON <key equal> WHERE <payload differs>`, so each fact probes the
+    owner's key. This defect is the cause of pantry's `maxWorkers 1` workaround (packages/pantry/vite.config.ts:44,
+    whose config note says one-pool runs at 3 to 6 workers hit 40001): qti-pie's standing sweep deletes that
+    workaround in the pack that carries the fix. The file's plant (the carriers' ANALYZE dropped) fails as it should,
+    but proves nothing until then.
+- **Served explain chunks under the protocol's bound, not the session's (FORMAT, after the pin):**
+  adapter/served/explain.ts explainChange cuts a statement's executions under `inForce(bindFrame)`, where an
+  application (adapter/apply/run.ts) cuts under the leased session's `messageMaxBytes`. On a session whose bound is
+  below the protocol's, explain plans nested rows inline that an application stages, and the flight's builder refuses
+  the explain as InputTooLarge (message). Explain should cut under the session it leases, as an application does.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
