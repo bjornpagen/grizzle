@@ -45,37 +45,39 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
 /**
  * The access agreement: logins of roles drawn over ./access-schema.ts, each role's Task entry reading a context at a
  * drawn place or none, and the one TypeScript program that states, of every login, what its types admit, which the
- * type tier checks (test/types/api/access.test.ts). The engine is the oracle, as the runtime reads a role: the contexts
- * its relations read (schema/walk.ts queryUses of each query entry, as pool/registry.ts reads them), its compilation of
- * a program for the role (a program matching a context the role reads none of is refused), and db.refresh's resolution
- * of the relations it names (refresh/targets.ts). Of each drawn login:
+ * type tier checks (test/types/api/access.test.ts). The engine is the oracle, as the runtime and generate read a role: the
+ * contexts its relations read (schema/walk.ts queryUses of each query entry, as pool/registry.ts reads them), its
+ * compilation of a program for the role, as a workload over the role compiles each member (a program matching a context
+ * the role reads none of is refused), and the resolution of the relations a refresh member names (refresh/targets.ts).
+ * Of each drawn login:
  *
  * - Db.open of each of its roles without a token typechecks exactly when the role's relations read no context, and
  *   with one always, delivering exactly a Db of the role it opened, over the base or an extension, its services
  *   exactly the role's DbLayer and its error OpenError;
  * - DbLayer.make without verify typechecks exactly when no role of the login reads a context, and with verify its
  *   layer provides exactly the DbLayer of each of the login's roles, failing with OpenError;
- * - a program over a role matching a drawn context, run on the role's Db by execute, compile or apply (a read-back),
- *   typechecks exactly when the engine compiles it for the role;
- * - db.refresh of drawn derived relations typechecks exactly when the engine resolves every one against the role's
- *   refresh list, and succeeds with nothing and fails with ApplyError;
+ * - a program over a role matching a drawn context, a member of a workload over the role as a query or as a ChangeSet's
+ *   read-back, typechecks exactly when the engine compiles it for the role;
+ * - a refresh member, refresh(relations), of drawn derived relations in a workload over a role typechecks exactly when
+ *   the engine resolves every one against the role's refresh list, and its handle succeeds with nothing and fails with
+ *   ApplyError;
  * - Db.open of a role of the login's served workload (served<typeof L>(file, name).roles), of the role reached through
  *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
  *   its argument as a served login's role (db/served.ts isServedRole);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
  *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
  *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322);
- * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, executed on a
- *   role's Db typechecks exactly when the engine compiles it for the role: a role holding every relation of the base
- *   whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query entry
- *   refuses it (OutsideRole);
+ * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, a member of a
+ *   workload over a role, typechecks exactly when the engine compiles it for the role: a role holding every relation of
+ *   the base whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query
+ *   entry refuses it (OutsideRole);
  * - a full role over the level, its entries wholeEntriesOf(level) and its write list none, writableNamesOf(level),
  *   those and a name role refuses to write, or a drawn list that may name one twice, and a drawn refresh list,
  *   typechecks exactly when role(...) builds it, refused for naming one twice exactly when the engine admits each name
  *   of the list alone and refuses the list, and then its relations' names and its write list are exactly those of the
  *   engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
- *   Reports, matching its live derived relation, which no role holds), run on it exactly when the engine compiles
- *   them there;
+ *   Reports, matching its live derived relation, which no role holds), are members of a workload over it exactly when
+ *   the engine compiles them there;
  * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, writableNamesOf, lawsOf), given the
  *   level or the case's first role value, typechecks exactly when the engine admits its base: a role is no schema.
  *
@@ -186,8 +188,8 @@ const optionDirective = (form: OptionForm): string => {
 	return `// @ts-expect-error -- ${code}: ${why}`
 }
 
-/** How a program on a role's Db runs: read, compiled, or read back by an applied ChangeSet. */
-const entries = ["execute", "compile", "apply"] as const
+/** How a workload over a role serves a program: as a query member, or as the read-back of a ChangeSet member. */
+const entries = ["query", "read-back"] as const
 type Entry = (typeof entries)[number]
 
 /**
@@ -645,14 +647,15 @@ const caseGen: Gen<AccessCase> = (source) => {
 	return { spec, verdict, notes }
 }
 
-/** The refusal a program over the base takes on a Db of a role that holds no relation of it whole. */
-const baseRefusal: TypeRefusal = "a program over no level of the database's schema"
-
 /** The refusal a full role's write list takes when it names a relation twice. */
 const repeatRefusal: TypeRefusal = "a write list names each role relation once"
 
 const contextRefusal: TypeRefusal =
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold"
+
+/** The directive of a workload member over no level of the workload's schema, as workload(...) refuses it. */
+const levelDirective =
+	"// @ts-expect-error -- TS2322: a program over a level of the workload's schema, or a key of a relation of one"
 
 /** A role's declaration, in the program. */
 const roleSource = (spec: AccessSpec, r: RoleSpec, i: number): string =>
@@ -687,7 +690,7 @@ const unionOf = (names: ReadonlyArray<string>): string =>
 /**
  * A case's full role, in the program: under its directive where role(...) refuses it, and otherwise followed by its
  * relations' names and its write list stated as the engine's, and the program over the base matching the closed
- * relation and the program over its level run on it under the engine's verdicts.
+ * relation and the program over its level, each a member of a workload over it, under the engine's verdicts.
  */
 const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyArray<string> => {
 	const declaration = `export const F${i} = role(${spec.level}, "f${i}", wholeEntriesOf(${spec.level}), ${fullOptionsSource(spec.full, spec.level)})`
@@ -704,12 +707,10 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 				declaration,
 				`export type fe${i} = Expect<Equals<keyof (typeof F${i})["relations"], ${unionOf(verdict.entries)}>>`,
 				`export type fw${i} = Expect<Equals<WriteListOf<typeof F${i}>, ${unionOf(verdict.write)}>>`,
-				`export const fb${i} = (db: DbOf<typeof F${i}, unknown>) =>`,
-				...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
-				"\tdb.execute(accountSeats, {})",
-				`export const fl${i} = (db: DbOf<typeof F${i}, unknown>) =>`,
-				...(verdict.level ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
-				`\tdb.execute(${levelPrograms[spec.level]}, {})`
+				...(verdict.base ? [] : [levelDirective]),
+				`export const fb${i} = workload(F${i}, { p: accountSeats })`,
+				...(verdict.level ? [] : [levelDirective]),
+				`export const fl${i} = workload(F${i}, { p: ${levelPrograms[spec.level]} })`
 			]
 	}
 }
@@ -778,14 +779,12 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		`export type s${i}_${r.name} = [Expect<Equals<Effect.Services<typeof t${i}_${r.name}>, DbLayer<typeof R${i}_${r.name}>>>, Expect<Equals<Effect.Error<typeof t${i}_${r.name}>, OpenError>>, Expect<Equals<Effect.Success<typeof t${i}_${r.name}>, DbOf<typeof R${i}_${r.name}, unknown>>>]`
 	])
 	const programRole = defined(roleIds[spec.program.role], "the program's role")
-	const run = (() => {
+	const served = (() => {
 		switch (spec.program.entry) {
-			case "execute":
-				return `db.execute(p${i}, {})`
-			case "compile":
-				return `db.compile(p${i})`
-			case "apply":
-				return `db.apply(ChangeSet.empty(${programRole}).read("rows", () => p${i}), {})`
+			case "query":
+				return `p${i}`
+			case "read-back":
+				return `ChangeSet.empty(${programRole}).read("rows", () => p${i})`
 		}
 	})()
 	const refreshRole = defined(roleIds[spec.refresh.role], "the refresh's role")
@@ -806,23 +805,21 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		`export const w${i} = Db.open(${openerSource(spec, i)}, { token: "token" })`,
 		...(verdict.options ? [] : [optionDirective(spec.options)]),
 		`export const u${i} = Db.open(S${i}.roles.${spec.roles[0].name}${optionValues[spec.options].source})`,
-		`export const b${i} = (db: DbOf<typeof ${defined(roleIds[spec.base.role], "the base program's role")}, unknown>) =>`,
-		...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
-		`\tdb.execute(${spec.base.program}, {})`,
+		...(verdict.base ? [] : [levelDirective]),
+		`export const b${i} = workload(${defined(roleIds[spec.base.role], "the base program's role")}, { p: ${spec.base.program} })`,
 		programSource(programRole, spec.program.context, i),
-		`export const x${i} = (db: DbOf<typeof ${programRole}, unknown>) =>`,
-		...(verdict.program ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${contextRefusal}`]),
-		`\t${run}`,
-		`export const f${i} = (db: DbOf<typeof ${refreshRole}, unknown>) =>`,
+		...(verdict.program ? [] : [`// @ts-expect-error -- TS2322 refusal: ${contextRefusal}`]),
+		`export const x${i} = workload(${programRole}, { p: ${served} })`,
 		...(verdict.refresh
 			? []
 			: [
-					"\t// @ts-expect-error -- TS2345: a refresh names derived relations of the role's refresh list"
+					"// @ts-expect-error -- TS2322: a refresh member names derived relations of its role's refresh list"
 				]),
-		`\tdb.refresh(${Arr.join(spec.refresh.names, ", ")})`,
+		`export const f${i} = workload(${refreshRole}, { r: refresh([${Arr.join(spec.refresh.names, ", ")}]) })`,
 		...(verdict.refresh
 			? [
-					`export type g${i} = Expect<Equals<ReturnType<typeof f${i}>, Effect.Effect<void, ApplyError>>>`
+					`export const h${i} = (db: DbOf<typeof ${refreshRole}, typeof f${i}.programs>) => db.workload.r.refresh`,
+					`export type g${i} = Expect<Equals<ReturnType<typeof h${i}>, Effect.Effect<void, ApplyError>>>`
 				]
 			: []),
 		...fullBlock(spec, verdict.full, i),
@@ -838,12 +835,10 @@ export const accessRequired: Situations<AccessNote> = [
 	"open refused",
 	"verify required",
 	"verify optional",
-	"execute admitted",
-	"execute refused",
-	"compile admitted",
-	"compile refused",
-	"apply admitted",
-	"apply refused",
+	"query admitted",
+	"query refused",
+	"read-back admitted",
+	"read-back refused",
 	"refresh admitted",
 	"refresh refused",
 	"served role admitted",

@@ -1,13 +1,22 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
-import type { ChangeSetAt, PlannedStrata } from "#compiler/types/changeset/changeset.ts"
+import type {
+	AnyChangeSet,
+	ChangeSetAt,
+	PlannedStrata
+} from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
-import type { OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
+import type { ContextsOf, OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
 import type { CandidateKey } from "#compiler/types/schema/statements.ts"
-import type { AnyRole, RefreshListOf, WriteListOf } from "#compiler/types/schema/world.ts"
+import type {
+	AnyRole,
+	RefreshListOf,
+	WithinRoleContexts,
+	WriteListOf
+} from "#compiler/types/schema/world.ts"
 
 /** A stored or closed relation of L, which a key reads through. */
 type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyClosed> : never
@@ -63,8 +72,23 @@ type ProgramAt<S, L> =
 	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
 /**
+ * The contexts a program of a workload matches: a query's or ordered query's, a paged one's, or a ChangeSet's, its
+ * members' and read-backs'; a key and a refresh match none.
+ */
+type ProgramContexts<X> =
+	X extends Paged<infer O>
+		? ContextsOf<O>
+		: X extends AnyChangeSet
+			? X extends Phantom<{ readonly contexts: infer Cx }>
+				? Cx
+				: never
+			: ContextsOf<X>
+
+/**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
- * its immutable owner's insert (PlannedStrata). A program typed `any` is refused (MembersTyped).
+ * its immutable owner's insert (PlannedStrata), and, over a role, matching only the contexts the role's relations read
+ * (WithinRoleContexts), as the role's compile refuses any other. A workload over a schema runs on each role of its
+ * login, so the compile alone judges its contexts. A program typed `any` is refused (MembersTyped).
  */
 export type WorkloadConstructor = <
 	S extends AnySchema | AnyRole,
@@ -72,7 +96,8 @@ export type WorkloadConstructor = <
 >(
 	schema: S,
 	programs: Programs & {
-		readonly [K in keyof Programs]: PlannedStrata<Programs[K]>
+		readonly [K in keyof Programs]: PlannedStrata<Programs[K]> &
+			WithinRoleContexts<S, ProgramContexts<Programs[K]>>
 	} & MembersTyped<Programs>
 ) => Workload<S, Programs>
 

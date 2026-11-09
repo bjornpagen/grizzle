@@ -12,11 +12,13 @@ export {
 	lawsOf,
 	login,
 	query,
+	refresh,
 	role,
 	schema,
 	served,
 	v,
 	wholeEntriesOf,
+	workload,
 	writableNamesOf
 } from "#index.ts"
 export type { ApplyError, OpenError, WriteListOf } from "#index.ts"
