@@ -26,11 +26,14 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * The served file's text: a ServedFile as canonical JSON (core/canonical.ts writeCanonicalJson, keys in code-unit
  * order), so one login compiled twice is the same bytes and `grizzle check` compares them.
  *
- * A value is written as canonical JSON writes it: a string beginning with `~` escaped by a second, a bigint `~n:` and
- * its digits, a record's members in key order, undefined members left out. Beside those:
+ * A value JSON holds as the runtime reads it, a string, a finite number, a boolean, and an array or a plain record of
+ * such values, is written as it is, and read back as it is: the value the import of the file yields is the runtime's
+ * form, which a load reads in place with no second walk. Every other value is written as a revived one:
  *
+ * - a string beginning with `~`, escaped by a second;
+ * - a bigint `~n:` and its digits;
  * - every ScalarType once, in the file's `types` table, in the order the walk first meets it (a contract's base and a
- *   span's endpoint before the type over them), each occurrence `~t:` and its index, so a refined type is one entry
+ *   span's endpoint before the type over them), each occurrence `~t:` and its index, so a refined type is one object
  *   whatever the slots that read it;
  * - a Roster `~roster:` and its declared name, rebuilt at load from the live handles of the codes the file holds for
  *   it (ServedFile rosters);
@@ -39,13 +42,19 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * - a Map `{"~map": [[key, value], ...]}`, each key a primitive, and a Set `{"~set": [value, ...]}`, in insertion
  *   order, which the compile that made them fixes.
  *
+ * A record holding a revived value at some depth lists, under its key `~`, the keys of its members that hold one, and
+ * an array holding one is `{"~a": [item, ...], "~": [index, ...]}`, listing the indices of those items: a load rebuilds
+ * exactly the paths to revived values, and every member beside them is the file's own value, read as it is.
+ *
  * Nothing else is a served value: a function, a symbol, a class instance of any other kind, a record whose key begins
  * with `~` or holds a symbol is refused, so no member of a form is ever dropped or guessed.
  */
 
-/** The marker keys of a Map's and a Set's JSON form. */
+/** The marker keys of a Map's, a Set's and a revived array's JSON forms, and of a revived member's keys or indices. */
 const mapKey = "~map"
 const setKey = "~set"
+const listKey = "~a"
+const revivedKey = "~"
 
 /** The tags of the canonical values a served form holds, by what the file spells them under. */
 const tags = {
@@ -75,15 +84,24 @@ const unserved = (path: Path, what: string): never => {
 	throw new Refusal(unsupported(SourceLoc("served workload", path), `a served value, ${what}`))
 }
 
-/** A string as canonical JSON writes it: one beginning with `~` escaped by a second. */
-const escapedText = (value: string): string => (value.startsWith("~") ? `~${value}` : value)
-
 /** `~tag:payload`, a canonical value's text. */
 const tagged = (tag: string, payload: string): string => `~${tag}:${payload}`
 
 /** The canonical payload of a canonical value. */
 const payloadOf = (value: object, path: Path): string =>
 	taggedValueOf(value)?.payload ?? unserved(path, "a canonical value with a tag and payload")
+
+/** A value's JSON form, and whether a load revives it: whether it or a value it holds is no JSON value as it is. */
+interface Written {
+	readonly json: Json
+	readonly revived: boolean
+}
+
+/** A JSON form read back as it is. */
+const plain = (json: Json): Written => ({ json, revived: false })
+
+/** A JSON form a load revives. */
+const revived = (json: Json): Written => ({ json, revived: true })
 
 /**
  * One walk of a served form into its JSON form, the types it meets interned into its table (see the header). Records
@@ -95,20 +113,18 @@ class ServedWriter {
 	readonly #byText = new Map<string, number>()
 	readonly #path: Array<string | number> = []
 
-	value(value: unknown): Json {
+	value(value: unknown): Written {
 		switch (typeof value) {
 			case "string":
-				return escapedText(value)
+				return value.startsWith("~") ? revived(`~${value}`) : plain(value)
 			case "boolean":
-				return value
+				return plain(value)
 			case "number":
 				return Number.isFinite(value)
-					? value === 0
-						? 0
-						: value
+					? plain(value === 0 ? 0 : value)
 					: unserved(this.#path, "a finite number")
 			case "bigint":
-				return tagged(tags.bigint, value.toString())
+				return revived(tagged(tags.bigint, value.toString()))
 			case "object":
 				return value === null ? unserved(this.#path, "not null") : this.#object(value)
 			case "undefined":
@@ -125,7 +141,7 @@ class ServedWriter {
 		return out
 	}
 
-	#object(value: object): Json {
+	#object(value: object): Written {
 		if (isList(value)) {
 			return this.#array(value)
 		}
@@ -136,22 +152,22 @@ class ServedWriter {
 			return this.#set(value)
 		}
 		if (value instanceof Roster) {
-			return tagged(tags.roster, value.closed)
+			return revived(tagged(tags.roster, value.closed))
 		}
 		if (value instanceof Decimal) {
-			return tagged(tags.decimal, payloadOf(value, this.#path))
+			return revived(tagged(tags.decimal, payloadOf(value, this.#path)))
 		}
 		if (value instanceof Money) {
-			return tagged(tags.money, payloadOf(value, this.#path))
+			return revived(tagged(tags.money, payloadOf(value, this.#path)))
 		}
 		if (value instanceof DecimalText) {
-			return tagged(tags.decimalText, payloadOf(value, this.#path))
+			return revived(tagged(tags.decimalText, payloadOf(value, this.#path)))
 		}
 		if (value instanceof MoneyText) {
-			return tagged(tags.moneyText, payloadOf(value, this.#path))
+			return revived(tagged(tags.moneyText, payloadOf(value, this.#path)))
 		}
 		if (value instanceof VectorText) {
-			return tagged(tags.vectorText, payloadOf(value, this.#path))
+			return revived(tagged(tags.vectorText, payloadOf(value, this.#path)))
 		}
 		const proto: unknown = Object.getPrototypeOf(value)
 		if (!isRecord(value) || (proto !== Object.prototype && proto !== null)) {
@@ -161,61 +177,75 @@ class ServedWriter {
 			return unserved(this.#path, "a record without symbol keys")
 		}
 		return isScalarType(value)
-			? tagged(tags.type, String(this.#typeIndex(value)))
+			? revived(tagged(tags.type, String(this.#typeIndex(value))))
 			: this.#record(value)
 	}
 
-	#array(value: ReadonlyArray<unknown>): Json {
-		const out: Array<Json> = []
+	/** An array's items, and, where some are revived, the array's revived form listing their indices. */
+	#array(value: ReadonlyArray<unknown>): Written {
+		const items: Array<Json> = []
+		const at: Array<number> = []
 		for (const [i, item] of value.entries()) {
-			out.push(
-				this.#at(i, () =>
-					item === undefined ? unserved(this.#path, "an element") : this.value(item)
-				)
+			const written = this.#at(i, () =>
+				item === undefined ? unserved(this.#path, "an element") : this.value(item)
 			)
+			items.push(written.json)
+			if (written.revived) {
+				at.push(i)
+			}
 		}
-		return out
+		return at.length === 0 ? plain(items) : revived({ [listKey]: items, [revivedKey]: at })
 	}
 
 	/**
 	 * A Map's entries, each key a primitive: a record key reads back as a new object, which no lookup by another finds,
 	 * so a Map keyed by one is no served value.
 	 */
-	#map(value: ReadonlyMap<unknown, unknown>): Json {
+	#map(value: ReadonlyMap<unknown, unknown>): Written {
 		const entries: Array<Json> = []
 		for (const [k, v] of value) {
 			entries.push(
 				this.#at(entries.length, () => [
 					typeof k === "object" && k !== null
 						? unserved(this.#path, "a Map keyed by primitives")
-						: this.value(k),
-					this.value(v)
+						: this.value(k).json,
+					this.value(v).json
 				])
 			)
 		}
-		return { [mapKey]: entries }
+		return revived({ [mapKey]: entries })
 	}
 
-	#set(value: ReadonlySet<unknown>): Json {
+	#set(value: ReadonlySet<unknown>): Written {
 		const members: Array<Json> = []
 		for (const v of value) {
-			members.push(this.#at(members.length, () => this.value(v)))
+			members.push(this.#at(members.length, () => this.value(v).json))
 		}
-		return { [setKey]: members }
+		return revived({ [setKey]: members })
 	}
 
-	#record(value: Readonly<Record<string, unknown>>): Json {
+	/** A record's members in key order, and, where some are revived, the keys of those under `~`. */
+	#record(value: Readonly<Record<string, unknown>>): Written {
 		const out: Record<string, Json> = {}
+		const keys: Array<string> = []
 		for (const key of Object.keys(value).toSorted(compareText)) {
 			if (key.startsWith("~")) {
 				unserved(this.#path, `a key not beginning with ~, not ${key}`)
 			}
 			const member = value[key]
 			if (member !== undefined) {
-				out[key] = this.#at(key, () => this.value(member))
+				const written = this.#at(key, () => this.value(member))
+				out[key] = written.json
+				if (written.revived) {
+					keys.push(key)
+				}
 			}
 		}
-		return out
+		if (keys.length === 0) {
+			return plain(out)
+		}
+		out[revivedKey] = keys
+		return revived(out)
 	}
 
 	/** The index of `type` in the table, interned once by its canonical text: its parts first. */
@@ -227,7 +257,7 @@ class ServedWriter {
 		if (!isRecord(type)) {
 			throw defect("a ScalarType is a record")
 		}
-		const json = this.#record(type)
+		const json = this.#record(type).json
 		const text = writeCanonicalJson(json)
 		if (!text.ok) {
 			throw new Refusal(text.error)
@@ -248,7 +278,7 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 	Result.flatMap(
 		catchRefusal(() => {
 			const writer = new ServedWriter()
-			const json = writer.value(file)
+			const { json } = writer.value(file)
 			if (typeof json !== "object" || isList(json)) {
 				throw defect("a served file's JSON form is a record")
 			}
@@ -272,7 +302,8 @@ const rosterOf = (rosters: ReadonlyMap<string, RosterCodes>, name: string): Rost
 }
 
 /**
- * One walk of a served file's JSON form back into its forms (see the header), its types read from `types`, each
+ * One walk of a served file's JSON form back into its forms (see the header): only the paths its records and arrays
+ * list to revived values, each value beside them the file's own, read as it is; its types read from `types`, each
  * occurrence of one index the same object, and its rosters from the codes the file holds for them.
  */
 class ServedReader {
@@ -288,11 +319,8 @@ class ServedReader {
 		if (typeof json === "string") {
 			return json.startsWith("~") ? this.#tagged(json) : json
 		}
-		if (typeof json !== "object" || json === null) {
+		if (typeof json !== "object" || json === null || isList(json)) {
 			return json
-		}
-		if (isList(json)) {
-			return json.map((item) => this.value(item))
 		}
 		const record = trusted<Readonly<Record<string, unknown>>>(json)
 		const entries = record[mapKey]
@@ -308,9 +336,26 @@ class ServedReader {
 		if (isList(members)) {
 			return new Set(members.map((member) => this.value(member)))
 		}
+		const at = record[revivedKey]
+		if (!isList(at)) {
+			return json
+		}
+		const items = record[listKey]
+		if (isList(items)) {
+			const out = [...items]
+			for (const i of trusted<ReadonlyArray<number>>(at)) {
+				out[i] = this.value(items[i])
+			}
+			return out
+		}
 		const out: Record<string, unknown> = {}
-		for (const [key, member] of Object.entries(record)) {
-			out[key] = this.value(member)
+		for (const key of Object.keys(record)) {
+			if (key !== revivedKey) {
+				out[key] = record[key]
+			}
+		}
+		for (const key of trusted<ReadonlyArray<string>>(at)) {
+			out[key] = this.value(record[key])
 		}
 		return out
 	}
@@ -364,8 +409,9 @@ interface ServedJson {
 
 /**
  * The served file a served file's JSON value holds (what an import of the file, or JSON.parse of its text, yields),
- * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: one walk, its rosters
- * first, which hold no type or roster, then its types table, each entry over those before it, then its members.
+ * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: its rosters first, which
+ * hold no type or roster, then its types table, each entry over those before it, then its members, each walked only
+ * along the paths it lists to revived values, every other value the JSON value's own.
  */
 export const servedFile = (json: unknown): ServedFile => {
 	const { types, rosters, ...members } = trusted<ServedJson>(json)
