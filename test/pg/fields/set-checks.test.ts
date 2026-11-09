@@ -4,19 +4,12 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	check,
-	closed,
-	relation,
-	type Schema,
-	schema,
-	type StatementsByName
-} from "#compiler/public/schema.ts"
+import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -24,7 +17,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A set compared with a set value in a row check, on PostgreSQL 19rc1: `Compute.disjoint` and `Compute.subset` take a
@@ -64,16 +56,13 @@ const split = check("Split", R, (r) =>
 )
 const Sets = schema("SetChecks", { Flag, R }, [apart, within, split])
 
-/** Sets as installed under its schema's own name. */
-type SetsInstalled = Schema<
-	string,
-	(typeof Sets)["relations"],
-	StatementsByName<(typeof Sets)["statements"], (typeof Sets)["relations"]>
->
-
-/** R's rows read back: whether the flags miss b, and their union with {c}, each against a set value. */
-const readBack = (s: SetsInstalled) =>
-	query(s).rule((r) => {
+/**
+ * The full world's workload: a row of R written with the flags each call gives, and R's rows read back, whether the
+ * flags miss b and their union with {c}, each against a set value.
+ */
+const programs = {
+	write: ChangeSet.empty(Sets).insert(R, []),
+	readBack: query(Sets).rule((r) => {
 		const { id, flags } = v(R, "r")
 		return r.match(R, { id, flags }).find({
 			id,
@@ -81,6 +70,7 @@ const readBack = (s: SetsInstalled) =>
 			joined: Compute.union(flags, Bits.of(Flag, ["c"]))
 		})
 	})
+}
 
 /** Every set over Flag's handles. */
 const allSets = Arr.map(Arr.range(0, 2 ** handles.length - 1), (mask) =>
@@ -134,15 +124,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(
-							Sets,
-							{},
-							{ label: "setchecks", extensions: [], programs: {} }
-						)
+						const o = yield* installed(Sets, {}, { label: "setchecks", extensions: [], programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* exhaust(
 								{
 									box: { kind: "unstated" },
@@ -165,8 +151,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								(flags, c) =>
 									Effect.gen(function* () {
 										yield* replaceRows(s.admin, installationGroup(names), [])
-										const outcome = yield* db.apply(
-											ChangeSet.empty(o.schema).insert(R, [{ id: 1, flags: Bits.of(Flag, flags) }]),
+										const outcome = yield* db.workload.write.apply(
+											{ R: [{ id: 1, flags: Bits.of(Flag, flags) }] },
 											{}
 										)
 										const held = new Set(flags)
@@ -181,7 +167,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"accepted",
 												`${Formatter.format(flags)} is accepted`
 											)
-											const read = yield* (yield* db.execute(readBack(o.schema), {})).collect
+											const read = yield* (yield* db.workload.readBack.execute({})).collect
 											assert.deepEqual(
 												Arr.map(read, (row) => ({
 													apart: row.apart,
@@ -212,7 +198,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+								Effect.flatMap(Layer.build(o.served.layer), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped

@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
@@ -16,7 +16,6 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -114,6 +113,23 @@ const Files = schema("BytesFamily", { Owner, Member }, [
 	mutable(Owner)
 ])
 
+/**
+ * The full world's workload: an owner written with its members nested, the owners and the members read back, and a
+ * member deleted, each with the facts each call gives.
+ */
+const programs = {
+	insertOwner: ChangeSet.empty(Files).insert(Owner, []),
+	owners: query(Files).rule((r) => {
+		const { id, badge } = v(Owner, "o")
+		return r.match(Owner, { id, badge }).find({ id, badge })
+	}),
+	members: query(Files).rule((r) => {
+		const { id, owner, at, body } = v(Member, "m")
+		return r.match(Member, { id, owner, at, body }).find({ id, at, body })
+	}),
+	deleteMember: ChangeSet.empty(Files).delete(Member, [])
+}
+
 /** Whether two bytes values hold the same bytes. */
 const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
 	x.length === y.length && x.every((byte, at) => byte === y[at])
@@ -161,43 +177,33 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 								const o = yield* installed(
 									Files,
 									{},
-									{ label: "bytesfamily", extensions: [], programs: {} }
+									{ label: "bytesfamily", extensions: [], programs }
 								)
 								yield* Effect.gen(function* () {
-									const db = yield* compiledOpen(o.server.roles.app, {})
+									const db = yield* Db.open(o.served.login.roles.app, {})
 									const owner = uuidOf(1)
 									const members = Arr.map(d.values, (x, i) => ({
 										id: uuidOf(100 + i),
 										body: streamBytes(x.length, x.seed)
 									}))
 									const badge = streamBytes(d.values.length + 3, 7)
-									const inserted = yield* db.apply(
-										ChangeSet.empty(o.schema).insert(Owner, [{ id: owner, badge, members }]),
+									const inserted = yield* db.workload.insertOwner.apply(
+										{ Owner: [{ id: owner, badge, members }] },
 										{}
 									)
 									assert.equal(inserted.kind, "accepted", "the owner and its members are written")
-									const owners = yield* (yield* db.execute(
-										query(o.schema).rule((r) => {
-											const { id, badge: held } = v(Owner, "o")
-											return r.match(Owner, { id, badge: held }).find({ id, badge: held })
-										}),
-										{}
-									)).collect
+									const owners = yield* (yield* db.workload.owners.execute({})).collect
 									assert.ok(
 										owners.length === 1 && sameBytes(defined(owners[0], "the owner").badge, badge),
 										"the owner's own bytes, admitted with its nested members, read back whole"
 									)
-									const stored = query(o.schema).rule((r) => {
-										const { id, owner: of, at, body } = v(Member, "m")
-										return r.match(Member, { id, owner: of, at, body }).find({ id, at, body })
-									})
 									const bySlot = Order.mapInput(
 										Order.BigInt,
 										(row: { readonly at: bigint }) => row.at
 									)
 									const readBack = (expected: ReadonlyArray<(typeof members)[number]>) =>
 										Effect.gen(function* () {
-											const result = yield* db.execute(stored, {})
+											const result = yield* db.workload.members.execute({})
 											const collected = yield* result.collect
 											const rows = Arr.sort(collected, bySlot)
 											assert.equal(rows.length, expected.length, "every member reads back")
@@ -212,17 +218,15 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 										})
 									yield* readBack(members)
 									const cut = defined(members[d.cut], "the member deleted")
-									const deleted = yield* db.apply(
-										ChangeSet.empty(o.schema).delete(Member, [
-											{ id: cut.id, owner, body: cut.body }
-										]),
+									const deleted = yield* db.workload.deleteMember.apply(
+										{ Member: [{ id: cut.id, owner, body: cut.body }] },
 										{}
 									)
 									assert.equal(deleted.kind, "accepted", "the member is deleted")
 									yield* readBack(Arr.filter(members, (m) => m.id !== cut.id))
 								}).pipe(
 									(body) =>
-										Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+										Effect.flatMap(Layer.build(o.served.layer), (context) =>
 											Effect.provideContext(body, context)
 										),
 									Effect.scoped

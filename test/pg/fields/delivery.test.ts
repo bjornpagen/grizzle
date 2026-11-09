@@ -15,7 +15,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order, Result } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
 import {
 	type DeliveredColumn,
@@ -37,7 +37,6 @@ import { strictDelivered } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A statement's delivery against PostgreSQL 19rc1 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
@@ -133,6 +132,9 @@ const Blob = relation("Blob", { id: pg.integer, a: bytes, b: bytes, t: str.regex
 	"id"
 ])
 const Blobs = schema("Delivery", { Blob }, [])
+
+/** The full world's workload: Blob's rows written with the facts each call gives. */
+const programs = { write: ChangeSet.empty(Blobs).insert(Blob, []) }
 
 /** The delivered columns of the read, in its order: id and t as texts, a and b as bytes. */
 const columns: ReadonlyArray<DeliveredColumn> = [
@@ -237,20 +239,17 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 								const o = yield* installed(
 									Blobs,
 									{},
-									{ label: "delivery", extensions: [], programs: {} }
+									{ label: "delivery", extensions: [], programs }
 								)
 								const s = yield* Substrate
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {
-										const db = yield* compiledOpen(o.server.roles.app, {})
-										const outcome = yield* db.apply(
-											ChangeSet.empty(o.schema).insert(Blob, d.rows),
-											{}
-										)
+										const db = yield* Db.open(o.served.login.roles.app, {})
+										const outcome = yield* db.workload.write.apply({ Blob: d.rows }, {})
 										assert.equal(outcome.kind, "accepted", "every row is written")
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+											Effect.flatMap(Layer.build(o.served.layer), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

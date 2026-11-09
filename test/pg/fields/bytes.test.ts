@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Digest } from "effect/crypto"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
@@ -19,7 +19,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
@@ -178,6 +177,47 @@ const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 const Blob = relation("Blob", { id: pg.integer, shelf: pg.integer, body: bytes }, ["id"])
 const Blobs = schema("Bytes", { Shelf, Blob }, [])
 
+/** Every bytes value with its shelf. */
+const blobs = query(Blobs).rule((r) => {
+	const { id, shelf, body } = v(Blob, "b")
+	return r.match(Blob, { id, shelf, body }).find({ id, shelf, body })
+})
+
+/**
+ * The full world's workload: shelves and bytes values written with the facts each call gives; every value read back,
+ * and in descending id order; each shelf with its values attached; and a shelf's values deleted, the shelf a parameter.
+ */
+const programs = {
+	shelve: ChangeSet.empty(Blobs).insert(Shelf, []),
+	store: ChangeSet.empty(Blobs).insert(Blob, []),
+	blobs,
+	descending: blobs.orderBy(["id", "desc"]),
+	onShelf: query(Blobs)
+		.rule((r) => {
+			const { id } = v(Shelf, "s")
+			return r.match(Shelf, { id }).find({ id })
+		})
+		.attach(
+			"blobs",
+			(parent) =>
+				query(Blobs).rule((r) => {
+					const { id, body } = v(Blob, "b")
+					return r.match(Blob, { id, shelf: parent.id, body }).find({ id, body })
+				}),
+			"array"
+		),
+	clearShelf: ChangeSet.empty(Blobs).delete(
+		Blob,
+		query(Blobs).rule((r) => {
+			const { id, shelf, body } = v(Blob, "b")
+			return r
+				.match(Blob, { id, shelf, body })
+				.where(r.eq(shelf, r.param("shelf", pg.integer)))
+				.find({ id, shelf, body })
+		})
+	)
+}
+
 /** Whether two bytes values hold the same bytes. */
 const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
 	x.length === y.length && x.every((byte, at) => byte === y[at])
@@ -240,7 +280,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									const o = yield* installed(
 										Blobs,
 										{},
-										{ label: "bytes", extensions: [], programs: {} }
+										{ label: "bytes", extensions: [], programs }
 									)
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
@@ -256,28 +296,18 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									const shelf = 0
 									const kept = Arr.filter(facts, (f) => f.shelf !== shelf)
 									yield* Effect.gen(function* () {
-										const db = yield* compiledOpen(o.server.roles.app, {})
-										const shelved = yield* db.apply(
-											ChangeSet.empty(o.schema).insert(
-												Shelf,
-												upTo(d.shelves, (id) => ({ id }))
-											),
+										const db = yield* Db.open(o.served.login.roles.app, {})
+										const shelved = yield* db.workload.shelve.apply(
+											{ Shelf: upTo(d.shelves, (id) => ({ id })) },
 											{}
 										)
 										assert.equal(shelved.kind, "accepted", "every shelf is written")
 										const batches = d.batched ? [facts] : Arr.map(facts, (fact) => [fact])
 										for (const batch of batches) {
-											const outcome = yield* db.apply(
-												ChangeSet.empty(o.schema).insert(Blob, batch),
-												{}
-											)
+											const outcome = yield* db.workload.store.apply({ Blob: batch }, {})
 											assert.equal(outcome.kind, "accepted", "every bytes value is written")
 										}
-										const blobs = query(o.schema).rule((r) => {
-											const { id, shelf: on, body } = v(Blob, "b")
-											return r.match(Blob, { id, shelf: on, body }).find({ id, shelf: on, body })
-										})
-										const executed = yield* db.execute(blobs, {})
+										const executed = yield* db.workload.blobs.execute({})
 										const collected = yield* executed.collect
 										const read = Arr.sort(collected, byId)
 										assert.deepEqual(
@@ -289,8 +319,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 											ownBuffers(Arr.map(read, (row) => row.body)),
 											"every value read back is an array over a buffer of its own"
 										)
-										const ordered = yield* (yield* db.execute(blobs.orderBy(["id", "desc"]), {}))
-											.collect
+										const ordered = yield* (yield* db.workload.descending.execute({})).collect
 										assert.deepEqual(
 											Arr.map(ordered, (row) => row.id),
 											Arr.reverse(Arr.map(facts, (f) => f.id)),
@@ -302,21 +331,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 											),
 											"the ordered read delivers each value whole"
 										)
-										const onShelf = query(o.schema)
-											.rule((r) => {
-												const { id } = v(Shelf, "s")
-												return r.match(Shelf, { id }).find({ id })
-											})
-											.attach(
-												"blobs",
-												(parent) =>
-													query(o.schema).rule((r) => {
-														const { id, body } = v(Blob, "b")
-														return r.match(Blob, { id, shelf: parent.id, body }).find({ id, body })
-													}),
-												"array"
-											)
-										const onShelves = yield* (yield* db.execute(onShelf, {})).collect
+										const onShelves = yield* (yield* db.workload.onShelf.execute({})).collect
 										for (const row of onShelves) {
 											const own = Arr.filter(facts, (f) => f.shelf === row.id)
 											const attached = Arr.sort(row.blobs, byId)
@@ -329,19 +344,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 												"each attached value reads back whole"
 											)
 										}
-										const deleted = yield* db.apply(
-											ChangeSet.empty(o.schema).delete(
-												Blob,
-												query(o.schema).rule((r) => {
-													const { id, shelf: on, body } = v(Blob, "b")
-													return r
-														.match(Blob, { id, shelf: on, body })
-														.where(r.eq(on, r.param("shelf", pg.integer)))
-														.find({ id, shelf: on, body })
-												})
-											),
-											{ shelf }
-										)
+										const deleted = yield* db.workload.clearShelf.apply({ shelf })
 										if (deleted.kind !== "accepted") {
 											return assert.fail(`the shelf's values are deleted, not ${deleted.kind}`)
 										}
@@ -357,7 +360,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 										)
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+											Effect.flatMap(Layer.build(o.served.layer), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

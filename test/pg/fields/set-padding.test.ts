@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Order, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -19,7 +19,6 @@ import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc1. A set over a roster of n
@@ -88,7 +87,10 @@ const padFeature = (pad: number): Feature =>
 				? "two pad bits"
 				: "three pad bits"
 
-/** The schema a case declares, its sets over the roster S. */
+/**
+ * The schema a case declares, its sets over the roster S, and its full world's workload: R's rows written with the facts
+ * each call gives, and every row read back with its stored sets and the query's own union and difference of a and b.
+ */
 const schemaOf = (d: Drawn) => {
 	const handles: NonEmptyReadonlyArray<string> = [
 		handleOf(0),
@@ -115,7 +117,24 @@ const schemaOf = (d: Drawn) => {
 			w: generated(bits(S), C.row(r.k))
 		})
 	)
-	return { S, R, Sets: schema("SetPadding", { S, C, R }, []) }
+	const Sets = schema("SetPadding", { S, C, R }, [])
+	const programs = {
+		write: ChangeSet.empty(Sets).insert(R, []),
+		sets: query(Sets).rule((r) => {
+			const { id, a, b, u, i, d: diff, e, w } = v(R, "r")
+			return r.match(R, { id, a, b, u, i, d: diff, e, w }).find({
+				id,
+				u,
+				i,
+				d: diff,
+				e,
+				w,
+				qu: Compute.union(a, b),
+				qd: Compute.difference(a, b)
+			})
+		})
+	}
+	return { S, R, Sets, programs }
 }
 
 /** A set's codes, ascending. */
@@ -164,11 +183,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						(d: Drawn, c: Case<Feature>) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const { S, R, Sets } = schemaOf(d)
+									const { S, R, Sets, programs } = schemaOf(d)
 									const o = yield* installed(
 										Sets,
 										{},
-										{ label: "setpadding", extensions: [], programs: {} }
+										{ label: "setpadding", extensions: [], programs }
 									)
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
@@ -188,17 +207,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									})
 									yield* Effect.gen(function* () {
-										const db = yield* compiledOpen(o.server.roles.app, {})
-										const outcome = yield* db.apply(
-											ChangeSet.empty(o.schema).insert(
-												R,
-												Arr.map(d.rows, (row, id) => ({
+										const db = yield* Db.open(o.served.login.roles.app, {})
+										const outcome = yield* db.workload.write.apply(
+											{
+												R: Arr.map(d.rows, (row, id) => ({
 													id,
 													k: handleOf(row.k),
 													a: Bits.of(S, Arr.map(row.a, handleOf)),
 													b: Bits.of(S, Arr.map(row.b, handleOf))
 												}))
-											),
+											},
 											{}
 										)
 										assert.equal(
@@ -206,22 +224,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											"accepted",
 											`every computed set meets the domain: ${Formatter.format(d)}`
 										)
-										const read = yield* (yield* db.execute(
-											query(o.schema).rule((r) => {
-												const { id, a, b, u, i, d: diff, e, w } = v(R, "r")
-												return r.match(R, { id, a, b, u, i, d: diff, e, w }).find({
-													id,
-													u,
-													i,
-													d: diff,
-													e,
-													w,
-													qu: Compute.union(a, b),
-													qd: Compute.difference(a, b)
-												})
-											}),
-											{}
-										)).collect
+										const read = yield* (yield* db.workload.sets.execute({})).collect
 										assert.deepEqual(
 											Arr.sort(
 												Arr.map(read, (row) => ({
@@ -250,7 +253,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+											Effect.flatMap(Layer.build(o.served.layer), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped
