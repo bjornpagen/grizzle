@@ -414,16 +414,13 @@ const twoHopCopy = coreOf(
 	[{ family: 1, copy: 1 }]
 )
 
-/** A mutable owner R0 of a counted family of R1 whose members copy R0's `v` and the family's count along its owner
- * axis, and whose sum fold steps the copy of `v`: a put of R0 refills the fold, and an append recounts the owner, whose
- * count the stored members copy. */
+/** A mutable owner R0 of a counted family of R1 whose members copy R0's `v` along its owner axis, which their sum fold
+ * steps: a put of R0 refills the fold, and an append recounts the owner, whose count ‹n› the stored members copy. The
+ * axis carries the count once, as ‹n›: a copy of the count beside it is UnsupportedLawFamily. */
 const copiedCount = coreOf(
 	[true, true],
 	[{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
-	[
-		{ family: 0, axis: "owner", source: { kind: "caller" } },
-		{ family: 0, axis: "owner", source: { kind: "count", family: 0 } }
-	],
+	[{ family: 0, axis: "owner", source: { kind: "caller" } }],
 	[{ family: 0, copy: 0 }]
 )
 
