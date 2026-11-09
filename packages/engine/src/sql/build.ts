@@ -290,7 +290,7 @@ export const row = (items: NonEmptyReadonlyArray<Expr>): Expr => ({ kind: "row",
 export const exists = (query: OperandSelect): Expr => ({ kind: "exists", query, not: false })
 
 /** COALESCE(value, …, otherwise): the first of `args` that is not NULL. */
-export const coalesce = (args: NonEmptyReadonlyArray<Expr>): Expr => ({
+export const firstNonNull = (args: NonEmptyReadonlyArray<Expr>): Expr => ({
 	kind: "coalesce",
 	args
 })

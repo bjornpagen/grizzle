@@ -54,13 +54,13 @@ import {
 	binary,
 	call,
 	cast,
-	coalesce,
 	col,
 	cte,
 	cteRefAs,
 	distinctCore,
 	eq,
 	exists,
+	firstNonNull,
 	join,
 	lit,
 	notExists,
@@ -740,7 +740,7 @@ const appendScan = (
 				)
 			}
 		}
-		return coalesce([
+		return firstNonNull([
 			stored,
 			...(nestedOwner === undefined ? [] : [inserted(nestedOwner())]),
 			lowerLiteral(w.names, base, read.type)
@@ -868,7 +868,7 @@ const insertOf = (
 		/** The scan's value where it appends to the row's group, else the row's own: a drawn value is never NULL. */
 		const fromLast = (key: ColumnKey, value: (s: string) => Expr): Expr => {
 			const s = supply.relation(internal("owned scan"))
-			return coalesce([
+			return firstNonNull([
 				{
 					kind: "subquery",
 					query: simpleSelect([target(value(s))], [cteRefAs(scan.name, s)], at(s))
@@ -1126,7 +1126,7 @@ const recountOf = (
 	 */
 	const valueAt = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
 		const l = supply.relation(internal("recount value"))
-		return coalesce([
+		return firstNonNull([
 			{
 				kind: "subquery",
 				query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last, l))

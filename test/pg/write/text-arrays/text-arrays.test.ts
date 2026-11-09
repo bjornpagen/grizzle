@@ -209,16 +209,19 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										"a relation parameter's texts read back"
 									)
 									const all = Arr.join(texts, "")
-									if (/["\\]/u.test(all)) {
+									/** Whether the texts hold any of `points`. */
+									const holdsAny = (points: ReadonlyArray<string>): boolean =>
+										Arr.some(points, (point) => Str.includes(point)(all))
+									if (holdsAny(['"', "\\"])) {
 										c.note("a quote or a backslash")
 									}
-									if (/[{},]/u.test(all)) {
+									if (holdsAny(["{", "}", ","])) {
 										c.note("a brace or a comma")
 									}
 									if (Arr.some(texts, (t) => Str.toUpperCase(t) === "NULL")) {
 										c.note("the text NULL")
 									}
-									if (/[\u{10000}-\u{10FFFF}]/u.test(all)) {
+									if (Arr.some(Arr.fromIterable(all), (point) => point.length === 2)) {
 										c.note("an astral scalar")
 									}
 									if (Arr.some(texts, (t) => t === "")) {

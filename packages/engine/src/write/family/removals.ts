@@ -49,7 +49,6 @@ import {
 	binary,
 	call,
 	cast,
-	coalesce,
 	col,
 	countStar,
 	cte,
@@ -58,6 +57,7 @@ import {
 	distinctCore,
 	eq,
 	exists,
+	firstNonNull,
 	ge,
 	join,
 	lit,
@@ -701,7 +701,7 @@ const redraw = (
 				)
 			)
 		const u = supply.relation(internal("put overlay"))
-		return coalesce([
+		return firstNonNull([
 			{
 				kind: "subquery",
 				query: simpleSelect(
@@ -1202,7 +1202,7 @@ const writesOf = (
 				mapNonEmpty(keyOf(s, drawer.scan), (x, j) => eq(x, defined(keyOf(a, written_)[j], "a key")))
 			)
 		const s = supply.relation(internal("final drawn"))
-		return coalesce([
+		return firstNonNull([
 			{
 				kind: "subquery",
 				query: simpleSelect(
@@ -1504,7 +1504,7 @@ const recountOf = (
 	/** A family's recounted value of an owner column, else its stored one: a recounted count or end is never NULL. */
 	const recounted = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
 		const l = supply.relation(internal("recount value"))
-		return coalesce([
+		return firstNonNull([
 			{
 				kind: "subquery",
 				query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last, l))

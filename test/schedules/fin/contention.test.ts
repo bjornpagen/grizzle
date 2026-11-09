@@ -17,6 +17,7 @@
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { openDbContext } from "#adapter/db/open.ts"
+import type { TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -71,6 +72,9 @@ const contended = (name: string) => {
 	}
 }
 
+/** The one TransientFailure reason a concurrent append to the group may meet: the owner's row, updated by the other. */
+const serializationFailure: TransientTag = "SerializationFailure"
+
 /** The direct writer's member and the grizzle writer's. */
 const DIRECT = 10
 const GRIZZLE = 11
@@ -108,7 +112,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					/** The grizzle write's refusals and answer in the current run, set by its move. */
 					let ran:
 						| Result.Result<
-								{ readonly refused: ReadonlyArray<string>; readonly answer: string },
+								{ readonly refused: ReadonlyArray<TransientTag>; readonly answer: string },
 								string
 						  >
 						| undefined
@@ -173,7 +177,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								`the grizzle write answered ${answer} after refusals [${Arr.join(refused, ", ")}], where its append is lawful in either order`
 							)
 						}
-						const other = Arr.filter(refused, (r) => r !== "SerializationFailure")
+						const other = Arr.filter(refused, (r) => r !== serializationFailure)
 						if (Arr.isReadonlyArrayNonEmpty(other)) {
 							return refusedJudgment(
 								`the grizzle write was refused by ${Arr.join(other, ", ")}, where only a serialization failure meets a concurrent append`
