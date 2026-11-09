@@ -9,6 +9,7 @@ import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { own } from "#compiler/schema/own.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { type SqlStatement, type TableConstraint, tableConstraints } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { decodedSchema, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -23,7 +24,7 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 
 /** A schema description's law model, or the refusal the owner or the law model gives it. */
 export const compiledModel = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
-	EngineResult.flatMap(own(decodedSchema(desc)), compileLaws)
+	EngineResult.flatMap(own(decodedSchema(desc)), (owned) => compileLaws(owned, everyWrite(owned)))
 
 /** A schema description's law model, which must compile. */
 export const modelOf = (desc: SchemaDesc): LawModel => succeeded(compiledModel(desc))

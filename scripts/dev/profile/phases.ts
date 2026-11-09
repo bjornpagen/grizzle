@@ -21,6 +21,7 @@ import { isOrderedValue, isQueryValue, queryOver, varsOver } from "#compiler/que
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
@@ -209,7 +210,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const owned = timed(`${f.label} own`, () =>
 		ok(own(input.kind === "role" ? input.desc.base : input.desc), "own")
 	)
-	timed(`${f.label} laws`, () => ok(compileLaws(owned), "laws"))
+	timed(`${f.label} laws`, () => ok(compileLaws(owned, everyWrite(owned)), "laws"))
 	/** A fresh installation's codes: every roster's handles in declared order. */
 	const codes = firstCodebook(rostersOf(owned))
 	const base = { ...completeInstallOptions(owned, [installedAt], [], [], codes), owner }

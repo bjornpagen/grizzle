@@ -70,6 +70,7 @@ import {
 	installBasis,
 	type InstallBasis,
 	ledgerStatements,
+	loginWrites,
 	type ServedSnapshot
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
@@ -308,14 +309,14 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
 
 /**
  * The artifacts of a login's base, owned once, compiled once under the installation's codes `codes`, under its own
- * installation and vector schema (program/schema.ts baseArtifacts): what the login's programs' access and every one of
- * its roles read.
+ * installation and vector schema (program/schema.ts baseArtifacts), its law model for the writes of the login's roles
+ * (schema/reach.ts loginWrites), which the database holds every write of the login to: what every one of its roles reads.
  */
 export const artifactsUnder = (
-	base: Owned,
+	login: OwnedLogin,
 	codes: Codebook
 ): Engine.Result<SchemaArtifacts, CompileError> =>
-	Engine.flatMap(installBasis(base, codes), artifactsOver)
+	Engine.flatMap(installBasis(login.base, codes, loginWrites(login)), artifactsOver)
 
 /** The artifacts of a base over its basis (physical/install/plan.ts installBasis), under its own installation. */
 export const artifactsOver = (basis: InstallBasis): Engine.Result<SchemaArtifacts, CompileError> =>
@@ -411,10 +412,10 @@ const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, 
 /**
  * Builds the service in the current scope (the layer's) from a parsed config: the login's base owned once; the
  * snapshot, parsed over the base's level, the last of its own levels, its codes read; the login over the base; the base's
- * artifacts compiled once under the codes (artifactsUnder),
- * which every role reads, and the laws of the levels above the base's that the snapshot records (witness/keylaw.ts
- * lawsAbove), the base's level the last of its own levels; every role's artifacts and programs over them; the login's
- * role, its pool and the prologue's statements (see the header).
+ * artifacts compiled once under the codes for the writes of the login's roles (artifactsUnder), which every role reads,
+ * and the laws of the levels above the base's that the snapshot records (witness/keylaw.ts lawsAbove), the base's level
+ * the last of its own levels; every role's artifacts and programs over them; the login's role, its pool and the
+ * prologue's statements (see the header).
  */
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
@@ -424,7 +425,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
-	const artifacts = yield* openStage(artifactsUnder(owned.base, codes))
+	const artifacts = yield* openStage(artifactsUnder(owned, codes))
 	const above = lawsAbove(snapshot)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts, above),

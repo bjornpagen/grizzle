@@ -65,6 +65,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, own } from "#compiler/schema/own.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
 /** Entries in the code-unit order of their keys. */
@@ -474,7 +475,9 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 		const theory =
 			i === top || desc === undefined
 				? installation.laws.theory
-				: unwrapCompiled(Result.flatMap(own(desc), compileLaws)).theory
+				: unwrapCompiled(
+						Result.flatMap(own(desc), (owned) => compileLaws(owned, everyWrite(owned)))
+					).theory
 		const laws: Array<DescribedLaw> = []
 		for (const law of theory.laws) {
 			if (!stated.has(law.id)) {

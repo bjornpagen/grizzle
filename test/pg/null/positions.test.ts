@@ -39,6 +39,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { evaluateTable, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
@@ -664,7 +665,11 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 				)
 			}
 		}
-		const model = succeeded(compileLaws(owning(built.Null)), "the case's schema compiles its laws")
+		const owned = owning(built.Null)
+		const model = succeeded(
+			compileLaws(owned, everyWrite(owned)),
+			"the case's schema compiles its laws"
+		)
 		const closed = closedRowsOf(model)
 		const exprs = lawExprs(model)
 		const judgedBy = (name: string): ReadonlyArray<ScalarExpr> => {

@@ -41,6 +41,7 @@ import {
 	type DeploySnapshot,
 	type DraftInput,
 	draftMigration,
+	everyWrite,
 	findMarkers,
 	type FolderNaming,
 	generateMigration,
@@ -228,7 +229,10 @@ const draftInput = Effect.fn("draftInput")(function* (
 	}
 	const codes = drafted.value
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
-	const basis = yield* Effect.mapError(fromEngine(installBasis(owned, codes)), refusedAt("schema"))
+	const basis = yield* Effect.mapError(
+		fromEngine(installBasis(owned, codes, everyWrite(owned))),
+		refusedAt("schema")
+	)
 	/**
 	 * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and
 	 * the names the installation drafted below gives it, so the index requests name its vector schema. A schema

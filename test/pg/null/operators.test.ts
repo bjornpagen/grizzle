@@ -27,6 +27,7 @@ import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
@@ -492,19 +493,16 @@ const closedRows = (model: ReturnType<typeof modelOf>) =>
 const closed = closedOf(world)
 const Probe = itemRelation(closed, "Probe")
 
-const modelOf = (pred: Pred) =>
-	succeeded(
-		compileLaws(
-			owning(
-				schema("Operators", { ...closed, Probe }, [
-					checkBuilder("Holds", Probe, (r: Readonly<Record<string, unknown>>) =>
-						buildPred(closed, r, pred)
-					)
-				] as const)
+const modelOf = (pred: Pred) => {
+	const owned = owning(
+		schema("Operators", { ...closed, Probe }, [
+			checkBuilder("Holds", Probe, (r: Readonly<Record<string, unknown>>) =>
+				buildPred(closed, r, pred)
 			)
-		),
-		"a case's check compiles"
+		] as const)
 	)
+	return succeeded(compileLaws(owned, everyWrite(owned)), "a case's check compiles")
+}
 
 /** The field types of Probe's row, as the checked schema resolves them: the numeric a rounding reads, its scale's. */
 const probeField = (name: "d" | "n"): ScalarType => {

@@ -151,7 +151,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
 							const compiled = yield* Effect.result(
 								Effect.flatMap(
-									fromEngine(artifactsUnder(compiledSchema.owned, codes)),
+									fromEngine(artifactsUnder(compiledLogin.owned, codes)),
 									(artifacts) =>
 										loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove)
 								)

@@ -9,6 +9,7 @@ import { fieldPatternLaws } from "#compiler/physical/ddl/domains.ts"
 import { parseBuiltSchema } from "#compiler/program/schema.ts"
 import { canonicalStatementText, own } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -44,7 +45,7 @@ interface SchemaLaws {
 const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
 	orThrow(
 		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
-			Result.flatMap(own(built.desc), compileLaws)
+			Result.flatMap(own(built.desc), (owned) => compileLaws(owned, everyWrite(owned)))
 		)
 	)
 

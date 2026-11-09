@@ -352,9 +352,10 @@ const primaryObject = (pk: NamedPrimaryKey): PrimaryKeyObject => {
 	return { ...named, kind: "span", equal: fields, span, within: [] }
 }
 
-/** Each ordinary relation of `keyed` by name with its primary key and its unique objects, from a law model's natives:
- * computed once, as the model is built (LawModel.relations). A relation's natives name its handle, the one the theory
- * read. */
+/** Each ordinary relation of `keyed` by name with its primary key and its unique objects, from a law model's natives on
+ * it: computed once, as the model is built (LawModel.relations). A relation's natives name its handle, the one the
+ * theory read. The model holds every native of a keyed relation, and of any other only those a read relies on, so no
+ * other relation's natives are read here. */
 export const relationLaws = (
 	keyed: ReadonlyArray<KeyedRelation>,
 	natives: ReadonlyArray<NamedNative>
@@ -369,8 +370,13 @@ export const relationLaws = (
 		own.set(n.object.column, n.object)
 		lawColumns.set(n.object.relation.name, own)
 	}
+	const keyedNames = new Set(keyed.map((k) => k.relation.name))
 	const placed = Map.groupBy(
-		natives.flatMap((n) => uniqueOf(n, lawColumns)),
+		natives.flatMap((n) =>
+			n.namespace === "constraint" && keyedNames.has(n.object.relation.name)
+				? uniqueOf(n, lawColumns)
+				: []
+		),
 		(p) => p.relation
 	)
 	return new Map(

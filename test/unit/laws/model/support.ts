@@ -2,6 +2,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { own } from "#compiler/schema/own.ts"
+import { everyWrite } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	decodedSchema,
@@ -11,7 +12,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 
 const modelResult = (desc: SchemaDesc): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(own(decodedSchema(desc)), compileLaws)
+	Result.flatMap(own(decodedSchema(desc)), (owned) => compileLaws(owned, everyWrite(owned)))
 
 /** Shared helpers for the law model tests: owning a schema description and compiling its laws. */
 export const modelOf = (desc: SchemaDesc): LawModel => succeeded(modelResult(desc))
