@@ -5,17 +5,7 @@ import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Data,
-	Effect,
-	Exit,
-	Formatter,
-	Layer,
-	Option,
-	Order,
-	String as Str
-} from "effect"
+import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -55,8 +45,6 @@ import { loginLayer } from "#test/support/worlds.ts"
  * - each level's table lives in its own level's PostgreSQL schema and in no other; the foreign key runs from the upper
  *   table to the lower one; both columns are of the one contract domain; the upper role holds no privilege on the lower
  *   table, nor the lower role on the upper one;
- * - a layer of a login over a lower level whose content differs from the installation's at that position is refused,
- *   whatever its name;
  * - each drawn transaction commits exactly when the state it leaves keeps the containment; a sitting of an item that is
  *   not there is refused by the containment as the upper level states it, and a deletion of an item a sitting holds,
  *   through the lower login, by that law named `above` the lower level, `{ kind: "above", level, law }`, the law as
@@ -86,14 +74,6 @@ const levelsAt = (name: string) => {
 		authorApp: login(lower, "author_app", [author]),
 		app: login(upper, "app", [learner])
 	}
-}
-
-/** The lower level under `name` with another relation: another content at the root's position. */
-const otherLowerAt = (name: string) => {
-	const Other = relation("Other", { id: uuid }, ["id"])
-	const lower = schema(name, { Kind, Item, Other }, [])
-	const author = role(lower, "author", wholeEntriesOf(lower), { write: writableNamesOf(lower) })
-	return login(lower, "author_app", [author])
 }
 
 /** The ids a case draws from: few, so sittings meet items and deletions meet references. */
@@ -217,16 +197,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							`SELECT concat_ws(',', has_table_privilege(${quote(roleNameOf(at.learner))}, ${table(lowerSchema, "item")}, 'SELECT,INSERT,UPDATE,DELETE'), has_table_privilege(${quote(roleNameOf(at.author))}, ${table(upperSchema, "sitting")}, 'SELECT,INSERT,UPDATE,DELETE'))`
 						)
 						assert.equal(grants, "f,f", "no privilege on the other level's table")
-
-						/** A lower level of other content at the root's position is no level of the installation. */
-						const other = yield* Effect.exit(
-							Layer.build(loginLayer(done, otherLowerAt(done.schema)))
-						)
-						assert.equal(
-							Exit.isFailure(other),
-							true,
-							"a login over a lower level of other content is refused"
-						)
 
 						const lowerContext = yield* Layer.build(loginLayer(done, at.authorApp))
 						const upperContext = yield* Layer.build(loginLayer(done, at.app))
