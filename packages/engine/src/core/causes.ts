@@ -641,14 +641,17 @@ const derivedReaderText = (reader: DerivedReader): string => {
 /**
  * Why grizzle cannot draw again a value a change leaves stale: the change is a put whose rows a query states, which the
  * host never sees (`query`); the refills the change needs reach a family they refill again, `refills` in the order
- * each reaches the next, so no order of them draws every value once (`cycle`); or the refill would change the rows of
+ * each reaches the next, so no order of them draws every value once (`cycle`); the refill would change the rows of
  * `relation`, which is immutable: the family's members, which it updates in place, or its owner, whose family is fixed
- * when it is inserted (`immutable`).
+ * when it is inserted (`immutable`); or the value is one of the tree `tree`'s, a node's copy of its parent's, a
+ * sibling's predecessor copy or fold, or a parent's end or last copy, which grizzle draws only when the node is written
+ * (`tree`).
  */
 export type StaleCause =
 	| { readonly kind: "query" }
 	| { readonly kind: "cycle"; readonly refills: NonEmptyReadonlyArray<FamilyName> }
 	| { readonly kind: "immutable"; readonly relation: string }
+	| { readonly kind: "tree"; readonly tree: FamilyName }
 
 /** Why a StaleDerivedRead's value cannot be drawn again, of a write of `member`. */
 const staleCauseText = (member: string, cause: StaleCause): string => {
@@ -659,6 +662,8 @@ const staleCauseText = (member: string, cause: StaleCause): string => {
 			return `refilling it reaches the families ${cause.refills.map(familyNameText).join(", then ")} and the first again, so no order of the refills draws each value once`
 		case "immutable":
 			return `refilling it would update rows of the immutable ${cause.relation} in place: declare mutable(${cause.relation}), or change the column in a schema whose family reads it from a column fixed once its row is written`
+		case "tree":
+			return `it is a value of the tree ${familyNameText(cause.tree)}, which grizzle draws only when the node is written and never again on a stored tree`
 	}
 }
 

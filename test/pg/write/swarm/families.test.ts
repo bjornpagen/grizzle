@@ -36,7 +36,7 @@ import {
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
-import { type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
+import { familyNamed, type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -105,6 +105,7 @@ type Situation =
 	| "a stratum no order keeps refused"
 	| "a refill after an earlier stratum refused"
 	| "refills reaching a family again refused"
+	| "a refill of a tree's values refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -1151,7 +1152,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		reaches: ["a put from a query accepted"]
 	},
 	{
-		note: "found: a put of an ordered member whose g its owner's last copy reads, read again by a tree's last copy, beside a referrer's put: once refused as a refill cycle naming the referrer's put as its write, now refilled",
+		note: "found: a put of an ordered member whose g its owner's last copy reads, read again by a tree's last copy, beside a referrer's put: once refused as a refill cycle naming the referrer's put as its write, then refilled on the host from a read, now refused when it compiles as a refill of the tree's values",
 		sketch: {
 			spec: {
 				fill: {
@@ -1208,7 +1209,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			]
 		},
 		draws: "",
-		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
+		reaches: ["a refill of a tree's values refused"]
 	},
 	{
 		note: "found: a counted family's sum fold stepping its member's copy along an ordered family's owner axis, once refused as unfillable where the reference admits it, written and refilled after the ordered owner's put",
@@ -1539,7 +1540,15 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 														? expected.immutable.includes(cause.relation)
 														: cause.kind === "query"
 															? expected.query
-															: expected.cycle
+															: cause.kind === "tree"
+																? Arr.some(expected.trees, (k) => {
+																		const named = familyNamed(spec.fill, k)
+																		return (
+																			named.owner === cause.tree.owner &&
+																			named.count === cause.tree.count
+																		)
+																	})
+																: expected.cycle
 												assert.ok(
 													stated,
 													`${label}: refused as stale (${Formatter.format(cause)}), a cause the reference does not state: ${Formatter.format(expected)}`
@@ -1556,7 +1565,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 														? "a refill of an immutable relation refused"
 														: cause.kind === "query"
 															? "a put from a query refused for a value it leaves stale"
-															: "refills reaching a family again refused"
+															: cause.kind === "tree"
+																? "a refill of a tree's values refused"
+																: "refills reaching a family again refused"
 												)
 												return
 											}

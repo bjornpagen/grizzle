@@ -58,9 +58,9 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * `v`, inserts counted members under it, deletes a member of one of its ordered families and puts a member, new or
  * moved from another owner's group, at the end of one, is then applied,
  * every value it leaves stale refilled (analysis/theory/refill.ts), wherever its refills write only mutable relations
- * (fill.ts `writesVerdict`, which refuses only a refill of an immutable relation's rows; the unit suite judges that
- * refusal), and it too stores exactly the reference writer's rows of the instance it leaves: the owner's new values in
- * its members' copies, every predecessor copy, last copy, tree copy and fold drawn from them again, the new members'
+ * (fill.ts `writesVerdict`, which refuses a refill of an immutable relation's rows or of a tree's values; the unit suite
+ * judges those refusals), and it too stores exactly the reference writer's rows of the instance it leaves: the owner's
+ * new values in its members' copies, every predecessor copy, last copy and fold drawn from them again, the new members'
  * counts, folds and copies, the appended member's index and its siblings' last copy, and every member re-placed after a
  * deleted or moved one, its own members' copies of it drawn again (a re-placed row is deleted and inserted again, which
  * no cascade follows). A fold that steps a copy of the

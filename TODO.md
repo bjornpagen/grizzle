@@ -156,6 +156,17 @@ post-beta swarm's fixes for the next release.
   a writer in its own database, is the candidate cause. Record the next one with pg_stat_activity of every database at
   that moment. Replay:
   `TEST_REPLAY='pg/fin/fold-ends:5ffffffffffffffffe739ce739ce739ce739ce739ce739ce739ce739850a142850a142850a142850a142850a142850a1429f3e7cf9f04:1.0.f.1.a.0.2.0.1.0.0.0.1.0.2.0.0.0.0.2.7.7.0.3.2o.7.7.8.3.mk.3.0.3.4.f.7.4.1w.5r.9b.1.0.6.b.f.1d.26.1e.24.0.0.0.9.q.o.i.62.1m.3.1.0.7.b.q.16.2t.2j.e3.0.2.5.6.d.h.9.2p.8c.0.3.4.1.u.17.w.29.90.2.1.4.5.1.h1.3.8.5.1.2.bm.1.1.0.0.0.2.0.0.2.1.0.1.0.1.1.0.0'`
+- **Refilling a tree's values in the flight (the owner, 2026-11-09: refused for now, built later):** a change that
+  reaches a stored tree's values (a node's copy of its parent's, a sibling's predecessor copy or fold, a parent's ends
+  or last copy) is refused when it compiles (StaleDerivedRead, cause `tree`; write/frontend/refill.ts stratumRefill).
+  The designed form, in the stratum's removals statement (write/family/removals.ts): a WITH RECURSIVE walk from each
+  changed tree's root down, one tree level per iteration, each iteration redrawing the children of the previous
+  level's nodes as one group with the redraw scans the removals statement already builds for an ordered or counted
+  group (write/family/scan.ts), the parent's copies read from the previous level's rows, carried in each row for its
+  siblings, and the siblings' predecessor copies and folds stepped within the level; then one pass grouping the walk's
+  rows by parent for each parent's ends and last copies; then one UPDATE of every node whose values change. No node
+  moves, so slots, counts and intervals stay. Estimated at 500 to 900 lines with a tree variant of the scan. The
+  families swarm's tree kept case and fill.ts writesVerdict's `tree` arm turn back into refills when it lands.
 
 ## Upstream, for the owner to file
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's

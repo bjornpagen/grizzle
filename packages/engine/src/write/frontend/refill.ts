@@ -127,11 +127,7 @@ const flightWay = (
 ): PlainRefillWay | undefined => {
 	const { change, changed, reader } = path
 	const [hop, ...further] = path.copies
-	if (
-		change.kind !== "write" ||
-		reader.family.members.kind === "tree" ||
-		edited.has(reader.family.member.name)
-	) {
+	if (change.kind !== "write" || edited.has(reader.family.member.name)) {
 		return undefined
 	}
 	if (!managed(change.relation.name)) {
@@ -354,6 +350,7 @@ const readRelations = (read: RefillRead): ReadonlyArray<RelationInfo> => {
  *   such a put reaches by cascade before a write of the stratum draws it (CascadedCopyAppend) or a refill rewrites it;
  * - a refill of an immutable relation's rows (StaleDerivedRead, `immutable`);
  * - refills that reach a family they refill again (StaleDerivedRead, `cycle`);
+ * - a refill of a tree's values, which grizzle draws only when a node is written (StaleDerivedRead, `tree`);
  * - a refill a role does not hold the rows of whole (OutsideRole): the members it rewrites, which its write list names,
  *   and every row its reads pass, which it holds.
  *
@@ -434,6 +431,16 @@ export const stratumRefill = (
 					owner: f.id.owner,
 					count: f.id.count
 				}))
+			})
+		)
+	}
+	const treePath = closure.paths.find((p) => p.reader.family.members.kind === "tree")
+	if (treePath !== undefined) {
+		const tree = treePath.reader.family.id
+		return Result.err(
+			stale(treePath, treePath.reader, {
+				kind: "tree",
+				tree: { owner: tree.owner, count: tree.count }
 			})
 		)
 	}

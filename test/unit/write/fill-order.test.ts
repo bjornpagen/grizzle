@@ -124,7 +124,7 @@ type FillSituation =
 	| "refilled: a value a refill's own change leaves stale"
 	| "refilled: a predecessor copy"
 	| "refilled: a last copy"
-	| "refilled: a tree copy"
+	| "refused: a refill of a tree's values"
 	| "refilled: a copy of an owner an edit re-places"
 	| "compiled: a put beneath an immutable owner, which re-places nothing"
 	| "refused: the write a refill starts from, beside a plain put named first"
@@ -178,7 +178,9 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 				case "last":
 					return ["refilled: a last copy"]
 				case "tree":
-					return ["refilled: a tree copy"]
+					return assert.fail(
+						"a written verdict leaves no tree's value stale: the reference refuses it"
+					)
 				case "owner":
 					return ["refilled: a copy of an owner an edit re-places"]
 				case "fold":
@@ -193,8 +195,8 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 /**
  * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
  * is written, noting every value it refills; else refused with StaleDerivedRead naming a refill of an immutable
- * relation's rows the reference names, or refills on a cycle the reference finds, at the write a refused refill's
- * path starts from.
+ * relation's rows the reference names, refills on a cycle the reference finds, or a tree whose values the reference
+ * finds stale, at the write a refused refill's path starts from.
  */
 const judged = (
 	spec: FillSpec,
@@ -248,6 +250,20 @@ const judged = (
 					`refills on a cycle the reference finds: ${Formatter.format(cause.refills)} among ${Formatter.format(onCycle)}`
 				)
 			}
+			return
+		case "tree":
+			assert.equal(cause.kind, "tree", `${label}: a refill of a tree's values`)
+			if (cause.kind === "tree") {
+				const tree = cause.tree
+				assert.ok(
+					Arr.some(verdict.trees, (k) => {
+						const named = familyNamed(spec, k)
+						return named.owner === tree.owner && named.count === tree.count
+					}),
+					`a tree whose values the reference finds stale, not ${Formatter.format(tree)}: ${Formatter.format(Arr.map(verdict.trees, (k) => familyNamed(spec, k)))}`
+				)
+			}
+			note("refused: a refill of a tree's values")
 	}
 }
 
@@ -1302,7 +1318,7 @@ const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refilled: a value through a copy after an edit",
 	"refilled: a predecessor copy",
 	"refilled: a last copy",
-	"refilled: a tree copy",
+	"refused: a refill of a tree's values",
 	"refilled: a copy of an owner an edit re-places",
 	"compiled: a put beneath an immutable owner, which re-places nothing",
 	"refilled: a fold over a copy",
