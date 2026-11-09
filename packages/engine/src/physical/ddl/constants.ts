@@ -90,10 +90,10 @@ import { printObjectName, textArrayLiteral } from "#compiler/sql/print.ts"
  *   every padding bit are 0 in every stored set.
  * - A closed relation installs its string of cells, read at the index its key gives its key fields' codes, its key
  *   set, one bit per point of its key space, and a dictionary per open-typed payload field, the field's values in code
- *   order. A relation of no payload is its own key set, one function. A key is the mixed radix of its closed ids, or,
- *   where its slots count over an owner prefix, a dependent sum, each owner's block after the blocks before it: such a
- *   key also installs two kinds of owner function over the prefix, each owner's block's first cell and each count its
- *   slots read, which its readers index by (sql/constants.ts cellOfKey).
+ *   order. A relation whose cells are one bit wide is its own key set, one function. A key is the mixed radix of its
+ *   closed ids, or, where its slots count over an owner prefix, a dependent sum, each owner's block after the blocks
+ *   before it: such a key also installs two kinds of owner function over the prefix, each owner's block's first cell
+ *   and each count its slots read, which its readers index by (sql/constants.ts cellOfKey).
  * - A containment into a closed relation's side installs the side's string of cells, as a closed relation of its own,
  *   which the table CHECK that holds the containment reads (`closedMembership`).
  *
@@ -562,19 +562,34 @@ const plannedRelation = (
 			)
 		}
 	})
+	const cells = plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what)
 	return {
 		key: planned,
-		cells: plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what),
-		keys: plannedCells(
-			{ key: planned.space, payload: [] },
-			tuples.map((t) => ({ key: t.key, payload: [] })),
-			`the key set of ${what}`
-		),
+		cells,
+		keys: keySetOf(cells),
 		payload,
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
 		)
 	}
+}
+
+/**
+ * The key set of a string of cells: one bit per cell, set where the cells hold a row. Cells one bit wide hold every row's
+ * payload code 0, a set's or a payload of one code, so they are their own key set; wider cells' key set holds each of
+ * their entries at its index with payload code 0, a constant of its own, named by its own digest.
+ */
+const keySetOf = (cells: PlannedCells): PlannedCells => {
+	if (cells.constant.width === 1) {
+		return cells
+	}
+	const constant: Constant = {
+		cells: cells.constant.cells,
+		width: 1,
+		entries: cells.constant.entries.map((entry) => ({ index: entry.index, payload: 0n }))
+	}
+	const digest = constantDigestOf(constant)
+	return { kind: "cells", named: identity.closedConstant(digest), digest, constant }
 }
 
 /** A field of a closed relation by name: every name a side or key reads is one of its fields. */
@@ -762,8 +777,8 @@ const addPlanned = (
 	)
 }
 
-/** A planned relation's constants: its cells, its key set (the cells themselves for no payload), its dependent key's
- * owner functions and each dictionary. */
+/** A planned relation's constants: its cells, its key set (the cells themselves when they are one bit wide), its
+ * dependent key's owner functions and each dictionary. */
 const constantsOf = (r: PlannedRelation): ReadonlyArray<PlannedConstant> => [
 	r.cells,
 	r.keys,
