@@ -81,12 +81,7 @@ describe("a read's per-execution choice", () => {
 							const read = namedAccounts(name)
 							const template = succeeded(compileTemplate(read, undefined, testCompile))
 							const { desc } = succeeded(queryInput(read))
-							const program = templateProgram(
-								template,
-								"optimized",
-								attachmentHeads(desc),
-								emptyCodebook
-							)
+							const program = templateProgram(template, attachmentHeads(desc), emptyCodebook)
 							const facts = accounts(count)
 							/** The template declares the relation parameter alone: firstTwo's `acct` is bound to the account variable. */
 							const inputs = Result.getOrThrow(

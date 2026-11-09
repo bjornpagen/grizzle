@@ -26,7 +26,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { closedId, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -34,6 +33,7 @@ import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { installMigrated as install, replaceMigrated } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -136,7 +136,7 @@ const modelOf = (c: UnionCase, code: (kind: KindHandle) => number) => {
 	return { facts: { Task: tasks, Memo: memos }, union }
 }
 
-const compiled = (q: unknown, schemaIdent: string): QueryTemplate => {
+const compiled = (q: unknown, schemaIdent: string): OracleTemplate => {
 	const r = compileTemplate(q, undefined, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(schemaIdent))
@@ -162,7 +162,7 @@ const run = (spec: StatementSpec) =>
 /**
  * Every statement of both artifacts, the optimized one's agreeing with the conservative one's; the conservative rows.
  */
-const agreed = (template: QueryTemplate) =>
+const agreed = (template: OracleTemplate) =>
 	Effect.gen(function* () {
 		assert.equal(template.optimized.length, template.conservative.length)
 		const out: Array<ReadonlyArray<string>> = []

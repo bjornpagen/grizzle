@@ -5,6 +5,8 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import {
 	compilePage,
+	conservativePage,
+	type PageArtifact,
 	type PageTemplate,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
@@ -157,6 +159,8 @@ export const byLabel = measures.orderBy(["label", "asc"])
 export interface CompiledPage {
 	readonly query: QueryTemplate
 	readonly page: PageTemplate
+	/** The page oracle's conservative artifact of the same page (conservativePage). */
+	readonly baseline: PageArtifact
 }
 
 /**
@@ -181,13 +185,13 @@ export const compiledPageResult = (
 		)
 		const { desc } = yield* toResult(queryInput(ordered))
 		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
-		const page = yield* toResult(
-			compilePage({
-				checked: template.programs.checked,
-				stated,
-				optimized: template.programs.optimized,
-				names: artifacts.names
-			})
-		)
-		return { query: template, page }
+		const input = {
+			checked: template.programs.checked,
+			stated,
+			optimized: template.programs.optimized,
+			names: artifacts.names
+		}
+		const page = yield* toResult(compilePage(input))
+		const baseline = yield* toResult(conservativePage(input, page))
+		return { query: template, page, baseline }
 	})

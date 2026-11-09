@@ -243,7 +243,6 @@ const compileArtifacts = (
 			compiled,
 			program: templateProgram(
 				compiled.template,
-				compiled.selection.artifact,
 				attachmentHeads(compiled.desc),
 				role.artifacts.names.codes
 			),

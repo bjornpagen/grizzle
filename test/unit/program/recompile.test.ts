@@ -40,7 +40,6 @@ const largeSpecs = (t: QueryTemplate) =>
 /** The statements a template emits, as text. */
 const statementsOf = (t: QueryTemplate) => ({
 	optimized: Arr.map(t.optimized, (s) => s.sql),
-	conservative: Arr.map(t.conservative, (s) => s.sql),
 	variants: Arr.map(largeSpecs(t), (s) => s.sql)
 })
 

@@ -44,13 +44,13 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"
 import { compileTemplate, paramTexts, scalarsOnly, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -309,7 +309,7 @@ const expectNormAgrees = (v: Vector, native: number, label: string): void => {
 }
 
 /** The template of `q` as `role` reads it, under the installation's schema name. */
-const compiled = (q: unknown, role: unknown, schema: string): QueryTemplate => {
+const compiled = (q: unknown, role: unknown, schema: string): OracleTemplate => {
 	const r = compileTemplate(q, role, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(schema))

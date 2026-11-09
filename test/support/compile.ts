@@ -64,6 +64,7 @@ import {
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
+import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
 
 /**
@@ -223,7 +224,7 @@ export const compileTemplate = (
 	query: unknown,
 	schema: unknown,
 	options: TestCompileOptions
-): Result.Result<QueryTemplate, CompileError> => {
+): Result.Result<OracleTemplate, CompileError> => {
 	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 	if (!named.ok) {
 		return named
@@ -240,11 +241,14 @@ export const compileTemplate = (
 	if (!artifacts.ok) {
 		return artifacts
 	}
-	const template = compileQuery(source.value, {
-		context: options.context,
-		artifacts: artifacts.value,
-		read: options.read
-	})
+	const template = Result.flatMap(
+		compileQuery(source.value, {
+			context: options.context,
+			artifacts: artifacts.value,
+			read: options.read
+		}),
+		(compiled) => withConservative(compiled, artifacts.value.reads)
+	)
 	if (!template.ok) {
 		return template
 	}

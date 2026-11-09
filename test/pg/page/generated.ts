@@ -13,7 +13,7 @@ import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { ConnectionLost, type UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
 import { pageOf } from "#adapter/page/page.ts"
-import { type PageArtifactName, type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
+import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import type { BatchOutcome, Flight } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
@@ -26,6 +26,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -49,7 +50,11 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
+import {
+	compilePage,
+	conservativePage,
+	type PageTemplate
+} from "#compiler/lower/shapes/page/compile.ts"
 import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { declaredSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
@@ -723,7 +728,6 @@ type PageRequest =
 const pager =
 	(
 		runtime: PageRuntime,
-		artifact: PageArtifactName,
 		send: <A>(flight: Flight<A, UnreadableAnswer>) => Effect.Effect<A, ReadError>,
 		params: Readonly<Record<string, unknown>>,
 		codes: Codebook
@@ -746,16 +750,13 @@ const pager =
 						}
 					: { variant: request.variant, size: request.size }
 			const rows = yield* Effect.flatMap(
-				Effect.mapError(
-					pageFlight(runtime, artifact, inputs, call),
-					(reason) => new ReadFailure({ reason })
-				),
+				Effect.mapError(pageFlight(runtime, inputs, call), (reason) => new ReadFailure({ reason })),
 				send
 			)
 			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
 			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))
 			assertWithinBound(runtime, rows, page, codes)
-			const records = runtime.artifacts[artifact].requests[variant].records
+			const records = runtime.artifact.requests[variant].records
 			const delivered = valueRows(
 				runtime.page.heading,
 				Arr.map(rows.edges, (e) => {
@@ -1065,15 +1066,15 @@ const coverage = (
 			note(kind)
 		}
 	}
-	if (template.conservative.requests.first.delivery.kind === "headingGroups") {
+	if (template.artifact.requests.first.delivery.kind === "headingGroups") {
 		note("heading groups")
 	}
 	if (
-		Arr.some(flight(template.optimized.requests.first.roots), (s) => s.role.kind === "attachment")
+		Arr.some(flight(template.artifact.requests.first.roots), (s) => s.role.kind === "attachment")
 	) {
 		note("attachments")
 	}
-	if (Arr.some(flight(template.optimized.requests.first.roots), (s) => s.forms.kind === "chosen")) {
+	if (Arr.some(flight(template.artifact.requests.first.roots), (s) => s.forms.kind === "chosen")) {
 		note("per-execution form")
 	}
 	if (template.heading.length === 0) {
@@ -1094,7 +1095,7 @@ const coverage = (
 	}
 	if (
 		Arr.some(
-			flight(template.optimized.requests.after.roots),
+			flight(template.artifact.requests.after.roots),
 			(s) => has(shapeOf(s.ast), "distinct") || has(shapeOf(s.ast), "distinct on")
 		)
 	) {
@@ -1148,9 +1149,9 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  *   children of that key; every attachment statement goes in the page's one flight, which the page's statement count
  *   confirms.
  *
- * Both artifacts run, each in a file of its own on the same cases: the optimized one, which the runtime selects in a
- * matching context (generated-optimized.test.ts), and the conservative one, which it selects in a weaker context
- * (generated-conservative.test.ts; program/context.ts). A heterogeneous union whose common
+ * Both artifacts run, each in a file of its own on the same cases: the optimized one, which the page compiler builds
+ * and the runtime runs (generated-optimized.test.ts), and the conservative one, the page oracle's baseline
+ * (generated-conservative.test.ts; lower/shapes/page/compile.ts conservativePage). A heterogeneous union whose common
  * columns hold no proved key is refused by the page compiler and skipped, as are the other rare skips
  * the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
@@ -1160,6 +1161,9 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * D, sizes and request count logged; such skips may be at most 5% of the run's cases, or the generator has drifted and
  * the run fails.
  */
+/** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
+type PageArtifactName = "optimized" | "conservative"
+
 export const generatedSuite = (artifact: PageArtifactName): void => {
 	/**
 	 * The run's cases and those the request bound skipped, for the skip share; a passing run executes each drawn case
@@ -1247,12 +1251,23 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			}
 			/** The generated order is stated at a location of its own, which a refusal to complete it names. */
 			const statedAt = SourceLoc("generated orderBy", [])
-			const page = compilePage({
+			const pageInput = {
 				checked: query,
 				optimized: optimized.value,
 				names,
 				stated: { keys: ordered.stated, at: statedAt }
-			})
+			}
+			const compiled = compilePage(pageInput)
+			const page =
+				!compiled.ok || artifact === "optimized"
+					? compiled
+					: EngineResult.map(
+							conservativePage(pageInput, compiled.value),
+							(conservativeArtifact): PageTemplate => ({
+								...compiled.value,
+								artifact: conservativeArtifact
+							})
+						)
 			if (
 				!page.ok &&
 				page.error.reason._tag === "UnsupportedOperation" &&
@@ -1332,7 +1347,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					}
 					yield* checkRuntime(
 						artifact,
-						pager(runtime.success, artifact, flightOn(session), params, codes),
+						pager(runtime.success, flightOn(session), params, codes),
 						full,
 						c.note,
 						sizes

@@ -31,13 +31,9 @@ import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	mapTree,
-	type StatementRoots,
-	type StatementTree
-} from "#compiler/lower/conservative/types.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
+import type { StatementRoots, StatementTree } from "#compiler/lower/conservative/types.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
@@ -50,7 +46,8 @@ import {
 } from "#test/pg/oracle/public/cells.ts"
 import { type Conversion, freshCodesOf, type Stitch } from "#test/pg/oracle/public/planted.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
+import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
@@ -244,9 +241,7 @@ const attachmentForms = (
 		}
 	}
 	const roots: StatementRoots<{ readonly fused: ReadonlyArray<{ readonly name: string }> }> =
-		compiled.selection.artifact === "optimized"
-			? compiled.template.programs.optimized.roots
-			: mapTree(compiled.template.programs.conservative.roots, () => ({ fused: [] }))
+		compiled.template.programs.optimized.roots
 	for (const tree of roots) {
 		under(tree, [])
 	}
@@ -259,7 +254,7 @@ const attachmentForms = (
  * statement of both artifacts: an order the rows arrive in only by the plan's grace is no delivery.
  */
 const unorderedArtifacts = (
-	template: QueryTemplate
+	template: OracleTemplate
 ): ReadonlyArray<"optimized" | "conservative"> => {
 	const ordered = (roots: StatementRoots<{ readonly ast: Select }>): boolean =>
 		Arr.every(roots, (tree) => tree.statement.ast.orderBy.length > 0)
@@ -985,6 +980,7 @@ const queryAgain = (
  */
 const queryRead = (
 	c: ProgramCase,
+	names: PhysicalNames,
 	reader: ReaderValue,
 	perturbed: StrictReader,
 	apply: Applier,
@@ -1076,7 +1072,12 @@ const queryRead = (
 		const again = Exit.isSuccess(result) ? yield* answered(result.value.collect, shape) : execute
 		const compiled = yield* sideExit(reader.compile(q))
 		const unordered = Exit.isSuccess(compiled)
-			? unorderedArtifacts(compiled.value.compiled.template)
+			? unorderedArtifacts(
+					succeeded(
+						withConservative(compiled.value.compiled.template, names),
+						"the read's conservative lowering"
+					)
+				)
 			: []
 		if (inOrder && Arr.isReadonlyArrayNonEmpty(unordered)) {
 			return yield* new Disagreement({
@@ -1692,6 +1693,7 @@ export const runCase = (
 			} else {
 				const reread = yield* queryRead(
 					c,
+					ctx.artifacts.reads,
 					reader,
 					perturbed,
 					apply,

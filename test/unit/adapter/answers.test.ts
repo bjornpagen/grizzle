@@ -28,7 +28,7 @@ import { pageEdges } from "#adapter/page/execute.ts"
 import { pageRuntimeOf } from "#adapter/page/template.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { answerOf, type SentRuns } from "#adapter/reader/execution.ts"
-import { deliveredRows, templateProgram } from "#adapter/reader/run.ts"
+import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
 import {
 	attachment,
 	type BindContext,
@@ -332,7 +332,7 @@ describe("a statement's rows", () => {
 				const template = succeeded(compileTemplate(postsWithComments, Blog, testCompile))
 				const desc = succeeded(queryInput(postsWithComments)).desc
 				const codes = succeeded(codebookFor(schemaInputOf(Blog), firstCodes))
-				const program = templateProgram(template, "conservative", attachmentHeads(desc), codes)
+				const program = readProgram(template.runs.conservative, attachmentHeads(desc), codes)
 				const root = defined(
 					Arr.findFirst(program.records, (r) => r.run.statement.role.kind !== "attachment").pipe(
 						Option.getOrUndefined
@@ -508,7 +508,7 @@ describe("a page's candidates", () => {
 				const codes = succeeded(codebookFor(schemaInputOf(Paging), firstCodes))
 				const runtime = succeeded(
 					pageRuntimeOf({
-						page: compiled.page,
+						page: { ...compiled.page, artifact: compiled.baseline },
 						params: compiled.query.params,
 						query: "unit/adapter/answers-page",
 						generation: { schema: "answers", extensions: {} },
@@ -516,7 +516,7 @@ describe("a page's candidates", () => {
 						codes
 					})
 				)
-				const program = runtime.artifacts.conservative.requests.first
+				const program = runtime.artifact.requests.first
 				const rows = defined(program.records[0], "the rows statement")
 				const heading = statementOutput(
 					rows.run.statement.role,

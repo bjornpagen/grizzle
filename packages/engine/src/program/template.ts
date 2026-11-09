@@ -9,7 +9,6 @@ import {
 	querySchema,
 	type TemplateReading
 } from "#compiler/program/compile.ts"
-import { type ArtifactSelection, selectArtifact } from "#compiler/program/context.ts"
 import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 
 /** One execution's request: the context it runs in, and how the template is read. */
@@ -17,18 +16,16 @@ export interface ExecutionRequest extends TemplateReading {
 	readonly context: TemplateContext
 }
 
-/** A query compiled for an execution request: its Description, its template, and the artifact that runs. */
+/** A query compiled for an execution request: its Description and its template. */
 export interface CompiledTemplate {
 	/** The query's Description, decoded once from the caller's value. */
 	readonly desc: QueryDesc
 	readonly template: QueryTemplate
-	/** Which artifact runs, and its statements. */
-	readonly selection: ArtifactSelection
 }
 
 /**
  * The template of `query` over `schema`, whose artifacts the caller holds (a DbLayer computes each role's once, when it
- * is built), compiled for `request`, with the artifact that runs (context.ts). Every call compiles: grizzle keeps no
+ * is built), compiled for `request`, whose context every execution of it runs in. Every call compiles: grizzle keeps no
  * cache of templates, and a caller that runs a program again keeps its compiled form itself (the workload, db.compile).
  */
 export const templateFor = (
@@ -44,10 +41,6 @@ export const templateFor = (
 				artifacts,
 				read: request.read
 			}),
-			(template): CompiledTemplate => ({
-				desc: source.desc,
-				template,
-				selection: selectArtifact(template, request.context)
-			})
+			(template): CompiledTemplate => ({ desc: source.desc, template })
 		)
 	)

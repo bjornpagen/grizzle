@@ -63,6 +63,11 @@ import {
 	testCompile,
 	workloadOver
 } from "#test/support/compile.ts"
+import {
+	conservativeRunning,
+	type OracleTemplate,
+	withConservative
+} from "#test/support/conservative.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -325,6 +330,8 @@ export const rawSession = Effect.fn("rawSession")(function* <S>(
 
 export interface Compiled {
 	readonly compiled: CompiledTemplate
+	/** The template with its conservative lowering beside it, which a delivery of the conservative artifact runs. */
+	readonly oracle: OracleTemplate
 	/** The decoder of the query's rows, which a delivery reads them with. */
 	readonly decoder: RowDecoder<unknown>
 	readonly desc: QueryDesc
@@ -396,6 +403,10 @@ export const compile = <S>(
 	}
 	return {
 		compiled,
+		oracle: unwrap(
+			withConservative(compiled.template, artifacts.reads),
+			"the conservative lowering"
+		),
 		decoder: query.rows,
 		desc,
 		artifacts,
@@ -550,7 +561,11 @@ export const deliver = Effect.fn("deliver")(
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
-		const program = templateProgram(compiled.compiled.template, artifact, compiled.spine, codes)
+		const program = templateProgram(
+			artifact === "optimized" ? compiled.compiled.template : conservativeRunning(compiled.oracle),
+			compiled.spine,
+			codes
+		)
 		const read = unwrap(
 			bindGroups(compiled.decoder, program.layouts, {
 				options: rowOptions,

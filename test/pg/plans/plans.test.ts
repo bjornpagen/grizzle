@@ -22,7 +22,6 @@ import { hasProperties } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
@@ -48,6 +47,7 @@ import {
 	paramTexts,
 	testCompile
 } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
@@ -247,7 +247,7 @@ const accountsWithFirstEntries = (direction: Direction, k: number) =>
 			"array"
 		)
 
-const compiled = (q: unknown, schema: string): QueryTemplate => {
+const compiled = (q: unknown, schema: string): OracleTemplate => {
 	const r = compileTemplate(q, undefined, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(schema))
@@ -259,7 +259,7 @@ const compiled = (q: unknown, schema: string): QueryTemplate => {
 }
 
 /** What paramTexts normalizes the relation inputs of `template`, compiled from `q` as `compiled` compiles it, under. */
-const declared = (q: unknown, template: QueryTemplate): Declared =>
+const declared = (q: unknown, template: OracleTemplate): Declared =>
 	declaredOf(template, q, undefined, testCompile)
 
 const only = <A>(xs: ReadonlyArray<A>, what: string): A => {

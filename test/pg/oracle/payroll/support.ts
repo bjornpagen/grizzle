@@ -11,13 +11,13 @@ import {
 	type StatementRoots
 } from "#compiler/lower/conservative/types.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { delivered, executeStatements, orderProblems } from "#test/pg/oracle/optimized/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, compileTemplate, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -72,7 +72,7 @@ export type PayrollProgramName = (typeof payrollProgramNames)[number]
 
 export interface PayrollProgram {
 	readonly name: PayrollProgramName
-	readonly template: QueryTemplate
+	readonly template: OracleTemplate
 	/** The codes the program is compiled under, which its delivered rows decode closed ids by. */
 	readonly codes: Codebook
 }

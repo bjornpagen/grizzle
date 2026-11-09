@@ -36,7 +36,6 @@ import {
 	columnPosition,
 	columnType,
 	compareValues,
-	type CompiledTemplate,
 	type CompletedOrder,
 	type FusedStatement,
 	type GroupMerge,
@@ -328,35 +327,19 @@ export const readProgram = (
 	codes: Codebook
 ): ReadProgram => sourceProgram(source, readStatements(source), spine, codes)
 
-/** One artifact of a compiled query template. */
-type ArtifactName = CompiledTemplate["selection"]["artifact"]
-
-/** The read source of one artifact of a template. */
-const templateSource = (template: QueryTemplate, artifact: ArtifactName): ReadSource =>
-	template.runs[artifact]
-
-/** The read statements of one artifact of a template. */
-export const templateStatements = (
-	template: QueryTemplate,
-	artifact: ArtifactName
-): StatementRoots<ReadRun> => readStatements(templateSource(template, artifact))
+/** The read statements of a template. */
+export const templateStatements = (template: QueryTemplate): StatementRoots<ReadRun> =>
+	readStatements(template.run)
 
 /**
- * The read program of one artifact of a template, under the installation's codes `codes`: built once by the compiled
- * read that holds it (reader.ts).
+ * The read program of a template, under the installation's codes `codes`: built once by the compiled read that holds
+ * it (reader.ts).
  */
 export const templateProgram = (
 	template: QueryTemplate,
-	artifact: ArtifactName,
 	spine: AttachmentScope,
 	codes: Codebook
-): ReadProgram =>
-	sourceProgram(
-		templateSource(template, artifact),
-		templateStatements(template, artifact),
-		spine,
-		codes
-	)
+): ReadProgram => readProgram(template.run, spine, codes)
 
 /** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
 export const readExceeds =

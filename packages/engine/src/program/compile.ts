@@ -9,23 +9,13 @@ import { contextAdmits, type TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
-import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import {
-	type ConservativeProgram,
-	conservativeInput,
-	type DeclaredParamSlot,
-	flight,
-	mapTree,
-	type ProgramDelivery
-} from "#compiler/lower/conservative/types.ts"
+import { flight, mapTree, type ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 
 import {
 	lowerOptimized,
 	type OptimizedProgram,
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
-
-import { deliveredAsOptimized, type RelationChoice } from "#compiler/lower/shapes/index.ts"
 
 import {
 	declaredSlotOf,
@@ -54,26 +44,22 @@ export interface QueryTemplate extends ProgramArtifacts {
 	readonly params: ReadonlyArray<ParamDecl>
 	/** The weakest execution context whose evidence covers every certificate of the optimized artifact. */
 	readonly requiredContext: TemplateContext
-	/** How the runtime delivers the result, the same for both artifacts. */
+	/** How the runtime delivers the result. */
 	readonly delivery: ProgramDelivery
 	/**
-	 * Both lowered programs, their statements' ASTs included, for inspection; an optimized statement's large form holds
-	 * its spec.
+	 * The optimized lowering, its statements' ASTs included, for inspection, an optimized statement's large form holding
+	 * its spec; and the checked query it lowers, each attachment judged (rel.ts Attach judged), which a page's order is
+	 * completed over.
 	 */
 	readonly programs: {
 		readonly optimized: OptimizedProgram<SpecifiedForm>
-		readonly conservative: ConservativeProgram
-		/** The checked query the conservative artifact lowers, each attachment judged (rel.ts Attach judged). */
 		readonly checked: LogicalQuery
 	}
 	/**
-	 * Each artifact as the runtime binds, sends and decodes it: its statements, each with the spec emitted from it, of
-	 * which `optimized` and `conservative` are the specs, a conservative statement read as an optimized one.
+	 * The optimized artifact as the runtime binds, sends and decodes it: its statements, each with the spec emitted from
+	 * it, of which `optimized` is the specs.
 	 */
-	readonly runs: {
-		readonly optimized: SpecifiedArtifact
-		readonly conservative: SpecifiedArtifact
-	}
+	readonly run: SpecifiedArtifact
 	/**
 	 * The checked query's DAG annotated under the template's evidence: its context, the schema's containments, its
 	 * relations' declared keys and its derived relations' inherited keys. The reader reads the root's cardinality here
@@ -137,17 +123,6 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 const certificatesContext = (certificates: ReadonlyArray<Certificate>): TemplateContext =>
 	certificates.every((c) => contextAdmits("transaction", c.context)) ? "transaction" : "snapshot"
 
-/** The conservative artifact: the checked query, lowered with no evidence. */
-const conservativeArtifact = (
-	checked: LogicalQuery,
-	artifacts: SchemaArtifacts
-): Result.Result<ConservativeProgram, CompileError> =>
-	lowerConservative(conservativeInput(checked), {
-		names: artifacts.reads,
-		params: checked.params,
-		subject: { kind: "query" }
-	})
-
 /**
  * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over;
  * otherwise the one the caller names, parsed where it was given, which a query value's own schema must be a level of
@@ -197,15 +172,13 @@ export const querySchema = (
 	}))
 
 /**
- * Compiling a query into its template: two artifacts per template.
+ * Compiling a query into its template.
  *
  * A template is compiled for one execution context, `snapshot` (Db reads, which may rely on lawful committed-snapshot
- * evidence) or `transaction` (inside a write transaction, as read-backs are, immediate evidence only). It
- * carries two artifacts of the same query: the optimized lowering (lower/optimize/pipeline.ts), whose rewrites rest on
- * the evidence the context admits, and the conservative lowering, the oracle baseline that relies on no evidence at
- * all. Both lower one query to one delivery, so whichever runs decodes the same public result (the test kernel's
- * verification checks their alignment, test/support/oracle/verify). An execution context weaker
- * than the one a template was compiled for runs its conservative artifact, or the caller recompiles (context.ts).
+ * evidence) or `transaction` (inside a write transaction, as read-backs are, immediate evidence only), and every
+ * execution of it runs in that context. It carries the optimized lowering (lower/optimize/pipeline.ts), whose rewrites
+ * rest on the evidence the context admits. The conservative lowering, which relies on no evidence at all, is the test
+ * kernel's oracle baseline (test/support/oracle/verify), built from the template's checked query there and never here.
  *
  * The template records what it rests on: its certificates, each naming the constraint premises its proof uses, from the
  * schema's catalog (program/schema.ts schemaCatalog); and the evidence context its certificates need. No parameter
@@ -235,18 +208,12 @@ export const compileQuery = (
 	}
 	/**
 	 * The checked query with each attachment judged as the template's analysis judges it (rel.ts Attach judged): what
-	 * both lowerings take, so every Attach node of either program carries the delivered type the reader delivers.
+	 * the lowering takes, so every Attach node of its program carries the delivered type the reader delivers.
 	 */
 	const judged: AdmittedQuery = { ...checked, dag: analyzed.value.judged }
-	const conservativeArtifactOf = conservativeArtifact(judged, artifacts)
-	if (!conservativeArtifactOf.ok) {
-		return conservativeArtifactOf
-	}
-	const conservative = conservativeArtifactOf.value
 	/**
 	 * The query as the optimized lowering takes it (optimizedInput), annotated under the query's evidence, the
-	 * checker's with the keys of the views it reads (logical/annotate.ts queryEvidence). The conservative artifact keeps
-	 * the checked DAG.
+	 * checker's with the keys of the views it reads (logical/annotate.ts queryEvidence).
 	 */
 	const rewritten = optimizedInput(judged, queryEvidence)
 	if (!rewritten.ok) {
@@ -266,13 +233,6 @@ export const compileQuery = (
 	const optimizedSpecs = specifiedStatements(optimized.roots, codes)
 	if (!optimizedSpecs.ok) {
 		return optimizedSpecs
-	}
-	const conservativeRuns = specifiedStatements(
-		deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative).roots,
-		codes
-	)
-	if (!conservativeRuns.ok) {
-		return conservativeRuns
 	}
 	/** Each statement's large form with the spec emitted from it. */
 	const specified = catchRefusal(() =>
@@ -306,7 +266,6 @@ export const compileQuery = (
 		kind: isOrderedQuery(source.desc) ? "ordered" : "query",
 		context,
 		optimized: flight(specified.value).map((run) => run.spec),
-		conservative: flight(conservativeRuns.value).map((run) => run.spec),
 		requirements: {
 			schema: artifacts.fingerprint,
 			extensions: extensionPremise.extensions,
@@ -320,13 +279,9 @@ export const compileQuery = (
 		delivery: optimized.delivery,
 		programs: {
 			optimized: { ...optimized, roots: mapTree(specified.value, (run) => run.statement) },
-			conservative,
 			checked: judged
 		},
-		runs: {
-			optimized: { delivery: optimized.delivery, roots: specified.value },
-			conservative: { delivery: conservative.delivery, roots: conservativeRuns.value }
-		},
+		run: { delivery: optimized.delivery, roots: specified.value },
 		analyzed: analyzed.value.dag
 	}
 	return Result.ok(template)

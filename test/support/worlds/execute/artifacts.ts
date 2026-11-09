@@ -8,35 +8,26 @@ import {
 	type BatchStatement,
 	runFramed
 } from "#adapter/wire/batch.ts"
-import * as EngineResult from "#compiler/core/result.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
+import { conservativeReader } from "#test/support/conservative.ts"
 import { factKeySet } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**
  * The differential of one read's two artifacts. Every template a Db reads through is compiled for the `snapshot`
- * context and holds two lowerings of the same query: the optimized artifact, which the Db runs, and the conservative
- * one, which rests on no evidence the context admits (program/context.ts). Both must deliver the same rows from the
+ * context: the optimized artifact, which the Db runs, beside which the oracle lowers the same query conservatively,
+ * resting on no evidence the context admits (test/support/conservative.ts). Both must deliver the same rows from the
  * same snapshot, each a keyed set; rows that differ, or that either artifact repeats, are `artifacts-disagree`, a defect
  * no model branch allows.
  *
  * The check reads through two readers over the Db's own context (adapter/reader/reader.ts makeReader), as the Db's own
- * reader is built. One keeps the Db's compilation, so it runs the very template the Db's read ran. The other's
- * compilation selects every template's conservative artifact. Their flights meet: each pair of flights, one per artifact, is sent
- * as one flight in one READ ONLY transaction of the Db's role and claims on one leased session, the optimized
- * statements first. Every read path (execute, get, every page, a compiled handle) sends its flights in turn, so the
- * k-th flight of one artifact meets the k-th of the other. A flight left without a partner, because the other artifact
- * read through in fewer flights, is sent alone.
+ * reader is built. One keeps the Db's compilation, so it runs the very template and page the Db's read ran. The
+ * other reads every query through its conservative lowering and every page through its conservative page artifact
+ * (test/support/conservative.ts conservativeReader). Their flights meet: each pair of flights,
+ * one per artifact, is sent as one flight in one READ ONLY transaction of the Db's role and claims on one leased
+ * session, the optimized statements first. Every read path (execute, get, every page, a compiled handle) sends its
+ * flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left without a partner,
+ * because the other artifact read through in fewer flights, is sent alone.
  */
-/** The Db context's compilation, every template selecting its conservative artifact. */
-const conservativeCompile =
-	(ctx: DbContext): DbContext["compile"] =>
-	(input, request) =>
-		EngineResult.map(ctx.compile(input, request), (prepared): CompiledTemplate => ({
-			...prepared,
-			selection: { artifact: "conservative", statements: prepared.template.conservative }
-		}))
-
 type Side = "optimized" | "conservative"
 
 const otherSide = (side: Side): Side => (side === "optimized" ? "conservative" : "optimized")
@@ -197,16 +188,13 @@ export const artifactsAgree = <E>(
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
 		const meeting = yield* Ref.make<Meeting>({ kind: "open" })
-		const sideRead = (side: Side, context: DbContext) =>
-			Effect.ensuring(
-				read(makeReader(context, executorAt(ctx, meeting, side))),
-				finished(ctx, meeting, side)
-			)
+		const sideRead = (side: Side, readerOf: (executor: ReadExecutor) => ReaderValue) =>
+			Effect.ensuring(read(readerOf(executorAt(ctx, meeting, side))), finished(ctx, meeting, side))
 		const [optimized, conservative] = yield* Effect.orDie(
 			Effect.all(
 				[
-					sideRead("optimized", ctx),
-					sideRead("conservative", { ...ctx, compile: conservativeCompile(ctx) })
+					sideRead("optimized", (executor) => makeReader(ctx, executor)),
+					sideRead("conservative", (executor) => conservativeReader(ctx, executor))
 				],
 				{ concurrency: "unbounded" }
 			)

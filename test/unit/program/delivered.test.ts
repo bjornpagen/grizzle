@@ -16,7 +16,7 @@ import {
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
-import { templateProgram } from "#adapter/reader/run.ts"
+import { readProgram } from "#adapter/reader/run.ts"
 import {
 	type AttachmentLayout,
 	type BindContext,
@@ -32,7 +32,6 @@ import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import type { StatementTree } from "#compiler/lower/conservative/types.ts"
 import type { SpecifiedStatement } from "#compiler/lower/template.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -45,6 +44,7 @@ import {
 	schemaInputOf,
 	testCompile
 } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import {
 	answerEquivalence,
@@ -104,7 +104,7 @@ import { outputText } from "#test/support/wire.ts"
  * is one the program delivers, in the delivery it states, so a read never decodes a value the program does not hold.
  *
  * Over generated public programs (test/support/oracle/public), each compiled as the runtime compiles it and its
- * decoder bound to the layouts of either artifact's program (adapter/reader/run.ts templateProgram, core/decoder.ts
+ * decoder bound to the layouts of either artifact's program (adapter/reader/run.ts readProgram, core/decoder.ts
  * bindGroups), as a compiled handle (db.compile) binds it before any SQL:
  *
  * - A stated delivery the facts break is refused at bind. Every attachment is restated in turn as an array, an Option,
@@ -181,7 +181,7 @@ const refusedAt = (
  * case's one schema value, so every read of a case finds the artifacts src memoizes by that value.
  */
 interface Compiled {
-	readonly template: QueryTemplate
+	readonly template: OracleTemplate
 	/** What a decoder binds under: the row vocabulary, and the names of a fresh installation's codes. */
 	readonly bind: BindContext
 	readonly layouts: ReadonlyArray<{
@@ -203,7 +203,7 @@ const lowered = (
  * Each attachment of both lowered programs carries the delivered type the template's analysis judged (ir/rel.ts Attach
  * judged): the analyzed DAG's Attach node under the same label, which the reader read before the lowerings carried it.
  */
-const judgedAsAnalyzed = (template: QueryTemplate): void => {
+const judgedAsAnalyzed = (template: OracleTemplate): void => {
 	const analyzed = new Map(
 		Arr.flatMap(topoOrder(template.analyzed), (n) =>
 			n.kind === "Attach" ? [[n.id, n.delivered] as const] : []
@@ -232,7 +232,7 @@ const compiled = (c: ProgramCase, value: SchemaValue, query: unknown): Compiled 
 		bind: { options: rowOptions, names: codeNames(codes) },
 		layouts: Arr.map(artifactNames, (artifact) => ({
 			artifact,
-			layouts: templateProgram(template, artifact, spine, codes).layouts
+			layouts: readProgram(template.runs[artifact], spine, codes).layouts
 		}))
 	}
 }

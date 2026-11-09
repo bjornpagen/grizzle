@@ -17,10 +17,14 @@ import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/i
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight, statementOutput } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
-import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
+import {
+	compilePage,
+	conservativePage,
+	type PageArtifact
+} from "#compiler/lower/shapes/page/compile.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
@@ -329,8 +333,8 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
  * The registry's rule on every statement a page compiles: a plain-carrier, contract-free, non-serial, typmod-free
  * column is its carrier's plain type, and a contract-free wildcard text the wildcard text (scalar/compute/types.ts).
  */
-const registryTypes = (template: PageTemplate): void => {
-	for (const artifact of [template.optimized, template.conservative]) {
+const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
+	for (const artifact of artifacts) {
 		for (const statements of [
 			...Arr.map(Rec.values(artifact.requests), (program) => flight(program.roots)),
 			...Arr.map(Rec.values(artifact.probes), (program) => [program.statement])
@@ -428,24 +432,26 @@ describe("the page compiler and the page runtime template", () => {
 								context: "snapshot",
 								catalog
 							})
-							const page = compilePage({
+							const pageInput = {
 								checked: query,
 								optimized: optimized.value,
 								names,
 								stated: { keys: orderedRead.stated, at: SourceLoc("generated orderBy", []) }
-							})
+							}
+							const page = compilePage(pageInput)
 							if (!page.ok) {
 								assert.ok(page.error.reason._tag !== "MalformedDescription", page.error.message)
 								return
 							}
 							const template = page.value
-							registryTypes(template)
-							if (template.conservative.requests.first.delivery.kind === "headingGroups") {
+							const baseline = succeeded(conservativePage(pageInput, template))
+							registryTypes([template.artifact, baseline])
+							if (baseline.requests.first.delivery.kind === "headingGroups") {
 								c.note("heading groups")
 							}
 							if (
 								Arr.some(
-									flight(template.optimized.requests.first.roots),
+									flight(template.artifact.requests.first.roots),
 									(s) => s.role.kind === "attachment"
 								)
 							) {
@@ -453,7 +459,7 @@ describe("the page compiler and the page runtime template", () => {
 							}
 							if (
 								Arr.some(
-									flight(template.optimized.requests.first.roots),
+									flight(template.artifact.requests.first.roots),
 									(s) => s.forms.kind === "chosen"
 								)
 							) {

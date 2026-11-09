@@ -170,12 +170,10 @@ interface RunArtifact {
 	readonly probes: { readonly [K in ProbeKind]: RunProbe<K> }
 }
 
-export type PageArtifactName = "optimized" | "conservative"
-
 export interface PageRuntime {
 	readonly page: PageTemplate
 	readonly params: ReadonlyArray<ParamDecl>
-	readonly artifacts: { readonly [A in PageArtifactName]: RunArtifact }
+	readonly artifact: RunArtifact
 	readonly codec: CursorCodec<ReadonlyArray<PageComparator>>
 	/** What the codec binds every token to: the ordered query's semantic fingerprint and the semantic generation. */
 	readonly identity: { readonly query: string; readonly generation: CursorGeneration }
@@ -378,8 +376,7 @@ export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntim
 			spine: parts.spine,
 			codes: parts.codes
 		}
-		const optimized = yield* runArtifact(page.optimized, shared)
-		const conservative = yield* runArtifact(page.conservative, shared)
+		const artifact = yield* runArtifact(page.artifact, shared)
 		const codec = yield* toResult(
 			cursorCodec(
 				{ query: parts.query, comparators: page.comparators, generation: parts.generation },
@@ -390,7 +387,7 @@ export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntim
 		return {
 			page,
 			params: parts.params,
-			artifacts: { optimized, conservative },
+			artifact,
 			codec,
 			identity: { query: parts.query, generation: parts.generation },
 			values

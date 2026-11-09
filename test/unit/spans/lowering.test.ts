@@ -11,7 +11,6 @@ import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -28,6 +27,7 @@ import {
 	succeeded
 } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -43,7 +43,7 @@ const Slot = relation(
 const Visit = relation("Visit", { id: uuid, stay: span(Instant), at: Instant }, ["id"])
 const Spans = schema("Spans", { Slot, Visit }, [])
 
-const compiled = (q: unknown): QueryTemplate =>
+const compiled = (q: unknown): OracleTemplate =>
 	succeeded(
 		compileTemplate(q, undefined, {
 			...testCompile,
@@ -53,7 +53,7 @@ const compiled = (q: unknown): QueryTemplate =>
 	)
 
 /** The ASTs of every statement of both artifacts. */
-const statements = (t: QueryTemplate): ReadonlyArray<SqlStatement> => [
+const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
 	...Arr.map(flight(t.programs.optimized.roots), (s) => s.ast),
 	...Arr.map(flight(t.programs.conservative.roots), (s) => s.ast)
 ]
@@ -64,7 +64,7 @@ const Shift = relation("Shift", { id: pg.integer, slot: span(pg.integer, 15), at
 const Shifts = schema("Shifts", { Shift, Visit }, [])
 
 /** The encoder of a template's only parameter, in both artifacts. */
-const encoders = (t: QueryTemplate) =>
+const encoders = (t: OracleTemplate) =>
 	Arr.map([...t.optimized, ...t.conservative], (s) => {
 		const slot = s.paramSlots[0]
 		if (slot === undefined || s.paramSlots.length !== 1 || slot.kind !== "scalar") {

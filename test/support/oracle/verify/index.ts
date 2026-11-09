@@ -4,10 +4,10 @@ import * as Result from "#compiler/core/result.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { type ConservativeProgram, flight, mapTree } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import {
 	artifactProblems,
 	type ChannelProgram,
@@ -121,7 +121,7 @@ export const checkedLowering = (lowering: LoweringUnderCheck): void => {
  * aligned with its conservative program, for the context and catalog it was compiled for.
  */
 export const templateLowering = (
-	template: QueryTemplate,
+	template: OracleTemplate,
 	context: TemplateContext,
 	catalog: EvidenceCatalog
 ): LoweringUnderCheck => {

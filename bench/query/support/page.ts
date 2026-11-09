@@ -1,7 +1,7 @@
 import { type Array as Arr, Effect, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
-import { type PageArtifactName, type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
+import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
 import { answerOf, type HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type FlightFailure, readFrame, runFramed } from "#adapter/wire/batch.ts"
@@ -17,6 +17,7 @@ import {
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import { conservativePageRuntime } from "#test/support/conservative.ts"
 
 /**
  * A page request as the page runtime runs it (R05).
@@ -46,6 +47,20 @@ export const pageRuntime = (compiled: Compiled): BenchPages => {
 	return { ...built.success, codes: compiled.artifacts.names.codes }
 }
 
+/** The page runtime of `pages`'s query through the page oracle's conservative artifact (test/support/conservative.ts). */
+export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchPages => {
+	const built = conservativePageRuntime(
+		pages,
+		compiled.compiled.template,
+		compiled.desc,
+		compiled.artifacts
+	)
+	if (Result.isFailure(built)) {
+		throw new GateSetupError({ what: `the conservative page template: ${built.failure.message}` })
+	}
+	return { ...built.success, codes: pages.codes }
+}
+
 export interface DeliveredPage {
 	/** What the request's flight sent, in order: its rows statement and attachments, then its probe. */
 	readonly statements: Arr.NonEmptyReadonlyArray<VariantStatement>
@@ -57,12 +72,11 @@ export interface DeliveredPage {
 	readonly flights: number
 }
 
-/** Delivers one page request of `artifact` as the runtime does, its rows read through the flight's own reading. */
+/** Delivers one page request of `pages` as the runtime does, its rows read through the flight's own reading. */
 export const deliverPage = Effect.fn("deliverPage")(
 	function* (
 		runtime: Runtime,
 		pages: BenchPages,
-		artifact: PageArtifactName,
 		values: HostParams,
 		call: PageCall
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
@@ -71,7 +85,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
 		const flight = yield* Effect.mapError(
-			pageFlight(pages, artifact, inputs.success, call),
+			pageFlight(pages, inputs.success, call),
 			(reason) => new ReadFailure({ reason })
 		)
 		runtime.recorded.length = 0
@@ -82,7 +96,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		)
 		const statements = sentStatements(runtime)
 		/** The flight sends the request's statements in program order, its probe after them. */
-		const program = pages.artifacts[artifact].requests[call.variant]
+		const program = pages.artifact.requests[call.variant]
 		const delivery = program.delivery
 		if (delivery.kind !== "concat") {
 			throw new GateSetupError({

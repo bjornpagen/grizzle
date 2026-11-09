@@ -208,8 +208,8 @@ export interface PageTemplate {
 	 * A heterogeneous union's requests deliver per heading group, each request's delivery naming the discriminant.
 	 */
 	readonly heading: Heading
-	readonly optimized: PageArtifact
-	readonly conservative: PageArtifact
+	/** The optimized artifact: every request's and probe's statements, as the runtime sends them. */
+	readonly artifact: PageArtifact
 }
 
 interface PageCompileInput {
@@ -787,12 +787,11 @@ const unionPageOrder = (
 }
 
 /**
- * The page template of a compiled ordered query: every request variant and probe of both artifacts.
+ * The page template of a compiled ordered query: every request variant and probe of its optimized artifact.
  *
  * The page compiler.
  *
- * A compiled ordered query becomes the statements of every page request, for both artifacts of its template
- * ("Two artifacts per template"):
+ * A compiled ordered query becomes the statements of every page request:
  *
  * - four request variants, { first }, { first, after }, { last } and { last, before }, each its own statements with no
  *   nullable cursor slot. A variant's rows statement is take(k + 1) of the distinct result D
@@ -818,8 +817,8 @@ const unionPageOrder = (
  *   an attachment into its rows statement (R36), whose array would be evaluated for the lookahead row as well.
  *
  * The optimized artifact lowers the rewritten query under its duplicate-elimination placement and CTE plan through the
- * shape dispatch (../index.ts); the conservative one lowers the checked query through the baseline plug-ins, which
- * deduplicate at every set boundary. Both deliver D as a set before the bound: the optimized rows are
+ * shape dispatch (../index.ts); the page oracle's conservative one (conservativePage) lowers the checked query through
+ * the baseline plug-ins, which deduplicate at every set boundary. Both deliver D as a set before the bound: the optimized rows are
  * deduplicated unless the facts prove them unique, so a retained-key page is a plain SELECT with no Unique node, and
  * no hidden key manufactures distinct answers (R17). A probe reads D under EXISTS, which is
  * duplicate-insensitive, so the optimized probe drops D's outermost DISTINCT.
@@ -834,11 +833,11 @@ const unionPageOrder = (
  * seek.ts: the request variants, the comparators, the seek predicate (native row comparison for one direction, the
  * lexicographic OR expansion for mixed directions, strict and inclusive) and the page placeholders. rows.ts: the paged
  * statement shape and the EXISTS probe. compile.ts: the page compiler, which turns a compiled ordered query into the
- * statements of every request variant and every probe, for both artifacts; it reads the shape dispatch (../index.ts),
- * so it is imported from its own path rather than re-exported here.
+ * statements of every request variant and every probe; it reads the shape dispatch (../index.ts), so it is imported
+ * from its own path rather than re-exported here.
  *
  * A page is no node of the IR: it is compiled from the ordered query's template by compile.ts, which lowers the paged
- * statements directly in both artifacts.
+ * statements directly.
  */
 export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate, CompileError> =>
 	catchRefusal(() => {
@@ -897,12 +896,6 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 		}
 		const order = completed.value
 		const comparators = pageComparators(order, conservativeShape.heading)
-		const conservative = artifactStatements(
-			<F extends PageFill>(): Kit<F> => conservativeKit<F>(input),
-			checkedRoot,
-			order,
-			comparators
-		)
 		const optimized = artifactStatements(
 			<F extends PageFill>(): Kit<F> => optimizedKit<F>(input, facts),
 			optimizedRoot,
@@ -913,13 +906,41 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			order,
 			comparators,
 			heading: conservativeShape.heading,
-			optimized: assemble(optimized, {
+			artifact: assemble(optimized, {
 				...optimizedShape,
 				heading: conservativeShape.heading,
 				order
-			}),
-			conservative: assemble(conservative, { ...conservativeShape, order })
+			})
 		}
+	})
+
+/**
+ * The conservative lowering of a page compiled from `input` (compilePage), its statements lowered over the template's
+ * checked query with no evidence, in `page`'s order and comparators: the page oracle's baseline, which no page compiles.
+ */
+export const conservativePage = (
+	input: PageCompileInput,
+	page: PageTemplate
+): Result.Result<PageArtifact, CompileError> =>
+	catchRefusal(() => {
+		const checkedRoot = input.checked.dag.roots[0]
+		if (checkedRoot.kind !== "OrderedResult") {
+			return refuse(
+				"MalformedDescription",
+				"page compiler",
+				"a page over an Ordered query, its root an ordered result"
+			)
+		}
+		const shape = shapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
+		return assemble(
+			artifactStatements(
+				<F extends PageFill>(): Kit<F> => conservativeKit<F>(input),
+				checkedRoot,
+				page.order,
+				page.comparators
+			),
+			{ ...shape, order: page.order }
+		)
 	})
 
 /**

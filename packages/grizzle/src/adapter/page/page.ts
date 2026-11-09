@@ -54,8 +54,7 @@ import {
  *    comparators and every boundary value, the first refusal being CursorError with its reason.
  * 5. The statements run in one flight (execute.ts): one statement alone, or several in one short read-only
  *    transaction, so rows and flags are one view, committed before the page returns, so a request holds
- *    nothing across requests. The artifact that runs is the template's selection for the `snapshot` context
- *    (program/context.ts).
+ *    nothing across requests. They are the page template's, compiled for the `snapshot` context the flight runs in.
  * 6. Each delivered edge's node is its Row decoded by the ordered query's own decoder (`rows`), bound to the request
  *    variant's layouts once per page template, a binding the query's decoder refuses failing the page as a query that
  *    does not compile; and its cursor is made from its comparison tuple (execute.ts). Every cursor is stateless: it
@@ -227,18 +226,17 @@ export const runPage = <A, Q>(
 						size: request.size,
 						boundary: (yield* fromEngine(runtime.codec.decode(request.cursor))).texts
 					}
-		const artifact = compiled.selection.artifact
 		/** The query's decoder bound to the request variant's layouts, once per page request. */
 		const read = bindGroups(
 			run.decoder(),
-			runtime.artifacts[artifact].requests[request.variant].layouts,
+			runtime.artifact.requests[request.variant].layouts,
 			run.ctx.bind
 		)
 		if (!read.ok) {
 			return yield* new ReadFailure({ reason: read.error })
 		}
 		const flight = yield* Effect.mapError(
-			pageFlight(runtime, artifact, inputs, call),
+			pageFlight(runtime, inputs, call),
 			(reason) => new ReadFailure({ reason })
 		)
 		const rows = yield* run.executor.run(flight)

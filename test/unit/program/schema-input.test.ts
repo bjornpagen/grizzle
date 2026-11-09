@@ -18,7 +18,7 @@ import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDecl, SchemaDesc } from "#compiler/ir/desc.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
-import { type QueryTemplate, queryInput, querySchema } from "#compiler/program/compile.ts"
+import { queryInput, querySchema } from "#compiler/program/compile.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -33,6 +33,7 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { Account, Reports, Work } from "#test/support/fixtures/api/work.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
@@ -269,12 +270,12 @@ describe("the artifacts of a schema", () => {
 })
 
 /** The SQL of a template's two artifacts. */
-const sqlOf = (template: QueryTemplate) => ({
+const sqlOf = (template: OracleTemplate) => ({
 	optimized: Arr.map(template.optimized, (s) => s.sql),
 	conservative: Arr.map(template.conservative, (s) => s.sql)
 })
 
-const compiledOrThrow = (query: unknown, named: unknown, what: string): QueryTemplate => {
+const compiledOrThrow = (query: unknown, named: unknown, what: string): OracleTemplate => {
 	const compiled = compileTemplate(query, named, testCompile)
 	if (!compiled.ok) {
 		throw new Error(`${what} does not compile: ${compiled.error.message}`)

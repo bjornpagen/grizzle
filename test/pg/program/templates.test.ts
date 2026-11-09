@@ -13,8 +13,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
-import { selectArtifact } from "#compiler/program/context.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -26,6 +24,7 @@ import {
 	testCompile,
 	type TestCompileOptions
 } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 import type { Uuid } from "#compiler/public/fields.ts"
@@ -50,8 +49,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * The worked example's Work schema is installed by the fresh-install compiler under a fresh schema name. TaskNote
  * matched to Task on its deferred foreign key may drop the Task match in a snapshot template only (R03). Inside a write
  * transaction whose drawn writes make the deferred key temporarily false (an orphan note inserted, a note's task
- * removed) beside notes removed and added, the transaction-context template and the artifact a snapshot template
- * selects there deliver exactly the notes whose task the transaction holds. Each artifact's statements run as the
+ * removed) beside notes removed and added, the transaction-context template and a snapshot template's conservative
+ * artifact, which rests on no evidence, deliver exactly the notes whose task the transaction holds. Each artifact's statements run as the
  * runtime runs them: the executable texts, placeholders filled by the statement's own encoders, every result column cast
  * to text by the statement itself.
  */
@@ -217,7 +216,7 @@ const compiled = (
 	q: unknown,
 	schema: string,
 	context: TestCompileOptions["context"]
-): QueryTemplate => {
+): OracleTemplate => {
 	const r = compileTemplate(q, undefined, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(schema)),
@@ -249,7 +248,7 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 	})
 
 	it.effect(
-		"inside a write transaction the transaction template and a snapshot template's selected artifact deliver exactly the notes whose task the transaction holds",
+		"inside a write transaction the transaction template and a snapshot template's conservative artifact deliver exactly the notes whose task the transaction holds",
 		(ctx) =>
 			searched(
 				ctx,
@@ -258,8 +257,6 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 					const { schema, names } = yield* installed
 					const snapshot = compiled(notes, schema, "snapshot")
 					const tx = compiled(notes, schema, "transaction")
-					const selected = selectArtifact(snapshot, "transaction")
-					assert.equal(selected.artifact, "conservative")
 					const session = yield* s.session({ ...ownerSession(), label: "writer" })
 					const task = (column: string) => quoteIdent(names.column(Task.name, column))
 					const note = (column: string) => quoteIdent(names.column(TaskNote.name, column))
@@ -332,11 +329,11 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 										)
 									const optimizedRuns = yield* runSpecs(tx.optimized, {}, session)
 									assert.deepEqual(delivered(optimizedRuns), expected, "the transaction template")
-									const selectedRuns = yield* runSpecs(selected.statements, {}, session)
+									const conservativeRuns = yield* runSpecs(snapshot.conservative, {}, session)
 									assert.deepEqual(
-										delivered(selectedRuns),
+										delivered(conservativeRuns),
 										expected,
-										"the snapshot template's artifact in a transaction"
+										"the snapshot template's conservative artifact in a transaction"
 									)
 									k.noteAll(templateFeatures(c))
 								}),

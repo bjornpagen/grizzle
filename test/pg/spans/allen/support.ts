@@ -9,9 +9,9 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -77,7 +77,7 @@ export const installSpans = (
 	})
 
 /** A query value compiled for the installed schema. */
-export const compileSpanQuery = (q: unknown, schemaIdent: string): QueryTemplate =>
+export const compileSpanQuery = (q: unknown, schemaIdent: string): OracleTemplate =>
 	succeeded(
 		compileTemplate(q, undefined, {
 			...testCompile,
@@ -91,7 +91,7 @@ export const compileSpanDesc = (
 	q: unknown,
 	schemaDesc: unknown,
 	schemaIdent: string
-): QueryTemplate =>
+): OracleTemplate =>
 	succeeded(
 		compileTemplate(q, schemaDesc, {
 			...testCompile,
@@ -103,7 +103,7 @@ export const compileSpanDesc = (
 export type RawRows = ReadonlyArray<ReadonlyArray<string>>
 
 /** The rules the optimized artifact's certificates name: the rewrites a template rests on. */
-export const optimizedRules = (template: QueryTemplate): ReadonlySet<CertificateRule> =>
+export const optimizedRules = (template: OracleTemplate): ReadonlySet<CertificateRule> =>
 	new Set(Arr.map(template.certificates, (c) => c.rule))
 
 /**
@@ -113,7 +113,7 @@ export const optimizedRules = (template: QueryTemplate): ReadonlySet<Certificate
  */
 export const runArtifact = (
 	session: RawSession,
-	template: QueryTemplate,
+	template: OracleTemplate,
 	artifact: "optimized" | "conservative",
 	params: Readonly<Record<string, unknown>>
 ): Effect.Effect<ReadonlyArray<RawRows>, SqlError> =>

@@ -12,7 +12,7 @@ import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
-import { type PageArtifactName, type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
+import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import {
@@ -408,12 +408,7 @@ const checkRead =
 			recorded,
 			() => new Error("a read whose template was not recorded")
 		)
-		const program = templateProgram(
-			prepared.template,
-			prepared.selection.artifact,
-			attachmentHeads(desc),
-			codes
-		)
+		const program = templateProgram(prepared.template, attachmentHeads(desc), codes)
 		const statements = Arr.map(
 			program.records,
 			({ run: { statement }, layout, arrival }): SentChecked => ({
@@ -441,7 +436,7 @@ const checkRead =
 	}
 
 const probeOf = (
-	run: PageRuntime["artifacts"][PageArtifactName],
+	run: PageRuntime["artifact"],
 	request: PageRequestValue
 ): ReadonlyArray<Pick<Checked, "heading" | "fused">> => {
 	switch (request.variant) {
@@ -478,7 +473,7 @@ const checkPage =
 		if (Result.isFailure(parsed)) {
 			throw new Error("a page that answered a request its runtime refuses")
 		}
-		const run = runtime.success.artifacts[recorded.prepared.selection.artifact]
+		const run = runtime.success.artifact
 		const program = run.requests[parsed.success.variant]
 		const statements = Arr.map(
 			program.records,

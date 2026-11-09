@@ -33,13 +33,13 @@ import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
@@ -108,7 +108,7 @@ const decodedComponents = (stored: string): string => {
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-const compiled = (q: unknown, installed: Installed): QueryTemplate => {
+const compiled = (q: unknown, installed: Installed): OracleTemplate => {
 	const r = compileTemplate(q, undefined, {
 		...testCompile,
 		installation: identity.schema(parsedSchemaName(installed.declared))
@@ -130,7 +130,7 @@ const run = (session: RawSession, spec: StatementSpec, params: Readonly<Record<s
  * Every statement of both artifacts. The writer's search_path never holds the extension schema, so a statement that
  * compared two vectors through an unqualified operator would raise 42883 when it runs.
  */
-const statements = (template: QueryTemplate): ReadonlyArray<StatementSpec> => {
+const statements = (template: OracleTemplate): ReadonlyArray<StatementSpec> => {
 	const all = [...template.optimized, ...template.conservative]
 	assert.ok(all.length >= 2)
 	return all

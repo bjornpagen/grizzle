@@ -279,14 +279,13 @@ export interface TemplateRequirements {
 }
 
 /**
- * Stable SQL, positional codecs, expected native types, runtime requirements. Both
- * the optimized and the conservative artifact travel together; a weaker execution context runs the conservative one.
+ * Stable SQL, positional codecs, expected native types, runtime requirements: the optimized artifact, the one an
+ * execution runs, for the context it was compiled for.
  */
 export interface ProgramArtifacts {
 	readonly kind: "query" | "ordered" | "write"
 	readonly context: TemplateContext
 	readonly optimized: ReadonlyArray<StatementSpec>
-	readonly conservative: ReadonlyArray<StatementSpec>
 	readonly requirements: TemplateRequirements
 	readonly certificates: ReadonlyArray<Certificate>
 	/** Generated SQL name to the source variable or relation occurrence it stands for. */
@@ -320,6 +319,8 @@ export interface WitnessDecoder {
 }
 
 export interface WriteProgram extends ProgramArtifacts {
+	/** The conservative realization's statements, the write oracle's baseline. */
+	readonly conservative: ReadonlyArray<StatementSpec>
 	readonly requirements: TemplateRequirements
 	readonly ir: WriteIR<unknown>
 	readonly strata: ReadonlyArray<ReadonlyArray<StatementSpec>>

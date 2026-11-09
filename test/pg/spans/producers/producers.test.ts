@@ -12,7 +12,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import {
 	compileSpanCase,
 	compileSpanQuery,
@@ -24,6 +23,7 @@ import {
 	sameSet,
 	spanNames
 } from "#test/pg/spans/producers/support.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import {
 	decodedQuery,
 	type AuthoredExprDesc as ExprDesc,
@@ -394,7 +394,11 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 							 * repeated row and agrees with the conservative one, which agrees
 							 * with the reference. Yields the optimized SQL.
 							 */
-							const agree = (label: string, template: QueryTemplate, want: ReadonlyArray<RawRow>) =>
+							const agree = (
+								label: string,
+								template: OracleTemplate,
+								want: ReadonlyArray<RawRow>
+							) =>
 								Effect.gen(function* () {
 									const optimizedSql = onlySql(template, "optimized")
 									const conservativeSql = onlySql(template, "conservative")

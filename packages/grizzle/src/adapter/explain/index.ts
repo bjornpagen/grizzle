@@ -158,7 +158,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	const exceeds = readExceeds(inputs)
 	/** A query's statements depend on none other (reader/run.ts), so they run in index order. */
 	const statements: Array<Explained> = []
-	for (const run of flight(templateStatements(template, read.selection.artifact))) {
+	for (const run of flight(templateStatements(template))) {
 		const execution = executionOf(formFor(run, exceeds), (slot) => readBinding(slot, inputs))
 		if (Result.isFailure(execution)) {
 			return yield* new ReadFailure({ reason: execution.failure })

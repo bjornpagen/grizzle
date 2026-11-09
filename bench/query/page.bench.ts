@@ -38,7 +38,12 @@ import {
 	rawSession,
 	runtimeSession
 } from "#bench/query/support/kit.ts"
-import { type DeliveredPage, deliverPage, pageRuntime } from "#bench/query/support/page.ts"
+import {
+	conservativePages,
+	type DeliveredPage,
+	deliverPage,
+	pageRuntime
+} from "#bench/query/support/page.ts"
 import {
 	indexAccessOn,
 	outline,
@@ -129,16 +134,11 @@ export default defineGate({
 			const account = BigInt(1 + Math.floor(options.accounts / 3))
 			const page = compile(fx, byAmount, pageReading)
 			const pages = pageRuntime(page)
+			const baselinePages = conservativePages(page, pages)
 			const boundary = [paramText("50000"), paramText("0")]
 			const call = { variant: "after", size: pageSize, boundary } as const
-			const after = yield* deliverPage(runtime, pages, "optimized", { account }, call)
-			const afterConservative = yield* deliverPage(
-				runtime,
-				pages,
-				"conservative",
-				{ account },
-				call
-			)
+			const after = yield* deliverPage(runtime, pages, { account }, call)
+			const afterConservative = yield* deliverPage(runtime, baselinePages, { account }, call)
 			const seek = yield* measureVariant(raw, rowsVariant("generated", "generated after", after), {
 				samples: options.samples,
 				warmup: 1,
@@ -182,18 +182,13 @@ export default defineGate({
 			const seekPlan = planOf(seek, 0)
 			const dropped = compile(fx, amountsOf, pageReading)
 			const droppedPages = pageRuntime(dropped)
+			const droppedBaseline = conservativePages(dropped, droppedPages)
 			const droppedCall = {
 				variant: "after",
 				size: pageSize,
 				boundary: [paramText("50000")]
 			} as const
-			const droppedOptimized = yield* deliverPage(
-				runtime,
-				droppedPages,
-				"optimized",
-				{ account },
-				droppedCall
-			)
+			const droppedOptimized = yield* deliverPage(runtime, droppedPages, { account }, droppedCall)
 			const droppedAfter = yield* measureVariant(
 				raw,
 				rowsVariant("generated", "generated after, key dropped", droppedOptimized),
@@ -201,8 +196,7 @@ export default defineGate({
 			)
 			const droppedConservativeRows = yield* deliverPage(
 				runtime,
-				droppedPages,
-				"conservative",
+				droppedBaseline,
 				{ account },
 				droppedCall
 			)

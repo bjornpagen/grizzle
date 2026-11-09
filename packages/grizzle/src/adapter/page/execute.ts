@@ -2,7 +2,6 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type {
 	ComparisonTuple,
-	PageArtifactName,
 	PageDelivery,
 	PageRecord,
 	PageRunStatement,
@@ -363,7 +362,7 @@ interface SentProbe {
 
 /** The probe of an anchored request, the kind its variant names, in the form this execution runs. */
 const probeSending = (
-	run: PageRuntime["artifacts"][PageArtifactName],
+	run: PageRuntime["artifact"],
 	inputs: ExecutionInputs,
 	call: AnchoredCall,
 	bind: (fill: PageFill) => ParamText
@@ -438,11 +437,10 @@ const requestFlight = <V extends PageVariant>(
 /** The flight of one page request, reading its rows (see the header): a plain request's binds its size alone. */
 export const pageFlight = (
 	runtime: PageRuntime,
-	artifact: PageArtifactName,
 	inputs: ExecutionInputs,
 	call: PageCall
 ): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputTooLarge> => {
-	const run = runtime.artifacts[artifact]
+	const run = runtime.artifact
 	switch (call.variant) {
 		case "first":
 		case "last":

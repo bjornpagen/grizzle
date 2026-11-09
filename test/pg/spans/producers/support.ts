@@ -8,13 +8,13 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { cast, provedCore, select, target, types } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
 	atName,
@@ -44,7 +44,7 @@ export const compileSpanQuery = (
 	schemaDesc: SchemaDesc,
 	query: QueryDesc,
 	schema: string
-): QueryTemplate =>
+): OracleTemplate =>
 	succeeded(
 		compileTemplate(query, schemaDesc, {
 			...testCompile,
@@ -53,12 +53,12 @@ export const compileSpanQuery = (
 		"the span query compiles"
 	)
 
-export const compileSpanCase = (c: SpanCase, schema: string): QueryTemplate =>
+export const compileSpanCase = (c: SpanCase, schema: string): OracleTemplate =>
 	compileSpanQuery(spanSchemaDesc(c.schema), spanQueryDesc(c), schema)
 
 /** The one statement of an artifact, which a span producer query always is. */
 export const onlySql = (
-	template: QueryTemplate,
+	template: OracleTemplate,
 	artifact: "optimized" | "conservative"
 ): string => {
 	const statements = template[artifact]

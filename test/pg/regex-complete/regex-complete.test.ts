@@ -34,7 +34,6 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
@@ -61,6 +60,7 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
 import {
 	installationNamesOf,
 	parsedSchemaName,
@@ -267,11 +267,11 @@ const compiling = (q: unknown, schemaIdent: string) =>
 		installation: identity.schema(parsedSchemaName(schemaIdent))
 	})
 
-const compiled = (q: unknown, schemaIdent: string): QueryTemplate =>
+const compiled = (q: unknown, schemaIdent: string): OracleTemplate =>
 	ok(compiling(q, schemaIdent), "compile")
 
 /** What paramTexts normalizes a template's relation inputs under: its declared parameters and Content's codes. */
-const declared = (template: QueryTemplate): Declared => ({
+const declared = (template: OracleTemplate): Declared => ({
 	params: template.params,
 	codes: contentCodes
 })
@@ -362,7 +362,7 @@ type BindRefusal = EncodingFailure["reason"]["_tag"]
  * executionInputs, over the template's declared parameters), or undefined where it binds them.
  */
 const bindRefusal = (
-	template: QueryTemplate,
+	template: OracleTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
 	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
@@ -375,7 +375,7 @@ const bindRefusal = (
  */
 const boundAgrees = (
 	session: RawSession,
-	template: QueryTemplate,
+	template: OracleTemplate,
 	artifact: Artifact,
 	params: Readonly<Record<string, unknown>>,
 	bound: Bound,
