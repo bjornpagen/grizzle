@@ -1024,7 +1024,9 @@ class Owner {
 
 	/**
 	 * Derived definitions read no parameter and no context: a materialized view holds no session, so no context fact
-	 * reaches a derived definition. Each is one level above the highest derived level it reads.
+	 * reaches a derived definition. Each reads a live derived relation through its definition, as the query builder
+	 * writes a match of one, never by its name, which no stored relation answers. Each is one level above the highest
+	 * derived level it reads.
 	 */
 	#checkDerived(): void {
 		for (const entry of this.#relations.values()) {
@@ -1050,6 +1052,13 @@ class Owner {
 			let level = 1
 			for (const read of uses.relations) {
 				const lower = this.#relation(read, entry.desc.loc, `the definition of ${r.name}`)
+				if (lower.desc.kind === "derived" && lower.desc.storage === "live") {
+					fail(
+						"MalformedDescription",
+						entry.desc.loc,
+						`a definition of ${r.name} that reads the live derived relation ${read} through its definition; it matches ${read} by name, and a live derived relation stores nothing to match, so a query over it matches the query it is defined by`
+					)
+				}
 				if (lower.level >= entry.level) {
 					fail(
 						"MalformedDescription",
