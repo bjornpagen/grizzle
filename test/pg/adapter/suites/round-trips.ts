@@ -7,16 +7,18 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { makeDb } from "#adapter/db/db.ts"
+import { memberOps } from "#adapter/db/handles.ts"
 import { compiledOpen, openDbContext, type OpenedDb } from "#adapter/db/open.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
-import { explain } from "#adapter/explain/index.ts"
 import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import type { CompileError, CursorError } from "#compiler/core/errors.ts"
+import { explainMember } from "#adapter/served/explain.ts"
+import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { paged, refresh } from "#compiler/public/workload.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -28,7 +30,7 @@ import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -85,7 +87,7 @@ const derivedFixture = (name: string) => {
 	return { StudentWeekly, Reports, refresher, server: login(Reports, "server", [refresher]) }
 }
 
-const readCallKinds = ["execute", "compiled execute", "get", "explain", "page"] as const
+const readCallKinds = ["execute", "get", "explain", "page"] as const
 type ReadCallFeature = `${(typeof readCallKinds)[number]} ${"one statement" | "several statements"}`
 
 /**
@@ -184,14 +186,15 @@ const refreshesGen = array(boolean, { min: 1, max: 4 })
  * round trip.
  * The framing is read from the flight's simple Query texts, the statement count from its Executes. As properties:
  *
- * - drawn reads over the worked example: db.execute, a compiled handle's execute, db.get of a present or absent key,
- *   db.explain, and walks of db.page requests (first, last, after and before an earlier edge, drawn sizes), over a
- *   plain read, a heterogeneous union, fused and pipelined attachments and an ordered page with an attachment;
+ * - drawn reads over the worked example, each a member of the login's served workload: a read's execute, a key's get of
+ *   a present or absent key, a member's explain (adapter/served/explain.ts), and walks of a paged member's page
+ *   requests (first, last, after and before an earlier edge, drawn sizes), over a plain read, a heterogeneous union,
+ *   fused and pipelined attachments and an ordered page with an attachment;
  * - drawn writes: ChangeSets of note inserts, puts and deletes, with or without a read-back that attaches, through
  *   db.apply, a compiled handle and db.explain; one with nothing to write sends its transaction all the same, its
  *   frame alone, so even it meets the fence;
- * - drawn programs of db.refresh, each on its view as the last refresh left it or emptied first as a migration that
- *   recreates it leaves it, so the server chooses the plain and the concurrent form, read from pg_class before each
+ * - drawn programs of refreshes through a refresh member of the workload, each on its view as the last refresh left it
+ *   or emptied first as a migration that recreates it leaves it, so the server chooses the plain and the concurrent form, read from pg_class before each
  *   call, and every refresh leaves its view populated;
  * - drawn requests through the login's own layer, its pool's one session tapped: one to three Dbs opened, during which
  *   the wire carries nothing, and a first call of one of them (a get, an execute, an apply with nothing to write), one
@@ -204,7 +207,7 @@ export const roundTripSuite = (): void => {
 		 *
 		 * The session's startup, outside every window.
 		 */
-		const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
+		const tappedPool = (credentials: Credentials) =>
 			Effect.gen(function* () {
 				const substrate = yield* Substrate
 				const tap = makeTap(substrate.cluster)
@@ -216,6 +219,10 @@ export const roundTripSuite = (): void => {
 				yield* Effect.scoped(
 					Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 				)
+				return { pool, tap }
+			})
+		const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
+			Effect.map(tappedPool(credentials), ({ pool, tap }) => {
 				const context = { ...opened.ctx, pool }
 				return { db: makeDb<R, unknown>(context, {}), context, tap }
 			})
@@ -308,75 +315,80 @@ export const roundTripSuite = (): void => {
 							)
 							.orderBy(["id", "asc"])
 						const queries = {
-							"one statement": { query: reads.automaticTasksFor, params: { account: a1 } },
-							"heading groups": { query: payloads, params: {} },
-							"fused attachments": { query: reads.taskCards, params: { account: a1 } },
-							"a pipelined attachment": { query: accountTaskNotes, params: {} }
+							"one statement": { member: "oneStatement", params: { account: a1 } },
+							"heading groups": { member: "headingGroups", params: {} },
+							"fused attachments": { member: "fusedAttachments", params: { account: a1 } },
+							"a pipelined attachment": { member: "pipelinedAttachment", params: {} }
 						} as const
-						const pages = { budgets, noted } as const
-						return yield* Effect.gen(function* () {
-							const opened = yield* openDbContext(o.server.roles.app, {})
-							const { context, tap } = yield* tapped(opened, o.installed.as(o.server))
-							const reader = dbReader(context)
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									suite: "adapter/round-trips reads",
-									draw: drawn(readCallsGen),
-									literal: Formatter.format,
-									kept: [],
-									runs: 40,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<ReadCallFeature>(
-										[
-											...Arr.map(readCallKinds, (k): ReadCallFeature => `${k} one statement`),
-											...Arr.flatMap(readCallKinds, (k): ReadonlyArray<ReadCallFeature> =>
-												k === "get" ? [] : [`${k} several statements`]
-											)
-										],
-										{ cases: 40, sense: notesOnly }
-									),
-									caseHang
-								},
-								(calls, notes) =>
-									Effect.gen(function* () {
-										/**
-										 * The cursors each ordered query's pages delivered: a cursor continues only its own query.
-										 *
-										 * The handle's compilation is outside the call's window.
-										 */
-										const delivered: Readonly<Record<"budgets" | "noted", Array<string>>> = {
-											budgets: [],
-											noted: []
-										}
-										for (const call of calls) {
-											const target = queries[call.query]
-											const page = pages[call.page]
-											const edges = delivered[call.page]
-											const anchor =
-												edges.length === 0
-													? Option.none<string>()
-													: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
-											const effect: Effect.Effect<unknown, ReadError | CursorError | CompileError> =
-												call.kind === "execute"
-													? Effect.flatMap(
-															reader.execute(target.query, target.params),
-															(r) => r.collect
-														)
-													: call.kind === "compiled execute"
-														? Effect.scoped(
-																Effect.flatMap(reader.compile(target.query), (handle) =>
-																	Effect.flatMap(handle.execute(target.params), (r) => r.collect)
-																)
+						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+							Effect.gen(function* () {
+								const loaded = yield* load({
+									oneStatement: reads.automaticTasksFor,
+									headingGroups: payloads,
+									fusedAttachments: reads.taskCards,
+									pipelinedAttachment: accountTaskNotes,
+									task: W.Task,
+									budgets: paged(budgets),
+									noted: paged(noted)
+								})
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const ops = (name: string) => memberOps(context, member(loaded, name))
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										suite: "adapter/round-trips reads",
+										draw: drawn(readCallsGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 40,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										coverage: required<ReadCallFeature>(
+											[
+												...Arr.map(readCallKinds, (k): ReadCallFeature => `${k} one statement`),
+												...Arr.flatMap(readCallKinds, (k): ReadonlyArray<ReadCallFeature> =>
+													k === "get" ? [] : [`${k} several statements`]
+												)
+											],
+											{ cases: 40, sense: notesOnly }
+										),
+										caseHang
+									},
+									(calls, notes) =>
+										Effect.gen(function* () {
+											/**
+											 * The cursors each ordered query's pages delivered: a cursor continues only its own query.
+											 *
+											 * The handle's compilation is outside the call's window.
+											 */
+											const delivered: Readonly<Record<"budgets" | "noted", Array<string>>> = {
+												budgets: [],
+												noted: []
+											}
+											for (const call of calls) {
+												const target = queries[call.query]
+												const edges = delivered[call.page]
+												const anchor =
+													edges.length === 0
+														? Option.none<string>()
+														: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
+												const effect: Effect.Effect<unknown, ReadError | CursorError> =
+													call.kind === "execute"
+														? Effect.flatMap(
+																ops(target.member).execute(target.params),
+																(r) => r.collect
 															)
 														: call.kind === "get"
-															? reader.get(W.Task, { id: call.present ? t1 : tMissing })
+															? ops("task").get({ id: call.present ? t1 : tMissing })
 															: call.kind === "explain"
-																? explain(context, target.query, target.params)
-																: reader.page(
-																		page,
+																? explainMember(
+																		context,
+																		member(loaded, target.member),
+																		target.params
+																	)
+																: ops(call.page).page(
 																		{ account: a1 },
 																		Option.match(anchor, {
 																			onNone: () =>
@@ -387,42 +399,40 @@ export const roundTripSuite = (): void => {
 																					: { last: call.size, before: cursor }
 																		})
 																	)
-											if (call.kind === "compiled execute") {
-												yield* Effect.scoped(reader.compile(target.query))
-											}
-											const seen = yield* observe(tap, effect)
-											/** The prologue is two Executes more than the call's own statements. */
-											const statements = frontendCount(seen.window, "E") - prologueStatements
-											assert.ok(statements >= 1, `${call.kind}: statements behind the prologue`)
-											assertFlights(
-												call.kind,
-												seen.window,
-												1,
-												call.kind === "explain"
-													? ["BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY", "ROLLBACK"]
-													: readFraming
-											)
-											notes.note(
-												statements > 1
-													? `${call.kind} several statements`
-													: `${call.kind} one statement`
-											)
-											if (
-												call.kind === "page" &&
-												isRecord(seen.value) &&
-												Arr.isArray(seen.value["edges"])
-											) {
-												for (const edge of seen.value["edges"]) {
-													if (isRecord(edge) && typeof edge["cursor"] === "string") {
-														edges.push(edge["cursor"])
+												const seen = yield* observe(tap, effect)
+												/** The prologue is two Executes more than the call's own statements. */
+												const statements = frontendCount(seen.window, "E") - prologueStatements
+												assert.ok(statements >= 1, `${call.kind}: statements behind the prologue`)
+												assertFlights(
+													call.kind,
+													seen.window,
+													1,
+													call.kind === "explain"
+														? ["BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY", "ROLLBACK"]
+														: readFraming
+												)
+												notes.note(
+													statements > 1
+														? `${call.kind} several statements`
+														: `${call.kind} one statement`
+												)
+												if (
+													call.kind === "page" &&
+													isRecord(seen.value) &&
+													Arr.isArray(seen.value["edges"])
+												) {
+													for (const edge of seen.value["edges"]) {
+														if (isRecord(edge) && typeof edge["cursor"] === "string") {
+															edges.push(edge["cursor"])
+														}
 													}
 												}
 											}
-										}
-										assert.equal(tap.cancels(), 0)
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+											assert.equal(tap.cancels(), 0)
+										})
+								)
+							})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -625,7 +635,7 @@ export const roundTripSuite = (): void => {
 		)
 
 		it.effect(
-			"every drawn db.refresh is one round trip, its view unpopulated or populated, its choice made in the server",
+			"every drawn refresh through a refresh member is one round trip, its view unpopulated or populated, its choice made in the server",
 			(testContext) =>
 				searched(
 					testContext,
@@ -647,52 +657,62 @@ export const roundTripSuite = (): void => {
 							),
 							(rows) => rows[0]?.[0] === true
 						)
-						return yield* Effect.gen(function* () {
-							const opened = yield* openDbContext(fixture.server.roles.refresher, {})
-							const { db, tap } = yield* tapped(opened, installation.as(fixture.server))
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									suite: "adapter/round-trips refresh",
-									draw: drawn(refreshesGen),
-									literal: Formatter.format,
-									kept: [],
-									runs: 6,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<RefreshFeature>(
-										["a refresh of an unpopulated view", "a refresh of a populated view"],
-										{ cases: 8, sense: notesOnly }
-									),
-									caseHang
-								},
-								(refreshes, notes) =>
-									Effect.gen(function* () {
-										for (const emptied of refreshes) {
-											if (emptied) {
-												yield* s.admin.query(`REFRESH MATERIALIZED VIEW ${view} WITH NO DATA`, [])
-											}
-											const before = yield* populated
-											const refreshed = yield* observe(tap, db.refresh(fixture.StudentWeekly))
-											assertFlights(
-												before ? "refresh, populated" : "refresh, unpopulated",
-												refreshed.window,
-												1,
-												writeFraming
-											)
-											const after = yield* populated
-											assert.ok(after, "a refresh leaves its view populated")
-											notes.note(
-												before
-													? "a refresh of a populated view"
-													: "a refresh of an unpopulated view"
-											)
-										}
-										assert.equal(tap.cancels(), 0)
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(installation, fixture.server)))
+						return yield* withServedDb(
+							installation,
+							fixture.server.roles.refresher,
+							{},
+							({ ctx, load }) =>
+								Effect.gen(function* () {
+									const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
+									const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
+									const refreshing = memberOps({ ...ctx, pool }, member(loaded, "studentWeekly"))
+									return yield* explore(
+										{
+											oracle: { kind: "unstated" },
+											suite: "adapter/round-trips refresh",
+											draw: drawn(refreshesGen),
+											literal: Formatter.format,
+											kept: [],
+											runs: 6,
+											shrink: completeShrink,
+											concurrency: 1,
+											steerEvery: 16,
+											coverage: required<RefreshFeature>(
+												["a refresh of an unpopulated view", "a refresh of a populated view"],
+												{ cases: 8, sense: notesOnly }
+											),
+											caseHang
+										},
+										(refreshes, notes) =>
+											Effect.gen(function* () {
+												for (const emptied of refreshes) {
+													if (emptied) {
+														yield* s.admin.query(
+															`REFRESH MATERIALIZED VIEW ${view} WITH NO DATA`,
+															[]
+														)
+													}
+													const before = yield* populated
+													const refreshed = yield* observe(tap, refreshing.refresh)
+													assertFlights(
+														before ? "refresh, populated" : "refresh, unpopulated",
+														refreshed.window,
+														1,
+														writeFraming
+													)
+													const after = yield* populated
+													assert.ok(after, "a refresh leaves its view populated")
+													notes.note(
+														before
+															? "a refresh of a populated view"
+															: "a refresh of an unpopulated view"
+													)
+												}
+												assert.equal(tap.cancels(), 0)
+											})
+									)
+								})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)
