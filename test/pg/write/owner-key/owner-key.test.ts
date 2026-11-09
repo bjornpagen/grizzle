@@ -240,7 +240,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									draw: drawn(ownerCaseGen),
 									literal: Formatter.format,
 									coverage: required<OwnerFeature>(situations, { cases: 80, sense: notesOnly }),
-									kept: [],
+									kept: [
+										{
+											note: "a8b31081: an owner inserted beside its counted member carries the member's count and end, which its check over the end judges at the insert",
+											sketch: {
+												form: "enumerated",
+												stored: [{ id: 0, members: [1] }],
+												requested: [{ mode: "fresh", pick: 0, id: 0 }]
+											},
+											draws: "",
+											reaches: ["insert enumerated"]
+										}
+									],
 									runs: 80,
 									shrink: completeShrink,
 									concurrency: 1,
