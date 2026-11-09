@@ -228,7 +228,7 @@ export interface StratumFill {
  * in its one flight, its fresh fill's `drawn` alone; or none, before the plan is drawn or where it is refused, when no
  * write statement is sent.
  */
-export type Fill =
+export type StatedFill =
 	| {
 			readonly kind: "planned"
 			readonly strata: ReadonlyMap<StratumAt, StratumFill>
@@ -245,7 +245,7 @@ type ColumnsSource = "stated" | "walk" | "drawn"
 
 const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
 
-const unplannedFill: Fill = Object.freeze({ kind: "unplanned" })
+const unplannedFill: StatedFill = Object.freeze({ kind: "unplanned" })
 
 /** The witness of a refusal no row the ChangeSet states is found breaking. */
 const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
@@ -265,7 +265,7 @@ export type BindResult =
  * What binding one application found before its flights are planned (`FlightsOf`): the transport its statements are
  * cut to, the installation's codes, the write's binding, each stratum's nested rows as normalization left them, each
  * member slot's normal facts, each fresh owner slot's facts with the counts and ends its fill drew, the form of each
- * statement the application sends, the rows it states as a fill fills them (`Fill`), a generated field's refusal at a
+ * statement the application sends, the rows it states as a fill fills them (`StatedFill`), a generated field's refusal at a
  * stratum, and the executions of a statement no family step plans, each member slot's facts by `slotFacts`.
  */
 export interface Applied {
@@ -276,7 +276,7 @@ export interface Applied {
 	readonly factsOf: (slot: ParamId) => NormalizedSlot
 	readonly fresh: ReadonlyMap<ParamId, NormalizedSlot>
 	readonly form: (statement: FlightStatement) => FlightForm
-	readonly statedRowsOf: (fill: Fill) => StatedRows
+	readonly statedRowsOf: (fill: StatedFill) => StatedRows
 	readonly generatedRejection: (stratum: StratumAt, stop: GeneratedNull) => GeneratedRejection
 	readonly statementChunks: (
 		statement: FlightStatement,
@@ -305,7 +305,7 @@ export interface RunnableWrite {
  * holds no family step: each statement's executions, an owner slot's facts with the counts and ends its fresh fill
  * drew, and the stated rows as that fill fills them.
  */
-export const servedFlights: FlightsOf = ({ fresh, factsOf, statementChunks, statedRowsOf }) => {
+const servedFlights: FlightsOf = ({ fresh, factsOf, statementChunks, statedRowsOf }) => {
 	const slotFacts = (slot: ParamId): NormalizedSlot => fresh.get(slot) ?? factsOf(slot)
 	return Result.ok({
 		kind: "write",
@@ -552,7 +552,7 @@ export const bindWrite = (
 	 * proposes only where no stored row holds its key is `ifFresh`.
 	 */
 	const judgedRow = (
-		fill: Fill,
+		fill: StatedFill,
 		stratum: StratumAt,
 		relation: string,
 		columns: Values,
@@ -618,7 +618,7 @@ export const bindWrite = (
 	 * columns filled, since its fields are not its target's; and a stratum's nested rows, which their family's
 	 * statements propose every one of.
 	 */
-	const statedRowsOf = (fill: Fill): StatedRows => ({
+	const statedRowsOf = (fill: StatedFill): StatedRows => ({
 		slot: (group: GroupData, input: InputData, slot: SlotData) => {
 			const relation = group.relation
 			if (group.facts.name !== relation) {

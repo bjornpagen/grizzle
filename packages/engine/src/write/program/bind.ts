@@ -20,7 +20,6 @@ import { columnArray } from "#compiler/runtime/write/arrays.ts"
 import {
 	type Chunks,
 	type FamilyRowBound,
-	type Fill,
 	type Flights,
 	type FlightsOf,
 	type GeneratedRejection,
@@ -29,6 +28,7 @@ import {
 	type ReadStatement,
 	type RunnableWrite,
 	servedRunnable,
+	type StatedFill,
 	type StratumFill
 } from "#compiler/runtime/write/bind.ts"
 import type { MemberKey, Owner, Recount, Row } from "#compiler/runtime/write/draw.ts"
@@ -122,7 +122,7 @@ export const legacyFlights =
 	(compiled: CompiledWrite): FlightsOf =>
 	(applied) => {
 		const { frontend } = compiled
-		const unplanned: Fill = Object.freeze({ kind: "unplanned" })
+		const unplanned: StatedFill = Object.freeze({ kind: "unplanned" })
 		const { factsOf, fresh, form, statedRowsOf, generatedRejection, statementChunks } = applied
 		const noRows: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> = new Map()
 		/** Each relation's depth among the families, which orders a stratum's relations' statements. */
