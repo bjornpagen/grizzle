@@ -62,6 +62,10 @@ import {
 	type ContractInfo,
 	contractOf,
 	isNumericValue,
+	type NumericBound,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
 	Roster,
 	type ScalarType,
 	spanOf
@@ -336,6 +340,21 @@ const ruleStatement = (
 	}
 }
 
+/**
+ * numeric(p, s) of a computed numeric's bound, its integer digits and scale (ir/scalar.ts NumericBound): p = digits +
+ * scale, s = scale, so numeric(p, s) holds exactly the values the bound does. None where no typmod states the bound: no
+ * digits at all, a non-finite literal's, or more than numeric's largest precision.
+ */
+const numericOfBound = (bound: NumericBound): FieldDesc | undefined => {
+	const precision = bound.digits + bound.scale
+	return precision >= 1 &&
+		precision <= numericMaxPrecision.value &&
+		bound.scale >= numericMinScale.value &&
+		bound.scale <= numericMaxScale.value
+		? { kind: "numeric", precision, scale: bound.scale }
+		: undefined
+}
+
 /** A law's identity at the naming door: its LawId is the identity's identifier. */
 export const lawIdentityOf = (law: LawIdentity): Identity<"law"> =>
 	identity.law(lawStatement(law, ownSpelling))
@@ -457,8 +476,9 @@ class Builder {
 	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at: its heading as the
 	 * checker types it against the checked schema, a bare head literal's column by its value or by its position in a
 	 * union, each column the descriptor a declaration of its type writes. A computed numeric, a Decimal head literal's
-	 * column that no other arm types, is no declaration's type, so its literal keeps none of its own and takes the type
-	 * of the term it meets, as it does in the definition.
+	 * column that no other arm types, is no declaration's type: it is numeric(p, s) of the bound its analysis proves
+	 * (numericOfBound), whose values are exactly the bound's, and a bound no typmod states, a non-finite literal's or one
+	 * of more than numeric's largest precision, leaves the literal bare, as it is in the definition.
 	 */
 	#columnType(
 		relation: string,
@@ -478,7 +498,7 @@ class Builder {
 				return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
 			}
 			if (isNumericValue(type)) {
-				return undefined
+				return numericOfBound(type.bound)
 			}
 			const desc = declaredDescOf(type, this.owned.contracts)
 			return desc.ok
