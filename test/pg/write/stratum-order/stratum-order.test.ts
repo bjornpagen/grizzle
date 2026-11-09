@@ -5,12 +5,21 @@ import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	counted,
+	fin,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -29,31 +38,36 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * counted member of B. A case inserts
  * B's rows, T's members of them, O's rows each naming a T's `k`, and P's members of O's rows, all in one stratum:
  * T's rows must land before O's insert, which the containment reads, and P's after it, which their owner axis reads.
- * The schema's owners are each mutable or immutable, drawn.
+ * B also owns a sequence of Q, so each B's insert nests its Q members, a nested write in the stratum as importWrite
+ * holds one. The schema's owners are each mutable or immutable, drawn.
  *
  * The oracle is the writer's model: the stratum compiles, every write is accepted, and the rows read back are the rows
  * written, each owner's count its members'.
  */
-const B = relation("B", { id: uuid, n: drawnField(natural) }, ["id"])
+const B = relation("B", { id: uuid, n: drawnField(natural), m: drawnField(natural) }, ["id"])
 const T = relation("T", { b: uuid, k: uuid }, ["k"])
 const O = relation("O", { id: uuid, k: uuid, n: drawnField(natural), tb: uuid }, ["id"])
 const P = relation("P", { id: uuid, o: uuid }, ["id"])
+const Q = relation("Q", { b: uuid, at: drawnField(natural), v: uuid }, ["b", "at"])
 
 /** The schema over B, T, O and P, its owners mutable as drawn. */
 const shapeOf = (mutableB: boolean, mutableO: boolean) =>
-	schema("StratumOrder", { B, O, P, T }, [
+	schema("StratumOrder", { B, O, P, Q, T }, [
 		counted(on(T, "b"), fin(B, "n")),
+		ordered(on(Q, "b", "at"), fin(B, "m")),
 		counted(on(P, "o"), fin(O, "n")),
 		contained(on(O, "tb", "k"), on(T, "b", "k")),
 		...(mutableB ? [mutable(B)] : []),
 		...(mutableO ? [mutable(O)] : [])
 	])
 
-/** A case: each B's count of T members, each T's count of O rows naming it, and each O's count of P members. */
+/** A case: each B's count of T members and of the Q members nested in it, each T's count of O rows naming it, and each
+ * O's count of P members. */
 interface OrderCase {
 	readonly mutableB: boolean
 	readonly mutableO: boolean
 	readonly ts: ReadonlyArray<number>
+	readonly qs: ReadonlyArray<number>
 	readonly os: ReadonlyArray<number>
 	readonly ps: ReadonlyArray<number>
 }
@@ -66,6 +80,7 @@ const caseGen: Gen<OrderCase> = (source) => {
 		mutableB: source.draw(boolean),
 		mutableO: source.draw(boolean),
 		ts,
+		qs: Arr.map(ts, () => source.draw(int(0, 2))),
 		os,
 		ps: Arr.map(os, () => source.draw(int(0, 2)))
 	}
@@ -75,6 +90,7 @@ type OrderFeature =
 	| "an owner with members on both sides"
 	| "an owner with no members"
 	| "immutable owners"
+	| "members nested in the stratum"
 
 const sortedIds = (ids: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(ids, Order.String)
 
@@ -101,7 +117,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									[
 										"an owner with members on both sides",
 										"an owner with no members",
-										"immutable owners"
+										"immutable owners",
+										"members nested in the stratum"
 									],
 									{ cases: 8, sense: notesOnly }
 								),
@@ -125,7 +142,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.server.roles.app, {})
-										const bs = Arr.map(k.ts, (_, i) => ({ id: uuidOf(100 + i) }))
+										const bs = Arr.map(k.ts, (_, i) => ({
+											id: uuidOf(100 + i),
+											m: upTo(defined(k.qs[i], "a B's nested count"), (j) => ({
+												v: uuidOf(600 + 10 * i + j)
+											}))
+										}))
 										const ts = Arr.map(
 											Arr.flatMap(k.ts, (n, i) => upTo(n, () => ({ b: uuidOf(100 + i) }))),
 											(t, j) => ({ ...t, k: uuidOf(300 + j) })
@@ -164,14 +186,29 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											assert.equal(row.n, BigInt(members), "an owner's count is its members'")
 										}
 										const bQuery = query(o.schema).rule((r) => {
-											const { id, n } = v(B, "b")
-											return r.match(B, { id, n }).find({ id, n })
+											const { id, n, m } = v(B, "b")
+											return r.match(B, { id, n, m }).find({ id, n, m })
 										})
 										const bRows = yield* Effect.flatMap(db.execute(bQuery, {}), (r) => r.collect)
 										for (const row of bRows) {
 											const members = Arr.filter(ts, (t) => t.b === row.id).length
 											assert.equal(row.n, BigInt(members), "a B's count is its members'")
+											const nested = defined(
+												Arr.findFirst(bs, (b) => b.id === row.id).pipe(Option.getOrUndefined),
+												"a B written"
+											).m.length
+											assert.equal(row.m, BigInt(nested), "a B's sequence is its nested members")
 										}
+										const qQuery = query(o.schema).rule((r) => {
+											const { b, at, v: value } = v(Q, "q")
+											return r.match(Q, { b, at, v: value }).find({ b, at, v: value })
+										})
+										const qRows = yield* Effect.flatMap(db.execute(qQuery, {}), (r) => r.collect)
+										assert.deepEqual(
+											sortedIds(Arr.map(qRows, (q) => q.v)),
+											sortedIds(Arr.flatMap(bs, (b) => Arr.map(b.m, (q) => q.v))),
+											"every nested member is stored"
+										)
 										const pQuery = query(o.schema).rule((r) => {
 											const { id, o: owner } = v(P, "p")
 											return r.match(P, { id, o: owner }).find({ id })
@@ -190,6 +227,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 										if (!k.mutableB || !k.mutableO) {
 											c.note("immutable owners")
+										}
+										if (Arr.some(k.qs, (n) => n > 0)) {
+											c.note("members nested in the stratum")
 										}
 									}).pipe(
 										(body) =>
