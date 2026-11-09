@@ -16,7 +16,7 @@
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
+import { openServed } from "#adapter/db/served.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
@@ -30,6 +30,7 @@ import {
 	role,
 	schema
 } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
@@ -57,7 +58,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural) }, ["id"])
 const Member = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
 
-/** The family under a schema name, with a role `app` the grizzle writer opens and a role `direct` the direct writer's. */
+/**
+ * The family under a schema name, with a role `app` the grizzle writer opens, whose login's workload holds the empty
+ * ChangeSet its first call applies and the append of the members each call gives, and a role `direct` the direct
+ * writer's.
+ */
 const contended = (name: string) => {
 	const relations = { Owner, Member }
 	const base = schema(name, relations, [mutable(Owner), counted(on(Member, "g"), fin(Owner, "n"))])
@@ -67,7 +72,14 @@ const contended = (name: string) => {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app]),
+		server: login(base, "server", [app], {
+			workload: [
+				workload(app, {
+					noop: ChangeSet.empty(base),
+					append: ChangeSet.empty(base).insert(Member, [])
+				})
+			]
+		}),
 		psql: login(base, "psql", [direct])
 	}
 }
@@ -102,13 +114,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							: names.columnIdent({ name: "Member" }, family.index.field.name)
 					)
 					const copy = quoteIdent(family.copy)
-					const app = yield* rig.writer("app", (context) =>
-						openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+					const app = yield* rig.servedWriter(
+						"app",
+						(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
+						(db) => db.workload.noop.apply({})
 					)
 					const direct = yield* openActors(s, { direct: { kind: "raw", as: rig.direct } })
-					const appended = ChangeSet.empty(rig.worlds.schema).insert(Member, [
-						{ member: GRIZZLE, g: 0 }
-					])
 					/** The grizzle write's refusals and answer in the current run, set by its move. */
 					let ran:
 						| Result.Result<
@@ -137,15 +148,21 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							steps: [
 								opStep(
 									"the grizzle append",
-									Effect.tap(Effect.result(untilAnswered(app.db.apply(appended, {}))), (r) =>
-										Effect.sync(() => {
-											ran = Result.isSuccess(r)
-												? Result.succeed({
-														refused: r.success.refused,
-														answer: r.success.answered.kind
-													})
-												: Result.fail(r.failure.message)
-										})
+									Effect.tap(
+										Effect.result(
+											untilAnswered(
+												app.db.workload.append.apply({ Member: [{ member: GRIZZLE, g: 0 }] }, {})
+											)
+										),
+										(r) =>
+											Effect.sync(() => {
+												ran = Result.isSuccess(r)
+													? Result.succeed({
+															refused: r.success.refused,
+															answer: r.success.answered.kind
+														})
+													: Result.fail(r.failure.message)
+											})
 									),
 									everyRelation
 								)
