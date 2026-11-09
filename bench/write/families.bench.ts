@@ -128,23 +128,33 @@ export default defineGate({
 			}
 			yield* settle(fx)
 			/**
+			 * The member rows the session has updated, as pg_stat_xact_user_tables counts them: the counts of the session's
+			 * earlier transactions that PostgreSQL has not yet flushed among them, so only a difference of two readings in
+			 * one transaction is that transaction's.
+			 */
+			const memberUpdates = Effect.map(
+				s.admin.queryValues(
+					"SELECT n_tup_upd::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = $1::regclass",
+					[I]
+				),
+				(rows) => Number(trusted<readonly [string]>(oneRow(rows))[0])
+			)
+			/**
 			 * One owner's count raised by one, by the owner, timed, its cascade's member updates read before the rollback.
 			 */
 			const cascaded = (id: number) =>
 				Effect.gen(function* () {
 					yield* s.admin.query("BEGIN", [])
 					return yield* Effect.gen(function* () {
+						const before = yield* memberUpdates
 						const update = yield* timed(
 							s.admin.query(
 								`UPDATE ${O} SET ${c("Owner", "members")} = ${c("Owner", "members")} + 1 WHERE ${c("Owner", "id")} = $1::int4`,
 								[String(id)]
 							)
 						)
-						const rows = yield* s.admin.queryValues(
-							"SELECT n_tup_upd::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = $1::regclass",
-							[I]
-						)
-						return { updated: Number(trusted<readonly [string]>(oneRow(rows))[0]), ms: update.ms }
+						const after = yield* memberUpdates
+						return { updated: after - before, ms: update.ms }
 					}).pipe(Effect.ensuring(Effect.orDie(s.admin.query("ROLLBACK", []))))
 				})
 			const growth: Array<{
