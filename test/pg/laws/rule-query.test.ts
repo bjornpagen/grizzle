@@ -34,7 +34,11 @@
  * transaction while W may still need it, and the end of a lonely row, which deletes it and inserts an S row of its k in
  * one transaction while V may still hold its id: the two situations a target probe's relaxation exists for, which the
  * search requires. A transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row
- * of one, or remove a picked mark.
+ * of one, remove a picked mark, or list the k of a marked row of Unlisted no S row shares: an S row whose b is 1 and a W
+ * row of its k inserted at once, each blocking the row through a negated arm of its own, with the rows every other rule
+ * then needs and every other negation's marks synced, so the row's stale mark is the one rule the state breaks. The
+ * search requires that last situation refused: a probe that kept the target arm's other negations read it through
+ * neither insert.
  *
  * Planted in a scratch copy, each of these fails the search: no trigger on one table a rule reads; a NEW probe that
  * restricts only the first occurrence of the written relation in an arm, which misses the self-join; a key over a
@@ -47,8 +51,11 @@
  * each negated arm's probes read with the other polarity, a target's negated tables probed on DELETE and the breaking
  * side's on INSERT; a probe of a breaking side's negated arm that reads the matches after the held one as they stand
  * instead of dropping them, which misses an unwinding that deletes an S row and the U row it pairs with at once; a probe
- * of a target's negated arm that keeps the target arm's other negations, which misses a k an S row whose b is 1 and a
- * W row inserted at once both list; and a conjunction holding a negation read whole, which refuses Quiet.
+ * of a target's negated arm that keeps the target arm's other negations, as the probe of one anti-join did before
+ * negated arms, which commits a marked row listed through both negations of its arm at once; and a conjunction holding
+ * a negation read whole, which refuses Quiet. Beside them, for the schema agreement (test/types/schema/agreement.test.ts):
+ * the engine refusing a negation of a query again, as it did before negated arms, which the agreement's derivedNegated
+ * form must fail on, its types admitting what the engine refuses.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -470,6 +477,7 @@ type Edit =
 	| { readonly kind: "unwind"; readonly pick: number }
 	| { readonly kind: "unlone"; readonly pick: number; readonly keepV: boolean }
 	| { readonly kind: "sync" }
+	| { readonly kind: "list"; readonly pick: number }
 	| { readonly kind: "mark"; readonly form: Form; readonly pick: number }
 	| { readonly kind: "unmark"; readonly pick: number }
 
@@ -512,6 +520,7 @@ const edits: Arr.NonEmptyReadonlyArray<Weighted<Edit>> = [
 	[2, (s) => ({ kind: "unwind", pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "unlone", pick: s.draw(int(0, 9)), keepV: s.draw(element([false, true])) })],
 	[2, () => ({ kind: "sync" })],
+	[2, (s) => ({ kind: "list", pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "mark", form: s.draw(element(forms)), pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "unmark", pick: s.draw(int(0, 9)) })]
 ]
@@ -570,6 +579,7 @@ type Feature =
 	| `refused by ${Rule}`
 	| "a fact unwound across tables while W needs it"
 	| "a lonely row deleted and blocked at once while V needs it"
+	| "a marked row listed through both negations of its arm at once"
 	| "a grizzle write committed"
 	| "a grizzle write refused by a rule"
 	| "concurrent writers all committed"
@@ -593,14 +603,16 @@ const picked = <V>(
 }
 
 /**
- * A transaction resolved against a state: its statements, the state it leaves, the k of each J3 fact it unwinds, and
- * the id of each lonely row it deletes beside an S row of its k it inserts, keeping its V row.
+ * A transaction resolved against a state: its statements, the state it leaves, the k of each J3 fact it unwinds, the
+ * id of each lonely row it deletes beside an S row of its k it inserts, keeping its V row, and the id of each marked row
+ * of Unlisted whose k it lists through both negated arms of Unlisted's one arm at once, keeping its mark.
  */
 interface Resolved {
 	readonly statements: ReadonlyArray<string>
 	readonly after: State
 	readonly unwound: ReadonlyArray<number>
 	readonly withdrawn: ReadonlyArray<number>
+	readonly listed: ReadonlyArray<number>
 }
 
 /** Fresh primary keys, one counter per relation, shared by every session of a case. */
@@ -627,6 +639,7 @@ const resolve = (
 	const statements: Array<string> = []
 	const unwound: Array<number> = []
 	const withdrawn: Array<number> = []
+	const listed: Array<number> = []
 	const insertRow = (relation: Rel, id: number, x: number, y: number): void => {
 		switch (relation) {
 			case "R":
@@ -660,6 +673,23 @@ const resolve = (
 	const unmark = (form: number, id: number): void => {
 		Nr.delete(markKey(form, id))
 		statements.push(`DELETE FROM ${table("N")} WHERE form = ${form} AND id = ${id}`)
+	}
+	/** Marks the rows of each of `marked`'s negations as they stand, and unmarks every other mark of theirs. */
+	const marking = (marked: ReadonlyArray<Form>): void => {
+		const rows = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
+		for (const form of marked) {
+			const code = formCode[form]
+			for (const [at, id] of Nr.values()) {
+				if (at === code && !rows[form].includes(id)) {
+					unmark(code, id)
+				}
+			}
+			for (const id of rows[form]) {
+				if (!Nr.has(markKey(code, id))) {
+					mark(code, id)
+				}
+			}
+		}
 	}
 	const rowsOf = (relation: Deleted): Map<number, unknown> =>
 		relation === "R" ? R : relation === "S" ? S : relation === "U" ? U : relation === "W" ? Wr : Vr
@@ -786,21 +816,40 @@ const resolve = (
 				}
 				break
 			}
-			case "sync": {
-				const rows = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
-				for (const form of forms) {
-					const code = formCode[form]
-					for (const [at, id] of Nr.values()) {
-						if (at === code && !rows[form].includes(id)) {
-							unmark(code, id)
+			case "sync":
+				marking(forms)
+				break
+			case "list": {
+				const found = picked(
+					new Map(
+						Arr.filter(
+							[...R],
+							([id, r]) =>
+								Nr.has(markKey(formCode.unlisted, id)) &&
+								!Arr.some([...S.values()], (x) => x.k === r.k)
+						)
+					),
+					op.pick
+				)
+				if (Option.isNone(found)) {
+					break
+				}
+				const [id, r] = found.value
+				insertRow("S", keys.fresh(), r.k, 1)
+				insertRow("U", keys.fresh(), r.a, 1)
+				for (const [other, o] of R) {
+					if (o.k === r.k) {
+						insertT(o.a, 1)
+						if (!Wr.has(other)) {
+							insertRow("W", other, r.k, 0)
 						}
-					}
-					for (const id of rows[form]) {
-						if (!Nr.has(markKey(code, id))) {
-							mark(code, id)
+						if (Vr.has(other)) {
+							deleteRow("V", other)
 						}
 					}
 				}
+				marking(Arr.filter(forms, (f) => f !== "unlisted"))
+				listed.push(id)
 				break
 			}
 			case "mark": {
@@ -848,7 +897,7 @@ const resolve = (
 			}
 		}
 	}
-	return { statements, after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }, unwound, withdrawn }
+	return { statements, after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }, unwound, withdrawn, listed }
 }
 
 /** The rows a table holds now, read back as integers. */
@@ -1047,6 +1096,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										...Arr.map(rules, (r) => `refused by ${r}` as const),
 										"a fact unwound across tables while W needs it",
 										"a lonely row deleted and blocked at once while V needs it",
+										"a marked row listed through both negations of its arm at once",
 										"a grizzle write committed",
 										"a grizzle write refused by a rule",
 										"concurrent writers all committed",
@@ -1133,6 +1183,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
 												c.note("a lonely row deleted and blocked at once while V needs it")
 											}
+											if (
+												t.listed.length > 0 &&
+												breaks.length === 1 &&
+												breaks.includes("nUnlisted")
+											) {
+												c.note("a marked row listed through both negations of its arm at once")
+											}
 											continue
 										}
 										const verdict = yield* attempt(seat.session, t.statements)
@@ -1165,6 +1222,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 										if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
 											c.note("a lonely row deleted and blocked at once while V needs it")
+										}
+										if (
+											t.listed.length > 0 &&
+											breaks.length === 1 &&
+											breaks.includes("nUnlisted")
+										) {
+											c.note("a marked row listed through both negations of its arm at once")
 										}
 									}
 									const a = resolve(rc.concurrent.first, state, keys, seat.table)

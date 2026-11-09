@@ -132,6 +132,15 @@ post-beta swarm's fixes for the next release.
   pages, and catches that plant.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
   Reconcile them, then copy the library into edullm with the shared lint standard.
+- **The types read a rule's nested sources (NEGATION, 2026-11-09):** a derived relation a rule's side reads whose
+  definition matches or negates a query or derived relation that aggregates, orders and takes, attaches, approximates
+  or recurses, or negates one that negates in turn, type-checks and is refused only at runtime, UnsupportedLawFamily
+  from analysis/theory/query.ts's Flattener, because RuleRead (types/derived/derived.ts RuleReadOf) reads the
+  definition's own arms and never what they match or negate. The fix: r.match and r.not record in the rule's facts the
+  refusals of the source they read (a derived relation's own RuleRead, a query value's arms' refusals, and for r.not
+  whether those arms negate, which UnionArm would then carry), find carries their union into the arm it makes, and
+  ArmRefusal adds them with the engine's words, linear in the matches and filters; then the schema agreement's
+  derivedProbe draws a matched and a negated query that aggregates, and one that negates in turn, as faults.
 - **The swarm core's shared-field column (ONERTT-WRITE2, 2026-11-09):** the core test/support/families/fill.ts gives
   each family a group column of its own, so the families swarm never draws pantry's importWrite shape: a family
   member's group field that a containment also reads, at every field of its target, which makes that containment's
