@@ -979,11 +979,10 @@ export interface SessionPool {
 export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const { bounds } = config
-		const session = config.session
 		const spec: SessionSpec = {
 			...config.connection,
-			startup: { kind: "login", options: session.startup },
-			controls: session
+			startup: { kind: "login", options: config.session.startup },
+			controls: config.session
 		}
 		const own = yield* Effect.context()
 		const attemptServices: AttemptServices = { current: own, own }
