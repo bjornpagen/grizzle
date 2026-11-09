@@ -174,10 +174,10 @@ const pathsOf = (selection: Selection, weighed: boolean): Paths => {
 			program: edited,
 			stratum: defined(
 				Option.getOrUndefined(
-					Arr.findFirst(edited.edits, (e) => e.target.relation.name === "Member")
+					Arr.findFirst(edited.frontend.edits, (e) => e.relation.name === "Member")
 				),
 				"the members' edit"
-			).edit.stratum
+			).stratum
 		},
 		Owner: built.Owner,
 		schema: built.schema
