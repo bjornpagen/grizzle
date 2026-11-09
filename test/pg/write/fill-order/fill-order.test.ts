@@ -352,6 +352,41 @@ const replacedOwner: ClusterCase = {
 }
 
 /**
+ * replacedOwner beside an append under the owner it re-places: the stored member copies both the owner's index, which
+ * the delete's re-placement redraws, and its count, which the append recounts.
+ */
+const replacedOwnerAppended: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+			{ kind: "counted", owner: 1, member: 2, fold: "none" }
+		],
+		copies: [{ family: 1, axis: "owner", source: { kind: "index", family: 0 } }],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 1n, memberOf: [] },
+		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+		{ relation: 2, id: 4, v: 4n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 1,
+		put: Option.none(),
+		inserted: [{ relation: 2, id: 5, v: 5n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }],
+		removed: Option.some({ id: 2, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
+/**
  * The shape a delete once broke with no copy at all: R1, the member of R0's ordered family, owns a counted family of
  * R2. Deleting R0's first member re-places the second, deleting it and inserting it again beneath its counted member,
  * which references it along the counted family's owner axis: that axis waits for the commit, the re-placed row
@@ -671,6 +706,17 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 							{
 								note: "a delete of an ordered family's member re-places the next, which owns a counted member copying its index",
 								sketch: replacedOwner,
+								draws: "",
+								reaches: [
+									"a counted family of nested owners",
+									"a follow-up written over the stored instance",
+									"a follow-up that refills a value it leaves stale",
+									"a follow-up that re-places an owner of counted members"
+								]
+							},
+							{
+								note: "a delete of an ordered family's member re-places the next, which owns a counted member copying its index, beside an append under it, which recounts it",
+								sketch: replacedOwnerAppended,
 								draws: "",
 								reaches: [
 									"a counted family of nested owners",

@@ -569,11 +569,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 								: []
 						}
 					)
-					/** The families this append recopies (FamilyAdditions `recopies`), each a recount way's family. */
-					const recopies = (refilled.get(member) ?? []).flatMap((r) =>
-						r.ways.flatMap((way) => (way.root.kind === "recount" ? [way.hop] : []))
-					)
-					const sql = additionsSql(w0, appended, putOwners, recopies, stored)
+					const sql = additionsSql(w0, appended, putOwners, stored)
 					const step: FamilyWriteStep = {
 						kind: "familyWrite",
 						stratum: s,

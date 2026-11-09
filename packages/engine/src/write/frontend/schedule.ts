@@ -62,9 +62,6 @@ export type FamilyAdditions =
 			/** The owner relations whose rows its appended members copy a column of, read as the stratum's earlier
 			 * statements leave them, so it follows each statement that writes them. */
 			readonly copies: ReadonlyArray<string>
-			/** The families, by key, whose stored members' copies of the counts and ends it recounts it rewrites in place,
-			 * where their owner axis carries no change (frontend/refill.ts RefillStart `recount`). */
-			readonly recopies: ReadonlyArray<string>
 			readonly owners: ReadonlyArray<OwnerChanges>
 	  }
 	| {
@@ -597,11 +594,7 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
 		if (members.includes(relation)) {
 			return node.kind === "additions"
-				? {
-						adds: true,
-						removes: false,
-						updates: node.appends === "rows" && isNonEmpty(node.recopies)
-					}
+				? { adds: true, removes: false, updates: false }
 				: relation === node.member
 					? { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
 					: { adds: true, removes: false, updates: true }

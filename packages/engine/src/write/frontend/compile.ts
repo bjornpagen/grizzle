@@ -2002,39 +2002,30 @@ const compile = (
 		const removing = by(["put", "delete"])
 		const slotted = by(["insert", "put"])
 		const adding = [...new Set([...slotted, ...nested])]
-		/** Each refilled member's starts: every way's, all of one kind, a put's or an edit's of one relation the stratum
-		 * puts or deletes, or none where its ways mix them, which the family planner refills on the host. */
-		const startsOf = (member: ReadonlyArray<PlainRefill>) => {
-			const starts = member.flatMap((r) => r.ways.map((way) => way.root))
-			const [first, ...rest] = starts
-			if (first === undefined) {
-				return undefined
-			}
-			if (first.kind === "put") {
-				return rest.every((x) => x.kind === "put")
-					? { kind: "put" as const, relations: [...new Set(starts.map((x) => x.relation))] }
+		/** Each refilled member's starts: every way's a put's, which mixes with no other kind; or the edits of one
+		 * relation the stratum puts or deletes, beside the appends to the member itself, whose additions recount the
+		 * owners whose counts and ends its stored members copy, which their owner axes cascade; none otherwise, which the
+		 * family planner refills on the host. */
+		const startsOf = (member: string, memberRefills: ReadonlyArray<PlainRefill>) => {
+			const all = memberRefills.flatMap((r) => r.ways.map((way) => way.root))
+			const puts = all.flatMap((x) => (x.kind === "put" ? [x.relation] : []))
+			if (isNonEmpty(puts)) {
+				return puts.length === all.length
+					? { kind: "put" as const, relations: [...new Set(puts)] }
 					: undefined
 			}
-			if (first.kind === "recount") {
-				return rest.every((x) => x.kind === "recount") && adding.includes(first.relation)
-					? {
-							kind: "recount" as const,
-							families: [
-								...new Set(
-									starts.flatMap((x) => (x.kind === "recount" ? [familyKey(x.family.id)] : []))
-								)
-							]
-						}
-					: undefined
-			}
-			return rest.every((x) => x.kind === "edit" && x.relation === first.relation) &&
-				removing.includes(first.relation)
-				? { kind: "edit" as const, relation: first.relation }
-				: undefined
+			const [edit, ...otherEdits] = [
+				...new Set(all.flatMap((x) => (x.kind === "edit" ? [x.relation] : [])))
+			]
+			return isNonEmpty(otherEdits) ||
+				(edit !== undefined && !removing.includes(edit)) ||
+				(all.some((x) => x.kind === "recount") && !adding.includes(member))
+				? undefined
+				: { kind: "flight" as const, edit }
 		}
 		const starts = new Map(
 			[...refilled].map(
-				([member, refilledFamilies]) => [member, startsOf(refilledFamilies)] as const
+				([member, refilledFamilies]) => [member, startsOf(member, refilledFamilies)] as const
 			)
 		)
 		if ([...starts.values()].some((x) => x === undefined)) {
@@ -2046,16 +2037,10 @@ const compile = (
 				x?.kind === "put" ? [[member, x.relations] as const] : []
 			)
 		)
-		/** The families an append to `member` recopies, its additions statement rewriting their stored members' copies of
-		 * the counts and ends it recounts (FamilyAdditions `recopies`). */
-		const recopiesOf = (member: string): ReadonlyArray<string> => {
-			const x = starts.get(member)
-			return x?.kind === "recount" ? x.families : []
-		}
 		/** The members an edit's refills rewrite in the edit's own removals statement (FamilyRemovals `riders`). */
 		const ridersOf = (member: string): ReadonlyArray<string> =>
 			[...starts].flatMap(([rider, x]) =>
-				x?.kind === "edit" && x.relation === member ? [rider] : []
+				x?.kind === "flight" && x.edit === member ? [rider] : []
 			)
 		/** The owners of `drawn`, the families a family statement draws, each changed at its counts and ends. */
 		const ownersOfFamilies = (drawn: ReadonlyArray<Family>) =>
@@ -2172,7 +2157,6 @@ const compile = (
 					appends: "rows" as const,
 					member,
 					copies: copiedOwners(member),
-					recopies: recopiesOf(member),
 					owners: [
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
