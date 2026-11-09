@@ -1,5 +1,5 @@
 import { Result } from "effect"
-import { toResult } from "#adapter/engine.ts"
+import { readHost, toResult } from "#adapter/engine.ts"
 import {
 	type CompileError,
 	decode,
@@ -45,13 +45,18 @@ const sealedSnapshot = (value: unknown): Result.Result<DeploySnapshot, CompileEr
 	)
 }
 
-/** Parses the snapshot DbLayer.make is given, the value JSON.parse or a JSON import of snapshot.json yields: its
- * canonical tags revived once (`fromJson`, which refuses what JSON never holds, so a DeploySnapshot already revived is
- * refused: a bigint is no JSON value), then trusted as the snapshot `grizzle generate` wrote, its recorded fingerprint
- * the one every Db's prologue guards the database's ledger with. Whether its content is that fingerprint's is checked
- * where the file is read to draft, check or migrate (readSnapshot), never when an application starts. */
+/** Parses the snapshot DbLayer.make is given, the value JSON.parse or a JSON import of snapshot.json yields: read once
+ * at the boundary (readHost), so a getter or a proxy that throws refuses it, and its canonical tags revived as it is read
+ * (`fromJson`, which refuses what JSON never holds, so a DeploySnapshot already revived is refused: a bigint is no JSON
+ * value); then trusted as the snapshot `grizzle generate` wrote, its recorded fingerprint the one every Db's prologue
+ * guards the database's ledger with. Nothing after it reads the caller's value. Whether its content is that
+ * fingerprint's is checked where the file is read to draft, check or migrate (readSnapshot), never when an application
+ * starts. */
 export const parseSnapshot = (json: unknown): Result.Result<DeploySnapshot, CompileError> =>
-	Result.map(toResult(fromJson(json, noRevivers)), (value) => trusted<DeploySnapshot>(value))
+	readHost(
+		malformedArtifact("snapshot", [], "a snapshot read as data, as an import of snapshot.json yields it"),
+		() => Result.map(toResult(fromJson(json, noRevivers)), (value) => trusted<DeploySnapshot>(value))
+	)
 
 /** Reads snapshot.json's text: its JSON parsed and its canonical tags revived (`decode`), then trusted once its
  * fingerprint holds. The empty snapshot is never a file: a schema without snapshot.json starts from emptySnapshot. */

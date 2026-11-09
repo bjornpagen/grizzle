@@ -63,9 +63,16 @@ export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
 
 /**
  * The settings read off the typed block rather than as plain data: the driver, a module whose members may be getters,
- * the password, and a DbConfig's functions.
+ * the password, a DbConfig's functions, and its snapshot, which its own parser reads once (boundary/snapshot.ts
+ * parseSnapshot).
  */
-const ownSettings: ReadonlySet<string> = new Set(["driver", "password", "attachPool", "verify"])
+const ownSettings: ReadonlySet<string> = new Set([
+	"driver",
+	"password",
+	"attachPool",
+	"verify",
+	"snapshot"
+])
 
 /** A connection block's own settings, every block's beside its extras' (BlockSettings). */
 export const connectionSettings = [
