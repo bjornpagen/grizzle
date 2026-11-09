@@ -14,7 +14,7 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, Decimal, Money, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { lexicalForm, str } from "#compiler/public/text.ts"
+import { lexicalForm, type Pattern, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -2168,7 +2168,7 @@ class Rendering {
 			case "within":
 				return `Compute.within(${this.operand(g.x)}, ${g.low.text}, ${g.high.text})`
 			case "matches":
-				return `Compute.matches(${this.operand(g.x)}, ${this.operand(g.pattern)})`
+				return `Compute.matches(${this.operand(g.x)}, ${g.pattern.kind === "literal" ? `Compute.pattern(${this.operand(g.pattern)})` : this.operand(g.pattern)})`
 		}
 	}
 
@@ -2326,7 +2326,12 @@ class Building {
 			case "within":
 				return computeCore.within(this.operand(g.x), g.low.value, g.high.value)
 			case "matches":
-				return computeCore.matches(this.operand(g.x), this.operand(g.pattern))
+				return computeCore.matches(
+					this.operand(g.x),
+					g.pattern.kind === "literal"
+						? computeCore.pattern(this.operand(g.pattern))
+						: this.operand(g.pattern)
+				)
 		}
 	}
 
@@ -2803,7 +2808,7 @@ const engineQuery = (
  */
 const hostDecimal: { of(input: unknown): Decimal } = Decimal
 const hostMoney: { of(input: unknown): Money } = Money
-const hostLexical: { lexicalForm(type: unknown): string } = { lexicalForm }
+const hostLexical: { lexicalForm(type: unknown): Pattern } = { lexicalForm }
 
 /** The values a parts member is read off: a finite Decimal and the specials its parts may be. */
 const decimals: Arr.NonEmptyReadonlyArray<Decimal> = [

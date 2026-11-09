@@ -695,17 +695,17 @@ describe("Compute's text terms", () => {
 											? pastSpace
 											: emptied(p.pattern)
 									const error = throwsRefused(
-										() => Compute.matches(v("v", testPg.text), planted),
+										() => Compute.pattern(planted),
 										p.fault === "a literal past the compile space at the builder"
 											? "ResourceBound"
 											: "UnsupportedOperation",
 										label
 									)
-									assert.deepEqual(pathOf(error), ["pattern", "pattern"], label)
+									assert.deepEqual(pathOf(error), ["pattern"], label)
 									if (error.reason._tag === "ResourceBound") {
 										assert.deepEqual(error.reason.bound, pastBound, label)
 									}
-									Compute.matches(v("v", testPg.text), p.pattern)
+									Compute.matches(v("v", testPg.text), Compute.pattern(p.pattern))
 									return
 								}
 								case "a literal outside a match guard's language": {

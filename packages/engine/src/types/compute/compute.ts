@@ -45,6 +45,7 @@ import type {
 	WithinFacts
 } from "#compiler/types/compute/scalar.ts"
 
+import type { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import type {
 	ColumnFacts,
 	ComputedOrigin,
@@ -163,9 +164,6 @@ type Buckets<AX, AL, AH, C> = Every<
 		Takes<C, Meets<number, SqlTag>>
 	]
 >
-
-/** Whether a regex match's pattern is in the grammar: a string PatternValidate admits, or a term. */
-type ValidPattern<B> = B extends string ? ([B] extends [PatternValidate<B>] ? true : false) : true
 
 /** What a guard proves of its subject: the subject term, its facts with the guard's, and a constant's value (Literal). */
 type GuardOver<X, PA, OA, S extends SqlTag, V, FA extends Facts, L, LX, G> = Guard<
@@ -1118,7 +1116,7 @@ export interface ComputeApi {
 	 * to the count of its fraction digits, a computed numeric of no typmod, so no count of digits changes its value. Its
 	 * text is `decimalText`, the grammar of XML Schema 1.1's xs:decimal lexical space, within `decimalTextMaxBytes`
 	 * UTF-8 bytes, 16,384, past which a text may name a value numeric does not hold: compilation proves the operand's
-	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(decimalText))` or a
+	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(decimalText.source))` or a
 	 * refinement of it) or by guards, `Compute.when(Compute.matches(x, decimalText), (x) =>
 	 * Compute.when(Compute.within(Compute.octetLength(x), 0, 16384), () => Compute.parseDecimal(x), otherwise),
 	 * otherwise)`, or refuses the parse as PartialOperation (`lexical`). Its result has at most as many integer digits
@@ -1129,21 +1127,28 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
 	/**
+	 * A pattern for Compute.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
+	 * the type level as str.regex's does, admitted once, here, inside PostgreSQL's regex compile space and matched by
+	 * some text, so a refused source throws where it is written and every match over the pattern reads its admission.
+	 * doubleText, decimalText and lexicalForm(T) are grizzle's own.
+	 */
+	pattern<const S extends string>(source: PatternValidate<S>): Pattern<S>
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
-	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
-	 * which the grammar check reads at the type level as str.regex's does, or a text term that meets the subject's type,
-	 * a contract's text only its own, whose every value the schema holds: a closed relation's text payload, `C.at(field, …)`, or a Compute.cond of such terms; every value is
-	 * admitted inside PostgreSQL's regex compile space when the term is compiled, and any other term, which can be any
-	 * text, is refused. A match is also a guard: Compute.when's branch receives its subject, which compilation reads as
-	 * text of the pattern's language where the pattern is a string, and as it is where it is a term, whose values hold
-	 * no one language, so the when is then a conditional over the match.
+	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a Pattern,
+	 * Compute.pattern(source), admitted where it was made, or a text term that meets the subject's type, a contract's
+	 * text only its own, whose every value the schema holds: a closed relation's text payload, `C.at(field, …)`, or a
+	 * Compute.cond of such terms; every value is admitted inside PostgreSQL's regex compile space when the term is
+	 * compiled, and any other term, which can be any text, is refused. A string is no pattern. A match is also a guard:
+	 * Compute.when's branch receives its subject, which compilation reads as text of the pattern's language where the
+	 * pattern is a Pattern, and as it is where it is a term, whose values hold no one language, so the when is then a
+	 * conditional over the match.
 	 */
 	matches<A extends TermBase | FirstValue, X, PA, OA, V, FA extends Facts, L, const B>(
 		subject: A & First<A, [B]> & Term<X, PA, OA, "text", V, FA, L>,
-		pattern: Fit<B, NoInfer<Meets<X, "text"> | string>> &
-			(B extends string ? PatternValidate<B> : unknown)
+		pattern: Fit<B, NoInfer<Meets<X, "text"> | Pattern>>
 	): Admitted<
-		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>, ValidPattern<B>]>,
+		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | Pattern>]>,
 		Guard<Term<X, PA, OA, "text", V, FA, L>, PA & P<B>, ComputedOrigin<OA | O<B>>>
 	>
 

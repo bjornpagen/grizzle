@@ -142,7 +142,7 @@ const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 					m: generatedField(
 						pg.boolean,
 						computeCore.cond(
-							computeCore.matches(row["t0"], match),
+							computeCore.matches(row["t0"], computeCore.pattern(match)),
 							computeCore.literal(pg.boolean, true),
 							computeCore.literal(pg.boolean, false)
 						),

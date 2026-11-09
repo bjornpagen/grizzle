@@ -124,7 +124,7 @@ const operationGen: Gen<Operation> = weighted<Operation>([
 ])
 
 /** The integer form a cast into pg.integer reads. */
-const integerForm = lexicalForm(pg.integer)
+const integerForm = lexicalForm(pg.integer).source
 
 /**
  * A guard's pattern: a drawn one over the alphabet, a form with white space either side of it, a run of digits padded
@@ -135,12 +135,12 @@ const guardGen: Gen<string> = weighted([
 	[
 		2,
 		map(
-			element([doubleText, decimalText, integerForm]),
+			element([doubleText.source, decimalText.source, integerForm]),
 			(form) => `^[ \\t\\n]*(?:${Str.slice(1, -1)(form)})[ \\t\\n]*$`
 		)
 	],
 	[2, element(["^ ?[0-9]+ ?$", "^[0-9]+$", "^-?[0-9]{1,4}(?:\\.[0-9]{1,3})?$", "^[0-9a-z ]*$"])],
-	[1, element([doubleText, decimalText, integerForm])]
+	[1, element([doubleText.source, decimalText.source, integerForm])]
 ])
 
 interface Case {
@@ -198,9 +198,9 @@ const imageOf = (t: Transform): { readonly source: string; readonly flags: "u" |
 const formOf = (op: Operation): string => {
 	switch (op.kind) {
 		case "parseDouble":
-			return doubleText
+			return doubleText.source
 		case "parseDecimal":
-			return decimalText
+			return decimalText.source
 		case "integer":
 			return integerForm
 		case "refined":
@@ -237,7 +237,12 @@ const relationOf = (c: Case) =>
 			type: F,
 			op: (x: unknown) => unknown,
 			otherwise: unknown
-		) => generatedField(type, Compute.when(Compute.matches(subject, c.guard), op, otherwise), [])
+		) =>
+			generatedField(
+				type,
+				Compute.when(Compute.matches(subject, Compute.pattern(c.guard)), op, otherwise),
+				[]
+			)
 		switch (c.operation.kind) {
 			case "parseDouble":
 				return {

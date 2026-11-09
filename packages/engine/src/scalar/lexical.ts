@@ -548,12 +548,12 @@ export const lexicalValue = (
 }
 
 /**
- * lexicalForm(T): the lexical form of a field descriptor's type, a pattern under flags "u" for `str.regex` to type a
- * lexical field by and for Compute.matches to guard a parse with, so a text of the form casts into T total
- * (Compute.cast). A contract's form is its base's, which a cast into the contract parses, then enters the contract by
- * its predicate's proof: date's, whose range is the form's own. A type with no form is refused, UnsupportedOperation.
+ * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)): its pattern under flags "u" types a
+ * lexical field and guards a parse, so a text of the form casts into T total (Compute.cast). A contract's form is its
+ * base's, which a cast into the contract parses, then enters the contract by its predicate's proof: date's, whose range
+ * is the form's own. A type with no form is refused, UnsupportedOperation.
  */
-export const lexicalFormOf = (type: unknown): string => {
+export const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	const loc = captureLoc("lexicalForm", [])
 	const target = lexicalTargetOf(baseOf(describeFieldOrThrow(type, loc).scalar))
 	if (target === undefined) {
@@ -562,5 +562,5 @@ export const lexicalFormOf = (type: unknown): string => {
 			"lexicalForm of a type with a lexical form: an integer type, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
 		)
 	}
-	return formSource(target)
+	return target
 }

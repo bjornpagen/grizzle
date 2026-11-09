@@ -414,7 +414,7 @@ const guardedParse = (subject: string, guard: string) =>
 				n: generated(
 					pg.smallint,
 					Compute.when(
-						Compute.matches(r.t, guard),
+						Compute.matches(r.t, Compute.pattern(guard)),
 						(t) => Compute.cast(t, pg.smallint),
 						Compute.literal(pg.smallint, 0)
 					)

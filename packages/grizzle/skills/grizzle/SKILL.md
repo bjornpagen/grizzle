@@ -504,10 +504,11 @@ The command line's own refusals, by stage:
   integer into an integer field with
   `Compute.cast` under `Compute.within`.
 - Test text with `Compute.matches(x, pattern)`, `Compute.startsWith` and `Compute.endsWith`, never a regex in your
-  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a string literal, or a closed
-  relation's text payload, `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which the
-  compiler measures; a pattern held in an ordinary field or a parameter is refused. A literal pattern's match is a
-  guard: `Compute.when(Compute.matches(x, "^[0-9]+$"), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
+  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Compute.pattern(source)`, made once
+  as a module constant and admitted there (`const digits = Compute.pattern("^[0-9]+$")`), never a bare string; or a
+  closed relation's text payload, `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
+  the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Compute.pattern`'s match is a
+  guard: `Compute.when(Compute.matches(x, digits), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
   generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
   and it is decided without building it. Its first operand is a term: write a leading literal as
   `Compute.literal(Prose, "item-")`. Normalize text with `Compute.translate(x, from, to)`, strings of one length with
@@ -533,10 +534,10 @@ The command line's own refusals, by stage:
   limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,
   and its host type is theirs intersected. Inside `Compute.when(Compute.matches(x, p), …)` the subject is text of its
   own patterns and `p` together, so nested matches prove a cast into a conjunction.
-- Write a `str.regex` or `Compute.matches` pattern in JavaScript's syntax under `u`, with no lookahead or lookbehind,
+- Write a `str.regex` or `Compute.pattern` source in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,
-  contract or `Compute.matches` built over the pattern refuses it as `UnsupportedOperation`, naming the construct and
+  contract or `Compute.pattern` built over the source refuses it as `UnsupportedOperation`, naming the construct and
   its offset. Spell an explicit class instead of `\s` or `\p{…}`.
 - A set of a roster's handles, `bits(X)`, has the algebra `Compute.union`, `Compute.intersection`,
   `Compute.difference`, `Compute.cardinality`, `Compute.subset`, `Compute.disjoint` and `Compute.singleton`, and no
@@ -563,7 +564,7 @@ The command line's own refusals, by stage:
   a typmod you do not mean.
 - Parse an `xs:decimal` text with `Compute.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
   widest `pg.numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is
-  `decimalText` within `decimalTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(decimalText))`, or
+  `decimalText` within `decimalTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(decimalText.source))`, or
   guard it, `Compute.when(Compute.matches(x, decimalText), (x) => Compute.when(Compute.within(Compute.octetLength(x),
   0, 16384), () => Compute.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
   `Compute.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:

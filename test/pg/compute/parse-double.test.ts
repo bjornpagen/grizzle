@@ -149,7 +149,7 @@ const featuresOf = (text: string, conversion: Conversion): ReadonlyArray<Feature
 }
 
 /** The host evaluator's parse of a text: the evaluation, as a generated field's check lowers it, of parseDouble(v). */
-const keyField = testPg.regex(doubleText, "u")
+const keyField = testPg.regex(doubleText.source, "u")
 const lowered = succeeded(
 	lowerWith(
 		"check",
@@ -182,7 +182,7 @@ const hostBits = (text: string): bigint => {
 
 const Keys = relation.generated(
 	"Keys",
-	{ id: pg.integer, key: regexField<string>(doubleText, []) },
+	{ id: pg.integer, key: regexField<string>(doubleText.source, []) },
 	["id"],
 	(r) => ({ value: generated(pg["double precision"], Compute.parseDouble(r.key)) })
 )

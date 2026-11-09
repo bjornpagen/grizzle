@@ -293,7 +293,7 @@ const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> 
 					route === "type"
 						? Compute.cast(r.t, pg.smallint)
 						: Compute.when(
-								Compute.matches(r.t, pattern),
+								Compute.matches(r.t, Compute.pattern(pattern)),
 								(t) => Compute.cast(t, pg.smallint),
 								Compute.literal(pg.smallint, 0)
 							)
@@ -309,7 +309,7 @@ const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> 
 					route === "type"
 						? Compute.cast(r.t, pg.numeric(3, 1))
 						: Compute.when(
-								Compute.matches(r.t, pattern),
+								Compute.matches(r.t, Compute.pattern(pattern)),
 								(t) => Compute.cast(t, pg.numeric(3, 1)),
 								Compute.literal(pg.numeric(3, 1), "0")
 							)
@@ -325,7 +325,7 @@ const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> 
 					route === "type"
 						? Compute.parseDouble(r.t)
 						: Compute.when(
-								Compute.matches(r.t, pattern),
+								Compute.matches(r.t, Compute.pattern(pattern)),
 								(t) => Compute.parseDouble(t),
 								Compute.literal(pg["double precision"], 0)
 							)
@@ -341,7 +341,7 @@ const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> 
 					route === "type"
 						? Compute.cast(r.t, pg.boolean)
 						: Compute.when(
-								Compute.matches(r.t, pattern),
+								Compute.matches(r.t, Compute.pattern(pattern)),
 								(t) => Compute.cast(t, pg.boolean),
 								Compute.literal(pg.boolean, false)
 							)
@@ -445,7 +445,7 @@ const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): An
 		n: generatedField(
 			pg.boolean,
 			computeCore.when(
-				computeCore.matches(r.t, pattern),
+				computeCore.matches(r.t, computeCore.pattern(pattern)),
 				(t: unknown) =>
 					bound.kind === "none"
 						? parsedSign(t)
@@ -507,7 +507,7 @@ describe("a decimal's parse", () => {
 							if (!analyzed.ok) {
 								return
 							}
-							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText)]).kind
+							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
 							const check = analyzed.value.check
 							const patternBytes =
 								check.kind === "tautology" || check.bounds === undefined

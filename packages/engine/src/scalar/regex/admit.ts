@@ -112,9 +112,9 @@ type MatchRefusal = PatternRefusal | { readonly kind: "noText" }
  * A Compute.matches pattern value, its source, admitted where its value is first held (admitMatch): admitted, or
  * refused with why, which a lowering reading it places at the match (matchSourceAt).
  */
-export type MatchAdmission =
-	| { readonly kind: "admitted"; readonly source: string }
-	| { readonly kind: "refused"; readonly source: string; readonly refusal: MatchRefusal }
+export type MatchAdmission<S extends string = string> =
+	| { readonly kind: "admitted"; readonly source: S }
+	| { readonly kind: "refused"; readonly source: S; readonly refusal: MatchRefusal }
 
 /**
  * A Compute.matches pattern admitted (admitIr under matchFlags): refused where its admission refuses it, and where its
@@ -122,7 +122,7 @@ export type MatchAdmission =
  * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
  * refuses every such pattern and no other. Its ARE is translated only where SQL prints it (matchAre).
  */
-export const admitMatch = (source: string): MatchAdmission => {
+export const admitMatch = <S extends string>(source: S): MatchAdmission<S> => {
 	const admitted = admitIr(source, matchFlags)
 	if (!admitted.ok) {
 		return { kind: "refused", source, refusal: admitted.error }
@@ -139,19 +139,26 @@ export const admitMatch = (source: string): MatchAdmission => {
 export const matchSourceAt = (
 	admission: MatchAdmission,
 	loc: SourceLoc
-): Result.Result<string, CompileError> => {
-	if (admission.kind === "admitted") {
-		return Result.ok(admission.source)
-	}
+): Result.Result<string, CompileError> =>
+	admission.kind === "admitted"
+		? Result.ok(admission.source)
+		: Result.err(matchRefusalAt(admission, loc))
+
+/**
+ * The refusal of a Compute.matches pattern its admission refused, placed at `loc`: a refusal of its admission as
+ * refusalAt places one, and the empty language's as UnsupportedOperation naming the pattern.
+ */
+export const matchRefusalAt = (
+	admission: Extract<MatchAdmission, { readonly kind: "refused" }>,
+	loc: SourceLoc
+): CompileError => {
 	const { source, refusal } = admission
-	return Result.err(
-		refusal.kind === "noText"
-			? unsupported(
-					childLoc(loc, "pattern"),
-					`a pattern some text matches: /${source}/${matchFlags} matches no text value, so the match could never hold`
-				)
-			: refusalAt(refusal, source, matchFlags, loc)
-	)
+	return refusal.kind === "noText"
+		? unsupported(
+				childLoc(loc, "pattern"),
+				`a pattern some text matches: /${source}/${matchFlags} matches no text value, so the match could never hold`
+			)
+		: refusalAt(refusal, source, matchFlags, loc)
 }
 
 /** A Compute.matches pattern admitted (admitMatch) and placed at `loc` (matchSourceAt). */

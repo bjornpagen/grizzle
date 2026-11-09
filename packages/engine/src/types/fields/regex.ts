@@ -60,8 +60,8 @@ type RegexRefusal<S extends string, F extends RegexFlags> =
 export type RegexValidate<S extends string, F extends RegexFlags> = S & RegexRefusal<S, F>
 
 /**
- * A Compute.matches pattern written as a JavaScript string: a literal source, checked as str.regex checks its own, or a
- * source typed string, which the builder admits where the call is built (scalar/regex/admit.ts matchPattern).
+ * A Compute.pattern source written as a JavaScript string: a literal source, checked as str.regex checks its own, or a
+ * source typed string, which Compute.pattern admits where it is called (scalar/regex/admit.ts admitMatch).
  */
 export type PatternValidate<S extends string> = string extends S ? S : RegexValidate<S, "u">
 

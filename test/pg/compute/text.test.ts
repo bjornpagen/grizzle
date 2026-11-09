@@ -378,7 +378,9 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 		const lexical = check("Lexical", Value, (v) =>
 			Compute.matches(v.lexical, Pattern.at("pattern", v.domain))
 		)
-		const literal = check("Literal", Tagged, (t) => Compute.matches(t.code, d.literal))
+		const literal = check("Literal", Tagged, (t) =>
+			Compute.matches(t.code, Compute.pattern(d.literal))
+		)
 		const value = schema("Dictionary", { Domain, Pattern, Value, Tagged }, [lexical, literal])
 		return { value, Value, Tagged, lexical, literal }
 	}

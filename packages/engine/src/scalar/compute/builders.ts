@@ -69,7 +69,8 @@ import {
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, isFloat, plainType } from "#compiler/scalar/compute/types.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
+import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
@@ -798,12 +799,32 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 }
 
 /**
- * Compute.matches(subject, pattern): whether the text subject holds a match of the pattern, a text term or a literal
- * source in grizzle's pattern grammar under the flags "u", a predicate and a guard. A literal is admitted here
- * (scalar/regex/admit.ts matchPattern), so a pattern outside the grammar or PostgreSQL's regex compile space is refused
- * where the call is written, and inside Compute.when's branch its subject is text of the pattern's language. A term's
- * every value is admitted where the term is compiled (compute/lower.ts patternSources), and its values hold no one
- * language, so its branch knows nothing more of the subject.
+ * Compute.pattern(source): a Compute.matches pattern, `source` in grizzle's pattern grammar under the flags "u",
+ * admitted here, once (scalar/regex/admit.ts admitMatch), so a source outside the grammar or PostgreSQL's regex compile
+ * space, or one no text matches, is refused where it is written, and every match over the pattern reads its admission.
+ */
+const admittedPattern = <S extends string>(source: S): Pattern<S> => {
+	refuseNonString(source)
+	const admission = admitMatch(source)
+	if (admission.kind === "refused") {
+		throw matchRefusalAt(admission, captureLoc("Compute.pattern", []))
+	}
+	return Pattern.admitted(admission)
+}
+
+/** A JavaScript caller's Compute.pattern source the types forbid: a malformed argument, thrown synchronously. */
+const refuseNonString = (source: unknown): void => {
+	if (typeof source !== "string") {
+		malformed(captureLoc("Compute.pattern", []), "a pattern source string")
+	}
+}
+
+/**
+ * Compute.matches(subject, pattern): whether the text subject holds a match of the pattern, a predicate and a guard.
+ * The pattern is a Pattern, admitted where it was made (scalar/regex/pattern.ts), whose source the description holds as
+ * a literal, so inside Compute.when's branch its subject is text of the pattern's language; or a text term, whose every
+ * value is admitted where the term is compiled (compute/lower.ts patternAdmissions), and whose values hold no one
+ * language, so its branch knows nothing more of the subject. A string is no pattern: Compute.pattern(source) makes one.
  */
 const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	const call = new Call("Compute.matches")
@@ -811,21 +832,26 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	if (!hasProperties(subject)) {
 		return malformed(call.loc, "a term as matches's subject")
 	}
-	const p = call.operand(pattern, s.type, "literal")
-	const real: OpenExpr = { kind: "compute", fn: "matches", args: [s.real, p.real] }
-	call.finishPredicate(real, { kind: "compute", fn: "matches", args: [s.ph, p.ph] })
 	if (typeof pattern === "string") {
-		const admitted = matchPattern(pattern, childLoc(call.loc, "pattern"))
-		if (!admitted.ok) {
-			throw admitted.error
-		}
+		return malformed(
+			call.loc,
+			"a Pattern as matches's pattern, Compute.pattern(source), or a text term: a string is no pattern"
+		)
 	}
+	const read: {
+		readonly operand: { readonly real: OpenExpr; readonly ph: ExprDesc }
+		readonly test: GuardTest
+	} = Pattern.is(pattern)
+		? {
+				operand: call.operand(pattern.source, s.type, "literal"),
+				test: { kind: "refines", guard: { kind: "matches", pattern: pattern.source } }
+			}
+		: { operand: call.operand(pattern, s.type, "term"), test: { kind: "tests" } }
+	const real: OpenExpr = { kind: "compute", fn: "matches", args: [s.real, read.operand.real] }
+	call.finishPredicate(real, { kind: "compute", fn: "matches", args: [s.ph, read.operand.ph] })
 	return {
 		expr: real,
-		guardTest:
-			typeof pattern === "string"
-				? { kind: "refines", guard: { kind: "matches", pattern } }
-				: { kind: "tests" },
+		guardTest: read.test,
 		subject,
 		real: s.real,
 		type: s.type,
@@ -1251,6 +1277,7 @@ export const compute = Object.freeze({
 	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
+	pattern: admittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
@@ -1388,6 +1415,10 @@ export const computeCore = Object.freeze({
 		plainBy(checks.parseDouble(x, extra)),
 	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.parseDecimal(x, extra)),
+	pattern: (source: unknown): Pattern =>
+		typeof source === "string"
+			? admittedPattern(source)
+			: malformed(captureLoc("Compute.pattern", []), "a pattern source string"),
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {

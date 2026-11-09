@@ -24,9 +24,9 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { pg } from "#compiler/public/fields.ts"
+import { lexicalForm } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { lexicalFormOf } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -203,7 +203,7 @@ const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plan
 				kind: "guarded",
 				term: (x) =>
 					Compute.when(
-						Compute.matches(x, "^[a-z]+$"),
+						Compute.matches(x, Compute.pattern("^[a-z]+$")),
 						(y: ScalarTerm) => Compute.cast(y, lower),
 						"a"
 					)
@@ -235,7 +235,7 @@ const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plan
 				kind: "guarded",
 				term: (x: ScalarTerm) =>
 					Compute.when(
-						Compute.matches(x, lexicalFormOf(descriptor)),
+						Compute.matches(x, lexicalForm(descriptor)),
 						(y: ScalarTerm) => Compute.cast(y, target),
 						zeroOf(target)
 					)

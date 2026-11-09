@@ -100,7 +100,7 @@ const schemaOf = (c: SideCase) => {
 	)
 	const selected = selectBuilder(R, (t: Readonly<Record<string, unknown>>) =>
 		c.selection.kind === "written"
-			? computeCore.matches(t[nameOf(c.selection)], "^0*1")
+			? computeCore.matches(t[nameOf(c.selection)], computeCore.pattern("^0*1"))
 			: rowHelpers.gt(t[nameOf(c.selection)], 9n)
 	)
 	const side = onBuilder(selected, Arr.map(c.terms, nameOf))

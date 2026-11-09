@@ -1217,19 +1217,19 @@ const guardOf = (
 				case "lexicalForm":
 					return {
 						remedy,
-						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
+						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>).source) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
 					}
 				case "doubleText":
 					return {
 						remedy,
-						text: `a text whose type proves a double's decimal text, str.regex(doubleText) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
+						text: `a text whose type proves a double's decimal text, str.regex(doubleText.source) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
 					}
 				case "decimalText": {
 					const bytes = decimalTextMaxBytes.value
 					const within = `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
 					return {
 						remedy,
-						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText)) or a refinement of it, or, where octetLength stands, Compute.when(Compute.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
+						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText.source)) or a refinement of it, or, where octetLength stands, Compute.when(Compute.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
 					}
 				}
 			}
