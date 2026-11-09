@@ -1,5 +1,4 @@
 import { appendAll, sameOrder } from "#compiler/core/array.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -32,12 +31,22 @@ interface Named {
 }
 
 /**
- * A unique object's guard: a row guard with its predicate's canonical text, encoded once where the object is built, by
- * which two objects' guards compare (`subsumes`).
+ * A unique object's guard: a row guard of `relation`, by which two objects' guards compare (`sameGuard`), with its
+ * predicate under the label the law model's DAG gives it there.
  */
 export interface UniqueGuard extends RowGuard {
-	readonly canonical: string
+	readonly relation: string
 }
+
+/**
+ * Whether two guards are one: guards of one relation whose predicates carry one label. Every guard is lowered by the
+ * law model's extension builder, which gives each expression it builds a label of its own (ir/builder.ts
+ * DagBuilder.expr), and merging the extension into the theory's DAG gives each label one fresh label past the theory's
+ * (ir/dag.ts renamedPast), so one label names one predicate in a model: two guards are one exactly when their labels
+ * are, the comparison of their predicates' canonical texts, which spell their labels, that it replaces.
+ */
+const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
+	a.relation === b.relation && a.predicate.id === b.predicate.id
 
 /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
  * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object
@@ -149,7 +158,7 @@ const compared = (
 		}
 		for (const g of native.value.guard) {
 			if (!guards.has(g)) {
-				guards.set(g, { predicate: g, reads: readsOf(relation, g), canonical: canonicalTextOf(g) })
+				guards.set(g, { predicate: g, reads: readsOf(relation, g), relation: relation.name })
 			}
 		}
 		appendAll(equal, fields)
@@ -310,7 +319,7 @@ export interface RelationLaws {
 
 /**
  * Whether the object `w` holds apart every two facts `u` holds apart: neither is a span object, `u` compares every
- * field `w` compares, and holds every fact `w` holds, its guards among `u`'s, each by its predicate's canonical text.
+ * field `w` compares, and holds every fact `w` holds, its guards among `u`'s (`sameGuard`).
  * Two facts `u` holds equal are then equal where `w` compares, and both meet `w`'s guards, so `u` holds no two facts
  * apart that `w` does not.
  */
@@ -319,9 +328,7 @@ const subsumes = (w: UniqueObject | PrimaryKeyObject, u: UniqueObject): boolean 
 	u.kind !== "span" &&
 	w.equal.every((f) => u.equal.includes(f)) &&
 	(w.kind === "key" ||
-		w.within.every((g) =>
-			u.kind === "guarded" ? u.within.some((h) => h.canonical === g.canonical) : false
-		))
+		w.within.every((g) => (u.kind === "guarded" ? u.within.some((h) => sameGuard(h, g)) : false)))
 
 /**
  * The unique objects of a relation an addition meets beyond its primary key: every other object, but one another

@@ -18,6 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
@@ -134,7 +135,9 @@ const encodedAt = (guard: Guard, size: number): number => {
 	)
 	const laws = defined(model.relations.get("T"), "T's laws")
 	return Arr.reduce(laws.uniques.others, 0, (n, u) =>
-		u.kind === "guarded" ? Arr.reduce(u.within, n, (m, g) => m + g.canonical.length) : n
+		u.kind === "guarded"
+			? Arr.reduce(u.within, n, (m, g) => m + canonicalTextOf(g.predicate).length)
+			: n
 	)
 }
 
