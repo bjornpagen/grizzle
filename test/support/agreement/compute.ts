@@ -2546,8 +2546,12 @@ interface Admitted {
  * pattern's language or a lexical form, a value inside width_bucket's domain, a power's result inside its type's
  * range), a text function's place in a query
  * (a concatenation beside an equation, a translation of a long text, a length outside a predicate), the digits of an
- * exact decimal's text, the values of a pattern term the build must see, and a match guard some text of its subject
- * passes: the types read a pattern string as a string, never its language, so no type meets it with the subject's.
+ * exact decimal's text, the values of a pattern term the build must see, a match guard some text of its subject
+ * passes, and a computed text's domain: a query's head delivers its term at the term's type, which for a translation
+ * or a collapse is its image's refinement, and a refinement no stored field declares has no domain to deliver it in
+ * (README's "a query's head delivers it through one cast into a text type some field declares, or into Prose"). The
+ * types read a pattern string or a translation's map as a string, never its language, so no type meets it with the
+ * subject's or names the image.
  */
 const engineDecides = {
 	fits: "decided: a fit",
@@ -2561,7 +2565,8 @@ const engineDecides = {
 	pattern: "decided: a pattern's values",
 	literal: "decided: a literal's value",
 	integral: "decided: a number's integrality",
-	overlap: "decided: a match's overlap"
+	overlap: "decided: a match's overlap",
+	domain: "decided: a refinement's domain"
 } as const
 type DecidedNote = (typeof engineDecides)[keyof typeof engineDecides]
 const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
@@ -2629,13 +2634,17 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 				: Str.startsWith("from and to of")(text) ||
 					  Str.startsWith("from holding each character once")(text)
 					? engineDecides.literal
-					: Str.includes(" in a query")(text)
-						? engineDecides.placement
-						: Str.endsWith(
-									" match no admitted text value together, so no value is ever of their type"
-							  )(text)
-							? engineDecides.overlap
-							: undefined
+					: Str.includes("which no stored field declares, so the installation holds no domain")(
+								text
+						  )
+						? engineDecides.domain
+						: Str.includes(" in a query")(text)
+							? engineDecides.placement
+							: Str.endsWith(
+										" match no admitted text value together, so no value is ever of their type"
+								  )(text)
+								? engineDecides.overlap
+								: undefined
 }
 
 /**
@@ -3730,9 +3739,30 @@ export const computeWitnesses = () =>
 		)
 	)
 
-/** Every case the program holds: the floor's witnesses, then the label's stream under the run's seed. */
+/**
+ * The program a query's head refused because the image of its translation names no domain, which the types admit:
+ * a word parameter, `^[a-z]{1,8}$`, translated by a map that takes b to a, so its image is `^[ac-z]{1,8}$`, a refinement
+ * no stored field declares. Every run holds it.
+ */
+const domainKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "apply",
+			fn: "translate",
+			args: [
+				{ kind: "param", name: "p0", field: "word" },
+				{ kind: "literal", lit: { text: '"ba"', value: "ba" } },
+				{ kind: "literal", lit: { text: '"aa"', value: "aa" } }
+			]
+		}
+	}
+]
+
+/** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
 	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
+	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
 	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
 ]
