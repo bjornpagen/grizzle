@@ -9,20 +9,21 @@
  *   member and its owner writing each other, however long the chain; the names are the writes and every relation a
  *   program reads, a whole entry its relation, a world entry the relation its query reads, and a derived relation
  *   itself and what its definition reads, down every level;
- * - the planned laws: every law whose violation query reads a named relation, and every contract's law, each with the
- *   whole model's plan, deferral (the whole model's cycles, which may run through relations outside the names) and
- *   immediacy;
+ * - the planned laws: every law a compile over the slice reads, one reading a written relation, one reading only named
+ *   relations, and a containment into a named relation's selected side, and every contract's law, each with the whole
+ *   model's plan, deferral (the whole model's cycles, which may run through relations outside the names) and immediacy;
  * - what a read relies on: the key, row-check and containment evidence of the planned laws, each containment under the
- *   whole model's validity context, the existence evidence of the containments that read a named relation, and each
- *   named relation's selection keys;
+ *   whole model's validity context, the existence evidence of the containments that read a written relation or only
+ *   named ones, and each named relation's selection keys;
  * - the natives the planned laws plan that a write or a read relies on, each discharging the planned laws alone, the
  *   rules that read a written relation, and the written relations with their keys and unique objects;
- * - what the slice compiles: the natives of its named relations and the foreign keys into them in the whole model's
- *   order, names, laws and descriptions; every constraint a write of the slice can raise naming the whole model's laws
- *   in the witness, and every law over a written relation, which a write statement's refusal raises, described there
- *   as the whole model describes it; each program's query, compiled through its role as db.read compiles it in either
- *   context, and each program's ChangeSet, compiled through its role as db.apply compiles it, compiling over the slice
- *   exactly when it does over the whole schema, to the same statements, certificates and requirements.
+ * - what the slice compiles: the natives a write of it can raise, of its written relations and the foreign keys into
+ *   them, in the whole model's order, names, laws and descriptions; every constraint a write of the slice can raise
+ *   naming the whole model's laws in the witness, and every law over a written relation, which a write statement's
+ *   refusal raises, described there as the whole model describes it; each program's query, compiled through its role
+ *   as db.read compiles it in either context, and each program's ChangeSet, compiled through its role as db.apply
+ *   compiles it, compiling over the slice exactly when it does over the whole schema, to the same statements,
+ *   certificates and requirements.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
@@ -690,21 +691,22 @@ const sameNatives = (
 }
 
 /**
- * Whether what the slice compiles and writes reads `n`: a native of a named relation, a foreign key or PERIOD foreign
- * key into one, a named roster's domain, or a contract's domain. Each such native is the whole model's in its installed
- * name, the laws it discharges, the law it is described by and its order among them; a native the slice holds on a
- * relation it does not name (a foreign key out of one, a CHECK of one into a closed relation) is read by nothing it
- * compiles or writes.
+ * Whether a write of the slice can raise `n`: a native of a written relation, a foreign key or PERIOD foreign key into
+ * one, or a contract's domain. Each such native is the whole model's in its installed name, the laws it discharges, the
+ * law it is described by and its order among them, since every law it discharges reads a written relation, or is a
+ * contract's, and is planned. A native of a named relation no write of the slice meets discharges the planned laws among
+ * the whole model's (`heldOver`, compared apart), and a query reads of it only its name, the evidence of its planned
+ * laws and its selection keys, each compared apart; a roster's domain reports grizzle's own defect, no law.
  */
-const visibleOver =
-	(names: ReadonlySet<string>) =>
+const raisableOver =
+	(writes: ReadonlySet<string>) =>
 	(n: NamedNative): boolean => {
 		switch (n.object.kind) {
 			case "ForeignKey":
 			case "PeriodForeignKey":
-				return names.has(n.object.relation.name) || names.has(n.object.target.name)
+				return writes.has(n.object.relation.name) || writes.has(n.object.target.name)
 			case "RosterDomain":
-				return names.has(n.object.name)
+				return false
 			case "Domain":
 				return true
 			case "PrimaryKey":
@@ -714,7 +716,7 @@ const visibleOver =
 			case "ClosedCheck":
 			case "LawColumn":
 			case "ReverseIndex":
-				return names.has(n.object.relation.name)
+				return writes.has(n.object.relation.name)
 		}
 	}
 
@@ -723,14 +725,29 @@ const nativeName = (n: NamedNative): string =>
 	`${n.object.kind} ${relationOf(n) ?? "-"} ${n.namespace === "constraint" || n.namespace === "column" ? identifierOf(n.named) : "-"}`
 
 /**
- * The laws a model over the slice plans, read off the whole model: every law whose violation query reads a named
- * relation, and every contract's law, whose domain types context fields and parameters beyond any relation. Each keeps
- * the whole model's plan, deferral and immediacy.
+ * The laws a model over the slice plans, read off the whole model: each law a compile over the slice reads, and every
+ * contract's law, whose domain types context fields and parameters beyond any relation. A law reading a written
+ * relation, whose natives a write can break, is ordered by or refuses by; a law reading only named relations, whose
+ * evidence a query over them relies on; and a containment into a selected side of a named relation, whose UNIQUE over
+ * the side's law columns is a selection key a probe of that relation reads. A law joining a named relation to one the
+ * slice neither names nor writes is none of them: no write meets its natives, and no query reads the relation its
+ * evidence joins to. Each keeps the whole model's plan, deferral and immediacy.
  */
-const plannedOver = (whole: LawModel, names: ReadonlySet<string>): ReadonlySet<LawId> =>
+const plannedOver = (
+	whole: LawModel,
+	names: ReadonlySet<string>,
+	writes: ReadonlySet<string>
+): ReadonlySet<LawId> =>
 	new Set(
 		Arr.flatMap(whole.theory.laws, (law) =>
-			law.shape === "contract" || Arr.some(law.reads, (r) => names.has(r)) ? [law.id] : []
+			law.shape === "contract" ||
+			Arr.some(law.reads, (r) => writes.has(r)) ||
+			Arr.every(law.reads, (r) => names.has(r)) ||
+			(law.detail.kind === "containment" &&
+				names.has(law.detail.to.relation) &&
+				Arr.isReadonlyArrayNonEmpty(law.detail.to.selection.conjuncts))
+				? [law.id]
+				: []
 		)
 	)
 
@@ -943,7 +960,7 @@ const memberAlone: Kept<SliceCase, SliceFeature> = {
 	]
 }
 
-/** A query of one relation whose foreign key closes a cycle through two it does not name, keyed one into the other. */
+/** A write of one relation whose foreign key closes a cycle through two it does not name, keyed one into the other. */
 const cycleOutside: Kept<SliceCase, SliceFeature> = {
 	note: "a foreign key cycle through a relation the programs never name",
 	sketch: {
@@ -963,16 +980,8 @@ const cycleOutside: Kept<SliceCase, SliceFeature> = {
 		materialized: [],
 		crossings: [],
 		rules: [],
-		roles: [{ writes: [], worlds: [] }],
-		uses: [
-			{
-				role: 0,
-				kind: "query",
-				writes: [],
-				reads: [{ kind: "root", at: 0 }],
-				casts: false
-			}
-		]
+		roles: [{ writes: [0], worlds: [] }],
+		uses: [{ role: 0, kind: "changes", writes: [0], reads: [], casts: false }]
 	},
 	draws: "",
 	reaches: [
@@ -980,6 +989,41 @@ const cycleOutside: Kept<SliceCase, SliceFeature> = {
 		"a foreign-key cycle through a key between two relations outside the names",
 		"evidence of a containment reading a relation outside the names"
 	]
+}
+
+/**
+ * Two relations' fields contained in one roster, its domain discharging both containments, one relation named and the
+ * other not: the slice's domain discharges the named one's law alone, which a query of the roster's evidence reads.
+ */
+const rosterShared: Kept<SliceCase, SliceFeature> = {
+	note: "a roster's domain discharging a named relation's containment and an unnamed one's",
+	sketch: {
+		roots: 4,
+		tops: 0,
+		families: [],
+		keys: [],
+		links: [],
+		checks: [],
+		rosters: [
+			{ from: 0, selected: false },
+			{ from: 1, selected: false }
+		],
+		derived: [0, 1],
+		chained: [0],
+		materialized: [],
+		crossings: [],
+		rules: [],
+		roles: [
+			{ writes: [], worlds: [] },
+			{ writes: [], worlds: [] }
+		],
+		uses: [
+			{ role: 0, kind: "query", writes: [], reads: [{ kind: "root", at: 0 }], casts: false },
+			{ role: 0, kind: "query", writes: [], reads: [{ kind: "roster" }], casts: false }
+		]
+	},
+	draws: "",
+	reaches: ["a relation outside the names", "a query compiled over the slice"]
 }
 
 describe("a compile's law model", () => {
@@ -996,7 +1040,7 @@ describe("a compile's law model", () => {
 					draw: drawn(caseGen),
 					literal: Formatter.format,
 					coverage: required<SliceFeature>(features, { cases: 200, sense: notesOnly }),
-					kept: [ledgerShape, memberAlone, cycleOutside],
+					kept: [ledgerShape, memberAlone, cycleOutside, rosterShared],
 					runs: 200,
 					shrink: completeShrink,
 					concurrency: 1,
@@ -1056,12 +1100,13 @@ describe("a compile's law model", () => {
 						const model = sliced.laws
 
 						assert.deepEqual(model.fkCycles, whole.fkCycles, "the foreign key graph's cycles")
-						const planned = plannedOver(whole, names)
-						const touches = (from: string, to: string): boolean => names.has(from) || names.has(to)
+						const planned = plannedOver(whole, names, writes)
+						const read = (from: string, to: string): boolean =>
+							writes.has(from) || writes.has(to) || (names.has(from) && names.has(to))
 						sameApartFromLabels(
 							model.existence,
-							Arr.filter(whole.existence, (e) => touches(e.from.relation, e.to.relation)),
-							"the existence evidence of the containments reading a named relation"
+							Arr.filter(whole.existence, (e) => read(e.from.relation, e.to.relation)),
+							"the existence evidence of the containments reading a written relation or only named ones"
 						)
 						const evidence = whole.theory.evidence
 						const containments = Arr.filter(evidence.containments, (e) => planned.has(e.law))
@@ -1099,11 +1144,11 @@ describe("a compile's law model", () => {
 							model.natives,
 							Arr.map(held, (h) => h.held)
 						)
-						const visible = visibleOver(names)
+						const raisable = raisableOver(writes)
 						sameApartFromLabels(
-							Arr.filter(model.natives, visible),
-							Arr.flatMap(held, (h) => (visible(h.whole) ? [h.whole] : [])),
-							"the natives of the named relations and the foreign keys into them, as the whole model orders, names and describes them"
+							Arr.filter(model.natives, raisable),
+							Arr.flatMap(held, (h) => (raisable(h.whole) ? [h.whole] : [])),
+							"the natives a write of the slice can raise, as the whole model orders, names and describes them"
 						)
 						const rules = Arr.filter(whole.rules, (r) =>
 							Arr.some(r.law.reads, (read) => writes.has(read))

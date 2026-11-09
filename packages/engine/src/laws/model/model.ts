@@ -629,7 +629,7 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 /**
  * Where a law model's foreign key cycles (FkCycles) come from: planned from every law of the schema, which the model
  * then plans whatever its slice names, or recorded by generate in the snapshot (snapshot.json derived.fkCycles), which
- * a layer reads so that its model plans only the laws its slice names (`plannedLaws`).
+ * a login's compile reads so that its model plans only the laws a compile over its slice reads (`plannedLaws`).
  */
 export type CycleSource =
 	| { readonly kind: "planned" }
@@ -637,17 +637,32 @@ export type CycleSource =
 
 /**
  * The laws a model plans: every law of the theory when it plans its cycles, which every law's plan settles; under
- * recorded cycles, each law that reads a relation `names` holds, and every contract, whose domain types its values
- * wherever a role's context field or a parameter names it, beyond any relation.
+ * recorded cycles, the laws a compile over its slice reads (`readBySlice`), and every contract, whose domain types its
+ * values wherever a role's context field or a parameter names it, beyond any relation.
  */
 const plannedLaws = (
 	laws: ReadonlyArray<TheoryLaw>,
-	names: ReadonlySet<string>,
+	slice: Slice,
 	cycles: CycleSource
 ): ReadonlyArray<TheoryLaw> =>
 	cycles.kind === "planned"
 		? laws
-		: laws.filter((l) => l.detail.kind === "contract" || l.reads.some((r) => names.has(r)))
+		: laws.filter((l) => l.detail.kind === "contract" || readBySlice(l, slice))
+
+/**
+ * Whether a compile over `slice` reads a law: one that reads a relation the slice writes, whose natives a write of it
+ * can break, is ordered by or refuses by; one every relation of which the slice names, whose evidence a query over them
+ * relies on; or a containment into a selected side of a named relation, whose UNIQUE over the side's law columns is a
+ * selection key a query's probe of that relation reads (physical/ddl/names.ts selectionKeysOf). Any other law reads a
+ * relation the slice neither names nor writes beside the ones it names: no write of the slice meets its natives, and
+ * no query over the slice reads its evidence, which joins a relation the query never reads.
+ */
+const readBySlice = (law: TheoryLaw, slice: Slice): boolean =>
+	law.reads.some((r) => slice.writes.has(r)) ||
+	law.reads.every((r) => slice.names.has(r)) ||
+	(law.detail.kind === "containment" &&
+		slice.names.has(law.detail.to.relation) &&
+		law.detail.to.selection.conjuncts.length > 0)
 
 /** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
  * does not fix deferred, and every PERIOD foreign key, from its relation to its target. */
@@ -1009,7 +1024,7 @@ class Specializer {
 		this.checked = checked
 		this.owned = checked.owned
 		this.writes = slice.writes
-		this.planned = plannedLaws(theory.laws, slice.names, cycles)
+		this.planned = plannedLaws(theory.laws, slice, cycles)
 		this.cycles = cycles
 		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations)
 		this.#typing = typingEnv(checked.owned)
@@ -1968,9 +1983,9 @@ const specialize = (
  *   ordinary relation, holds them all; a login's runtime, writing the relations its roles write, holds no other native
  *   and no rule that reads none of them, each a constraint no write of the login can raise. Under planned cycles
  *   (CycleSource) the model plans every law, whose plans settle the foreign key graph's cycles; under the cycles
- *   generate recorded from every law, it plans only the laws its slice names (plannedLaws). A law's plan reads the
- *   law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law it plans
- *   is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
+ *   generate recorded from every law, it plans only the laws a compile over its slice reads (readBySlice). A law's plan
+ *   reads the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law
+ *   it plans is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
  *
  * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal, a law shape the
  * compiler does not admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law

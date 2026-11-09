@@ -23,14 +23,15 @@ interface ClosureParts {
  * The part of an owned schema a compile over a slice (schema/reach.ts Slice) reads: the relations its checked schema
  * holds and the statements its theory normalizes. No other relation or statement of the schema is in it.
  *
- * `statements` holds, in the schema's order and each at its index, every statement whose laws read a name of the
- * slice, the laws its model plans (laws/model/model.ts plannedLaws), and the statements the normalizer and the
+ * `statements` holds, in the schema's order and each at its index, every statement a law of which its model plans
+ * (laws/model/model.ts readBySlice: a law reading a written relation, one reading only named relations, and a
+ * containment into a named relation's selected side; `plansOver`), and the statements the normalizer and the
  * recognizer read beside them, as the whole schema states them: every key over a relation of the closure, a
  * containment's target's keys, projected or declared, and the declared key a generated UNIQUE implies; the families,
  * trees and folds of each planned family's component, the families coupled with it through a shared relation, to a
  * fixpoint, whose refills decide its axes' deferral (theory/refill.ts refillDeferral); and every containment between
- * the member and the owner of one of those families or trees, which may ride its axes. Any other statement states laws
- * between relations no compile over the slice names, writes or plans a law over, so nothing over the slice reads them.
+ * the member and the owner of one of those families or trees, which may ride its axes. Any other statement states only
+ * laws no compile over the slice reads.
  *
  * `relations` holds the slice's names, every relation a planned statement reads, a foreign key's target or source, a
  * family's owner and members, a rule's sides, every relation of a planned family's component, each derived relation's
@@ -93,6 +94,43 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 	}
 }
 
+/**
+ * The relations a statement's laws read, as a law model over a slice plans them (laws/model/model.ts readBySlice):
+ * `exact`, every law of it reading exactly these, for a key, a row check, a containment, a family or tree, a fold, whose
+ * law reads its step's and its end's relations, and a mutable statement, which states none; `within`, each law of it
+ * reading some of these, for an alternatives', whose arms are laws of their own, and for a statement reading a derived
+ * relation, a rule over a query, whose arms read what the definition's live arms read.
+ */
+interface LawReads {
+	readonly kind: "exact" | "within"
+	readonly reads: ReadonlyArray<string>
+}
+
+const lawReadsOf = (owned: Owned, s: OwnedStatement, expanded: ReadonlyArray<string>): LawReads =>
+	s.kind === "alternatives" || expanded.some((r) => owned.relations[r]?.kind === "derived")
+		? { kind: "within", reads: expanded }
+		: { kind: "exact", reads: s.kind === "fold" ? [s.step.relation, s.end.relation] : expanded }
+
+/**
+ * Whether a model over `slice` plans a law of a statement (laws/model/model.ts readBySlice): an exact statement's laws
+ * exactly when they read a written relation, read only named ones, or contain into a selected side of a named relation;
+ * a within statement's, none of which is planned unless its relations meet the names, whenever they do.
+ */
+const plansOver = (s: OwnedStatement, reads: LawReads, slice: Slice): boolean => {
+	switch (reads.kind) {
+		case "within":
+			return reads.reads.some((r) => slice.names.has(r))
+		case "exact":
+			return (
+				reads.reads.some((r) => slice.writes.has(r)) ||
+				reads.reads.every((r) => slice.names.has(r)) ||
+				(s.kind === "contained" &&
+					slice.names.has(s.right.relation) &&
+					s.right.selection.conjuncts.length > 0)
+			)
+	}
+}
+
 /** Whether a statement couples its relations: a family's, a tree's or a fold's, which name and fill their fields. */
 const couples = (s: OwnedStatement): boolean =>
 	s.kind === "family" || s.kind === "tree" || s.kind === "fold"
@@ -139,15 +177,17 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 		}
 		return [...out]
 	}
-	const statements = owned.statements.map((statement, index) => ({
-		statement,
-		index,
-		reads: expanded(lawRelations(statement))
-	}))
-	const planned = (s: { readonly reads: ReadonlyArray<string> }): boolean =>
-		s.reads.some((r) => slice.names.has(r))
+	const statements = owned.statements.map((statement, index) => {
+		const reads = expanded(lawRelations(statement))
+		return {
+			statement,
+			index,
+			reads,
+			planned: plansOver(statement, lawReadsOf(owned, statement, reads), slice)
+		}
+	})
 	const coupling = statements.filter((s) => couples(s.statement))
-	const component = new Set(coupling.filter(planned).flatMap((s) => s.reads))
+	const component = new Set(coupling.flatMap((s) => (s.planned ? s.reads : [])))
 	for (let grown = true; grown;) {
 		grown = false
 		for (const s of coupling) {
@@ -168,7 +208,7 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 		add(name)
 	}
 	for (const s of statements) {
-		if (planned(s)) {
+		if (s.planned) {
 			for (const r of s.reads) {
 				add(r)
 			}
@@ -194,7 +234,7 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 		}
 	}
 	const kept = statements.filter(
-		(s) => s.reads.every((r) => relations.has(r)) && (planned(s) || readBeside(s))
+		(s) => s.reads.every((r) => relations.has(r)) && (s.planned || readBeside(s))
 	)
 	for (const s of kept) {
 		for (const r of appliedRelations(s.statement)) {
