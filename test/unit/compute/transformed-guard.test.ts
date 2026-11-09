@@ -431,7 +431,8 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  *   otherwise), and each step's bytes, a collapse's the operand's bound and a translation's the most bytes the image of
  *   a text of the operand's byte and character bounds over its pattern's characters takes, found by a dynamic program
  *   over counts of characters and bytes, each within what the step's own language bounds; language inclusion in Q
- *   decides the pattern.
+ *   decides the pattern, and the longest text of the language within the bytes, which a cast compares by automata,
+ *   decides the bound.
  * - the host: the chain evaluated by hand on a text whose first step's image takes the program's most bytes, built from
  *   its choices, and on drawn values of t's type: no image takes more than the bound, a translation first takes exactly
  *   the most, and where the cast compiles every image is of T.
@@ -789,6 +790,70 @@ const mostOf = (
 	return { most: at(rows, bytes), witness: codePointsText(points) }
 }
 
+/** The UTF-8 widths of a set's characters: each listed one's, or every width, which stand-ins of each take. */
+const widthsOf = (p: Points): ReadonlyArray<number> =>
+	p.kind === "listed" ? Arr.dedupe(Arr.map(p.points, widthOf)) : [1, 2, 3, 4]
+
+/**
+ * The bytes of the longest text of a language within `bytes`: a text of a type is a text of its language of at most
+ * its bytes, so the longest such is what the type's texts take, at most its bound and less where the language's
+ * characters fit it no closer (only the empty text, of a collapse that drops every space a text of one byte holds). A
+ * dynamic program over each language's states as its pattern reads them, the fewest characters that reach each count of
+ * bytes, held to the language's character count.
+ */
+const longestWithin = (l: Language, bytes: number): number => {
+	const moves: ReadonlyArray<{
+		readonly from: number
+		readonly to: number
+		readonly by: ReadonlyArray<number>
+	}> =
+		l.kind === "free"
+			? [{ from: 0, to: 0, by: widthsOf(l.over) }]
+			: l.kind === "collapsed"
+				? [
+						{ from: 0, to: 1, by: widthsOf(l.runs) },
+						{ from: 1, to: 1, by: widthsOf(l.runs) },
+						{ from: 1, to: 2, by: [widthOf(l.gap)] },
+						{ from: 2, to: 1, by: widthsOf(l.runs) }
+					]
+				: [
+						{ from: 0, to: 1, by: widthsOf(l.ends) },
+						{ from: 1, to: 1, by: widthsOf(l.ends) },
+						{ from: 1, to: 2, by: widthsOf(l.middle) },
+						{ from: 2, to: 2, by: widthsOf(l.middle) },
+						{ from: 2, to: 1, by: widthsOf(l.ends) }
+					]
+	const limit =
+		l.kind === "free"
+			? l.count.kind === "any"
+				? Number.POSITIVE_INFINITY
+				: l.count.chars
+			: l.kind === "bounded"
+				? l.chars
+				: Number.POSITIVE_INFINITY
+	const accepting = l.kind === "free" ? [0] : [0, 1]
+	const fewest = Arr.makeBy(3, () => Arr.makeBy(bytes + 1, () => Number.POSITIVE_INFINITY))
+	defined(fewest[0])[0] = 0
+	for (let b = 0; b <= bytes; b += 1) {
+		for (const move of moves) {
+			const here = defined(defined(fewest[move.from])[b])
+			for (const w of move.by) {
+				const to = defined(fewest[move.to])
+				if (b + w <= bytes && here + 1 < defined(to[b + w])) {
+					to[b + w] = here + 1
+				}
+			}
+		}
+	}
+	let longest = 0
+	for (let b = 0; b <= bytes; b += 1) {
+		if (Arr.some(accepting, (state) => defined(defined(fewest[state])[b]) <= limit)) {
+			longest = b
+		}
+	}
+	return longest
+}
+
 /** Every text, a concatenation's language. */
 const anyText: Language = {
 	kind: "free",
@@ -990,6 +1055,21 @@ describe("a transformed text's byte bound", () => {
 								},
 								draws: "",
 								reaches: ["lowerAscii admitted", "an admission at its bound", "a chain of two"]
+							},
+							{
+								note: "a pin run's draw: lowerAscii(collapse(x)) over x of at most 1 byte of spaces and euro signs, whose every value collapses to the empty text, cast into text of no byte",
+								sketch: {
+									operand: {
+										bytes: 1,
+										over: { kind: "listed", points: [0x20, 0x20ac] },
+										count: { kind: "any" }
+									},
+									steps: [{ kind: "collapse" }, { kind: "lowerAscii" }],
+									target: { pattern: 0, slack: -1 },
+									values: []
+								},
+								draws: "",
+								reaches: ["lowerAscii admitted", "a chain of two"]
 							}
 						],
 						runs: 400,
@@ -1053,21 +1133,22 @@ describe("a transformed text's byte bound", () => {
 								[nfaOf(languageSource(typed.language), "u")],
 								[nfaOf(target.source, target.flags)]
 							).kind
-							const label = `${Formatter.format(c)}: ${verdict} within ${typed.bytes} bytes, cast into ${bytes}`
+							const longest = longestWithin(typed.language, typed.bytes)
+							const label = `${Formatter.format(c)}: ${verdict} within ${typed.bytes} bytes, its longest text ${longest}, cast into ${bytes}`
 							if (verdict === "bounded") {
 								assert.ok(!checked.ok && checked.error.reason._tag === "ResourceBound", label)
 								return
 							}
 							assert.equal(
 								checked.ok,
-								verdict === "included" && typed.bytes <= bytes,
+								verdict === "included" && longest <= bytes,
 								`${label}, ${checked.ok ? "admitted" : checked.error.message}`
 							)
 							if (!checked.ok) {
 								assert.equal(checked.error.reason._tag, "PartialOperation", label)
 								if (verdict === "included") {
 									run.note("a refusal by the bound alone")
-								} else if (typed.bytes <= bytes) {
+								} else if (longest <= bytes) {
 									run.note("a refusal by the pattern alone")
 								}
 							} else if (typed.bytes === bytes) {
