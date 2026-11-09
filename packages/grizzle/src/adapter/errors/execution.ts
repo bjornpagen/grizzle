@@ -122,7 +122,7 @@ export class OpenError<out R extends OpenReason = OpenReason> extends Data.Tagge
  * Why a read failed: the server refused its statement (ServerError); its session was not acquired (AcquireRefusal), or
  * its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot
  * read); the compiler refused it before any SQL, for a query that does not compile for this Db or needs a capability
- * the admitted database lacks; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
+ * the Db's snapshot does not grant; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
  * law rejects (db.explain), parameters past a bound of their transport, or a page request.
  */
 export type ReadReason =

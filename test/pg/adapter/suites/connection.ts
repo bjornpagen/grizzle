@@ -7,7 +7,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Deferred, Effect, Exit, Formatter, Redacted, Result } from "effect"
-import { OpenError } from "#adapter/errors/execution.ts"
+import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CredentialError, type TlsFault } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -35,17 +35,17 @@ const okQuery = "SELECT 'ok'::text"
 const leased = (pool: SessionPool, sql: string) =>
 	Effect.scoped(Effect.flatMap(pool.lease, (session) => rowsOn(session, sql, [])))
 
-/** A lease's refusal as Db.open reports it, at the stage it fails at. */
+/** A lease's refusal as a Db's call reports it: a ReadFailure at stage acquire, the refusal its reason. */
 const leaseRefused = (pool: SessionPool) =>
-	Effect.mapError(pool.lease, (reason) => new OpenError({ reason }))
+	Effect.mapError(pool.lease, (reason) => new ReadFailure({ reason }))
 
-/** The stage a lease of the pool, which must fail, was refused at; a failure after the lease, by its tag. */
-const refusedStage = (pool: SessionPool) =>
+/** What refused a lease of the pool, which must fail: its reason's tag; a failure after the lease, by its own tag. */
+const refusedBy = (pool: SessionPool) =>
 	Effect.map(
 		Effect.flip(
 			Effect.scoped(Effect.flatMap(leaseRefused(pool), (session) => rowsOn(session, okQuery, [])))
 		),
-		(failure) => (failure._tag === "OpenError" ? failure.stage : failure._tag)
+		(failure) => (failure._tag === "ReadFailure" ? failure.reason._tag : failure._tag)
 	)
 
 /** The length of an SSLRequest: its length word and its request code. */
@@ -222,9 +222,9 @@ const providerAt = (mode: ProviderMode, version: number): Provider =>
 	mode === "pinned" ? { kind: "pinned", version } : { kind: mode }
 
 /**
- * What a lease that finds no idle session meets: one evaluation of the password Effect, which fails at stage credential
- * when the provider fails, at stage authentication when it answers a version of the password the role no longer holds,
- * and opens a session otherwise.
+ * What a lease that finds no idle session meets: one evaluation of the password Effect, which fails with the
+ * CredentialError when the provider fails, with the server's refusal (authentication) when it answers a version of the
+ * password the role no longer holds, and opens a session otherwise.
  */
 type Attempt = "opened" | "credential" | "authentication"
 
@@ -311,17 +311,20 @@ const tlsConfigs: Gen<TlsConfig> = (source) => ({
  *   is accepted exactly when the CA is the server's and the verified name is one its certificate carries, and it logs
  *   in as the role it named, over TLS; there is no unverified mode;
  * - no plaintext fallback, over drawn answers of a server to the SSLRequest (the protocol's letters and any byte, one
- *   to three of them): exactly `S` starts a TLS handshake, which a server that speaks no TLS refuses at stage tls, and
- *   any other answer is refused at stage tls, `N` as no TLS offered and the rest as no answer, the client sending
- *   nothing after its request;
+ *   to three of them): exactly `S` starts a TLS handshake, which a server that speaks no TLS refuses with TlsRefused,
+ *   and any other answer is refused with TlsRefused, `N` as no TLS offered and the rest as no answer, the client
+ *   sending nothing after its request;
  * - the password Effect, over drawn programs of leases, rotations of the role's password and a provider that follows
  *   the role's password, is pinned to one version of it, answers one it never had, or fails: a lease takes an idle
  *   session without asking for a password, and every other lease evaluates the Effect once, and opens a session, or is
- *   refused at stage credential with the CredentialError as its reason or at stage authentication with the server's
- *   refusal, as the provider's answer meets the role's password then, a model of the pool's idle sessions judging each.
+ *   refused at stage acquire with the CredentialError as its reason or with the server's refusal, as the provider's
+ *   answer meets the role's password then, a model of the pool's idle sessions judging each.
  *
- * The logins a Db opens through and the roles it may run as are the worlds model's (test/pg/world-model), and what
- * admission judges of the database is reads/suites/open.ts's.
+ * Db.open leases nothing: a lease's refusal is the refusal of a Db's call, a ReadFailure or a TransportFailure at stage
+ * acquire, its reason telling a credential, a TLS and a server's refusal apart.
+ *
+ * The logins a Db opens through and the roles it may run as are the worlds model's (test/pg/world-model), and what a
+ * Db's reads meet on databases with and without its schema is reads/suites/open.ts's.
  */
 export const connectionSuite = (): void => {
 	layer(Substrate.layer)("adapter connections", (it) => {
@@ -368,12 +371,12 @@ export const connectionSuite = (): void => {
 										}
 									})
 									if (config.ca !== "local") {
-										const stage = yield* refusedStage(pool)
-										assert.equal(stage, "tls")
+										const refusal = yield* refusedBy(pool)
+										assert.equal(refusal, "TlsRefused")
 										c.note(`refused ${config.ca} ca`)
 									} else if (!certificateNames.has(verified)) {
-										const stage = yield* refusedStage(pool)
-										assert.equal(stage, "tls")
+										const refusal = yield* refusedBy(pool)
+										assert.equal(refusal, "TlsRefused")
 										c.note(
 											`refused ${config.servername.kind === "host" ? "host" : "override"} name`
 										)
@@ -440,7 +443,7 @@ export const connectionSuite = (): void => {
 									})
 									const refused = yield* Effect.flip(Effect.scoped(leaseRefused(pool)))
 									const after = yield* server.after
-									assert.equal(refused.stage, "tls")
+									assert.equal(refused.stage, "acquire")
 									assertVariant(refused.reason, "_tag", "TlsRefused")
 									const fault = answerFault(answer)
 									assert.equal(refused.reason.fault.kind, fault)
@@ -579,7 +582,7 @@ export const connectionSuite = (): void => {
 																		"Failure",
 																		"a new session is refused"
 																	)
-																	assert.equal(attempted.failure.stage, attempt)
+																	assert.equal(attempted.failure.stage, "acquire")
 																	assert.equal(
 																		attempted.failure.reason._tag,
 																		attempt === "credential" ? "CredentialError" : "StartupRefused"

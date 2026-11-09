@@ -86,7 +86,6 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
-	CatalogRowRefused: Public.CatalogRowRefused,
 	ClaimRefused: Public.ClaimRefused,
 	CommitLost: Public.CommitLost,
 	CommitUnknown: Public.CommitUnknown,

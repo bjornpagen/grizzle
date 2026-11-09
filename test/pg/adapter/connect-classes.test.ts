@@ -7,7 +7,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Redacted, String as Str } from "effect"
 import pgDriver from "pg"
-import { OpenError, type OpenStage } from "#adapter/errors/execution.ts"
+import { ReadFailure } from "#adapter/errors/execution.ts"
 import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
 import { makePool, type Password } from "#adapter/wire/session.ts"
@@ -22,16 +22,17 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A connection that fails is classified, and every class states its own reason, the same through `grizzle migrate` and
- * through Db.open, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
+ * through a Db's call, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
  *
  * The property, exhausted over planted failures, each opened by the migration identity's session (MigrateError whose
- * reason, ConnectRefused, carries the refusal) and by a pool's lease as Db.open opens one (OpenError, its reason): no
+ * reason, ConnectRefused, carries the refusal) and by a pool's lease as a Db's call takes one (ReadFailure at stage
+ * acquire, its reason; Db.open leases nothing): no
  * answer within the attempt's connect timeout (a server that accepts and never answers), a refused socket (nothing listening), the server's
  * SQLSTATE (a role over its connection limit, 53300; a wrong password, 28P01; no such database, 3D000), TLS (a CA that
  * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N), a server that closes the
  * connection at once, a failing password Effect, and no password for a role SCRAM authenticates. Each attempt's
  * connection is parsed as grizzle parses one (test/support/pg.ts parsedConnection), so an empty CA bundle never reaches
- * a connection: the parse refuses it at stage config (test/unit/adapter/layer.test.ts). The oracle is the class each plant is: its tag, the fact that tells it apart, and its stage. Both
+ * a connection: the parse refuses it at stage config (test/unit/adapter/layer.test.ts). The oracle is the class each plant is: its tag and the fact that tells it apart. Both
  * paths carry the same class; the migrate reason names the role, host and port and states the class's message; no
  * password, given or wrong, appears in a message or anywhere in either error; and the messages of the plants are all
  * distinct.
@@ -51,13 +52,13 @@ const plants = [
 ] as const
 type Plant = (typeof plants)[number]
 
-type Path = "grizzle migrate" | "Db.open"
+type Path = "grizzle migrate" | "a Db's call"
 
 /** Every plant through each path. */
 const plantPaths: Gen<readonly [Plant, Path]> = (source) =>
 	[
 		source.draw(element(plants)),
-		source.draw(element<Path>(["grizzle migrate", "Db.open"]))
+		source.draw(element<Path>(["grizzle migrate", "a Db's call"]))
 	] as const
 
 /**
@@ -92,19 +93,19 @@ const classOf = (refusal: ConnectRefusal): string => {
 const silentTimeout = nodeTimerMin.value
 
 const plantedClass: {
-	readonly [P in Plant]: { readonly fact: string; readonly stage: OpenStage }
+	readonly [P in Plant]: { readonly fact: string }
 } = {
-	"a server that never answers": { fact: `timed out after ${silentTimeout}`, stage: "connect" },
-	"nothing listening": { fact: "socket ECONNREFUSED", stage: "connect" },
-	"a role over its connection limit": { fact: "server 53300", stage: "connect" },
-	"a wrong password": { fact: "server 28P01", stage: "authentication" },
-	"no such database": { fact: "server 3D000", stage: "connect" },
-	"a CA that is not the server's": { fact: "tls handshake", stage: "tls" },
-	"a server that offers no TLS": { fact: "tls notOffered", stage: "tls" },
-	"a server that answers neither": { fact: "tls unanswered", stage: "tls" },
-	"a server that closes at once": { fact: "closed", stage: "connect" },
-	"a failing password Effect": { fact: "credential", stage: "credential" },
-	"no password for a SCRAM role": { fact: "driver", stage: "connect" }
+	"a server that never answers": { fact: `timed out after ${silentTimeout}` },
+	"nothing listening": { fact: "socket ECONNREFUSED" },
+	"a role over its connection limit": { fact: "server 53300" },
+	"a wrong password": { fact: "server 28P01" },
+	"no such database": { fact: "server 3D000" },
+	"a CA that is not the server's": { fact: "tls handshake" },
+	"a server that offers no TLS": { fact: "tls notOffered" },
+	"a server that answers neither": { fact: "tls unanswered" },
+	"a server that closes at once": { fact: "closed" },
+	"a failing password Effect": { fact: "credential" },
+	"no password for a SCRAM role": { fact: "driver" }
 }
 
 /**
@@ -178,7 +179,7 @@ type ConnectClassFeature = `${Plant} through ${Path}`
 
 layer(Substrate.layer)("a connection failure states its class", (it) => {
 	it.effect(
-		"every class of connection failure yields its own reason, alike through migrate and Db.open",
+		"every class of connection failure yields its own reason, alike through migrate and a Db's call",
 		(ctx) =>
 			searched(
 				ctx,
@@ -258,7 +259,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 						)
 
 					/**
-					 * The attempt's failure through `grizzle migrate`: its class, its stage, its reason's statement of the class
+					 * The attempt's failure through `grizzle migrate`: its class, its reason's statement of the class
 					 * after the role, host and port it names, and the whole error as text.
 					 */
 					const throughMigrate = (attempt: Attempt) =>
@@ -267,7 +268,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								Effect.scoped(openMigrationSession(connectionOf(attempt)))
 							)
 							const reason = failure.reason
-							assert.ok(reason._tag === "ConnectRefused", `a connect refusal, not ${failure.stage}`)
+							assert.ok(reason._tag === "ConnectRefused", `a connect refusal, not ${reason._tag}`)
 							assert.deepEqual(
 								{ role: reason.role, host: reason.host, port: reason.port },
 								{ role: attempt.role, host: pgPin.host, port: attempt.port },
@@ -275,16 +276,16 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							)
 							return {
 								refusal: reason.refusal,
-								stage: new OpenError({ reason: reason.refusal }).stage,
 								stated: reason.refusal.message,
 								text: inspect(failure, { depth: 12 })
 							}
 						})
 
 					/**
-					 * The attempt's failure through a pool's lease, as Db.open opens one: OpenError, whose reason is the class.
+					 * The attempt's failure through a pool's lease, as a Db's call takes one: a ReadFailure at stage acquire,
+					 * whose reason is the class.
 					 */
-					const throughOpen = (attempt: Attempt) =>
+					const throughCall = (attempt: Attempt) =>
 						Effect.gen(function* () {
 							const pool = yield* makePool({
 								connection: connectionOf(attempt),
@@ -292,14 +293,14 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								attachPool: () => undefined
 							})
 							const refusal = yield* Effect.flip(Effect.scoped(pool.lease))
-							const failure = new OpenError({ reason: refusal })
 							assert.ok(
 								refusal._tag !== "LayerReleased",
-								`the reason of OpenError at stage ${failure.stage} is a connection attempt's class`
+								`the reason ${refusal._tag} is a connection attempt's class`
 							)
+							const failure = new ReadFailure({ reason: refusal })
+							assert.equal(failure.stage, "acquire")
 							return {
 								refusal,
-								stage: failure.stage,
 								stated: refusal.message,
 								text: `${failure.message}\n${inspect(failure, { depth: 12 })}`
 							}
@@ -308,7 +309,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 					/** What each path stated for each plant. */
 					const stated: { readonly [P in Path]: Map<Plant, string> } = {
 						"grizzle migrate": new Map(),
-						"Db.open": new Map()
+						"a Db's call": new Map()
 					}
 
 					const exhausted = yield* exhaust(
@@ -322,7 +323,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							coverage: requiredInSpace<ConnectClassFeature>(
 								Arr.flatMap(plants, (p): Arr.NonEmptyReadonlyArray<ConnectClassFeature> => [
 									`${p} through grizzle migrate`,
-									`${p} through Db.open`
+									`${p} through a Db's call`
 								])
 							),
 							caseHang
@@ -333,14 +334,13 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								const reported =
 									path === "grizzle migrate"
 										? yield* throughMigrate(attempt)
-										: yield* throughOpen(attempt)
+										: yield* throughCall(attempt)
 								const planted = plantedClass[plant]
 								assert.equal(
 									classOf(reported.refusal),
 									planted.fact,
 									`${plant} through ${path}: its class`
 								)
-								assert.equal(reported.stage, planted.stage, `${plant} through ${path}: its stage`)
 								for (const secret of attempt.secrets) {
 									assert.ok(
 										!Str.includes(secret)(reported.text),
@@ -359,7 +359,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 						`distinct reasons: ${Arr.join(byMigrate, " | ")}`
 					)
 					assert.deepEqual(
-						Arr.map(plants, (plant) => stated["Db.open"].get(plant)),
+						Arr.map(plants, (plant) => stated["a Db's call"].get(plant)),
 						Arr.map(plants, (plant) => stated["grizzle migrate"].get(plant)),
 						"each plant's reason, alike through both paths"
 					)
