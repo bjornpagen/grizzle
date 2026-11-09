@@ -29,7 +29,6 @@ post-beta swarm's fixes for the next release.
     and pg/fin/plans and pg/substrate/tree still checking generic plans of named statements that no longer exist.
   - The shell cull's RefreshReport and populatedSql (a statement per schema only tests read).
     Resume from ~/.cache/grizzle-release/CULL-SHELL/wip-e/e.patch (allowance and generated-1/2 runs left).
-  - bench write-laws gate: a null payload in derived_roster (23502), pre-existing.
 - **Waste hunt (remove work, never add machinery):**
   - Building qti-pie's Qti schema value costs about 36 s, a third of it grizzle's construction: ir/shape parse,
     schema/relation closedRows and admitClosedRelation, core/canonical, protocol rosterHandlesOf. The profile is

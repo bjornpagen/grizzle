@@ -59,7 +59,8 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  *
  * - an FK into the set's seeded members table, the placement erasure replaces;
  * - a CHECK calling the constant at the codes' cell;
- * - a derived column, the payload code at the codes' cell, STORED.
+ * - a derived column, the payload code at the codes' cell, STORED and, as every column grizzle emits but a partial
+ *   projection, NOT NULL, so a row whose codes name no member reads NULL there and is refused.
  *
  * Beside them, the roster's 363 codes as a column of a roster domain over smallint, written by the host, under the two
  * representations OPEN-2 weighed: (b) the domain's CHECK reads the names constant, `(names())[VALUE + 1] <> ''`, 64
@@ -78,12 +79,13 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  *
  * The verdict holds that every constant PostgreSQL packs is the test oracle's string of its members
  * (test/support/closed/bit-text.ts installedText, R8), and the live-code constant the oracle's set of the live codes
- * (setText); that every law and both roster domains refuse the row one past their constant's end, which reads as
- * absent, with its SQLSTATE; and that every derived column reads its relation's payload code on every stored row and
- * NULL past the end. Recorded beside it: each constant's statement, the migration's CREATE FUNCTION of its hex literal; the first INSERT through each
- * roster domain in a fresh backend, beyond the plain column's; and a change of the set over `rows` rows, its CHECK
- * re-pointed at a grown set and VALIDATEd, its derived column rewritten by SET EXPRESSION, and a VALIDATE against a
- * constant that drops a stored member refused.
+ * (setText); that every law, every derived column and both roster domains refuse the row one past their constant's end,
+ * which reads as absent, with its SQLSTATE; that every derived column reads its relation's payload code on every stored
+ * row; and that a derived column re-derived by SET EXPRESSION stores the code of a member the grown set adds, and a
+ * rewrite back to a set that drops it is refused. Recorded beside it: each constant's statement, the migration's CREATE
+ * FUNCTION of its hex literal; the first INSERT through each roster domain in a fresh backend, beyond the plain
+ * column's; and a change of the set over `rows` rows, its CHECK re-pointed at a grown set and VALIDATEd, its derived
+ * column rewritten by SET EXPRESSION, and a VALIDATE against a constant that drops a stored member refused.
  */
 interface Options extends Readonly<Record<string, unknown>> {
 	/** One-row INSERTs per table per round. */
@@ -204,8 +206,8 @@ interface LawSpec {
 	/** The name of its table, before the name of the relation it reads. */
 	readonly prefix: string
 	readonly title: (relation: Relation) => string
-	/** The SQLSTATE it refuses a row outside its relation with; none for a placement that is no law. */
-	readonly refusal: Option.Option<string>
+	/** The SQLSTATE it refuses a row outside its relation with: a derived column's is its NOT NULL's. */
+	readonly refusal: string
 	readonly ddl: (at: Names, relation: Relation, table: ObjectName) => ReadonlyArray<string>
 }
 
@@ -219,7 +221,7 @@ const laws: { readonly [K in LawKind]: LawSpec } = {
 	foreignKey: {
 		prefix: "fk",
 		title: (relation) => `an FK into the seeded ${relation.name} members`,
-		refusal: Option.some(sqlstates.foreignKeyViolation),
+		refusal: sqlstates.foreignKeyViolation,
 		ddl: (at, relation, table) => [
 			foreignKeySql(table, "into_members", relation, at.members(relation))
 		]
@@ -227,7 +229,7 @@ const laws: { readonly [K in LawKind]: LawSpec } = {
 	check: {
 		prefix: "checked",
 		title: (relation) => `a CHECK calling ${sized(relation)}`,
-		refusal: Option.some(sqlstates.checkViolation),
+		refusal: sqlstates.checkViolation,
 		ddl: (at, relation, table) => [
 			checkConstraint(table, lawName, rowLaw(at.constant(relation), relation))
 		]
@@ -235,7 +237,7 @@ const laws: { readonly [K in LawKind]: LawSpec } = {
 	derived: {
 		prefix: "derived",
 		title: (relation) => `a derived column reading ${sized(relation)}`,
-		refusal: Option.none(),
+		refusal: sqlstates.notNullViolation,
 		ddl: (at, relation, table) => [
 			generatedColumn(
 				table,
@@ -255,7 +257,7 @@ const laws: { readonly [K in LawKind]: LawSpec } = {
 interface LawCase extends Table {
 	readonly kind: LawKind
 	readonly relation: Relation
-	readonly refusal: Option.Option<string>
+	readonly refusal: string
 	readonly base: Table
 	readonly ceiling: Option.Option<Limit>
 }
@@ -675,15 +677,11 @@ export default defineGate({
 				readonly row: Row
 				readonly expected: string
 			}> = [
-				...Arr.flatMap(lawCases, (c) =>
-					Option.toArray(
-						Option.map(c.refusal, (expected) => ({
-							table: c,
-							row: pastTheEnd(c.relation),
-							expected
-						}))
-					)
-				),
+				...Arr.map(lawCases, (c) => ({
+					table: c,
+					row: pastTheEnd(c.relation),
+					expected: c.refusal
+				})),
 				...Arr.map(domainCases, (c) => ({
 					table: c,
 					row: pastTheEnd(roster),
@@ -722,12 +720,11 @@ export default defineGate({
 			const beyond = (table: Table, base: Table): number =>
 				perStatement(median(Arr.map(rounds, (r) => inRound(r, table) - inRound(r, base))))
 
-			/** Each derived column read past the end, then compared with its relation's payload on every stored row. */
+			/** Each derived column compared with its relation's payload on every stored row. */
 			const derivation = Effect.fn("derivation")(function* (c: LawCase) {
-				yield* exec(insertRow(at, c, pastTheEnd(c.relation)))
 				const [stored, disagreeing] = yield* pairFrom(agreementSql(at, c.name, c.relation))
 				return {
-					holds: stored === options.statements + 1 && disagreeing === 0,
+					holds: stored === options.statements && disagreeing === 0,
 					detail: `${c.name}: ${disagreeing} of ${stored} rows disagree`
 				}
 			})
@@ -861,33 +858,40 @@ export default defineGate({
 			if (Option.isNone(added)) {
 				return yield* new GateSetupError({ what: "the grown set adds no member" })
 			}
-			yield* exec(insertRow(at, derivedTriples, rowAt(grown, added.value.key)))
 			const disagreeing = (relation: Relation) =>
 				Effect.map(pairFrom(agreementSql(at, derivedTriples.name, relation)), ([, n]) => n)
 			const beforeAgainstSet = yield* disagreeing(triples)
 			const checkedTable = at.object(checkedTriples.name)
 			const derivedTable = at.object(derivedTriples.name)
+			const rederive = (to: Relation): string =>
+				setExpressionSql(derivedTable, payloadColumn, derivedExpr(at.constant(to), to))
 			/**
 			 * One change of the set over `rows` rows: its CHECK re-pointed at `to` and VALIDATEd, and its derived column
-			 * rewritten to read `to`. The changes alternate between the grown set and the set, and a VALIDATE against the
-			 * shrunk set, refused, is rolled back after them.
+			 * rewritten to read `to`. The changes alternate between the grown set and the set over rows both hold; then the
+			 * derived column reads the grown set, takes the row of the member it adds, and a rewrite back to the set, which
+			 * reads NULL there, is refused; a VALIDATE against the shrunk set, refused, is rolled back after them.
 			 */
 			const change = Effect.fn("change")(function* (to: Relation) {
 				const [drop, add, validate] = repointSql(checkedTable, lawName, rowLaw(at.constant(to), to))
 				const swapped = yield* timed(Effect.andThen(exec(drop), exec(add)))
 				const validated = yield* timed(exec(validate))
-				const reread = yield* timed(
-					exec(setExpressionSql(derivedTable, payloadColumn, derivedExpr(at.constant(to), to)))
-				)
+				const reread = yield* timed(exec(rederive(to)))
 				return { swap: swapped.ms, validate: validated.ms, reread: reread.ms }
 			})
 			const swaps = Arr.makeBy(options.changes, (k) => (k % 2 === 0 ? grown : triples))
 			const [firstSwap, ...laterSwaps] = swaps
 			const firstChange = yield* change(firstSwap)
-			const afterAgainstGrown = yield* disagreeing(grown)
-			const afterAgainstSet = yield* disagreeing(triples)
 			const laterChanges = yield* Effect.forEach(laterSwaps, change)
 			const changes = [firstChange, ...laterChanges]
+			if (Arr.lastNonEmpty(swaps) !== grown) {
+				yield* exec(rederive(grown))
+			}
+			yield* exec(insertRow(at, derivedTriples, rowAt(grown, added.value.key)))
+			const afterAgainstGrown = yield* disagreeing(grown)
+			const afterAgainstSet = yield* disagreeing(triples)
+			yield* session.begin
+			const rederivedAnswer = yield* answerOf(session, rederive(triples))
+			yield* session.rollback
 			yield* session.begin
 			const [dropLast, addShrunk, validateShrunk] = repointSql(
 				checkedTable,
@@ -954,19 +958,23 @@ export default defineGate({
 								shaped.detail
 							),
 							equivalence(
-								"every law refuses the row one past its constant's end, a CHECK and both roster domains with check_violation, an FK with foreign_key_violation",
+								"every law refuses the row one past its constant's end, a CHECK and both roster domains with check_violation, an FK with foreign_key_violation, a derived column's NOT NULL with not_null_violation",
 								refused.holds,
 								refused.detail
 							),
 							equivalence(
-								"every derived column reads its relation's payload code on every stored row, and NULL one past the end",
+								"every derived column reads its relation's payload code on every stored row",
 								derives.holds,
 								derives.detail
 							),
 							equivalence(
-								"SET EXPRESSION re-derives every row: the member the grown set adds reads NULL before the rewrite and its code after it",
-								beforeAgainstSet === 0 && afterAgainstGrown === 0 && afterAgainstSet === 1,
-								`rows disagreeing with the set before: ${beforeAgainstSet}; after, with the grown set: ${afterAgainstGrown}, with the set: ${afterAgainstSet}`
+								"SET EXPRESSION re-derives every row: re-derived over the grown set, the row of the member it adds stores that member's code, and a rewrite back to the set, which reads NULL there, is refused with not_null_violation",
+								beforeAgainstSet === 0 &&
+									afterAgainstGrown === 0 &&
+									afterAgainstSet === 1 &&
+									rederivedAnswer.kind === "refused" &&
+									rederivedAnswer.sqlstate === sqlstates.notNullViolation,
+								`rows disagreeing with the set before: ${beforeAgainstSet}; over the grown set, with it: ${afterAgainstGrown}, with the set: ${afterAgainstSet}; the rewrite back to the set: ${answerText(rederivedAnswer)}`
 							),
 							equivalence(
 								"VALIDATE against a constant that drops a stored member refuses with check_violation, naming the checked table",
