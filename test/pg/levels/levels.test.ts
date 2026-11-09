@@ -6,7 +6,7 @@ import { exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -24,6 +24,7 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -32,8 +33,8 @@ import { levelNameAt } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * One installation of two levels on PostgreSQL: a lower level `Lo` (a content model's items) and an upper level built
@@ -59,7 +60,11 @@ const Kind = closed("Kind", ["Practice", "Test"])
 const Item = relation("Item", { id: Code, n: pg.integer }, ["id"])
 const Sitting = relation("Sitting", { id: uuid, item: Code, kind: closedId(Kind) }, ["id"])
 
-/** The two levels and their worlds under `name`, the upper level under its allocated name (levelNameAt). */
+/**
+ * The two levels and their worlds under `name`, the upper level under its allocated name (levelNameAt), each login's
+ * workload holding its role's writes of the facts each call gives: the author adds and deletes items, and the learner
+ * adds and deletes sittings and reads the fused query, sittings joined to their items, and the lower level's items.
+ */
 const levelsAt = (name: string) => {
 	const lower = schema(name, { Kind, Item }, [])
 	const upper = schema.extend(lower, levelNameAt(name, 1), { Sitting }, [
@@ -67,13 +72,38 @@ const levelsAt = (name: string) => {
 	])
 	const author = role(lower, "author", wholeEntriesOf(lower), { write: writableNamesOf(lower) })
 	const learner = role(upper, "learner", wholeEntriesOf(upper), { write: ["Sitting"] })
+	const fused = query(upper).rule((r) => {
+		const { id, item, kind } = v(Sitting, "sitting")
+		const { n } = v(Item, "item")
+		return r.match(Sitting, { id, item, kind }).match(Item, { id: item, n }).find({ id, n })
+	})
+	const items = query(lower).rule((r) => {
+		const { id, n } = v(Item, "item")
+		return r.match(Item, { id, n }).find({ id, n })
+	})
 	return {
 		lower,
 		upper,
 		author,
 		learner,
-		authorApp: login(lower, "author_app", [author]),
-		app: login(upper, "app", [learner])
+		authorApp: login(lower, "author_app", [author], {
+			workload: [
+				workload(author, {
+					addItem: ChangeSet.empty(lower).insert(Item, []),
+					dropItem: ChangeSet.empty(lower).delete(Item, [])
+				})
+			]
+		}),
+		app: login(upper, "app", [learner], {
+			workload: [
+				workload(learner, {
+					addSitting: ChangeSet.empty(upper).insert(Sitting, []),
+					dropSitting: ChangeSet.empty(upper).delete(Sitting, []),
+					fused,
+					items
+				})
+			]
+		})
 	}
 }
 
@@ -199,12 +229,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						)
 						assert.equal(grants, "f,f", "no privilege on the other level's table")
 
-						const lowerContext = yield* Layer.build(loginLayer(done, at.authorApp))
-						const upperContext = yield* Layer.build(loginLayer(done, at.app))
-						const author = yield* compiledOpen(at.authorApp.roles.author, {}).pipe(
+						const lowerServed = yield* servedFixture(done, at.authorApp)
+						const upperServed = yield* servedFixture(done, at.app)
+						const lowerContext = yield* Layer.build(lowerServed.layer)
+						const upperContext = yield* Layer.build(upperServed.layer)
+						const author = yield* Db.open(lowerServed.login.roles.author, {}).pipe(
 							Effect.provideContext(lowerContext)
 						)
-						const learner = yield* compiledOpen(at.app.roles.learner, {}).pipe(
+						const learner = yield* Db.open(upperServed.login.roles.learner, {}).pipe(
 							Effect.provideContext(upperContext)
 						)
 						const containment = defined(
@@ -218,18 +250,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							level: levelNameAt(done.schema, 1),
 							law: containment
 						}
-						const fused = query(at.upper).rule((r) => {
-							const { id, item, kind } = v(Sitting, "sitting")
-							const { n } = v(Item, "item")
-							return r
-								.match(Sitting, { id, item, kind })
-								.match(Item, { id: item, n })
-								.find({ id, n })
-						})
-						const items = query(at.lower).rule((r) => {
-							const { id, n } = v(Item, "item")
-							return r.match(Item, { id, n }).find({ id, n })
-						})
 
 						return yield* explore(
 							{
@@ -269,10 +289,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (facts.items.has(op.id)) {
 													continue
 												}
-												const outcome = yield* author.apply(
-													ChangeSet.empty(at.lower).insert(Item, [
-														{ id: Code(idAt(op.id)), n: op.n }
-													]),
+												const outcome = yield* author.workload.addItem.apply(
+													{ Item: [{ id: Code(idAt(op.id)), n: op.n }] },
 													{}
 												)
 												if (outcome.kind !== "accepted") {
@@ -290,8 +308,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													continue
 												}
 												const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
-												const outcome = yield* author.apply(
-													ChangeSet.empty(at.lower).delete(Item, [{ id: Code(idAt(op.id)), n }]),
+												const outcome = yield* author.workload.dropItem.apply(
+													{ Item: [{ id: Code(idAt(op.id)), n }] },
 													{}
 												)
 												if (held) {
@@ -320,14 +338,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (facts.sittings.has(op.id)) {
 													continue
 												}
-												const outcome = yield* learner.apply(
-													ChangeSet.empty(at.upper).insert(Sitting, [
-														{
-															id: idAt(op.id),
-															item: Code(idAt(op.item)),
-															kind: op.test ? "Test" : "Practice"
-														}
-													]),
+												const outcome = yield* learner.workload.addSitting.apply(
+													{
+														Sitting: [
+															{
+																id: idAt(op.id),
+																item: Code(idAt(op.item)),
+																kind: op.test ? "Test" : "Practice"
+															}
+														]
+													},
 													{}
 												)
 												if (!facts.items.has(op.item)) {
@@ -361,14 +381,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (s === undefined) {
 													continue
 												}
-												const outcome = yield* learner.apply(
-													ChangeSet.empty(at.upper).delete(Sitting, [
-														{
-															id: idAt(op.id),
-															item: Code(idAt(s.item)),
-															kind: s.test ? "Test" : "Practice"
-														}
-													]),
+												const outcome = yield* learner.workload.dropSitting.apply(
+													{
+														Sitting: [
+															{
+																id: idAt(op.id),
+																item: Code(idAt(s.item)),
+																kind: s.test ? "Test" : "Practice"
+															}
+														]
+													},
 													{}
 												)
 												if (outcome.kind !== "accepted") {
@@ -381,7 +403,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												break
 											}
 										}
-										const joined = yield* (yield* learner.execute(fused, {})).collect
+										const joined = yield* (yield* learner.workload.fused.execute({})).collect
 										const expectedJoin = byId(
 											Arr.map([...facts.sittings], ([id, sitting]) => ({
 												id: idAt(id),
@@ -395,7 +417,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (expectedJoin.length > 0) {
 											c.note("a fused read of a sitting")
 										}
-										const read = yield* (yield* learner.execute(items, {})).collect
+										const read = yield* (yield* learner.workload.items.execute({})).collect
 										const expectedItems = byId(
 											Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
 										)
