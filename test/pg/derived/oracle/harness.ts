@@ -1,18 +1,7 @@
-import {
-	Array as Arr,
-	type Context,
-	Data,
-	Effect,
-	Layer,
-	Order,
-	Record as Rec,
-	type Scope
-} from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
-import type { ReaderValue } from "#adapter/reader/reader.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
+import { Array as Arr, Data, Effect, Order, Record as Rec, type Scope } from "effect"
+import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { type RefreshReport, runRefresh } from "#adapter/refresh/run.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -20,11 +9,13 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import type { AnyLogin, AnyLoginRole } from "#compiler/public/schema.ts"
+import { refreshMember } from "#compiler/program/workload/value.ts"
+import type { AnyLoginRole } from "#compiler/public/schema.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { assertVariant } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
@@ -36,17 +27,16 @@ import {
 } from "#test/support/oracle/perturb.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { checkedIn } from "#test/support/policy.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
 /** The refresh oracle's harness.
  *
  * A derived schema is installed by the fresh-install compiler with the derived relation extension under a fresh schema
- * name, its facts loaded as the owner, and the schema rebuilt under the installed name so Db.open logs in as the
- * installed roles (`explains` the rebuild). The oracle then reads, as the owner, in one read-only
+ * name, its facts loaded as the owner, and the schema rebuilt under the installed name so its login's served file names
+ * the installed roles (`explains` the rebuild). The oracle then reads, as the owner, in one read-only
  * snapshot:
  *
  * - each view's stored rows, as record text, with each row's tuple id and xmin: a row a refresh did not write keeps
@@ -216,65 +206,70 @@ export const installDerived = (
 		}
 	})
 
-/** The context a Db of a role of `login` runs on: a DbLayer built in the scope, exactly as an application builds one,
- * through the substrate's target. When the scope closes, the layer closes its pool; the substrate's release of the
- * login's role, at the end of the installation's scope, is the one judge of a session left behind. The harness's config
- * is always one a connection can use, so a refusal of it is a defect of the harness. */
-const dbContextAs = (
-	o: Opened,
-	login: AnyLogin
-): Effect.Effect<Context.Context<DbLayerOf<AnyLogin>>, never, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		return yield* Effect.orDie(Layer.build(loginLayerIn(s.database, o.installed, login)))
+/** Which plan a refresh runs under: the case's plan perturbation, or its complement, the plan of a second reading. */
+export type RefreshPlan = "case" | "complement"
+
+/** A case's Db of one role, opened through its login's served file. */
+export interface CaseDb {
+	/** Every fact of the relation the reads name `name`, read through its served member (everyFact). */
+	readonly read: (name: string) => Effect.Effect<ReadonlyArray<unknown>, ReadError>
+	/**
+	 * A refresh of `named` through a refresh member compiled for the Db's role, refresh(...named), run on the Db's
+	 * context under `plan`, every transaction of it setting the plan's planner settings (perturb.ts perturbedContext),
+	 * and its statements.
+	 */
+	readonly refresh: (
+		named: Arr.NonEmptyReadonlyArray<unknown>,
+		plan: RefreshPlan
+	) => Effect.Effect<RefreshReport, ApplyError | ServedRefusal | OpenError>
+}
+
+/**
+ * The query that reads every fact of a derived relation `value` of `top`: one match binding each of its `columns`, a
+ * generated schema's type being known only at run time.
+ */
+export const everyFact = (top: unknown, value: unknown, columns: ReadonlyArray<string>): unknown =>
+	query(top).rule((r: RuleValue) => {
+		const vars = v(value, "value")
+		const bound = Rec.fromEntries(Arr.map(columns, (c) => [c, vars[c]]))
+		return r.match(value, bound).find(bound)
 	})
 
-/** Opens `role`, a role reached through its login over the schema rebuilt under the installed name, in the scope, through the runtime
- * Db.open runs: a generated schema's type is known only at run time, and the typed facade is
- * the type tests' subject. It yields the Db's reader, the one db.execute dispatches to, and the Db's contexts for
- * refresh reports.
- *
- * `ctx` carries the case's plan perturbation, so every refresh through it sets the case's planner settings in its
- * transaction, and `again` its complement (perturb.ts complementOf), the plan of a second reading. */
-export const openCaseDb = (
+/**
+ * Opens `role`, a role reached through its login over the schema rebuilt under the installed name, through the login's
+ * served file (test/support/served-db.ts withServedDb), with `reads` served as its members by name, and runs `body` with
+ * the case's Db (CaseDb), under the case's plan perturbation (CurrentPerturbation).
+ */
+export const withCaseDb = <A, E>(
 	o: Opened,
-	role: AnyLoginRole
-): Effect.Effect<
-	{ readonly db: ReaderValue; readonly ctx: DbContext; readonly again: DbContext },
-	OpenError,
-	Substrate | Scope.Scope
-> =>
+	role: AnyLoginRole,
+	reads: Readonly<Record<string, unknown>>,
+	body: (db: CaseDb) => Effect.Effect<A, E, Scope.Scope | Substrate>
+): Effect.Effect<A, E | ServedRefusal | OpenError, Scope.Scope | Substrate> =>
 	Effect.gen(function* () {
+		const substrate = yield* Substrate
 		const perturbation = yield* CurrentPerturbation
-		const context = yield* dbContextAs(o, role.login)
-		const { ctx } = yield* openDbContext(role, { token: tokenOf({}) }).pipe(
-			Effect.provideContext(context)
+		return yield* withServedDb(o.installed, role, {}, ({ ctx, load, serve }) =>
+			Effect.gen(function* () {
+				const members = yield* serve(reads)
+				const contexts = {
+					case: perturbedContext(ctx, perturbation),
+					complement: perturbedContext(ctx, complementOf(perturbation))
+				}
+				const db: CaseDb = {
+					read: (name) => Effect.flatMap(member(members, name).execute({}), (r) => r.collect),
+					refresh: (named, plan) =>
+						Effect.gen(function* () {
+							const loaded = yield* load({ refresh: refreshMember(...named) })
+							const refresh = member(loaded, "refresh")
+							assertVariant(refresh, "kind", "refresh", "refresh(...) loads a refresh member")
+							return yield* Effect.scoped(runRefresh(contexts[plan], refresh.targets))
+						})
+				}
+				return yield* Effect.provideService(body(db), Substrate, substrate)
+			})
 		)
-		return {
-			db: dbReader(ctx),
-			ctx: perturbedContext(ctx, perturbation),
-			again: perturbedContext(ctx, complementOf(perturbation))
-		}
 	})
-
-/** Every fact of a derived relation, read through the Db: a query matching each of its fields. */
-export const readAll = (
-	db: ReaderValue,
-	top: unknown,
-	value: unknown,
-	columns: ReadonlyArray<string>
-): Effect.Effect<ReadonlyArray<unknown>, ReadError> =>
-	Effect.flatMap(
-		db.execute(
-			query(top).rule((r: RuleValue) => {
-				const vars = v(value, "value")
-				const bound = Rec.fromEntries(Arr.map(columns, (c) => [c, vars[c]]))
-				return r.match(value, bound).find(bound)
-			}),
-			{}
-		),
-		(result) => result.collect
-	)
 
 const viewRows = (session: PgConnection, o: Opened, relation: string) =>
 	Effect.map(

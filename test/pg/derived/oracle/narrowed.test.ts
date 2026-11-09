@@ -5,7 +5,6 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { refreshReport } from "#adapter/refresh/index.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -13,7 +12,7 @@ import { derived, login, relation, role, schema } from "#compiler/public/schema.
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { installDerived, type Opened, openCaseDb } from "#test/pg/derived/oracle/harness.ts"
+import { installDerived, type Opened, withCaseDb } from "#test/pg/derived/oracle/harness.ts"
 import { assert } from "#test/support/assert.ts"
 import { oracleCheck } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -132,8 +131,9 @@ const property = (sketch: Sketch, c: Case<NarrowedFeature>) =>
 			}
 			const o = yield* installDerived(declared.top, facts, "dnarrow", [declared.server])
 			const rebuilt = build(o.installed.declared)
-			const { ctx } = yield* openCaseDb(o, rebuilt.server.roles.refresher)
-			yield* refreshReport(ctx, [rebuilt.Narrowed])
+			yield* withCaseDb(o, rebuilt.server.roles.refresher, {}, (db) =>
+				db.refresh([rebuilt.Narrowed], "case")
+			)
 			const expected = expectedRows(sketch)
 			const stored: ReadonlyArray<string> = yield* rowsOf(o, "view")
 			const defined: ReadonlyArray<string> = yield* rowsOf(o, "definition")

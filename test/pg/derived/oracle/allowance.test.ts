@@ -5,7 +5,6 @@ import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
-import { refreshReport } from "#adapter/refresh/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -18,7 +17,7 @@ import { schema } from "#compiler/schema/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { pick } from "#test/pg/derived/oracle/gen.ts"
-import { installDerived, type Opened, openCaseDb, reload } from "#test/pg/derived/oracle/harness.ts"
+import { installDerived, type Opened, reload, withCaseDb } from "#test/pg/derived/oracle/harness.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { oracleCheck } from "#test/support/oracle/runner.ts"
@@ -295,78 +294,82 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 			const facts = factsOf(sketch)
 			const o = yield* installDerived(declared.top, facts, "dallow", [declared.server])
 			const rebuilt = build(o.installed.declared, items)
-			const { ctx } = yield* openCaseDb(o, rebuilt.server.roles.refresher)
-			const named = Arr.map(items, (m) => rebuilt.values[m.name])
-			const all = Arr.isReadonlyArrayNonEmpty(named)
-				? named
-				: yield* Effect.die(new Error("a sketch picks at least one derived relation"))
-			const groups = groupsOf(sketch)
-			if (
-				Arr.some(items, (m) => m.name === "Top" || m.name === "Low") &&
-				Arr.some(groups, (g) =>
-					Arr.some(g, (a, i) =>
-						Arr.some(
-							g.slice(i + 1),
-							(b) =>
-								a.amount !== b.amount &&
-								decimalValue(pick(spellings, a.amount)) === decimalValue(pick(spellings, b.amount))
+			yield* withCaseDb(o, rebuilt.server.roles.refresher, {}, (db) =>
+				Effect.gen(function* () {
+					const named = Arr.map(items, (m) => rebuilt.values[m.name])
+					const all = Arr.isReadonlyArrayNonEmpty(named)
+						? named
+						: yield* Effect.die(new Error("a sketch picks at least one derived relation"))
+					const groups = groupsOf(sketch)
+					if (
+						Arr.some(items, (m) => m.name === "Top" || m.name === "Low") &&
+						Arr.some(groups, (g) =>
+							Arr.some(g, (a, i) =>
+								Arr.some(
+									g.slice(i + 1),
+									(b) =>
+										a.amount !== b.amount &&
+										decimalValue(pick(spellings, a.amount)) ===
+											decimalValue(pick(spellings, b.amount))
+								)
+							)
 						)
-					)
-				)
-			) {
-				c.note("a min or max over a value in two spellings")
-			}
-			if (
-				Arr.some(items, (m) => m.name === "Totals" || m.name === "Means") &&
-				Arr.some(groups, (g) => g.length >= 2)
-			) {
-				c.note("a float aggregate over two inexact doubles")
-			}
-			yield* refreshReport(ctx, all)
-			for (const item of items) {
-				const stored = yield* rowsOf(o, item, "view")
-				const definition = yield* rowsOf(o, item, "definition")
-				assert.equal(stored.length, definition.length, `${item.name} has its definition's rows`)
-				for (const row of stored) {
-					const match = Arr.filter(
-						definition,
-						(d) => groupOf(item.columns, d) === groupOf(item.columns, row)
-					)
-					assert.equal(match.length, 1, `${item.name} group ${groupOf(item.columns, row)}`)
-					const definedRow = defined(
-						match[0],
-						`${item.name}: the row of its group in the definition`
-					)
+					) {
+						c.note("a min or max over a value in two spellings")
+					}
+					if (
+						Arr.some(items, (m) => m.name === "Totals" || m.name === "Means") &&
+						Arr.some(groups, (g) => g.length >= 2)
+					) {
+						c.note("a float aggregate over two inexact doubles")
+					}
+					yield* db.refresh(all, "case")
+					for (const item of items) {
+						const stored = yield* rowsOf(o, item, "view")
+						const definition = yield* rowsOf(o, item, "definition")
+						assert.equal(stored.length, definition.length, `${item.name} has its definition's rows`)
+						for (const row of stored) {
+							const match = Arr.filter(
+								definition,
+								(d) => groupOf(item.columns, d) === groupOf(item.columns, row)
+							)
+							assert.equal(match.length, 1, `${item.name} group ${groupOf(item.columns, row)}`)
+							const definedRow = defined(
+								match[0],
+								`${item.name}: the row of its group in the definition`
+							)
+							assert.ok(
+								equivalent(item.columns, row, definedRow),
+								`${item.name}: ${row.text} equals its definition's ${definedRow.text} modulo a numeric's spelling`
+							)
+						}
+					}
+					const before = new Map<string, ReadonlyArray<Row>>()
+					for (const item of items) {
+						const rows = yield* rowsOf(o, item, "view")
+						before.set(item.name, rows)
+					}
+					yield* reload(o, { Amount: permuted(facts.Amount, sketch.shuffle) })
+					const report = yield* db.refresh(all, "case")
 					assert.ok(
-						equivalent(item.columns, row, definedRow),
-						`${item.name}: ${row.text} equals its definition's ${definedRow.text} modulo a numeric's spelling`
+						Arr.every(report.statements, (s) => s.concurrently),
+						"a refresh of populated views runs every statement concurrently"
 					)
-				}
-			}
-			const before = new Map<string, ReadonlyArray<Row>>()
-			for (const item of items) {
-				const rows = yield* rowsOf(o, item, "view")
-				before.set(item.name, rows)
-			}
-			yield* reload(o, { Amount: permuted(facts.Amount, sketch.shuffle) })
-			const report = yield* refreshReport(ctx, all)
-			assert.ok(
-				Arr.every(report.statements, (s) => s.concurrently),
-				"a refresh of populated views runs every statement concurrently"
+					for (const item of items) {
+						const then = before.get(item.name) ?? []
+						const now = yield* rowsOf(o, item, "view")
+						const kept = new Set(Arr.map(then, (r) => r.tuple))
+						for (const row of now) {
+							assert.ok(
+								kept.has(row.tuple),
+								`${item.name}: the refresh rewrote ${row.text}, though no base value changed`
+							)
+							c.note("row kept")
+						}
+						assert.equal(now.length, then.length, `${item.name} keeps its groups`)
+					}
+				})
 			)
-			for (const item of items) {
-				const then = before.get(item.name) ?? []
-				const now = yield* rowsOf(o, item, "view")
-				const kept = new Set(Arr.map(then, (r) => r.tuple))
-				for (const row of now) {
-					assert.ok(
-						kept.has(row.tuple),
-						`${item.name}: the refresh rewrote ${row.text}, though no base value changed`
-					)
-					c.note("row kept")
-				}
-				assert.equal(now.length, then.length, `${item.name} keeps its groups`)
-			}
 		})
 	)
 

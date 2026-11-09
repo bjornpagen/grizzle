@@ -1,14 +1,13 @@
 import type { Case } from "@grizzle/testing/explore"
 import { set } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
 	type OpenError,
 	type ReadError,
 	ReadFailure
 } from "#adapter/errors/execution.ts"
-import { refreshReport } from "#adapter/refresh/index.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type AggregateKey,
@@ -24,14 +23,16 @@ import {
 } from "#test/pg/derived/oracle/gen.ts"
 
 import {
+	type CaseDb,
+	everyFact,
 	installDerived,
 	type Opened,
 	OracleFixtureFailed,
-	openCaseDb,
-	readAll,
 	readOf,
+	type RefreshPlan,
 	reload,
-	snapshotOf
+	snapshotOf,
+	withCaseDb
 } from "#test/pg/derived/oracle/harness.ts"
 import { assert, failureOf, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue, identicalValue, valueHash } from "#test/support/equivalence.ts"
@@ -48,9 +49,10 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * The generated refresh oracle's property.
  *
- * For each generated case the oracle installs the schema with its base facts, opens a Db as the refresher,
- * and runs a sequence of db.refresh calls, each after a base change, after no change, or after the same facts are
- * reloaded (in their order or reversed), checking after every call:
+ * For each generated case the oracle installs the schema with its base facts, opens a Db as the refresher through
+ * its login's served file, and runs a sequence of refresh calls, each a refresh member of the role naming what the call
+ * names, after a base change, after no change, or after the same facts are reloaded (in their order or reversed),
+ * checking after every call:
  *
  * - the call refreshed exactly the relations it named, once each, in level order and then declared order, whatever
  *   order it named them in and however often; a view not populated before the call took a plain
@@ -99,11 +101,12 @@ interface Call {
 	readonly unchanged: boolean
 }
 
-/** One db.refresh call and every check of it. */
+/** One refresh call, through `db` under `plan`, and every check of it. */
 const checkCall = (
 	g: GenSchema,
 	o: Opened,
-	ctx: DbContext,
+	db: CaseDb,
+	plan: RefreshPlan,
 	populated: Set<string>,
 	call: Call,
 	c: Case<DerivedFeature>
@@ -113,7 +116,7 @@ const checkCall = (
 		const values = new Map(Arr.map(g.derived, (d) => [d.name, d.value]))
 		const named = Arr.map(call.named, (n) => values.get(n))
 		const report = Arr.isReadonlyArrayNonEmpty(named)
-			? yield* refreshReport(ctx, named)
+			? yield* db.refresh(named, plan)
 			: { statements: [] }
 		const expected = Arr.filter(g.refreshOrder, (n) => call.named.includes(n))
 		assert.deepEqual(
@@ -202,6 +205,7 @@ export const derivedCase = (
 	| SqlError
 	| TransactionRolledBack
 	| OpenError
+	| ServedRefusal
 	| ApplyError
 	| ReadError,
 	Substrate
@@ -212,127 +216,139 @@ export const derivedCase = (
 			let facts = initialFacts(declared, sketch)
 			const o = yield* installDerived(declared.value, facts, "doracle", [declared.server])
 			const g = buildSchema(sketch, { name: o.installed.declared })
-			const { db, ctx, again } = yield* openCaseDb(o, g.refresher)
-			const order = g.refreshOrder
-			const byName = new Map(Arr.map(g.derived, (d) => [d.name, d]))
-			for (const d of g.derived) {
-				c.note(`form ${d.form}`)
-				if (d.level === 2 || d.level === 3) {
-					c.note(`level ${d.level}`)
-				}
-				if (d.negation) {
-					c.note("negation")
-				}
-				c.noteAll(d.aggregates)
-			}
-			const read = (name: string) => {
-				const d = byName.get(name)
-				if (d === undefined) {
-					return Effect.die(new OracleFixtureFailed({ message: `no derived relation ${name}` }))
-				}
-				return readAll(
-					db,
-					g.value,
-					d.value,
-					Arr.map(d.columns, (column) => column.name)
-				)
-			}
-			/** Before the first refresh PostgreSQL refuses to read the view. */
-			const [lowest] = order
-			assert.ok(lowest !== undefined, "the case declares a derived relation")
-			const early = yield* failureOf(read(lowest))
-			assert.ok(
-				early instanceof ReadFailure,
-				`a read before the first refresh is ReadFailure, not ${String(early)}`
-			)
-			const populated = new Set<string>()
-			/** The first call names a downward-closed subset, so no named definition reads an unpopulated view. */
-			const firstNamed = downwardClosed(g, namedIn(order, sketch.first, sketch.first, false))
-			yield* checkCall(
-				g,
-				o,
-				ctx,
-				populated,
-				{ label: "call 0", named: firstNamed, unchanged: false },
-				c
-			)
-			for (const name of order) {
-				if (populated.has(name)) {
-					const rows = yield* read(name)
-					const snapshot = yield* snapshotOf(o, [name], [])
-					const stored = readOf(snapshot.stored, name)
-					assert.equal(rows.length, stored.length, `the Db reads every row ${name} stores`)
-				} else {
-					const refused = yield* failureOf(read(name))
-					assert.ok(refused instanceof ReadFailure, `${name}, still unpopulated, is ReadFailure`)
-					c.note("unpopulated reads")
-				}
-			}
-			for (const [i, step] of sketch.steps.entries()) {
-				const change = step.change % 5
-				let unchanged = true
-				if (change <= 1) {
-					const next = changedFacts(g, facts, step)
-					unchanged = Option.isNone(exactValue(next, facts))
-					facts = next
-					yield* reload(o, facts)
-					c.note("base changes")
-				} else if (change === 3) {
-					yield* reload(o, facts)
-					c.note("identical reloads")
-				} else if (change === 4) {
-					yield* reload(o, reversed(facts))
-					c.note("reordered reloads")
-				}
-				/** The named relations and the unpopulated views they read, directly or not. */
-				const named = namedIn(order, step.names, step.shuffle, step.repeat)
-				const needed = Arr.filter(downwardClosed(g, named), (n) => !populated.has(n))
-				const label = `call ${i + 1} (${["change", "change", "no change", "identical reload", "reordered reload"][change]})`
-				yield* checkCall(
-					g,
-					o,
-					ctx,
-					populated,
-					{ label, named: [...named, ...needed], unchanged },
-					c
-				)
-			}
-			yield* checkCall(
-				g,
-				o,
-				ctx,
-				populated,
-				{ label: "final call", named: order, unchanged: false },
-				c
-			)
-			const readEvery = Effect.forEach(order, (name) =>
-				Effect.map(read(name), (rows) => [name, rows] as const)
-			)
-			const firstRead = yield* readEvery
-			const first = new Map(firstRead)
-			const restorage = yield* CurrentRestorage
-			const restored = restoredDerivedFacts(g, facts, restorage)
-			if (restored.respelled) {
-				c.note("a fact respelled on a second reading")
-			}
-			yield* reload(o, restored.facts)
-			yield* checkCall(
-				g,
-				o,
-				again,
-				populated,
-				{ label: "the second reading", named: order, unchanged: true },
-				c
-			)
-			const secondRead = yield* readEvery
-			const second = new Map(secondRead)
-			for (const name of order) {
-				const difference = set(valueHash, identicalValue)(readOf(second, name), readOf(first, name))
-				if (Option.isSome(difference)) {
-					return assert.fail(
-						`the second reading: ${name}, refreshed over its facts with one value respelled under the complement plan, reads otherwise: ${difference.value}`
+			/** Every derived relation's facts, read through a served member of the role under its name. */
+			const reads = Record.fromEntries(
+				Arr.map(g.derived, (d) => [
+					d.name,
+					everyFact(
+						g.value,
+						d.value,
+						Arr.map(d.columns, (column) => column.name)
 					)
-				}
-			}
+				])
+			)
+			yield* withCaseDb(o, g.refresher, reads, (db) =>
+				Effect.gen(function* () {
+					const order = g.refreshOrder
+					for (const d of g.derived) {
+						c.note(`form ${d.form}`)
+						if (d.level === 2 || d.level === 3) {
+							c.note(`level ${d.level}`)
+						}
+						if (d.negation) {
+							c.note("negation")
+						}
+						c.noteAll(d.aggregates)
+					}
+					const read = (name: string) => db.read(name)
+					/** Before the first refresh PostgreSQL refuses to read the view. */
+					const [lowest] = order
+					assert.ok(lowest !== undefined, "the case declares a derived relation")
+					const early = yield* failureOf(read(lowest))
+					assert.ok(
+						early instanceof ReadFailure,
+						`a read before the first refresh is ReadFailure, not ${String(early)}`
+					)
+					const populated = new Set<string>()
+					/** The first call names a downward-closed subset, so no named definition reads an unpopulated view. */
+					const firstNamed = downwardClosed(g, namedIn(order, sketch.first, sketch.first, false))
+					yield* checkCall(
+						g,
+						o,
+						db,
+						"case",
+						populated,
+						{ label: "call 0", named: firstNamed, unchanged: false },
+						c
+					)
+					for (const name of order) {
+						if (populated.has(name)) {
+							const rows = yield* read(name)
+							const snapshot = yield* snapshotOf(o, [name], [])
+							const stored = readOf(snapshot.stored, name)
+							assert.equal(rows.length, stored.length, `the Db reads every row ${name} stores`)
+						} else {
+							const refused = yield* failureOf(read(name))
+							assert.ok(
+								refused instanceof ReadFailure,
+								`${name}, still unpopulated, is ReadFailure`
+							)
+							c.note("unpopulated reads")
+						}
+					}
+					for (const [i, step] of sketch.steps.entries()) {
+						const change = step.change % 5
+						let unchanged = true
+						if (change <= 1) {
+							const next = changedFacts(g, facts, step)
+							unchanged = Option.isNone(exactValue(next, facts))
+							facts = next
+							yield* reload(o, facts)
+							c.note("base changes")
+						} else if (change === 3) {
+							yield* reload(o, facts)
+							c.note("identical reloads")
+						} else if (change === 4) {
+							yield* reload(o, reversed(facts))
+							c.note("reordered reloads")
+						}
+						/** The named relations and the unpopulated views they read, directly or not. */
+						const named = namedIn(order, step.names, step.shuffle, step.repeat)
+						const needed = Arr.filter(downwardClosed(g, named), (n) => !populated.has(n))
+						const label = `call ${i + 1} (${["change", "change", "no change", "identical reload", "reordered reload"][change]})`
+						yield* checkCall(
+							g,
+							o,
+							db,
+							"case",
+							populated,
+							{ label, named: [...named, ...needed], unchanged },
+							c
+						)
+					}
+					yield* checkCall(
+						g,
+						o,
+						db,
+						"case",
+						populated,
+						{ label: "final call", named: order, unchanged: false },
+						c
+					)
+					const readEvery = Effect.forEach(order, (name) =>
+						Effect.map(read(name), (rows) => [name, rows] as const)
+					)
+					const firstRead = yield* readEvery
+					const first = new Map(firstRead)
+					const restorage = yield* CurrentRestorage
+					const restored = restoredDerivedFacts(g, facts, restorage)
+					if (restored.respelled) {
+						c.note("a fact respelled on a second reading")
+					}
+					yield* reload(o, restored.facts)
+					yield* checkCall(
+						g,
+						o,
+						db,
+						"complement",
+						populated,
+						{ label: "the second reading", named: order, unchanged: true },
+						c
+					)
+					const secondRead = yield* readEvery
+					const second = new Map(secondRead)
+					for (const name of order) {
+						const difference = set(valueHash, identicalValue)(
+							readOf(second, name),
+							readOf(first, name)
+						)
+						if (Option.isSome(difference)) {
+							return assert.fail(
+								`the second reading: ${name}, refreshed over its facts with one value respelled under the complement plan, reads otherwise: ${difference.value}`
+							)
+						}
+					}
+				})
+			)
 		})
 	)

@@ -1,6 +1,6 @@
 import { type Gen, int, subarray } from "@grizzle/testing/gen"
 import { Array as Arr, Context, Effect, Option, Order, pipe, String as Str } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -323,12 +323,15 @@ const plannedSession = (session: Session, statement: EmittedText): Session => ({
 })
 
 /**
- * An opened Db's context whose every transaction sets a perturbation's planner settings: its pool's sessions send
- * plannerSelect as the first statement of every transaction, after BEGIN. The Db's operations on this context
- * (apply, runApplication, refresh) run under the settings; the opened Db's own context is untouched, so admission and
- * every other caller see the role exactly as installed.
+ * An opened Db's context, served or compiled in process, whose every transaction sets a perturbation's planner
+ * settings: its pool's sessions send plannerSelect as the first statement of every transaction, after BEGIN. The Db's
+ * operations on this context (a member's reads, apply, runApplication, refresh) run under the settings; the opened Db's
+ * own context is untouched, so every other caller sees the role exactly as installed.
  */
-export const perturbedContext = (ctx: DbContext, p: Perturbation): DbContext =>
+export const perturbedContext = <C extends Pick<ServedDbContext, "pool">>(
+	ctx: C,
+	p: Perturbation
+): C =>
 	p.settings.length === 0
 		? ctx
 		: {
