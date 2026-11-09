@@ -210,12 +210,20 @@ export type Schedule<A> =
 	| { readonly kind: "cycle"; readonly cycle: NonEmptyReadonlyArray<Write<A>> }
 
 /**
- * What the schedule reads of an action: what it does, and whether its relation is a pure set, whose every field its
- * primary key holds (write/frontend/targets.ts Payload), so that a put of it displaces nothing.
+ * Where two distinct facts of a relation meet, which decides what its removals free for its additions:
+ * - `key`: at its primary key, which leaves a payload outside it (write/frontend/targets.ts Payload): a put displaces the
+ *   fact at each key it writes, and a removal frees a key an addition may take;
+ * - `unique`: a pure set's, each fact its own primary key, at a unique object besides it: a put displaces nothing, and a
+ *   removal frees a value of that object an addition may take;
+ * - `nowhere`: a pure set's with no unique object besides its primary key: a put displaces nothing, and no fact an
+ *   addition gives meets one a removal frees but itself, which the removal's D EXCEPT A keeps.
  */
+export type Meeting = "key" | "unique" | "nowhere"
+
+/** What the schedule reads of an action: what it does, and where facts of its relation meet (`Meeting`). */
 interface Scheduled {
 	readonly action: ActionCore
-	readonly pureSet: boolean
+	readonly meeting: Meeting
 }
 
 /**
@@ -240,8 +248,18 @@ const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
  * each key it writes. A pure set's put displaces nothing: its fact at a key is the key, so its put only adds.
  */
 const removes = (s: Scheduled): boolean =>
-	s.action.op === "delete" || (s.action.op === "put" && !s.pureSet)
+	s.action.op === "delete" || (s.action.op === "put" && s.meeting === "key")
 const adds = (s: Scheduled): boolean => s.action.op === "insert" || s.action.op === "put"
+
+/**
+ * Whether `b` runs after `a`, two actions of one relation: in a later phase, but for a deletion before a put or an
+ * insert of given facts where the relation's facts meet nowhere (`Meeting`): every fact the addition gives is its own
+ * key, so it meets no fact the deletion frees, and either order leaves the stratum's one state. A generated addition
+ * still follows it, its draws meeting a value the deletion frees.
+ */
+const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>
+	phaseOf(a.action) < phaseOf(b.action) &&
+	!(a.meeting === "nowhere" && a.action.op === "delete" && phaseOf(b.action) < 3)
 
 /** The canonical order of a stratum's actions: relation, phase, then (the sort being stable) the order given. */
 const scheduledOrder: Order.Comparator<Scheduled> = Order.combine(
@@ -268,7 +286,8 @@ export const canonicalActionOrder = <A extends Scheduled>(
  * - On one relation, removals come before additions, because primary keys and UNIQUE constraints are immediate and
  *   cannot be wished away: the exact deletions first, then the puts, whose implied deletion frees each
  *   replaced key before its insertion, then the inserts with explicit or no serial values, then the generated
- *   additions. An insert after the puts meets a put's new fact as an exact repeat or a conflict witness of the insert
+ *   additions. A relation whose facts meet nowhere (`Meeting`) takes its deletion in any order beside its puts and
+ *   inserts, since no fact they give meets one the deletion frees. An insert after the puts meets a put's new fact as an exact repeat or a conflict witness of the insert
  *   protocol, never as a displaced occupant, which is what makes a put and an insert of one key with different
  *   payloads a key conflict; and the sequence advance after explicit serial values precedes every
  *   value a generated addition draws.
@@ -277,7 +296,7 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   order until COMMIT, so it orders nothing. A put is both a removal and an addition, but a pure set's put displaces
  *   nothing and is an addition alone, and an immediate foreign key's target is a pure set under the deferral rule (a
  *   reference into a relation that has a field outside the referenced columns is deferred): so C's put follows P's.
- *   Where the rules still order actions in a cycle, as a deletion and an insertion of one relation around a put of
+ *   Where the rules still order actions in a cycle, as a deletion and an insertion of one relation whose facts meet around a put of
  *   another that references it, no order keeps every key at every statement, and that cycle is the schedule.
  *
  * Family statements are ordered by the same keys, and among themselves only where the family planner's rows require
@@ -333,7 +352,7 @@ export const scheduleStratum = <A extends Scheduled>(
 			const a = xa.action
 			const b = ya.action
 			if (a.relation === b.relation) {
-				if (phaseOf(a) < phaseOf(b)) {
+				if (followsOnRelation(xa, ya)) {
 					y.follows.add(x)
 				}
 				continue
@@ -635,7 +654,7 @@ interface Effect {
 const actionEffect = (action: Scheduled): Effect => ({
 	adds: adds(action),
 	removes: action.action.op === "delete",
-	updates: action.action.op === "put" && !action.pureSet
+	updates: action.action.op === "put" && action.meeting === "key"
 })
 
 /**

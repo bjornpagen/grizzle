@@ -105,6 +105,7 @@ import {
 	type GeneratedColumn,
 	generating,
 	type ImmediateReference,
+	type Meeting,
 	scheduleStratum,
 	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
@@ -273,6 +274,15 @@ export type WrittenRelation = RelationInfo & {
 	/** The host's same-key checks of its enumerated additions. */
 	readonly host: HostChecks
 }
+
+/** Where facts of a written relation meet (schedule.ts Meeting): at its primary key where it has a payload, else at a
+ * unique object besides it where it has one, else nowhere. */
+const meetingOf = (relation: WrittenRelation): Meeting =>
+	payloadOf(relation).kind === "keyed"
+		? "key"
+		: isNonEmpty(relation.uniques.others)
+			? "unique"
+			: "nowhere"
 
 /** A delta some read-back names (`ReadBack.deltas`), and the sides the read-backs name: an ordinary relation's,
  * read whole or through the query entry the role writes it by, whose delta is the relation's projected onto the
@@ -2111,9 +2121,7 @@ const compile = (
 	 * since no order of its statements keeps every key at every statement. */
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
 		const schedule = scheduleStratum(
-			canonicalActionOrder(
-				built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
-			),
+			canonicalActionOrder(built.map((b) => ({ ...b, meeting: meetingOf(b.info.relation) }))),
 			familyNodesOf(stratum),
 			pairs,
 			references,

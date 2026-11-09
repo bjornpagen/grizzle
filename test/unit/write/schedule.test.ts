@@ -14,6 +14,7 @@ import {
 	type FamilyNode as AnyFamilyNode,
 	type FamilyPair,
 	type ImmediateReference,
+	type Meeting,
 	type MemberEdit,
 	type MemberOp,
 	type RefillOrder,
@@ -30,23 +31,25 @@ type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removal
 
 /**
  * A stratum's schedule holds an immediate foreign key at every statement, or names a cycle no order keeps. A stratum's
- * actions are over a relation C and a pure set P that C references immediately, the foreign key grizzle makes
- * immediate only into a pure set: at most one action of each operation on P, and one on C or none. Its shape is which
- * actions it holds, with C named first or second and C with a payload or a pure set itself; its instances are every
- * lawful state of a small box with every lawful write of that shape.
+ * actions are over a relation C and a relation P that C references immediately at every field of P, the foreign key
+ * grizzle makes immediate only into a relation it references whole: at most one action of each operation on P, and one
+ * on C or none. Its shape is which actions it holds, with C named first or second, and each of C and P with a payload,
+ * every fact of it at its one key, or a pure set, each fact its own key; its instances are every lawful state of a small
+ * box with every lawful write of that shape.
  *
  * The oracle is a model of the statements each action sends, not of the schedule's rule: a deletion removes its facts;
  * an insertion adds them; a put of a relation with a payload displaces the occupant of its key, then inserts; a pure
  * set's put inserts alone, since its fact at a key is the key; and, as the host's normalization does, a fact both
  * deleted and added is only added, and one both put and inserted only put. Every order of a stratum's actions reaches
- * the stratum's one final state; the schedule decides only the states between its statements.
+ * the stratum's one final state; the schedule decides only the states between its statements, after each of which
+ * every C fact references a P fact and a relation with a payload holds one fact at its key.
  *
- * - Where the schedule orders a shape, its order keeps every C fact's reference in P after each statement of every
- *   instance.
+ * - Where the schedule orders a shape, its order keeps every instance after each statement.
  * - Where it names a cycle, the cycle's actions are the shape's, and every order of the shape's actions that runs each
- *   relation's deletion before its put and its put before its insertion, as immediate keys the schedule cannot see the
- *   facts of require, leaves some C fact referencing no P fact after some statement of some instance: no order keeps
- *   the stratum, and the front end refuses it (UnorderableStratum) where it used to drop an edge and fail at the server.
+ *   relation with a payload's deletion before its put and its put before its insertion, as immediate keys whose
+ *   occupants the schedule cannot see require, fails some instance after some statement: no order keeps the stratum,
+ *   and the front end refuses it (UnorderableStratum) where it used to drop an edge and fail at the server. A pure set's
+ *   actions go in any order: no fact one adds meets a fact another removes but itself.
  */
 
 type Op = "delete" | "put" | "insert"
@@ -54,12 +57,15 @@ type Op = "delete" | "put" | "insert"
 /** The phase of an operation on its own relation, the schedule's: deletions, then puts, then insertions. */
 const phase: { readonly [O in Op]: number } = { delete: 0, put: 1, insert: 2 }
 
-/** A stratum's shape: its actions, C's name and C's payload. */
+/** A stratum's shape: its actions, C's name and C's and P's payloads. */
 interface Shape {
 	/** Whether C sorts before P by name, so the canonical order puts C's action first. */
 	readonly sourceFirst: boolean
 	/** Whether C has a payload, its reference outside its key, so its put displaces the occupant of its key. */
 	readonly keyed: boolean
+	/** Whether P has a payload, every fact of it at its one key, so its put displaces the occupant there and an insert
+	 * meets it. */
+	readonly targetKeyed: boolean
 	readonly onP: ReadonlyArray<Op>
 	readonly onC: ReadonlyArray<Op>
 }
@@ -90,6 +96,14 @@ const holds = (s: State): boolean => Arr.every(s.c, ([, ref]) => s.p.includes(re
 /** Whether C's facts keep its key: a C with a payload holds at most one fact at its one id. */
 const keyed = (shape: Shape, c: ReadonlyArray<Fact>): boolean => !shape.keyed || c.length <= 1
 
+/** Whether P's facts keep its key: a P with a payload holds at most one fact at its one key. */
+const targetKeyed = (shape: Shape, p: ReadonlyArray<number>): boolean =>
+	!shape.targetKeyed || p.length <= 1
+
+/** Whether a state keeps every immediate constraint: C's references and both relations' keys. */
+const lawful = (shape: Shape, s: State): boolean =>
+	holds(s) && keyed(shape, s.c) && targetKeyed(shape, s.p)
+
 /**
  * An instance's writes as the host's normalization leaves them: a P id both deleted and added is only added, and one both
  * put and inserted is only put; C writes one fact.
@@ -119,9 +133,12 @@ const statementsOf = (
 ): ReadonlyArray<(s: State) => State> => {
 	if (w.relation === "P") {
 		const [id] = w.fact
+		const add = (s: State): State => (s.p.includes(id) ? s : { ...s, p: [...s.p, id] })
 		return w.op === "delete"
 			? [(s) => ({ ...s, p: Arr.filter(s.p, (x) => x !== id) })]
-			: [(s) => (s.p.includes(id) ? s : { ...s, p: [...s.p, id] })]
+			: w.op === "put" && shape.targetKeyed
+				? [(s) => ({ ...s, p: Arr.filter(s.p, (x) => x === id) }), add]
+				: [add]
 	}
 	const insert = (s: State): State =>
 		Arr.some(s.c, (f) => same(f, w.fact)) ? s : { ...s, c: [...s.c, w.fact] }
@@ -141,8 +158,8 @@ const statementsOf = (
 }
 
 /**
- * Whether running the actions in `order`, each by its relation and operation, keeps every C fact's reference after
- * every statement of `instance`.
+ * Whether running the actions in `order`, each by its relation and operation, keeps every C fact's reference and both
+ * relations' keys after every statement of `instance`.
  */
 const keeps = (
 	shape: Shape,
@@ -158,7 +175,7 @@ const keeps = (
 			}
 			for (const statement of statementsOf(shape, w)) {
 				state = statement(state)
-				if (!holds(state)) {
+				if (!lawful(shape, state)) {
 					return false
 				}
 			}
@@ -168,13 +185,13 @@ const keeps = (
 }
 
 /**
- * Every lawful instance of a shape: every state of the box whose C facts keep C's key and reference P, with every write
- * of each action at an id of the box, whose final state keeps them too.
+ * Every lawful instance of a shape: every state of the box whose facts keep both keys and whose C facts reference P,
+ * with every write of each action at an id of the box, whose final state keeps them too.
  */
 const instancesOf = (shape: Shape): ReadonlyArray<Instance> => {
 	const facts = (ref: number): Fact => [1, ref]
 	const states = Arr.flatMap(subsets(ids), (p) =>
-		Arr.flatMap(subsets(Arr.map(ids, facts)), (c) => (keyed(shape, c) ? [{ p, c }] : []))
+		Arr.map(subsets(Arr.map(ids, facts)), (c) => ({ p, c }))
 	)
 	const actions = [
 		...Arr.map(shape.onP, (op) => ({ relation: "P" as const, op })),
@@ -192,13 +209,13 @@ const instancesOf = (shape: Shape): ReadonlyArray<Instance> => {
 	return Arr.flatMap(states, (state) =>
 		Arr.flatMap(writings, (writes) => {
 			const instance = { ...state, writes }
-			if (!holds(state)) {
+			if (!lawful(shape, state)) {
 				return []
 			}
 			const final = Arr.reduce(normalized(instance), state, (s, w) =>
 				Arr.reduce(statementsOf(shape, w), s, (t, statement) => statement(t))
 			)
-			return holds(final) && keyed(shape, final.c) ? [instance] : []
+			return lawful(shape, final) ? [instance] : []
 		})
 	)
 }
@@ -239,10 +256,11 @@ const actionOf = (shape: Shape, relation: "C" | "P", op: Op): ActionCore => {
 	}
 }
 
-/** Every shape: C's name and payload, any set of P's actions, and one action of C or none. */
+/** Every shape: C's name, both payloads, any set of P's actions, and one action of C or none. */
 const shapeGen: Gen<Shape> = (source) => ({
 	sourceFirst: source.draw(boolean),
 	keyed: source.draw(boolean),
+	targetKeyed: source.draw(boolean),
 	onP: source.draw(subarray(["delete", "put", "insert"] as const)),
 	onC: source.draw(boolean) ? [source.draw(element(["delete", "put", "insert"] as const))] : []
 })
@@ -250,6 +268,7 @@ const shapeGen: Gen<Shape> = (source) => ({
 type Situation =
 	| "the schedule orders a stratum"
 	| "no order keeps a stratum"
+	| "a pure set's deletion after its addition"
 	| "both put, the source named first"
 	| "both put, the target named first"
 
@@ -287,10 +306,10 @@ interface Stratum {
 /** A stratum with no refill. */
 const noRefills: RefillOrder = { precedes: [], edges: [] }
 
-/** A plain action of a generated stratum, by its relation and operation, its relation a pure set or not. */
+/** A plain action of a generated stratum, by its relation and operation, and where its relation's facts meet. */
 interface StratumAction {
 	readonly action: ActionCore
-	readonly pureSet: boolean
+	readonly meeting: Meeting
 }
 
 const relationName = (r: number): string => `R${String(r)}`
@@ -380,11 +399,11 @@ const stratumGen: Gen<Stratum> = (source) => {
 	for (let r = 0; r < n; r += 1) {
 		const relation = relationName(r)
 		if (!members.has(r)) {
-			const pureSet = source.draw(boolean)
+			const meeting = source.draw(element(["key", "unique", "nowhere"] as const))
 			const source_ = { kind: "enumerated", slot: ParamId(`${relation} member`) } as const
 			for (const op of source.draw(subarray(["delete", "put", "insert"] as const))) {
 				actions.push({
-					pureSet,
+					meeting,
 					action:
 						op === "insert"
 							? { op, serial: completeClass, relation, source: source_ }
@@ -498,8 +517,8 @@ const plainPhase = { delete: 0, put: 1, insert: 2 } as const
  *   insertion or a put adds, a deletion or a put of a relation with a payload removes; a family's insertion adds and
  *   its deletion removes, and its update in place or count adds and changes facts only at the columns it changes, a
  *   change a removal only where no cascade carries it;
- * - one relation's plain deletion, put and insertion run in that order, and its plain actions before its family
- *   statements;
+ * - one relation's plain deletion, put and insertion run in that order, save the deletion of a relation whose facts
+ *   meet nowhere, which frees nothing its put or insertion takes; and its plain actions before its family statements;
  * - a member's deletion, update and insertion run in that order; a family's count after its member's and its owner's
  *   deletions and updates and before its owner's insertions, and before its member's where the owner axis is
  *   immediate; a member's update before its owner's update or refill where the one changes a column the owner axis
@@ -532,7 +551,7 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 		)
 	const plainAdds = (a: StratumAction) => a.action.op !== "delete"
 	const plainRemoves = (a: StratumAction) =>
-		a.action.op === "delete" || (a.action.op === "put" && !a.pureSet)
+		a.action.op === "delete" || (a.action.op === "put" && a.meeting === "key")
 	for (const x of plains) {
 		for (const y of plains) {
 			const a = x.a.action
@@ -541,7 +560,10 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 				continue
 			}
 			if (a.relation === b.relation) {
-				if (plainPhase[a.op] < plainPhase[b.op]) {
+				if (
+					plainPhase[a.op] < plainPhase[b.op] &&
+					(x.a.meeting !== "nowhere" || a.op !== "delete")
+				) {
 					add(x.id, y.id)
 				}
 				continue
@@ -758,7 +780,7 @@ const importEdit: MemberEdit = {
 const importShape: Stratum = {
 	actions: [
 		{
-			pureSet: false,
+			meeting: "key",
 			action: {
 				op: "insert",
 				serial: completeClass,
@@ -901,7 +923,7 @@ const setEdits = {
 const editsBesideASet: Stratum = {
 	actions: [
 		{
-			pureSet: true,
+			meeting: "nowhere",
 			action: {
 				op: "delete",
 				relation: "P0",
@@ -909,7 +931,7 @@ const editsBesideASet: Stratum = {
 			}
 		},
 		{
-			pureSet: true,
+			meeting: "nowhere",
 			action: {
 				op: "insert",
 				serial: completeClass,
@@ -1057,7 +1079,7 @@ const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
 
 describe("a stratum's schedule", () => {
 	it.effect(
-		"keeps an immediate foreign key into a pure set at every statement, or names a cycle no order keeps",
+		"keeps an immediate foreign key into a relation it references whole, and both keys, at every statement, or names a cycle no order keeps",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1066,8 +1088,8 @@ describe("a stratum's schedule", () => {
 						suite: "unit/write/schedule",
 						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 2 * 2 * 8 * 4,
-						box: "C named first or second, with a payload or a pure set; any set of P's deletion, put and insertion; one action of C or none; every lawful state over two ids",
+						limit: 2 * 2 * 2 * 8 * 4,
+						box: "C named first or second; C and P each with a payload or a pure set; any set of P's deletion, put and insertion; one action of C or none; every lawful state over two ids",
 						oracle: {
 							kind: "second-implementation",
 							name: "the statements each action sends, over every lawful instance and every order"
@@ -1075,6 +1097,7 @@ describe("a stratum's schedule", () => {
 						coverage: requiredInSpace<Situation>([
 							"the schedule orders a stratum",
 							"no order keeps a stratum",
+							"a pure set's deletion after its addition",
 							"both put, the source named first",
 							"both put, the target named first"
 						]),
@@ -1094,7 +1117,9 @@ describe("a stratum's schedule", () => {
 								canonicalActionOrder(
 									Arr.map(actions, ({ relation, op }) => ({
 										action: actionOf(shape, relation, op),
-										pureSet: relation === "P" || !shape.keyed,
+										meeting: (relation === "P" ? shape.targetKeyed : shape.keyed)
+											? ("key" as const)
+											: ("nowhere" as const),
 										relation,
 										op
 									}))
@@ -1121,6 +1146,20 @@ describe("a stratum's schedule", () => {
 									)
 								}
 								c.note("the schedule orders a stratum")
+								const deleted = Arr.findFirstIndex(
+									order,
+									(a) => a.relation === "P" && a.op === "delete"
+								)
+								if (
+									!shape.targetKeyed &&
+									Option.isSome(deleted) &&
+									Arr.some(
+										order.slice(0, deleted.value),
+										(a) => a.relation === "P" && a.op !== "delete"
+									)
+								) {
+									c.note("a pure set's deletion after its addition")
+								}
 							} else {
 								assert.ok(
 									Arr.every(
@@ -1138,7 +1177,10 @@ describe("a stratum's schedule", () => {
 									Arr.every(order, (a, i) =>
 										Arr.every(
 											order.slice(i + 1),
-											(b) => b.relation !== a.relation || phase[a.op] < phase[b.op]
+											(b) =>
+												b.relation !== a.relation ||
+												!(a.relation === "P" ? shape.targetKeyed : shape.keyed) ||
+												phase[a.op] < phase[b.op]
 										)
 									)
 								)
