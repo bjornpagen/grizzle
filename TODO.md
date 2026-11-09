@@ -46,6 +46,10 @@ post-beta swarm's fixes for the next release.
 - **A non-finite Decimal head literal in a derived relation a rule reads:** ±Infinity, NaN or past 1000 digits, read
   by a check, key or selection, still fails closed (a literal never stands first). Closing it needs engine-built
   queries to carry InferredFieldDesc literal types through their own refs and decode path, apart from authored ones.
+- **A Compute term that splits a text (qti-pie, 2026-11-08, after the cold-start cuts):** no substring, split_part or
+  pattern group exists, so pantry splits on the host and writes the pieces as rows (IDREF, header and tolerance tokens,
+  identifier leads and trails, href pieces, reading segments, unordered pairs). It must be total under a matches
+  guard, IMMUTABLE, and carry the byte bound. Repro: ~/.cache/gr8des/lane-k/gap-split/repro.ts.
 - **Patterns held as data (G3, punted by the owner 2026-11-08):** a check that a value matches every pattern a closed
   relation lists for its key, e.g. one row per (domain, pattern), compiled into the CHECK as each key's patterns ANDed.
   It would delete qti-pie's product regex (~1.2 MB of install SQL for NCName). Until then qti-pie keeps it.
