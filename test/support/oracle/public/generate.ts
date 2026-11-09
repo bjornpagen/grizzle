@@ -1146,7 +1146,11 @@ const plantedNames = [
 	"ranked key field",
 	"rank field",
 	"ranked key column",
-	"rank column"
+	"rank column",
+	"tied key column",
+	"tied rank column",
+	"tied attachment",
+	"tied child key column"
 ] as const
 type PlantedName = (typeof plantedNames)[number]
 
@@ -1193,7 +1197,8 @@ export const plantedNameCount = plantedNames.length
  * - A planted case (plantedCase). What the drawn populations reach too rarely to rely on, a case of the planted
  *   population reaches by construction: two parent rows whose key holds one value in two spellings, each with
  *   children, under a pipelined attachment, an arm read Some and None, a key get of a stored fact and of a key no fact
- *   holds, a get of a roster handle, and a root take whose rows its descending key orders apart and ties.
+ *   holds, a get of a roster handle, a root take whose rows its descending key orders apart and ties, and an attached
+ *   take that gives a parent two children its descending key orders apart.
  * - Ties in a root take. A root take's stated order may leave out one column of its heading, so the rows its stated
  *   keys tie are ordered by the take's completion, by that column, ascending (program.ts takeOrder).
  *
@@ -3946,6 +3951,34 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		bound: { kind: "take", order: [{ column: rankColumn, dir: "desc" }], k: 3 },
 		delivery: { kind: "set" }
 	}
+	/**
+	 * The ninth read: T{k, g} find {k, g} over the same facts, each row with its T{k', g} children by g, ordered by k'
+	 * descending, take 2: each row of g = 0 receives two of its three children, 3 then 1, which their descending key
+	 * orders apart, and the row of g = 1 its one.
+	 */
+	const tiedNames = new Names(kinds)
+	const [tiedId, tiedRank] = [mint(rankedKey), mint(rank)]
+	const tiedRule = soleRule<never>(
+		rankedRelation,
+		[varOf(rankedKey, tiedId), varOf(rank, tiedRank)],
+		[headOf(tiedNames, "tied key column", tiedId), headOf(tiedNames, "tied rank column", tiedRank)]
+	)
+	const tiedParent = elementOf(headingOf(tiedRule.head), 1, "the tied root's rank column")
+	const tiedChildKey = mint(rankedKey)
+	const tiedChildRule = soleRule<ParentColumn>(
+		rankedRelation,
+		[parentOf(rank, tiedParent), varOf(rankedKey, tiedChildKey)],
+		[headOf(new Names(kinds), "tied child key column", tiedChildKey)]
+	)
+	const tiedChildColumn = elementOf(headingOf(tiedChildRule.head), 0, "the tied child's key column")
+	const tiedChildren: Attachment = {
+		name: tiedNames.draw(pick("tied attachment"), "attachment"),
+		child: {
+			...setQuery(tiedChildRule, []),
+			bound: { kind: "take", order: [{ column: tiedChildColumn, dir: "desc" }], k: 2 }
+		},
+		delivery: { kind: "array" }
+	}
 	/** The key reads: the first planted fact's key, a key no fact holds, and the selected handle of the roster. */
 	const facts = [...plantedFacts, ...drawnFacts]
 	const keys = new Set(Arr.map(facts, keyAt))
@@ -3979,6 +4012,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			query({ ...setQuery(fusedRule, [fused]), delivery: { kind: "set" } }),
 			query({ ...setQuery(vectorRule, [vectorAttachment]), delivery: { kind: "set" } }),
 			query(ranked),
+			query({ ...setQuery(tiedRule, [tiedChildren]), delivery: { kind: "set" } }),
 			keyRead({ kind: "int", value: 0n }),
 			keyRead({ kind: "int", value: absent }),
 			{ kind: "handle", handle: selected }
