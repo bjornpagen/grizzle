@@ -19,7 +19,7 @@ import {
 	roleOf,
 	samePlain
 } from "#test/support/worlds/model/session/state.ts"
-import { refusedAtBuild } from "#test/support/worlds/model/session/writes.ts"
+import { installedRoles, refusedAtBuild } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	FieldSpec,
@@ -163,6 +163,7 @@ const landedOn = (state: Unnamed, to: InstallSpec): Unnamed => {
 	const version = samePlain(state.install, to) ? state.version : state.version + 1
 	return {
 		install: to,
+		roles: installedRoles(to),
 		reality,
 		derived,
 		sessions: state.sessions,

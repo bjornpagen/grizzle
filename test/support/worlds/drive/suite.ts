@@ -42,7 +42,8 @@ import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import {
 	defaultScope,
 	enumerateDirectReads,
-	enumerateKind
+	enumerateKind,
+	enumerateThrough
 } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import {
@@ -238,13 +239,10 @@ const afterBegin = (
 	}
 	return Arr.flatMap(
 		[
-			...enumerateKind(next, "direct", defaultScope),
-			...enumerateKind(next, "direct-end", defaultScope)
+			...enumerateThrough(next, "direct", began.session, defaultScope),
+			...enumerateThrough(next, "direct-end", began.session, defaultScope)
 		],
-		(a) =>
-			(a.kind === "direct" || a.kind === "direct-end") && a.session === began.session
-				? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
-				: []
+		(a) => Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
 	)
 }
 
@@ -355,27 +353,6 @@ export const directTransaction = (required: ReadonlyArray<Reached<WorldFeature>>
 export const handSetTransaction = (required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
 	transactionLead(required, { read: afterHandSet, worth: setsClaimsByHand })
 
-/** Whether an action is a call through the open Db at `session` (afterOpen). */
-const callThrough = (action: Action, session: number): boolean => {
-	switch (action.kind) {
-		case "read":
-		case "apply":
-			return action.session === session
-		case "open-db":
-		case "refresh":
-		case "close":
-		case "direct-begin":
-		case "direct":
-		case "direct-end":
-		case "interrupt":
-		case "migrate":
-		case "tamper":
-		case "drift":
-		case "wild":
-			return false
-	}
-}
-
 /**
  * What the Db an action opens reaches next through the calls of `kinds`, read of the open's outcome: every feature such
  * a call the box offers through it reaches as the model predicts them, by the suite's reading of a call's outcome
@@ -391,8 +368,8 @@ const afterOpen =
 			return []
 		}
 		return Arr.flatMap(kinds, (kind) =>
-			Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
-				callThrough(a, opened.session) ? Arr.flatMap(step(next, a), (b) => read(next, a, b)) : []
+			Arr.flatMap(enumerateThrough(next, kind, opened.session, defaultScope), (a) =>
+				Arr.flatMap(step(next, a), (b) => read(next, a, b))
 			)
 		)
 	}
@@ -503,7 +480,7 @@ const refreshesWrittenRead = (
 }
 
 /** The calls through a Db after an apply that a derived relation's staleness shows on: its reads and refreshes. */
-const afterApplyCalls: Arr.NonEmptyReadonlyArray<ActionKind> = ["read", "refresh"]
+const afterApplyCalls: Arr.NonEmptyReadonlyArray<"read" | "refresh"> = ["read", "refresh"]
 
 /**
  * What the calls through a Db after an apply reach, read of the apply's outcome: every feature a read or refresh the box
@@ -521,10 +498,8 @@ const callsAfterApply = (
 	}
 	const { next } = settled(outcome)
 	return Arr.flatMap(afterApplyCalls, (kind) =>
-		Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
-			(a.kind === "read" || a.kind === "refresh") && a.session === action.session
-				? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
-				: []
+		Arr.flatMap(enumerateThrough(next, kind, action.session, defaultScope), (a) =>
+			Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
 		)
 	)
 }
@@ -673,10 +648,8 @@ const afterAStatementOf =
 		if (action.kind !== "direct-begin" || began.kind !== "opened") {
 			return []
 		}
-		return Arr.flatMap(enumerateKind(next, "direct", defaultScope), (a) =>
-			a.kind === "direct" && a.session === began.session
-				? Arr.flatMap(step(next, a), (b) => read(next, a, b))
-				: []
+		return Arr.flatMap(enumerateThrough(next, "direct", began.session, defaultScope), (a) =>
+			Arr.flatMap(step(next, a), (b) => read(next, a, b))
 		)
 	}
 

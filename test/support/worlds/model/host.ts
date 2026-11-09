@@ -1171,14 +1171,22 @@ export const isMember = (
 	facts: ContextFacts,
 	fact: HostFact
 ): boolean => {
-	const entry = entryOf(state.install, role, relation)
-	const base = state.install.base
+	const classed = required(
+		Option.getOrUndefined(
+			Arr.findFirst(
+				required(state.roles[role], `the role ${role}`).entries,
+				(e) => e.name === relation
+			)
+		),
+		`the relation ${relation} of the role ${role}`
+	)
+	const entry = classed.entry
 	switch (entry.kind) {
 		case "whole":
-			return holdsNamed(base.relations, entry.relation)
+			return holdsNamed(state.install.base.relations, entry.relation)
 		case "query": {
-			const w = writabilityOf(base, entry.rules)
-			if (w.kind !== "writable") {
+			const w = classed.supply
+			if (w === undefined) {
 				return false
 			}
 			const rule = leftOutRule(w.rule, w.supplier, fact)

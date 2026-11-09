@@ -8,6 +8,7 @@ import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { HostFact, HostSchema, HostState, HostValue } from "#test/support/laws/model.ts"
+import type { Written } from "#test/support/worlds/model/session/writes.ts"
 
 /**
  * The worlds model's shared vocabulary: what a base, an installation, a session, an action and an observation are, as
@@ -930,10 +931,33 @@ export type MigrationsState =
 	  }
 
 /** The whole world as the model sees it. */
+/** An entry of a role, by its name, with how the installation's base classes it (model/host.ts classifyEntry). */
+export interface ClassedEntry {
+	readonly name: string
+	readonly entry: EntrySpec
+	readonly classified: EntryClass
+	/**
+	 * A writable query entry's one rule and the index of its supplying occurrence, by which a fact of its target is
+	 * judged a member (model/host.ts isMember); undefined for a whole entry and a read-only one.
+	 */
+	readonly supply: { readonly rule: Rule; readonly supplier: number } | undefined
+}
+
+/**
+ * A role of the installation as its base classes it, once per installation (model/session/writes.ts installedRoles):
+ * each entry classed, and the relations its write list writes through them, in that list's order.
+ */
+export interface InstalledRole {
+	readonly entries: ReadonlyArray<ClassedEntry>
+	readonly written: ReadonlyArray<Written>
+}
+
 export interface ModelState {
 	readonly install: InstallSpec
 	readonly names: InstalledNames
 	readonly host: HostSchema
+	/** Each role of `install`, by its name, as the base classes it: what every call reads its entries and writes by. */
+	readonly roles: Readonly<Record<string, InstalledRole>>
 	readonly reality: HostState
 	/** Each derived relation's facts as of its last refresh. */
 	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>

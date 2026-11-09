@@ -44,6 +44,7 @@ import {
 
 import {
 	filterReadsStored,
+	installedWrite,
 	keysOf,
 	probeOf,
 	updatableFields,
@@ -531,8 +532,8 @@ interface ClaimsJudgment {
 
 /** The row security a role meets on a table. */
 const policyOf = (state: ModelState, role: string, relation: string): Policy => {
-	const spec = roleOf(state.install, role)
-	const w = spec === undefined ? undefined : writtenAt(state.install.base, spec, relation)
+	const w =
+		roleOf(state.install, role) === undefined ? undefined : installedWrite(state, role, relation)
 	if (w?.kind === "whole") {
 		return { kind: "open" }
 	}
@@ -548,7 +549,7 @@ const policyOf = (state: ModelState, role: string, relation: string): Policy => 
 	}
 	return Arr.some(
 		state.install.roles,
-		(r) => writtenAt(state.install.base, r, relation)?.kind === "query"
+		(r) => installedWrite(state, r.name, relation)?.kind === "query"
 	)
 		? { kind: "none" }
 		: { kind: "open" }
@@ -743,7 +744,7 @@ export const directBranches = (
 	const write = (
 		relation: string
 	): { readonly written: Written; readonly policy: Policy } | undefined => {
-		const w = role === undefined ? undefined : writtenAt(base, role, relation)
+		const w = role === undefined ? undefined : installedWrite(state, role.name, relation)
 		return role === undefined || w === undefined
 			? undefined
 			: { written: w, policy: policyOf(state, role.name, relation) }

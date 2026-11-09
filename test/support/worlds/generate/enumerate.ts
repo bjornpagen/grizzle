@@ -27,7 +27,11 @@ import {
 } from "#test/support/worlds/generate/domain.ts"
 import { contextsRead, headingOf } from "#test/support/worlds/generate/entries.ts"
 import { plantedInstall, plantedKinds } from "#test/support/worlds/generate/install.ts"
-import { applicable, namesOffered } from "#test/support/worlds/generate/offered.ts"
+import {
+	applicable,
+	namesOffered,
+	type SessionKind
+} from "#test/support/worlds/generate/offered.ts"
 import { attachments, entryKey, reaches } from "#test/support/worlds/generate/reads.ts"
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
@@ -1431,25 +1435,53 @@ type KindBox = (state: ModelState, scope: SmallScope) => ReadonlyArray<Action>
 /** Every session the state holds, whatever its kind: stale and mismatched handles are in the box. */
 const sessionsOf = (state: ModelState): ReadonlyArray<number> => [...state.sessions.keys()]
 
+/** The box's actions of a session kind through one session, before the state's offer filters them. */
+type SessionBox = (state: ModelState, session: number, scope: SmallScope) => ReadonlyArray<Action>
+
+/** The box's actions of each session kind through one session (boxKinds lists them over every session). */
+const sessionBoxes: { readonly [K in SessionKind]: SessionBox } = {
+	read: (state, session) => readActions(state, session),
+	apply: (state, session, scope) => applyActions(state, session, scope),
+	refresh: (state, session) => {
+		const relations = Option.match(roleAt(state, session), {
+			onNone: () => [firstEntryName(state)],
+			onSome: ({ role }) => [
+				...role.refresh,
+				...Arr.filter(Rec.keys(role.entries), (e) => !role.refresh.includes(e)).slice(0, 1),
+				...otherEntry(state, role)
+			]
+		})
+		return Arr.map(relations, (relation): Action => ({ kind: "refresh", session, relation }))
+	},
+	close: (_state, session) => [{ kind: "close", session }],
+	direct: (state, session, scope) =>
+		Arr.map(directStatements(state, session, scope), (statement): Action => ({
+			kind: "direct",
+			session,
+			statement
+		})),
+	"direct-end": (_state, session) =>
+		Arr.map(["commit", "rollback"] as const, (end): Action => ({
+			kind: "direct-end",
+			session,
+			end
+		})),
+	interrupt: (_state, session) => [{ kind: "interrupt", session }]
+}
+
+/** The box's actions of a session kind through every session the state holds, session by session. */
+const everySession =
+	(kind: SessionKind): KindBox =>
+	(state, scope) =>
+		Arr.flatMap(sessionsOf(state), (session) => sessionBoxes[kind](state, session, scope))
+
 /** The box's actions of each kind, in the order of the vocabulary (actionKinds). */
 const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 	"open-db": openActions,
-	read: (state) => Arr.flatMap(sessionsOf(state), (session) => readActions(state, session)),
-	apply: (state, scope) =>
-		Arr.flatMap(sessionsOf(state), (session) => applyActions(state, session, scope)),
-	refresh: (state) =>
-		Arr.flatMap(sessionsOf(state), (session) => {
-			const relations = Option.match(roleAt(state, session), {
-				onNone: () => [firstEntryName(state)],
-				onSome: ({ role }) => [
-					...role.refresh,
-					...Arr.filter(Rec.keys(role.entries), (e) => !role.refresh.includes(e)).slice(0, 1),
-					...otherEntry(state, role)
-				]
-			})
-			return Arr.map(relations, (relation): Action => ({ kind: "refresh", session, relation }))
-		}),
-	close: (state) => Arr.map(sessionsOf(state), (session): Action => ({ kind: "close", session })),
+	read: everySession("read"),
+	apply: everySession("apply"),
+	refresh: everySession("refresh"),
+	close: everySession("close"),
 	"direct-begin": (state, scope) =>
 		Arr.flatMap(state.install.logins, (l) => [
 			...Arr.map(
@@ -1468,24 +1500,9 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 				start
 			}))
 		]),
-	direct: (state, scope) =>
-		Arr.flatMap(sessionsOf(state), (session) =>
-			Arr.map(directStatements(state, session, scope), (statement): Action => ({
-				kind: "direct",
-				session,
-				statement
-			}))
-		),
-	"direct-end": (state) =>
-		Arr.flatMap(sessionsOf(state), (session) =>
-			Arr.map(["commit", "rollback"] as const, (end): Action => ({
-				kind: "direct-end",
-				session,
-				end
-			}))
-		),
-	interrupt: (state) =>
-		Arr.map(sessionsOf(state), (session): Action => ({ kind: "interrupt", session })),
+	direct: everySession("direct"),
+	"direct-end": everySession("direct-end"),
+	interrupt: everySession("interrupt"),
 	migrate: (state, scope) => migrateActions(state, scope),
 	tamper: (state) =>
 		Arr.map(enumeratePerturbations(state), (perturbation): Action => ({
@@ -1521,6 +1538,20 @@ export const enumerateKind = (
 ): ReadonlyArray<Action> =>
 	applicable(state, kind)
 		? Arr.filter(boxKinds[kind](state, scope), (a) => namesOffered(state, a))
+		: []
+
+/**
+ * The actions of the exhaustive box of a session kind through one session, as enumerateKind lists them for it: what a
+ * look-ahead past the move that made the session steps, without building every other session's calls.
+ */
+export const enumerateThrough = (
+	state: ModelState,
+	kind: SessionKind,
+	session: number,
+	scope: SmallScope
+): ReadonlyArray<Action> =>
+	applicable(state, kind)
+		? Arr.filter(sessionBoxes[kind](state, session, scope), (a) => namesOffered(state, a))
 		: []
 
 /**

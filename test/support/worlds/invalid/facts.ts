@@ -22,10 +22,10 @@ import {
 	selectionOf
 } from "#test/support/worlds/model/host.ts"
 import {
+	installedRole,
 	keysOf,
 	serialHead,
-	type Written,
-	writtenOf
+	type Written
 } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
@@ -268,7 +268,7 @@ export const opKinds = (
 		}
 	}
 	const base = state.install.base
-	const written = writtenOf(base, writer.role)
+	const written = installedRole(state, writer.role.name).written
 	for (const op of ops) {
 		for (const w of Arr.filter(written, (x) => x.entry === op.relation)) {
 			for (const k of serialKinds(base, w, op)) {
@@ -382,7 +382,7 @@ const metFacts = (
 	}
 	const rows = entryRows(state, writer.role.name, entry, writer.facts)
 	const hidden = Option.match(
-		Arr.findFirst(writtenOf(state.install.base, writer.role), (x) => x.entry === entry),
+		Arr.findFirst(installedRole(state, writer.role.name).written, (x) => x.entry === entry),
 		{
 			onNone: (): ReadonlyArray<HostFact> => [],
 			onSome: (w) =>
@@ -494,7 +494,7 @@ const pointingsOf = (
 	entry: string
 ): ReadonlyArray<Pointing> =>
 	Option.match(
-		Arr.findFirst(writtenOf(state.install.base, writer.role), (x) => x.entry === entry),
+		Arr.findFirst(installedRole(state, writer.role.name).written, (x) => x.entry === entry),
 		{
 			onNone: (): ReadonlyArray<Pointing> => [],
 			onSome: (w) => {
@@ -560,7 +560,7 @@ const freshFields = (
 		Arr.flatMap(pointings, (p) => Arr.flatMap(p.fields, (carried) => carried))
 	)
 	return Option.match(
-		Arr.findFirst(writtenOf(state.install.base, writer.role), (x) => x.entry === entry),
+		Arr.findFirst(installedRole(state, writer.role.name).written, (x) => x.entry === entry),
 		{
 			onNone: (): ReadonlyArray<string> => [],
 			onSome: (w) =>
@@ -653,7 +653,7 @@ const serialOf = (
 	entry: string
 ): { readonly classed: ReadonlyArray<string>; readonly filtered: ReadonlyArray<string> } =>
 	Option.match(
-		Arr.findFirst(writtenOf(state.install.base, writer.role), (w) => w.entry === entry),
+		Arr.findFirst(installedRole(state, writer.role.name).written, (w) => w.entry === entry),
 		{
 			onNone: () => ({ classed: [], filtered: [] }),
 			onSome: (w) => serialHead(state.install.base, w)
@@ -689,7 +689,7 @@ export const opStrata = (
 	/** An insert's kinds: an insert or a put of one fact is how a candidate is judged. */
 	const kindsOf = (o: EntryOp): ReadonlyArray<InvalidKind> => opKinds(state, writer, [o])
 	const written = Arr.some(
-		writtenOf(state.install.base, writer.role),
+		installedRole(state, writer.role.name).written,
 		(w) => w.entry === entry.name
 	)
 	const searched = written ? candidates(heading, met, searchPicks) : []

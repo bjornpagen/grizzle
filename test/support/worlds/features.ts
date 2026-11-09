@@ -33,9 +33,10 @@ import {
 } from "#test/support/worlds/model/session/state.ts"
 import {
 	filterReadsStored,
+	installedRole,
+	installedWrite,
 	keysOf,
 	serialHead,
-	writtenAt,
 	writtenNamed
 } from "#test/support/worlds/model/session/writes.ts"
 import type {
@@ -46,6 +47,7 @@ import type {
 	ClaimReadAt,
 	ClaimRefusal,
 	ClaimState,
+	ClassedEntry,
 	ContextFacts,
 	DbSessionState,
 	DirectSessionState,
@@ -111,13 +113,6 @@ const roleEntry = (
 	relation: string
 ): Option.Option<EntrySpec> => Option.flatMap(roleIn(install, role), (r) => entryIn(r, relation))
 
-/** An entry of a role, by its name, with how the installation's base classes it (host.ts classifyEntry). */
-interface ClassedEntry {
-	readonly name: string
-	readonly entry: EntrySpec
-	readonly classified: EntryClass
-}
-
 /**
  * A role acting: through a Db, or a direct writer that took it on, reading `state` (a writer's transaction view), with
  * its entries, each classed once for the action.
@@ -141,11 +136,7 @@ const roleActor = (
 	kind: "role",
 	writer,
 	role,
-	entries: Arr.map(Record.toEntries(role.entries), ([name, entry]) => ({
-		name,
-		entry,
-		classified: classifyEntry(state.install.base, entry)
-	})),
+	entries: installedRole(state, role.name).entries,
 	state,
 	claims
 })
@@ -371,8 +362,8 @@ const targetFact = (
 })
 
 /** The role's entry that writes a base relation, by name: an entry its write list names whose target the relation is. */
-const writeEntryOf = (base: BaseSpec, role: RoleSpec, relation: string): Option.Option<string> =>
-	Option.map(Option.fromUndefinedOr(writtenAt(base, role, relation)), (w) => w.entry)
+const writeEntryOf = (state: ModelState, role: RoleSpec, relation: string): Option.Option<string> =>
+	Option.map(Option.fromUndefinedOr(installedWrite(state, role.name, relation)), (w) => w.entry)
 
 /** What a read of a role's entry touches, as the acting role sees it: through its own entry, or another role's. */
 const readTouch = (actor: RoleActor, role: string, relation: string): Touch =>
@@ -422,13 +413,12 @@ const opsOf = (action: Extract<Action, { readonly kind: "apply" }>): ReadonlyArr
 
 /** What a direct writer's statement touches, as the role it took on sees it. */
 const statementTouch = (actor: RoleActor, statement: DirectStatement): Touch => {
-	const base = actor.state.install.base
 	const through = (
 		relation: string,
 		stored: ReadonlyArray<Stored>,
 		submitted: ReadonlyArray<HostFact>
 	): Touch => {
-		const entry = writeEntryOf(base, actor.role, relation)
+		const entry = writeEntryOf(actor.state, actor.role, relation)
 		return {
 			entry,
 			stored,
@@ -751,16 +741,17 @@ const raiseOnTable = (actor: RoleActor, touch: Touch, field: string, value: Host
 	)
 
 /** The privilege a direct statement on a base relation needs, which the role holds by writing the relation. */
-const holdsFor = (base: BaseSpec, role: RoleSpec, statement: DirectStatement): boolean => {
+const holdsFor = (state: ModelState, role: RoleSpec, statement: DirectStatement): boolean => {
+	const base = state.install.base
 	switch (statement.kind) {
 		case "select-table":
 		case "insert":
 		case "delete":
 		case "merge-delete":
-			return Option.isSome(writeEntryOf(base, role, statement.relation))
+			return Option.isSome(writeEntryOf(state, role, statement.relation))
 		case "insert-on-conflict":
 			return (
-				Option.isSome(writeEntryOf(base, role, statement.relation)) &&
+				Option.isSome(writeEntryOf(state, role, statement.relation)) &&
 				(statement.onConflict !== "update" ||
 					Arr.some(
 						base.relations,
@@ -770,7 +761,7 @@ const holdsFor = (base: BaseSpec, role: RoleSpec, statement: DirectStatement): b
 		case "update": {
 			const relation = Arr.findFirst(base.relations, (r) => r.name === statement.relation)
 			return (
-				Option.isSome(writeEntryOf(base, role, statement.relation)) &&
+				Option.isSome(writeEntryOf(state, role, statement.relation)) &&
 				Option.exists(relation, (r) => r.mutability === "mutable")
 			)
 		}
@@ -940,8 +931,7 @@ const statementObjects = (
 			if (actor.kind !== "role") {
 				return []
 			}
-			const base = actor.state.install.base
-			const held = holdsFor(base, actor.role, statement)
+			const held = holdsFor(actor.state, actor.role, statement)
 			const grant: ReadonlyArray<WorldFeature> = held
 				? succeeded(observation)
 					? [objectFeature("grant", "accepted-inside")]
@@ -949,7 +939,9 @@ const statementObjects = (
 				: refusedPrivilege(observation)
 					? [objectFeature("grant", "attempt-refused")]
 					: []
-			const filtered = Option.flatMap(touch.entry, (name) => filteredOf(base, actor.role, name))
+			const filtered = Option.flatMap(touch.entry, (name) =>
+				filteredOf(actor.state.install.base, actor.role, name)
+			)
 			const outside = Arr.some(touch.stored, (s) => membershipOf(actor, touch, s) !== "inside")
 			const policies = Option.match(filtered, {
 				onNone: (): ReadonlyArray<WorldFeature> => [],

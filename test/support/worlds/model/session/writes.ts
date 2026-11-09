@@ -5,7 +5,9 @@ import type {
 	BaseSpec,
 	Fill,
 	HeadField,
+	InstalledRole,
 	InstallSpec,
+	ModelState,
 	RoleSpec,
 	Rule,
 	WorldFunction
@@ -129,6 +131,45 @@ export const writtenOf = (base: BaseSpec, role: RoleSpec): ReadonlyArray<Written
 				]
 			: []
 	})
+
+/**
+ * Each role of an installation as its base classes it (InstalledRole): its entries classed and its writes, computed once
+ * for the installation a state holds, so no call classes an entry again.
+ */
+export const installedRoles = (install: InstallSpec): Readonly<Record<string, InstalledRole>> =>
+	Rec.fromEntries(
+		Arr.map(install.roles, (role) => [
+			role.name,
+			{
+				entries: Arr.map(Rec.toEntries(role.entries), ([name, entry]) => ({
+					name,
+					entry,
+					classified: classifyEntry(install.base, entry),
+					supply: entry.kind === "query" ? writableSupplier(install.base, entry.rules) : undefined
+				})),
+				written: writtenOf(install.base, role)
+			}
+		])
+	)
+
+/** A role of the state's installation as its base classes it; a role the installation does not hold is the caller's defect. */
+export const installedRole = (state: ModelState, role: string): InstalledRole => {
+	const found = state.roles[role]
+	if (found === undefined) {
+		throw new Error(`the installation holds no role ${role}`)
+	}
+	return found
+}
+
+/** The installed role's write of a base relation, or undefined when the role writes none of it (writtenAt). */
+export const installedWrite = (
+	state: ModelState,
+	role: string,
+	relation: string
+): Written | undefined =>
+	Option.getOrUndefined(
+		Arr.findFirst(installedRole(state, role).written, (w) => w.target === relation)
+	)
 
 /**
  * Whether grizzle refuses to build an installation (README "Writing through a role"): a role's write list names a

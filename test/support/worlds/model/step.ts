@@ -54,7 +54,7 @@ import {
 	staleReason,
 	withSession
 } from "#test/support/worlds/model/session/state.ts"
-import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
+import { installedRoles, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	Action,
 	BaseSpec,
@@ -108,6 +108,7 @@ export const initialState = (
 	install,
 	names,
 	host: hostSchemaOf(install.base, names),
+	roles: installedRoles(install),
 	reality,
 	derived: derivedOver(install, reality),
 	sessions: [],
@@ -189,7 +190,13 @@ const handleRefused = (state: ModelState): Arr.NonEmptyReadonlyArray<Branch> => 
 const snapshotView = (state: ModelState, s: DbSessionState): ModelState =>
 	s.snapshot.version === state.version
 		? state
-		: { ...state, install: s.snapshot.install, names: s.snapshot.names, host: s.snapshot.host }
+		: {
+				...state,
+				install: s.snapshot.install,
+				names: s.snapshot.names,
+				host: s.snapshot.host,
+				roles: installedRoles(s.snapshot.install)
+			}
 
 /**
  * A grizzle call through a Db session: refused as a stale handle when the id names no open Db. grizzle answers it on

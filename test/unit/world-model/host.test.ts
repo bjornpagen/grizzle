@@ -64,6 +64,7 @@ import {
 	ruleFaults
 } from "#test/support/worlds/model/host.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
+import { installedRoles } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	Comparison,
 	ComparisonOp,
@@ -750,6 +751,7 @@ const stateOf = (
 		logins: {}
 	},
 	host: { relations: [], laws: [] },
+	roles: installedRoles(docsInstall),
 	reality,
 	derived,
 	sessions: [],
