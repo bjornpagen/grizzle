@@ -63,9 +63,10 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * read by the tree's one EXPLAIN decoder (bench/harness/explain.ts). The properties are the contract; the plan's node
  * order, index names and costs are the planner's:
  *
- * - a drawn take over a retained primary key (Posting's, Item's or Account's), ordered by it either way, has no Unique
- *   node and no Sort and never scans its relation sequentially, while the same statement with the redundant DISTINCT
- *   the elision removed, and the conservative artifact, which deduplicates at every boundary, each have a Unique node
+ * - every take of 1 to 50 over a retained primary key (Posting's, Item's or Account's), ordered by it either way,
+ *   deduplicates nothing and sorts nothing and never scans its relation sequentially, while the same statement with
+ *   the redundant DISTINCT the elision removed, and the conservative artifact, which deduplicates at every boundary,
+ *   each deduplicate, by a Unique node over ordered rows or by a hashed Aggregate, whichever the planner costs lower
  *   (R17: removing it is the observable effect);
  * - a take bound to the rows of a small relation parameter, over drawn parent sets, reads entries in proportion to the
  *   parents times k (at most k + 1 per parent) and never scans entry sequentially (R20);
@@ -115,7 +116,7 @@ const firstBy = (relation: Keyed, direction: Direction, k: number): unknown => {
 	}
 }
 
-/** A drawn take: its relation, its direction and its bound. */
+/** A take: its relation, its direction and its bound. */
 interface TakeCase {
 	readonly relation: Keyed
 	readonly direction: Direction
@@ -324,7 +325,7 @@ const rowsReadOf = (plan: PlanNode, relation: string): number =>
 			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
 	)
 
-/** The deduplication and grouping steps of a plan. */
+/** The deduplication and grouping steps of a plan: in a plan that folds nothing, each one deduplicates. */
 const groupingSteps = (plan: EstimatedNode): ReadonlyArray<string> =>
 	Arr.filter(nodeTypes(plan), (t) => t === "Aggregate" || t === "Unique" || t === "Group")
 
@@ -385,31 +386,25 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const { schema, relation } = yield* fixture
-					return yield* explore(
+					return yield* exhaust(
 						{
 							suite: "pg/plans/retained-take",
-							draw: drawn(takeCaseGen),
+							generator: takeCaseGen,
 							literal: Formatter.format,
+							limit: 300,
+							box: "every take of 1 to 50 of Posting, Item and Account, ordered by its key either way",
 							oracle: {
 								kind: "specification",
 								name: "R17: a take over a retained key needs no deduplication, which the unelided forms keep"
 							},
-							coverage: required<`${Keyed} ${Direction}`>(
-								[
-									"Posting asc",
-									"Posting desc",
-									"Item asc",
-									"Item desc",
-									"Account asc",
-									"Account desc"
-								],
-								{ cases: 24, sense: notesOnly }
-							),
-							kept: [],
-							runs: 12,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 8,
+							coverage: requiredInSpace<`${Keyed} ${Direction}`>([
+								"Posting asc",
+								"Posting desc",
+								"Item asc",
+								"Item desc",
+								"Account asc",
+								"Account desc"
+							]),
 							caseHang
 						},
 						(c, k) =>
@@ -421,26 +416,22 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 									optimized.sql,
 									paramTexts(optimized, {}, declared(q, template))
 								)
-								assert.equal(nodeTypes(plan).includes("Unique"), false)
+								assert.deepEqual(groupingSteps(plan), [], "the take deduplicates nothing")
 								assert.equal(nodeTypes(plan).includes("Sort"), false)
 								assert.deepEqual(sequentialScans(plan, relation(c.relation)), [])
 								const redundant = withDistinctBound(
 									only(flight(template.programs.optimized.roots), "program statement").ast
 								)
 								const kept = yield* estimate(printStatement(redundant), [])
-								assert.equal(
-									nodeTypes(kept).includes("Unique"),
-									true,
-									"the elided DISTINCT deduplicates"
-								)
+								assert.notDeepEqual(groupingSteps(kept), [], "the elided DISTINCT deduplicates")
 								const conservative = only(template.conservative, "conservative statement")
 								const plain = yield* estimate(
 									conservative.sql,
 									paramTexts(conservative, {}, declared(q, template))
 								)
-								assert.equal(
-									nodeTypes(plain).includes("Unique"),
-									true,
+								assert.notDeepEqual(
+									groupingSteps(plain),
+									[],
 									"the conservative artifact deduplicates"
 								)
 								k.note(`${c.relation} ${c.direction}`)
