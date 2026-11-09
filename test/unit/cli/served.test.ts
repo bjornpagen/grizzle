@@ -213,7 +213,8 @@ interface Expected {
 const expectedOf = (plant: Plant, programs: ReadonlyArray<Program>): Expected => {
 	switch (plant.kind) {
 		case "edited": {
-			const first = defined(programs[Math.min(...plant.programs)], "the first edited program")
+			const earliest = Arr.reduce(plant.programs, programs.length, (least, i) => Math.min(least, i))
+			const first = defined(programs[earliest], "the first edited program")
 			return {
 				kind: "servedStale",
 				file: `${schemaDir}/${servedPath(login)}`,

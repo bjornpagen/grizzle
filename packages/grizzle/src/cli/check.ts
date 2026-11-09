@@ -399,11 +399,12 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				)
 			} else {
 				const paths = yield* Path.Path
-				findings.push(
-					...servedFindings(schema, served.success, committed.served, (login) =>
-						paths.relative(cwd, Arr.join([schema.directory, servedPath(login)], "/"))
-					)
+				const stale = servedFindings(schema, served.success, committed.served, (login) =>
+					paths.relative(cwd, Arr.join([schema.directory, servedPath(login)], "/"))
 				)
+				for (const f of stale) {
+					findings.push(f)
+				}
 			}
 		}
 	}
