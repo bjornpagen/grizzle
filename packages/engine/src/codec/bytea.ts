@@ -13,7 +13,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { messageMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
-import type { ParamBinary, ParamText } from "#compiler/core/wire.ts"
+import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 
@@ -89,13 +89,13 @@ const detached = (value: Uint8Array): boolean => {
  * messageMaxBytes), which no placeholder could carry, is refused as `column`'s bound of `input` before a byte of it is
  * allocated.
  */
-const binaryArray = (
+const binaryArray = <E>(
 	oid: number,
 	input: string,
 	column: string,
 	lengths: ReadonlyArray<number>,
-	write: (out: Uint8Array, at: number, i: number) => Result.Result<void, EncodingFailure>
-): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
+	write: (out: Uint8Array, at: number, i: number) => Result.Result<void, E>
+): Result.Result<ParamBinary, LiteralBound | E> => {
 	let length = byteaHeaderBytes(lengths.length)
 	for (const n of lengths) {
 		length += byteaElementBytes(n)
@@ -169,11 +169,11 @@ export const byteaArray = (
 export const textArray = (
 	input: string,
 	column: string,
-	texts: ReadonlyArray<ParamText>
-): Result.Result<ParamBinary, LiteralBound | EncodingFailure> => {
+	texts: ReadonlyArray<string>
+): Result.Result<ParamBinary, LiteralBound> => {
 	const lengths = texts.map(utf8Length)
 	const encoder = new TextEncoder()
-	return binaryArray(textOid, input, column, lengths, (out, at, i) => {
+	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
 		const n = defined(lengths[i], "the length of each text counted")
 		encoder.encodeInto(defined(texts[i], "each text counted"), out.subarray(at, at + n))
 		return Result.ok(undefined)

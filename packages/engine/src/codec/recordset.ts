@@ -2,7 +2,11 @@
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
-import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
+import {
+	byteaElementBytes,
+	byteaHeaderBytes,
+	textArray as binaryTextArray
+} from "#compiler/codec/bytea.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	countParam,
@@ -144,49 +148,62 @@ type ColumnArray = (
 ) => Result.Result<Param, LiteralBound>
 
 /**
- * How a column travels: as a text array literal its placeholder writes (`text`), or, a bytes column, as the binary
- * array its member wrote once for the whole write (ir/products.ts KeyedFacts), which its placeholder carries.
+ * How a column travels: as the array its placeholder writes (`written`), a text array literal of its values' canonical
+ * texts or, a text column, a binary text[] of their UTF-8 bytes; or, a bytes column, as the binary array its member
+ * wrote once for the whole write (ir/products.ts KeyedFacts), which its placeholder carries.
  */
 type ArrayForm =
-	| { readonly kind: "text"; readonly array: ColumnArray }
+	| { readonly kind: "written"; readonly array: ColumnArray }
 	| { readonly kind: "binary" }
 
 /** A text array literal of the values' canonical texts (columnLiteral), within the longest string. */
-const textArray = (codec: ScalarCodec): ArrayForm => ({
-	kind: "text",
+const literalArray = (codec: ScalarCodec): ArrayForm => ({
+	kind: "written",
 	array: (input, column, facts) =>
 		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)
+})
+
+/** A text column's binary text[] of its values' canonical texts (codec/bytea.ts textArray), which no literal of the
+ * whole array carries, so a column of any length within a message travels. */
+const textBinaryArray = (codec: ScalarCodec): ArrayForm => ({
+	kind: "written",
+	array: (input, column, facts) =>
+		binaryTextArray(
+			input,
+			column,
+			facts.map((fact) => codec.text(fact[column]))
+		)
 })
 
 /** A bytes column's form: its member's binary array, whose values no text carries at their own size. */
 const binaryArray: ArrayForm = { kind: "binary" }
 
 /**
- * How each carrier's column travels as one placeholder's array: a text array literal of its canonical texts, and a
- * bytes column's its member's binary bytea[]. Chosen once per column, when its relation's spec is built, so no fact
- * meets the choice.
+ * How each carrier's column travels as one placeholder's array, chosen by its type and never by its size: a text
+ * column's binary text[], a bytes column's its member's binary bytea[], and any other's text array literal of its
+ * canonical texts. Chosen once per column, when its relation's spec is built, so no fact meets the choice.
  */
 const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm } = {
-	int2: textArray,
-	int4: textArray,
-	int8: textArray,
-	numeric: textArray,
-	float4: textArray,
-	float8: textArray,
-	money: textArray,
-	bool: textArray,
-	uuid: textArray,
-	date: textArray,
-	text: textArray,
+	int2: literalArray,
+	int4: literalArray,
+	int8: literalArray,
+	numeric: literalArray,
+	float4: literalArray,
+	float8: literalArray,
+	money: literalArray,
+	bool: literalArray,
+	uuid: literalArray,
+	date: literalArray,
+	text: textBinaryArray,
 	bytes: () => binaryArray,
-	code: textArray,
-	bits: textArray,
-	range4: textArray,
-	range8: textArray,
-	rangeDate: textArray,
-	vector: textArray,
-	exactInteger: textArray,
-	exactMoney: textArray
+	code: literalArray,
+	bits: literalArray,
+	range4: literalArray,
+	range8: literalArray,
+	rangeDate: literalArray,
+	vector: literalArray,
+	exactInteger: literalArray,
+	exactMoney: literalArray
 }
 
 interface BuiltSpec {
@@ -566,8 +583,8 @@ const placeholderOf = (spec: RelationSpec) => {
 
 /**
  * The writer of a relation parameter's placeholder's array of normal facts under `spec` (ir/products.ts
- * RelationEncoder): of the facts written in the spec's column order, the array at a part, its column's literal
- * (columnLiteral), or, of no column, their count. Each placeholder writes its own array and no other, and never admits
+ * RelationEncoder): of the facts written in the spec's column order, the array at a part, its column's array as its
+ * form writes it (`ArrayForm`), or, of no column, their count. Each placeholder writes its own array and no other, and never admits
  * a fact again. No parameter is of bytes, so a binary column here is the compiler's defect.
  */
 export const normalArray = (
@@ -587,9 +604,9 @@ export const normalArray = (
 }
 
 /**
- * The writer of a member placeholder's array (ir/products.ts MemberEncoder): a text column's literal its placeholder
- * writes, as a relation parameter's (`normalArray`), and a bytes column's binary array its member wrote once for the
- * whole write (ir/products.ts KeyedFacts), which every placeholder of the column carries.
+ * The writer of a member placeholder's array (ir/products.ts MemberEncoder): a column's array its placeholder writes,
+ * as a relation parameter's (`normalArray`), and a bytes column's binary array its member wrote once for the whole
+ * write (ir/products.ts KeyedFacts), which every placeholder of the column carries.
  */
 export const memberArray = (
 	spec: RelationSpec
