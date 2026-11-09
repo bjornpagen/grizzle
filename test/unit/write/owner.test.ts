@@ -43,8 +43,8 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * Every other write of owners from a query compiles: one whose facts carry a stored owner's key alone, which inserts no
  * owner; one beside no member write, or beside a member's removal; one sequenced before the append; and a deletion of
  * owners a query reads, which inserts none. An owner stated
- * by facts is inserted at its final count and end with its members, which the write algebra's commands machine
- * (test/unit/write/commands.test.ts) runs.
+ * by facts is inserted at its final count and end with its members, which the families swarm
+ * (test/pg/write/swarm/families.test.ts) runs.
  *
  * The oracle is that rule over generated ChangeSets of one or two strata over a ledger whose entries sum to its total.
  */
