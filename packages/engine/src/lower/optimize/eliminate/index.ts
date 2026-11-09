@@ -24,6 +24,9 @@ import type {
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
+	type CellPhysical,
+	overDemand,
+	overPhysical,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -49,23 +52,31 @@ interface Elimination {
 }
 
 /**
- * The proof that removes stored occurrence `o`, scanning `s`, through occurrence `t`, scanning `tb`: a containment from
- * `tb`'s fields to `s`'s that `t` binds to every variable `o` binds, over a key of `s`, holding in the context.
+ * A way stored occurrence `o`, scanning `s`, may be removed through occurrence `t`, scanning `tb`, as the cells and the
+ * catalog say: a containment from `tb`'s fields to `s`'s that `t` binds to every variable `o` binds, over every field
+ * of `s` it names. Its proof is a key of `s` among those fields and the containment's evidence (eliminationProof).
  */
-const eliminationVia = (
+interface EliminationWay {
+	readonly occurrence: Occurrence
+	readonly via: Occurrence
+	readonly containment: ExistenceConstraint
+}
+
+/** Each way `o`, scanning `s`, may be removed through `t`, scanning `tb` (EliminationWay), in the catalog's order. */
+const waysVia = (
 	cx: RewriteCx,
 	o: Occurrence,
 	s: Base,
 	t: Occurrence,
 	tb: Base
-): Elimination | undefined => {
-	for (const c of cx.catalog.containments) {
+): ReadonlyArray<EliminationWay> =>
+	cx.catalog.containments.flatMap((c) => {
 		if (
 			c.from.relation !== tb.relation ||
 			c.to.relation !== s.relation ||
 			c.from.fields.length !== c.to.fields.length
 		) {
-			continue
+			return []
 		}
 		const matched = o.bindings.every((b) => {
 			const i = c.to.fields.indexOf(b.column)
@@ -73,56 +84,25 @@ const eliminationVia = (
 				i >= 0 && t.bindings.some((x) => x.column === c.from.fields[i] && x.var.id === b.var.id)
 			)
 		})
-		if (!matched || !c.to.fields.every((f) => o.bindings.some((b) => b.column === f))) {
-			continue
-		}
-		const key = keyAmong(cx.physical().of(o.source).props, c.to.fields)
-		if (key === undefined) {
-			continue
-		}
-		const exists = containmentEvidence(c, cx.ctx.evidenceContext)
-		if (exists === undefined) {
-			continue
-		}
-		return {
-			occurrence: o,
-			via: t,
-			containment: c,
-			key,
-			existence: exists.premises,
-			existenceContext: exists.context
-		}
-	}
-	return undefined
-}
+		return !matched || !c.to.fields.every((f) => o.bindings.some((b) => b.column === f))
+			? []
+			: [{ occurrence: o, via: t, containment: c }]
+	})
 
-/** The proof that removes stored occurrence `o`, scanning `s`, through some other stored occurrence of the region. */
-const eliminationOf = (
+/**
+ * Each way a stored occurrence of a region may be removed through another stored occurrence of it, as the cells and
+ * the catalog say, in occurrence order, then the other occurrence's, then the catalog's: none on a recursion's feedback
+ * or in a region of one occurrence.
+ */
+const eliminationWays = (
 	cx: RewriteCx,
-	region: Region,
-	o: Occurrence,
-	s: Base
-): Elimination | undefined => {
-	for (const t of region.occurrences) {
-		const tb = t.source.current
-		const found =
-			t.id === o.id || tb.kind !== "Base" || tb.relationKind !== "relation"
-				? undefined
-				: eliminationVia(cx, o, s, t, tb)
-		if (found !== undefined) {
-			return found
-		}
-	}
-	return undefined
-}
-
-/** The first occurrence of a region the proof removes, with its proof. */
-const elimination = (cx: RewriteCx, cell: Cell, region: Region): Elimination | undefined => {
+	cell: Cell,
+	region: Region
+): ReadonlyArray<EliminationWay> => {
 	if (region.occurrences.length < 2 || cx.editor.readsFeedback(cell)) {
-		return undefined
+		return []
 	}
-	const d = cx.demand()
-	for (const o of region.occurrences) {
+	return region.occurrences.flatMap((o) => {
 		const s = o.source.current
 		if (
 			s.kind !== "Base" ||
@@ -130,11 +110,54 @@ const elimination = (cx: RewriteCx, cell: Cell, region: Region): Elimination | u
 			o.constants.length > 0 ||
 			o.bindings.length === 0
 		) {
-			continue
+			return []
 		}
-		const found = d.lateral(o.source) ? undefined : eliminationOf(cx, region, o, s)
-		if (found !== undefined) {
-			return found
+		return region.occurrences.flatMap((t) => {
+			const tb = t.source.current
+			return t.id === o.id || tb.kind !== "Base" || tb.relationKind !== "relation"
+				? []
+				: waysVia(cx, o, s, t, tb)
+		})
+	})
+}
+
+/**
+ * The proof of a way (EliminationWay): a key of the removed occurrence's relation among the containment's target
+ * fields, under `physical`, and the containment holding in the context.
+ */
+const eliminationProof = (
+	cx: RewriteCx,
+	physical: CellPhysical,
+	way: EliminationWay
+): Elimination | undefined => {
+	const key = keyAmong(physical.of(way.occurrence.source).props, way.containment.to.fields)
+	if (key === undefined) {
+		return undefined
+	}
+	const exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)
+	if (exists === undefined) {
+		return undefined
+	}
+	return {
+		occurrence: way.occurrence,
+		via: way.via,
+		containment: way.containment,
+		key,
+		existence: exists.premises,
+		existenceContext: exists.context
+	}
+}
+
+/** The first way of `ways` its proof holds for (eliminationProof), in their order, with its proof. */
+const firstProof = (
+	cx: RewriteCx,
+	physical: CellPhysical,
+	ways: ReadonlyArray<EliminationWay>
+): Elimination | undefined => {
+	for (const way of ways) {
+		const proved = eliminationProof(cx, physical, way)
+		if (proved !== undefined) {
+			return proved
 		}
 	}
 	return undefined
@@ -161,6 +184,22 @@ const sameVariable = (a: Occurrence, b: Occurrence, column: string): boolean =>
 		(x) =>
 			x.column === column && b.bindings.some((y) => y.column === column && y.var.id === x.var.id)
 	)
+
+/** Whether two of `occurrences` scan one stored relation: the pairs a key join may fold (keyJoinOf). */
+const twoScansOfOne = (occurrences: ReadonlyArray<Occurrence>): boolean => {
+	const seen = new Set<string>()
+	for (const o of occurrences) {
+		const s = o.source.current
+		if (s.kind !== "Base" || s.relationKind !== "relation") {
+			continue
+		}
+		if (seen.has(s.relation)) {
+			return true
+		}
+		seen.add(s.relation)
+	}
+	return false
+}
 
 /**
  * The first key join of a region (KeyJoin), in occurrence order: two occurrences `admits` lets fold, over one stored
@@ -235,33 +274,42 @@ const keyJoinFold: Rule = {
 		if (
 			node.kind !== "MatchRegion" ||
 			node.occurrences.length < 2 ||
-			cx.editor.readsFeedback(cell)
+			cx.editor.readsFeedback(cell) ||
+			!twoScansOfOne(node.occurrences)
 		) {
 			return false
 		}
-		const physical = cx.physical()
-		const d = cx.demand()
-		const join = keyJoinOf(
-			node,
-			(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
-			(o) => !d.lateral(o.source)
-		)
-		if (join === undefined) {
-			return false
-		}
-		cx.certify({
-			rule: keyJoinRule,
-			inputs: [join.folded.source.id, join.kept.source.id, cell.id],
-			outputs: [cell.id],
-			premises: join.key.just.premises,
-			context: join.key.just.context,
-			preservedHeading: node.heading.map((c) => c.name),
-			equality: equalityOf(join.kept.bindings.filter((b) => join.key.columns.includes(b.column))),
-			coercion: join.key.just.coercions,
-			params: undefined
+		return overDemand(({ demand }) => {
+			const admits = (o: Occurrence) => !demand.lateral(o.source)
+			if (!twoScansOfOne(node.occurrences.filter(admits))) {
+				return false
+			}
+			return overPhysical(({ physical }) => {
+				const join = keyJoinOf(
+					node,
+					(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
+					admits
+				)
+				if (join === undefined) {
+					return false
+				}
+				cx.certify({
+					rule: keyJoinRule,
+					inputs: [join.folded.source.id, join.kept.source.id, cell.id],
+					outputs: [cell.id],
+					premises: join.key.just.premises,
+					context: join.key.just.context,
+					preservedHeading: node.heading.map((c) => c.name),
+					equality: equalityOf(
+						join.kept.bindings.filter((b) => join.key.columns.includes(b.column))
+					),
+					coercion: join.key.just.coercions,
+					params: undefined
+				})
+				cx.editor.set(cell, keyJoined(node, join))
+				return true
+			})
 		})
-		cx.editor.set(cell, keyJoined(node, join))
-		return true
 	}
 }
 
@@ -307,26 +355,38 @@ const eliminateRule: Rule = {
 		if (node.kind !== "MatchRegion") {
 			return false
 		}
-		const e = elimination(cx, cell, node)
-		if (e === undefined) {
+		const ways = eliminationWays(cx, cell, node)
+		if (ways.length === 0) {
 			return false
 		}
-		cx.certify({
-			rule: eliminationRule,
-			inputs: [e.occurrence.source.id, e.via.source.id, cell.id],
-			outputs: [cell.id],
-			premises: [...e.key.just.premises, ...e.existence],
-			context: strongest([e.key.just.context, e.existenceContext]),
-			preservedHeading: node.heading.map((c) => c.name),
-			equality: equalityOf(e.occurrence.bindings),
-			coercion: [],
-			params: undefined
+		return overDemand(({ demand }) => {
+			const open = ways.filter((w) => !demand.lateral(w.occurrence.source))
+			if (open.length === 0) {
+				return false
+			}
+			return overPhysical(({ physical }) => {
+				const e = firstProof(cx, physical, open)
+				if (e === undefined) {
+					return false
+				}
+				cx.certify({
+					rule: eliminationRule,
+					inputs: [e.occurrence.source.id, e.via.source.id, cell.id],
+					outputs: [cell.id],
+					premises: [...e.key.just.premises, ...e.existence],
+					context: strongest([e.key.just.context, e.existenceContext]),
+					preservedHeading: node.heading.map((c) => c.name),
+					equality: equalityOf(e.occurrence.bindings),
+					coercion: [],
+					params: undefined
+				})
+				cx.editor.set(cell, {
+					...node,
+					occurrences: node.occurrences.filter((o) => o.id !== e.occurrence.id)
+				})
+				return true
+			})
 		})
-		cx.editor.set(cell, {
-			...node,
-			occurrences: node.occurrences.filter((o) => o.id !== e.occurrence.id)
-		})
-		return true
 	}
 }
 

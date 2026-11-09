@@ -11,9 +11,11 @@ import {
 } from "#compiler/ir/rel.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
+	type CellDemand,
 	type Potential,
 	type RewriteCx,
 	type Rule,
+	overDemand,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { exclusive } from "#compiler/lower/optimize/simplify/rules.ts"
@@ -70,8 +72,8 @@ const semiOver = (ed: DagEditor, left: Cell, right: Cell, on: ColumnPairs): Cell
  * Whether a cell may take a semi-join from above it: one reference, the semi-join's, uncorrelated and off any recursive
  * step.
  */
-const movable = (cx: RewriteCx, cell: Cell): boolean =>
-	exclusive(cx, cell) && !cx.editor.correlated(cell) && !cx.editor.readsFeedback(cell)
+const movable = (cx: RewriteCx, demand: CellDemand, cell: Cell): boolean =>
+	exclusive(cx, demand, cell) && !cx.editor.correlated(cell) && !cx.editor.readsFeedback(cell)
 
 /** The source column `occurrence` binds `variable` to, where it binds it. */
 const boundColumn = (
@@ -89,6 +91,7 @@ const restrictsGroups = (group: Group, columns: ReadonlyArray<string>): boolean 
 /** The region now denotes the semi-join's set and takes its readers, so it carries the semi-join's metadata. */
 const intoOccurrence = (
 	cx: RewriteCx,
+	demand: CellDemand,
 	m: Moving,
 	regionCell: Cell,
 	region: KindOver<"MatchRegion", EditRefs>
@@ -103,7 +106,7 @@ const intoOccurrence = (
 	/** Only onto a group the next rule takes it below (belowGroup), never one it would stay above. */
 	const [chosen] = region.occurrences.flatMap((o) => {
 		const source = o.source.current
-		if (source.kind !== "Group" || !movable(cx, o.source)) {
+		if (source.kind !== "Group" || !movable(cx, demand, o.source)) {
 			return []
 		}
 		const on = variables.flatMap(({ pair, variable }) => {
@@ -154,20 +157,23 @@ const semiRule: Rule = {
 		if (semi.kind !== "SemiJoin" || semi.on.length === 0) {
 			return false
 		}
-		if (ed.correlated(semi.right) || cx.demand().lateral(semi.right)) {
+		if (ed.correlated(semi.right)) {
 			return false
 		}
 		const m: Moving = { cell, semi }
 		const leftCell = semi.left
 		const left = leftCell.current
-		if (!movable(cx, leftCell)) {
-			return false
-		}
+		const moves = (demand: CellDemand): boolean =>
+			!demand.lateral(semi.right) && movable(cx, demand, leftCell)
 		switch (left.kind) {
 			case "MatchRegion":
-				return intoOccurrence(cx, m, leftCell, left)
+				return overDemand(({ demand }) =>
+					moves(demand) ? intoOccurrence(cx, demand, m, leftCell, left) : false
+				)
 			case "Group":
-				return belowGroup(cx, m, leftCell, left)
+				return overDemand(({ demand }) =>
+					moves(demand) ? belowGroup(cx, m, leftCell, left) : false
+				)
 			case "Base":
 			case "Closed":
 			case "Context":

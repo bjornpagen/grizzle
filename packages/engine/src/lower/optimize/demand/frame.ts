@@ -58,31 +58,72 @@ export interface RewriteCx {
 	readonly ctx: PassContext
 	readonly pass: string
 	readonly catalog: EvidenceCatalog
-	/** The current DAG, finished, and each cell's node in it, memoized until a change. */
-	readonly dag: () => FinishedCells<Roots>
-	/** The demand analysis of the current DAG. */
-	readonly demand: () => CellDemand
-	/** The physical analysis of the current DAG in the artifact's evidence context. */
-	readonly physical: () => CellPhysical
 	/** Records a rewrite's certificate in the context's log; a refused certificate fails the pass. */
 	readonly certify: (input: Certificate) => void
 }
 
+/** What a decision reads of the DAG as its driver found it: the DAG finished, each cell's node in it, and its demand. */
+export interface DemandAnalyses {
+	readonly dag: FinishedCells<Roots>
+	readonly demand: CellDemand
+}
+
+/** The demand analyses, and the physical analysis of the same DAG in the artifact's evidence context. */
+export interface PhysicalAnalyses extends DemandAnalyses {
+	readonly physical: CellPhysical
+}
+
+/**
+ * A rule's decision at a cell whose shape admits it, over the analyses of the current DAG it reads: the driver computes
+ * them once per state of the DAG, for every decision that reads them, and hands them to it. It rewrites and returns
+ * true, changes nothing and returns false, or asks for more (a decision over the physical analyses).
+ */
+export type Decision =
+	| { readonly reads: "demand"; readonly decide: (analyses: DemandAnalyses) => Verdict }
+	| { readonly reads: "physical"; readonly decide: (analyses: PhysicalAnalyses) => Verdict }
+
+/** What a rule answers: true where it rewrote, false where it changed nothing, or the decision the analyses settle. */
+export type Verdict = boolean | Decision
+
+/** A decision over the demand analyses. */
+export const overDemand = (decide: (analyses: DemandAnalyses) => Verdict): Decision => ({
+	reads: "demand",
+	decide
+})
+
+/** A decision over the physical analyses, the demand analyses with them. */
+export const overPhysical = (decide: (analyses: PhysicalAnalyses) => Verdict): Decision => ({
+	reads: "physical",
+	decide
+})
+
 export interface Rule {
 	readonly name: string
 	/**
-	 * Rewrites at `cell` and returns true, or changes nothing and returns false, deciding by nothing but what it reads at
-	 * the cell (affectedBy) and the compilation's catalog.
+	 * At `cell`: false where it changes nothing, true where it rewrote, or the decision that settles it over the analyses
+	 * it reads (Decision), where the cells alone admit a rewrite. It decides by nothing but what it reads at the cell
+	 * (affectedBy), those analyses and the compilation's catalog.
 	 */
-	readonly at: (cell: Cell, cx: RewriteCx) => boolean
+	readonly at: (cell: Cell, cx: RewriteCx) => Verdict
 }
+
+/** A potential's value as the cells alone give it, or the value the demand analyses of the DAG settle. */
+export type Measure =
+	| number
+	| { readonly reads: "demand"; readonly of: (analyses: DemandAnalyses) => number }
+
+/** A potential's value over the demand analyses. */
+export const measureOverDemand = (of: (analyses: DemandAnalyses) => number): Measure => ({
+	reads: "demand",
+	of
+})
 
 /**
  * A pass's potential: a natural number of the DAG that every rewrite of the pass strictly lowers. It is polynomial in
  * the size of the DAG the pass starts from, so the pass takes at most its first value in steps, which is the pass's
- * whole bound: no step budget beside it.
+ * whole bound: no step budget beside it. Where the cells alone give its value, it reads no analysis.
  */
-export type Potential = (cx: RewriteCx) => number
+export type Potential = (cx: RewriteCx) => Measure
 
 interface RewritePassSpec {
 	readonly name: string
@@ -115,68 +156,81 @@ const physicalOf = (dag: RelDag, ctx: PassContext): PhysicalAnalysis =>
 		roots: "result"
 	})
 
-/** A memo before its first read, or since its reset. */
-const unread = { kind: "unread" } as const
+/**
+ * The DAG the editor holds now, finished, and its demand analysis: what the driver hands a decision, and what a rule
+ * that rewrites and then decides again over its own edit computes for itself.
+ */
+export const demandAnalyses = (editor: DagEditor): DemandAnalyses => {
+	const dag = editor.finished()
+	return { dag, demand: cellDemand(dag, analyzeDemand(dag.dag, noPins)) }
+}
 
-/** A value computed on its first read and kept until it is reset. */
-class Memo<A> {
-	#state: { readonly kind: "unread" } | { readonly kind: "read"; readonly value: A } = unread
+/** The demand analyses `demand`, with the physical analysis of their DAG. */
+const physicalAnalyses = (demand: DemandAnalyses, ctx: PassContext): PhysicalAnalyses => {
+	const analysis = physicalOf(demand.dag.dag, ctx)
+	return { ...demand, physical: { analysis, of: (cell) => analysis.of(demand.dag.node(cell)) } }
+}
 
-	get(compute: () => A): A {
-		const value = this.#state.kind === "read" ? this.#state.value : compute()
-		this.#state = { kind: "read", value }
-		return value
+/**
+ * The analyses of one state of the edited DAG its driver has computed, each once: none yet, the demand analyses, or the
+ * physical ones too. An edit makes them another state's, so the driver starts each state from none.
+ */
+type Computed =
+	| { readonly kind: "none" }
+	| { readonly kind: "demand"; readonly analyses: DemandAnalyses }
+	| { readonly kind: "physical"; readonly analyses: PhysicalAnalyses }
+
+const noneComputed: Computed = { kind: "none" }
+
+/** The demand analyses of the editor's DAG, `computed`'s or computed now, and what is computed then. */
+const withDemand = (
+	editor: DagEditor,
+	computed: Computed
+): { readonly analyses: DemandAnalyses; readonly computed: Computed } => {
+	if (computed.kind !== "none") {
+		return { analyses: computed.analyses, computed }
 	}
+	const analyses = demandAnalyses(editor)
+	return { analyses, computed: { kind: "demand", analyses } }
+}
 
-	reset(): void {
-		this.#state = unread
+/** The physical analyses of the editor's DAG, `computed`'s or computed now, and what is computed then. */
+const withPhysical = (
+	editor: DagEditor,
+	ctx: PassContext,
+	computed: Computed
+): { readonly analyses: PhysicalAnalyses; readonly computed: Computed } => {
+	if (computed.kind === "physical") {
+		return { analyses: computed.analyses, computed }
 	}
+	const analyses = physicalAnalyses(withDemand(editor, computed).analyses, ctx)
+	return { analyses, computed: { kind: "physical", analyses } }
 }
 
 /** The rewrite cx over one editor, under the compilation's catalog. */
-const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx => {
-	const catalog = ctx.catalog
-	/** The editor version the memos below were computed at; undefined before the first read. */
-	let version: number | undefined
-	const dag = new Memo<FinishedCells<Roots>>()
-	const demand = new Memo<CellDemand>()
-	const physical = new Memo<CellPhysical>()
-	const fresh = () => {
-		if (version === editor.version) {
-			return
-		}
-		version = editor.version
-		dag.reset()
-		demand.reset()
-		physical.reset()
+const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx => ({
+	editor,
+	ctx,
+	pass,
+	catalog: ctx.catalog,
+	certify: (input) => {
+		const cert = unwrap(makeCertificate(input))
+		ctx.certificates.record(cert)
 	}
-	const current = (): FinishedCells<Roots> => {
-		fresh()
-		return dag.get(() => editor.finished())
+})
+
+/** A potential's value over the editor's DAG, with the analyses computed for it. */
+const measured = (
+	potential: Potential,
+	cx: RewriteCx,
+	computed: Computed
+): { readonly value: number; readonly computed: Computed } => {
+	const measure = potential(cx)
+	if (typeof measure === "number") {
+		return { value: measure, computed }
 	}
-	const cx: RewriteCx = {
-		editor,
-		ctx,
-		pass,
-		catalog,
-		dag: current,
-		demand: () => {
-			const snapshot = current()
-			return demand.get(() => cellDemand(snapshot, analyzeDemand(snapshot.dag, noPins)))
-		},
-		physical: () => {
-			const snapshot = current()
-			return physical.get(() => {
-				const analysis = physicalOf(snapshot.dag, ctx)
-				return { analysis, of: (cell) => analysis.of(snapshot.node(cell)) }
-			})
-		},
-		certify: (input) => {
-			const cert = unwrap(makeCertificate(input))
-			ctx.certificates.record(cert)
-		}
-	}
-	return cx
+	const known = withDemand(cx.editor, computed)
+	return { value: measure.of(known.analyses), computed: known.computed }
 }
 
 /**
@@ -190,6 +244,10 @@ const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx
  * the DAG, polynomial in the size of the DAG the pass starts from, that every applied rewrite strictly lowers, so a
  * pass takes at most its first value in steps and needs no step budget. A step that does not lower it is a defect of
  * the rule, grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts).
+ *
+ * A rule whose shape matches at a cell answers a decision over the demand or the physical analyses (Decision). The
+ * driver computes each analysis of a state of the DAG once, the first time a decision or the potential reads it, and
+ * hands it to every later one until an edit, so an analysis no decision reads is never computed.
  *
  * Every applied rewrite records a certificate: its rule, the nodes it read and wrote, the premises
  * its proof used, the evidence context it requires, the heading it preserves, and through its constraint premises the
@@ -205,18 +263,18 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 			const editor = new DagEditor(query.dag)
 			const cx = rewriteCx(editor, ctx, spec.name)
 			const potential = spec.potential(cx)
-			let before = potential(cx)
+			let start = measured(potential, cx, noneComputed)
 			for (
-				let fired = fireNext(editor, spec.rules, cx);
+				let fired = fireNext(spec.rules, cx, start.computed);
 				fired !== undefined;
-				fired = fireNext(editor, spec.rules, cx)
+				fired = fireNext(spec.rules, cx, start.computed)
 			) {
-				const after = potential(cx)
+				const after = measured(potential, cx, noneComputed)
 				invariant(
-					Number.isInteger(after) && after >= 0 && after < before,
-					`the ${spec.name} rewrite ${fired.rule.name} at node ${fired.cell.id} strictly lowers its pass's potential, a natural; ${before} became ${after}`
+					Number.isInteger(after.value) && after.value >= 0 && after.value < start.value,
+					`the ${spec.name} rewrite ${fired.rule.name} at node ${fired.cell.id} strictly lowers its pass's potential, a natural; ${start.value} became ${after.value}`
 				)
-				before = after
+				start = after
 			}
 			return settle(query, editor)
 		})
@@ -229,20 +287,44 @@ interface Fired {
 }
 
 /**
- * Applies the first rule that fires at the first cell in topological order where one does. No rule is applied at a cell
- * that reads a recursion's feedback.
+ * Applies the first rule that fires at the first cell in topological order where one does, over the analyses of the
+ * current DAG `computed` holds and those its decisions read, each computed once (rewritePass). No rule is applied at a
+ * cell that reads a recursion's feedback.
  */
 const fireNext = (
-	editor: DagEditor,
 	rules: ReadonlyArray<Rule>,
-	cx: RewriteCx
+	cx: RewriteCx,
+	computed: Computed
 ): Fired | undefined => {
+	const editor = cx.editor
+	let known = computed
+	const settled = (verdict: Verdict): boolean => {
+		for (let at = verdict; ;) {
+			if (typeof at === "boolean") {
+				return at
+			}
+			switch (at.reads) {
+				case "demand": {
+					const read = withDemand(editor, known)
+					known = read.computed
+					at = at.decide(read.analyses)
+					break
+				}
+				case "physical": {
+					const read = withPhysical(editor, cx.ctx, known)
+					known = read.computed
+					at = at.decide(read.analyses)
+					break
+				}
+			}
+		}
+	}
 	for (const cell of editor.topoOrder()) {
 		if (editor.readsFeedback(cell)) {
 			continue
 		}
 		for (const rule of rules) {
-			if (rule.at(cell, cx)) {
+			if (settled(rule.at(cell, cx))) {
 				return { cell, rule }
 			}
 		}

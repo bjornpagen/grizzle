@@ -18,12 +18,15 @@ import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { type DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
+	type CellPhysical,
+	overDemand,
+	overPhysical,
 	type Potential,
 	type RewriteCx,
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { regionChain } from "#compiler/lower/optimize/fuse/chain.ts"
+import { type RegionChain, regionChain } from "#compiler/lower/optimize/fuse/chain.ts"
 import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const lateFetchRule = "R06.lateFetch"
@@ -54,23 +57,37 @@ interface Plan {
 }
 
 /**
- * Every way to fetch payload late from one scanned relation, one plan per stored occurrence with a key the stage
- * carries.
+ * The region chain a take's stage is, where its cells admit a late fetch: an uncorrelated take off every recursion's
+ * feedback, over an uncorrelated chain whose heading carries a wide column outside the take's order and whose region
+ * scans a stored relation, which every plan fetches from (lateFetchPlans).
  */
-const lateFetchPlans = (cx: RewriteCx, takeCell: Cell, take: Take): ReadonlyArray<Plan> => {
+const lateFetchChain = (cx: RewriteCx, takeCell: Cell, take: Take): RegionChain | undefined => {
 	const ed = cx.editor
 	if (take.correlation.length > 0 || ed.readsFeedback(takeCell) || ed.correlated(take.input)) {
-		return []
+		return undefined
 	}
-	const d = cx.demand()
-	if (d.lateral(takeCell) || d.lateral(take.input)) {
-		return []
-	}
-	const stage = take.input.current
 	const chain = regionChain(take.input)
 	if (chain === undefined) {
-		return []
+		return undefined
 	}
+	const ordered = new Set(take.order.keys.map((k) => k.column))
+	return take.input.current.heading.some((c) => widePayload(c.type) && !ordered.has(c.name)) &&
+		chain.region.occurrences.some((o) => o.source.current.kind === "Base")
+		? chain
+		: undefined
+}
+
+/**
+ * Every way to fetch payload late from one scanned relation of a take's chain (lateFetchChain), one plan per stored
+ * occurrence with a key the stage carries, under `physical`.
+ */
+const lateFetchPlans = (
+	physical: CellPhysical,
+	takeCell: Cell,
+	take: Take,
+	chain: RegionChain
+): ReadonlyArray<Plan> => {
+	const stage = take.input.current
 	const region = chain.region
 	const ordered = new Set(take.order.keys.map((k) => k.column))
 	/** Each stage column by the region variable it carries. */
@@ -100,7 +117,7 @@ const lateFetchPlans = (cx: RewriteCx, takeCell: Cell, take: Take): ReadonlyArra
 				carried.set(c.name, [c, col])
 			}
 		}
-		const props = cx.physical().of(o.source).props
+		const props = physical.of(o.source).props
 		const narrowCarried = [...carried].flatMap(([name, [c]]) => (widePayload(c.type) ? [] : [name]))
 		/**
 		 * The key the narrow take sorts (keyAmong): one among the narrow carried columns, so every wide one is payload
@@ -236,12 +253,22 @@ const lateFetch: Rule = {
 		if (node.kind !== "Take") {
 			return false
 		}
-		const plan = lateFetchPlans(cx, cell, node)[0]
-		if (plan === undefined) {
+		const chain = lateFetchChain(cx, cell, node)
+		if (chain === undefined) {
 			return false
 		}
-		fetch(cx, plan)
-		return true
+		return overDemand(({ demand }) =>
+			demand.lateral(cell) || demand.lateral(node.input)
+				? false
+				: overPhysical(({ physical }) => {
+						const plan = lateFetchPlans(physical, cell, node, chain)[0]
+						if (plan === undefined) {
+							return false
+						}
+						fetch(cx, plan)
+						return true
+					})
+		)
 	}
 }
 

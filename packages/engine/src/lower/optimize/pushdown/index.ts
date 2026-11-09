@@ -19,6 +19,9 @@ import { conjuncts } from "#compiler/logical/props.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
+	type CellDemand,
+	measureOverDemand,
+	overDemand,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -156,12 +159,13 @@ const throughUnion = (
 
 const throughLeft = (
 	cx: RewriteCx,
+	demand: CellDemand,
 	m: Moving,
 	xCell: Cell,
 	x: KindOver<"SemiJoin" | "AntiJoin" | "Intersect" | "Difference", EditRefs>
 ): boolean => {
 	const ed = cx.editor
-	if (cx.demand().lateral(x.left)) {
+	if (demand.lateral(x.left)) {
 		return false
 	}
 	const moved = filterOver(ed, x.left, ed.copyExpr(m.filter.pred, ed.retarget(xCell, x.left)))
@@ -185,6 +189,7 @@ const boundaryKinds: ReadonlyArray<RelKind> = [
  */
 const intoSource = (
 	cx: RewriteCx,
+	demand: CellDemand,
 	m: Moving,
 	regionCell: Cell,
 	region: KindOver<"MatchRegion", EditRefs>
@@ -209,7 +214,7 @@ const intoSource = (
 		const source = sourceCell.current
 		if (
 			!boundaryKinds.includes(source.kind) ||
-			!exclusive(cx, sourceCell) ||
+			!exclusive(cx, demand, sourceCell) ||
 			ed.correlated(sourceCell)
 		) {
 			return false
@@ -264,24 +269,34 @@ const pushRule: Rule = {
 		const m: Moving = { cell, filter }
 		const xCell = filter.input
 		const x = xCell.current
-		if (!exclusive(cx, xCell)) {
-			return false
-		}
 		switch (x.kind) {
 			case "ProjectSet":
-				return throughProject(cx, m, xCell, x)
+				return overDemand(({ demand }) =>
+					exclusive(cx, demand, xCell) ? throughProject(cx, m, xCell, x) : false
+				)
 			case "Group":
-				return throughGroup(cx, m, xCell, x)
+				return overDemand(({ demand }) =>
+					exclusive(cx, demand, xCell) ? throughGroup(cx, m, xCell, x) : false
+				)
 			case "Union":
-				throughUnion(cx, m, xCell, x)
-				return true
+				return overDemand(({ demand }) => {
+					if (!exclusive(cx, demand, xCell)) {
+						return false
+					}
+					throughUnion(cx, m, xCell, x)
+					return true
+				})
 			case "SemiJoin":
 			case "AntiJoin":
 			case "Intersect":
 			case "Difference":
-				return throughLeft(cx, m, xCell, x)
+				return overDemand(({ demand }) =>
+					exclusive(cx, demand, xCell) ? throughLeft(cx, demand, m, xCell, x) : false
+				)
 			case "MatchRegion":
-				return intoSource(cx, m, xCell, x)
+				return overDemand(({ demand }) =>
+					exclusive(cx, demand, xCell) ? intoSource(cx, demand, m, xCell, x) : false
+				)
 			case "Base":
 			case "Closed":
 			case "Context":
@@ -316,23 +331,26 @@ const pushRule: Rule = {
  * reach of any other filter: the moved filter's cell takes the node it passed, which reads the filters the move
  * placed, so every tree keeps its non-filter nodes. Its first value is at most the conjuncts times the nodes.
  */
-const pushdownPotential: Potential = (cx) => {
-	const reach = new Map<Cell, number>()
-	const exclusiveReach = (c: Cell): number =>
-		exclusive(cx, c)
-			? defined(reach.get(c), "an input's reach, set before its readers in topological order")
-			: 0
-	let sum = 0
-	for (const cell of cx.editor.topoOrder()) {
-		const node = cell.current
-		const below = inputsOf(node).reduce((n, input) => n + exclusiveReach(input), 0)
-		reach.set(cell, (node.kind === "Filter" ? 0 : 1) + below)
-		if (node.kind === "Filter") {
-			sum += conjuncts(node.pred).length * exclusiveReach(node.input)
-		}
-	}
-	return sum
-}
+const pushdownPotential: Potential = (cx) =>
+	!cx.editor.topoOrder().some((cell) => cell.current.kind === "Filter")
+		? 0
+		: measureOverDemand(({ demand }) => {
+				const reach = new Map<Cell, number>()
+				const exclusiveReach = (c: Cell): number =>
+					exclusive(cx, demand, c)
+						? defined(reach.get(c), "an input's reach, set before its readers in topological order")
+						: 0
+				let sum = 0
+				for (const cell of cx.editor.topoOrder()) {
+					const node = cell.current
+					const below = inputsOf(node).reduce((n, input) => n + exclusiveReach(input), 0)
+					reach.set(cell, (node.kind === "Filter" ? 0 : 1) + below)
+					if (node.kind === "Filter") {
+						sum += conjuncts(node.pred).length * exclusiveReach(node.input)
+					}
+				}
+				return sum
+			})
 
 /**
  * The predicate movement pass.

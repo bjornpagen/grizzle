@@ -1,6 +1,8 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { postgresSource, published } from "#compiler/core/limits.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -20,6 +22,10 @@ import {
 } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
+	type CellPhysical,
+	measureOverDemand,
+	overDemand,
+	overPhysical,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -48,17 +54,17 @@ const regionReads = (cx: RewriteCx, region: Cell, o: Occurrence): ReadonlySet<st
 }
 
 /**
- * The existence-only occurrences of a region. A variable counts as bound elsewhere only by an occurrence that does not
+ * The existence-only occurrences of a region as its cells say, which no lateral read may name. A variable
+ * counts as bound elsewhere only by an occurrence that does not
  * itself read it: a correlated source binding the variable it is correlated on needs another binder in scope before
  * it, so an occurrence whose only other binder of a variable is such a source is that binder, not an
  * existence test, and moving it into a semi-join would leave the correlated source with nothing to follow.
  */
-const existenceOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
+const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
 	const ed = cx.editor
 	if (region.occurrences.length < 2 || ed.readsFeedback(cell)) {
 		return []
 	}
-	const d = cx.demand()
 	/** Each occurrence with the region's variables it reads. */
 	const scanned = region.occurrences.map((x) => ({
 		occurrence: x,
@@ -75,9 +81,6 @@ const existenceOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray
 			return false
 		}
 		if (columnRefs(o.constants.map((c) => c.expr)).length > 0) {
-			return false
-		}
-		if (d.lateral(o.source)) {
 			return false
 		}
 		return !ed.correlated(o.source) && !ed.readsFeedback(o.source)
@@ -167,20 +170,19 @@ const stacked = (cx: RewriteCx, region: Cell): number => {
 }
 
 /**
- * The occurrence the rewrite moves into a semi-join, if any: an existence-only occurrence whose removal joins no two
- * inputs without a condition, an unkeyed one before a keyed one, while the stacked semi-joins stay within the collapse
- * limit (the header's three conditions).
+ * Whether a region's occurrences and the relations of the semi- and anti-joins stacked over it (stacked) stay within
+ * the collapse limit, so one more semi-join keeps one join problem PostgreSQL flattens.
  */
-const existenceTest = (cx: RewriteCx, cell: Cell, region: Region): Occurrence | undefined => {
-	const candidates = existenceOnly(cx, cell, region)
-	if (candidates.length === 0) {
-		return undefined
-	}
-	if (region.occurrences.length + stacked(cx, cell) > collapseLimit.value) {
-		return undefined
-	}
+const withinCollapse = (cx: RewriteCx, cell: Cell, region: Region): boolean =>
+	region.occurrences.length + stacked(cx, cell) <= collapseLimit.value
+
+/** The existence-only occurrences of `candidates` whose removal joins no two inputs without a condition. */
+const connectedOf = (
+	region: Region,
+	candidates: ReadonlyArray<Occurrence>
+): ReadonlyArray<Occurrence> => {
 	const whole = groups(region, region.occurrences)
-	const connected = candidates.filter(
+	return candidates.filter(
 		(o) =>
 			groups(
 				region,
@@ -188,10 +190,13 @@ const existenceTest = (cx: RewriteCx, cell: Cell, region: Region): Occurrence | 
 			) ===
 			whole - (o.bindings.length === 0 ? 1 : 0)
 	)
-	if (connected.length <= 1) {
-		return connected[0]
-	}
-	const physical = cx.physical()
+}
+
+/** The first of `connected` whose bound and constant columns key no physical key of its source, or the first. */
+const unkeyedFirst = (
+	physical: CellPhysical,
+	connected: NonEmptyReadonlyArray<Occurrence>
+): Occurrence => {
 	const keyed = (o: Occurrence): boolean => {
 		const source = physical.of(o.source).props
 		const key = keyedBy(source, [
@@ -308,12 +313,28 @@ const existenceRule: Rule = {
 		if (node.kind !== "MatchRegion") {
 			return false
 		}
-		const o = existenceTest(cx, cell, node)
-		if (o === undefined) {
+		const shaped = shapedExistence(cx, cell, node)
+		if (shaped.length === 0 || !withinCollapse(cx, cell, node)) {
 			return false
 		}
-		rewrite(cx, cell, node, o)
-		return true
+		return overDemand(({ demand }) => {
+			const candidates = shaped.filter((o) => !demand.lateral(o.source))
+			if (candidates.length === 0) {
+				return false
+			}
+			const connected = connectedOf(node, candidates)
+			if (!isNonEmpty(connected)) {
+				return false
+			}
+			if (connected.length === 1) {
+				rewrite(cx, cell, node, connected[0])
+				return true
+			}
+			return overPhysical(({ physical }) => {
+				rewrite(cx, cell, node, unkeyedFirst(physical, connected))
+				return true
+			})
+		})
 	}
 }
 
@@ -340,54 +361,66 @@ const setComparison: Rule = {
 		if (node.kind !== "Intersect" && node.kind !== "Difference") {
 			return false
 		}
-		if (cx.demand().lateral(node.right) || ed.correlated(node.right)) {
+		if (ed.correlated(node.right)) {
 			return false
 		}
-		const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
-		const unique = keyedBy(
-			cx.physical().of(node.left).props,
-			node.heading.map((c) => c.name)
+		const { left, right } = node
+		return overDemand(({ demand }) =>
+			demand.lateral(right)
+				? false
+				: overPhysical(({ physical }) => {
+						const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
+						const unique = keyedBy(
+							physical.of(left).props,
+							node.heading.map((c) => c.name)
+						)
+						if (unique === undefined || unique.just.outer.length > 0) {
+							return false
+						}
+						const on = node.heading.map((c) => ({ left: c.name, right: c.name }))
+						cx.certify({
+							rule: node.kind === "Intersect" ? semiJoinRule : antiJoinRule,
+							inputs: [node.left.id, node.right.id],
+							outputs: [cell.id],
+							premises: [...unique.just.premises, ...nodePremises([node.left.id, node.right.id])],
+							context: unique.just.context,
+							preservedHeading: node.heading.map((c) => c.name),
+							equality: [...equality, ...unique.just.equality],
+							coercion: unique.just.coercions,
+							params: undefined
+						})
+						ed.set(cell, {
+							kind: node.kind === "Intersect" ? "SemiJoin" : "AntiJoin",
+							left: node.left,
+							right: node.right,
+							on,
+							heading: node.heading,
+							meta: node.meta,
+							loc: node.loc
+						})
+						return true
+					})
 		)
-		if (unique === undefined || unique.just.outer.length > 0) {
-			return false
-		}
-		const on = node.heading.map((c) => ({ left: c.name, right: c.name }))
-		cx.certify({
-			rule: node.kind === "Intersect" ? semiJoinRule : antiJoinRule,
-			inputs: [node.left.id, node.right.id],
-			outputs: [cell.id],
-			premises: [...unique.just.premises, ...nodePremises([node.left.id, node.right.id])],
-			context: unique.just.context,
-			preservedHeading: node.heading.map((c) => c.name),
-			equality: [...equality, ...unique.just.equality],
-			coercion: unique.just.coercions,
-			params: undefined
-		})
-		ed.set(cell, {
-			kind: node.kind === "Intersect" ? "SemiJoin" : "AntiJoin",
-			left: node.left,
-			right: node.right,
-			on,
-			heading: node.heading,
-			meta: node.meta,
-			loc: node.loc
-		})
-		return true
 	}
 }
 
 const existencePotential: Potential = (cx) => {
-	let count = 0
+	let comparisons = 0
+	const shaped: Array<Occurrence> = []
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
-			count += existenceOnly(cx, cell, node).length
+			appendAll(shaped, shapedExistence(cx, cell, node))
 		}
 		if (node.kind === "Intersect" || node.kind === "Difference") {
-			count++
+			comparisons++
 		}
 	}
-	return count
+	return shaped.length === 0
+		? comparisons
+		: measureOverDemand(
+				({ demand }) => comparisons + shaped.filter((o) => !demand.lateral(o.source)).length
+			)
 }
 
 /**

@@ -14,10 +14,12 @@ import {
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
 import {
+	measureOverDemand,
+	overDemand,
 	type Potential,
 	type RewriteCx,
-	type Rule,
-	rewritePass
+	rewritePass,
+	type Rule
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -122,16 +124,19 @@ const membershipOf = (cx: RewriteCx, region: Region, o: Occurrence): Membership 
 	return isNonEmpty(key) ? { occurrence: o, relation: source.closed, evidence, key } : undefined
 }
 
-/** The membership-only closed occurrences of the region `cell` holds. */
-const membershipsOf = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Membership> => {
+/**
+ * The membership-only closed occurrences of the region `cell` holds as its cells say, which no expression's lateral
+ * read may name.
+ */
+const shapedMemberships = (
+	cx: RewriteCx,
+	cell: Cell,
+	region: Region
+): ReadonlyArray<Membership> => {
 	if (region.occurrences.length < 2 || cx.editor.readsFeedback(cell)) {
 		return []
 	}
-	const d = cx.demand()
 	return region.occurrences.flatMap((o) => {
-		if (o.source.current.kind !== "Closed" || d.lateral(o.source)) {
-			return []
-		}
 		const m = membershipOf(cx, region, o)
 		return m === undefined ? [] : [m]
 	})
@@ -179,85 +184,97 @@ const equalityOf = (m: Membership): ReadonlyArray<OpId> =>
 const membershipRuleOf: Rule = {
 	name: membershipRule,
 	at: (cell, cx) => {
-		const ed: DagEditor = cx.editor
 		const region = cell.current
 		if (region.kind !== "MatchRegion") {
 			return false
 		}
-		const [m] = membershipsOf(cx, cell, region)
-		if (m === undefined) {
+		const shaped = shapedMemberships(cx, cell, region)
+		if (shaped.length === 0) {
 			return false
 		}
-		const o = m.occurrence
-		const remaining: Region = {
-			...region,
-			occurrences: region.occurrences.filter((x) => x.id !== o.id)
-		}
-		const outputs: Array<NodeId> = [cell.id]
-		const pred = predicateOf(ed, cell, m)
-		if (pred === undefined) {
-			ed.set(cell, remaining)
-		} else {
-			/**
-			 * The predicate reads the bound variables as the region's columns: one the region does not deliver widens it,
-			 * and a projection restores the heading it had.
-			 */
-			const read = new Set(columnRefs([pred]).map((r) => r.name))
-			const heading = widenedHeading(
-				region.heading,
-				region.vars.filter((v) => read.has(v.name))
-			)
-			const widened = heading.length > region.heading.length
-			ed.set(cell, { ...remaining, heading, meta: derivedMeta(region.meta) })
-			ed.insertAbove(cell, (input) => {
-				const f = ed.add({
-					kind: "Filter",
-					input,
-					pred,
-					heading,
-					meta: widened ? derivedMeta(region.meta) : region.meta,
-					loc: undefined
-				})
-				outputs.push(f.id)
-				if (!widened) {
-					return f
-				}
-				const restored = ed.add({
-					kind: "ProjectSet",
-					input: f,
-					out: region.heading.map((c) => ({ name: c.name, expr: ed.column(f, c) })),
-					heading: region.heading,
-					meta: region.meta,
-					loc: undefined
-				})
-				outputs.push(restored.id)
-				return restored
-			})
-		}
-		cx.certify({
-			rule: membershipRule,
-			inputs: [o.source.id, cell.id],
-			outputs,
-			premises: nodePremises([o.source.id]),
-			context: "immediate",
-			preservedHeading: region.heading.map((c) => c.name),
-			equality: equalityOf(m),
-			coercion: [],
-			params: undefined
+		return overDemand(({ demand }) => {
+			const m = shaped.find((x) => !demand.lateral(x.occurrence.source))
+			if (m === undefined) {
+				return false
+			}
+			return rewriteMembership(cx, cell, region, m)
 		})
-		return true
 	}
 }
 
-const membershipPotential: Potential = (cx) => {
-	let count = 0
-	for (const cell of cx.editor.topoOrder()) {
-		const node = cell.current
-		if (node.kind === "MatchRegion") {
-			count += membershipsOf(cx, cell, node).length
-		}
+/** The membership `m` of the region `cell` holds made a predicate over it, or nothing where it is a roster's. */
+const rewriteMembership = (cx: RewriteCx, cell: Cell, region: Region, m: Membership): boolean => {
+	const ed: DagEditor = cx.editor
+	const o = m.occurrence
+	const remaining: Region = {
+		...region,
+		occurrences: region.occurrences.filter((x) => x.id !== o.id)
 	}
-	return count
+	const outputs: Array<NodeId> = [cell.id]
+	const pred = predicateOf(ed, cell, m)
+	if (pred === undefined) {
+		ed.set(cell, remaining)
+	} else {
+		/**
+		 * The predicate reads the bound variables as the region's columns: one the region does not deliver widens it,
+		 * and a projection restores the heading it had.
+		 */
+		const read = new Set(columnRefs([pred]).map((r) => r.name))
+		const heading = widenedHeading(
+			region.heading,
+			region.vars.filter((v) => read.has(v.name))
+		)
+		const widened = heading.length > region.heading.length
+		ed.set(cell, { ...remaining, heading, meta: derivedMeta(region.meta) })
+		ed.insertAbove(cell, (input) => {
+			const f = ed.add({
+				kind: "Filter",
+				input,
+				pred,
+				heading,
+				meta: widened ? derivedMeta(region.meta) : region.meta,
+				loc: undefined
+			})
+			outputs.push(f.id)
+			if (!widened) {
+				return f
+			}
+			const restored = ed.add({
+				kind: "ProjectSet",
+				input: f,
+				out: region.heading.map((c) => ({ name: c.name, expr: ed.column(f, c) })),
+				heading: region.heading,
+				meta: region.meta,
+				loc: undefined
+			})
+			outputs.push(restored.id)
+			return restored
+		})
+	}
+	cx.certify({
+		rule: membershipRule,
+		inputs: [o.source.id, cell.id],
+		outputs,
+		premises: nodePremises([o.source.id]),
+		context: "immediate",
+		preservedHeading: region.heading.map((c) => c.name),
+		equality: equalityOf(m),
+		coercion: [],
+		params: undefined
+	})
+	return true
+}
+
+const membershipPotential: Potential = (cx) => {
+	const shaped = cx.editor.topoOrder().flatMap((cell) => {
+		const node = cell.current
+		return node.kind === "MatchRegion" ? shapedMemberships(cx, cell, node) : []
+	})
+	return shaped.length === 0
+		? 0
+		: measureOverDemand(
+				({ demand }) => shaped.filter((m) => !demand.lateral(m.occurrence.source)).length
+			)
 }
 
 /**

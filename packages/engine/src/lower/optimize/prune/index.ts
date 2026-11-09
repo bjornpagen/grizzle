@@ -33,9 +33,12 @@ const prunePinned = (cx: RewriteCx): ReadonlySet<NodeId> => {
 	return pinned
 }
 
-/** The demand pruning narrows by: every `pinned` node delivers its whole heading and binds every variable. */
+/**
+ * The demand pruning narrows by, over the DAG the editor holds as the traversal starts: every `pinned` node delivers its
+ * whole heading and binds every variable.
+ */
 const pruneDemand = (cx: RewriteCx, pinned: ReadonlySet<NodeId>): CellDemand => {
-	const snapshot = cx.dag()
+	const snapshot = cx.editor.finished()
 	return cellDemand(
 		snapshot,
 		analyzeDemand(snapshot.dag, (node) => pinned.has(node.id))

@@ -7,7 +7,15 @@ import type { Cell, EditNode, EditRefs, HeadingColumn, KindOver } from "#compile
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
-import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
+import {
+	type DemandAnalyses,
+	demandAnalyses,
+	measureOverDemand,
+	overDemand,
+	type Potential,
+	type RewriteCx,
+	type Rule
+} from "#compiler/lower/optimize/demand/frame.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -77,28 +85,56 @@ type SiteForm =
 	| { readonly kind: "conjunct"; readonly column: (ref: ColumnRef) => string | undefined }
 	| { readonly kind: "constant"; readonly column: HeadingColumn; readonly op: DefinedOp }
 
+/** Whether `reader` is the one consumer of the recursion `cell` holds, which is no root and off every feedback. */
+const readOnlyBy = (cx: RewriteCx, cell: Cell, reader: Cell): boolean => {
+	const ed = cx.editor
+	if (cell.current.kind !== "Recursive" || ed.isRoot(cell) || ed.readsFeedback(cell)) {
+		return false
+	}
+	const readers = ed.readers()(cell)
+	return readers.length === 1 && readers[0] === reader
+}
+
+/**
+ * Whether the cells alone admit a site at `cell` (sitesAt): a filter over a recursion it alone reads, or over a region
+ * one of whose occurrences scans such a recursion, or a region scanning one.
+ */
+const seedable = (cx: RewriteCx, cell: Cell): boolean => {
+	const node = cell.current
+	const scansOne = (region: KindOver<"MatchRegion", EditRefs>, regionCell: Cell): boolean =>
+		region.occurrences.some((o) => readOnlyBy(cx, o.source, regionCell))
+	if (node.kind === "MatchRegion") {
+		return scansOne(node, cell)
+	}
+	if (node.kind !== "Filter") {
+		return false
+	}
+	const input = node.input.current
+	return (
+		readOnlyBy(cx, node.input, cell) ||
+		(input.kind === "MatchRegion" && scansOne(input, node.input))
+	)
+}
+
 /**
  * The recursion `cell` holds when `reader` reads it as its one consumer, provably restrictable at its seed, with its
  * carried columns of types whose equal values print alike.
  */
-const restrictable = (cx: RewriteCx, cell: Cell, reader: Cell): ReadonlySet<string> | undefined => {
-	const ed = cx.editor
+const restrictable = (
+	cx: RewriteCx,
+	analyses: DemandAnalyses,
+	cell: Cell,
+	reader: Cell
+): ReadonlySet<string> | undefined => {
 	const node = cell.current
-	if (node.kind !== "Recursive") {
+	if (node.kind !== "Recursive" || !readOnlyBy(cx, cell, reader)) {
 		return undefined
 	}
-	if (ed.isRoot(cell) || ed.readsFeedback(cell)) {
-		return undefined
-	}
-	const readers = ed.readers()(cell)
-	if (readers.length !== 1 || readers[0] !== reader) {
-		return undefined
-	}
-	if (cx.demand().lateral(cell)) {
+	if (analyses.demand.lateral(cell)) {
 		return undefined
 	}
 	/** The recursion as the current DAG holds it, whose step the carried-column argument reads. */
-	const finished = cx.dag().node(cell)
+	const finished = analyses.dag.node(cell)
 	if (finished.kind !== "Recursive" || !positiveLinear(finished)) {
 		return undefined
 	}
@@ -131,13 +167,14 @@ const readsOnly = (
 
 const filterSites = (
 	cx: RewriteCx,
+	analyses: DemandAnalyses,
 	cell: Cell,
 	f: KindOver<"Filter", EditRefs>
 ): ReadonlyArray<Site> => {
 	const inputCell = f.input
 	const input = inputCell.current
 	if (input.kind === "Recursive") {
-		const allowed = restrictable(cx, inputCell, cell)
+		const allowed = restrictable(cx, analyses, inputCell, cell)
 		if (allowed === undefined) {
 			return []
 		}
@@ -163,7 +200,7 @@ const filterSites = (
 		if (rec.kind !== "Recursive") {
 			continue
 		}
-		const allowed = restrictable(cx, o.source, inputCell)
+		const allowed = restrictable(cx, analyses, o.source, inputCell)
 		if (allowed === undefined) {
 			continue
 		}
@@ -197,6 +234,7 @@ const filterSites = (
 
 const constantSites = (
 	cx: RewriteCx,
+	analyses: DemandAnalyses,
 	cell: Cell,
 	region: KindOver<"MatchRegion", EditRefs>
 ): ReadonlyArray<Site> => {
@@ -206,7 +244,7 @@ const constantSites = (
 		if (rec.kind !== "Recursive") {
 			continue
 		}
-		const allowed = restrictable(cx, o.source, cell)
+		const allowed = restrictable(cx, analyses, o.source, cell)
 		if (allowed === undefined) {
 			continue
 		}
@@ -242,13 +280,13 @@ const constantSites = (
 	return out
 }
 
-const sitesAt = (cx: RewriteCx, cell: Cell): ReadonlyArray<Site> => {
+const sitesAt = (cx: RewriteCx, analyses: DemandAnalyses, cell: Cell): ReadonlyArray<Site> => {
 	const node = cell.current
 	if (node.kind === "Filter") {
-		return filterSites(cx, cell, node)
+		return filterSites(cx, analyses, cell, node)
 	}
 	if (node.kind === "MatchRegion") {
-		return constantSites(cx, cell, node)
+		return constantSites(cx, analyses, cell, node)
 	}
 	return []
 }
@@ -363,7 +401,7 @@ const pushed = (site: Site): boolean => {
 }
 
 /** Every site not yet pushed, over the reachable DAG. */
-const openSites = (cx: RewriteCx): ReadonlyArray<Site> => {
+const openSites = (cx: RewriteCx, analyses: DemandAnalyses): ReadonlyArray<Site> => {
 	const ed = cx.editor
 	const out: Array<Site> = []
 	for (const cell of ed.topoOrder()) {
@@ -372,7 +410,7 @@ const openSites = (cx: RewriteCx): ReadonlyArray<Site> => {
 		}
 		appendAll(
 			out,
-			sitesAt(cx, cell).filter((s) => !pushed(s))
+			sitesAt(cx, analyses, cell).filter((s) => !pushed(s))
 		)
 	}
 	return out
@@ -384,7 +422,10 @@ const openSites = (cx: RewriteCx): ReadonlyArray<Site> => {
  * no consumer of another recursion. So each push lowers it by at least one, and its first value is at most the
  * conjuncts and constants times the recursion occurrences.
  */
-export const seedPotential: Potential = (cx) => openSites(cx).length
+export const seedPotential: Potential = (cx) =>
+	cx.editor.topoOrder().some((cell) => !cx.editor.readsFeedback(cell) && seedable(cx, cell))
+		? measureOverDemand((analyses) => openSites(cx, analyses).length)
+		: 0
 
 /** The site's predicate over the recursion's current base. */
 const seedPredicate = (cx: RewriteCx, site: Site): ScalarExpr => {
@@ -449,7 +490,10 @@ const push = (cx: RewriteCx, site: Site): void => {
 		coercion: [],
 		params: params.length === 0 ? undefined : params
 	})
-	for (const below of sitesAt(cx, filter).filter((s) => !pushed(s))) {
+	if (!seedable(cx, filter)) {
+		return
+	}
+	for (const below of sitesAt(cx, demandAnalyses(ed), filter).filter((s) => !pushed(s))) {
 		push(cx, below)
 	}
 }
@@ -457,11 +501,16 @@ const push = (cx: RewriteCx, site: Site): void => {
 export const seedPushdown: Rule = {
 	name: "graph.seedPushdown",
 	at: (cell, cx) => {
-		const site = sitesAt(cx, cell).find((s) => !pushed(s))
-		if (site === undefined) {
+		if (!seedable(cx, cell)) {
 			return false
 		}
-		push(cx, site)
-		return true
+		return overDemand((analyses) => {
+			const site = sitesAt(cx, analyses, cell).find((s) => !pushed(s))
+			if (site === undefined) {
+				return false
+			}
+			push(cx, site)
+			return true
+		})
 	}
 }

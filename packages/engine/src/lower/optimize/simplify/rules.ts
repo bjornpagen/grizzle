@@ -18,7 +18,13 @@ import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
-import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
+import {
+	type CellDemand,
+	overDemand,
+	type Potential,
+	type RewriteCx,
+	type Rule
+} from "#compiler/lower/optimize/demand/frame.ts"
 import { allenNormal } from "#compiler/lower/optimize/simplify/allen.ts"
 import {
 	conjunction,
@@ -48,10 +54,8 @@ const isEmptyRelation = (node: EditNode): boolean =>
  * may then change its set as long as that one reader's set is unchanged. A node one reader reads twice (a semi-join's
  * both sides, a region's two occurrences) is no exclusive input of either.
  */
-export const exclusive = (cx: RewriteCx, cell: Cell): boolean => {
-	const d = cx.demand()
-	return d.references(cell) === 1 && !cx.editor.isRoot(cell) && !d.lateral(cell)
-}
+export const exclusive = (cx: RewriteCx, demand: CellDemand, cell: Cell): boolean =>
+	demand.references(cell) === 1 && !cx.editor.isRoot(cell) && !demand.lateral(cell)
 
 const certify = (
 	cx: RewriteCx,
@@ -116,12 +120,13 @@ const toEmpty = (cx: RewriteCx, cell: Cell, node: EditNode): void => {
  */
 const collapseInto = (
 	cx: RewriteCx,
+	demand: CellDemand,
 	cell: Cell,
 	node: EditNode,
 	input: Cell,
 	certified: () => void
 ): boolean => {
-	if (!exclusive(cx, input)) {
+	if (!exclusive(cx, demand, input)) {
 		return false
 	}
 	certified()
@@ -149,9 +154,11 @@ const foldFilter: Rule = {
 			return false
 		}
 		if (folded.kind === "value" && folded.value) {
-			return collapseInto(cx, cell, node, node.input, () => {
-				certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
-			})
+			return overDemand(({ demand }) =>
+				collapseInto(cx, demand, cell, node, node.input, () => {
+					certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
+				})
+			)
 		}
 		certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
 		if (folded.kind === "value") {
@@ -351,25 +358,31 @@ const emptyRule: Rule = {
 			ed.set(cell, { ...node, groups })
 			return true
 		}
-		if (
-			(node.kind === "AntiJoin" || node.kind === "Difference") &&
-			isEmptyRelation(node.right.current) &&
-			collapseInto(cx, cell, node, node.left, () => {
-				certify(cx, simplifyRules.empty, [node.right.id], node.heading, [node.left.id])
-			})
-		) {
+		const emptied = (): boolean => {
+			if (!replaceable(ed, cell, spine)) {
+				return false
+			}
+			const inputs = emptiedBy(node, (c) => isEmptyRelation(c.current))
+			if (inputs === undefined) {
+				return false
+			}
+			certify(cx, simplifyRules.empty, ids(inputs), node.heading, [cell.id])
+			toEmpty(cx, cell, node)
 			return true
 		}
-		if (!replaceable(ed, cell, spine)) {
-			return false
+		if (
+			(node.kind === "AntiJoin" || node.kind === "Difference") &&
+			isEmptyRelation(node.right.current)
+		) {
+			const { left, right } = node
+			return overDemand(
+				({ demand }) =>
+					collapseInto(cx, demand, cell, node, left, () => {
+						certify(cx, simplifyRules.empty, [right.id], node.heading, [left.id])
+					}) || emptied()
+			)
 		}
-		const inputs = emptiedBy(node, (c) => isEmptyRelation(c.current))
-		if (inputs === undefined) {
-			return false
-		}
-		certify(cx, simplifyRules.empty, ids(inputs), node.heading, [cell.id])
-		toEmpty(cx, cell, node)
-		return true
+		return emptied()
 	}
 }
 
@@ -383,14 +396,19 @@ const mergeFilters: Rule = {
 		}
 		const innerCell = outer.input
 		const inner = innerCell.current
-		if (inner.kind !== "Filter" || !exclusive(cx, innerCell)) {
+		if (inner.kind !== "Filter") {
 			return false
 		}
-		const moved = ed.copyExpr(outer.pred, ed.retarget(innerCell, inner.input))
-		const pred = conjunction(ed, [...conjuncts(inner.pred), ...conjuncts(moved)], outer.pred)
-		certify(cx, simplifyRules.mergeFilters, [innerCell.id], outer.heading, [cell.id])
-		ed.set(cell, { ...outer, input: inner.input, pred })
-		return true
+		return overDemand(({ demand }) => {
+			if (!exclusive(cx, demand, innerCell)) {
+				return false
+			}
+			const moved = ed.copyExpr(outer.pred, ed.retarget(innerCell, inner.input))
+			const pred = conjunction(ed, [...conjuncts(inner.pred), ...conjuncts(moved)], outer.pred)
+			certify(cx, simplifyRules.mergeFilters, [innerCell.id], outer.heading, [cell.id])
+			ed.set(cell, { ...outer, input: inner.input, pred })
+			return true
+		})
 	}
 }
 
@@ -404,15 +422,22 @@ const mergeProjections: Rule = {
 		}
 		const innerCell = outer.input
 		const inner = innerCell.current
-		if (inner.kind !== "ProjectSet" || !exclusive(cx, innerCell)) {
+		if (inner.kind !== "ProjectSet") {
 			return false
 		}
-		const byName = new Map(inner.out.map((o) => [o.name, o.expr]))
-		const copy = ed.copier((ref) => (ref.node === innerCell.id ? byName.get(ref.name) : undefined))
-		const out = outer.out.map((o) => ({ name: o.name, expr: copy.of(o.expr) }))
-		certify(cx, simplifyRules.mergeProjections, [innerCell.id], outer.heading, [cell.id])
-		ed.set(cell, { ...outer, input: inner.input, out })
-		return true
+		return overDemand(({ demand }) => {
+			if (!exclusive(cx, demand, innerCell)) {
+				return false
+			}
+			const byName = new Map(inner.out.map((o) => [o.name, o.expr]))
+			const copy = ed.copier((ref) =>
+				ref.node === innerCell.id ? byName.get(ref.name) : undefined
+			)
+			const out = outer.out.map((o) => ({ name: o.name, expr: copy.of(o.expr) }))
+			certify(cx, simplifyRules.mergeProjections, [innerCell.id], outer.heading, [cell.id])
+			ed.set(cell, { ...outer, input: inner.input, out })
+			return true
+		})
 	}
 }
 
@@ -478,9 +503,11 @@ const identityProjection: Rule = {
 		if (!sameHeading) {
 			return false
 		}
-		return collapseInto(cx, cell, node, inputCell, () => {
-			certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
-		})
+		return overDemand(({ demand }) =>
+			collapseInto(cx, demand, cell, node, inputCell, () => {
+				certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
+			})
+		)
 	}
 }
 
@@ -537,7 +564,7 @@ const equality: Rule = {
 		}
 		const regionCell = filter.input
 		const region = regionCell.current
-		if (region.kind !== "MatchRegion" || !exclusive(cx, regionCell)) {
+		if (region.kind !== "MatchRegion") {
 			return false
 		}
 		const parts = conjuncts(filter.pred)
@@ -554,21 +581,26 @@ const equality: Rule = {
 		if (moved.length === 0) {
 			return false
 		}
-		const added = moved.filter(
-			(m, i) =>
-				!region.equalities.some((e) => samePair(e, m)) &&
-				!moved.slice(0, i).some((p) => samePair(p, m))
-		)
-		certify(cx, simplifyRules.equality, [regionCell.id], filter.heading, [regionCell.id, cell.id])
-		const equalities = [...region.equalities, ...added]
-		if (rest.length > 0) {
-			ed.set(regionCell, { ...region, equalities })
-			ed.set(cell, { ...filter, pred: conjunction(ed, rest, filter.pred) })
+		return overDemand(({ demand }) => {
+			if (!exclusive(cx, demand, regionCell)) {
+				return false
+			}
+			const added = moved.filter(
+				(m, i) =>
+					!region.equalities.some((e) => samePair(e, m)) &&
+					!moved.slice(0, i).some((p) => samePair(p, m))
+			)
+			certify(cx, simplifyRules.equality, [regionCell.id], filter.heading, [regionCell.id, cell.id])
+			const equalities = [...region.equalities, ...added]
+			if (rest.length > 0) {
+				ed.set(regionCell, { ...region, equalities })
+				ed.set(cell, { ...filter, pred: conjunction(ed, rest, filter.pred) })
+				return true
+			}
+			ed.set(regionCell, { ...region, equalities, meta: filter.meta })
+			ed.redirect(cell, regionCell)
 			return true
-		}
-		ed.set(regionCell, { ...region, equalities, meta: filter.meta })
-		ed.redirect(cell, regionCell)
-		return true
+		})
 	}
 }
 

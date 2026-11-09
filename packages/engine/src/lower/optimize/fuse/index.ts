@@ -6,6 +6,8 @@ import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
+	type CellDemand,
+	overDemand,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -30,22 +32,17 @@ const predicateVars = (chain: RegionChain): ReadonlySet<string> =>
 		)
 	)
 
-/** Whether the region `cell` holds may absorb the chain under its occurrence `o`. */
-const fusable = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): boolean => {
+/**
+ * Whether the chain, as its own cells say, is one the region `cell` holds may absorb under its occurrence `o`, its
+ * nodes aside, which no other reference may read (quietChain).
+ */
+const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): boolean => {
 	const ed = cx.editor
 	const inner = chain.region
 	if (chain.regionCell === cell || inner.correlated.length > 0) {
 		return false
 	}
 	if (ed.readsFeedback(cell)) {
-		return false
-	}
-	const d = cx.demand()
-	const quiet = (c: Cell) => !d.lateral(c)
-	if (![...chain.nodes, chain.regionCell, ...inner.occurrences.map((x) => x.source)].every(quiet)) {
-		return false
-	}
-	if (![...chain.nodes, chain.regionCell].every((c) => d.references(c) === 1)) {
 		return false
 	}
 	if (ed.correlated(o.source)) {
@@ -81,7 +78,17 @@ const fusable = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): 
 	return o.bindings.every((b) => innerOf(b.column) !== undefined)
 }
 
-/** The candidates of the region `cell` holds: its occurrences over a fusable chain. */
+/**
+ * Whether no expression reads the chain's nodes, its region or its region's sources laterally, and the occurrence alone
+ * references the chain's nodes and its region, under `demand`: moving them would change no scope, and no other reader
+ * gets a copy.
+ */
+const quietChain = (demand: CellDemand, chain: RegionChain): boolean =>
+	[...chain.nodes, chain.regionCell, ...chain.region.occurrences.map((x) => x.source)].every(
+		(c) => !demand.lateral(c)
+	) && [...chain.nodes, chain.regionCell].every((c) => demand.references(c) === 1)
+
+/** The candidates of the region `cell` holds as its cells say: its occurrences over a chain shaped for fusion. */
 const candidates = (
 	cx: RewriteCx,
 	cell: Cell,
@@ -89,7 +96,7 @@ const candidates = (
 ): ReadonlyArray<{ readonly o: Occurrence; readonly chain: RegionChain }> =>
 	region.occurrences.flatMap((o) => {
 		const chain = regionChain(o.source)
-		return chain !== undefined && fusable(cx, cell, o, chain) ? [{ o, chain }] : []
+		return chain !== undefined && shapedFusion(cx, cell, o, chain) ? [{ o, chain }] : []
 	})
 
 type Image =
@@ -110,7 +117,7 @@ const fuse = (
 	const image = new Map<VarId, Image>()
 	/**
 	 * The inner variable a column of a chain node carries: every column of the chain carries one of the region's
-	 * variables (regionChain), and fusable() admits only such chains.
+	 * variables (regionChain), and shapedFusion admits only such chains.
 	 */
 	const innerVar = (column: string): VarDecl => columnIn(chain.columns, column)
 	const extraEqualities: Array<{ readonly a: VarDecl; readonly b: VarDecl }> = []
@@ -282,18 +289,24 @@ const fuseRule: Rule = {
 		if (node.kind !== "MatchRegion") {
 			return false
 		}
-		const first = candidates(cx, cell, node)[0]
-		if (first === undefined) {
+		const shaped = candidates(cx, cell, node)
+		if (shaped.length === 0) {
 			return false
 		}
-		fuse(cx, cell, node, first.o, first.chain)
-		return true
+		return overDemand(({ demand }) => {
+			const first = shaped.find((c) => quietChain(demand, c.chain))
+			if (first === undefined) {
+				return false
+			}
+			fuse(cx, cell, node, first.o, first.chain)
+			return true
+		})
 	}
 }
 
 /**
  * The fusion potential: the reachable regions. Fusing an occurrence over a chain copies the chain's region's
- * occurrences into the fused region, which keeps its cell, and leaves the chain read by nothing, since fusable()
+ * occurrences into the fused region, which keeps its cell, and leaves the chain read by nothing, since quietChain
  * admits only a chain every node of which the occurrence alone references; the filter and the rename fusion may place
  * above the fused region are no regions. So each fusion removes exactly one region and adds none.
  */
