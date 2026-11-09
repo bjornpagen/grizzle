@@ -35,19 +35,21 @@ post-beta swarm's fixes for the next release.
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
   - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
     0.33 s with native foreign keys), though each probe alone is index lookups.
-  - Pattern work the law model's lowering repeats (REGEX, 2026-11-09; not cut, blocked by the zone rules). Two
-    items, measured on the kit's layer at 25ed2465 (25.2 profile-seconds in all): (a) lowering
-    Compute.when(Compute.matches(x, p), ...) analyzes x's patterns and p together again (scalar/compute/lower.ts
-    whenGuard, textWithin, then text/refinement.ts analyzeText), though x's members were analyzed when their text
-    descriptors were registered; carrying those members would save at most 0.06 profile-seconds, since the x ∧ p
-    intersection is still built for each guard. (b) A literal matches source is admitted again where the law model
-    lowers a check (lower.ts patternAdmissions), though Compute.pattern admitted it: at most 0.11 profile-seconds.
-    The blocker: the analysis (text/refinement.ts TextRefinement) and the admitted Pattern (scalar/regex/pattern.ts)
-    would have to ride on a field's ScalarType (TextInfo) and on the matches and when nodes, but ir may import only
-    core and sql, and the descriptor registry (scalar) only core and ir, so neither can name them; a second registry
-    under text/ would be a side table. The one representation that removes it: the regex analysis types (RegexNode,
-    the DFA and Known, PatternAnalysis, TextRefinement, Pattern) moved into ir, after which a registered descriptor's
-    refinement reaches its ScalarType and the built matches and when nodes carry their Pattern and narrowed refinement.
+  - Pattern admission repeated in every lowering (REGEX2, 2026-11-09; held by main, generate-only once the served
+    cutover lands). On the kit's layer at c83f33ac (loaded machine, CPU): the law model's batch admits each closed
+    payload value read as a Compute.matches pattern, 370 calls for 365 distinct, about 260 ms (lower.ts admittedReads),
+    and each literal pattern again, 202 calls for 89 distinct, about 60–100 ms (patternAdmissions), though only the
+    refusal reads either. The cut: the lowering reads sources and admits none; one install-only pass in installBasis
+    and generate's workload compile admits every pattern part the schema's expressions read (schema/walk.ts
+    exprPatternReads, patternParts), refusing at the expression. It moves a term's refusal out of the lowering, which
+    test/unit/compute/text.test.ts holds.
+  - Pattern analysis carried on its values (REGEX2, 2026-11-09; held by main, generate-only after the cutover):
+    Compute.when guards analyze x ∧ p again, 103 calls for 14 distinct, about 90–105 ms, and Compute.parse's lexical
+    inclusion rebuilds the inner and form DFAs, 39 calls for 10 distinct, about 110–150 ms. The move: the pure regex
+    engine (scalar/regex table, charset, ir, parse, nfa, partition, dfa, are, space, admit, source, inclusion's NFA
+    core) becomes a zone `regex` importing only core, with TextBounds and ir/dag.ts postorder moved out of ir; ir,
+    scalar, text and lower may import it; then RegexRef carries its members' IR and DFAs, the matches node its admitted
+    Pattern, and the when guard its Pattern's analysis, outside identity and the canonical walk.
   - A generated CHECK's trial lowering (LAWS-BASIS, 2026-11-09; held by main). laws/model/model.ts #lowerCheck lowers
     each family and fold CHECK predicate into a throwaway DAG, then lowers it again for real: over its contract-typed
     leaves as they are where that typing admits it, else over their bases (baseLeaves), which changes the installed
