@@ -84,6 +84,11 @@ post-beta swarm's fixes for the next release.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **RDS IAM** against a real RDS.
+- **Worlds page coverage:** the worlds boxes never page past the first page. A probe of the exhaustive box reaches
+  compilePage 36 times and makes no after or before request, and the random worlds pass a plant that answers every
+  optimized after request with its before statements. So the worlds artifact differential
+  (test/support/worlds/execute/artifacts.ts) covers only first and last page requests; test/pg/page carries anchored
+  pages, and catches that plant.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
   Reconcile them, then copy the library into edullm with the shared lint standard.
 
