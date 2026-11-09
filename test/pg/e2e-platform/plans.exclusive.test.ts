@@ -975,9 +975,6 @@ const lawProbes = (
 				k.column.kind === "field" ? k.column.field.name : k.column.column
 			)
 			const label = `${r.use} on ${r.relation}(${Arr.join(fields, ", ")})`
-			if (r.rows.kind === "selected") {
-				return assert.fail(`${label} reads selected rows, which no platform law probes`)
-			}
 			const relation = Option.getOrThrowWith(
 				Option.fromUndefinedOr(o.installed.installation.laws.theory.relations[r.relation]),
 				() => new Error(`${label}: no relation ${r.relation}`)

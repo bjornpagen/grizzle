@@ -8,7 +8,7 @@ import {
 
 import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { allRows, defaultOpclass, type LawField } from "#compiler/ir/law.ts"
+import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
@@ -145,20 +145,10 @@ export interface Judged {
 	readonly installation: Installation
 }
 
-/** The rows a probe reads: every row, or those whose boolean fields hold the given values, a law's selected source. */
-export type ProbeRows =
-	| { readonly kind: "all" }
-	| {
-			readonly kind: "selected"
-			readonly where: Arr.NonEmptyReadonlyArray<{ readonly field: string; readonly value: boolean }>
-	  }
-
-export const everyRow: ProbeRows = { kind: "all" }
-
 /**
  * A request a suite hands the engine itself, as it states it: a workload access by its use, whose access method the use
  * fixes (a span predicate is GiST's, an approximate retrieval HNSW's, every other use a B-tree's), or a law's B-tree
- * probe of the rows it reads. Each key names a field of the relation once.
+ * probe. Each key names a field of the relation once.
  */
 export type RequestSpec =
 	| {
@@ -174,7 +164,6 @@ export type RequestSpec =
 			readonly kind: "law"
 			readonly relation: string
 			readonly keys: Arr.NonEmptyReadonlyArray<string>
-			readonly rows: ProbeRows
 	  }
 
 const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
@@ -197,14 +186,7 @@ export const specText = (spec: RequestSpec): string =>
 				Arr.map(spec.keys, (k) => `${k.field}${k.dir === "desc" ? " desc" : ""}`),
 				", "
 			)})`
-		: `a law probe on ${spec.relation}(${Arr.join(spec.keys, ", ")})${
-				spec.rows.kind === "all"
-					? ""
-					: ` where ${Arr.join(
-							Arr.map(spec.rows.where, (s) => `${s.field} = ${s.value}`),
-							" and "
-						)}`
-			}`
+		: `a law probe on ${spec.relation}(${Arr.join(spec.keys, ", ")})`
 
 /** One key of a law's index request. */
 type LawKey = Extract<IndexRequest, { readonly role: "lawMaintenance" }>["keys"][number]
@@ -246,8 +228,7 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 				role: "access",
 				use: spec.use
 			}
-		case "law": {
-			const rows = spec.rows
+		case "law":
 			return {
 				relation: spec.relation,
 				keys: Arr.map(spec.keys, (field): LawKey => ({
@@ -258,68 +239,29 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",
-				rows:
-					rows.kind === "all"
-						? allRows
-						: {
-								kind: "selected",
-								selection: Arr.map(rows.where, (w) => ({
-									column: w.field,
-									value: { kind: "bool" as const, value: w.value }
-								}))
-							},
 				justification: { kind: "law", law: wild.lawId(`drawn${at}`) }
 			}
-		}
 	}
 }
 
-/**
- * The installer extension that hands the engine the specs' requests, and the rows each request's probe reads: a spec's
- * own, and every row for a request the schema's own laws make, which the specs' schemas give no selection.
- */
-export const drawnRequests = (
-	specs: ReadonlyArray<RequestSpec>
-): {
-	readonly extension: InstallExtension
-	readonly rowsOf: (request: IndexRequest) => ProbeRows
-} => {
-	const rows = new Map<IndexRequest, ProbeRows>()
-	return {
-		extension: {
-			contribute: (builder) => {
-				const fieldOf: FieldOf = (relation, field) => {
-					const r = builder.model.theory.relations[relation]
-					const found =
-						r === undefined ? undefined : Arr.findFirst(r.fields, (f) => f.name === field)
-					if (found === undefined || found._tag === "None") {
-						return assert.fail(`the law model holds no field ${relation}.${field}`)
-					}
-					return found.value
-				}
-				const requests = Arr.map(specs, (spec, at) => {
-					const request = requestOf(spec, at, fieldOf)
-					rows.set(request, spec.kind === "law" ? spec.rows : everyRow)
-					return request
-				})
-				return EngineResult.ok({ ...noContribution, indexRequests: requests })
-			},
-			textDomainUses: noTextDomainUses
-		},
-		rowsOf: (request) => {
-			const drawn = rows.get(request)
-			if (drawn !== undefined) {
-				return drawn
+/** The installer extension that hands the engine the specs' requests. */
+export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtension => ({
+	contribute: (builder) => {
+		const fieldOf: FieldOf = (relation, field) => {
+			const r = builder.model.theory.relations[relation]
+			const found = r === undefined ? undefined : Arr.findFirst(r.fields, (f) => f.name === field)
+			if (found === undefined || found._tag === "None") {
+				return assert.fail(`the law model holds no field ${relation}.${field}`)
 			}
-			if (request.role === "lawMaintenance" && request.rows.kind === "selected") {
-				return assert.fail(
-					`the schema's own law probes ${request.relation} by a selection no spec states`
-				)
-			}
-			return everyRow
+			return found.value
 		}
-	}
-}
+		return EngineResult.ok({
+			...noContribution,
+			indexRequests: Arr.map(specs, (spec, at) => requestOf(spec, at, fieldOf))
+		})
+	},
+	textDomainUses: noTextDomainUses
+})
 
 /**
  * What a plan states of one index, as two plans of one request set compare: its name, whether the engine created it or
@@ -423,15 +365,7 @@ const tableOf = (installed: Judged, relation: string) =>
 		} satisfies Table
 	})
 
-/** An index's size in pages, and its predicate when it is partial. */
-type PagesAndPredicate = ReadonlyArray<readonly [string, string | null]>
-
-const pagesAndPredicateOf = (rows: unknown): PagesAndPredicate => trusted<PagesAndPredicate>(rows)
-
-/**
- * Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table or, for a partial
- * index, the rows its predicate admits.
- */
+/** Each of `indexes`, by name, with its facts (IndexFacts): its entries are every row of its table. */
 const indexFacts = (
 	installed: Judged,
 	indexes: ReadonlyArray<PlannedIndex>,
@@ -444,28 +378,24 @@ const indexFacts = (
 			const table = tableFor(i.relation)
 			const [row] = yield* Effect.map(
 				admin.queryValues(
-					"SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text, " +
-						"pg_catalog.pg_get_expr(x.indpred, x.indrelid) FROM pg_catalog.pg_class AS c " +
+					"SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text " +
+						"FROM pg_catalog.pg_class AS c " +
 						"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_index AS x ON x.indexrelid = c.oid " +
 						"WHERE n.nspname = $1::text AND c.relname = $2::text",
 					[installed.schema, i.index.name]
 				),
-				pagesAndPredicateOf
+				textsOf
 			)
-			if (row === undefined) {
+			const pages = row?.[0]
+			if (pages === undefined) {
 				return assert.fail(`no index ${i.index.name} in ${installed.schema}`)
 			}
-			const [pages, predicate] = row
-			const entries =
-				predicate === null
-					? table.rows
-					: yield* countOf(admin, `SELECT count(*)::text FROM ${table.quoted} WHERE ${predicate}`)
 			facts.set(i.index.name, {
 				method: i.method,
 				fields: new Set(Arr.map(i.keys, keyText)),
 				unique: i.unique,
 				pages: Number(pages),
-				entries
+				entries: table.rows
 			})
 		}
 		return facts
@@ -558,9 +488,8 @@ export const loadRows = (
 	})
 
 /**
- * One request's probe: the statement, its shape, its relation's table, what the report calls it, the fields its key
- * conditions bind (every key of a shape that fixes its columns, none of an order's), and the rows its key conditions
- * match outside its selection (none for a probe of every row).
+ * One request's probe: the statement, its shape, its relation's table, what the report calls it, and the fields its key
+ * conditions bind (every key of a shape that fixes its columns, none of an order's).
  */
 interface Probe {
 	readonly label: string
@@ -568,7 +497,6 @@ interface Probe {
 	readonly table: Table
 	readonly sql: string
 	readonly bound: ReadonlyArray<string>
-	readonly rechecked: number
 }
 
 type Texts = ReadonlyArray<ReadonlyArray<string>>
@@ -582,11 +510,8 @@ const countOf = (admin: PgConnection, sql: string): Effect.Effect<number, SqlErr
 const where = (conditions: ReadonlyArray<string>): string =>
 	conditions.length === 0 ? "" : ` WHERE ${Arr.join(conditions, " AND ")}`
 
-/**
- * The probe of `request` (see the header): its values those of the middle row, in physical order, of the rows `rows`
- * selects.
- */
-const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: ProbeRows) =>
+/** The probe of `request` (see the header): its values those of the middle row of its table, in physical order. */
+const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const column = (field: string): string =>
@@ -595,18 +520,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		const label = `${request.role} ${request.use} on ${request.relation}(${Arr.join(
 			Arr.map(keys, (k) => `${k.field}${k.dir === "desc" ? " desc" : ""}`),
 			", "
-		)})${
-			rows.kind === "all"
-				? ""
-				: ` where ${Arr.join(
-						Arr.map(rows.where, (s) => `${s.field} = ${s.value}`),
-						" and "
-					)}`
-		} by ${request.method}`
-		const selection =
-			rows.kind === "all"
-				? []
-				: Arr.map(rows.where, (s) => `${column(s.field)} = ${s.value ? "TRUE" : "FALSE"}`)
+		)}) by ${request.method}`
 		const shape = shapeOf(request)
 		const sampled = sampledShape[shape] ? keys : []
 		const sample =
@@ -617,8 +531,8 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 							`SELECT ${Arr.join(
 								Arr.map(sampled, (k) => `${column(k.field)}::text`),
 								", "
-							)} FROM ${table.quoted}${where(selection)} ` +
-								`ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table.quoted}${where(selection)}) LIMIT 1`,
+							)} FROM ${table.quoted} ` +
+								`ORDER BY ctid OFFSET (SELECT count(*) / 2 FROM ${table.quoted}) LIMIT 1`,
 							[]
 						),
 						textsOf
@@ -724,20 +638,9 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 				}
 			}
 		})
-		const sql = `SELECT 1 FROM ${table.quoted}${where([...statement.conditions, ...selection])}${statement.tail}`
-		/**
-		 * The rows its key conditions match outside its selection: those an index of every row finds and PostgreSQL
-		 * rechecks the selection on.
-		 */
-		const rechecked =
-			selection.length === 0 || statement.conditions.length === 0
-				? 0
-				: yield* countOf(
-						admin,
-						`SELECT count(*)::text FROM ${table.quoted}${where([...statement.conditions, `NOT (${Arr.join(selection, " AND ")})`])}`
-					)
+		const sql = `SELECT 1 FROM ${table.quoted}${where(statement.conditions)}${statement.tail}`
 		const bound = conditioned[shape] ? Arr.map(keys, (k) => k.field) : []
-		return { label, shape, table, sql, bound, rechecked } satisfies Probe
+		return { label, shape, table, sql, bound } satisfies Probe
 	})
 
 /**
@@ -889,10 +792,10 @@ const verdictOf = (
 			why: `a scan of ${index}, which does not hold ${Arr.join(unheld, ", ")}, so a filter rechecks them`
 		}
 	}
-	if (scan.rowsRemovedByFilter > 0 && scan.rowsRemovedByFilter !== probe.rechecked) {
+	if (scan.rowsRemovedByFilter > 0) {
 		return {
 			kind: "unserved",
-			why: `a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter, where its selection excludes ${probe.rechecked}`
+			why: `a scan of ${index} removing ${scan.rowsRemovedByFilter} rows by a filter`
 		}
 	}
 	if (orderedShape[probe.shape] && Arr.some(nodes, (n) => sorts.has(n.nodeType))) {
@@ -1001,9 +904,7 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *   finds the rows of one key, on which PostgreSQL rechecks the rest (physical/indexes/engine.ts: a unique index's
  *   keyed and pinned placements). Another index PostgreSQL chooses for its statistics, a column the load fills with
  *   distinct values say, is held to what it read, as the two rules below hold it;
- * - removing no row by a filter, but for a law's probe of selected rows on an index of every row, which serves it
- *   (physical/indexes/engine.ts: the rows an index holds): its filter removes exactly the rows the probe's key
- *   conditions match outside its selection, which PostgreSQL rechecks;
+ * - removing no row by a filter;
  * - with no sort above it, when the probe asks for an order;
  * - touching at most the buffers its result requires (shared hit and read, PostgreSQL's own count): the result's share of
  *   the index's pages, its entries (the rows it returned and those its filter rechecked) over the index's entries times
@@ -1039,14 +940,8 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *   position.
  * - Through a B-tree, PostgreSQL right: it read the probe in no more buffers than the request's own index alone. When
  *   the distinct values of the columns before the probe's outnumber the index's pages, btcostestimate's skip-scan
- *   costing gives up skipping and costs a sweep of the whole index; an index-only sweep of a partial index fetches no
- *   heap page, where a scan of an index of every row fetches one per entry, the selection's and the rest it rechecks.
- *   So law probes of the held bookings on (room, id) and on (id), beside one on (room) that the span key's GiST index
- *   serves, take a partial index on (id, room), which PostgreSQL sweeps for the probe on room; leading it with room
- *   would take a second partial index, for (id). Measured on PostgreSQL 19 at this volume, that probe on room costs
- *   364.04 through the partial B-tree on (id, room) of 73 pages, which it sweeps in 74 buffers over 2 descents, and
- *   442.90 through the span key's GiST index, which reads 117 for its 150 entries. A B-tree swept in more buffers than
- *   the request's own index alone reads is a misjudgment no upstream note covers, and a problem.
+ *   costing gives up skipping and costs a sweep of the whole index. A B-tree swept in more buffers than the request's
+ *   own index alone reads is a misjudgment no upstream note covers, and a problem.
  *
  * Each index the engine created must be needed: with it dropped, in a transaction rolled back, some request it serves
  * is no longer served. An index PostgreSQL can do without is one the engine built beside another that already serves
@@ -1055,12 +950,11 @@ const residueFeature = (residue: Residue): ServingFeature => {
  * The populations load their relations at volume before judging (serving.test.ts), so a lookup and a sweep differ by
  * far more than the descent.
  *
- * Judges the installation (see the header): every problem, none when PostgreSQL agrees with every claim. `rowsOf` gives
- * each request's probe rows; `note` records what was judged.
+ * Judges the installation (see the header): every problem, none when PostgreSQL agrees with every claim. `note` records
+ * what was judged.
  */
 export const judgeServing = (
 	installed: Judged,
-	rowsOf: (request: IndexRequest) => ProbeRows,
 	note: (feature: ServingFeature) => void
 ): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>
 	Effect.gen(function* () {
@@ -1094,7 +988,7 @@ export const judgeServing = (
 		const probes = new Map<IndexRequest, Probe>()
 		for (const i of judged) {
 			for (const r of i.requests) {
-				const probe = yield* probeOf(installed, tableFor(r.relation), r, rowsOf(r))
+				const probe = yield* probeOf(installed, tableFor(r.relation), r)
 				probes.set(r, probe)
 			}
 		}

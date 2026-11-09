@@ -16,7 +16,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { allRows, defaultOpclass, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+import { defaultOpclass, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
@@ -333,7 +333,6 @@ const compileProbe = (
 							method: path.method,
 							role: "lawMaintenance",
 							use: "rule probe",
-							rows: allRows,
 							justification: { kind: "law", law: rule.law.id }
 						}
 					]

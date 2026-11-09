@@ -13,24 +13,14 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { codecOf } from "#compiler/ir/codes.ts"
-import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type {
-	IndexRows,
-	LawField,
-	NativeColumn,
-	NativeOf,
-	TableRelation
-} from "#compiler/ir/law.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { LawField, NativeColumn, NativeOf, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
 import { closedMembership } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import {
-	lowerPersistent,
-	persistentClosed,
-	persistentLiteral
-} from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { type ColumnType, columnType, lawColumnType } from "#compiler/physical/ddl/names.ts"
 import {
@@ -59,7 +49,7 @@ import type {
 	SqlStatement,
 	TableConstraint
 } from "#compiler/sql/ast.ts"
-import { and, eq, tableCol } from "#compiler/sql/build.ts"
+import { and, tableCol } from "#compiler/sql/build.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /** A stored relation's table before it is added: its columns, one per field of its theory relation in declared order,
@@ -291,47 +281,6 @@ const periodFkColumns = (
 		columns.map((c): ForeignKeyColumn => ({ column: nativeColumn(b, relation, c), period: false })),
 		{ column: nativeColumn(b, relation, span), period: true }
 	)
-
-/** A literal selector of the rows an index holds, its field typed: the field's name and type, and the literal. */
-interface TypedSelector {
-	readonly column: string
-	readonly type: ScalarType
-	readonly value: TypedLiteral
-}
-
-/** A literal selection as a partial index's WHERE: a persistent predicate over the row's own columns, base-typed, each
- * selector an equality in the selection's order, as the selected probe of the law it serves spells it, so PostgreSQL
- * finds the index's predicate implied by the probe. */
-const selectionPredicate = (
-	b: InstallBuilder,
-	relation: string,
-	selection: NonEmptyReadonlyArray<TypedSelector>
-): Expr => {
-	const terms = mapNonEmpty(selection, (w) =>
-		eq(tableCol(b.names.column(relation, w.column)), persistentLiteral(b.names, w.value, w.type))
-	)
-	return terms.length === 1 ? terms[0] : and(terms)
-}
-
-/** The rows of a relation an index holds (`IndexRows`) as a partial index's WHERE (`selectionPredicate`), each
- * selector's field typed by `typeOf`; none for every row. */
-export const rowsPredicate = (
-	b: InstallBuilder,
-	relation: string,
-	rows: IndexRows,
-	typeOf: (field: string) => ScalarType
-): Expr | undefined =>
-	rows.kind === "all"
-		? undefined
-		: selectionPredicate(
-				b,
-				relation,
-				mapNonEmpty(rows.selection, (w) => ({
-					column: w.column,
-					type: typeOf(w.column),
-					value: w.value
-				}))
-			)
 
 /** Each table's secondary constraints, which its CREATE TABLE declares inline beside its primary key, as a
  * hand-written table does: its candidate keys, generated uniques and CHECKs in the law model's order, by relation. */

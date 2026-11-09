@@ -1,22 +1,13 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { explore, type Kept, sketched } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
-import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
-import {
-	allRows,
-	defaultOpclass,
-	type IndexOpclass,
-	type IndexRows,
-	type NativeColumn,
-	type Selector
-} from "#compiler/ir/law.ts"
+import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import { type AccessUse, type IndexRequest } from "#compiler/ir/products.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import {
@@ -33,21 +24,17 @@ import { owner, requesting } from "#test/unit/physical/fixtures.ts"
 
 /** Event: a plain table under its primary key, with a vector column an HNSW request keys. Booking: a span key, so a GiST
  * index whose leading room column btree_gist serves by equality. Deposit: the reverse lookup of its reference to Line on
- * line, which its primary key (account, line) cannot serve. Each has a boolean field a law's selection reads. No law
- * installs a partial index: a selected side's key is a UNIQUE over its generated column.
+ * line, which its primary key (account, line) cannot serve.
  *
  * The index request engine's own contract, judged from its plan alone. Over drawn requests
- * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order, each law request
- * reading every row or only the rows of a drawn selection:
+ * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order:
  *
  * - every request lands on exactly one planned index;
- * - a created index is never unique, and holds every row or exactly the rows one of its requests reads;
+ * - a created index is never unique;
  * - the plan is the same whatever order the requests arrive in;
  * - a request the engine cannot create (an entry beyond its method's limit, more than INDEX_MAX_KEYS columns, an
  *   expression key) is refused as a key is;
- * - created indexes have distinct names, and a B-tree and a GiST request on one column list install as two;
- * - and the access index name (core/identity.ts identity.accessIndex) is injective: of every two selections from pools
- *   of near spellings, each literal of the kind its column's type fixes, the names are one exactly when they are.
+ * - created indexes have distinct names, and a B-tree and a GiST request on one column list install as two.
  *
  * Whether the index a request lands on serves it, and whether a created index is needed, is PostgreSQL's to judge
  * in the database suites: nothing here states which index serves which request. */
@@ -62,22 +49,17 @@ const Indexed: SchemaDesc = {
 				account: f.uuid,
 				created: f.bigint,
 				unrelated: f.bigint,
-				live: f.boolean,
 				body: f.wildcard,
 				embedding: { kind: "vector", dimensions: 3 }
 			},
 			["id"]
 		),
-		relation(
-			"Booking",
-			{ room: f.uuid, during: f.span(f.integer, undefined), id: f.uuid, held: f.boolean },
-			["room", "during"]
-		),
+		relation("Booking", { room: f.uuid, during: f.span(f.integer, undefined), id: f.uuid }, [
+			"room",
+			"during"
+		]),
 		relation("Line", { id: f.uuid }, ["id"]),
-		relation("Deposit", { line: f.uuid, account: f.uuid, remainder: f.boolean }, [
-			"account",
-			"line"
-		])
+		relation("Deposit", { line: f.uuid, account: f.uuid }, ["account", "line"])
 	],
 	statements: [contained(on("Deposit", ["line"]), on("Line", ["id"]))],
 	extends: undefined
@@ -91,19 +73,6 @@ const columns: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
 	Deposit: ["line", "account"]
 }
 const relations = ["Event", "Booking", "Deposit"] as const
-const bool = (value: boolean): TypedLiteral => ({ kind: "bool", value })
-/** The selections a drawn law request may read, per relation. */
-const selections: Readonly<Record<string, ReadonlyArray<Selector>>> = {
-	Event: [
-		{ column: "live", value: bool(true) },
-		{ column: "live", value: bool(false) }
-	],
-	Booking: [{ column: "held", value: bool(true) }],
-	Deposit: [
-		{ column: "remainder", value: bool(true) },
-		{ column: "remainder", value: bool(false) }
-	]
-}
 
 const accessUses = [
 	"key lookup",
@@ -120,8 +89,6 @@ interface RequestSketch {
 	readonly relation: (typeof relations)[number]
 	readonly keys: ReadonlyArray<{ readonly column: string; readonly desc: boolean }>
 	readonly law: boolean
-	/** A law request's rows: every row at 0, else the relation's selection it picks. */
-	readonly selection: number
 	readonly use: AccessUse
 	/** An HNSW request on Event's vector column instead, at 0, under the default class or the cosine class. */
 	readonly vector: number
@@ -140,7 +107,6 @@ const requestGen: Gen<RequestSketch> = (source) => {
 			})
 		),
 		law: source.draw(boolean),
-		selection: source.draw(int(0, 2)),
 		use: source.draw(element(accessUses)),
 		vector: source.draw(int(0, 3)),
 		cosine: source.draw(boolean)
@@ -198,7 +164,6 @@ const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 			}
 		]
 	})
-	const chosen = selections[rel]?.[s.selection - 1]
 	return s.law
 		? {
 				relation: rel,
@@ -212,7 +177,6 @@ const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",
-				rows: chosen === undefined ? allRows : { kind: "selected", selection: [chosen] },
 				justification: { kind: "law", law: wild.lawId(`l${i}`) }
 			}
 		: {
@@ -263,53 +227,6 @@ const expectedRefusal: Readonly<Record<Broken, CompileReasonTag>> = {
 	"an expression key": "UnsupportedOperation"
 }
 
-/** Two literals of the kinds a drawn selection holds, as one value. */
-const sameLiteral = (a: TypedLiteral, b: TypedLiteral): boolean => {
-	switch (a.kind) {
-		case "bool":
-			return b.kind === "bool" && a.value === b.value
-		case "int":
-			return b.kind === "int" && a.value === b.value
-		case "text":
-			return b.kind === "text" && a.value === b.value
-		case "uuid":
-			return b.kind === "uuid" && a.value === b.value
-		case "date":
-			return b.kind === "date" && a.value === b.value
-		case "handle":
-			return b.kind === "handle" && a.handle === b.handle
-		case "handles":
-			throw new Error("no set literal is drawn")
-		case "numeric":
-		case "float":
-		case "floatSpecial":
-		case "money":
-		case "span":
-		case "vector":
-			throw new Error(`no ${a.kind} literal is drawn`)
-	}
-}
-
-const sameSelectors = (
-	a: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>,
-	b: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>
-): boolean =>
-	a.length === b.length &&
-	Arr.every(a, (x, i) => {
-		const y = b[i]
-		return y !== undefined && x.column === y.column && sameLiteral(x.value, y.value)
-	})
-
-/** Two row sets as one: every row, or one selection. */
-const sameRows = (a: IndexRows, b: IndexRows): boolean =>
-	a.kind === "all"
-		? b.kind === "all"
-		: b.kind === "selected" && sameSelectors(a.selection, b.selection)
-
-/** The rows a request reads: a law's states them, a program's access reads every row. */
-const rowsOf = (request: IndexRequest): IndexRows =>
-	request.role === "lawMaintenance" ? request.rows : allRows
-
 /** A planned index key's field, or its law column's identifier. */
 const keyField = (k: PlannedIndex["keys"][number]): string =>
 	k.column.kind === "field" ? k.column.field : k.column.column
@@ -327,9 +244,6 @@ type IndexFeature =
 	| "served by a created index"
 	| "a created index serving several requests"
 	| "a GiST key serving a B-tree probe"
-	| "a selected probe on a created index of its selection"
-	| "a selected probe on a created index of every row"
-	| "a selected probe on an installed index of every row"
 	| "an ordered request"
 	| "a range request"
 	| `${Broken} refused`
@@ -368,28 +282,6 @@ const keysOf = (
 		desc: dir === "desc"
 	}))
 
-/** A law's request on a relation's columns, by their positions in `columns`, reading every row (selection 0) or the
- * rows of the selection at that position of `selections`. */
-const lawRequest = (
-	relation: (typeof relations)[number],
-	positions: ReadonlyArray<number>,
-	selection: number
-): RequestSketch => ({
-	relation,
-	keys: keysOf(
-		relation,
-		Arr.map(positions, (i) => [i, "asc"])
-	),
-	law: true,
-	selection,
-	use: "key lookup",
-	vector: 1,
-	cosine: false
-})
-
-const eventLawRequest = (positions: ReadonlyArray<number>, selection: number): RequestSketch =>
-	lawRequest("Event", positions, selection)
-
 /** A program's B-tree request on Event's columns, of one access use. */
 const eventAccessRequest = (
 	keys: ReadonlyArray<readonly [number, "asc" | "desc"]>,
@@ -398,38 +290,14 @@ const eventAccessRequest = (
 	relation: "Event",
 	keys: keysOf("Event", keys),
 	law: false,
-	selection: 0,
 	use,
 	vector: 1,
 	cosine: false
 })
 
-/** Planted, each a few times a run in the drawn requests or fewer:
- * - a law request of every row on (tenant, account), a selected one on (tenant, created) and a selected one on
- *   (tenant), so a selected probe meets a created index of every row and one of its selection;
- * - a program's lookup on tenant creates an index of every row, which then serves a selected law probe on tenant;
- * - two take seeks on (tenant, created), one with created descending, which no one index reads both ways. */
+/** Planted, a few times a run in the drawn requests or fewer: two take seeks on (tenant, created), one with created
+ * descending, which no one index reads both ways. */
 const engineKept: ReadonlyArray<Kept<EngineSketch, IndexFeature>> = [
-	{
-		note: "a selected probe that a created index of every row and one of its selection both serve",
-		sketch: {
-			requests: [eventLawRequest([0, 1], 0), eventLawRequest([0, 2], 1), eventLawRequest([0], 1)],
-			arrival: [2, 1, 0, 3, 4, 5],
-			planted: "none"
-		},
-		draws: "",
-		reaches: ["a selected probe on a created index of its selection"]
-	},
-	{
-		note: "a selected probe on tenant beside a program's lookup on tenant",
-		sketch: {
-			requests: [eventAccessRequest([[0, "asc"]], "equality lookup"), eventLawRequest([0], 1)],
-			arrival: [1, 0, 2, 3, 4, 5],
-			planted: "none"
-		},
-		draws: "",
-		reaches: ["a selected probe on a created index of every row"]
-	},
 	{
 		note: "two seeks on (tenant, created) in directions no one index reads both ways",
 		sketch: {
@@ -475,9 +343,6 @@ describe("the index request engine", () => {
 								"served by a created index",
 								"a created index serving several requests",
 								"a GiST key serving a B-tree probe",
-								"a selected probe on a created index of its selection",
-								"a selected probe on a created index of every row",
-								"a selected probe on an installed index of every row",
 								"an ordered request",
 								"a range request",
 								"an unrepresentable entry refused",
@@ -570,27 +435,9 @@ describe("the index request engine", () => {
 								if (r.role === "access" && (r.use === "range" || r.use === "prefix search")) {
 									c.note("a range request")
 								}
-								if (rowsOf(r).kind === "selected") {
-									const own = index.index.kind === "created"
-									if (index.rows.kind === "selected") {
-										assert.ok(own, `${index.index.name}: no law installs a partial index`)
-										c.note("a selected probe on a created index of its selection")
-									} else {
-										c.note(
-											own
-												? "a selected probe on a created index of every row"
-												: "a selected probe on an installed index of every row"
-										)
-									}
-								}
 							}
 							for (const index of created) {
 								assert.equal(index.unique, false, `${index.index.name} is not unique`)
-								assert.ok(
-									index.rows.kind === "all" ||
-										Arr.some(index.requests, (r) => sameRows(index.rows, rowsOf(r))),
-									`${index.index.name} holds the rows one of its requests reads`
-								)
 								if (index.requests.length > 1) {
 									c.note("a created index serving several requests")
 								}
@@ -611,129 +458,5 @@ describe("the index request engine", () => {
 						})
 				)
 			)
-	)
-})
-
-/** A selector's literals by the kind its column's type fixes: each pool holds near spellings, a text and its upper case,
- * a plain word beside one whose hex spelling it imitates, a negative integer beside the word its spelling reads as. */
-const uuidLiteral = (n: number): TypedLiteral => ({
-	kind: "uuid",
-	value: `00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
-})
-
-const pools: ReadonlyArray<readonly [string, ReadonlyArray<TypedLiteral>]> = [
-	["flag", [bool(true), bool(false)]],
-	["n", Arr.map([-5n, 0n, 5n, 50n], (value): TypedLiteral => ({ kind: "int", value }))],
-	[
-		"t",
-		Arr.map(
-			[
-				"a",
-				"A",
-				"a_b",
-				"a__b",
-				"_a",
-				"a_",
-				"",
-				"x41",
-				"0x41",
-				"minus_5",
-				"true",
-				"approved",
-				"a b"
-			],
-			(value): TypedLiteral => ({ kind: "text", value })
-		)
-	],
-	[
-		"e",
-		Arr.map(["approved", "Approved", "approved_x", "0x61", "a"], (handle): TypedLiteral => ({
-			kind: "handle",
-			handle
-		}))
-	],
-	["u", [uuidLiteral(1), uuidLiteral(2)]]
-]
-
-const selectorsOf = Arr.flatMap(pools, ([column, values]) =>
-	Arr.map(values, (value) => ({ column, value }))
-)
-
-/** One access index identity: its method, its keys and its predicate's selectors. */
-interface NameIdentity {
-	readonly method: "btree" | "gist" | "hnsw"
-	readonly keys: ReadonlyArray<{
-		readonly column: string
-		readonly dir: "asc" | "desc"
-		readonly opclass: IndexOpclass
-	}>
-	readonly predicate: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>
-}
-
-const fullName = (x: NameIdentity): string =>
-	identity.accessIndex(
-		"Event",
-		x.method,
-		Arr.map(x.keys, (k) => ({ field: k.column, dir: k.dir, opclass: k.opclass.kind })),
-		Arr.map(x.predicate, (s) => ({ field: s.column, value: identityValueOf(s.value) }))
-	).identifier
-
-type NameFeature =
-	| "one identity twice"
-	| "two identities one selector's literal apart"
-	| "a predicate beside none"
-
-describe("the access index name", () => {
-	it.effect("is injective: two identities share a name exactly when they are one", (ctx) =>
-		Effect.gen(function* () {
-			const keys: NameIdentity["keys"] = [
-				{ column: "account", dir: "asc", opclass: defaultOpclass }
-			]
-			yield* searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/physical/index-name-injective",
-						generator: (source) =>
-							[
-								source.draw(element(Arr.append(selectorsOf, undefined))),
-								source.draw(element(Arr.append(selectorsOf, undefined)))
-							] as const,
-						literal: Formatter.format,
-						limit: (selectorsOf.length + 1) ** 2,
-						coverage: requiredInSpace<NameFeature>([
-							"one identity twice",
-							"two identities one selector's literal apart",
-							"a predicate beside none"
-						]),
-						caseHang
-					},
-					([a, b], c) =>
-						Effect.sync(() => {
-							const x: NameIdentity = {
-								method: "btree",
-								keys,
-								predicate: a === undefined ? [] : [a]
-							}
-							const y: NameIdentity = {
-								method: "btree",
-								keys,
-								predicate: b === undefined ? [] : [b]
-							}
-							const one = sameSelectors(x.predicate, y.predicate)
-							assert.equal(fullName(x) === fullName(y), one, `${fullName(x)} beside ${fullName(y)}`)
-							if (one) {
-								c.note("one identity twice")
-							} else if (a === undefined || b === undefined) {
-								c.note("a predicate beside none")
-							} else if (a.column === b.column) {
-								c.note("two identities one selector's literal apart")
-							}
-						})
-				)
-			)
-		})
 	)
 })

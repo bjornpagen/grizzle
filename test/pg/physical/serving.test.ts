@@ -13,7 +13,6 @@ import type { AccessUse } from "#compiler/ir/products.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	drawnRequests,
-	everyRow,
 	judgeServing,
 	loadAtVolume,
 	type PlannedShape,
@@ -84,16 +83,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   about once in 200 cases.
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
  *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
- *   handed drawn requests on it: workload B-tree requests of every use, law probes of every row or of a flag's selected
- *   rows, and GiST span predicates on during with any of Booking's scalars. Its kept cases plant the requests a
- *   planner is tempted to serve wrongly: an equality pair beside a range over the same two columns in the other order,
- *   which one index serves; a law probe of the remainder deposits on line, the selected side's own selection;
- *   a descending key lookup beside a law probe of a flag's rows on the same column, which the lookup's index of every
- *   row serves, so no partial index belongs beside it; law probes of the held bookings on (id, room) and on room, whose
- *   partial index leads with room, since PostgreSQL reads the probe on room through it rather than through the span
- *   key's index of every row it is planned on; and law probes of the held bookings on (room, id), on id and on room,
- *   whose partial index on (id, room) PostgreSQL sweeps for the probe on room, a residue no plan the engine makes avoids
- *   (serving.ts).
+ *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
+ *   with any of Booking's scalars. Its kept case plants the requests a planner is tempted to serve wrongly: an equality
+ *   pair beside a range over the same two columns in the other order, which one index serves.
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
@@ -287,7 +279,7 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 			}
 		})
 		yield* loadAtVolume(judged, loads)
-		const problems = yield* judgeServing(judged, () => everyRow, note)
+		const problems = yield* judgeServing(judged, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -371,19 +363,13 @@ const indexedLoads: ReadonlyArray<VolumeLoad> = [
 	}
 ]
 
-/** The relations a drawn B-tree request keys, with the columns it may key and the boolean a law's selection reads. */
+/** The relations a drawn B-tree request keys, with the columns it may key. */
 const keyed = ["Event", "Booking", "Deposit"] as const
 type Keyed = (typeof keyed)[number]
 const columnsOf: Readonly<Record<Keyed, Arr.NonEmptyReadonlyArray<string>>> = {
 	Event: ["tenant", "account", "created", "unrelated", "id"],
 	Booking: ["room", "id"],
 	Deposit: ["line", "account"]
-}
-
-const flagOf: Readonly<Record<Keyed, string>> = {
-	Event: "live",
-	Booking: "held",
-	Deposit: "remainder"
 }
 
 const btreeUses = [
@@ -401,7 +387,7 @@ const spanScalars = ["room", "id"] as const
 type SpanScalar = (typeof spanScalars)[number]
 
 /**
- * A drawn request, by what it asks: a workload B-tree access, a law's probe of every row or of a flag's rows, or a GiST
+ * A drawn request, by what it asks: a workload B-tree access, a law's probe, or a GiST
  * span predicate on during with Booking's scalars before it. Each names the relation, the columns and the use it draws.
  */
 interface KeySketch<C extends string> {
@@ -420,7 +406,6 @@ type Intent =
 			readonly kind: "law"
 			readonly relation: Keyed
 			readonly keys: Arr.NonEmptyReadonlyArray<KeySketch<string>>
-			readonly rows: "every row" | "flag true" | "flag false"
 	  }
 	| { readonly kind: "span predicate"; readonly scalars: ReadonlyArray<SpanScalar> }
 
@@ -457,8 +442,7 @@ const intentGen: Gen<Intent> = weighted<Intent>([
 			return {
 				kind: "law",
 				relation,
-				keys: source.draw(keysGen(columnsOf[relation])),
-				rows: source.draw(element(["every row", "flag true", "flag false"] as const))
+				keys: source.draw(keysGen(columnsOf[relation]))
 			}
 		}
 	],
@@ -503,18 +487,12 @@ const resolveIntent = (intent: Intent): RequestSpec => {
 				use: intent.use,
 				keys: keysFor(intent.keys)
 			}
-		case "law": {
-			const field = flagOf[intent.relation]
+		case "law":
 			return {
 				kind: "law",
 				relation: intent.relation,
-				keys: Arr.map(keysFor(intent.keys), (k) => k.field),
-				rows:
-					intent.rows === "every row"
-						? everyRow
-						: { kind: "selected", where: [{ field, value: intent.rows === "flag true" }] }
+				keys: Arr.map(keysFor(intent.keys), (k) => k.field)
 			}
-		}
 		case "span predicate": {
 			const scalars = Arr.dedupe(intent.scalars)
 			return {
@@ -533,7 +511,7 @@ const resolveIntent = (intent: Intent): RequestSpec => {
 const resolveIntents = (intents: ReadonlyArray<Intent>): ReadonlyArray<RequestSpec> =>
 	Arr.map(intents, resolveIntent)
 
-type RequestFeature = "a law probe of selected rows" | "a span predicate on during alone"
+type RequestFeature = ServingFeature | "a span predicate on during alone"
 
 /** A planted access request: ascending keys over `columns` of `relation`, for `use`. */
 const accessIntent = (
@@ -547,7 +525,7 @@ const accessIntent = (
 	use
 })
 
-const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, ServingFeature | RequestFeature>> = [
+const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, RequestFeature>> = [
 	{
 		note: "an equality pair on (account, created) beside a range on created then account",
 		sketch: [
@@ -556,99 +534,25 @@ const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, ServingFeature | Re
 		],
 		draws: "",
 		reaches: ["range probe served"]
-	},
-	{
-		note: "a law probe of the remainder deposits on line, the selected side's own selection",
-		sketch: [
-			{
-				kind: "law",
-				relation: "Deposit",
-				keys: [{ column: "line", desc: false }],
-				rows: "flag true"
-			}
-		],
-		draws: "",
-		reaches: ["a law probe of selected rows"]
-	},
-	{
-		note: "a key lookup on unrelated descending beside a law probe of the live rows on unrelated, which its index of every row serves",
-		sketch: [
-			{
-				kind: "access",
-				relation: "Event",
-				keys: [{ column: "unrelated", desc: true }],
-				use: "key lookup"
-			},
-			{
-				kind: "law",
-				relation: "Event",
-				keys: [{ column: "unrelated", desc: false }],
-				rows: "flag true"
-			}
-		],
-		draws: "",
-		reaches: [
-			"a law probe of selected rows",
-			"equality probe served",
-			"served by a created index",
-			"a created index needed"
-		]
-	},
-	{
-		note: "law probes of the held bookings on (room, id), on id and on room, whose partial index on (id, room) PostgreSQL sweeps for the probe on room rather than fetch the heap through the span key's GiST index of every row",
-		sketch: Arr.map([["room", "id"], ["id"], ["room"]] as const, (columns): Intent => ({
-			kind: "law",
-			relation: "Booking",
-			keys: Arr.map(columns, (column) => ({ column, desc: false })),
-			rows: "flag true"
-		})),
-		draws: "",
-		reaches: [
-			"read through another planned index than the engine's",
-			"swept through another B-tree in no more buffers than its own index alone",
-			"a created index needed"
-		]
-	},
-	{
-		note: "law probes of the held bookings on (id, room) and on room, whose partial index leads with room, so PostgreSQL reads the probe on room through it rather than fetch the heap through the span key's GiST index of every row",
-		sketch: Arr.map([["id", "room"], ["room"]] as const, (columns): Intent => ({
-			kind: "law",
-			relation: "Booking",
-			keys: Arr.map(columns, (column) => ({ column, desc: false })),
-			rows: "flag true"
-		})),
-		draws: "",
-		reaches: [
-			"a law probe of selected rows",
-			"read through another planned index than the engine's",
-			"a created index needed"
-		]
 	}
 ]
 
 /** The drawn requests on Indexed, installed, loaded and judged. */
-const requestCase = (
-	intents: ReadonlyArray<Intent>,
-	note: (feature: ServingFeature | RequestFeature) => void
-) =>
+const requestCase = (intents: ReadonlyArray<Intent>, note: (feature: RequestFeature) => void) =>
 	Effect.gen(function* () {
 		const specs = resolveIntents(intents)
 		for (const spec of specs) {
-			if (spec.kind === "law" && spec.rows.kind === "selected") {
-				note("a law probe of selected rows")
-			}
 			if (spec.kind === "access" && spec.use === "span predicate" && spec.keys.length === 1) {
 				note("a span predicate on during alone")
 			}
 		}
-		const drawn = drawnRequests(specs)
 		const { plan } = yield* installRealSchema(Indexed, {
 			label: "serving_requests",
 			logins: [],
-			extensions: [drawn.extension]
+			extensions: [drawnRequests(specs)]
 		})
 		yield* loadAtVolume(plan, indexedLoads)
-		const problems = yield* judgeServing(plan, drawn.rowsOf, note)
+		const problems = yield* judgeServing(plan, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -818,7 +722,7 @@ const sharedCase = (
 				installation: identity.schema(parsedSchemaName("serving_shared")),
 				owner: "serving_owner",
 				logins: [],
-				extensions: [drawnRequests(order).extension],
+				extensions: [drawnRequests(order)],
 				codes: emptyCodebook
 			})
 			return !plan.ok
@@ -852,14 +756,13 @@ const sharedCase = (
 		) {
 			note("two indexes on one column set")
 		}
-		const drawn = drawnRequests(specs)
 		const { plan } = yield* installRealSchema(Indexed, {
 			label: "serving_shared",
 			logins: [],
-			extensions: [drawn.extension]
+			extensions: [drawnRequests(specs)]
 		})
 		yield* loadAtVolume(plan, indexedLoads)
-		const problems = yield* judgeServing(plan, drawn.rowsOf, note)
+		const problems = yield* judgeServing(plan, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -1834,7 +1737,7 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 				suite: "pg/physical/serving-requests",
 				draw: drawn(intentsGen),
 				literal: Formatter.format,
-				coverage: required<ServingFeature | RequestFeature>(
+				coverage: required<RequestFeature>(
 					[
 						"equality probe served",
 						"range probe served",
@@ -1844,7 +1747,6 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 						"served by a key or enforcement index",
 						"a GiST index serving a B-tree request",
 						"a created index needed",
-						"a law probe of selected rows",
 						"a span predicate on during alone"
 					],
 					{ cases: runs, sense: notesOnly }

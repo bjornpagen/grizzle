@@ -562,12 +562,6 @@ export interface IdentityValue {
 	readonly display: string
 }
 
-/** A field a selection fixes, and the literal it equals. */
-interface Selector {
-	readonly field: string
-	readonly value: IdentityValue
-}
-
 /**
  * A column a key or a foreign key names: a field by its name, or a law column by its identity, whose stem and display
  * the naming key's read, never its digest.
@@ -599,17 +593,6 @@ export interface LawStatement {
 	readonly stem: ReadonlyArray<string>
 	readonly display: string
 }
-
-const selectionPart = (selection: ReadonlyArray<Selector>): Part =>
-	selection.map((s) => [s.field, s.value.part])
-
-const selectionStem = (selection: ReadonlyArray<Selector>): ReadonlyArray<string> =>
-	selection.flatMap((s) => [s.field, s.value.stem])
-
-const selectionDisplay = (selection: ReadonlyArray<Selector>): string =>
-	selection.length === 0
-		? ""
-		: ` where ${selection.map((s) => `${s.field} = ${s.value.display}`).join(", ")}`
 
 /** A key column's stem: a field's name, or a law column's own stem. */
 const columnStem = (c: KeyColumnName): string => (typeof c === "string" ? c : c.stem)
@@ -921,17 +904,20 @@ export const identity = Object.freeze({
 			`${period ? "PERIOD " : ""}foreign key ${sideDisplay(from)} to ${sideDisplay(to)}`,
 			hashed
 		),
+	/**
+	 * An access index over every row of its relation, by its method and keys. Its parts close with an empty list, which
+	 * every installed access index's name digests.
+	 */
 	accessIndex: (
 		relation: string,
 		method: "btree" | "gist" | "hnsw" | "hash",
-		keys: ReadonlyArray<IndexKey>,
-		predicate: ReadonlyArray<Selector>
+		keys: ReadonlyArray<IndexKey>
 	): Identity<"accessIndex"> =>
 		mint(
 			"accessIndex",
-			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), selectionPart(predicate)],
-			[relation, "ix", ...keys.map((k) => k.field), ...selectionStem(predicate)],
-			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})${selectionDisplay(predicate)}`,
+			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), []],
+			[relation, "ix", ...keys.map((k) => k.field)],
+			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})`,
 			hashed
 		),
 	statistics: (relation: string, fields: ReadonlyArray<string>): Identity<"statistics"> =>

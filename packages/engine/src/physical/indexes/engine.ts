@@ -16,7 +16,6 @@ import {
 
 import {
 	type Comparator,
-	combine,
 	combineAll,
 	compareBooleans,
 	compareNumbers,
@@ -25,15 +24,7 @@ import {
 	mapInput
 } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { identityValueOf } from "#compiler/ir/expr.ts"
-import {
-	allRows,
-	defaultOpclass,
-	type IndexOpclass,
-	type IndexRows,
-	type NativeColumn,
-	type Selector
-} from "#compiler/ir/law.ts"
+import { defaultOpclass, type IndexOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import {
 	type AccessUse,
 	type IndexRequest,
@@ -42,14 +33,13 @@ import {
 	vectorCosineOpclass
 } from "#compiler/ir/products.ts"
 import { baseOf, fewValued, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
-import { literalKey } from "#compiler/laws/model/names.ts"
 import type {
 	BuiltTarget,
 	IndexColumn,
 	InstallBuilder,
 	TargetField
 } from "#compiler/physical/ddl/context.ts"
-import { type KeyIndex, rowsPredicate } from "#compiler/physical/ddl/tables.ts"
+import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	btreeEntry,
@@ -95,8 +85,8 @@ type Holds = "scalar" | "span"
 
 const holdsOf = (type: ScalarType): Holds => (spanCarrierOf(type) === undefined ? "scalar" : "span")
 
-/** What serving reads of an index beside its rows (see `planIndexes`): its relation, access method, keys in index order,
- * and whether it holds at most one row per key. */
+/** What serving reads of an index (see `planIndexes`): its relation, access method, keys in index order, and whether it
+ * holds at most one row per key. */
 export interface KeyedIndex {
 	readonly relation: string
 	readonly method: Method
@@ -109,8 +99,6 @@ export interface PlannedIndex extends KeyedIndex {
 	readonly index:
 		| { readonly kind: "created"; readonly name: IndexName }
 		| { readonly kind: "installed"; readonly name: ConstraintName }
-	/** The rows it holds: a partial index's, the rows of its selection. */
-	readonly rows: IndexRows
 	/** The graph object that realizes it. */
 	readonly object: Node<"structure" | "indexes">
 	/** The requests it serves, merged provenance. */
@@ -122,17 +110,8 @@ function fail(tag: ProseTag, label: string, capability: string): never {
 	throw new Refusal(CompileError.make(prose(tag, SourceLoc(label, []), capability)))
 }
 
-/** The rows a request reads: a law's probe states them; the workload's access reads every row. */
-const rowsOf = (r: IndexRequest): IndexRows => (r.role === "lawMaintenance" ? r.rows : allRows)
-
-const requestLabel = (r: IndexRequest): string => {
-	const rows = rowsOf(r)
-	const selected =
-		rows.kind === "all"
-			? ""
-			: ` of the rows selected by ${rows.selection.map((s) => s.column).join(", ")}`
-	return `${r.role} index request on ${r.relation}(${requestColumns(r).map(columnText).join(", ")})${selected} for ${r.use}`
-}
+const requestLabel = (r: IndexRequest): string =>
+	`${r.role} index request on ${r.relation}(${requestColumns(r).map(columnText).join(", ")}) for ${r.use}`
 
 /** The columns a request's keys name, in key order: a law's by their arms, the workload's by their fields' names. */
 const requestColumns = (r: IndexRequest): ReadonlyArray<IndexColumn> =>
@@ -164,30 +143,9 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 			method: n.method,
 			role: "lawMaintenance",
 			use: "reverse reference",
-			/** A reference's reverse probe reads every row that references the deleted key. */
-			rows: allRows,
 			justification: { kind: "law", law }
 		}))
 	})
-
-/** Whether two selections are one: the same fields in the same order, each equal to the same literal. Both are in their
- * relation's declared field order (`IndexRows`). */
-const sameSelection = (
-	a: NonEmptyReadonlyArray<Selector>,
-	b: NonEmptyReadonlyArray<Selector>
-): boolean =>
-	a.length === b.length &&
-	a.every((x, i) => {
-		const y = b[i]
-		return y !== undefined && x.column === y.column && literalKey(x.value) === literalKey(y.value)
-	})
-
-/** Whether the rows an index holds serve a request that reads `read` (see `planIndexes`): an index of every row serves
- * any request, a partial index only the requests of its own selection. */
-const rowsServe = (held: IndexRows, read: IndexRows): boolean =>
-	held.kind === "all" || (read.kind === "selected" && sameSelection(held.selection, read.selection))
-
-const sameRows = (a: IndexRows, b: IndexRows): boolean => rowsServe(a, b) && rowsServe(b, a)
 
 type Keys = NonEmptyReadonlyArray<IndexKey>
 
@@ -432,11 +390,10 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 	}
 }
 
-/** A request as the engine plans it: its placements, the rows it reads, and what its relation's columns hold. */
+/** A request as the engine plans it: its placements, and what its relation's columns hold. */
 interface Planned {
 	readonly request: IndexRequest
 	readonly placements: Placements
-	readonly rows: IndexRows
 	/** Its keys as it states them. */
 	readonly keys: Keys
 	readonly columns: Columns
@@ -448,22 +405,17 @@ interface Planned {
 const ownMethod = (planned: Planned): Method => planned.placements.own.methods[0]
 
 /** Whether an index's relation, access method and keys serve a planned request (see `planIndexes`): it holds one of the
- * request's placements, as an index of a method that placement admits. Serving also asks the index's rows (serves). */
-const keysServe = (index: KeyedIndex, planned: Planned): boolean =>
+ * request's placements, as an index of a method that placement admits. */
+const serves = (index: KeyedIndex, planned: Planned): boolean =>
 	index.relation === planned.request.relation &&
 	[planned.placements.own, ...planned.placements.others].some(
 		(p) => p.methods.includes(index.method) && placed(index, p, planned.columns)
 	)
 
-/** Whether `index` serves a planned request (see `planIndexes`): it holds the rows the request reads, and its keys serve it. */
-const serves = (index: PlannedIndex, planned: Planned): boolean =>
-	rowsServe(index.rows, planned.rows) && keysServe(index, planned)
-
-/** An index under construction (see `planIndexes`): the methods it may still have, the rows it holds, blocks covering its
- * columns, and the order whose directions it takes, when an ordered request fixed them. */
+/** An index under construction (see `planIndexes`): the methods it may still have, blocks covering its columns, and the
+ * order whose directions it takes, when an ordered request fixed them. */
 interface Draft {
 	readonly methods: Methods
-	readonly rows: IndexRows
 	readonly blocks: NonEmptyReadonlyArray<Block>
 	readonly directed: Keys | undefined
 }
@@ -547,19 +499,14 @@ const oneDirection = (a: Keys, b: Keys): Keys | undefined => {
 }
 
 /** The draft of the index a planned request creates: its own placement's methods and blocks, a GiST request's bound
- * columns as one block, in any order a later request fixes, the request's own otherwise, and the rows it reads. */
+ * columns as one block, in any order a later request fixes, the request's own otherwise. */
 const draftOf = (planned: Planned): Draft => {
 	const own = planned.placements.own
 	switch (own.kind) {
 		case "blocks":
-			return {
-				methods: own.methods,
-				rows: planned.rows,
-				blocks: own.blocks,
-				directed: own.directed
-			}
+			return { methods: own.methods, blocks: own.blocks, directed: own.directed }
 		case "manyLed":
-			return { methods: own.methods, rows: planned.rows, blocks: [own.bound], directed: undefined }
+			return { methods: own.methods, blocks: [own.bound], directed: undefined }
 	}
 }
 
@@ -569,24 +516,9 @@ type Ahead =
 	| { readonly kind: "unserved"; readonly planned: Planned }
 	| { readonly kind: "served"; readonly planned: Planned }
 
-/** The rows a draft holds to serve another request too: its own when they serve the request's; every row for an unserved
- * request of every row, which needs an index of every row anyway; none otherwise. */
-const rowsFor = (held: IndexRows, ahead: Ahead): IndexRows | undefined => {
-	const read = ahead.planned.rows
-	if (rowsServe(held, read)) {
-		return held
-	}
-	return ahead.kind === "unserved" && read.kind === "all" ? allRows : undefined
-}
-
-/** A draft refined by one placement of another request, holding `rows`, or none when no one index holds both: no method
- * admits both, or no one order satisfies both. A created index is never unique, so no keyed placement refines it. */
-const refinedBy = (
-	draft: Draft,
-	placement: Placement,
-	rows: IndexRows,
-	rank: Rank
-): Draft | undefined => {
+/** A draft refined by one placement of another request, or none when no one index holds both: no method admits both, or
+ * no one order satisfies both. A created index is never unique, so no keyed placement refines it. */
+const refinedBy = (draft: Draft, placement: Placement, rank: Rank): Draft | undefined => {
 	const methods = draft.methods.filter((m) => placement.methods.includes(m))
 	if (!isNonEmpty(methods)) {
 		return undefined
@@ -596,11 +528,11 @@ const refinedBy = (
 			return undefined
 		case "led": {
 			const blocks = leadDraft(draft.blocks, placement.lead, placement.held, rank)
-			return blocks === undefined ? undefined : { methods, rows, blocks, directed: draft.directed }
+			return blocks === undefined ? undefined : { methods, blocks, directed: draft.directed }
 		}
 		case "manyLed": {
 			const blocks = leadDraft(draft.blocks, placement.lead, placement.bound, rank)
-			return blocks === undefined ? undefined : { methods, rows, blocks, directed: draft.directed }
+			return blocks === undefined ? undefined : { methods, blocks, directed: draft.directed }
 		}
 		case "blocks": {
 			const blocks = mergeBlocks(draft.blocks, placement.blocks)
@@ -608,27 +540,23 @@ const refinedBy = (
 				return undefined
 			}
 			if (placement.directed === undefined) {
-				return { methods, rows, blocks, directed: draft.directed }
+				return { methods, blocks, directed: draft.directed }
 			}
 			if (draft.directed === undefined) {
-				return { methods, rows, blocks, directed: placement.directed }
+				return { methods, blocks, directed: placement.directed }
 			}
 			const directed = oneDirection(draft.directed, placement.directed)
-			return directed === undefined ? undefined : { methods, rows, blocks, directed }
+			return directed === undefined ? undefined : { methods, blocks, directed }
 		}
 	}
 }
 
 /** A draft refined by another request: by its own placement, else by the first of its others that refines it; none when
- * no placement does or the draft's rows cannot hold the request's. */
+ * no placement does. */
 const refined = (draft: Draft, ahead: Ahead, rank: Rank): Draft | undefined => {
-	const rows = rowsFor(draft.rows, ahead)
-	if (rows === undefined) {
-		return undefined
-	}
 	const { own, others } = ahead.planned.placements
 	for (const placement of [own, ...others]) {
-		const found = refinedBy(draft, placement, rows, rank)
+		const found = refinedBy(draft, placement, rank)
 		if (found !== undefined) {
 			return found
 		}
@@ -688,26 +616,6 @@ const keyOrder: Comparator<IndexKey> = combineAll([
 	mapInput(opclassOrder, (k: IndexKey) => k.opclass)
 ])
 
-type Selection = Extract<IndexRows, { readonly kind: "selected" }>["selection"][number]
-
-const selectionOrder: Comparator<ReadonlyArray<Selection>> = listOrder(
-	combine(
-		mapInput(compareStrings, (x: Selection) => x.column),
-		mapInput(compareStrings, (x: Selection) => literalKey(x.value))
-	)
-)
-
-/** Every row before a selection, then selections by their fields and literals' canonical encodings. */
-const rowsOrder: Comparator<IndexRows> = (a, b) => {
-	if (a.kind === "all") {
-		return b.kind === "all" ? 0 : -1
-	}
-	if (b.kind === "all") {
-		return 1
-	}
-	return selectionOrder(a.selection, b.selection)
-}
-
 /** A law's request before the workload's access, then by the law. */
 const justificationOrder: Comparator<IndexRequest> = (a, b) => {
 	if (a.role === "lawMaintenance") {
@@ -731,7 +639,7 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * workload compiler through an installer extension's contribution (`workloadExtension`). A law-maintenance request is
  * always served, because a per-key check without one is a table scan.
  *
- * Coverage, one rule (`keysServe` and `serves`), over where a request's columns may sit in a serving index and the access
+ * Coverage, one rule (`serves`), over where a request's columns may sit in a serving index and the access
  * methods of the indexes that may hold them so (Placements), read once from its access method, role and use:
  *
  * - only an index of the same relation can serve a request;
@@ -783,12 +691,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * - an approximate vector retrieval is served by an HNSW index on its column under its class;
  * - operator classes must agree; every collatable key is pg_catalog.pg_c_utf8 by construction, so collation
  *   never differs;
- * - rows: a request reads every row of its relation, or, a law's probe of a selected source (a coverage's source
- *   probe), only the rows its selection chooses (`IndexRows`). An index
- *   of every row serves either; a key's holds every row, the ones null in a column of it too (NULLS DISTINCT). A
- *   partial index, which holds only the rows of its selection (one the engine created for a selected probe), serves
- *   exactly the requests of that selection: a full-table request would miss the rows it leaves out, and so would a
- *   probe of another selection, which PostgreSQL could not prove implies its predicate.
+ * - every request reads every row of its relation, and every index holds every row, a key's the ones null in a column
+ *   of it too (NULLS DISTINCT).
  *
  * Each request's placements in a serving index (`placementsOf`) are the one statement of the rules on columns and methods:
  * its own, which an index created for it takes, and the others an index may hold instead, each with the access methods
@@ -797,43 +701,34 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * own, in its directions or all opposite); or one of some columns first and others held (an equality lookup's or a
  * range's led by a column of many values); or one of some columns first among the index's columns of many values, every
  * other held (a GiST request's own); or, for a unique index, every key among some of the columns the request fixes (a
- * GiST request's: a GiST index's among all of them, a B-tree's among its scalars). keysServe reads them to judge an
+ * GiST request's: a GiST index's among all of them, a B-tree's among its scalars). `serves` reads them to judge an
  * index, and the engine reads them to draft an index it creates.
  *
  * A served request adds its justification to the serving object's reasons; a constraint index can serve it (a primary
  * key serves the reverse lookup of a self-reference, a span key's GiST index the reverse probe of a PERIOD foreign
  * key). Of the indexes that serve a request, it lands on a key or enforcement index before a created one, then on one of
- * its own access method before one standing in for it, then on one of its own rows before one of every row, then on the
- * first planned (`hostOrder`). An unserved request becomes a new index `<table>__ix__<col>[__<col>...]`, wider requests
- * first, so a narrower one lands on a wider index that serves it. The index is drafted (`draftFor`): it starts as the
- * request's own placement, its methods, and the rows the request reads, and is refined, in the plan's order, by the
- * placements of each later request no planned index serves yet, as long as one index still holds them all: of one
- * access method both admit, in one order, and of rows that serve both. An unserved request of every row widens a
- * selected probe's draft to every row, since it needs an index of every row anyway, so a selected probe lands on an
- * index of every row that another request needs rather than adding one beside it (a partial index never serves a
- * full-table request, whatever keys either names); a probe of another selection never does. An unserved selected probe
- * whose draft no full-table request widens becomes a partial index `WHERE <selection>` holding only the selected rows
- * (`rowsPredicate`), a predicate the probe's own WHERE implies, since the law's function spells the selection with the
- * same literals. So an equality lookup on `{account, created}` planned
+ * its own access method before one standing in for it, then on the first planned (`hostOrder`). An unserved request
+ * becomes a new index `<table>__ix__<col>[__<col>...]`, wider requests first, so a narrower one lands on a wider index
+ * that serves it. The index is drafted (`draftFor`): it starts as the request's own placement and its methods, and is
+ * refined, in the plan's order, by the placements of each later request no planned index serves yet, as long as one
+ * index still holds them all: of one access method both admit, in one order. So an equality lookup on
+ * `{account, created}` planned
  * before a range on `created` then `account` creates `(created, account)`, which serves both, a wider equality lookup
  * takes the order a narrower range or order over its columns fixes, an equality lookup on scalars becomes a GiST index
  * when a GiST request over its columns refines it, and a GiST index leads with a column of many values a later GiST
  * request binds (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`, which serves both).
  * The draft is refined too, after those, by every other request of its relation it can serve that another index
- * already serves, the requests of its own access method first, never widening its rows for one, since PostgreSQL may
- * read such a request through it. It costs a GiST scan by the selectivity of all its conditions whatever their
+ * already serves, the requests of its own access method first, since PostgreSQL may read such a request through it. It costs a GiST scan by the selectivity of all its conditions whatever their
  * columns' places (genericcostestimate), so it may read a request through any GiST index that holds its columns, and
  * on PostgreSQL 19 it reads a span predicate on `(span)` through `(fixed, span)`, which it sweeps, rather than through
- * the `(span, other)` it is planned on; and it may read a law's probe of a selection through a partial index of it, an
- * index-only sweep fetching no heap page, rather than through the key's index of every row it is planned on, so law
- * probes of the held rows on `(id, room)` and on `room`, beside a span key on `(room, during)`, create `(room, id)`.
+ * the `(span, other)` it is planned on.
  * Within a block the columns keep the request's own order. Since the draft looks ahead, the plan's order only fixes the outcome:
  * it is canonical, so the plan does not depend on the order requests arrive in.
  * Its keys are canonical under reversal: a key no ordered request directs takes the first key's direction, and an index
  * whose first key descends is created reversed, so an order and its exact reverse are one index. Its identity is its
- * columns, the canonical directions and each key's operator class, which serving requires equal, its access method and
- * its rows; the name marks a method other than the B-tree, the descending keys, the classes beyond the default and a
- * partial index's selection, each part of its identity at the naming door (identity.accessIndex). Uniqueness is
+ * columns, the canonical directions and each key's operator class, which serving requires equal, and its access method;
+ * the name marks a method other than the B-tree, the descending keys and the classes beyond the default, each part of
+ * its identity at the naming door (identity.accessIndex). Uniqueness is
  * never traded: a request never turns into or replaces a unique constraint, and enforcement objects (keys) stay
  * separate from access-path indexes. The index's key entry must fit its access method, like a key's.
  *
@@ -878,7 +773,6 @@ export const planIndexes = (
 					dir: "asc",
 					opclass: defaultOpclass
 				})),
-				rows: allRows,
 				unique: true,
 				object: k.object,
 				requests: []
@@ -929,7 +823,6 @@ export const planIndexes = (
 					{
 						request: r,
 						placements: placementsOf(r, keys, columns),
-						rows: rowsOf(r),
 						keys,
 						columns,
 						label,
@@ -965,18 +858,16 @@ const canonical: Comparator<Planned> = combineAll([
 	mapInput(listOrder(keyOrder), (x: Planned) => x.keys),
 	mapInput(justificationOrder, (x: Planned) => x.request),
 	mapInput(compareStrings, (x: Planned) => x.request.method),
-	mapInput(rowsOrder, (x: Planned) => x.rows),
 	mapInput(compareStrings, (x: Planned) => x.request.use)
 ])
 
 /** The serving indexes a request lands on first (see `planIndexes`): a key or enforcement index before a created one, so
  * a request a key serves adds nothing; then one of the request's own access method before one standing in for it; then
- * one of its own rows before one of every row serving a selected probe; then the first planned. */
+ * the first planned. */
 const hostOrder = (entry: Planned): Comparator<Candidate> =>
 	combineAll([
 		mapInput(compareBooleans, (c: Candidate) => c.index.index.kind === "created"),
-		mapInput(compareBooleans, (c: Candidate) => c.index.method !== ownMethod(entry)),
-		mapInput(compareBooleans, (c: Candidate) => !sameRows(c.index.rows, entry.rows))
+		mapInput(compareBooleans, (c: Candidate) => c.index.method !== ownMethod(entry))
 	])
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later
@@ -1016,11 +907,10 @@ const opposite = (dir: "asc" | "desc"): "asc" | "desc" => (dir === "asc" ? "desc
 const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
 	keys[0].dir === "desc" ? mapNonEmpty(keys, (k) => ({ ...k, dir: opposite(k.dir) })) : keys
 
-/** A new index for an unserved request, as drafted for it (draftFor): the draft's first method, its rows, and its keys in
- * the order the draft fixes, its entry checked against the access method's limit. */
+/** A new index for an unserved request, as drafted for it (draftFor): the draft's first method, and its keys in the order
+ * the draft fixes, its entry checked against the access method's limit. */
 const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): PlannedIndex => {
 	const { request, label, target: o } = planned
-	const { rows } = draft
 	const method = draft.methods[0]
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
@@ -1081,18 +971,9 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 	const named = identity.accessIndex(
 		request.relation,
 		method,
-		keys.map((k) => ({ field: columnText(k.column), dir: k.dir, opclass: k.opclass.kind })),
-		rows.kind === "all"
-			? []
-			: rows.selection.map((s) => ({ field: s.column, value: identityValueOf(s.value) }))
+		keys.map((k) => ({ field: columnText(k.column), dir: k.dir, opclass: k.opclass.kind }))
 	)
 	const name = b.name(named)
-	const where = rowsPredicate(
-		b,
-		request.relation,
-		rows,
-		(field) => targetField({ kind: "field", field }).type
-	)
 	const ddl: CreateIndex = {
 		kind: "createIndex",
 		name,
@@ -1109,7 +990,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		unique: false,
 		concurrently: false,
 		include: [],
-		where
+		where: undefined
 	}
 	const object = b.add(
 		{
@@ -1131,7 +1012,6 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		relation: request.relation,
 		method,
 		keys,
-		rows,
 		unique: false,
 		object,
 		requests: [request]

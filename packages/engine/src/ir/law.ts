@@ -168,7 +168,7 @@ export const headingColumns = (
 ): NonEmptyReadonlyArray<HeadingColumn> =>
 	mapNonEmpty(fields, (f): HeadingColumn => ({ name: f.name, type: f.type }))
 
-/** A literal selector: the facts whose `column` holds `value`, as an index's rows and a containment's evidence state it. */
+/** A literal selector: the facts whose `column` holds `value`, as a containment's evidence states it. */
 export interface Selector {
 	readonly column: string
 	readonly value: TypedLiteral
@@ -265,21 +265,9 @@ export type IndexOpclass =
 export const defaultOpclass: IndexOpclass = Object.freeze({ kind: "default" })
 
 /**
- * The rows an index holds and a law's probe reads: every row of its relation, or only the rows a literal selection
- * chooses, a law's selected source, which a partial index `WHERE <selection>` holds (physical/indexes/engine.ts). A
- * selection names each field once, in the relation's declared field order (laws/model/plan.ts orderedSelection), so
- * two probes over one selection carry equal lists.
- */
-export type IndexRows =
-	| { readonly kind: "all" }
-	| { readonly kind: "selected"; readonly selection: NonEmptyReadonlyArray<Selector> }
-
-export const allRows: IndexRows = Object.freeze({ kind: "all" })
-
-/**
- * An index a law's maintenance needs: its keys, each a column of the relation by its arm (a field by its handle, a law
- * column by its identifier), never a name looked up again; its use, named for diagnostics (`reverse reference`); and the
- * rows it reads.
+ * An index a law's maintenance needs, over every row of its relation: its keys, each a column of the relation by its arm
+ * (a field by its handle, a law column by its identifier), never a name looked up again; and its use, named for
+ * diagnostics (`reverse reference`).
  */
 export interface LawIndexRequest {
 	readonly relation: string
@@ -291,7 +279,6 @@ export interface LawIndexRequest {
 	readonly method: "btree" | "gist" | "hnsw" | "hash"
 	readonly role: "lawMaintenance"
 	readonly use: string
-	readonly rows: IndexRows
 	readonly justification: { readonly kind: "law"; readonly law: LawId }
 }
 
