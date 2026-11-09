@@ -47,6 +47,7 @@ import { regex } from "arkregex"
 import { compiledOpen } from "#adapter/db/open.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
 
@@ -73,7 +74,7 @@ const clubFacts = {
 	]
 } as const
 
-const extensions = { label: "real", extensions: [] } as const
+const extensions = { label: "real", extensions: [], programs: {} } as const
 
 /** Runs `body` with the services `layer` builds, which are released when `body` ends. */
 const withLayer = <A, E, R, ROut, E2>(
@@ -510,7 +511,7 @@ export const witnessSuite = (): void => {
 										c.note(`refused by ${k.kind}`)
 									})
 							)
-						}).pipe(Effect.scoped, (body) => withLayer(body, o.layer))
+						}).pipe(Effect.scoped, (body) => withLayer(body, loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

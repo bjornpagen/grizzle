@@ -59,6 +59,7 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc1.
@@ -1163,7 +1164,7 @@ const keyedRows = (c: AbsentCase): ReadonlyArray<Item> =>
 const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
-		const o = yield* installed(built.Absent, {}, { label: "absent", extensions: [] })
+		const o = yield* installed(built.Absent, {}, { label: "absent", extensions: [], programs: {} })
 		const names = namesOf(o.installed)
 		const w = c.world
 		const where = (relation: string, id: number) =>
@@ -1404,7 +1405,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				)
 			}
 			return kept
-		}).pipe(Effect.scoped, withLayer(o.layer))
+		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 		const s = yield* Substrate
 		const owner = yield* s.session(ownerSession())
 		for (const { relation, rows } of stored) {

@@ -18,6 +18,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** The child's case: how many Dbs it opens, and whether each reads through a query. */
 interface ExitCase {
@@ -50,7 +51,11 @@ const run = (c: ExitCase) =>
 const work = (c: ExitCase) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const o = yield* installed(Notes, { Note: [{ id: 1 }] }, { label: "exit", extensions: [] })
+			const o = yield* installed(
+				Notes,
+				{ Note: [{ id: 1 }] },
+				{ label: "exit", extensions: [], programs: {} }
+			)
 			for (let opened = 0; opened < c.dbs; opened++) {
 				yield* Effect.scoped(
 					Effect.gen(function* () {
@@ -58,7 +63,7 @@ const work = (c: ExitCase) =>
 						if (c.read) {
 							yield* Effect.flatMap(db.execute(notes, {}), (result) => result.collect)
 						}
-					}).pipe(withLayer(o.layer))
+					}).pipe(withLayer(loginLayer(o.installed, o.server)))
 				)
 			}
 		})

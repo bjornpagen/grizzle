@@ -445,12 +445,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const done = yield* installMigrated(declared, {
 									ambient: ordinarySession,
 									label: "cycle",
-									logins: [fullWorld(declared).server],
+									logins: [fullWorld(declared, {}).server],
 									extensions: []
 								})
 								const value = built.rename(done.schema)
 								const names = namesOf(done)
-								const world = fullWorld(value)
+								const world = fullWorld(value, {})
 								const lawOf = (s: Statement): LawId => lawIdOf(value, s)
 								const ownerFact = (o: OwnerRow, nested: boolean) => ({
 									id: uuidOf(o.id),

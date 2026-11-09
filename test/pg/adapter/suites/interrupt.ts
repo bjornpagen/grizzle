@@ -32,6 +32,7 @@ import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { type BackendMessage, makeTap } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * One member of a drawn write: a note for a task with none, the deletion of a note, or another text at a note's task.
@@ -307,7 +308,7 @@ const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch
  * cases. */
 const interruptCases = Effect.gen(function* () {
 	const s = yield* Substrate
-	const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+	const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [], programs: {} })
 	const names = namesOf(o.installed)
 	const notes = names.table(W.TaskNote)
 	const noteTask = names.column(W.TaskNote, "task")
@@ -317,7 +318,7 @@ const interruptCases = Effect.gen(function* () {
 	const reads = W.workReads(o.schema)
 	let serial = 0
 	const { ctx: context } = yield* Effect.scoped(
-		withLayer(openDbContext(o.server.roles.app, {}), o.layer)
+		withLayer(openDbContext(o.server.roles.app, {}), loginLayer(o.installed, o.server))
 	)
 	const notesNow = Effect.map(
 		s.admin.queryValues(

@@ -29,6 +29,7 @@ import { conservativeChange } from "#test/support/conservative.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** A read-back attachment whose delivered type breaks raises inside its own statement, so its write commits nothing.
  *
@@ -267,7 +268,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const sub = yield* Substrate
-						const o = yield* installed(Notes, {}, { label: "real", extensions: [] })
+						const o = yield* installed(Notes, {}, { label: "real", extensions: [], programs: {} })
 						const s = o.schema
 						const names = namesOf(o.installed)
 						const sql = (text: string) => sub.admin.queryValues(text, [])
@@ -460,7 +461,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(o.layer), (context) =>
+								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped

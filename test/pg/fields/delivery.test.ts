@@ -37,6 +37,7 @@ import { strictDelivered } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A statement's delivery against PostgreSQL 19rc1 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
@@ -233,7 +234,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Blobs, {}, { label: "delivery", extensions: [] })
+								const o = yield* installed(
+									Blobs,
+									{},
+									{ label: "delivery", extensions: [], programs: {} }
+								)
 								const s = yield* Substrate
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {
@@ -245,7 +250,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 										assert.equal(outcome.kind, "accepted", "every row is written")
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(o.layer), (context) =>
+											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

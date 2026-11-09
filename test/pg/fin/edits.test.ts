@@ -59,6 +59,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
 	"id"
@@ -186,7 +187,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Edited, {}, { label: "edits", extensions: [] })
+						const o = yield* installed(Edited, {}, { label: "edits", extensions: [], programs: {} })
 						const seat = yield* seatOfInstalled(o.installed, ["Owner", "Member"], "edits")
 						const f = foldSeatOf(SPEC, seat)
 						const m = SPEC.monoid
@@ -270,8 +271,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 							)
 						})
-						return yield* Effect.flatMap(Layer.build(o.layer), (context) =>
-							Effect.provideContext(body, context)
+						return yield* Effect.flatMap(
+							Layer.build(loginLayer(o.installed, o.server)),
+							(context) => Effect.provideContext(body, context)
 						)
 					}).pipe(Effect.scoped)
 				)
@@ -283,7 +285,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(SpanEdited, {}, { label: "span_edits", extensions: [] })
+						const o = yield* installed(
+							SpanEdited,
+							{},
+							{ label: "span_edits", extensions: [], programs: {} }
+						)
 						const seat = yield* seatOfInstalled(
 							o.installed,
 							["SpanOwner", "SpanMember"],
@@ -398,8 +404,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 							)
 						})
-						return yield* Effect.flatMap(Layer.build(o.layer), (context) =>
-							Effect.provideContext(body, context)
+						return yield* Effect.flatMap(
+							Layer.build(loginLayer(o.installed, o.server)),
+							(context) => Effect.provideContext(body, context)
 						)
 					}).pipe(Effect.scoped)
 				)

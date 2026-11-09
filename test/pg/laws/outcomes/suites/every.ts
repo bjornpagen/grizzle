@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const kinds = ["sum", "tuple"] as const
 type KindHandle = (typeof kinds)[number]
@@ -234,7 +235,8 @@ export const everyLawSuite = (): void => {
 								{},
 								{
 									label: "forward",
-									extensions: []
+									extensions: [],
+									programs: {}
 								}
 							)
 							const backward = yield* installed(
@@ -242,7 +244,8 @@ export const everyLawSuite = (): void => {
 								{},
 								{
 									label: "backward",
-									extensions: []
+									extensions: [],
+									programs: {}
 								}
 							)
 							const installations = { forward, backward } as const
@@ -451,7 +454,7 @@ export const everyLawSuite = (): void => {
 												)
 												assert.ok(Result.isSuccess(applied), "the write is an outcome")
 												return applied.success
-											}).pipe(Effect.scoped, withLayer(o.layer))
+											}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 											if (!Arr.isReadonlyArrayNonEmpty(broken)) {
 												assert.equal(outcome.kind, "accepted")
 												c.note("accepted")

@@ -444,11 +444,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const done = yield* installMigrated(declared, {
 							ambient: ordinarySession,
 							label: "rule_shapes",
-							logins: [fullWorld(declared).server],
+							logins: [fullWorld(declared, {}).server],
 							extensions: []
 						})
 						const value = shapes(done.schema)
-						const world = fullWorld(value)
+						const world = fullWorld(value, {})
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_shapes")
 						const context = yield* Layer.build(loginLayer(done, world.server))
 						const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(

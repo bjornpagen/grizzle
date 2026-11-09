@@ -60,7 +60,11 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(W.Work, workFacts, { label: "acquire", extensions: [] })
+					const o = yield* installed(W.Work, workFacts, {
+						label: "acquire",
+						extensions: [],
+						programs: {}
+					})
 					const credentials = o.installed.as(o.server)
 					const reads = W.workReads(o.schema)
 					const ordered = query(o.schema)

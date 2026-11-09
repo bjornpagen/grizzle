@@ -16,6 +16,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * An imported query's parameters bound to literals, generated: the import reads exactly the rows the query reads with
@@ -122,7 +123,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const opened = yield* installed(
 								Scores,
 								{ Item: facts.items, Mark: facts.marks },
-								{ label: "real", extensions: [] }
+								{ label: "real", extensions: [], programs: {} }
 							)
 							const s = opened.schema
 							const top = query(s)
@@ -157,7 +158,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										`${Formatter.format(b)} over ${Formatter.format(facts)}`
 									)
 								}
-							}).pipe(Effect.scoped, withLayer(opened.layer))
+							}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
 						}).pipe(Effect.scoped)
 				)
 			)

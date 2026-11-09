@@ -194,7 +194,9 @@ const withWorld = (
 	codes: Codebook
 ) => {
 	const owned = owning(value)
-	const server = succeeded(ownLogin(defined(loginDescOf(fullWorld(value).server), "a login value")))
+	const server = succeeded(
+		ownLogin(defined(loginDescOf(fullWorld(value, {}).server), "a login value"))
+	)
 	return succeeded(
 		compileInstallation(owned, {
 			...completeInstallOptions(
@@ -270,7 +272,7 @@ const prepare = (
 		const done = yield* install(declared, {
 			ambient: ordinarySession,
 			label: "real",
-			logins: [fullWorld(declared).server],
+			logins: [fullWorld(declared, {}).server],
 			extensions: []
 		})
 		const names = namesOf(done)
@@ -341,7 +343,7 @@ const prepare = (
 			return out
 		})
 		/** The world a direct writer acts in: the login's credentials and the role `app`. */
-		const writer = done.world(fullWorld(declared).app)
+		const writer = done.world(fullWorld(declared, {}).app)
 		/** The names of the version the migration installs, under the installed schema. */
 		const nextNames = installationNamesOf(installation)
 		return { s, done, names, nextNames, g, drafted, target, migrator, owner, contents, writer }

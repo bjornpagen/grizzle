@@ -17,6 +17,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A schema of closed relations only installs, opens and reads on PostgreSQL 19.
@@ -97,7 +98,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						)
 						const Region = closed("Region", c.regions)
 						const Plans = schema("Plans", { Tier, TierInfo, Region }, [])
-						const opened = yield* installed(Plans, {}, { label: "real", extensions: [] })
+						const opened = yield* installed(
+							Plans,
+							{},
+							{ label: "real", extensions: [], programs: {} }
+						)
 						assert.deepEqual(opened.installed.installation.laws.theory.laws, [])
 						assert.ok(
 							Rec.isEmptyRecord(opened.installed.plan.tables),
@@ -123,7 +128,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 								Arr.map(rs, (row) => row.id),
 								[...c.regions]
 							)
-						}).pipe(Effect.scoped, withLayer(opened.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
 						notes.noteAll(
 							Arr.flatMap([c.tiers, c.regions], (roster): ReadonlyArray<ClosedFeature> =>
 								roster.length === 1

@@ -167,8 +167,16 @@ export const openSuite = (): void => {
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const work = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
-						const searching = yield* installed(search.Search, {}, { label: "real", extensions: [] })
+						const work = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
+						const searching = yield* installed(
+							search.Search,
+							{},
+							{ label: "real", extensions: [], programs: {} }
+						)
 						const libc = yield* bareDatabase(
 							"bare",
 							"ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C'"

@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const tiers = ["bronze", "silver", "gold"] as const
 type TierHandle = (typeof tiers)[number]
@@ -236,7 +237,11 @@ export const hostWitnessSuite = (): void => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Accounts, {}, { label: "real", extensions: [] })
+						const o = yield* installed(
+							Accounts,
+							{},
+							{ label: "real", extensions: [], programs: {} }
+						)
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						return yield* Effect.gen(function* () {
@@ -388,7 +393,7 @@ export const hostWitnessSuite = (): void => {
 										}
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

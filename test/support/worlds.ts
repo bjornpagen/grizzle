@@ -6,16 +6,17 @@ import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import {
 	type AnyClosed,
 	type AnyDerived,
 	type AnyRelation,
 	type AnyRoster,
 	type AnySchema,
-	login,
 	type Role,
 	role
 } from "#compiler/public/schema.ts"
+import { login } from "#compiler/schema/world.ts"
 import type { AnyLogin, EntryContexts, RoleRelations } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
@@ -64,7 +65,8 @@ export type HeldOf<B extends Reality> = {
  * test's identity provider issues.
  *
  * A schema's full world is the role `app` holding every relation of the schema whole but its closed and live derived
- * relations, and writing every ordinary relation, in the login `server`: reality itself, so every program over the
+ * relations, and writing every ordinary relation, in the login `server`, whose workload is the test's programs over the
+ * role, each a member a Db of the role runs by its name (`db.workload.<name>`): reality itself, so every program over the
  * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
  * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
  * particular schema (its relations are any relations), so a program over the schema is a program over one of its levels
@@ -75,9 +77,17 @@ export type HeldOf<B extends Reality> = {
  * any other text is a TokenError, as a verifier's refusal is. So a test states the claims it opens a Db with by value,
  * and what grizzle decodes from them is grizzle's own, through the role's contexts.
  *
- * The full world of `base` (see the header).
+ * The full world of `base` whose login's workload holds `programs` over its role (see the header): `{}` for a world a
+ * test only installs, or opens on a path that runs no workload member. The programs may be written over the fixture a
+ * test declared rather than over `base`, the fixture rebuilt under its installed name: a level is its content, not its
+ * name (program/schema.ts levelSchema), so the workload and the login are the builders workload(...) and login(...)
+ * run, beneath the public types' checks, which read a program's schema by name and the programs' names off a type P
+ * fullWorld holds as a parameter. The one workload of the login, over its one role, is what login(...) admits.
  */
-export const fullWorld = <B extends Reality>(base: B) => {
+export const fullWorld = <B extends Reality, const P extends Readonly<Record<string, unknown>>>(
+	base: B,
+	programs: P
+) => {
 	/** Built over any relations, which the role builder checks; the role is then typed by B's own relations (HeldOf). */
 	const reality: Reality = base
 	const relations = trusted<Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>>>(
@@ -91,10 +101,13 @@ export const fullWorld = <B extends Reality>(base: B) => {
 			write: Arr.filter(names, (name) => relations[name]?.kind === "relation")
 		})
 	)
-	return { app, server: login(base, "server", [app]) }
+	return { app, server: login(base, "server", [app], [{ workload: [workload(app, programs)] }]) }
 }
-/** The full world of a schema of B's relations, as fullWorld types it. */
-export type FullWorld<B extends Reality = Reality> = ReturnType<typeof fullWorld<B>>
+/** The full world of a schema of B's relations whose login's workload holds P, as fullWorld types it. */
+export type FullWorld<
+	B extends Reality = Reality,
+	P extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>
+> = ReturnType<typeof fullWorld<B, P>>
 
 /** The token of `payload`: its JSON text. */
 export const tokenOf = (payload: Json): string => jsonText(payload)

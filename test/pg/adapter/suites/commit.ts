@@ -17,6 +17,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** What the concurrent transaction does with what the apply read and wrote, and how it ends. */
 const concurrentKinds = ["nothing", "writes the read", "reads the written", "both"] as const
@@ -75,7 +76,8 @@ export const commitSuite = (): void => {
 						Effect.gen(function* () {
 							const o = yield* installed(W.Work, workFacts, {
 								label: "real",
-								extensions: []
+								extensions: [],
+								programs: {}
 							})
 							const s = yield* Substrate
 							const names = namesOf(o.installed)
@@ -224,7 +226,7 @@ export const commitSuite = (): void => {
 											assert.deepEqual(retriedNote, [read])
 										})
 								)
-							}).pipe(Effect.scoped, withLayer(o.layer))
+							}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 						}).pipe(Effect.scoped)
 					)
 			)

@@ -170,7 +170,10 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > {
-	const world: FullWorld = fullWorld<Parameters<typeof fullWorld>[0]>(schema)
+	const world: FullWorld = fullWorld<
+		Parameters<typeof fullWorld>[0],
+		Readonly<Record<string, unknown>>
+	>(schema, {})
 	const installed = yield* install(schema, {
 		ambient: ordinarySession,
 		label,

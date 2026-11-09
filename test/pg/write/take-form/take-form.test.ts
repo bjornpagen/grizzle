@@ -32,6 +32,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** A write's take over a relation parameter's rows chooses its form per application, by the same rule a query's does
  * (`runsLargeForm`, `sentForm`).
@@ -102,7 +103,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(build("Takes"), {}, { label: "takeform", extensions: [] })
+						const o = yield* installed(
+							build("Takes"),
+							{},
+							{ label: "takeform", extensions: [], programs: {} }
+						)
 						const S = o.schema
 						const names = o.installed.installation.names
 						const reality = realityWrite(
@@ -293,7 +298,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(o.layer), (context) =>
+								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped

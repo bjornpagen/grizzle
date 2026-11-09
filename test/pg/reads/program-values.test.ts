@@ -29,6 +29,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * The query a read takes, at an opened Db's reader: db.execute, db.page, db.get and db.compile each take a query or an
@@ -167,7 +168,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the query a read takes", 
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, { label: "programs", extensions: [] })
+					const o = yield* installed(W.Work, workFacts, {
+						label: "programs",
+						extensions: [],
+						programs: {}
+					})
 					return yield* Effect.gen(function* () {
 						const { ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
 						const reader = dbReader(dbCtx)
@@ -242,7 +247,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the query a read takes", 
 									{ discard: true }
 								)
 						)
-					}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 				}).pipe(Effect.scoped)
 			)
 	)

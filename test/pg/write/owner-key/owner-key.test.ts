@@ -20,6 +20,7 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** Inserts into a family owner's primary key through db.apply, as a property against a host model of the key.
  *
@@ -211,7 +212,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Owners, {}, { label: "ownerkey", extensions: [] })
+						const o = yield* installed(
+							Owners,
+							{},
+							{ label: "ownerkey", extensions: [], programs: {} }
+						)
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						const ownerRow = (owner: StoredOwner) => ({
@@ -368,7 +373,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(o.layer), (context) =>
+								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped

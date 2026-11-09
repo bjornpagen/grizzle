@@ -16,6 +16,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -63,7 +64,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(Strata, {}, { label: "strata_families", extensions: [] })
+					const o = yield* installed(
+						Strata,
+						{},
+						{ label: "strata_families", extensions: [], programs: {} }
+					)
 					const group = installationGroup(namesOf(o.installed))
 					return yield* Effect.gen(function* () {
 						const db = yield* compiledOpen(o.server.roles.app, {})
@@ -172,7 +177,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									c.note(placement)
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 				}).pipe(Effect.scoped)
 			)
 		)

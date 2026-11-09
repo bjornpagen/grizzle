@@ -21,6 +21,7 @@ import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { recordEntryOf } from "#test/support/oracle/pick.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** Work under the name of its installation, the schema the Db opens. */
 type Work = W.WorkNamed<string>
@@ -417,7 +418,7 @@ export const armSwitchSuite = (): void => {
 							}).pipe(
 								Effect.scoped,
 								(body) =>
-									Effect.flatMap(Layer.build(o.layer), (context) =>
+									Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 										Effect.provideContext(body, context)
 									),
 								Effect.scoped

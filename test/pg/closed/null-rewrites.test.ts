@@ -32,6 +32,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Every rewrite of a comparison is three-valued exactly as the comparison's plain meaning is, on PostgreSQL 19rc1:
@@ -648,7 +649,11 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const c = aimed(drawnCase, notes)
 		const built = schemaOf(c)
-		const o = yield* installed(built.Rewrites, {}, { label: "rewrites", extensions: [] })
+		const o = yield* installed(
+			built.Rewrites,
+			{},
+			{ label: "rewrites", extensions: [], programs: {} }
+		)
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`
@@ -746,7 +751,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 			})
 			const rows = yield* (yield* db.execute(filtered, {})).collect
 			return { conds, ids: Arr.map(rows, (row) => row.id) }
-		}).pipe(Effect.scoped, withLayer(o.layer))
+		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 		assert.deepEqual(
 			Arr.sort(result.ids, Order.Number),
 			Arr.filterMap(c.items, (item, id) =>

@@ -16,6 +16,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -157,7 +158,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Files, {}, { label: "bytesfamily", extensions: [] })
+								const o = yield* installed(
+									Files,
+									{},
+									{ label: "bytesfamily", extensions: [], programs: {} }
+								)
 								yield* Effect.gen(function* () {
 									const db = yield* compiledOpen(o.server.roles.app, {})
 									const owner = uuidOf(1)
@@ -217,7 +222,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									yield* readBack(Arr.filter(members, (m) => m.id !== cut.id))
 								}).pipe(
 									(body) =>
-										Effect.flatMap(Layer.build(o.layer), (context) =>
+										Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 											Effect.provideContext(body, context)
 										),
 									Effect.scoped

@@ -1,6 +1,4 @@
-import { Array as Arr, Effect, Formatter, type Layer, type Scope } from "effect"
-import type { OpenError } from "#adapter/errors/execution.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
+import { Array as Arr, Effect, Formatter, type Scope } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type AnyClosed,
@@ -24,11 +22,12 @@ import { quietPolls } from "#test/support/kernel/sanitize.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { RealInstallOptions } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 import { connect } from "#test/support/substrate/session.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Shared helpers for the read suites (test/pg/reads).
@@ -127,10 +126,12 @@ const releaseWhenIdle = (
 /** A schema a full world can be built over: what fullWorld takes. */
 type Reality = Parameters<typeof fullWorld>[0]
 
-/** The full world built over `S` itself, its role typed by S's own relations. */
-type WorldOver<S extends Reality> = ReturnType<typeof fullWorld<S>>
+/** The full world built over `S` itself, its role typed by S's own relations, its login's workload holding P. */
+type WorldOver<S extends Reality, P extends Readonly<Record<string, unknown>>> = ReturnType<
+	typeof fullWorld<S, P>
+>
 
-export interface Opened<S extends Reality> {
+export interface Opened<S extends Reality, P extends Readonly<Record<string, unknown>>> {
 	readonly installed: Installed
 	/**
 	 * The fixture rebuilt under the installed schema name: its relations and statements, under a name known only at
@@ -139,56 +140,69 @@ export interface Opened<S extends Reality> {
 	 */
 	readonly schema: S
 	/**
-	 * The full world's role over the rebuilt schema, which every program over the fixture runs on, its login, through
-	 * which a Db opens it (`server.roles.app`), and the DbLayer of the login in the substrate's database, given the
-	 * installation's snapshot (loginLayerIn builds one in another).
+	 * The full world's role over the rebuilt schema, which every program over the fixture runs on, and its login, whose
+	 * workload holds the fixture's programs.
 	 */
-	readonly app: WorldOver<S>["app"]
-	readonly server: WorldOver<S>["server"]
-	readonly layer: Layer.Layer<DbLayerOf<WorldOver<S>["server"]>, OpenError>
+	readonly app: WorldOver<S, P>["app"]
+	readonly server: WorldOver<S, P>["server"]
+	/**
+	 * The login served as an application serves it (test/support/served-db.ts servedFixture): a Db opens through
+	 * `served.login.roles.app` on `served.layer`, in the substrate's database, and runs the programs as
+	 * `db.workload.<name>`.
+	 */
+	readonly served: ServedFixture<WorldOver<S, P>["server"]>
 }
 
 /**
- * What an installation of a read fixture states: the label of its allocated schema name and the installer extensions
- * it gives. Its one world is its full world.
+ * What an installation of a read fixture states: the label of its allocated schema name, the installer extensions it
+ * gives, and the programs its login's workload holds, each a member a Db of its full world runs by its name. Its one
+ * world is its full world.
  */
-export type FixtureInstall = Pick<RealInstallOptions, "label" | "extensions">
+export type FixtureInstall<P extends Readonly<Record<string, unknown>>> = Pick<
+	RealInstallOptions,
+	"label" | "extensions"
+> & {
+	readonly programs: P
+}
 
 /**
- * Installs `fixture` under a fresh schema, loads `facts`, and rebuilds the fixture under the installed name. The
- * fixture is a schema value whose relations sit under their own names and whose statements name only its relations and
- * read back from their names as themselves, as schema(...) checked when it was built.
+ * Installs `fixture` under a fresh schema, loads `facts`, rebuilds the fixture under the installed name, and serves its
+ * full world's login, whose workload holds `options.programs`: a program of its own the compile refuses is a defect of
+ * the test. The fixture is a schema value whose relations sit under their own names and whose statements name only its
+ * relations and read back from their names as themselves, as schema(...) checked when it was built.
  */
 export const installed = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
-	const St extends ReadonlyArray<Statement>
+	const St extends ReadonlyArray<Statement>,
+	const P extends Readonly<Record<string, unknown>>
 >(
 	fixture: Schema<N, R, StatementsByName<St, R>> & {
 		readonly relations: UnderOwnNames<R>
 		readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
 	},
 	facts: FactSet,
-	options: FixtureInstall
+	options: FixtureInstall<P>
 ): Effect.Effect<
-	Opened<Schema<string, R, StatementsByName<St, R>>>,
+	Opened<Schema<string, R, StatementsByName<St, R>>, P>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
 		const done = yield* install(fixture, {
 			ambient: ordinarySession,
-			...options,
-			logins: [fullWorld(fixture).server]
+			label: options.label,
+			extensions: options.extensions,
+			logins: [fullWorld(fixture, {}).server]
 		})
 		yield* load(done, facts)
 		const rebuilt = schema<string, R, St>(done.schema, fixture.relations, fixture.statements)
-		const world = fullWorld(rebuilt)
+		const world = fullWorld(rebuilt, options.programs)
 		return {
 			installed: done,
 			schema: rebuilt,
 			app: world.app,
 			server: world.server,
-			layer: loginLayer(done, world.server)
+			served: yield* Effect.orDie(servedFixture(done, world.server))
 		}
 	})

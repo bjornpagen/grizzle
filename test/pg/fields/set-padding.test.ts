@@ -19,6 +19,7 @@ import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc1. A set over a roster of n
@@ -164,7 +165,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							Effect.scoped(
 								Effect.gen(function* () {
 									const { S, R, Sets } = schemaOf(d)
-									const o = yield* installed(Sets, {}, { label: "setpadding", extensions: [] })
+									const o = yield* installed(
+										Sets,
+										{},
+										{ label: "setpadding", extensions: [], programs: {} }
+									)
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
 									const all = Array.from({ length: d.size }, (_, code) => code)
@@ -245,7 +250,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(o.layer), (context) =>
+											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

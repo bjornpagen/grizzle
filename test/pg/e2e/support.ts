@@ -8,4 +8,8 @@ import { workFacts } from "#test/support/fixtures/golden/work.ts"
  *
  * The worked example's Work with its facts and its alternatives, every law native, under a fresh schema name.
  */
-export const openWork = installed(W.Work, workFacts, { label: "real", extensions: [] })
+export const openWork = installed(W.Work, workFacts, {
+	label: "real",
+	extensions: [],
+	programs: {}
+})

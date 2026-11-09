@@ -35,6 +35,7 @@ import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 import { regex } from "arkregex"
+import { loginLayer } from "#test/support/worlds.ts"
 /**
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
@@ -271,7 +272,11 @@ export const explainSuite = (): void => {
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const o = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const accountTasks = query(W.Work)
 							.rule((r) => {
 								const { id, name } = v(W.Account, "account")
@@ -353,7 +358,7 @@ export const explainSuite = (): void => {
 										notes.note(c.read)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -365,7 +370,7 @@ export const explainSuite = (): void => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Shop, {}, { label: "real", extensions: [] })
+						const o = yield* installed(Shop, {}, { label: "real", extensions: [], programs: {} })
 						const sequence = o.installed.installation.names.sequence("Seat", "no")
 						const lastValue = () =>
 							s.admin.queryValues(
@@ -536,7 +541,7 @@ export const explainSuite = (): void => {
 										}
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -547,7 +552,11 @@ export const explainSuite = (): void => {
 				searched(
 					test,
 					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const o = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const before = yield* tableState(o.installed, W.TaskNote)
 						const explored = yield* Effect.gen(function* () {
 							const { ctx } = yield* openDbContext(o.server.roles.app, {})
@@ -617,7 +626,7 @@ export const explainSuite = (): void => {
 										notes.note(expected)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 						const after = yield* tableState(o.installed, W.TaskNote)
 						assert.deepEqual(set(valueHash, exactValue)(after, before), Option.none())
 						return explored

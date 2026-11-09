@@ -41,6 +41,7 @@ import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Live, Stale and Wild values at the public reader of an opened Db, as a state machine (the library's commands and lsw):
@@ -545,7 +546,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+					const o = yield* installed(W.Work, workFacts, {
+						label: "real",
+						extensions: [],
+						programs: {}
+					})
 					const s = o.schema
 					const ordered = query(s)
 						.rule((r) => {
@@ -603,7 +608,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 								Effect.gen(function* () {
 									const substrate = yield* Substrate
 									const { ctx: context } = yield* openDbContext(o.server.roles.app, {}).pipe(
-										withLayer(o.layer)
+										withLayer(loginLayer(o.installed, o.server))
 									)
 									const tap = makeTap(substrate.cluster)
 									const poolScope = yield* Scope.make()

@@ -39,6 +39,7 @@ import {
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 /**
  * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
  *
@@ -222,7 +223,11 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(Measures, {}, { label: "real", extensions: [] })
+					const opened = yield* installed(
+						Measures,
+						{},
+						{ label: "real", extensions: [], programs: {} }
+					)
 					const names = namesOf(opened.installed)
 					const table = names.table(Measure)
 					const column = (field: Field | "id"): string => names.column(Measure, field)
@@ -346,7 +351,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 					}).pipe(
 						Effect.scoped,
 						(body) =>
-							Effect.flatMap(Layer.build(opened.layer), (context) =>
+							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped

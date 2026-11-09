@@ -15,6 +15,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Edits of stored bytes values on PostgreSQL 19rc1, which the host knows only by their SHA-256 digests: a write returns
@@ -289,7 +290,11 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Edits, {}, { label: "bytesedits", extensions: [] })
+								const o = yield* installed(
+									Edits,
+									{},
+									{ label: "bytesedits", extensions: [], programs: {} }
+								)
 								yield* Effect.gen(function* () {
 									const db = yield* compiledOpen(o.server.roles.app, {})
 									if (d.stored.length > 0) {
@@ -444,7 +449,7 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 									)
 								}).pipe(
 									(run) =>
-										Effect.flatMap(Layer.build(o.layer), (context) =>
+										Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 											Effect.provideContext(run, context)
 										),
 									Effect.scoped

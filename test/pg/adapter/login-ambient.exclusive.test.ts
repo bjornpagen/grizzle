@@ -65,6 +65,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const Note = str.regex("^.{0,40}$", "su")
 const TextRelation = relation("Text", { id: uuid, note: Note }, ["id"])
@@ -397,7 +398,11 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Shadowed, {}, { label: "login_ambient", extensions: [] })
+					const o = yield* installed(
+						Shadowed,
+						{},
+						{ label: "login_ambient", extensions: [], programs: {} }
+					)
 					const database = o.installed.database
 					const schemas = installedSchemas(o.installed.installation)
 					const login = o.installed.as(o.server).role
@@ -470,7 +475,7 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 									Option.none()
 								)
 							}
-						}).pipe(withLayer(Layer.fresh(o.layer)))
+						}).pipe(withLayer(Layer.fresh(loginLayer(o.installed, o.server))))
 					return yield* explore(
 						{
 							oracle: { kind: "unstated" },

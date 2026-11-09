@@ -49,6 +49,7 @@ import { isList } from "#test/support/list.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** A delivered value with its carriers kept and Options spelled out, comparable by deepStrictEqual. */
 const plain = (value: unknown): unknown => {
@@ -378,8 +379,12 @@ export const readSuite = () => {
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const opened = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
-						const sessions = yield* Layer.build(opened.layer)
+						const opened = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
+						const sessions = yield* Layer.build(loginLayer(opened.installed, opened.server))
 						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {}).pipe(
 							Effect.provideContext(sessions)
 						)
@@ -464,7 +469,11 @@ export const readSuite = () => {
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const opened = yield* installed(W.Work, {}, { label: "real", extensions: [] })
+						const opened = yield* installed(
+							W.Work,
+							{},
+							{ label: "real", extensions: [], programs: {} }
+						)
 						return yield* Effect.gen(function* () {
 							const db = yield* compiledOpen(opened.server.roles.app, {})
 							let group = 0
@@ -513,7 +522,7 @@ export const readSuite = () => {
 										}
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(opened.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -525,7 +534,11 @@ export const readSuite = () => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const opened = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const opened = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const names = namesOf(opened.installed)
 						/** Kind's codes: a closed id is stored as its handle's code. */
 						const kinds = defined(
@@ -656,7 +669,7 @@ export const readSuite = () => {
 										notes.note(state)
 									}).pipe(Effect.scoped)
 							)
-						}).pipe(Effect.scoped, withLayer(opened.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

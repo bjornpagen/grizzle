@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -136,7 +137,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										{},
 										{
 											label: `order${k.mutableB ? "m" : "i"}${k.mutableO ? "m" : "i"}`,
-											extensions: []
+											extensions: [],
+											programs: {}
 										}
 									)
 									yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
@@ -233,7 +235,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(o.layer), (context) =>
+											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

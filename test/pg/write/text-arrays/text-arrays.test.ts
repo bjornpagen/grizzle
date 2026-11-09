@@ -28,6 +28,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -112,7 +113,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Texts, {}, { label: "textarrays", extensions: [] })
+					const o = yield* installed(
+						Texts,
+						{},
+						{ label: "textarrays", extensions: [], programs: {} }
+					)
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					return yield* Effect.gen(function* () {
@@ -234,7 +239,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 						)
 					}).pipe(
 						(body) =>
-							Effect.flatMap(Layer.build(o.layer), (context) =>
+							Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped

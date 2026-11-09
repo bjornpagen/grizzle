@@ -883,7 +883,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const world = fullWorld(Widths)
+					const world = fullWorld(Widths, {})
 					const installed = yield* install(Widths, {
 						ambient: ordinarySession,
 						label: "vwidth",

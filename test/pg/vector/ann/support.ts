@@ -385,7 +385,7 @@ const checked = (q: unknown) =>
 
 /** The installed schema with the HNSW index each of `programs` requests, as Db.open takes it. */
 const openAnn = (programs: Readonly<Record<string, unknown>>) =>
-	installed(AnnSearch, {}, { label: "ann", extensions: [workloadRequests(programs)] })
+	installed(AnnSearch, {}, { label: "ann", extensions: [workloadRequests(programs)], programs: {} })
 
 export type AnnOpened = Effect.Success<ReturnType<typeof openAnn>>
 

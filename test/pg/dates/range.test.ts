@@ -30,6 +30,7 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const Event = relation("Event", { id: pg.integer, day: date }, ["id"])
 const Events = schema("Events", { Event }, [])
@@ -92,7 +93,7 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Events, {}, { label: "dates", extensions: [] })
+						const o = yield* installed(Events, {}, { label: "dates", extensions: [], programs: {} })
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						const range = identifierOf(identity.dateCheck("Event", "day"))
@@ -155,7 +156,7 @@ layer(Substrate.layer)(
 										c.note(d.kind === "common era" ? "refused past 9999" : `refused: ${d.kind}`)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

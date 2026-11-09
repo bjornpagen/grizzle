@@ -162,7 +162,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const world = fullWorld(Store)
+					const world = fullWorld(Store, {})
 					const store = yield* install(Store, {
 						ambient: ordinarySession,
 						label: "vstore",
@@ -282,7 +282,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const world = fullWorld(Points)
+					const world = fullWorld(Points, {})
 					const store = yield* install(Points, {
 						ambient: ordinarySession,
 						label: "vkeys",

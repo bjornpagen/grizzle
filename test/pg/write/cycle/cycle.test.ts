@@ -17,6 +17,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Plain foreign keys on a cycle, through db.apply, against a host model of containment: A's `b` is contained in B's
@@ -123,7 +124,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Cycle, {}, { label: "cycle", extensions: [] })
+					const o = yield* installed(Cycle, {}, { label: "cycle", extensions: [], programs: {} })
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					const laws = {
@@ -263,7 +264,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 						)
 					}).pipe(
 						(body) =>
-							Effect.flatMap(Layer.build(o.layer), (context) =>
+							Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped

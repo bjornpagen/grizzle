@@ -27,6 +27,7 @@ import {
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through db.apply, as
@@ -215,7 +216,11 @@ const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the public API", (it) => {
-	const opened = installed(Fixture, { Seed: [{ id: seed }] }, { label: "real", extensions: [] })
+	const opened = installed(
+		Fixture,
+		{ Seed: [{ id: seed }] },
+		{ label: "real", extensions: [], programs: {} }
+	)
 
 	it.effect(
 		"a value its codec refuses is EncodingFailure with its fault and slot, before any SQL; one it admits is answered",
@@ -320,7 +325,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 									}
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 				}).pipe(Effect.scoped)
 			)
 	)

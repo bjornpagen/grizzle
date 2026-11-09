@@ -107,6 +107,7 @@ import { dbRuntime } from "#test/support/runtime-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc1: a differential search over
@@ -734,7 +735,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 				)
 			})
 		}
-		const o = yield* installed(built.Null, {}, { label: "null", extensions: [] })
+		const o = yield* installed(built.Null, {}, { label: "null", extensions: [], programs: {} })
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(nc)}`
@@ -899,7 +900,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 				)
 			)
 			return { filtered, grouped, whole, head }
-		}).pipe(Effect.scoped, withLayer(o.layer))
+		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 		const field = (row: unknown, name: "id" | "g" | "kind" | "total" | "count"): unknown =>
 			Predicate.hasProperty(row, name) ? row[name] : undefined
 		const filterTrue = Arr.filter(itemRows, ([id]) => truthAt(id, 12) === true)

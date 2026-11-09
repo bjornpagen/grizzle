@@ -37,6 +37,7 @@ import { dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Union cells on PostgreSQL 19: a union's rows decode to exactly the records its arms decode to, each read alone.
@@ -514,7 +515,11 @@ layer(Substrate.layer)("union cells", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const opened = yield* installed(Cells, {}, { label: "real", extensions: [] })
+					const opened = yield* installed(
+						Cells,
+						{},
+						{ label: "real", extensions: [], programs: {} }
+					)
 					const names = namesOf(opened.installed)
 					const kinds = defined(
 						opened.installed.names.codes.rosters.get(parsedName("Kind")),
@@ -604,7 +609,7 @@ layer(Substrate.layer)("union cells", (it) => {
 									notes.noteAll(reached(c))
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(opened.layer))
+					}).pipe(Effect.scoped, withLayer(loginLayer(opened.installed, opened.server)))
 				}).pipe(Effect.scoped)
 			)
 	)

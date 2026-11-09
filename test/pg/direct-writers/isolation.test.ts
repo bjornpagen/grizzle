@@ -66,7 +66,7 @@ const Guarded = schema("Guarded", { Team, Member, Note, Tag }, [
 ])
 
 /** The full world every write of the writer runs in: its role holds every relation whole and writes them. */
-const world = fullWorld(Guarded)
+const world = fullWorld(Guarded, {})
 
 /**
  * A table of the box: its relation, whether it is mutable, whether a law reads it, its fields in heading order, the

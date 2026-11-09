@@ -41,6 +41,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A comparison of texts that read no row field is a constant, and a schema holding one installs and judges each row by
@@ -527,7 +528,11 @@ const verdict = (
 const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
-		const o = yield* installed(built.Constants, {}, { label: "constants", extensions: [] })
+		const o = yield* installed(
+			built.Constants,
+			{},
+			{ label: "constants", extensions: [], programs: {} }
+		)
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`
@@ -587,7 +592,7 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				notes.note(`a constant ${constTruth(c, c.keyed.constant)} in a key's selection`)
 			}
 			return { conds, texts }
-		}).pipe(Effect.scoped, withLayer(o.layer))
+		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 		const s = yield* Substrate
 		const owner = yield* s.session(ownerSession())
 		const readBack = (target: typeof built.GenCond | typeof built.GenText) =>

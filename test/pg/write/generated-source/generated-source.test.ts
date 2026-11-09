@@ -39,6 +39,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const tiers = ["low", "mid", "high"] as const
 type TierHandle = (typeof tiers)[number]
@@ -215,7 +216,11 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Items, {}, { label: "genquery", extensions: [] })
+						const o = yield* installed(
+							Items,
+							{},
+							{ label: "genquery", extensions: [], programs: {} }
+						)
 						const group = installationGroup(namesOf(o.installed))
 						return yield* Effect.gen(function* () {
 							const db = yield* compiledOpen(o.server.roles.app, {})
@@ -356,7 +361,7 @@ layer(Substrate.layer)(
 										c.note(expected.changed ? `${k.target} ${k.op} applied` : "an unchanged write")
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

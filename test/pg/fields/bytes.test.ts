@@ -19,6 +19,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
@@ -236,7 +237,11 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									for (const feature of notes(d)) {
 										c.note(feature)
 									}
-									const o = yield* installed(Blobs, {}, { label: "bytes", extensions: [] })
+									const o = yield* installed(
+										Blobs,
+										{},
+										{ label: "bytes", extensions: [], programs: {} }
+									)
 									const s = yield* Substrate
 									const names = namesOf(o.installed)
 									const facts = Arr.map(d.values, (x, id) => ({
@@ -352,7 +357,7 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 										)
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(o.layer), (context) =>
+											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped

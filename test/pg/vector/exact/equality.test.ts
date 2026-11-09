@@ -270,7 +270,7 @@ const stored = (installed: Installed, table: string, columns: string) =>
 const changeSet = (): ChangeSetValue => ChangeSet.empty(Pairs)
 
 /** The full world a direct SQL writer takes on. */
-const pairsWorld = fullWorld(Pairs)
+const pairsWorld = fullWorld(Pairs, {})
 
 const idOf = (c: unknown): string =>
 	hasProperties(c) && typeof c["id"] === "string"
@@ -629,7 +629,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					 * schema.
 					 */
 					const value = schema(installed.declared, Pairs.relations, Pairs.statements)
-					const world = fullWorld(value)
+					const world = fullWorld(value, {})
 					const twins = query(value)
 						.rule((r) => {
 							const { id: key, value: pair } = v(A, "a")

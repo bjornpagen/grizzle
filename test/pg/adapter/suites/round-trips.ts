@@ -226,7 +226,11 @@ export const roundTripSuite = (): void => {
 				searched(
 					testContext,
 					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const o = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const s = o.schema
 						const reads = W.workReads(s)
 						const payloads = query(s)
@@ -418,7 +422,7 @@ export const roundTripSuite = (): void => {
 										assert.equal(tap.cancels(), 0)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -429,7 +433,11 @@ export const roundTripSuite = (): void => {
 				searched(
 					testContext,
 					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const o = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const s = o.schema
 						return yield* Effect.gen(function* () {
 							const opened = yield* openDbContext(o.server.roles.app, {})
@@ -519,7 +527,7 @@ export const roundTripSuite = (): void => {
 										assert.equal(tap.cancels(), 0)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -530,7 +538,11 @@ export const roundTripSuite = (): void => {
 				searched(
 					testContext,
 					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+						const o = yield* installed(W.Work, workFacts, {
+							label: "real",
+							extensions: [],
+							programs: {}
+						})
 						const reads = W.workReads(o.schema)
 						const substrate = yield* Substrate
 						const tap = makeTap(substrate.cluster)

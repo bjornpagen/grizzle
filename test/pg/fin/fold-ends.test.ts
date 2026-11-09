@@ -833,11 +833,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const done = yield* installMigrated(declared, {
 									ambient: ordinarySession,
 									label: `ends_${kind}`,
-									logins: [fullWorld(declared).server],
+									logins: [fullWorld(declared, {}).server],
 									extensions: []
 								})
 								const value = s.value(done.schema)
-								const world = fullWorld(value)
+								const world = fullWorld(value, {})
 								const seat = yield* seatOfInstalled(done, s.relations, `ends_${kind}`)
 								const context = yield* Layer.build(loginLayer(done, world.server))
 								const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(

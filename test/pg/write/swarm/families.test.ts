@@ -1480,7 +1480,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							const done = yield* installMigrated(declared, {
 								ambient: ordinarySession,
 								label: "swarm",
-								logins: [fullWorld(declared).server],
+								logins: [fullWorld(declared, {}).server],
 								extensions: []
 							})
 							const value = built.rename(done.schema)
@@ -1491,7 +1491,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 								primaryKey: (name) => lawNames.primaryKeyLaw({ name })
 							}
 							const host = hostSchema(spec, built, laws)
-							const world = fullWorld(value)
+							const world = fullWorld(value, {})
 							yield* Effect.gen(function* () {
 								const { ctx: opened } = yield* openDbContext(world.server.roles.app, {})
 								const flight = yield* oneFlight(opened, done.as(world.server))

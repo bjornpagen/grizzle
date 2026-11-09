@@ -21,6 +21,7 @@ import { workloadOver } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import {
 	ascendingTasks,
 	descendingTasks,
@@ -136,7 +137,8 @@ const explorePlans = Effect.gen(function* () {
 						]
 					}
 				])
-			]
+			],
+			programs: {}
 		}
 	)
 	const task = namesOf(opened.installed).table(Task)
@@ -265,7 +267,9 @@ const explorePlans = Effect.gen(function* () {
 	}).pipe(
 		Effect.scoped,
 		(body) =>
-			Effect.flatMap(Layer.build(opened.layer), (context) => Effect.provideContext(body, context)),
+			Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
+				Effect.provideContext(body, context)
+			),
 		Effect.scoped
 	)
 }).pipe(Effect.scoped)

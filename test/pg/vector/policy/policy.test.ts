@@ -23,6 +23,7 @@ import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
 
@@ -180,7 +181,10 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 										for (const row of rows) {
 											assert.equal(typeof row.distance, "number")
 										}
-									}).pipe(Effect.scoped, withLayer(fx.opened.layer))
+									}).pipe(
+										Effect.scoped,
+										withLayer(loginLayer(fx.opened.installed, fx.opened.server))
+									)
 									k.note("the stored policy fills the read")
 								})
 							)

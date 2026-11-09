@@ -46,6 +46,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 import {
 	ascendingTasks,
 	descendingTasks,
@@ -626,7 +627,11 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(Paging, {}, { label: "real", extensions: [] })
+					const opened = yield* installed(
+						Paging,
+						{},
+						{ label: "real", extensions: [], programs: {} }
+					)
 					return yield* Effect.gen(function* () {
 						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
 						const pages = untyped(dbReader(dbCtx))
@@ -905,7 +910,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 					}).pipe(
 						Effect.scoped,
 						(body) =>
-							Effect.flatMap(Layer.build(opened.layer), (context) =>
+							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped
@@ -920,7 +925,11 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(Paging, facts, { label: "real", extensions: [] })
+					const opened = yield* installed(Paging, facts, {
+						label: "real",
+						extensions: [],
+						programs: {}
+					})
 					return yield* Effect.gen(function* () {
 						const { ctx: context } = yield* openDbContext(opened.server.roles.app, {})
 						const { executor, counts } = countingExecutor(poolExecutor(context))
@@ -1158,7 +1167,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 					}).pipe(
 						Effect.scoped,
 						(body) =>
-							Effect.flatMap(Layer.build(opened.layer), (context) =>
+							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped

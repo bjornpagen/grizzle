@@ -1028,7 +1028,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const done = yield* installMigrated(declared, {
 							ambient: ordinarySession,
 							label: "rule_query",
-							logins: [fullWorld(declared).server],
+							logins: [fullWorld(declared, {}).server],
 							extensions: []
 						})
 						const value = ruleQuery(done.schema)
@@ -1038,7 +1038,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							relation: "J3",
 							name: "NoTwoTwo"
 						})
-						const world = fullWorld(value)
+						const world = fullWorld(value, {})
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_query")
 						const context = yield* Layer.build(loginLayer(done, world.server))
 						const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(

@@ -115,7 +115,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const path = yield* Path.Path
 					const published = yield* publishedProject
 					const Consumer = declared("Consumer")
-					const world = fullWorld(Consumer)
+					const world = fullWorld(Consumer, {})
 					const installed = yield* installMigrated(Consumer, {
 						ambient: ordinarySession,
 						label: "consumer",
@@ -123,7 +123,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						extensions: []
 					})
 					const App = declared(installed.declared)
-					const own = fullWorld(App)
+					const own = fullWorld(App, {})
 					const snapshot = path.join(published.project, "snapshot.json")
 					yield* fs.writeFileString(
 						snapshot,

@@ -27,6 +27,7 @@ import { assert, bareRecord, nonEmpty, unorderedEqual } from "#test/support/asse
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /** A pattern no stored field of the schema declares, so the installation holds no domain of it. */
 const Slug = str.regex("^[a-z]{1,8}$", "u")
@@ -113,7 +114,7 @@ layer(Substrate.layer)(
 						const o = yield* installed(
 							Notes,
 							{ Note: [{ id: noteId, code: "abc" }] },
-							{ label: "real", extensions: [] }
+							{ label: "real", extensions: [], programs: {} }
 						)
 						return yield* Effect.gen(function* () {
 							const db = yield* compiledOpen(o.server.roles.app, {})
@@ -204,7 +205,7 @@ layer(Substrate.layer)(
 										c.note(`${k.via} delivered`)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(o.layer))
+						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 					}).pipe(Effect.scoped)
 				)
 		)

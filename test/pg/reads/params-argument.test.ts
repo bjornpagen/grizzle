@@ -19,6 +19,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { dbReader, dbRuntime } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * A program's parameter argument at an opened Db, a read's and a ChangeSet's: the argument is a record, read by the
@@ -145,7 +146,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
+					const o = yield* installed(W.Work, workFacts, {
+						label: "real",
+						extensions: [],
+						programs: {}
+					})
 					const s = o.schema
 					const tasks = query(s).rule((r) => {
 						const { id } = v(W.Task, "task")
@@ -254,7 +259,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 									}
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
 				}).pipe(Effect.scoped)
 			)
 	)
