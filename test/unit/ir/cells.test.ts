@@ -33,7 +33,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { compareNumbers } from "#compiler/core/order.ts"
 import type * as EngineResult from "#compiler/core/result.ts"
 import {
 	type BlockCoordinate,
@@ -43,7 +42,6 @@ import {
 	constantDigestOf,
 	constantOf as encodedOf,
 	dependentSpace,
-	dictionaryOf,
 	finDigit,
 	finSize,
 	finSpace,
@@ -1273,66 +1271,6 @@ describe("a side", () => {
 						caseHang
 					},
 					keying
-				)
-			)
-	)
-})
-
-describe("an open-typed field's dictionary", () => {
-	type Order = "by value" | "by magnitude, ties merged"
-
-	interface Column {
-		readonly column: ReadonlyArray<number>
-		readonly byMagnitude: boolean
-	}
-
-	/** Every column of 0 to 4 values from -2 to 2, under the numbers' order and under magnitude, which ties a value and its negation: 1,562. */
-	const columns: Gen<Column> = (s) => ({
-		column: Array.from({ length: s.draw(int(0, 4)) }, () => s.draw(int(-2, 2))),
-		byMagnitude: s.draw(boolean)
-	})
-
-	/**
-	 * The dictionary is the column's classes of tied values, one value each, ascending; each row's code is the position of
-	 * its value's class. Oracle: the classes counted by a Set of each value's key under the order.
-	 */
-	const classes = ({ column, byMagnitude }: Column, c: Case<Order>) =>
-		Effect.sync(() => {
-			const keyOf = (value: number): number => (byMagnitude ? Math.abs(value) : value)
-			const order = (a: number, b: number) => compareNumbers(keyOf(a), keyOf(b))
-			const dictionary = dictionaryOf(column, order)
-			assert.deepEqual(
-				Arr.map(dictionary.values, keyOf),
-				Arr.sort(Arr.fromIterable(new Set(Arr.map(column, keyOf))), Order.Number)
-			)
-			assert.equal(dictionary.codes.length, column.length)
-			for (const [row, value] of column.entries()) {
-				assert.equal(
-					keyOf(defined(dictionary.values[defined(dictionary.codes[row])])),
-					keyOf(value),
-					`row ${row}`
-				)
-			}
-			c.note(byMagnitude ? "by magnitude, ties merged" : "by value")
-		})
-
-	it.effect(
-		"codes each row by its value's position among the column's distinct values, ascending, values the order ties being one",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/ir/cells-dictionary",
-						generator: columns,
-						literal: Formatter.format,
-						limit: 1562,
-						coverage: requiredInSpace<Order>(["by value", "by magnitude, ties merged"]),
-						caseHang
-					},
-					classes
 				)
 			)
 	)

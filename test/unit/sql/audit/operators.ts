@@ -1,9 +1,5 @@
 import { Array as Arr, Option, String as Str } from "effect"
-import {
-	appendNonEmpty,
-	type NonEmptyReadonlyArray,
-	replaceNonEmpty
-} from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	AlterTableAction,
 	Call,
@@ -267,6 +263,13 @@ interface WriteSite {
 }
 
 const isWrite = (body: CteBody): body is Write => body.kind !== "select"
+
+/** `xs` with the element at `at` replaced by `x`. */
+const replaceNonEmpty = <A>(
+	xs: NonEmptyReadonlyArray<A>,
+	at: number,
+	x: A
+): NonEmptyReadonlyArray<A> => mapNonEmpty(xs, (y, i) => (i === at ? x : y))
 
 const withCte = (s: Select | Write, i: number, cte: Cte) =>
 	s.with === undefined

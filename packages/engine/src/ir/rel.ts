@@ -236,9 +236,6 @@ export type HeadingGroup = HeadingGroupOver<RelNode>
 const aggregateFns = ["count", "sum", "avg", "min", "max", "boolAnd", "boolOr"] as const
 export type AggregateFn = (typeof aggregateFns)[number]
 
-/** The exact number of arguments of each aggregate: count(*) has none, every other one. */
-export const aggregateArity = (fn: AggregateFn): number => (fn === "count" ? 0 : 1)
-
 /** An aggregate's function and its aggregated expressions, in argument order, as many as its arity. */
 export type AggregateCallOver<E> =
 	| { readonly fn: "count"; readonly args: readonly [] }
@@ -312,12 +309,6 @@ export const windowFns = [
 	"lead"
 ] as const
 export type WindowFn = (typeof windowFns)[number]
-
-/**
- * The functions whose result depends on the order of rows within a partition rather than only on their set, so their
- * order must be total: ROW_NUMBER, and LEAD and LAG, which read a neighbouring row.
- */
-export const orderSensitiveWindowFns: ReadonlyArray<WindowFn> = ["rowNumber", "lag", "lead"]
 
 /** One end of a ROWS frame (R41). */
 export type FrameBound =

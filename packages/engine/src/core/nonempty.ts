@@ -41,13 +41,6 @@ export const extendNonEmpty = <A>(
 	ys: ReadonlyArray<A>
 ): NonEmptyReadonlyArray<A> => (isNonEmpty(ys) ? [xs[0], ...xs.slice(1), ...ys] : xs)
 
-/** `xs` with the element at `at` replaced by `x`: still nonempty. */
-export const replaceNonEmpty = <A>(
-	xs: NonEmptyReadonlyArray<A>,
-	at: number,
-	x: A
-): NonEmptyReadonlyArray<A> => mapNonEmpty(xs, (y, i) => (i === at ? x : y))
-
 /** `xs` in `compare`'s order, stable: as `toSorted`, still nonempty. */
 export const sortNonEmpty = <A>(
 	xs: NonEmptyReadonlyArray<A>,

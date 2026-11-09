@@ -36,7 +36,7 @@ import {
 	type Canonicalizable,
 	type CanonicalToken,
 	canonicalEquals,
-	canonicalSort,
+	canonicalSortKeyed,
 	canonicalTag,
 	canonicalTokens,
 	compareCanonicalTokens,
@@ -1018,16 +1018,16 @@ describe("canonical comparison", () => {
 									c.note(same && a !== b ? "a repeated member" : "two distinct members")
 								}
 							}
-							const sorted = succeeded(canonicalSort(items, everyProperty))
+							const sorted = succeeded(canonicalSortKeyed(items, everyProperty))
 							assert.deepEqual(
-								Arr.map(sorted, specified),
+								Arr.map(sorted, (k) => specified(k.item)),
 								Arr.sort(Arr.map(items, specified), Order.String)
 							)
 							const place = at % (items.length + 1)
 							const withOutside = [...items.slice(0, place), null, ...items.slice(place)]
 							assert.deepEqual(
 								refusalLoc(
-									refused(canonicalSort(withOutside, everyProperty), "MalformedDescription")
+									refused(canonicalSortKeyed(withOutside, everyProperty), "MalformedDescription")
 								).path,
 								[place]
 							)

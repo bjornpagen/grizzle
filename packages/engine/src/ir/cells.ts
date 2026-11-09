@@ -112,57 +112,6 @@ export const rosterCodes = (
 	)
 }
 
-/**
- * An open-typed field's code space within a relation: the distinct values of its column, ascending in the field type's
- * order, a value's code its position, beside each row's code. These codes never leave the relation's constant, so they
- * need not stay stable when its rows change.
- */
-export interface Dictionary<V> {
-	readonly values: ReadonlyArray<V>
-	/** The code of each row's value, in row order. */
-	readonly codes: ReadonlyArray<number>
-}
-
-/** The position of `value` among `values`, ascending in `order` and distinct, or undefined when none equals it. */
-const searchSorted = <V>(
-	values: ReadonlyArray<V>,
-	value: V,
-	order: Comparator<V>
-): number | undefined => {
-	let low = 0
-	let high = values.length
-	while (low < high) {
-		const middle = Math.floor((low + high) / 2)
-		const sign = order(defined(values[middle], "a position inside the search range"), value)
-		if (sign === 0) {
-			return middle
-		}
-		if (sign < 0) {
-			low = middle + 1
-		} else {
-			high = middle
-		}
-	}
-	return undefined
-}
-
-/** The code space of an open-typed column whose values `order` sorts, values it ties being one value. */
-export const dictionaryOf = <V>(column: ReadonlyArray<V>, order: Comparator<V>): Dictionary<V> => {
-	const values: Array<V> = []
-	for (const value of column.toSorted(order)) {
-		const last = values.at(-1)
-		if (last === undefined || order(last, value) !== 0) {
-			values.push(value)
-		}
-	}
-	return {
-		values,
-		codes: column.map((value) =>
-			defined(searchSorted(values, value, order), "a column's value is in its own dictionary")
-		)
-	}
-}
-
 /** One owner's run of a fin coordinate: the code of its first slot, and how many slots it holds. */
 export interface FinRun {
 	readonly start: bigint

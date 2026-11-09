@@ -853,18 +853,8 @@ export const canonicalEquals = (a: unknown, b: unknown, options: EncodeOptions):
 }
 
 /**
- * Sorts a set's members by canonical text, the canonical order of a declaration set. Stable for equal
- * texts, which are equal members.
- */
-export const canonicalSort = <A>(
-	items: ReadonlyArray<A>,
-	options: EncodeOptions
-): Result.Result<ReadonlyArray<A>, CompileError> =>
-	Result.map(canonicalSortKeyed(items, options), (keyed) => keyed.map((k) => k.item))
-
-/**
- * canonicalSort, each member beside its canonical text, so a caller that also needs the texts (to drop repeats) does
- * not encode the members again.
+ * A set's members sorted by canonical text, the canonical order of a declaration set, each beside its text. Stable for
+ * equal texts, which are equal members.
  */
 export const canonicalSortKeyed = <A>(
 	items: ReadonlyArray<A>,

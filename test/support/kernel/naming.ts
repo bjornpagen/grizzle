@@ -23,6 +23,7 @@ import type {
 	LawId,
 	RelationIdent
 } from "#compiler/core/ids.ts"
+import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
@@ -38,8 +39,7 @@ import {
 	type NativeColumn,
 	type NativeKind,
 	type NativeObject,
-	type NativeOf,
-	spanKeyColumns
+	type NativeOf
 } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
@@ -409,7 +409,7 @@ const constraintsOf = (
 			return named(
 				object.key.kind === "primary" ? "pk" : "key",
 				object.relation.name,
-				Arr.map(spanKeyColumns(object), indexedName)
+				Arr.map(appendNonEmpty(object.key.scalars, object.span), indexedName)
 			)
 		case "Unique":
 			return named("key", object.relation.name, Arr.map(object.columns, indexedName))

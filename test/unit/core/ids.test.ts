@@ -4,10 +4,19 @@ import { noCoverage } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter } from "effect"
-import { FieldId, fieldIdSpellingParts } from "#compiler/core/ids.ts"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { FieldId } from "#compiler/core/ids.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+
+/**
+ * The relation and field a FieldId's spelling names: its components at each unescaped dot, so a correct encoding has
+ * exactly two, each read back with "%2E" a dot and "%25" a percent sign.
+ */
+const spelledParts = (spelling: string): ReadonlyArray<string> =>
+	Arr.map(Str.split(spelling, "."), (part) =>
+		pipe(part, Str.replaceAll("%2E", "."), Str.replaceAll("%25", "%"))
+	)
 
 /** A relation or field name: printable text, or one of the spellings the encoding escapes. */
 const part: Gen<string> = oneOf([
@@ -41,7 +50,7 @@ describe("FieldId", () => {
 						const a = FieldId(r1, f1)
 						const b = FieldId(r2, f2)
 						assert.equal(a === b, r1 === r2 && f1 === f2)
-						assert.deepEqual(fieldIdSpellingParts(a), { relation: r1, field: f1 })
+						assert.deepEqual(spelledParts(a), [r1, f1])
 					})
 			)
 		)

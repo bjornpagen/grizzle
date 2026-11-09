@@ -17,7 +17,6 @@ import {
 	keptRowsOf,
 	type KindOver,
 	type NodeMeta,
-	orderSensitiveWindowFns,
 	type RelKind,
 	type TableNode,
 	type TableRefs
@@ -27,6 +26,7 @@ import { fitRange } from "#compiler/scalar/compute/lower.ts"
 import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { orderSensitiveWindowFns } from "#test/support/oracle/dag-validate.ts"
 import { scalarTypes } from "#test/unit/ir/fixture.ts"
 
 /** Where the validator must report the rule a corrupted DAG breaks. */

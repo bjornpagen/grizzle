@@ -52,7 +52,7 @@ import {
 } from "#compiler/ir/keys.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
-	aggregateArity,
+	type AggregateFn,
 	type CompletedOrder,
 	type DagTable,
 	exprsOf,
@@ -71,7 +71,6 @@ import {
 	metaSpecOf,
 	type NodeMeta,
 	orderedSetFns,
-	orderSensitiveWindowFns,
 	type RelDag,
 	type RelKind,
 	type RelNode,
@@ -320,6 +319,15 @@ const consumersOf = (table: DagTable): ReadonlyMap<NodeId, ReadonlyArray<NodeId>
 /** Whether two lists of ids hold the same ids, each list without repeats. */
 const sameIds = (xs: ReadonlyArray<string>, ys: ReadonlyArray<string>): boolean =>
 	xs.length === ys.length && Arr.every(xs, (x) => ys.includes(x))
+
+/** The exact number of arguments of each aggregate: count(*) has none, every other one. */
+const aggregateArity = (fn: AggregateFn): number => (fn === "count" ? 0 : 1)
+
+/**
+ * The window functions whose result depends on the order of rows within a partition rather than only on their set, so
+ * their order must be total: ROW_NUMBER, and LEAD and LAG, which read a neighbouring row.
+ */
+export const orderSensitiveWindowFns: ReadonlyArray<WindowFn> = ["rowNumber", "lag", "lead"]
 
 const windowAggregates: ReadonlyArray<WindowFn> = ["count", "sum", "avg", "min", "max"]
 const bigintResults: ReadonlyArray<WindowFn> = ["rowNumber", "rank", "denseRank", "count"]

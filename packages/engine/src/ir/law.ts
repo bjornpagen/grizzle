@@ -1,12 +1,7 @@
 import type { DeclaredName, Identity } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	appendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -490,12 +485,6 @@ type TableCheckOrigin =
 export type SpanKeyScalars =
 	| { readonly kind: "primary"; readonly scalars: NonEmptyReadonlyArray<NativeColumn> }
 	| { readonly kind: "unique"; readonly scalars: ReadonlyArray<NativeColumn> }
-
-/** The columns of a span key in its index's order: its scalar columns, then its span. */
-export const spanKeyColumns = (o: {
-	readonly span: NativeColumn
-	readonly key: SpanKeyScalars
-}): NonEmptyReadonlyArray<NativeColumn> => appendNonEmpty(o.key.scalars, o.span)
 
 export type NativeObject = { readonly lawIds: NonEmptyReadonlyArray<LawId> } & NativeBody
 

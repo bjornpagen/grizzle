@@ -149,42 +149,10 @@ export const SchemaFingerprint = nominal<string, SchemaFingerprint>()
 const escapeComponent = (component: string): string =>
 	component.replaceAll("%", "%25").replaceAll(".", "%2E")
 
-/** One left-to-right pass; src/ uses no RegExp at all. */
-const unescapeComponent = (component: string): string => {
-	let out = ""
-	let i = 0
-	while (i < component.length) {
-		const code = component.startsWith("%25", i)
-			? "%"
-			: component.startsWith("%2E", i)
-				? "."
-				: undefined
-		if (code === undefined) {
-			out += component[i]
-			i += 1
-		} else {
-			out += code
-			i += 3
-		}
-	}
-	return out
-}
-
 /** A FieldId from its spelling, as a decoder admits one. */
 const spelledFieldId = nominal<string, FieldId>()
 export const FieldId = (relation: string, field: string): FieldId =>
 	spelledFieldId(`${escapeComponent(relation)}.${escapeComponent(field)}`)
-
-/** The components of a FieldId's spelling where a description carries it as plain text. */
-export const fieldIdSpellingParts = (
-	spelling: string
-): { readonly relation: string; readonly field: string } => {
-	const dot = spelling.indexOf(".")
-	return {
-		relation: unescapeComponent(spelling.slice(0, dot)),
-		field: unescapeComponent(spelling.slice(dot + 1))
-	}
-}
 
 /**
  * The allocated kinds and the prefix of their spelling. A prefix is not a classifier: user text can spell "n1" too,
