@@ -34,6 +34,7 @@ import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { slotSpelling } from "#compiler/ir/slots.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import {
 	type Action,
 	type ActionCore,
@@ -225,7 +226,7 @@ export const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<Member
 /** The enumerated inputs of one relation in one stratum, one per operation, which the host normalizes together
  * (normalize/): a same-key refusal compares their additions. */
 export interface SlotGroup {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly relation: WrittenRelation
 	readonly inputs: NonEmptyReadonlyArray<EnumeratedInput>
 	/** The facts as the host checks them: the relation's or a query entry's name, and its same-key checks. */
@@ -241,7 +242,7 @@ export interface SlotFacts {
 
 /** A stratum's edits of one member relation: its slots, each normalized as any slot is, by operation. */
 export interface StratumEdit {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly relation: WrittenRelation
 	readonly inserts: ParamId | undefined
 	readonly puts: ParamId | undefined
@@ -250,7 +251,7 @@ export interface StratumEdit {
 
 /** A nested write of a stratum: the insert's relation's nesting and the slot its facts travel in. */
 export interface NestedWrite {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly nesting: Nesting
 	readonly slot: MemberSlot
 }
@@ -436,7 +437,7 @@ export interface WriteFrontend extends WriteQueries {
 	 * rows, which no action of its own writes, the family planner's statements following the stratum's own. */
 	readonly edits: ReadonlyArray<StratumEdit>
 	/** Each stratum's refills (write/frontend/refill.ts), by its position among the occupied strata, as `edits` holds it. */
-	readonly refills: ReadonlyArray<{ readonly stratum: number; readonly refill: StratumRefill }>
+	readonly refills: ReadonlyArray<{ readonly stratum: StratumAt; readonly refill: StratumRefill }>
 	/** The relations whose deltas the read-backs name, in code point order. */
 	readonly deltas: ReadonlyArray<NamedDelta>
 	readonly references: ReadonlyArray<ImmediateReference>
@@ -518,7 +519,8 @@ const slotKind = (
 	}
 }
 
-/** The parameter a write's member slot binds, spelled by the one slot rule (`slotKind`). `relation` is the member's
+/** The parameter a write's member slot binds, spelled by the one slot rule (`slotKind`) at its stratum's index among the
+ * ChangeSet's strata, empty ones included, as the ChangeSet value names its members' arrays. `relation` is the member's
  * own: an ordinary relation, or a query entry's facts. */
 const writeSlotId = (
 	stratum: number,
@@ -1329,8 +1331,8 @@ const compile = (
 
 	/** 2. Group each stratum's members into actions. */
 	const slots: Array<SlotGroup> = []
-	const occupied = strataMembers.flatMap((members, s) =>
-		members.length > 0 ? [{ s, members }] : []
+	const occupied = strataAt(
+		strataMembers.flatMap((members, s) => (members.length > 0 ? [{ s, members }] : []))
 	)
 	/** Every put source of the relation in the stratum is one action (see `compileChangeSet`).
 	 *
@@ -1345,13 +1347,13 @@ const compile = (
 	/** Each stratum's slots of the relations whose rows a family planner writes, by operation, and the counted members
 	 * its nested writes reach, whose rows the planner completes (`countedReached`). */
 	const edits: Array<{
-		readonly stratum: number
+		readonly stratum: StratumAt
 		readonly relation: string
 		readonly write:
 			| { readonly op: "insert" | "put" | "delete"; readonly slot: ParamId }
 			| { readonly op: "nested" }
 	}> = []
-	const draftsByStratum = occupied.map(({ s, members }, stratum) => {
+	const draftsByStratum = occupied.map(([stratum, { s, members }]) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
 		const byRelation = [...groupBy(members, (m) => m.target.relation.name)].toSorted(
@@ -1648,7 +1650,7 @@ const compile = (
 			if (isNonEmpty(groupInputs)) {
 				slots.push(
 					Object.freeze({
-						stratum: s,
+						stratum,
 						relation,
 						inputs: Object.freeze(groupInputs),
 						facts:
@@ -1659,7 +1661,7 @@ const compile = (
 				)
 			}
 		}
-		return { drafts, outside }
+		return { stratum, drafts, outside }
 	})
 
 	const glue = new GlueBuilder(merger.dag)
@@ -1688,7 +1690,8 @@ const compile = (
 		readonly action: ActionCore
 		readonly info: ActionInfo
 	}
-	const builtByStratum = draftsByStratum.map(({ drafts, outside }) => ({
+	const builtByStratum = draftsByStratum.map(({ stratum, drafts, outside }) => ({
+		stratum,
 		outside,
 		built: drafts.map(({ act, relation, carried, reads, entry }): Built => {
 			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
@@ -1746,7 +1749,8 @@ const compile = (
 		})
 	}))
 	/** Each refused addition's sources, in the entry's facts, built after every action's. */
-	const placedByStratum = builtByStratum.map(({ built, outside }) => ({
+	const placedByStratum = builtByStratum.map(({ stratum, built, outside }) => ({
+		stratum,
 		built,
 		outside: Object.freeze(
 			outside.map((d): OutsideWrite => {
@@ -1833,8 +1837,8 @@ const compile = (
 	/** Each relation's depth among the families, which orders a stratum's family statements among themselves. */
 	const depthOf = relationDepths(families)
 	/** A stratum's refills, by its position among the occupied strata. */
-	const refillOf = (stratum: number): StratumRefill | undefined =>
-		refills.get(defined(occupied[stratum], "an occupied stratum").s)
+	const refillOf = (stratum: StratumAt): StratumRefill | undefined =>
+		refills.get(defined(occupied[stratum], "an occupied stratum")[1].s)
 	/**
 	 * A stratum's family statements, in the order the family planner runs them among themselves (write/family/
 	 * compose.ts): every edited relation's deletes, deepest relation first; then each relation's refill and its updates
@@ -1846,7 +1850,7 @@ const compile = (
 	 * but its relation's key and groups, and a count its owner's count and ends, each with the columns PostgreSQL
 	 * generates from them.
 	 */
-	const familyNodesOf = (stratum: number): ReadonlyArray<FamilyNode> => {
+	const familyNodesOf = (stratum: StratumAt): ReadonlyArray<FamilyNode> => {
 		const edited = [...new Set(edits.filter((e) => e.stratum === stratum).map((e) => e.relation))]
 		const refill = refillOf(stratum)
 		const written = familyWritesOf(stratum, edited, refill)
@@ -1954,7 +1958,7 @@ const compile = (
 	 * of the owners the stratum puts; none for any other stratum, whose family statements the family planner plans.
 	 */
 	const familyWritesOf = (
-		stratum: number,
+		stratum: StratumAt,
 		edited: ReadonlyArray<string>,
 		refill: StratumRefill | undefined
 	): ReadonlyArray<FamilyNode> | undefined => {
@@ -2073,7 +2077,7 @@ const compile = (
 
 	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
 	 * since no order of its statements keeps every key at every statement. */
-	const strata = placedByStratum.map(({ built, outside }, stratum): WriteStratum => {
+	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
 		const schedule = scheduleStratum(
 			canonicalActionOrder(
 				built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
@@ -2207,7 +2211,7 @@ const compile = (
 	/** The relations a family write writes through its families' statements: every reached family's member, a tree's
 	 * relation among them, every edited member relation, and the owners of its families, whose count statements return
 	 * only their keys, counts and ends. Their statements fill no delta carrier, so no read-back names their deltas. */
-	const stratumRefills = occupied.flatMap(({ s }, stratum) => {
+	const stratumRefills = occupied.flatMap(([stratum, { s }]) => {
 		const refill = refills.get(s)
 		return refill === undefined ? [] : [Object.freeze({ stratum, refill })]
 	})

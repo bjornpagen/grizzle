@@ -66,6 +66,7 @@ import {
 } from "#compiler/write/entry/precheck.ts"
 
 import type { FillColumn } from "#compiler/ir/fill.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type AppendedMember,
@@ -278,14 +279,14 @@ export const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [
 export type FamilyPlacement =
 	| {
 			readonly kind: "statement"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly node: FamilyNode
 			readonly step: FamilyStep
 			readonly sql: FamilySql
 	  }
 	| {
 			readonly kind: "write"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly node: FamilyNode
 			readonly step: FamilyWriteStep
 			readonly sql: FamilyWriteSql
@@ -345,7 +346,7 @@ export interface EditProgram {
  * each relation a refill rewrites as an edit's target, its row layout and its families with their reads' shapes.
  */
 export interface RefillProgram {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly refill: StratumRefill
 	readonly reads: ReadonlyArray<ChainSql>
 	readonly targets: ReadonlyArray<EditTarget>
@@ -379,7 +380,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 	}
 	/** The strata whose family work is one additions statement, which plans nothing on the host. */
 	const added = new Set(
-		frontend.ir.strata.flatMap((stratum, s) =>
+		strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 			stratum.family.some(({ node }) => node.kind === "additions" || node.kind === "removals")
 				? [s]
 				: []
@@ -441,7 +442,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			all.find((f) => familyKey(f.id) === familyKey(id)),
 			`the family ${id.owner}.${id.count} a count statement counts`
 		)
-	const placements = frontend.ir.strata.flatMap((stratum, s) =>
+	const placements = strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "additions" || node.kind === "removals") {
 				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
@@ -627,7 +628,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 export const placeFamily = (
 	b: ArtifactBuilder,
 	placements: ReadonlyArray<FamilyPlacement>,
-	stratum: number,
+	stratum: StratumAt,
 	node: FamilyNode,
 	deps: (placement: FamilyPlacement) => ReadonlyArray<number>
 ): void => {

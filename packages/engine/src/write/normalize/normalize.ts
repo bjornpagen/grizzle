@@ -24,6 +24,7 @@ import type {
 } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -118,7 +119,7 @@ export const refilledSlot = (
  * its description, whose witness is the key values only. */
 interface KeyRefusal {
 	readonly kind: "keyConflict"
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly relation: string
 	readonly fields: KeySet
 	readonly law: LawId
@@ -132,7 +133,10 @@ export interface Normalized {
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
 	/** Each stratum's nested rows, by reached member relation, a set by key (nesting.ts NestedSet), in the order they
 	 * are inserted. */
-	readonly nested: ReadonlyMap<number, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>
+	readonly nested: ReadonlyMap<
+		StratumAt,
+		ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>
+	>
 }
 
 /**
@@ -405,7 +409,7 @@ const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) =>
 
 /** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later. */
 const conflictOf = (
-	stratum: number,
+	stratum: StratumAt,
 	facts: SlotFacts,
 	fact: Fact,
 	fields: ReadonlyArray<HostKeyField>,
@@ -430,7 +434,7 @@ const conflictOf = (
 
 /** The refusal of two nested facts or rows of `facts`'s relation at its primary key, the key a nested set holds them
  * by, `fact` the later. */
-const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): KeyRefusal => {
+const primaryConflict = (stratum: StratumAt, facts: SlotFacts, fact: NestedFact): KeyRefusal => {
 	const [primary] = facts.host.keys
 	if (primary === undefined) {
 		throw defect(`the primary key of ${facts.name}, which a nested write keys its rows by`)
@@ -443,7 +447,7 @@ const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): K
  * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it.
  */
 const keyConflictIn = <I>(
-	stratum: number,
+	stratum: StratumAt,
 	facts: SlotFacts,
 	order: IdentityOrder<I>,
 	onKey: (key: HostKey) => ReadonlyArray<Entry<I>>
@@ -471,7 +475,7 @@ const keyConflictIn = <I>(
  * only on the keys and spans that hold no serial field.
  */
 const sameKey = <I>(
-	stratum: number,
+	stratum: StratumAt,
 	facts: SlotFacts,
 	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
@@ -590,8 +594,8 @@ export const normalizeChangeSet = (
 	/** The write's bytes values, each the one value of its digest (scalar/values/bytes.ts DigestBook). */
 	const book = new DigestBook()
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
-	const nested = new Map<number, NestedSet>()
-	const reached = new Map<number, Map<string, SlotFacts>>()
+	const nested = new Map<StratumAt, NestedSet>()
+	const reached = new Map<StratumAt, Map<string, SlotFacts>>()
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
 		const sets: Record<
 			"insert" | "generated" | "put" | "delete",
@@ -734,7 +738,7 @@ export const normalizeChangeSet = (
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
 	 * set holds once at its key may still share another declared key with another row. */
-	const rows = new Map<number, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>()
+	const rows = new Map<StratumAt, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>()
 	for (const [stratum, set] of nested) {
 		const factsOf = (name: string): SlotFacts =>
 			defined(

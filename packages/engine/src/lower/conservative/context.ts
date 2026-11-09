@@ -20,6 +20,7 @@ import {
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { contractOf, type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
 	type ArrayPart,
 	type ArraySlot,
@@ -289,7 +290,7 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
 	 * at the first use.
 	 */
 	nestedRows(
-		stratum: number,
+		stratum: StratumAt,
 		relation: string,
 		allocate: () => ReadonlyArray<RelationColumn>
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
@@ -589,7 +590,7 @@ export class LowerContext {
 	 * Nested rows are a write's: outside a write statement, which fills them, they are UnsupportedOperation.
 	 */
 	nestedRows(
-		stratum: number,
+		stratum: StratumAt,
 		relation: string,
 		allocate: () => ReadonlyArray<RelationColumn>,
 		at: string

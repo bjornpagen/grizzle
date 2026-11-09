@@ -39,6 +39,7 @@ import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
@@ -125,7 +126,7 @@ export type RowSource =
 				readonly slot: MemberSlot
 			}>
 	  }
-	| { readonly kind: "nestedRows"; readonly stratum: number; readonly layout: RowLayout }
+	| { readonly kind: "nestedRows"; readonly stratum: StratumAt; readonly layout: RowLayout }
 
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {

@@ -18,6 +18,7 @@ import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -256,7 +257,7 @@ interface StratumFill {
  * before the plan is drawn or where it is refused, when no write statement is sent.
  */
 type Fill =
-	| { readonly kind: "planned"; readonly strata: ReadonlyMap<number, StratumFill> }
+	| { readonly kind: "planned"; readonly strata: ReadonlyMap<StratumAt, StratumFill> }
 	| { readonly kind: "unplanned" }
 
 const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
@@ -379,7 +380,7 @@ export const bindWrite = (
 	const encodeSlot = (
 		slot: WriteSlot,
 		slotFacts: (slot: ParamId) => NormalizedSlot,
-		nestedRows: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
+		nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
 	): Result.Result<Param, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
@@ -423,7 +424,7 @@ export const bindWrite = (
 	const valuesOver =
 		(
 			slotFacts: (slot: ParamId) => NormalizedSlot,
-			nestedRows: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
+			nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
 		) =>
 		(
 			statement: ArtifactStatement
@@ -456,7 +457,7 @@ export const bindWrite = (
 	/** A stratum's nested rows planned, by relation: the rows its nested writes insert, each owner's counts and ends
 	 * as its counted families' appends in the stratum left them, each row in its relation's row layout. */
 	const nestedPlans = (
-		stratum: number,
+		stratum: StratumAt,
 		nested: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>
 	): Result.Result<ReadonlyArray<RelationPlanAt>, FamilyRowBound> => {
 		const relations: Array<RelationPlanAt> = []
@@ -567,7 +568,7 @@ export const bindWrite = (
 	 */
 	const judgedRow = (
 		fill: Fill,
-		stratum: number,
+		stratum: StratumAt,
 		relation: RelationInfo,
 		columns: Values,
 		op: "insert" | "put" | "delete",
@@ -627,7 +628,7 @@ export const bindWrite = (
 	/** Which facts of a slot of `stratum` the statement that writes them proposes: its action's INSERT's, by the
 	 * relation and serial class it inserts (insert/statement.ts proposalOf); every one for any other, a put's, a
 	 * deletion's, or a family member's, which its family's statements write. */
-	const proposalAt = (stratum: number, slot: ParamId): Proposal => {
+	const proposalAt = (stratum: StratumAt, slot: ParamId): Proposal => {
 		for (const action of frontend.ir.strata[stratum]?.actions ?? []) {
 			if (action.source.kind !== "described" && action.source.slot === slot) {
 				return action.op === "insert" ? proposalOf(action.info.relation, action.serial) : "every"
@@ -671,7 +672,7 @@ export const bindWrite = (
 				)
 			})
 		},
-		nested: (stratum: number, relation: RelationInfo) =>
+		nested: (stratum: StratumAt, relation: RelationInfo) =>
 			[...(normalized.nested.get(stratum)?.get(relation.name)?.values() ?? [])].map((row) =>
 				judgedRow(fill, stratum, relation, row.values, "insert", row.key, true, "every")
 			)
@@ -680,7 +681,7 @@ export const bindWrite = (
 	 * addition's, whose key does not exist yet, so no member names it, and every row of it a nested write of the
 	 * stratum fills, a tree's nodes and a sequence's members, with every column the walk drew. An owner among them is
 	 * fresh only where the read finds none stored at its key (write/family/edit.ts planEdits). */
-	const insertedOf = (stratum: number, relation: string): ReadonlyArray<Fact> => [
+	const insertedOf = (stratum: StratumAt, relation: string): ReadonlyArray<Fact> => [
 		...frontend.slots
 			.filter((g) => g.stratum === stratum && g.relation.name === relation)
 			.flatMap((g) => g.inputs.flatMap(insertSlots))
@@ -822,7 +823,7 @@ export const bindWrite = (
 	 * counts keeps its count statement.
 	 */
 	const carried = (
-		stratum: number,
+		stratum: StratumAt,
 		target: EditTarget,
 		owners: ReadonlyArray<OwnerWrite>,
 		refilled: Map<ParamId, NormalizedSlot>,
@@ -880,7 +881,7 @@ export const bindWrite = (
 			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
 	/** Where `relation` stands in a nested write of `stratum` that fills its rows (nesting.ts NestedLayout). */
-	const nestedAt = (stratum: number, relation: string): NestedLayout => {
+	const nestedAt = (stratum: StratumAt, relation: string): NestedLayout => {
 		for (const n of frontend.nested) {
 			const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
 			if (at !== undefined) {
@@ -892,7 +893,7 @@ export const bindWrite = (
 		)
 	}
 	/** The row layout of `relation`, whose rows a nested write of the stratum fills. */
-	const nestedLayout = (stratum: number, relation: string): RowLayout => {
+	const nestedLayout = (stratum: StratumAt, relation: string): RowLayout => {
 		for (const n of frontend.nested) {
 			const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
 			if (at !== undefined) {
@@ -920,7 +921,7 @@ export const bindWrite = (
 	}
 	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
 	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
-	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
+	const ownerSlots = (stratum: StratumAt, relation: string): ReadonlyArray<ParamId> =>
 		frontend.slots
 			.filter((g) => g.stratum === stratum && g.relation.name === relation)
 			.flatMap((g) =>
@@ -937,7 +938,7 @@ export const bindWrite = (
 	 * whose term has no value, as PostgreSQL's NOT NULL refusal of the statement writing them is (witness.ts
 	 * hostJudgement); unreported where the ChangeSet writes no row of the relation.
 	 */
-	const generatedRejection = (stratum: number, stop: GeneratedNull): GeneratedRejection => {
+	const generatedRejection = (stratum: StratumAt, stop: GeneratedNull): GeneratedRejection => {
 		const relation = frontend.written.find((r) => r.name === stop.law.relation)
 		const field = relation?.fields.find((f) => f.name === stop.law.field)
 		return {
@@ -956,7 +957,7 @@ export const bindWrite = (
 	}
 	/** A plan's refusal as its write's: a generated field with no value as `generatedRejection`, any other as itself. */
 	const planRefusal = (
-		stratum: number,
+		stratum: StratumAt,
 		error: EncodingFailure | CompileError | GeneratedNull
 	): EncodingFailure | CompileError | GeneratedRejection =>
 		error._tag === "GeneratedNull" ? generatedRejection(stratum, error) : error
@@ -990,9 +991,9 @@ export const bindWrite = (
 				...refills.map((r) => r.program.stratum)
 			])
 		]
-		const out = new Map<number, Plan>()
+		const out = new Map<StratumAt, Plan>()
 		const refilled = new Map<ParamId, NormalizedSlot>()
-		const fills = new Map<number, StratumFill>()
+		const fills = new Map<StratumAt, StratumFill>()
 		const families = frontend.laws.families
 		for (const stratum of strata) {
 			/** The stratum's nested rows but those an edit of their relation plans with its own changes. */
@@ -1446,7 +1447,7 @@ export const bindWrite = (
 	 * which the insert proposes nothing of (insert/statement.ts Proposal), so its stored families are the statement's to
 	 * draw.
 	 */
-	const nestedRowsOf = (stratum: number, relation: string): ReadonlyArray<NestedRow> => [
+	const nestedRowsOf = (stratum: StratumAt, relation: string): ReadonlyArray<NestedRow> => [
 		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
 	]
 	const freshlyCounted = freshOwners(frontend, (slot) => factsOf(slot), ownerSlots, nestedRowsOf)
@@ -1532,19 +1533,19 @@ const placedFor = (node: FamilyNode, statement: FamilyStatement): boolean =>
 /** Each stratum's plan, each owner insert slot whose facts carry the counts and ends its members' appends draw, and
  * what each stratum's plan leaves (`StratumFill`). */
 interface Planned {
-	readonly plans: ReadonlyMap<number, Plan>
+	readonly plans: ReadonlyMap<StratumAt, Plan>
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
-	readonly fills: ReadonlyMap<number, StratumFill>
+	readonly fills: ReadonlyMap<StratumAt, StratumFill>
 }
 
 /** A generated field with no value an owner's fresh fill read, at the stratum whose owner it fills. */
 interface FreshGeneratedNull extends GeneratedNull {
-	readonly stratum: number
+	readonly stratum: StratumAt
 }
 
 /** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
  * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
-const familyWrittenInFlight = (frontend: CompiledWrite["frontend"], stratum: number): boolean =>
+const familyWrittenInFlight = (frontend: CompiledWrite["frontend"], stratum: StratumAt): boolean =>
 	defined(frontend.ir.strata[stratum], "a stratum").family.some(
 		({ node }) => node.kind === "additions" || node.kind === "removals"
 	)
@@ -1560,13 +1561,13 @@ const familyWrittenInFlight = (frontend: CompiledWrite["frontend"], stratum: num
 const freshOwners = (
 	frontend: CompiledWrite["frontend"],
 	factsOf: (slot: ParamId) => NormalizedSlot,
-	ownerSlots: (stratum: number, relation: string) => ReadonlyArray<ParamId>,
-	nestedOf: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
+	ownerSlots: (stratum: StratumAt, relation: string) => ReadonlyArray<ParamId>,
+	nestedOf: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
 ): Result.Result<ReadonlyMap<ParamId, NormalizedSlot>, EncodingFailure | FreshGeneratedNull> => {
 	const slotsOut = new Map<ParamId, NormalizedSlot>()
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const fill = filler(frontend.laws.theory.fill, frontend.codes, frontend.evaluate)
-	for (const s of frontend.ir.strata.keys()) {
+	for (const [s] of strataAt(frontend.ir.strata)) {
 		if (!familyWrittenInFlight(frontend, s)) {
 			continue
 		}

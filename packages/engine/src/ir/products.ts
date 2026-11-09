@@ -17,6 +17,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { IndexOpclass, LawIndexRequest, NormalizedLaw } from "#compiler/ir/law.ts"
 import type { Heading, RootedDag, ValidDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
@@ -253,7 +254,7 @@ export type ParamSlot =
 			/** A column of a stratum's nested rows of `relation`, in its sent layout (write/family/nesting.ts sentLayout),
 			 * which the binding encodes as a family statement's rows. */
 			readonly kind: "nestedRows"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly relation: string
 			readonly part: number
 	  }

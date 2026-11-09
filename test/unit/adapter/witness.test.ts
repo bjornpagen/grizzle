@@ -36,6 +36,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf, draftCodebook, firstCodebook, keptRosters, noRenames } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import { strataAt } from "#compiler/ir/stratum.ts"
 import {
 	parseSchemaInput,
 	type SchemaArtifacts,
@@ -545,13 +546,16 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	]
 ])
 
+/** The position of the one stratum the steps below run in. */
+const firstStratum = defined(strataAt(["the one stratum"])[0], "the one stratum's position")[0]
+
 /** A write step into `relation`, its fields the least a write step holds, listing `aborts`. */
 const writeOf = (
 	relation: string,
 	aborts: ReadonlyArray<UniqueAbort>
 ): Extract<WriteStep, { readonly kind: "write" }> => ({
 	kind: "write",
-	stratum: 0,
+	stratum: firstStratum,
 	action: 0,
 	relation,
 	result: { kind: "spanClassify", relation },
@@ -584,7 +588,7 @@ const originOf = (
 			return statement(
 				{
 					kind: "single",
-					stratum: 0,
+					stratum: firstStratum,
 					parts: Arr.map(written, (r) => ({ step: writeOf(r, []), width: 1 })),
 					uniqueAborts: aborts
 				},
@@ -595,7 +599,7 @@ const originOf = (
 			return statement(
 				{
 					kind: "family",
-					stratum: 0,
+					stratum: firstStratum,
 					target: { kind: "rows", relation: first },
 					statement: "delete",
 					relation: first,
@@ -627,18 +631,18 @@ const originOf = (
 					kind: "carrier",
 					carrier: "Carrier",
 					step: "fill",
-					stratum: 0,
-					casts: { kind: "member", relation: first, stratum: 0 }
+					stratum: firstStratum,
+					casts: { kind: "member", relation: first, stratum: firstStratum }
 				},
 				[first]
 			)
 		case "an ANALYZE":
-			return statement({ kind: "analyze", carriers: ["Carrier"], stratum: 0 }, [])
+			return statement({ kind: "analyze", carriers: ["Carrier"], stratum: firstStratum }, [])
 		case "a serial advance":
 			return statement(
 				{
 					kind: "advance",
-					stratum: 0,
+					stratum: firstStratum,
 					action: 0,
 					relation: first,
 					field: "id",
@@ -649,9 +653,10 @@ const originOf = (
 		case "a read-back step":
 			return statement({ kind: "readBack", name: "read" }, [])
 		case "an entry's precheck":
-			return statement({ kind: "check", stratum: 0, entry: "Entry", skipWhenEmpty: undefined }, [
-				first
-			])
+			return statement(
+				{ kind: "check", stratum: firstStratum, entry: "Entry", skipWhenEmpty: undefined },
+				[first]
+			)
 		case "a read-back past the statements":
 			return { origin: { kind: "readBack", index: 2 }, written: [] }
 		case "the COMMIT":

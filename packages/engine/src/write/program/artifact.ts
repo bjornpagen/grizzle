@@ -9,6 +9,7 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { StatementRole, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { mapTree, type StatementRoots } from "#compiler/lower/conservative/types.ts"
 import {
 	type FusedStatement,
@@ -90,7 +91,7 @@ const changeTags = (
  * among the casts; nothing for a carrier's creation, a shared sub-query's fill, a snapshot or a delta.
  */
 export type CarrierCasts =
-	| { readonly kind: "member"; readonly relation: string; readonly stratum: number }
+	| { readonly kind: "member"; readonly relation: string; readonly stratum: StratumAt }
 	| { readonly kind: "none" }
 
 /** The carrier statement that casts nothing a ChangeSet states. */
@@ -99,7 +100,7 @@ export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
 export type WriteStep =
 	| {
 			readonly kind: "write"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			/** The action's index in its stratum (ir.strata[stratum].actions). */
 			readonly action: number
 			readonly relation: string
@@ -114,18 +115,18 @@ export type WriteStep =
 			readonly carrier: string
 			readonly step: "create" | "fill"
 			/** Its stratum, none for a carrier around the strata. */
-			readonly stratum: number | undefined
+			readonly stratum: StratumAt | undefined
 			/** What its statement casts into a stored relation's types (CarrierCasts). */
 			readonly casts: CarrierCasts
 	  }
 	| {
 			readonly kind: "analyze"
 			readonly carriers: ReadonlyArray<string>
-			readonly stratum: number | undefined
+			readonly stratum: StratumAt | undefined
 	  }
 	| {
 			readonly kind: "advance"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly action: number
 			readonly relation: string
 			readonly field: string
@@ -134,13 +135,13 @@ export type WriteStep =
 	| { readonly kind: "readBack"; readonly name: string }
 	| {
 			readonly kind: "check"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly entry: string
 			readonly skipWhenEmpty: ParamId | undefined
 	  }
 	| {
 			readonly kind: "single"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly parts: ReadonlyArray<WritePart>
 			/** Every part's unique aborts: each part writes its own relation, so a violation names its part's constraint. */
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
@@ -156,7 +157,7 @@ export type WriteStep =
  */
 export interface FamilyWriteStep {
 	readonly kind: "familyWrite"
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly statement: "additions" | "removals"
 	readonly parts: NonEmptyReadonlyArray<FamilyPart>
 }
@@ -170,7 +171,7 @@ export interface FamilyWriteStep {
  */
 export interface FamilyStep {
 	readonly kind: "family"
-	readonly stratum: number
+	readonly stratum: StratumAt
 	/** What its statements write: a member relation's rows, or a family's owners' counts. */
 	readonly target:
 		| { readonly kind: "rows"; readonly relation: string }
@@ -427,7 +428,7 @@ export const specifiedRun = (
 }
 
 /** The stratum a step belongs to, none for a carrier around the strata and a read-back's statement. */
-export const stratumOf = (step: WriteStep): number | undefined => {
+export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
 			return undefined

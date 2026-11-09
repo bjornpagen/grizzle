@@ -13,6 +13,7 @@ import type {
 	ValidDag
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type {
 	ColumnDefinition,
@@ -174,7 +175,7 @@ export interface MemberParamSlot extends ValuePlaceholder {
  */
 export interface NestedRowsParamSlot extends ValuePlaceholder {
 	readonly kind: "nestedRows"
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly relation: string
 	readonly columns: ReadonlyArray<RelationColumn>
 	readonly part: ArrayPart

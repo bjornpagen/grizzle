@@ -1,6 +1,7 @@
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Action, PutAction } from "#compiler/ir/write.ts"
 import { type PrimaryKeyObject, readFields } from "#compiler/laws/model/uniques.ts"
 import { only } from "#compiler/write/defined.ts"
@@ -47,7 +48,7 @@ export type KeyArbiter = Extract<PrimaryKeyObject, { readonly kind: "key" }>
  * reads, an UPDATE ... FROM, or a MERGE with the deletion action of the stratum it absorbs, by its position in the
  * stratum, and its scope, each in place; or the DELETE-then-insert pair, for a reason. */
 export type PutChoice = {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly action: number
 	readonly relation: string
 } & (
@@ -220,7 +221,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	/** Whether the actions of more than one stratum write the relation. */
 	const severalStrata = (relation: string): boolean =>
 		writtenIn.filter((written) => written.has(relation)).length > 1
-	const strata = ir.strata.map((stratum, s): ChosenStratum =>
+	const strata = strataAt(ir.strata).map(([s, stratum]): ChosenStratum =>
 		Object.freeze({
 			outside: stratum.outside,
 			family: stratum.family,

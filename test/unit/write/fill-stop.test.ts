@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { generatedLaw } from "#compiler/analysis/theory/description.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
 	accumulated,
 	closedId,
@@ -143,7 +144,7 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 /** A path's program and the stratum whose family statement writes Member's rows. */
 interface Path {
 	readonly program: CompiledWrite
-	readonly stratum: number
+	readonly stratum: StratumAt
 }
 
 /** A schema's two paths, each compiled once: the nested insert, and the owner's insert beside its members' puts. */

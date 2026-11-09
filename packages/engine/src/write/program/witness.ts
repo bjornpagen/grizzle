@@ -23,6 +23,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { Action } from "#compiler/ir/write.ts"
 import type {
 	ConstraintLawOf,
@@ -104,7 +105,7 @@ export interface StatedRows {
 		input: EnumeratedInput,
 		slot: MemberSlot
 	) => ReadonlyArray<JudgedRow>
-	readonly nested: (stratum: number, relation: RelationInfo) => ReadonlyArray<JudgedRow>
+	readonly nested: (stratum: StratumAt, relation: RelationInfo) => ReadonlyArray<JudgedRow>
 }
 
 /** A stated row's field as the host holds it: a field the ChangeSet states, or one its write fills; none for a
@@ -146,9 +147,17 @@ export type Refuser =
  * carrier's, an ANALYZE, a serial advance, a read-back, a family's stored-suffix read or the COMMIT.
  */
 export type StatementAt =
-	| { readonly kind: "actions"; readonly stratum: number; readonly actions: ReadonlyArray<number> }
-	| { readonly kind: "write"; readonly stratum: number; readonly relations: ReadonlyArray<string> }
-	| { readonly kind: "precheck"; readonly stratum: number; readonly entry: string }
+	| {
+			readonly kind: "actions"
+			readonly stratum: StratumAt
+			readonly actions: ReadonlyArray<number>
+	  }
+	| {
+			readonly kind: "write"
+			readonly stratum: StratumAt
+			readonly relations: ReadonlyArray<string>
+	  }
+	| { readonly kind: "precheck"; readonly stratum: StratumAt; readonly entry: string }
 	| { readonly kind: "unstated" }
 
 /**
@@ -339,7 +348,7 @@ const groupFacts = (
 const writtenFacts = (
 	frontend: WriteFrontend,
 	stated: StatedRows,
-	stratum: number,
+	stratum: StratumAt,
 	relation: RelationInfo
 ): ReadonlyArray<StatedFact> => {
 	const out: Array<StatedFact> = []
@@ -363,7 +372,7 @@ const writtenFacts = (
 const relationsFacts = (
 	frontend: WriteFrontend,
 	stated: StatedRows,
-	stratum: number,
+	stratum: StratumAt,
 	relations: ReadonlyArray<string>
 ): ReadonlyArray<StatedFact> =>
 	relations.flatMap((name) => {
@@ -390,7 +399,7 @@ const actionsAt = (
 const actionSlotFacts = (
 	frontend: WriteFrontend,
 	stated: StatedRows,
-	stratum: number,
+	stratum: StratumAt,
 	slot: ParamId
 ): ReadonlyArray<StatedFact> => {
 	for (const group of frontend.slots) {

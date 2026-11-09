@@ -3,6 +3,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import {
 	completeAddition,
 	completeClass,
@@ -51,7 +52,7 @@ import { explicitSerials } from "#compiler/write/serial/advance.ts"
  * (ir.strata[stratum].actions), and the positions there of the earlier actions that must complete first (`Action`), whose
  * statements the action's own follow. The planner makes one per action, and every statement of the action carries it. */
 export interface PlanAction {
-	readonly stratum: number
+	readonly stratum: StratumAt
 	readonly index: number
 	readonly dependsOn: ReadonlyArray<number>
 }
@@ -126,7 +127,7 @@ export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
 			readonly carrier: WriteCarrier
-			readonly stratum: number | undefined
+			readonly stratum: StratumAt | undefined
 	  }
 	| {
 			readonly kind: "fillMember"
@@ -134,18 +135,18 @@ export type PlanStep =
 			readonly node: RelNode
 			/** The relation its action writes, by declared name, whose columns type the carrier. */
 			readonly relation: string
-			readonly stratum: number
+			readonly stratum: StratumAt
 	  }
 	| {
 			readonly kind: "fillShare"
 			readonly carrier: WriteCarrier
 			readonly share: CarriedShare
-			readonly stratum: number
+			readonly stratum: StratumAt
 	  }
 	| PlannedWrite
 	| {
 			readonly kind: "single"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly shares: ReadonlyArray<CarriedShare>
 			readonly writes: NonEmptyReadonlyArray<PlannedWrite>
 	  }
@@ -169,11 +170,11 @@ export type PlanStep =
 	| { readonly kind: "readBack"; readonly read: ReadBack }
 	| {
 			readonly kind: "check"
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly input: WriteInput
 			readonly check: PlannedCheck
 	  }
-	| { readonly kind: "family"; readonly stratum: number; readonly node: FamilyNode }
+	| { readonly kind: "family"; readonly stratum: StratumAt; readonly node: FamilyNode }
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
@@ -528,7 +529,7 @@ const sourceInput = (action: ChosenAction, evidence: PlanEvidence): WriteInput =
  * the stratum writes a relation it reads directly, and carried from the start of the stratum otherwise; then each
  * action's statements. */
 const sequentialSteps = (
-	stratum: number,
+	stratum: StratumAt,
 	drafted: ReadonlyArray<ActionDraft>,
 	family: ReadonlyArray<FamilyAt>,
 	shares: ReadonlyArray<CarriedShare>,
@@ -692,7 +693,7 @@ export const planWrite = (
 		return seen
 	})
 
-	for (const [s, { actions, outside, family }] of chosen.strata.entries()) {
+	for (const [s, { actions, outside, family }] of strataAt(chosen.strata)) {
 		for (const refused of outside) {
 			const reads = refused.reads
 			steps.push({

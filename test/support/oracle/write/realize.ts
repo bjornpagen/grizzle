@@ -4,6 +4,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import {
 	completeAddition,
 	completeClass,
@@ -71,7 +72,7 @@ type ConservativeStep =
 	| {
 			readonly kind: "carrier"
 			readonly statement: WriteStatement<CarrierResult>
-			readonly stratum: number | undefined
+			readonly stratum: StratumAt | undefined
 			/** What the statement casts into a stored relation's types (CarrierCasts). */
 			readonly casts: CarrierCasts
 	  }
@@ -81,16 +82,16 @@ type ConservativeStep =
 				| WriteStatement<InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult>
 				| PutStatement
 			readonly relation: WrittenRelation
-			readonly stratum: number
+			readonly stratum: StratumAt
 			readonly action: number
 	  }
 	| { readonly kind: "readBack"; readonly read: ReadBack; readonly program: ConservativeProgram }
 	| {
 			readonly kind: "check"
 			readonly statement: WriteStatement<EntryCheckResult>
-			readonly stratum: number
+			readonly stratum: StratumAt
 	  }
-	| { readonly kind: "family"; readonly stratum: number; readonly node: FamilyNode }
+	| { readonly kind: "family"; readonly stratum: StratumAt; readonly node: FamilyNode }
 
 /** A delta's two sides: a relation's by state comparison, or a world relation's empty delta, created and never filled. */
 interface DeltaCarriers {
@@ -132,7 +133,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const carry = (
 		carrier: WriteCarrier,
 		source: Parameters<typeof buildFillCarrier>[2],
-		stratum: number | undefined,
+		stratum: StratumAt | undefined,
 		casts: CarrierCasts
 	) => {
 		steps.push(
@@ -167,7 +168,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		return [{ relation, snapshot, names }]
 	})
 
-	for (const [s, { actions, outside, family }] of ir.strata.entries()) {
+	for (const [s, { actions, outside, family }] of strataAt(ir.strata)) {
 		const check = (input: WriteInput, entryCheck: EntryCheck) =>
 			steps.push(
 				Object.freeze({
