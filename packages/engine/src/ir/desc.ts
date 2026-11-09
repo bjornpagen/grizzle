@@ -959,12 +959,17 @@ export type DerivedStorage = (typeof derivedStorages)[number]
  * Whether a role holds a relation: whether PostgreSQL holds its rows, so neither a closed relation, whose rows are its
  * constants, nor a live derived relation, whose rows are its definition's over the relations it reads.
  */
-export const heldRelation = (relation: {
-	readonly kind: RelationDesc["kind"]
-	readonly storage?: DerivedStorage
-}): boolean =>
-	relation.kind !== "closedRelation" &&
-	!(relation.kind === "derived" && relation.storage === "live")
+export const heldRelation = (relation: RelationDesc): boolean => {
+	switch (relation.kind) {
+		case "relation":
+		case "closed":
+			return true
+		case "closedRelation":
+			return false
+		case "derived":
+			return relation.storage === "materialized"
+	}
+}
 
 export type SchemaDesc<L = Located> = L & {
 	readonly name: string
