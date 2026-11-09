@@ -11,7 +11,6 @@ export type {
 	ArraysOf,
 	ChangeSet,
 	FactsCheck,
-	FactsShape,
 	Law,
 	PlannedStrata,
 	Refused,

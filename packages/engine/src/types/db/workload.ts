@@ -2,10 +2,12 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,
+	ArraysOf,
 	ChangeSetAt,
-	PlannedStrata
+	PlannedStrata,
+	RepeatedArrays
 } from "#compiler/types/changeset/changeset.ts"
-import type { MembersTyped } from "#compiler/types/core/phantom.ts"
+import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type { ContextsOf, OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -85,10 +87,21 @@ type ProgramContexts<X> =
 			: ContextsOf<X>
 
 /**
+ * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
+ * op and one relation in two strata (RepeatedArrays), as generate refuses them (UnservedMember `repeated`).
+ */
+type ArraysOnce<X> = X extends AnyChangeSet
+	? [RepeatedArrays<ArraysOf<X>>] extends [never]
+		? unknown
+		: Refusal<"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one">
+	: unknown
+
+/**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside
- * its immutable owner's insert (PlannedStrata), and, over a role, matching only the contexts the role's relations read
- * (WithinRoleContexts), as the role's compile refuses any other. A workload over a schema runs on each role of its
- * login, so the compile alone judges its contexts. A program typed `any` is refused (MembersTyped).
+ * its immutable owner's insert (PlannedStrata) and its array members of one op and relation in one stratum
+ * (ArraysOnce), and, over a role, matching only the contexts the role's relations read (WithinRoleContexts), as the
+ * role's compile refuses any other. A workload over a schema runs on each role of its login, so the compile alone
+ * judges its contexts. A program typed `any` is refused (MembersTyped).
  */
 export type WorkloadConstructor = <
 	S extends AnySchema | AnyRole,
@@ -97,6 +110,7 @@ export type WorkloadConstructor = <
 	schema: S,
 	programs: Programs & {
 		readonly [K in keyof Programs]: PlannedStrata<Programs[K]> &
+			ArraysOnce<Programs[K]> &
 			WithinRoleContexts<S, ProgramContexts<Programs[K]>>
 	} & MembersTyped<Programs>
 ) => Workload<S, Programs>

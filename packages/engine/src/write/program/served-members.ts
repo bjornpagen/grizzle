@@ -20,7 +20,7 @@ export const servedMembers = (
 	members: ReadonlyArray<MemberAt>,
 	bound: ReadonlyMap<string, ParamValue>
 ): Result.Result<ReadonlyArray<ArrayMember>, UnservedMember> => {
-	const byRelation = new Map<string, string>()
+	const slots = new Map<MemberAt["op"], Map<string, string>>()
 	const served: Array<ArrayMember> = []
 	const reasons: Array<UnservedReason> = []
 	for (const member of members) {
@@ -28,13 +28,20 @@ export const servedMembers = (
 			reasons.push({ kind: "stream", slot: member.slot, relation: member.relation })
 			continue
 		}
+		const byRelation = slots.get(member.op) ?? new Map<string, string>()
+		slots.set(member.op, byRelation)
 		const earlier = byRelation.get(member.relation)
 		if (earlier !== undefined) {
-			reasons.push({ kind: "repeated", relation: member.relation, slots: [earlier, member.slot] })
+			reasons.push({
+				kind: "repeated",
+				op: member.op,
+				relation: member.relation,
+				slots: [earlier, member.slot]
+			})
 			continue
 		}
 		byRelation.set(member.relation, member.slot)
-		served.push({ slot: member.slot, relation: member.relation })
+		served.push({ slot: member.slot, op: member.op, relation: member.relation })
 	}
 	for (const name of [...bound.keys()].toSorted()) {
 		if (!canonicalTokens(bound.get(name), everyProperty).ok) {

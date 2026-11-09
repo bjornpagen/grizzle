@@ -290,7 +290,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													continue
 												}
 												const outcome = yield* author.workload.addItem.apply(
-													{ Item: [{ id: Code(idAt(op.id)), n: op.n }] },
+													{ insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } },
 													{}
 												)
 												if (outcome.kind !== "accepted") {
@@ -309,7 +309,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												}
 												const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
 												const outcome = yield* author.workload.dropItem.apply(
-													{ Item: [{ id: Code(idAt(op.id)), n }] },
+													{ delete: { Item: [{ id: Code(idAt(op.id)), n }] } },
 													{}
 												)
 												if (held) {
@@ -340,13 +340,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												}
 												const outcome = yield* learner.workload.addSitting.apply(
 													{
-														Sitting: [
-															{
-																id: idAt(op.id),
-																item: Code(idAt(op.item)),
-																kind: op.test ? "Test" : "Practice"
-															}
-														]
+														insert: {
+															Sitting: [
+																{
+																	id: idAt(op.id),
+																	item: Code(idAt(op.item)),
+																	kind: op.test ? "Test" : "Practice"
+																}
+															]
+														}
 													},
 													{}
 												)
@@ -383,13 +385,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												}
 												const outcome = yield* learner.workload.dropSitting.apply(
 													{
-														Sitting: [
-															{
-																id: idAt(op.id),
-																item: Code(idAt(s.item)),
-																kind: s.test ? "Test" : "Practice"
-															}
-														]
+														delete: {
+															Sitting: [
+																{
+																	id: idAt(op.id),
+																	item: Code(idAt(s.item)),
+																	kind: s.test ? "Test" : "Practice"
+																}
+															]
+														}
 													},
 													{}
 												)

@@ -210,12 +210,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const db = yield* Db.open(o.served.login.roles.app, {})
 										const outcome = yield* db.workload.write.apply(
 											{
-												R: Arr.map(d.rows, (row, id) => ({
-													id,
-													k: handleOf(row.k),
-													a: Bits.of(S, Arr.map(row.a, handleOf)),
-													b: Bits.of(S, Arr.map(row.b, handleOf))
-												}))
+												insert: {
+													R: Arr.map(d.rows, (row, id) => ({
+														id,
+														k: handleOf(row.k),
+														a: Bits.of(S, Arr.map(row.a, handleOf)),
+														b: Bits.of(S, Arr.map(row.b, handleOf))
+													}))
+												}
 											},
 											{}
 										)

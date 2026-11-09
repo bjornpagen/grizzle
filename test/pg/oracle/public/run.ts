@@ -1546,7 +1546,7 @@ const storeMember = "store"
 
 /**
  * Stores the case's facts through its store member, the ChangeSet inserting them, each relation's rows supplied by the
- * call: accepted, each relation's facts added.
+ * call under its insert: accepted, each relation's facts added.
  */
 const store = (c: ProgramCase, members: Members): Effect.Effect<void, Disagreement> =>
 	Effect.gen(function* () {
@@ -1554,7 +1554,9 @@ const store = (c: ProgramCase, members: Members): Effect.Effect<void, Disagreeme
 		if (!Arr.isReadonlyArrayNonEmpty(rows)) {
 			return
 		}
-		const facts = Rec.fromEntries(Arr.map(rows, (r) => [r.relation.name, r.rows] as const))
+		const facts = {
+			insert: Rec.fromEntries(Arr.map(rows, (r) => [r.relation.name, r.rows] as const))
+		}
 		const exit = yield* sideExit(members.store(storeMember, facts))
 		const outcome = Exit.isSuccess(exit) ? exit.value : undefined
 		const counted =
@@ -1642,7 +1644,7 @@ interface Members {
 	readonly back: (name: string) => Effect.Effect<ApplyOutcome<unknown>, ApplyError>
 	readonly store: (
 		name: string,
-		facts: Readonly<Record<string, ReadonlyArray<unknown>>>
+		facts: { readonly insert: Readonly<Record<string, ReadonlyArray<unknown>>> }
 	) => Effect.Effect<ApplyOutcome<unknown>, ApplyError>
 }
 

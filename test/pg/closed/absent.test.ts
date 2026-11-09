@@ -1228,8 +1228,8 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const t = truth(w, item, pred)
 					const applied = yield* Effect.result(
 						at === 0
-							? db.workload.insertChecked0.apply({ Checked0: [itemFact(item, id)] }, {})
-							: db.workload.insertChecked1.apply({ Checked1: [itemFact(item, id)] }, {})
+							? db.workload.insertChecked0.apply({ insert: { Checked0: [itemFact(item, id)] } }, {})
+							: db.workload.insertChecked1.apply({ insert: { Checked1: [itemFact(item, id)] } }, {})
 					)
 					verdict(applied, relation.name, t === "true", where(relation.name, id))
 					const reads = Arr.map(readsOf(pred), (read) => readOf(w, item, read))
@@ -1310,7 +1310,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.contained)
 				const inside = w.allowed[item.kind]?.includes(item.flag) === true
 				const applied = yield* Effect.result(
-					db.workload.insertContained.apply({ Contained: [itemFact(item, id)] }, {})
+					db.workload.insertContained.apply({ insert: { Contained: [itemFact(item, id)] } }, {})
 				)
 				verdict(applied, "Contained", t !== "true" || inside, where("Contained", id))
 				if (!inside) {
@@ -1329,7 +1329,7 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.keyed)
 				const taken = selected.includes(item.n)
 				const applied = yield* Effect.result(
-					db.workload.insertKeyed.apply({ Keyed: [itemFact(item, id)] }, {})
+					db.workload.insertKeyed.apply({ insert: { Keyed: [itemFact(item, id)] } }, {})
 				)
 				verdict(applied, "Keyed", t !== "true" || !taken, where("Keyed", id))
 				if (taken && t === "true") {
@@ -1355,7 +1355,11 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const fact = { id, kind: kindOf(item.kind), flag: flagOf(item.flag) }
 					const applied = yield* Effect.result(
 						db.workload.insertGenerated.apply(
-							Rec.map(built.generatedRelations, (_, relation) => (relation === name ? [fact] : [])),
+							{
+								insert: Rec.map(built.generatedRelations, (_, relation) =>
+									relation === name ? [fact] : []
+								)
+							},
 							{}
 						)
 					)
@@ -1405,21 +1409,24 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			})
 			const members = Arr.map(c.items, (item, id) => itemFact(item, id))
 			const together = yield* Effect.result(
-				db.workload.insertOwner.apply({ Owner: [{ id: 0, members }] }, {})
+				db.workload.insertOwner.apply({ insert: { Owner: [{ id: 0, members }] } }, {})
 			)
 			verdict(together, "Member", true, where("Member", 0))
 			const stored = yield* Effect.result(
-				db.workload.insertOwner.apply({ Owner: [{ id: 1, members: [] }] }, {})
+				db.workload.insertOwner.apply({ insert: { Owner: [{ id: 1, members: [] }] } }, {})
 			)
 			verdict(stored, "Owner", true, where("Owner", 1))
 			for (const [i, item] of c.items.entries()) {
 				const one = yield* Effect.result(
-					db.workload.putMember.apply({ Member: [memberFact(item, memberOfLater(i), 1)] }, {})
+					db.workload.putMember.apply(
+						{ put: { Member: [memberFact(item, memberOfLater(i), 1)] } },
+						{}
+					)
 				)
 				verdict(one, "Member", true, where("Member", memberOfLater(i)))
 			}
 			const deleted = yield* Effect.result(
-				db.workload.deleteMember.apply({ Member: [memberFact(c.items[0], 0, 0)] }, {})
+				db.workload.deleteMember.apply({ delete: { Member: [memberFact(c.items[0], 0, 0)] } }, {})
 			)
 			verdict(deleted, "Member", true, where("Member", 0))
 			for (const item of c.items) {

@@ -721,19 +721,19 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 			const selected: Array<number> = []
 			for (const [id, item] of c.items.entries()) {
 				const checked = yield* Effect.result(
-					db.workload.insertChecked.apply({ Checked: [fact(item, id)] }, {})
+					db.workload.insertChecked.apply({ insert: { Checked: [fact(item, id)] } }, {})
 				)
 				verdict(checked, "Checked", truth(c, item, c.checked) === "true", where("Checked", id))
 				met("a check", c.checked, item)
 				const gen = yield* Effect.result(
-					db.workload.insertGenCond.apply({ GenCond: [fact(item, id)] }, {})
+					db.workload.insertGenCond.apply({ insert: { GenCond: [fact(item, id)] } }, {})
 				)
 				verdict(gen, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${truth(c, item, c.generated) === "true" ? item.n : item.m}`)
 				met("a generated field", c.generated, item)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.workload.insertContained.apply({ Contained: [fact(item, id)] }, {})
+					db.workload.insertContained.apply({ insert: { Contained: [fact(item, id)] } }, {})
 				)
 				verdict(
 					containedRow,
@@ -745,7 +745,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				const k = truth(c, item, c.keyed)
 				const taken = k === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.workload.insertKeyed.apply({ Keyed: [fact(item, id)] }, {})
+					db.workload.insertKeyed.apply({ insert: { Keyed: [fact(item, id)] } }, {})
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (k === "true" && !taken) {
@@ -753,7 +753,7 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				}
 				met("a key's selection", c.keyed, item)
 				const queried = yield* Effect.result(
-					db.workload.insertQueried.apply({ Queried: [fact(item, id)] }, {})
+					db.workload.insertQueried.apply({ insert: { Queried: [fact(item, id)] } }, {})
 				)
 				verdict(queried, "Queried", true, where("Queried", id))
 				met("a query's filter", c.queried, item)

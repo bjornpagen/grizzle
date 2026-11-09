@@ -220,16 +220,18 @@ const runRace = (
 						label: "insert ada's leave",
 						call: hr.workload.insertLeave.apply(
 							{
-								Leave: [
-									{
-										employee: ada,
-										during: {
-											start: instantOf(race.requested.start),
-											end: instantOf(race.requested.end)
-										},
-										reason: race.requested.reason
-									}
-								]
+								insert: {
+									Leave: [
+										{
+											employee: ada,
+											during: {
+												start: instantOf(race.requested.start),
+												end: instantOf(race.requested.end)
+											},
+											reason: race.requested.reason
+										}
+									]
+								}
 							},
 							{}
 						),

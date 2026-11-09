@@ -74,8 +74,10 @@ export default defineConfig({
   `refresh` list names: its handle is one Effect, `db.workload.<name>.refresh`, which refreshes them all in one
   transaction, lower levels first. Two programs of one name across a login's workloads are refused when the login is
   built. A ChangeSet member whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them
-  with each call, `db.workload.<name>.apply(facts, params)`: one array under each such member's relation name, typed
-  and checked as that member's own facts; every other member is `apply(params)`.
+  with each call, `db.workload.<name>.apply(facts, params)`: under each such member's op (`insert`, which
+  `insertAll`'s members are too, `put` or `delete`) and then its relation's name one array, typed and checked as that
+  member's own facts, as in `apply({ put: { Blob: stated }, delete: { Blob: removed } }, {})`; every other member is
+  `apply(params)`. Two array members of one op and one relation in two strata are refused: merge them into one.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for

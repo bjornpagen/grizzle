@@ -44,7 +44,7 @@ export const change${i} = ChangeSet.empty(S)
 	}))
 export const w${i} = workload(Writer, { change: change${i} })
 export const run${i} = (db: DbOf<typeof Writer, typeof w${i}.programs>) =>
-	db.workload.change.apply({ R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: Cents(2n), label: "abd", kind: "B", qty: 2 }] }, {})
+	db.workload.change.apply({ insert: { R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: Cents(2n), label: "abd", kind: "B", qty: 2 }] } }, {})
 `
 }
 

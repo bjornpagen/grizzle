@@ -145,7 +145,10 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 												return failureOf(db.workload.tasks.page({}, { first: 2 }))
 											case "apply":
 												return failureOf(
-													db.workload.note.apply({ TaskNote: [{ task: t3, note: "acquired" }] }, {})
+													db.workload.note.apply(
+														{ insert: { TaskNote: [{ task: t3, note: "acquired" }] } },
+														{}
+													)
 												)
 										}
 									}

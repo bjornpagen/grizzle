@@ -152,7 +152,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.gen(function* () {
 										yield* replaceRows(s.admin, installationGroup(names), [])
 										const outcome = yield* db.workload.write.apply(
-											{ R: [{ id: 1, flags: Bits.of(Flag, flags) }] },
+											{ insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } },
 											{}
 										)
 										const held = new Set(flags)

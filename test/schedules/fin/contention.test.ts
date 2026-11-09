@@ -151,7 +151,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.tap(
 										Effect.result(
 											untilAnswered(
-												app.db.workload.append.apply({ Member: [{ member: GRIZZLE, g: 0 }] }, {})
+												app.db.workload.append.apply(
+													{ insert: { Member: [{ member: GRIZZLE, g: 0 }] } },
+													{}
+												)
 											)
 										),
 										(r) =>

@@ -6,7 +6,6 @@ import type {
 	ArraysOf,
 	ChangeSet,
 	FactsCheck,
-	FactsShape,
 	PlannedStrata,
 	Refused,
 	Witness,
@@ -356,12 +355,13 @@ type RecordsOf<X> = X extends Delivering<infer A> ? A : never
 
 /**
  * A served change member's apply, for a ChangeSet X that holds array members (ArraysOf): each call takes their facts,
- * one array under each array member's relation name (FactsShape), checked as insert, delete and put check their own
- * (FactsCheck), in place of the arrays X was built with, and X's parameters.
+ * under each array member's op and then its relation name one array, in place of the arrays X was built with, and X's
+ * parameters. The facts are inferred from the argument alone, apart from their rows' types, so a call that maps them
+ * inline infers them, and are checked after, as insert, delete and put check their own (FactsCheck).
  */
 export interface FactsApply<X, A> {
-	apply<const F extends FactsShape<ArraysOf<X>>, const Arg>(
-		facts: F & FactsCheck<F, ArraysOf<X>>,
+	apply<const F, const Arg>(
+		facts: F & NoInfer<FactsCheck<F, ArraysOf<X>>>,
 		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
 	): Effect.Effect<ApplyOutcome<A>, ApplyError>
 }

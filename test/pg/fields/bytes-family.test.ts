@@ -188,7 +188,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									}))
 									const badge = streamBytes(d.values.length + 3, 7)
 									const inserted = yield* db.workload.insertOwner.apply(
-										{ Owner: [{ id: owner, badge, members }] },
+										{ insert: { Owner: [{ id: owner, badge, members }] } },
 										{}
 									)
 									assert.equal(inserted.kind, "accepted", "the owner and its members are written")
@@ -219,7 +219,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									yield* readBack(members)
 									const cut = defined(members[d.cut], "the member deleted")
 									const deleted = yield* db.workload.deleteMember.apply(
-										{ Member: [{ id: cut.id, owner, body: cut.body }] },
+										{ delete: { Member: [{ id: cut.id, owner, body: cut.body }] } },
 										{}
 									)
 									assert.equal(deleted.kind, "accepted", "the member is deleted")

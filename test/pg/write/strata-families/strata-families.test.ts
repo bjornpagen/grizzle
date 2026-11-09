@@ -119,10 +119,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										{}
 									)
 									assert.equal(stored.kind, "accepted")
-									const edited =
-										edit === "member 1 deleted"
-											? ChangeSet.empty(o.schema).delete(Member, [{ m: 1, club: 0 }])
-											: ChangeSet.empty(o.schema).insert(Member, [{ m: 3, club: 0 }])
+									const deleted = ChangeSet.empty(o.schema).delete(Member, [{ m: 1, club: 0 }])
+									const inserted = ChangeSet.empty(o.schema).insert(Member, [{ m: 3, club: 0 }])
 									const doc = [
 										{
 											id: uuidOf(1),
@@ -134,11 +132,17 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									]
 									const nested = ChangeSet.empty(o.schema).insert(Doc, doc)
 									const write =
-										placement === "the edit first"
-											? ChangeSet.sequence(edited, nested)
-											: placement === "the nested insert first"
-												? ChangeSet.sequence(nested, edited)
-												: ChangeSet.union(edited, nested)
+										edit === "member 1 deleted"
+											? placement === "the edit first"
+												? ChangeSet.sequence(deleted, nested)
+												: placement === "the nested insert first"
+													? ChangeSet.sequence(nested, deleted)
+													: ChangeSet.union(deleted, nested)
+											: placement === "the edit first"
+												? ChangeSet.sequence(inserted, nested)
+												: placement === "the nested insert first"
+													? ChangeSet.sequence(nested, inserted)
+													: ChangeSet.union(inserted, nested)
 									const outcome = yield* db.apply(write, {})
 									assert.equal(outcome.kind, "accepted", `${edit}, ${placement}`)
 									const memberRows = yield* Effect.flatMap(

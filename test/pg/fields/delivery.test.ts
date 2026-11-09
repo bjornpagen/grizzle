@@ -245,7 +245,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
-										const outcome = yield* db.workload.write.apply({ Blob: d.rows }, {})
+										const outcome = yield* db.workload.write.apply({ insert: { Blob: d.rows } }, {})
 										assert.equal(outcome.kind, "accepted", "every row is written")
 									}).pipe(
 										(body) =>

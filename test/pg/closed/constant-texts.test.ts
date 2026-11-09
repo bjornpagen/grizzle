@@ -553,13 +553,13 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 			for (const [id, item] of c.items.entries()) {
 				const t = phiTruth(c, c.generated, item)
 				const genCond = yield* Effect.result(
-					db.workload.insertGenCond.apply({ GenCond: [fact(item, id)] }, {})
+					db.workload.insertGenCond.apply({ insert: { GenCond: [fact(item, id)] } }, {})
 				)
 				verdict(genCond, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${t === "true" ? item.n : item.m}`)
 				notes.note(`a constant ${constTruth(c, c.generated.constant)} in a generated field`)
 				const genText = yield* Effect.result(
-					db.workload.insertGenText.apply({ GenText: [fact(item, id)] }, {})
+					db.workload.insertGenText.apply({ insert: { GenText: [fact(item, id)] } }, {})
 				)
 				verdict(genText, "GenText", text !== undefined, where("GenText", id))
 				if (text === undefined) {
@@ -569,13 +569,13 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 					notes.note("a constant text generated")
 				}
 				const checked = yield* Effect.result(
-					db.workload.insertChecked.apply({ Checked: [fact(item, id)] }, {})
+					db.workload.insertChecked.apply({ insert: { Checked: [fact(item, id)] } }, {})
 				)
 				verdict(checked, "Checked", phiTruth(c, c.checked, item) === "true", where("Checked", id))
 				notes.note(`a constant ${constTruth(c, c.checked.constant)} in a row check`)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.workload.insertContained.apply({ Contained: [fact(item, id)] }, {})
+					db.workload.insertContained.apply({ insert: { Contained: [fact(item, id)] } }, {})
 				)
 				verdict(
 					containedRow,
@@ -590,7 +590,7 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				const t = phiTruth(c, c.keyed, item)
 				const taken = t === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.workload.insertKeyed.apply({ Keyed: [fact(item, id)] }, {})
+					db.workload.insertKeyed.apply({ insert: { Keyed: [fact(item, id)] } }, {})
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (t === "true" && !taken) {

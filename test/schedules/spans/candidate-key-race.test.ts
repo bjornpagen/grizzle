@@ -285,8 +285,8 @@ const runRace = (
 			label: `apply ${race.how}`,
 			call:
 				race.how === "insert"
-					? app.db.workload.insertBooking.apply({ Booking: [race.requested] }, {})
-					: app.db.workload.putBooking.apply({ Booking: [race.requested] }, {}),
+					? app.db.workload.insertBooking.apply({ insert: { Booking: [race.requested] } }, {})
+					: app.db.workload.putBooking.apply({ put: { Booking: [race.requested] } }, {}),
 			footprint: everyRelation
 		}
 		yield* runSerialRace(

@@ -187,7 +187,7 @@ const roundTrip = (dir: string, name: string, fixture: Fixture, n: number) =>
 			const s = yield* servedFromFile(dir, name, shopV1(name, fixture.workload).server)
 			const outcome = yield* Effect.scoped(
 				Effect.flatMap(Db.open(s.login.roles.writer, {}), (db) =>
-					db.workload.addCustomer.apply({ Customer: [{ id: id(n), name: "ada" }] }, {})
+					db.workload.addCustomer.apply({ insert: { Customer: [{ id: id(n), name: "ada" }] } }, {})
 				)
 			).pipe(withLayer(s.layer))
 			assert.equal(outcome.kind, "accepted")
@@ -205,7 +205,7 @@ const roundTrip = (dir: string, name: string, fixture: Fixture, n: number) =>
 		const l = yield* servedFromFile(dir, name, ledger(name).server)
 		const outcome = yield* Effect.scoped(
 			Effect.flatMap(Db.open(l.login.roles.writer, {}), (db) =>
-				db.workload.addCustomer.apply({ Customer: [{ id: id(n), name: "ada" }] }, {})
+				db.workload.addCustomer.apply({ insert: { Customer: [{ id: id(n), name: "ada" }] } }, {})
 			)
 		).pipe(withLayer(l.layer))
 		assert.equal(outcome.kind, "accepted")

@@ -298,13 +298,16 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
 										const shelved = yield* db.workload.shelve.apply(
-											{ Shelf: upTo(d.shelves, (id) => ({ id })) },
+											{ insert: { Shelf: upTo(d.shelves, (id) => ({ id })) } },
 											{}
 										)
 										assert.equal(shelved.kind, "accepted", "every shelf is written")
 										const batches = d.batched ? [facts] : Arr.map(facts, (fact) => [fact])
 										for (const batch of batches) {
-											const outcome = yield* db.workload.store.apply({ Blob: batch }, {})
+											const outcome = yield* db.workload.store.apply(
+												{ insert: { Blob: batch } },
+												{}
+											)
 											assert.equal(outcome.kind, "accepted", "every bytes value is written")
 										}
 										const executed = yield* db.workload.blobs.execute({})

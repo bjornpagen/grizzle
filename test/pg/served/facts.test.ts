@@ -10,75 +10,115 @@ import { memberOps } from "#adapter/db/handles.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
+import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A served ChangeSet's array members take each call's facts (types/db FactsApply), generated: a change member inserting
- * into two relations, each through an array member, is loaded as a handle that takes the call's facts beside its
- * parameters, and a call through it writes exactly the facts it supplies.
+ * A served ChangeSet's array members take each call's facts (types/db FactsApply), keyed by each member's op and then
+ * its relation, generated: a change member inserting into one relation and putting and deleting facts of another, each
+ * through an array member, is loaded as a handle that takes the call's facts beside its parameters, and a call through
+ * it writes exactly the facts it supplies, each under its own op.
  *
  * - Shape: the member loads as a facts handle (db/ops.ts ServedOps `facts`), decided once at load by its array members.
- * - Oracle: after a call into empty relations, the outcome counts each relation's supplied facts as added, and each
- *   relation stores exactly them.
- * - Plant: the handle loses one member's facts, its array emptied or its relation left out of the call's record; the
- *   oracle must then disagree with what the call did, a refusal (memberFactsOf at the member's slot) or a store without
- *   them.
+ * - Oracle: after a call over stored items, the items stored are the stored ones less those the call deletes, with the
+ *   ones it puts, which no stored item shares a key with, and the labels stored are the ones it inserts.
+ * - Plant: the handle loses one member's facts, its array emptied or its relation left out of its op's record, or
+ *   passes the put's facts as the delete's and the delete's as the put's; the oracle must then disagree with what the
+ *   call did, a refusal (memberFactsOf at the member's slot) or a store without them.
  *
- * Essay ideas: an oracle (the facts a call supplies are the facts it writes) over generated facts, with a plant the
- * oracle must catch.
+ * Essay ideas: an oracle (the facts a call supplies are the facts it writes, each by its op) over generated facts, with
+ * plants the oracle must catch.
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
 const Label = relation("Label", { item: pg.integer, tag: Tag }, ["item", "tag"])
-const Labels = schema("Labels", { Item, Label }, [])
+const Labels = schema("Labels", { Item, Label }, [mutable(Item)])
 
 const tags = ["a", "bc", "def", "ghij"] as const
 
-/** One call's facts: one array under each array member's relation, each nonempty and of distinct keys. */
+/** An item as stored and as a call states it, a fact of Item. */
+type ItemFact = Readonly<{ id: number; score: number }>
+
+/** A label as a call states it, a fact of Label. */
+type LabelFact = Readonly<{ item: number; tag: string }>
+
+/** One call's facts: under each op, one array under its array member's relation, each nonempty and of distinct keys. */
 interface CallFacts {
-	readonly Item: ReadonlyArray<{ readonly id: number; readonly score: number }>
-	readonly Label: ReadonlyArray<{ readonly item: number; readonly tag: string }>
+	readonly insert: { readonly Label: ReadonlyArray<LabelFact> }
+	readonly put: { readonly Item: ReadonlyArray<ItemFact> }
+	readonly delete: { readonly Item: ReadonlyArray<ItemFact> }
 }
 
-/** A fault planted at the handle: none, or one member's facts emptied or left out. */
+/** A case: the items stored before the call, and the call's facts, whose deletes are stored items and whose puts are
+ * items of keys none stored. */
+interface FactsCase {
+	readonly stored: ReadonlyArray<ItemFact>
+	readonly facts: CallFacts
+}
+
+/** An array member of the change, by its op and relation. */
+type MemberKey = "insert" | "put" | "delete"
+
+/** A fault planted at the handle: none, one member's facts emptied or left out, or the put's and delete's swapped. */
 type Plant =
 	| { readonly kind: "none" }
-	| { readonly kind: "emptied"; readonly relation: keyof CallFacts }
-	| { readonly kind: "omitted"; readonly relation: keyof CallFacts }
+	| { readonly kind: "emptied"; readonly member: MemberKey }
+	| { readonly kind: "omitted"; readonly member: MemberKey }
+	| { readonly kind: "swapped" }
 
-type Feature = "no plant" | "a member's facts emptied" | "a member's facts omitted"
+type Feature =
+	| "no plant"
+	| "a member's facts emptied"
+	| "a member's facts omitted"
+	| "the put's and delete's facts swapped"
 
-const factsGen: Gen<CallFacts> = (source) => ({
-	Item: source.draw(
-		uniqueArray(
-			(drawing) => ({ id: drawing.draw(int(1, 40)), score: drawing.draw(int(-5, 5)) }),
-			(i) => i.id,
-			{ min: 1, max: 5 },
-			50
-		)
-	),
-	Label: source.draw(
-		uniqueArray(
-			(drawing) => ({ item: drawing.draw(int(1, 6)), tag: drawing.draw(element(tags)) }),
-			(l) => `${l.item} ${l.tag}`,
-			{ min: 1, max: 5 },
-			50
-		)
+const itemsGen = (ids: Gen<number>): Gen<ReadonlyArray<ItemFact>> =>
+	uniqueArray(
+		(drawing) => ({ id: drawing.draw(ids), score: drawing.draw(int(-5, 5)) }),
+		(i) => i.id,
+		{ min: 1, max: 5 },
+		50
 	)
-})
 
-const relationGen: Gen<keyof CallFacts> = element(["Item", "Label"] as const)
+const caseGen: Gen<FactsCase> = (source) => {
+	const stored = source.draw(itemsGen(int(1, 40)))
+	const deleted = source.draw(int(1, stored.length))
+	return {
+		stored,
+		facts: {
+			insert: {
+				Label: source.draw(
+					uniqueArray(
+						(drawing) => ({ item: drawing.draw(int(1, 6)), tag: drawing.draw(element(tags)) }),
+						(l) => `${l.item} ${l.tag}`,
+						{ min: 1, max: 5 },
+						50
+					)
+				)
+			},
+			put: { Item: source.draw(itemsGen(int(41, 80))) },
+			delete: { Item: Arr.take(stored, deleted) }
+		}
+	}
+}
+
+const memberGen: Gen<MemberKey> = element(["insert", "put", "delete"] as const)
 
 const plantGen: Gen<Plant> = (source) => {
-	const kind = source.draw(element(["none", "emptied", "omitted"] as const))
-	return kind === "none" ? { kind } : { kind, relation: source.draw(relationGen) }
+	const kind = source.draw(element(["none", "emptied", "omitted", "swapped"] as const))
+	return kind === "none" || kind === "swapped" ? { kind } : { kind, member: source.draw(memberGen) }
 }
+
+/** `facts` with the member `member`'s record replaced by `record`. */
+const withMember = (facts: CallFacts, member: MemberKey, record: unknown): unknown => ({
+	...facts,
+	[member]: record
+})
 
 /** The record a planted handle passes for `facts`. */
 const plantedFacts = (facts: CallFacts, plant: Plant): unknown => {
@@ -86,18 +126,41 @@ const plantedFacts = (facts: CallFacts, plant: Plant): unknown => {
 		case "none":
 			return facts
 		case "emptied":
-			return { ...facts, [plant.relation]: [] }
+			return withMember(
+				facts,
+				plant.member,
+				plant.member === "insert" ? { Label: [] } : { Item: [] }
+			)
 		case "omitted":
-			return plant.relation === "Item" ? { Label: facts.Label } : { Item: facts.Item }
+			return withMember(facts, plant.member, {})
+		case "swapped":
+			return { ...facts, put: facts.delete, delete: facts.put }
 	}
 }
 
-const featureOf = (plant: Plant): Feature =>
-	plant.kind === "none"
-		? "no plant"
-		: plant.kind === "emptied"
-			? "a member's facts emptied"
-			: "a member's facts omitted"
+const featureOf = (plant: Plant): Feature => {
+	switch (plant.kind) {
+		case "none":
+			return "no plant"
+		case "emptied":
+			return "a member's facts emptied"
+		case "omitted":
+			return "a member's facts omitted"
+		case "swapped":
+			return "the put's and delete's facts swapped"
+	}
+}
+
+/** The items stored after `facts` apply over `stored`: those it deletes gone, those it puts added. */
+const itemsAfter = (stored: ReadonlyArray<ItemFact>, facts: CallFacts): ReadonlyArray<ItemFact> => {
+	const deleted = new Set(Arr.map(facts.delete.Item, (i) => i.id))
+	return [...Arr.filter(stored, (i) => !deleted.has(i.id)), ...facts.put.Item]
+}
+
+/** Whether the rows `stored` are exactly the items `expected`, each once, in any order: no expected item repeats a key. */
+const sameItems = (stored: ReadonlyArray<unknown>, expected: ReadonlyArray<ItemFact>): boolean =>
+	stored.length === expected.length &&
+	Arr.every(expected, (item) => Arr.some(stored, (row) => deepEquals<unknown>(row, item)))
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a served ChangeSet's array members",
@@ -114,30 +177,35 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								name: "the facts a call supplies are the facts it writes"
 							},
 							suite: "pg/served/facts",
-							draw: drawn((source) => [source.draw(factsGen), source.draw(plantGen)] as const),
+							draw: drawn((source) => [source.draw(caseGen), source.draw(plantGen)] as const),
 							literal: Formatter.format,
 							coverage: required<Feature>(
-								["no plant", "a member's facts emptied", "a member's facts omitted"],
-								{ cases: 12, sense: notesOnly }
+								[
+									"no plant",
+									"a member's facts emptied",
+									"a member's facts omitted",
+									"the put's and delete's facts swapped"
+								],
+								{ cases: 16, sense: notesOnly }
 							),
 							kept: [],
-							/** Each case installs a schema and makes one call into its empty relations. */
-							runs: 12,
+							/** Each case installs a schema over its stored items and makes one call. */
+							runs: 16,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
-						([facts, plant], notes) =>
+						([{ stored, facts }, plant], notes) =>
 							Effect.gen(function* () {
 								notes.note(featureOf(plant))
 								const opened = yield* installed(
 									Labels,
-									{ Item: [], Label: [] },
+									{ Item: stored, Label: [] },
 									{ label: "real", extensions: [], programs: {} }
 								)
 								const s = opened.schema
-								const add = ChangeSet.empty(s).insert(Item, []).insert(Label, [])
+								const add = ChangeSet.empty(s).insert(Label, []).put(Item, []).delete(Item, [])
 								const items = query(s).rule((r) => {
 									const { id, score } = v(Item, "item")
 									return r.match(Item, { id, score }).find({ id, score })
@@ -170,29 +238,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												db,
 												member(loaded, "labels")
 											).ops.execute({})).collect
-											const expected = [
-												{
-													relation: "Item",
-													added: BigInt(facts.Item.length),
-													deleted: 0n,
-													put: 0n
-												},
-												{
-													relation: "Label",
-													added: BigInt(facts.Label.length),
-													deleted: 0n,
-													put: 0n
-												}
-											]
-											const counts =
-												Result.isSuccess(applied) && applied.success.kind === "accepted"
-													? applied.success.counts
-													: []
+											const expectedItems = itemsAfter(stored, facts)
 											const agrees =
-												counts.length === expected.length &&
-												Arr.every(counts, (c, i) => c.added === expected[i]?.added) &&
-												storedItems.length === facts.Item.length &&
-												storedLabels.length === facts.Label.length
+												Result.isSuccess(applied) &&
+												applied.success.kind === "accepted" &&
+												sameItems(storedItems, expectedItems) &&
+												storedLabels.length === facts.insert.Label.length
 											if (plant.kind !== "none") {
 												assert.ok(
 													!agrees,
@@ -202,15 +253,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 											assert.ok(
 												agrees,
-												`the call of ${Formatter.format(facts)}: ${Formatter.format(applied)}`
+												`the call of ${Formatter.format(facts)} over ${Formatter.format(stored)}: ${Formatter.format(applied)}`
 											)
-											assert.deepEqual(
-												counts,
-												expected,
-												"the outcome counts each relation's supplied facts"
+											unorderedEqual(
+												storedItems,
+												expectedItems,
+												"the stored items are the call's puts over its deletes"
 											)
-											unorderedEqual(storedItems, facts.Item, "the stored items are the call's")
-											unorderedEqual(storedLabels, facts.Label, "the stored labels are the call's")
+											unorderedEqual(
+												storedLabels,
+												facts.insert.Label,
+												"the stored labels are the call's inserts"
+											)
 										})
 								)
 							}).pipe(Effect.scoped)

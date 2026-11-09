@@ -438,16 +438,24 @@ type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"
 			: false
 
 /**
- * insertAll's array members (ArraysAdded), one for each key whose members are an array: that key's relation, with the
- * additions insert takes for it.
+ * insertAll's array members by relation, one for each key whose members are an array: that key's relation, with the
+ * additions insert takes for it, in the stratum after the strata Done.
  */
-type InsertedArrays<S, Rows> = {
+type InsertedFacts<S, Rows, Done extends Strata> = {
 	readonly [
 		K in keyof Rows as [Rows[K]] extends [ReadonlyArray<unknown>]
 			? NameOf<InsertedRelation<S, K>>
 			: never
-	]-?: ArrayFacts<InsertedRelation<S, K>, AdditionIn<S, InsertedRelation<S, K>>>
+	]-?: ArrayFacts<InsertedRelation<S, K>, AdditionIn<S, InsertedRelation<S, K>>, PositionOf<Done>>
 }
+
+/** insertAll's array members (ArraysAdded), inserts all: none where no key's members are an array. */
+type InsertedArrays<S, Rows, Done extends Strata> =
+	InsertedFacts<S, Rows, Done> extends infer I
+		? [keyof I] extends [never]
+			? unknown
+			: { readonly insert: I }
+		: never
 
 /**
  * The parameters insertAll's members need together: each member's map (ParamsOf), joined as successive inserts join
@@ -580,7 +588,8 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * a role a ChangeSet writes the world relations the role's write list names, besides ordinary relations. Cx is the union
  * of the contexts its members and read-backs match, which db.apply checks against the role's (WithinRoleContexts).
  * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum). Arrays is its array
- * members by relation name (ArrayFacts), the facts a served workload's member takes with each call (FactsCheck).
+ * members by op, then relation name (ArrayFacts), the facts a served workload's member takes with each call
+ * (FactsCheck).
  *
  * What an applied ChangeSet's outcome reads back is a real member: `reads`, the decoder of the record of its
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
@@ -633,7 +642,7 @@ export interface ChangeSet<
 			Last["needs"] | FixedOwnerOf<S, R>,
 			EditsWith<Last, S, R>
 		>,
-		Arrays & ArraysAdded<R, M, AdditionIn<S, R>>
+		Arrays & ArraysAdded<"insert", R, M, AdditionIn<S, R>, Done>
 	>
 	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
@@ -654,7 +663,7 @@ export interface ChangeSet<
 			Last["needs"] | InsertedNeeds<S, Rows>,
 			InsertedEdits<Last, S, Rows>
 		>,
-		Arrays & InsertedArrays<S, Rows>
+		Arrays & InsertedArrays<S, Rows, Done>
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
@@ -676,7 +685,7 @@ export interface ChangeSet<
 		Cx | ContextsOf<M>,
 		Done,
 		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
-		Arrays & ArraysAdded<R, M, Written<R>>
+		Arrays & ArraysAdded<"delete", R, M, Written<R>, Done>
 	>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
@@ -699,7 +708,7 @@ export interface ChangeSet<
 		Cx | ContextsOf<M>,
 		Done,
 		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
-		Arrays & ArraysAdded<R, M, Written<R>>
+		Arrays & ArraysAdded<"put", R, M, Written<R>, Done>
 	>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
@@ -731,48 +740,102 @@ export interface ChangeSet<
  */
 type JointParams<A, B> = [keyof (A & B)] extends [never] ? unknown : Simplify<A & B>
 
+/** The op a ChangeSet's array member is added by, which a call's facts key it under first: insertAll's are inserts. */
+type ArrayOp = "insert" | "put" | "delete"
+
 /**
- * An array member of a ChangeSet: the relation R it writes and the type of each of its facts, Row, the facts insert,
+ * An array member of a ChangeSet: the relation R it writes, the type of each of its facts, Row, the facts insert,
  * delete or put takes for R (AdditionIn for an insert, its sequences' members nested at its count fields, and Written
- * for a delete or a put). A served workload's member takes an array member's facts with each call, in place of the
- * array the ChangeSet was built with.
+ * for a delete or a put), and its stratum's position, At, one element for each stratum before it. A served workload's
+ * member takes an array member's facts with each call, in place of the array the ChangeSet was built with.
  */
-interface ArrayFacts<R, Row> {
+interface ArrayFacts<R, Row, At extends ReadonlyArray<unknown>> {
 	readonly relation: R
 	readonly row: Row
+	readonly at: At
 }
 
+/** A stratum's position: one element for each of the strata before it. */
+type PositionOf<Before extends ReadonlyArray<unknown>> = { readonly [K in keyof Before]: unknown }
+
 /**
- * The array members member M of R adds, under R's name: one where M is an array, none for a Stream or a query member,
- * whose facts no call supplies. A ChangeSet's Arrays is the intersection of every member's, so two array members of
- * one relation would hold the intersection of both under one name, and a call's facts there would have to be facts of
- * both; the engine refuses such a ChangeSet in a served workload (UnservedMember).
+ * The array members member M of R adds by Op, under Op and then R's name, in the stratum after the strata Done: one
+ * where M is an array, none for a Stream or a query member, whose facts no call supplies. A ChangeSet's Arrays is the
+ * intersection of every member's, and the array members of one op and one relation in one stratum are one member, their
+ * facts one array, as the value holds them (write/changeset/value.ts); two in two strata meet with no position
+ * (RepeatedArrays), which a workload refuses (types/db/workload.ts), as the engine refuses them in a served workload
+ * (UnservedMember).
  */
-type ArraysAdded<R, M, Row> = [M] extends [ReadonlyArray<unknown>]
-	? { readonly [N in NameOf<R>]: ArrayFacts<R, Row> }
+type ArraysAdded<Op extends ArrayOp, R, M, Row, Done extends Strata> = [M] extends [
+	ReadonlyArray<unknown>
+]
+	? { readonly [O in Op]: { readonly [N in NameOf<R>]: ArrayFacts<R, Row, PositionOf<Done>> } }
 	: unknown
 
-/** A ChangeSet's array members by relation name (ArrayFacts), unknown for a program that holds none. */
+/** sequence's array members of b: each a stratum later by every stratum of a, `Before`. */
+type Shifted<A, Before extends ReadonlyArray<unknown>> = [keyof A] extends [never]
+	? unknown
+	: {
+			readonly [Op in keyof A]: {
+				readonly [N in keyof A[Op]]: A[Op][N] extends ArrayFacts<
+					infer R,
+					infer Row,
+					infer At extends ReadonlyArray<unknown>
+				>
+					? ArrayFacts<R, Row, readonly [...PositionOf<Before>, ...At]>
+					: never
+			}
+		}
+
+/** The length of an array member's position: never where two strata's members of one op and relation met. */
+type PositionLength<F> = F extends { readonly at: infer P extends ReadonlyArray<unknown> }
+	? P["length"]
+	: never
+
+/**
+ * The relations a ChangeSet's array members A hold by one op in two strata, which a call's facts key alike: sequence
+ * puts b's strata after a's and union aligns its arguments' by position, so two members of one op and relation meet in
+ * one entry of A, their positions intersected; at one position they are one member, as one stratum's are, and at two
+ * the position is none.
+ */
+export type RepeatedArrays<A> = {
+	readonly [Op in keyof A]: {
+		readonly [N in keyof A[Op]]: [PositionLength<A[Op][N]>] extends [never] ? N : never
+	}[keyof A[Op]]
+}[keyof A]
+
+/** A ChangeSet's array members by op, then relation name (ArrayFacts), unknown for a program that holds none. */
 export type ArraysOf<X> = X extends Phantom<{ readonly arrays: infer A }> ? A : unknown
 
 /**
- * What a served member's facts F must be for the array members A: an array under each one's relation name, so a call
- * that leaves one out is a type error. Its facts are inferred apart from their rows' types, as insert's are, so
- * FactsCheck alone decides which rows fit.
+ * One op's facts in F checked against the array members A of that op: each relation's checked as the member A holds
+ * for it checks its own (MemberCheck), exactly an arm of its row type each, no field beyond it, and no two literal facts
+ * at one primary key; a member's relation F leaves out required at its row type; and a key naming no array member's
+ * relation of the op refused.
  */
-export type FactsShape<A> = { readonly [N in keyof A]: ReadonlyArray<unknown> }
+type OpFactsCheck<F, A> = {
+	readonly [N in keyof A | keyof F]: N extends keyof A
+		? A[N] extends { readonly relation: infer R; readonly row: infer Row }
+			? N extends keyof F
+				? MemberCheck<F[N], Row, R>
+				: ReadonlyArray<Row>
+			: never
+		: Refusal<"a served ChangeSet's facts name, under each op, only the relations of its array members of that op">
+}
 
 /**
- * Each relation's facts in F checked as the member A holds for it checks its own (MemberCheck): exactly an arm of its
- * row type each, no field beyond it, and no two literal facts at one primary key; and a key naming no array member's
- * relation refused, as the engine refuses one (write/program memberFactsOf), so a misspelt relation drops no rows.
+ * What a served member's facts F must be for the array members A: under each op of A, an array under each relation of
+ * that op's members, checked as insert, delete and put check their own (OpFactsCheck); an op F leaves out required; and
+ * a key naming no op of an array member refused, as the engine refuses one (runtime/write/members.ts memberFactsOf), so
+ * a misspelt op or relation drops no rows. F is inferred from the facts alone, apart from their rows' types, as
+ * insert's members are, and checked here after.
  */
 export type FactsCheck<F, A> = {
-	readonly [N in keyof F]: N extends keyof A
-		? A[N] extends { readonly relation: infer R; readonly row: infer Row }
-			? MemberCheck<F[N], Row, R>
-			: never
-		: Refusal<"a served ChangeSet's facts name only the relations of its array members">
+	readonly [Op in keyof A | keyof F]: Op extends keyof A
+		? Op extends keyof F
+			? OpFactsCheck<F[Op], A[Op]>
+			: OpFactsCheck<unknown, A[Op]>
+		: Refusal<"a served ChangeSet's facts name only the ops of its array members: insert, put and delete">
 }
 
 /**
@@ -1057,7 +1120,7 @@ export interface ChangeSetConstructor {
 		C1 | C2,
 		readonly [...D1, L1, ...D2],
 		L2,
-		A1 & A2
+		A1 & Shifted<A2, readonly [...D1, L1]>
 	>
 }
 

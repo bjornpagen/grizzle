@@ -1,6 +1,7 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 
 /**
  * Why a served file holds no ChangeSet. A family write of it the host fills from a read flight, which no served write
@@ -9,7 +10,7 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
  * one path of it rides; or a stratum's nested writes, with every family they reach. Or a member no served call can
  * supply (write/program/served-members.ts servedMembers): a Stream member, whose facts are code; a value ChangeSet.bind
  * closed with no canonical text, whose private name follows the order the ChangeSet was built in, not its declaration;
- * or two array members of one relation, whose facts one call keys alike.
+ * or two array members of one op and one relation, in two strata, whose facts one call keys alike.
  */
 export type UnservedReason =
 	| {
@@ -34,6 +35,7 @@ export type UnservedReason =
 	| { readonly kind: "opaqueBinding"; readonly name: string }
 	| {
 			readonly kind: "repeated"
+			readonly op: ArrayMember["op"]
 			readonly relation: string
 			readonly slots: readonly [string, string]
 	  }

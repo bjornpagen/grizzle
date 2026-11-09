@@ -644,7 +644,7 @@ const unservedReasonText = (reason: UnservedReason): string => {
 		case "opaqueBinding":
 			return `the bound value ${reason.name} has no canonical text a served file can hold: bind a value of a declared type, or make it a parameter`
 		case "repeated":
-			return `two array members write ${reason.relation} (slots ${reason.slots[0]} and ${reason.slots[1]}): a call's facts are keyed by relation, so make one of them a query member over parameters, or merge them into one member`
+			return `two array members ${reason.op} ${reason.relation} in two strata (slots ${reason.slots[0]} and ${reason.slots[1]}): a call's facts hold one array for each op and relation, so merge them into one member`
 	}
 }
 

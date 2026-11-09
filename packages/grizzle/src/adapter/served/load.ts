@@ -11,7 +11,12 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import { type ArrayMember, loadWrite, memberFactsOf, servedRunnable } from "#compiler/plan/change.ts"
+import {
+	type ArrayMember,
+	loadWrite,
+	memberFactsOf,
+	servedRunnable
+} from "#compiler/plan/change.ts"
 import {
 	type BindContext,
 	bindGroups,
@@ -70,7 +75,8 @@ export interface LoadedPage {
 /**
  * How one call of a loaded ChangeSet reads its write's host inputs (apply/run.ts HostCall), decided once at load by its
  * array members: a ChangeSet that holds some takes each call's facts beside its parameters (types/db FactsApply), a
- * record holding under each member's relation an array of its facts, read once at the boundary
+ * record holding under each member's op a record holding under its relation an array of its facts, read once at the
+ * boundary
  * (runtime/write/members.ts memberFactsOf, the one checker of a call's facts), a value of any other shape the
  * EncodingFailure that names it; one that holds none takes its parameters alone. Each call holds the values the
  * declaration bound.
