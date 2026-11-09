@@ -72,13 +72,16 @@ export type FamilyAdditions =
 	  }
 
 /**
- * One member relation's family removals in a stratum, one statement (write/family/removals.ts): it deletes, re-places
- * and updates in place rows of `member`, and changes the rows of `owners` at the columns `changes` names of each, their
- * counts and ends. Its stratum's additions follow it.
+ * One member relation's family removals in a stratum, one statement (write/family/removals.ts): it deletes and re-places
+ * rows of `member`, redraws the indexes of the rest, updates in place each stored one its stratum puts, and changes the
+ * rows of `owners` at the columns `changes` names of each, their counts and ends. `edits` are the operations its
+ * stratum states of `member`: only a put's update in place sets a field a reference from `member` reads. Its stratum's
+ * additions follow it.
  */
 export interface FamilyRemovals {
 	readonly kind: "removals"
 	readonly member: string
+	readonly edits: NonEmptyReadonlyArray<Extract<MemberOp, "put" | "delete">>
 	readonly owners: ReadonlyArray<OwnerChanges>
 }
 
@@ -522,9 +525,9 @@ const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
  * follow every action of a relation they insert into, every put or delete of an owner they recount, whose rows they read
  * as landed, and an owner's insert where they copy its columns; an owner the stratum inserts carries its counts and ends
  * in its own row (write/program/bind.ts freshOwners), which no recount changes; and the immediate references between
- * them order them as any two writes' do, the additions adding the rows they insert, the removals removing and changing
- * the rows they delete, re-place and update, and either adding and changing an owner's facts at the columns its recount
- * changes.
+ * them order them as any two writes' do, the additions adding the rows they insert, the removals removing the rows they
+ * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put member in
+ * place, and either adding and changing an owner's facts at the columns its recount changes.
  */
 const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	action: Scheduled,
@@ -547,7 +550,7 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 		if (members.includes(relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
-				: { adds: true, removes: true, updates: true }
+				: { adds: node.edits.includes("put"), removes: true, updates: true }
 		}
 		const owner = node.owners.find((o) => o.relation === relation)
 		if (owner === undefined) {

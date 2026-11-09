@@ -2000,6 +2000,15 @@ const compile = (
 			)
 		const ownersOf = (members: ReadonlyArray<string>) => ownersOfFamilies(slotFamilies(members))
 		const removing = by(["put", "delete"])
+		const putting = by(["put"])
+		const deleting = by(["delete"])
+		/** The operations the stratum states of `member`, one it puts or deletes. */
+		const removalEdits = (member: string): NonEmptyReadonlyArray<"put" | "delete"> =>
+			putting.includes(member)
+				? deleting.includes(member)
+					? ["put", "delete"]
+					: ["put"]
+				: ["delete"]
 		const slotted = by(["insert", "put"])
 		const adding = [...new Set([...slotted, ...nested])]
 		/**
@@ -2066,6 +2075,7 @@ const compile = (
 			...removing.map((member) => ({
 				kind: "removals" as const,
 				member,
+				edits: removalEdits(member),
 				owners: ownersOf([member])
 			})),
 			...adding.map((member) => {
