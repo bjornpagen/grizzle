@@ -332,7 +332,7 @@ export interface LayerArtifacts {
  * no closed relation's cells are packed, and the foreign key graph's cycles, so the law model plans only the laws the
  * slice names.
  */
-export const artifactsUnder = (
+const artifactsUnder = (
 	base: Owned,
 	codes: Codebook,
 	derived: SnapshotDerived,
