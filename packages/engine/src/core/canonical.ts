@@ -6,9 +6,8 @@ import {
 	resourceBound,
 	within
 } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import { enclosedWithin } from "#compiler/core/lines.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -215,119 +214,175 @@ const checkText = (
 /** refuse, typed so that control flow analysis knows a call to it does not return. */
 const stop: (path: Path, capability: string) => never = refuseValue
 
+/** A container of a canonical value: an array, or a plain record. */
+type ContainerKind = "array" | "object"
+
 /**
- * A container's part of a traversal: a generator that yields each of its members' values in order, receives each
- * member's form back, and returns the container's own form. A traversal that keeps a path has it push a member's
- * segment before it yields the member and pop it once the member's form comes back, so a refusal below names its
- * whole path.
+ * What one canonical traversal writes a value's form to, in the order of its canonical text: a scalar's JSON value (a
+ * string already escaped, a finite number with no negative zero, a boolean), a container's opening, each record
+ * member's key before its value, and a container's closing. Walk states every check once; a sink only assembles, so a
+ * value's text, its tokens and its JSON form are one traversal's.
  */
-type Members<V, R> = Generator<V, R, R>
-
-/** What a traversal reads at one value: the form of a value that holds no other, or the members of a container. */
-type Reading<V, R> =
-	| { readonly kind: "form"; readonly form: R }
-	| { readonly kind: "members"; readonly members: Members<V, R> }
-
-const formOf = <V, R>(form: R): Reading<V, R> => ({ kind: "form", form })
-const membersOf = <V, R>(members: Members<V, R>): Reading<V, R> => ({ kind: "members", members })
-
-/** A container being read, and the container whose member it is. */
-interface Opened<V, R> {
-	readonly members: Members<V, R>
-	readonly parent: Opened<V, R> | undefined
+interface Sink {
+	scalar(value: string | number | boolean): void
+	open(kind: ContainerKind): void
+	key(key: string): void
+	close(kind: ContainerKind): void
 }
 
 /**
- * The form of the value read first as `first`, folded bottom up by `read`. Every container read is opened onto a
- * stack on the heap, where its members wait while one of them is read, so a value nested to any depth never deepens
- * the call stack. A refusal thrown while reading ends the traversal.
+ * A container a traversal is writing, with the index of its next member: an array, read by index; a plain record, read
+ * by its keys in canonical order; or the record Walk.over writes, whose members `written` holds are written from their
+ * texts by `write` rather than read.
  */
-const traverse = <V, R>(first: Reading<V, R>, read: (value: V) => Reading<V, R>): R => {
-	let reading = first
-	let top: Opened<V, R> | undefined
-	for (;;) {
-		let next: IteratorResult<V, R>
-		if (reading.kind === "members") {
-			top = { members: reading.members, parent: top }
-			next = top.members.next()
-		} else if (top === undefined) {
-			return reading.form
-		} else {
-			next = top.members.next(reading.form)
-		}
-		while (next.done === true) {
-			top = top.parent
-			if (top === undefined) {
-				return next.value
-			}
-			next = top.members.next(next.value)
-		}
-		reading = read(next.value)
-	}
-}
+type Frame =
+	| { readonly kind: "array"; readonly value: ReadonlyArray<unknown>; next: number }
+	| {
+			readonly kind: "object"
+			readonly value: Readonly<Record<string, unknown>>
+			readonly keys: ReadonlyArray<string>
+			next: number
+	  }
+	| {
+			readonly kind: "over"
+			readonly value: Readonly<Record<string, unknown>>
+			readonly keys: ReadonlyArray<string>
+			next: number
+			readonly written: ReadonlyMap<string, string>
+			readonly write: (text: string) => void
+	  }
 
 /**
- * What one canonical traversal builds a value's form from, bottom up: a scalar's JSON value (a string already escaped,
- * a finite number with no negative zero, a boolean), an array of its items' forms, and an object of its members' keys
- * and forms in key order. Walk states every check once; a fold only assembles.
+ * One canonical traversal: every check, in one order, with one refusal each, and the value's canonical form written
+ * to its sink as it is read. Every container read is opened onto a stack of frames on the heap, where its members wait
+ * while one of them is read, so a value nested to any depth never deepens the call stack. Keys are visited in the
+ * order Object.keys() sorted gives, the UTF-16 code unit order canonical text sorts by. The containers on the path
+ * from the root are its ancestors, so a container that holds itself is refused as a cycle, while one that two others
+ * share is read once under each. A traversal is used once: a refusal ends it, so its path and ancestors are never read
+ * again after one.
  */
-interface Fold<R> {
-	scalar(value: string | number | boolean): R
-	array(items: ReadonlyArray<R>): R
-	object(members: ReadonlyArray<readonly [string, R]>): R
-}
-
-/**
- * One canonical traversal: every check, in one order, with one refusal each, and the value's canonical form folded by
- * its fold. Keys are visited in the order Object.keys() sorted gives, the UTF-16 code unit order canonical text sorts
- * by, so no fold sorts again. The containers on the path from the root are its ancestors, so a container that holds
- * itself is refused as a cycle, while one that two others share is read once under each. A traversal is used once: a
- * refusal ends it, so its path and ancestors are never read again after one.
- */
-class Walk<R> {
+class Walk {
 	readonly #path: Array<string | number> = []
 	readonly #ancestors = new Set<object>()
+	readonly #frames: Array<Frame> = []
 	readonly #options: EncodeOptions
-	readonly #fold: Fold<R>
+	readonly #sink: Sink
 
-	constructor(options: EncodeOptions, fold: Fold<R>) {
+	constructor(options: EncodeOptions, sink: Sink) {
 		this.#options = options
-		this.#fold = fold
+		this.#sink = sink
 	}
 
-	/** The form of `root`. */
-	of(root: unknown): R {
-		return traverse(this.#read(root), (value: unknown) => this.#read(value))
+	/** Writes `root`. */
+	of(root: unknown): void {
+		this.#read(root)
+		this.#run()
 	}
 
 	/**
-	 * The form of `root`, a plain record, its member `member` taken as `form` where the traversal would read it: the
-	 * form that member has, beside which the record's other members are read.
+	 * Writes `root`, a plain record, each member `written` holds written from its text by `write` where the traversal
+	 * would read it, beside which the record's other members are read.
 	 */
-	over(root: unknown, member: string, form: R): R {
+	over(root: unknown, written: ReadonlyMap<string, string>, write: (text: string) => void): void {
 		if (!isRecord(root)) {
 			stop(this.#path, "a value, not null")
 		}
 		this.#ancestors.add(root)
-		return traverse(membersOf(this.#recordOver(root, member, form)), (value: unknown) =>
-			this.#read(value)
-		)
+		const keys = this.#keysOf(root)
+		this.#sink.open("object")
+		this.#frames.push({ kind: "over", value: root, keys, next: 0, written, write })
+		this.#run()
 	}
 
-	#read(value: unknown): Reading<unknown, R> {
+	/** Reads the open containers' members until every container is closed. */
+	#run(): void {
+		for (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {
+			if (top.kind === "array") {
+				this.#item(top)
+			} else {
+				this.#member(top)
+			}
+		}
+	}
+
+	/** An array's next item read, or the array closed after its last. */
+	#item(frame: Extract<Frame, { readonly kind: "array" }>): void {
+		const i = frame.next
+		if (i === frame.value.length) {
+			this.#close(frame.value, "array")
+			return
+		}
+		frame.next = i + 1
+		const item: unknown = frame.value[i]
+		if (!(i in frame.value) || item === undefined) {
+			stop([...this.#path, i], "an array element, not a hole")
+		}
+		this.#path.push(i)
+		this.#readMember(item)
+	}
+
+	/** A record's next member read, or skipped where it is left out, or the record closed after its last. */
+	#member(frame: Exclude<Frame, { readonly kind: "array" }>): void {
+		const key = frame.keys[frame.next]
+		if (key === undefined) {
+			this.#close(frame.value, "object")
+			return
+		}
+		frame.next += 1
+		const child = memberOf(frame.value[key])
+		if (child === undefined || this.#options.omit(key, child, this.#path)) {
+			return
+		}
+		this.#path.push(key)
+		checkText(key, this.#path, refuseValue)
+		this.#sink.key(key)
+		if (frame.kind === "over") {
+			const text = frame.written.get(key)
+			if (text !== undefined) {
+				frame.write(text)
+				this.#path.pop()
+				return
+			}
+		}
+		this.#readMember(child)
+	}
+
+	/** A member read: its path segment is popped once its form is written, at once or when its container closes. */
+	#readMember(value: unknown): void {
+		if (!this.#read(value)) {
+			this.#path.pop()
+		}
+	}
+
+	/** The container on top closed: its frame and ancestor left, and its path segment, when it is a member. */
+	#close(value: object, kind: ContainerKind): void {
+		this.#frames.pop()
+		this.#ancestors.delete(value)
+		this.#sink.close(kind)
+		if (this.#frames.length > 0) {
+			this.#path.pop()
+		}
+	}
+
+	/** Reads one value: a scalar's form is written; a container is opened onto the frames, which is true. */
+	#read(value: unknown): boolean {
 		switch (typeof value) {
 			case "string":
 				checkText(value, this.#path, refuseValue)
-				return formOf(this.#fold.scalar(escapeString(value)))
+				this.#sink.scalar(escapeString(value))
+				return false
 			case "boolean":
-				return formOf(this.#fold.scalar(value))
+				this.#sink.scalar(value)
+				return false
 			case "number":
 				if (!Number.isFinite(value)) {
 					stop(this.#path, "a finite number")
 				}
-				return formOf(this.#fold.scalar(value === 0 ? 0 : value))
+				this.#sink.scalar(value === 0 ? 0 : value)
+				return false
 			case "bigint":
-				return formOf(this.#fold.scalar(`~n:${value.toString()}`))
+				this.#sink.scalar(`~n:${value.toString()}`)
+				return false
 			case "object":
 				return this.#object(value)
 			case "undefined":
@@ -337,7 +392,7 @@ class Walk<R> {
 		}
 	}
 
-	#object(value: object | null): Reading<unknown, R> {
+	#object(value: object | null): boolean {
 		if (!isRecord(value)) {
 			stop(this.#path, "a value, not null")
 		}
@@ -354,28 +409,22 @@ class Walk<R> {
 				stop(this.#path, `a valid canonical tag, not "${tagged.tag}"`)
 			}
 			checkText(tagged.payload, this.#path, refuseValue)
-			return formOf(this.#fold.scalar(`~${tagged.tag}:${tagged.payload}`))
+			this.#sink.scalar(`~${tagged.tag}:${tagged.payload}`)
+			return false
 		}
 		if (this.#ancestors.has(value)) {
 			stop(this.#path, "an acyclic value")
 		}
 		this.#ancestors.add(value)
-		return membersOf(Array.isArray(value) ? this.#array(value) : this.#record(value))
-	}
-
-	*#array(value: ReadonlyArray<unknown>): Members<unknown, R> {
-		const items: Array<R> = []
-		for (let i = 0; i < value.length; i++) {
-			const item: unknown = value[i]
-			if (!(i in value) || item === undefined) {
-				stop([...this.#path, i], "an array element, not a hole")
-			}
-			this.#path.push(i)
-			items.push(yield item)
-			this.#path.pop()
+		if (Array.isArray(value)) {
+			this.#sink.open("array")
+			this.#frames.push({ kind: "array", value, next: 0 })
+			return true
 		}
-		this.#ancestors.delete(value)
-		return this.#fold.array(items)
+		const keys = this.#keysOf(value)
+		this.#sink.open("object")
+		this.#frames.push({ kind: "object", value, keys, next: 0 })
+		return true
 	}
 
 	/** A plain record's keys in canonical order; a value that is no plain record is refused. */
@@ -387,136 +436,140 @@ class Walk<R> {
 		if (Object.getOwnPropertySymbols(value).length > 0) {
 			stop(this.#path, "an object without symbol keys")
 		}
-		return Object.keys(value).toSorted(compareStrings)
-	}
-
-	*#record(value: Readonly<Record<string, unknown>>): Members<unknown, R> {
-		const members: Array<readonly [string, R]> = []
-		for (const key of this.#keysOf(value)) {
-			const child = memberOf(value[key])
-			if (child === undefined || this.#options.omit(key, child, this.#path)) {
-				continue
-			}
-			this.#path.push(key)
-			checkText(key, this.#path, refuseValue)
-			members.push([key, yield child])
-			this.#path.pop()
-		}
-		this.#ancestors.delete(value)
-		return this.#fold.object(members)
-	}
-
-	/** `#record`, its member `member` taken as `form` instead of read (`over`). */
-	*#recordOver(
-		value: Readonly<Record<string, unknown>>,
-		member: string,
-		form: R
-	): Members<unknown, R> {
-		const members: Array<readonly [string, R]> = []
-		for (const key of this.#keysOf(value)) {
-			const child = memberOf(value[key])
-			if (child === undefined || this.#options.omit(key, child, this.#path)) {
-				continue
-			}
-			this.#path.push(key)
-			checkText(key, this.#path, refuseValue)
-			members.push([key, key === member ? form : yield child])
-			this.#path.pop()
-		}
-		this.#ancestors.delete(value)
-		return this.#fold.object(members)
+		return Object.keys(value).sort()
 	}
 }
 
 /**
- * The fold that builds the JSON form. An object is built from its entries at once (Object.fromEntries), which defines
- * each key as its own property, so "__proto__" stays an ordinary key and never reaches the prototype accessor.
+ * A container whose JSON form is being assembled, with the key it is a member under when the container it is written
+ * in is a record: an array's items, or a record's members.
  */
-const jsonFold: Fold<Json> = {
-	scalar: (value) => value,
-	array: (items) => items,
-	object: (members) => Object.fromEntries(members)
+type Assembly =
+	| { readonly kind: "array"; readonly under: string; readonly items: Array<Json> }
+	| {
+			readonly kind: "object"
+			readonly under: string
+			readonly members: Array<readonly [string, Json]>
+	  }
+
+/**
+ * The sink that assembles the JSON form. An object is built from its members at once (Object.fromEntries), which
+ * defines each key as its own property, so "__proto__" stays an ordinary key and never reaches the prototype accessor.
+ */
+class JsonSink implements Sink {
+	/** The root's form, once written. */
+	readonly #root: Array<Json> = []
+	readonly #open: Array<Assembly> = []
+	/** The key of the record member being written. */
+	#key = ""
+
+	/** The form of the value written. */
+	value(): Json {
+		const [root] = this.#root
+		return defined(root, "a canonical traversal writes its root")
+	}
+
+	scalar(value: string | number | boolean): void {
+		this.#add(value, this.#key)
+	}
+
+	open(kind: ContainerKind): void {
+		this.#open.push(
+			kind === "array"
+				? { kind, under: this.#key, items: [] }
+				: { kind, under: this.#key, members: [] }
+		)
+	}
+
+	key(key: string): void {
+		this.#key = key
+	}
+
+	close(): void {
+		const done = defined(this.#open.pop(), "a container the traversal opened")
+		this.#add(done.kind === "array" ? done.items : Object.fromEntries(done.members), done.under)
+	}
+
+	#add(value: Json, key: string): void {
+		const top = this.#open.at(-1)
+		if (top === undefined) {
+			this.#root.push(value)
+		} else if (top.kind === "array") {
+			top.items.push(value)
+		} else {
+			top.members.push([key, value])
+		}
+	}
 }
 
 const canonicalTextLoc = SourceLoc("canonical text", [])
 
 /**
- * `open`, the parts joined by `separator`, and `close`, measured before it is built: past V8's longest string the
- * traversal stops with ResourceBound (stringLength). Every enclosure is a substring of the whole text, so the first one
- * past the limit refuses.
+ * The sink that writes the canonical text, appended to one string as it is read: past V8's longest string the
+ * traversal stops with ResourceBound (stringLength), measured before the text is built past it.
  */
-const enclosed = (
-	open: string,
-	parts: ReadonlyArray<string>,
-	separator: string,
-	close: string
-): string => {
-	const text = enclosedWithin(
-		maxStringLength.value,
-		canonicalTextLoc,
-		open,
-		parts,
-		separator,
-		close
-	)
-	if (!text.ok) {
-		throw new Refusal(text.error)
-	}
-	return text.value
-}
+class TextSink implements Sink {
+	#text = ""
+	/** Whether a value was written in the container being written, so the next item or member follows a comma. */
+	#after = false
 
-/** An enclosure's length, refused past V8's longest string. */
-const bound = (needed: number): void => {
-	if (needed > maxStringLength.value) {
-		throw new Refusal(
-			resourceBound(canonicalTextLoc, {
-				kind: "stringLength",
-				limit: maxStringLength.value,
-				needed
-			})
-		)
+	/** The text written. */
+	text(): string {
+		return this.#text
 	}
-}
 
-/**
- * A member's parts of its object's text, after a comma when it is not the first: its key quoted, a colon and its form.
- * Its text, `"key":form`, is measured, never built, so the object's enclosure writes it once.
- */
-const pushMember = (parts: Array<string>, key: string, form: string): void => {
-	const quoted = JSON.stringify(key)
-	bound(quoted.length + 1 + form.length)
-	if (parts.length > 0) {
-		parts.push(",")
+	scalar(value: string | number | boolean): void {
+		this.written(JSON.stringify(value))
 	}
-	parts.push(quoted, ":", form)
-}
 
-/** An object's text, its members' parts enclosed (`pushMember`). */
-const objectText = (members: ReadonlyArray<readonly [string, string]>): string => {
-	const parts: Array<string> = []
-	for (const [key, form] of members) {
-		pushMember(parts, key, form)
+	/** A value whose canonical text is `text`, written as it is (Walk.over). */
+	written(text: string): void {
+		this.#append(this.#after ? `,${text}` : text)
+		this.#after = true
 	}
-	return enclosed("{", parts, "", "}")
-}
 
-/**
- * The fold that writes the canonical text: the same bytes as writeCanonicalJson over the JSON form, without building
- * that form.
- */
-const textFold: Fold<string> = {
-	scalar: (value) => JSON.stringify(value),
-	array: (items) => enclosed("[", items, ",", "]"),
-	object: objectText
+	open(kind: ContainerKind): void {
+		const bracket = kind === "array" ? "[" : "{"
+		this.#append(this.#after ? `,${bracket}` : bracket)
+		this.#after = false
+	}
+
+	key(key: string): void {
+		const quoted = JSON.stringify(key)
+		this.#append(this.#after ? `,${quoted}:` : `${quoted}:`)
+		this.#after = false
+	}
+
+	close(kind: ContainerKind): void {
+		this.#append(kind === "array" ? "]" : "}")
+		this.#after = true
+	}
+
+	#append(text: string): void {
+		const needed = this.#text.length + text.length
+		if (needed > maxStringLength.value) {
+			throw new Refusal(
+				resourceBound(canonicalTextLoc, {
+					kind: "stringLength",
+					limit: maxStringLength.value,
+					needed
+				})
+			)
+		}
+		this.#text += text
+	}
 }
 
 /** The JSON form of a canonical value. */
 export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Json, CompileError> =>
-	catchRefusal(() =>
-		value === undefined
-			? refuseValue([], "a value, not undefined")
-			: new Walk(options, jsonFold).of(value)
-	)
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		const sink = new JsonSink()
+		new Walk(options, sink).of(value)
+		return sink.value()
+	})
 
 /**
  * Array.isArray narrows to a mutable array, which leaves ReadonlyArray<Json> in the other branch; on a Json value an
@@ -524,32 +577,61 @@ export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Js
  */
 const isJsonArray = (value: Json): value is ReadonlyArray<Json> => Array.isArray(value)
 
-/** A JSON array's items, each written in turn, enclosed. */
-function* jsonItems(value: ReadonlyArray<Json>): Members<Json, string> {
-	const items: Array<string> = []
-	for (const item of value) {
-		items.push(yield item)
-	}
-	return enclosed("[", items, ",", "]")
-}
+/** A JSON form container being written: an array's items, or an object's members in key order. */
+type JsonFrame =
+	| { readonly kind: "array"; readonly items: ReadonlyArray<Json>; next: number }
+	| {
+			readonly kind: "object"
+			readonly members: ReadonlyArray<readonly [string, Json]>
+			next: number
+	  }
 
-/** A JSON object's members in key order, each written in turn, enclosed. */
-function* jsonMembers(value: { readonly [key: string]: Json }): Members<Json, string> {
-	const parts: Array<string> = []
-	for (const [key, item] of Object.entries(value).toSorted(([a], [b]) => compareText(a, b))) {
-		pushMember(parts, key, yield item)
-	}
-	return enclosed("{", parts, "", "}")
-}
-
-const readJson = (value: Json): Reading<Json, string> => {
+/** Writes one JSON form value: a scalar's text, or a container opened onto `frames`. */
+const writeJsonValue = (sink: TextSink, frames: Array<JsonFrame>, value: Json): void => {
 	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-		return formOf(JSON.stringify(value))
+		sink.scalar(value)
+	} else if (isJsonArray(value)) {
+		sink.open("array")
+		frames.push({ kind: "array", items: value, next: 0 })
+	} else {
+		sink.open("object")
+		frames.push({
+			kind: "object",
+			members: Object.entries(value).toSorted(([a], [b]) => compareText(a, b)),
+			next: 0
+		})
 	}
-	return membersOf(isJsonArray(value) ? jsonItems(value) : jsonMembers(value))
 }
 
-const writeJson = (value: Json): string => traverse(readJson(value), readJson)
+/** The canonical text of a JSON form value, its containers opened onto a stack on the heap. */
+const writeJson = (value: Json): string => {
+	const sink = new TextSink()
+	const frames: Array<JsonFrame> = []
+	writeJsonValue(sink, frames, value)
+	for (let top = frames.at(-1); top !== undefined; top = frames.at(-1)) {
+		if (top.kind === "array") {
+			const item = top.items[top.next]
+			top.next += 1
+			if (item === undefined) {
+				frames.pop()
+				sink.close("array")
+			} else {
+				writeJsonValue(sink, frames, item)
+			}
+		} else {
+			const member = top.members[top.next]
+			top.next += 1
+			if (member === undefined) {
+				frames.pop()
+				sink.close("object")
+			} else {
+				sink.key(member[0])
+				writeJsonValue(sink, frames, member[1])
+			}
+		}
+	}
+	return sink.text()
+}
 
 /** The canonical text of a JSON form value; ResourceBound (stringLength) past V8's longest string. */
 export const writeCanonicalJson = (value: Json): Result.Result<string, CompileError> =>
@@ -557,11 +639,14 @@ export const writeCanonicalJson = (value: Json): Result.Result<string, CompileEr
 
 /** The canonical text of a value. */
 const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<string, CompileError> =>
-	catchRefusal(() =>
-		value === undefined
-			? refuseValue([], "a value, not undefined")
-			: new Walk(options, textFold).of(value)
-	)
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		const sink = new TextSink()
+		new Walk(options, sink).of(value)
+		return sink.text()
+	})
 
 /**
  * The versioned canonical serializer.
@@ -607,7 +692,13 @@ export const encodeOver = (
 	member: string,
 	text: string
 ): Result.Result<string, CompileError> =>
-	catchRefusal(() => new Walk(options, textFold).over(record, member, text))
+	catchRefusal(() => {
+		const sink = new TextSink()
+		new Walk(options, sink).over(record, new Map([[member, text]]), (written) =>
+			sink.written(written)
+		)
+		return sink.text()
+	})
 
 /** The canonical text's opening bracket of an array. */
 const arrayOpen: unique symbol = Symbol("[")
@@ -657,46 +748,45 @@ const punctuationText = (token: Punctuation): string => {
 	}
 }
 
-/** A token list built bottom up: a token, or a list of them, flattened once at the root (`flattenTokens`). */
-type TokenTree = CanonicalToken | ReadonlyArray<TokenTree>
+/** The sink that writes a value's canonical tokens: the canonical text's, token by token, never one text. */
+class TokenSink implements Sink {
+	readonly #tokens: Array<CanonicalToken> = []
+	/** Whether a value was written in the container being written, so the next item or member follows a separator. */
+	#after = false
 
-const isTokenList = (tree: TokenTree): tree is ReadonlyArray<TokenTree> => Array.isArray(tree)
+	/** The tokens written. */
+	tokens(): ReadonlyArray<CanonicalToken> {
+		return this.#tokens
+	}
 
-/** A list's parts with a separator between every two. */
-const separated = (parts: ReadonlyArray<TokenTree>): ReadonlyArray<TokenTree> =>
-	parts.flatMap((part, i) => (i === 0 ? [part] : [itemSeparator, part]))
+	scalar(value: string | number | boolean): void {
+		this.#separate()
+		this.#tokens.push(value)
+		this.#after = true
+	}
 
-/** The fold that writes a value's canonical tokens: the canonical text's, token by token, never one text. */
-const tokenFold: Fold<TokenTree> = {
-	scalar: (value) => value,
-	array: (items) => [arrayOpen, separated(items), arrayClose],
-	object: (members) => [
-		objectOpen,
-		separated(members.map(([key, form]): TokenTree => [key, keyColon, form])),
-		objectClose
-	]
-}
+	open(kind: ContainerKind): void {
+		this.#separate()
+		this.#tokens.push(kind === "array" ? arrayOpen : objectOpen)
+		this.#after = false
+	}
 
-/** A token tree's tokens in order, flattened on a stack on the heap, so no nesting deepens the call stack. */
-const flattenTokens = (tree: TokenTree): ReadonlyArray<CanonicalToken> => {
-	const out: Array<CanonicalToken> = []
-	const stack: Array<{ readonly parts: ReadonlyArray<TokenTree>; at: number }> = [
-		{ parts: [tree], at: 0 }
-	]
-	for (let top = stack.at(-1); top !== undefined; top = stack.at(-1)) {
-		const part = top.parts[top.at]
-		if (part === undefined) {
-			stack.pop()
-			continue
-		}
-		top.at += 1
-		if (isTokenList(part)) {
-			stack.push({ parts: part, at: 0 })
-		} else {
-			out.push(part)
+	key(key: string): void {
+		this.#separate()
+		this.#tokens.push(key, keyColon)
+		this.#after = false
+	}
+
+	close(kind: ContainerKind): void {
+		this.#tokens.push(kind === "array" ? arrayClose : objectClose)
+		this.#after = true
+	}
+
+	#separate(): void {
+		if (this.#after) {
+			this.#tokens.push(itemSeparator)
 		}
 	}
-	return out
 }
 
 /**
@@ -707,11 +797,14 @@ export const canonicalTokens = (
 	value: unknown,
 	options: EncodeOptions
 ): Result.Result<ReadonlyArray<CanonicalToken>, CompileError> =>
-	catchRefusal(() =>
-		value === undefined
-			? refuseValue([], "a value, not undefined")
-			: flattenTokens(new Walk(options, tokenFold).of(value))
-	)
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		const sink = new TokenSink()
+		new Walk(options, sink).of(value)
+		return sink.tokens()
+	})
 
 /** A scalar token's text: a number's or a boolean's as JSON.stringify writes it, a punctuation token's its own. */
 const scalarText = (token: number | boolean | Punctuation): string =>
@@ -787,13 +880,38 @@ const isCanonicalInteger = (text: string): boolean => {
 }
 
 /**
+ * A container being restored, with the key it is a member under when the container holding it is a record: an
+ * array's items, or a record's members in the order its entries give them.
+ */
+type Restoring =
+	| {
+			readonly kind: "array"
+			readonly value: ReadonlyArray<unknown>
+			next: number
+			readonly under: string
+			readonly items: Array<unknown>
+	  }
+	| {
+			readonly kind: "object"
+			readonly value: object
+			readonly entries: ReadonlyArray<readonly [string, unknown]>
+			next: number
+			readonly under: string
+			readonly members: Array<readonly [string, unknown]>
+	  }
+
+/**
  * One traversal restoring bigints and tagged values from the JSON form, refusing what canonical text never holds: an
- * in-memory value that is no JSON form, a cyclic one included, as well as text no encoding wrote. A traversal is used
- * once: a refusal ends it.
+ * in-memory value that is no JSON form, a cyclic one included, as well as text no encoding wrote. Every container read
+ * is opened onto a stack of frames on the heap, as Walk's are, so a value nested to any depth never deepens the call
+ * stack. A traversal is used once: a refusal ends it.
  */
 class Revive {
 	readonly #path: Array<string | number> = []
 	readonly #ancestors = new Set<object>()
+	readonly #frames: Array<Restoring> = []
+	/** The root's restored value, once read. */
+	readonly #root: Array<unknown> = []
 	readonly #revivers: Revivers
 
 	constructor(revivers: Revivers) {
@@ -802,25 +920,89 @@ class Revive {
 
 	/** The value `root` restores to. */
 	of(root: unknown): unknown {
-		return traverse(this.#read(root), (value: unknown) => this.#read(value))
+		this.#read(root, "")
+		for (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {
+			if (top.kind === "array") {
+				const i = top.next
+				if (i === top.value.length) {
+					this.#close(top)
+					continue
+				}
+				top.next = i + 1
+				this.#path.push(i)
+				this.#read(top.value[i], "")
+				continue
+			}
+			const entry = top.entries[top.next]
+			if (entry === undefined) {
+				this.#close(top)
+				continue
+			}
+			top.next += 1
+			const [key, child] = entry
+			this.#path.push(key)
+			checkText(key, this.#path, refuseText)
+			this.#read(child, key)
+		}
+		return this.#root[0]
 	}
 
-	#read(value: unknown): Reading<unknown, unknown> {
+	/**
+	 * Reads one value, a member under `key` where the container holding it is a record: a scalar's value is restored
+	 * into that container, and a container is opened onto the frames.
+	 */
+	#read(value: unknown, key: string): void {
 		switch (typeof value) {
 			case "boolean":
-				return formOf(value)
+				this.#restored(value, key)
+				return
 			case "number":
-				return Number.isFinite(value) ? formOf(value) : refuseText(this.#path, "a finite number")
+				if (!Number.isFinite(value)) {
+					return refuseText(this.#path, "a finite number")
+				}
+				this.#restored(value, key)
+				return
 			case "string":
-				return formOf(this.#string(value))
+				this.#restored(this.#string(value), key)
+				return
 			case "object":
-				return this.#object(value)
+				this.#object(value, key)
+				return
 			case "bigint":
 			case "undefined":
 			case "function":
 			case "symbol":
 				return refuseText(this.#path, `a JSON value, not ${typeof value}`)
 		}
+	}
+
+	/** A member's value restored into its container, and its path segment left; the root's held. */
+	#restored(value: unknown, key: string): void {
+		this.#add(value, key)
+		if (this.#frames.length > 0) {
+			this.#path.pop()
+		}
+	}
+
+	#add(value: unknown, key: string): void {
+		const top = this.#frames.at(-1)
+		if (top === undefined) {
+			this.#root.push(value)
+		} else if (top.kind === "array") {
+			top.items.push(value)
+		} else {
+			top.members.push([key, value])
+		}
+	}
+
+	/** The container on top closed: restored into the container holding it, and its frame and ancestor left. */
+	#close(frame: Restoring): void {
+		this.#frames.pop()
+		this.#ancestors.delete(frame.value)
+		this.#restored(
+			frame.kind === "array" ? frame.items : Object.fromEntries(frame.members),
+			frame.under
+		)
 	}
 
 	#string(value: string): unknown {
@@ -857,7 +1039,7 @@ class Revive {
 		return revived.value
 	}
 
-	#object(value: object | null): Reading<unknown, unknown> {
+	#object(value: object | null, key: string): void {
 		if (value === null) {
 			return refuseText(this.#path, "a value, not null")
 		}
@@ -865,31 +1047,18 @@ class Revive {
 			return refuseText(this.#path, "an acyclic value")
 		}
 		this.#ancestors.add(value)
-		return membersOf(Array.isArray(value) ? this.#array(value) : this.#record(value))
-	}
-
-	*#array(value: ReadonlyArray<unknown>): Members<unknown, unknown> {
-		const items: Array<unknown> = []
-		for (const [i, item] of value.entries()) {
-			this.#path.push(i)
-			items.push(yield item)
-			this.#path.pop()
-		}
-		this.#ancestors.delete(value)
-		return items
-	}
-
-	*#record(value: object): Members<unknown, unknown> {
-		const entries: ReadonlyArray<readonly [string, unknown]> = Object.entries(value)
-		const members: Array<readonly [string, unknown]> = []
-		for (const [key, child] of entries) {
-			this.#path.push(key)
-			checkText(key, this.#path, refuseText)
-			members.push([key, yield child])
-			this.#path.pop()
-		}
-		this.#ancestors.delete(value)
-		return Object.fromEntries(members)
+		this.#frames.push(
+			Array.isArray(value)
+				? { kind: "array", value, next: 0, under: key, items: [] }
+				: {
+						kind: "object",
+						value,
+						entries: Object.entries(value),
+						next: 0,
+						under: key,
+						members: []
+					}
+		)
 	}
 }
 
