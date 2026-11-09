@@ -1,11 +1,12 @@
 import { familyKey, familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
-import type {
-	ResolvedConjunct,
-	ResolvedSelection,
-	ResolvedSelector,
-	ResolvedSide,
-	ResolvedTerm,
-	TheoryLaw
+import {
+	fixedSelection,
+	type ResolvedConjunct,
+	type ResolvedSelection,
+	type ResolvedSelector,
+	type ResolvedSide,
+	type ResolvedTerm,
+	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -13,7 +14,7 @@ import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { DeclaredName, Identity, LawColumnStatement } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
@@ -43,7 +44,7 @@ import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import { literalKey } from "#compiler/laws/model/names.ts"
+import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
 	type BtreeEntryBytes,
@@ -970,6 +971,124 @@ interface FamilyPlan {
  * - Every writer meets a span key's overlap as SQLSTATE 23P01 under the key's constraint name, which the
  *   constraint-to-LawId map turns into the span key law. A span key is no ON CONFLICT ... DO SELECT arbiter:
  *   PostgreSQL refuses an exclusion constraint there. */
+/**
+ * The roster whose domain discharges a containment into a closed relation, when one does: a lone closed-id field
+ * contained in its own roster's unselected id, whatever rows the source selects (`#intoClosed`).
+ */
+const rosterDischarged = (
+	d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
+	toRel: ClosedTheoryRelation,
+	toSelection: ReadonlyArray<ResolvedSelector>
+): DeclaredName | undefined => {
+	const [only, ...more] = d.pairs
+	const roster = rosterOf(baseOf(only.from.column.type))
+	return more.length === 0 &&
+		only.to.column.name === "id" &&
+		toSelection.length === 0 &&
+		roster?.closed === toRel.name
+		? roster.closed
+		: undefined
+}
+
+/** A closed relation's side as the containments into it read it, by its relation, its fields and its fixed selection. */
+const closedSideKey = (
+	toRel: ClosedTheoryRelation,
+	toFields: ReadonlyArray<LawField>,
+	toSelection: ReadonlyArray<ResolvedSelector>
+): string =>
+	keyOf(
+		toRel.name,
+		toFields.map((f) => f.name),
+		toSelection.map((s) => keyOf(String(s.col.position), literalKey(s.value)))
+	)
+
+/**
+ * The side of `toRel` on `toFields` as a closed relation of its own (ir/cells.ts sideOf), its rows the facts its fixed
+ * selection `toSelection` keeps.
+ */
+const closedSide = (
+	toRel: ClosedTheoryRelation,
+	toFields: NonEmptyReadonlyArray<LawField>,
+	toSelection: ReadonlyArray<ResolvedSelector>
+): CellSide<TypedLiteral> => {
+	const selected = toSelection.map((s) => ({
+		position: s.col.position,
+		value: literalKey(s.value)
+	}))
+	const rows = toRel.rows.filter((row) =>
+		selected.every((s) => literalKey(closedCell(row, s.position)) === s.value)
+	)
+	return sideOf(
+		{ fields: mapNonEmpty(toRel.fields, (f) => f.name), keys: [toRel.primaryKey] },
+		mapNonEmpty(toFields, (f) => f.name),
+		rows,
+		literalKey
+	)
+}
+
+/** A closed side's content as two sides are one: its key and payload fields, and each row's key texts and payload. */
+const sideContent = (side: CellSide<TypedLiteral>): string =>
+	keyOf(
+		side.key,
+		side.payload,
+		[...side.rows].map(([key, split]) => keyOf(key, split.payload.map(literalKey)))
+	)
+
+/**
+ * The sides of closed relations the containments into them read: each by `closedSideKey`, and each distinct content
+ * once, numbered in the order first built (`ordinals`), so two sides of one content are one side and one number.
+ */
+interface ClosedSides {
+	readonly byKey: ReadonlyMap<string, CellSide<TypedLiteral>>
+	readonly ordinals: ReadonlyMap<CellSide<TypedLiteral>, number>
+}
+
+/**
+ * Each distinct side of a closed relation the containments into it read, by `closedSideKey`, each built once over its
+ * relation's rows however many laws read it, and each of one content one side: every containment of an ordinary
+ * relation's fields into a closed relation's, selected by literals, but one its roster's domain discharges. A
+ * containment of any other shape reads no side, and its plan refuses it.
+ */
+const closedSidesOf = (laws: ReadonlyArray<TheoryLaw>): ClosedSides => {
+	const sides = new Map<string, CellSide<TypedLiteral>>()
+	const contents = new Map<string, CellSide<TypedLiteral>>()
+	const ordinals = new Map<CellSide<TypedLiteral>, number>()
+	for (const law of laws) {
+		const d = law.detail
+		if (
+			d.kind !== "containment" ||
+			d.from.rel.kind === "closed" ||
+			d.to.rel.kind !== "closed" ||
+			d.pairing.kind !== "scalar"
+		) {
+			continue
+		}
+		const toRel = d.to.rel
+		const terms = fieldTermsOf(d.to.terms)
+		const fixed = fixedSelection(d.to.selection)
+		if (terms === undefined || fixed === undefined) {
+			continue
+		}
+		const toFields = mapNonEmpty(terms, (t) => t.column)
+		const toSelection = fixed.conjuncts.map((c) => c.selector)
+		const key = closedSideKey(toRel, toFields, toSelection)
+		if (rosterDischarged(d, toRel, toSelection) !== undefined || sides.has(key)) {
+			continue
+		}
+		const side = closedSide(toRel, toFields, toSelection)
+		const content = sideContent(side)
+		const known = contents.get(content)
+		if (known !== undefined) {
+			sides.set(key, known)
+			continue
+		}
+		contents.set(content, side)
+		ordinals.set(side, ordinals.size)
+		sides.set(key, side)
+	}
+	return { byKey: sides, ordinals }
+}
+
 export class Recognizer {
 	/** Each relation's keys over projected sides, by relation name, which a containment's target may contain. */
 	readonly #projectedKeys: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>
@@ -985,6 +1104,8 @@ export class Recognizer {
 	readonly #cascaded: ReadonlyMap<string, ReadonlySet<string>>
 	/** The family axes a refill writes around, deferred whatever else decides them (analysis/theory/refill.ts). */
 	readonly #refill: RefillDeferral
+	/** Each closed relation's sides the containments into it read (closedSidesOf), each built once. */
+	readonly #closedSides: ClosedSides
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
@@ -1033,6 +1154,18 @@ export class Recognizer {
 		}
 		this.#cascaded = cascaded
 		this.#refill = refillDeferral(families)
+		this.#closedSides = closedSidesOf(laws)
+	}
+
+	/**
+	 * The number of a closed side a containment's plan reads (closedSidesOf), one per content: what a ClosedCheck's
+	 * identity reads of its side.
+	 */
+	closedSideOrdinal(side: CellSide<TypedLiteral>): number {
+		return defined(
+			this.#closedSides.ordinals.get(side),
+			"a ClosedCheck's side, one the recognizer built"
+		)
 	}
 
 	/** Whether a refill writes around `family`'s `axis`, its owner or its predecessor axis, so it is deferred. */
@@ -1233,24 +1366,13 @@ export class Recognizer {
 		const fromFields = fieldsOf(d.from, loc, what)
 		const toFields = fieldsOf(d.to, loc, what)
 		const toSelection = literalsOf(d.to, loc, what)
-		const [only, ...more] = d.pairs
-		const roster = rosterOf(baseOf(only.from.column.type))
-		if (
-			more.length === 0 &&
-			only.to.column.name === "id" &&
-			toSelection.length === 0 &&
-			roster?.closed === toRel.name
-		) {
-			return [{ kind: "RosterDomain", name: roster.closed }]
+		const roster = rosterDischarged(d, toRel, toSelection)
+		if (roster !== undefined) {
+			return [{ kind: "RosterDomain", name: roster }]
 		}
-		const rows = toRel.rows.filter((row) =>
-			toSelection.every((s) => literalKey(closedCell(row, s.col.position)) === literalKey(s.value))
-		)
-		const side = sideOf(
-			{ fields: mapNonEmpty(toRel.fields, (f) => f.name), keys: [toRel.primaryKey] },
-			mapNonEmpty(toFields, (f) => f.name),
-			rows,
-			literalKey
+		const side = defined(
+			this.#closedSides.byKey.get(closedSideKey(toRel, toFields, toSelection)),
+			"the side of a containment into a closed relation, built once for every law that reads it"
 		)
 		/** The source field each target field meets, by the containment's pairs. */
 		const sourceOf = (target: LawField): LawField =>

@@ -369,10 +369,13 @@ export const relationLaws = (
 		own.set(n.object.column, n.object)
 		lawColumns.set(n.object.relation.name, own)
 	}
-	const placed = natives.flatMap((n) => uniqueOf(n, lawColumns))
+	const placed = Map.groupBy(
+		natives.flatMap((n) => uniqueOf(n, lawColumns)),
+		(p) => p.relation
+	)
 	return new Map(
 		keyed.map(({ relation, primaryKey }) => {
-			const own = placed.filter((p) => p.relation === relation)
+			const own = placed.get(relation) ?? []
 			const primary = primaryObject(primaryKey)
 			const keys: NonEmptyReadonlyArray<PrimaryKeyObject> = [
 				primary,
