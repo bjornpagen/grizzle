@@ -501,7 +501,10 @@ const modelOf = (pred: Pred) => {
 			)
 		] as const)
 	)
-	return succeeded(compileLaws(owned, everySlice(owned)), "a case's check compiles")
+	return succeeded(
+		compileLaws(owned, everySlice(owned), { kind: "planned" }),
+		"a case's check compiles"
+	)
 }
 
 /** The field types of Probe's row, as the checked schema resolves them: the numeric a rounding reads, its scale's. */

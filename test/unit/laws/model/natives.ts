@@ -24,7 +24,9 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 
 /** A schema description's law model, or the refusal the owner or the law model gives it. */
 export const compiledModel = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
-	EngineResult.flatMap(own(decodedSchema(desc)), (owned) => compileLaws(owned, everySlice(owned)))
+	EngineResult.flatMap(own(decodedSchema(desc)), (owned) =>
+		compileLaws(owned, everySlice(owned), { kind: "planned" })
+	)
 
 /** A schema description's law model, which must compile. */
 export const modelOf = (desc: SchemaDesc): LawModel => succeeded(compiledModel(desc))

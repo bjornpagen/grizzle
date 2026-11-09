@@ -223,11 +223,15 @@ describe("an admitted pattern", () => {
 								"the multiplied schema owns"
 							)
 							const [model, drawnCounts] = yield* callCounts(
-								Effect.sync(() => compileLaws(drawnOwned, everySlice(drawnOwned))),
+								Effect.sync(() =>
+									compileLaws(drawnOwned, everySlice(drawnOwned), { kind: "planned" })
+								),
 								parseSites
 							)
 							const [, multipliedCounts] = yield* callCounts(
-								Effect.sync(() => compileLaws(multipliedOwned, everySlice(multipliedOwned))),
+								Effect.sync(() =>
+									compileLaws(multipliedOwned, everySlice(multipliedOwned), { kind: "planned" })
+								),
 								parseSites
 							)
 							const laws = succeeded(model, "the schema compiles")

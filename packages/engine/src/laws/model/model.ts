@@ -316,10 +316,10 @@ export interface LawModel {
 	/** The owned schema the model specializes: every installed identifier a law reads (a table, a column, a roster's
 	 * domain, a declared key or check) is the one ownership registered there. */
 	readonly owned: Owned
-	/** The theory with its DAG extended, and the evidence its laws give, each containment's
+	/** The theory with its DAG extended, and the evidence the laws it plans give, each containment's
 	 * validity context the one its plans prove. */
 	readonly theory: EvidencedTheory
-	/** Every native object the model holds of the schema's laws (`compileLaws`), once each, in law order. */
+	/** Every native object the model holds of the laws it plans (`compileLaws`), once each, in law order. */
 	readonly natives: ReadonlyArray<NamedNative>
 	/**
 	 * Every family of the schema, a tree's included, with its axes and folds resolved (analysis/theory Theory.families):
@@ -623,6 +623,29 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 	}
 }
 
+/**
+ * Where a law model's foreign key cycles (FkCycles) come from: planned from every law of the schema, which the model
+ * then plans whatever its slice names, or recorded by generate in the snapshot (snapshot.json derived.fkCycles), which
+ * a layer reads so that its model plans only the laws its slice names (`plannedLaws`).
+ */
+export type CycleSource =
+	| { readonly kind: "planned" }
+	| { readonly kind: "recorded"; readonly cycles: FkCycles }
+
+/**
+ * The laws a model plans: every law of the theory when it plans its cycles, which every law's plan settles; under
+ * recorded cycles, each law that reads a relation `names` holds, and every contract, whose domain types its values
+ * wherever a role's context field or a parameter names it, beyond any relation.
+ */
+const plannedLaws = (
+	laws: ReadonlyArray<TheoryLaw>,
+	names: ReadonlySet<string>,
+	cycles: CycleSource
+): ReadonlyArray<TheoryLaw> =>
+	cycles.kind === "planned"
+		? laws
+		: laws.filter((l) => l.detail.kind === "contract" || l.reads.some((r) => names.has(r)))
+
 /** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
  * does not fix deferred, and every PERIOD foreign key, from its relation to its target. */
 const fkEdges = (plans: ReadonlyArray<LawPlan>): ReadonlyArray<readonly [string, string]> =>
@@ -922,6 +945,11 @@ class Specializer {
 	readonly owned: Owned
 	/** The ordinary relations whose writes the model serves (schema/reach.ts Slice.writes). */
 	readonly writes: ReadonlySet<string>
+	/** The laws the model plans (`plannedLaws`), in law order. */
+	readonly planned: ReadonlyArray<TheoryLaw>
+	readonly cycles: CycleSource
+	/** The recognizer over every law of the theory, planned or not: a planned containment into a relation its slice
+	 * does not name finds its target's projected keys and family laws there. */
 	readonly recognizer: Recognizer
 	/** The typing environment every lowering of the model reads, each text pattern analyzed once in it. */
 	readonly #typing: ReturnType<typeof typingEnv>
@@ -931,11 +959,13 @@ class Specializer {
 	/** Every law by its id, a primary key's included: what a constraint's every law is described by. */
 	readonly #laws: ReadonlyMap<LawId, TheoryLaw>
 
-	constructor(theory: Theory, checked: CheckedSchema, slice: Slice) {
+	constructor(theory: Theory, checked: CheckedSchema, slice: Slice, cycles: CycleSource) {
 		this.theory = theory
 		this.checked = checked
 		this.owned = checked.owned
 		this.writes = slice.writes
+		this.planned = plannedLaws(theory.laws, slice.names, cycles)
+		this.cycles = cycles
 		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([
@@ -998,8 +1028,9 @@ class Specializer {
 	}
 
 	run(): LawModel {
-		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
-		const fkCycles = fkCyclesOf(fkEdges(plans))
+		const plans = this.planned.map((law) => this.recognizer.plan(law))
+		const fkCycles =
+			this.cycles.kind === "planned" ? fkCyclesOf(fkEdges(plans)) : this.cycles.cycles
 		const deferred = this.#deferral(fkCycles)
 		const immediate = immediateOf(plans, deferred)
 		const held = this.#held(plans)
@@ -1124,7 +1155,7 @@ class Specializer {
 			}
 		}
 		this.#refuseWideRows(natives)
-		const evidence = theoryEvidence(this.theory.laws, immediate)
+		const evidence = theoryEvidence(this.planned, immediate)
 		return {
 			owned: this.owned,
 			theory: Object.freeze({ ...this.theory, dag: merged.dag, evidence }),
@@ -1817,9 +1848,10 @@ const baseLeaves = (
 const specialize = (
 	theory: Theory,
 	checked: CheckedSchema,
-	slice: Slice
+	slice: Slice,
+	cycles: CycleSource
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked, slice).run())
+	catchRefusal(() => new Specializer(theory, checked, slice, cycles).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
@@ -1864,14 +1896,21 @@ const specialize = (
  * - Slice: the model serves the writes of its slice (schema/reach.ts Slice), and holds exactly the natives those
  *   writes can break or read, with every native a read relies on (Specializer.#held): an installation's, writing every
  *   ordinary relation, holds them all; a login's runtime, writing the relations its roles write, holds no other native
- *   and no rule that reads none of them, each a constraint no write of the login can raise. The theory, every law's
- *   plan, the deferral they settle and the evidence they give are the whole schema's, whatever the slice.
+ *   and no rule that reads none of them, each a constraint no write of the login can raise. Under planned cycles
+ *   (CycleSource) the model plans every law, whose plans settle the foreign key graph's cycles; under the cycles
+ *   generate recorded from every law, it plans only the laws its slice names (plannedLaws). A law's plan reads the
+ *   law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law it plans
+ *   is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
  *
- * The law model of an owned schema for `slice`, or the first refusal: a theory refusal, a law shape the
+ * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal, a law shape the
  * compiler does not admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law
- * planned once: the plans settle foreign key deferral and so the laws they prove immediate (immediateOf), and
- * specialization states the evidence each law gives with that validity context (theoryEvidence). */
-export const compileLaws = (owned: Owned, slice: Slice): Result.Result<LawModel, CompileError> =>
+ * it plans planned once: the cycles settle foreign key deferral and so the laws the plans prove immediate (immediateOf),
+ * and specialization states the evidence each law gives with that validity context (theoryEvidence). */
+export const compileLaws = (
+	owned: Owned,
+	slice: Slice,
+	cycles: CycleSource
+): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
-		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, slice))
+		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, slice, cycles))
 	)

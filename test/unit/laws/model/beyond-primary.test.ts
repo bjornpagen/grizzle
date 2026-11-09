@@ -228,7 +228,10 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const owned = succeeded(ownedInput(schemaOf(c)))
-							const model = succeeded(compileLaws(owned, everySlice(owned)), "the schema compiles")
+							const model = succeeded(
+								compileLaws(owned, everySlice(owned), { kind: "planned" }),
+								"the schema compiles"
+							)
 							for (const [name, laws] of model.relations) {
 								const expected = restated(laws.uniques)
 								assert.deepEqual(

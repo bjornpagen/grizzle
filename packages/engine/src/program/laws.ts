@@ -45,7 +45,9 @@ interface SchemaLaws {
 const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
 	orThrow(
 		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
-			Result.flatMap(own(built.desc), (owned) => compileLaws(owned, everySlice(owned)))
+			Result.flatMap(own(built.desc), (owned) =>
+				compileLaws(owned, everySlice(owned), { kind: "planned" })
+			)
 		)
 	)
 

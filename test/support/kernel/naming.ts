@@ -805,7 +805,7 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 	if (!owned.ok) {
 		throw refused(owned.error)
 	}
-	const model = compileLaws(owned.value, everySlice(owned.value))
+	const model = compileLaws(owned.value, everySlice(owned.value), { kind: "planned" })
 	if (!model.ok) {
 		throw refused(model.error)
 	}

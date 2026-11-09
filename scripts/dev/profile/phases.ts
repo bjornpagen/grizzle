@@ -210,7 +210,9 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const owned = timed(`${f.label} own`, () =>
 		ok(own(input.kind === "role" ? input.desc.base : input.desc), "own")
 	)
-	timed(`${f.label} laws`, () => ok(compileLaws(owned, everySlice(owned)), "laws"))
+	timed(`${f.label} laws`, () =>
+		ok(compileLaws(owned, everySlice(owned), { kind: "planned" }), "laws")
+	)
 	/** A fresh installation's codes: every roster's handles in declared order. */
 	const codes = firstCodebook(rostersOf(owned))
 	const base = { ...completeInstallOptions(owned, [installedAt], [], [], codes), owner }

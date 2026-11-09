@@ -667,7 +667,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 		}
 		const owned = owning(built.Null)
 		const model = succeeded(
-			compileLaws(owned, everySlice(owned)),
+			compileLaws(owned, everySlice(owned), { kind: "planned" }),
 			"the case's schema compiles its laws"
 		)
 		const closed = closedRowsOf(model)

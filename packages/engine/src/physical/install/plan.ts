@@ -21,6 +21,7 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ConstraintLaw,
 	type ConstraintLawOf,
+	type CycleSource,
 	compileLaws,
 	constraintLawMap,
 	type DomainUse,
@@ -73,7 +74,8 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  * them under those codes (physical/ddl/constants.ts NamedClosed). A login's runtime compiles its law model for its
  * roles' writes alone (schema/reach.ts loginSlice) and reads the constants' names from its snapshot, which recorded them
  * when the installation was generated (planBasis); generate, check and every installation compile it over every relation
- * (everySlice) and plan the constants from the closed relations' rows (installBasis).
+ * (everySlice), plan the foreign key cycles from every law, and plan the constants from the closed relations' rows
+ * (installBasis).
  */
 export interface PlanBasis {
 	readonly owned: Owned
@@ -93,13 +95,14 @@ export interface InstallBasis extends PlanBasis {
 	readonly planned: ClosedPlan
 }
 
-/** The basis of the installations of `owned` under the installation's codes `codes`, for `slice`. */
+/** The basis of the installations of `owned` under the installation's codes `codes`, for `slice`, its law model's
+ * foreign key cycles planned from every law (laws/model/model.ts CycleSource). */
 export const installBasis = (
 	owned: Owned,
 	codes: Codebook,
 	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(compileLaws(owned, slice), (model) =>
+	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>
 		catchRefusal((): InstallBasis => {
 			const planned = planClosed(
 				owned,
@@ -112,15 +115,21 @@ export const installBasis = (
 		})
 	)
 
-/** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice`, each
- * closed relation's constants named as `closed` records them: a Db's, from its snapshot, which packs no cell. */
+/** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice` under `cycles`,
+ * each closed relation's constants named as `closed` records them: a Db's, from its snapshot, which packs no cell. */
 export const planBasis = (
 	owned: Owned,
 	codes: Codebook,
 	slice: Slice,
-	closed: ClosedNames
+	closed: ClosedNames,
+	cycles: CycleSource
 ): Result.Result<PlanBasis, CompileError> =>
-	Result.map(compileLaws(owned, slice), (model): PlanBasis => ({ owned, model, codes, closed }))
+	Result.map(compileLaws(owned, slice, cycles), (model): PlanBasis => ({
+		owned,
+		model,
+		codes,
+		closed
+	}))
 
 /** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
 export interface DescribedLaw<L extends LawId = LawId> {

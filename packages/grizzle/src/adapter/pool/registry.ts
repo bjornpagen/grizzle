@@ -320,7 +320,10 @@ export const artifactsUnder = (
 	codes: Codebook,
 	closed: ClosedNames
 ): Engine.Result<SchemaArtifacts, CompileError> =>
-	Engine.flatMap(planBasis(login.base, codes, loginSlice(login), closed), artifactsOver)
+	Engine.flatMap(
+		planBasis(login.base, codes, loginSlice(login), closed, { kind: "planned" }),
+		artifactsOver
+	)
 
 /** The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation. */
 export const artifactsOver = (basis: PlanBasis): Engine.Result<SchemaArtifacts, CompileError> =>

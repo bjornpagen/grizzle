@@ -55,7 +55,7 @@ export const ownedFixture = (desc: SchemaDesc): OwnedFixture => {
 	if (!owned.ok) {
 		throw new Error(`fixture ${desc.name}: ownership refuses it: ${owned.error.message}`)
 	}
-	const laws = compileLaws(owned.value, everySlice(owned.value))
+	const laws = compileLaws(owned.value, everySlice(owned.value), { kind: "planned" })
 	if (!laws.ok) {
 		throw new Error(`fixture ${desc.name}: the law model refuses it: ${laws.error.message}`)
 	}

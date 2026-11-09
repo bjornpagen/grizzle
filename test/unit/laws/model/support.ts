@@ -12,7 +12,9 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 
 const modelResult = (desc: SchemaDesc): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(own(decodedSchema(desc)), (owned) => compileLaws(owned, everySlice(owned)))
+	Result.flatMap(own(decodedSchema(desc)), (owned) =>
+		compileLaws(owned, everySlice(owned), { kind: "planned" })
+	)
 
 /** Shared helpers for the law model tests: owning a schema description and compiling its laws. */
 export const modelOf = (desc: SchemaDesc): LawModel => succeeded(modelResult(desc))

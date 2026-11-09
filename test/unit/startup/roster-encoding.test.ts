@@ -126,7 +126,10 @@ const encodedAt = (guard: Guard, size: number): number => {
 		)
 	])
 	const owned = succeeded(ownedInput(S))
-	const model = succeeded(compileLaws(owned, everySlice(owned)), "the schema compiles")
+	const model = succeeded(
+		compileLaws(owned, everySlice(owned), { kind: "planned" }),
+		"the schema compiles"
+	)
 	const laws = defined(model.relations.get("T"), "T's laws")
 	return Arr.reduce(laws.uniques.others, 0, (n, u) =>
 		u.kind === "guarded" ? Arr.reduce(u.within, n, (m, g) => m + g.canonical.length) : n
