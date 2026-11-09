@@ -64,6 +64,7 @@ export type IdentityKind =
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
+	| "generatedLaw"
 	| "login"
 	| "role"
 	| "roleSchema"
@@ -99,6 +100,12 @@ type RaisedLawKind = "law" | "patternLaw"
  * (types/changeset Law).
  */
 export type LawId = Identifier<RaisedLawKind>
+/**
+ * A generated field's law's identifier: its column's NOT NULL refuses the law, and no constraint, function or
+ * fingerprinted part of a snapshot names it. An outcome names it beside the law's description (types/changeset
+ * RefusedLaw), as it names a LawId.
+ */
+export type GeneratedLawId = Identifier<"generatedLaw">
 /**
  * The table of a stored relation, the domain of a roster, the materialized view of a derived relation, or a role
  * relation's view, which a role reads it through.

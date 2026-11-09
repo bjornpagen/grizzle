@@ -3,7 +3,10 @@ import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import type {
 	AnyChangeSet,
+	ArraysOf,
 	ChangeSet,
+	FactsCheck,
+	FactsShape,
 	PlannedStrata,
 	Refused,
 	Witness,
@@ -355,13 +358,30 @@ type RecordsOf<X> = X extends { readonly rows: RowDecoder<infer A> }
 				: never
 
 /**
+ * A served change member's apply, for a ChangeSet X that holds array members (ArraysOf): each call takes their facts,
+ * one array under each array member's relation name (FactsShape), checked as insert, delete and put check their own
+ * (FactsCheck), in place of the arrays X was built with, and X's parameters.
+ */
+export interface FactsApply<X, A> {
+	apply<const F extends FactsShape<ArraysOf<X>>, const Arg>(
+		facts: F & FactsCheck<F, ArraysOf<X>>,
+		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ApplyOutcome<A>, ApplyError>
+}
+
+/**
  * A Db's workload handles: each program of P under its name, compiled for R. A paged member's handle pages its ordered
- * query; any other member's has no page, since the layer compiled no page template for it.
+ * query; any other member's has no page, since the layer compiled no page template for it. A change member whose
+ * ChangeSet holds array members applies with each call's facts and parameters (FactsApply); every other applies with
+ * its parameters alone.
  */
 export type WorkloadHandles<R, P> = {
 	readonly [K in keyof P]: P[K] extends Paged<infer O>
 		? Compiled<R, O, RecordsOf<O>>
-		: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
+		: [keyof ArraysOf<P[K]>] extends [never]
+			? Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page">
+			: Omit<Compiled<R, P[K], RecordsOf<P[K]>>, "page" | "apply"> &
+					FactsApply<P[K], RecordsOf<P[K]>>
 }
 
 /**

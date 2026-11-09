@@ -943,6 +943,7 @@ export const typeRefusals = [
 	"a schema holds each relation under its own name",
 	"a schema predicate reads no parameter",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field",
+	"a served ChangeSet's facts name only the relations of its array members",
 	"a set lists each of its handles once",
 	"a side lists each term once",
 	"a span term is required",

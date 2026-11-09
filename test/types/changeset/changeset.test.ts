@@ -8,6 +8,7 @@ import {
 	changeSetKept,
 	changeSetRefusals,
 	changeSetRequired,
+	changeSetServed,
 	changeSetWitnesses
 } from "#test/support/agreement/changesets.ts"
 import { assert } from "#test/support/assert.ts"
@@ -28,6 +29,7 @@ const required: Situations<ChangeSetNote> = [
 	"admitted",
 	"refused",
 	...changeSetRefusals,
+	...changeSetServed,
 	...changeSetRequired
 ]
 

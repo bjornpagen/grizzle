@@ -20,6 +20,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
+import { insertableNamesOf } from "#compiler/schema/world.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -416,7 +417,9 @@ const refusalNotes = {
 	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable":
 		"refused: an append to a stored owner",
 	"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes":
-		"refused: edits in two strata"
+		"refused: edits in two strata",
+	"a served ChangeSet's facts name only the relations of its array members":
+		"refused: a served fact's relation"
 } as const
 type ChangeSetRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ChangeSetRefusal]
@@ -439,8 +442,37 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: an immutable owner",
 	"refused: a fixed family",
 	"refused: an append to a stored owner",
-	"refused: edits in two strata"
+	"refused: edits in two strata",
+	"refused: a served fact's relation"
 ]
+
+/**
+ * The facts a served call of an admitted ChangeSet takes through its workload handle (FactsApply): its own array
+ * members' facts, which the engine admitted; with one relation's left out, or with a key naming no array member's
+ * relation, which the served runtime refuses as the facts' shape; or with one fact carrying a field its relation lacks,
+ * judged as the engine judges that ChangeSet with that fact in its member (servedOf).
+ */
+const servedVariants = [
+	"as built",
+	"a relation left out",
+	"an extra relation",
+	"a fact with a field its relation lacks"
+] as const
+type ServedVariant = (typeof servedVariants)[number]
+type ServedNote = `served: ${ServedVariant}`
+export const changeSetServed: Arr.NonEmptyReadonlyArray<ServedNote> = [
+	"served: as built",
+	"served: a relation left out",
+	"served: an extra relation",
+	"served: a fact with a field its relation lacks"
+]
+
+/**
+ * The codes a served call's refused facts are reported by: a relation left out fails the facts' constraint, at the
+ * argument; a key or a fact FactsCheck refuses, at that key of the facts.
+ */
+const servedShapeCode = "TS2345"
+const servedFactCode = "TS2322"
 
 /** What a case reached: its constructs and fault, the engine's verdict, and the Refusal its directive names. */
 export type ChangeSetNote =
@@ -449,6 +481,7 @@ export type ChangeSetNote =
 	| "refused"
 	| "refused: structurally"
 	| RefusalNote
+	| ServedNote
 
 type Op = "insert" | "delete" | "put"
 type Level = "Work" | "Reports" | "Other" | "Twin"
@@ -2189,6 +2222,8 @@ interface Admitted {
 	readonly reads: ReadonlyArray<readonly [string, string]>
 	/** Each relation a member writes, with the fields its caller writes and those an addition of it holds. */
 	readonly rows: ReadonlyArray<RowShape>
+	/** Its array members, as the engine's Description holds them: each one's relation and op. */
+	readonly arrays: ReadonlyArray<{ readonly relation: string; readonly op: Op }>
 }
 
 /** A written relation's caller-written fields (Written) and the fields its addition in the schema holds (AdditionIn). */
@@ -2635,6 +2670,11 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 				),
 				(name) => rowShapeOf(reality.options.laws, name)
 			),
+			arrays: Arr.flatMap(desc.strata, (st) =>
+				Arr.flatMap(st.members, (m) =>
+					m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
+				)
+			),
 			reads: Arr.map(
 				program.value.frontend.ir.reads,
 				(rd) =>
@@ -2658,8 +2698,179 @@ interface ChangeSetCase {
 	/** The source of the ChangeSet a choice sequences after the case's own, where its application is given one. */
 	readonly choice: string | undefined
 	readonly verdict: Verdict
+	/** Its ChangeSet's served calls, admitted with array members of distinct relations (servedOf). */
+	readonly served: ReadonlyArray<ServedCall>
 	readonly uses: ReadonlySet<string>
 	readonly notes: ReadonlySet<ChangeSetNote>
+}
+
+/** One served call: the facts it passes, the parameters, and the verdict on it. */
+interface ServedCall {
+	readonly variant: ServedVariant
+	readonly facts: string
+	readonly params: string
+	readonly verdict: Verdict
+}
+
+/** A part whose facts are an array: an array or a widened array of facts, or a family member's facts. */
+type ArraySpec =
+	| {
+			readonly kind: "array" | "widened"
+			readonly op: Op
+			readonly relation: RelName | "Kind"
+			readonly facts: Arr.NonEmptyReadonlyArray<ReadonlyArray<readonly [string, Lit]>>
+	  }
+	| Extract<Part, { readonly kind: "family" }>
+
+/** A part an array member writes, with the level of the ChangeSet it is a member of, and that member. */
+interface ArrayPart {
+	readonly level: Level
+	readonly member: MemberSpec
+	readonly part: ArraySpec
+}
+
+/** The parts of a ChangeSet's array members in its members' order: an appended member's two, every other one's own. */
+const arrayPartsOf = (c: ChangeSpec): ReadonlyArray<ArrayPart> =>
+	Arr.flatMap(builtsOf(c), (b) =>
+		Arr.flatMap(b.members, (member) =>
+			Arr.flatMap(
+				member.kind === "appended" ? insertParts(member) : [member],
+				(part): ReadonlyArray<ArrayPart> =>
+					part.kind === "family"
+						? [{ level: b.level, member, part }]
+						: part.kind === "array" || part.kind === "widened"
+							? [{ level: b.level, member, part: { ...part, kind: part.kind } }]
+							: []
+			)
+		)
+	)
+
+/** The ChangeSet c with the member `from` replaced by `to`. */
+const withMember = (c: ChangeSpec, from: MemberSpec, to: MemberSpec): ChangeSpec =>
+	c.kind === "built"
+		? { ...c, members: Arr.map(c.members, (m) => (m === from ? to : m)) }
+		: { ...c, a: withMember(c.a, from, to), b: withMember(c.b, from, to) }
+
+/**
+ * A ChangeSet's array parts by relation, in its members' order: the engine holds one relation's array members of one op
+ * in one stratum as one member, whose facts are all of theirs.
+ */
+const arrayGroupsOf = (
+	c: ChangeSpec
+): ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<ArrayPart>]> =>
+	Rec.toEntries(Arr.groupBy(arrayPartsOf(c), (p) => partName(p.part)))
+
+/**
+ * The served calls of an admitted ChangeSet whose array members write distinct relations, as a served workload holds
+ * one (two of one relation are refused at generate), one of each variant (servedVariants). The facts a call passes are
+ * its parts' own, each relation's under its name, every array written as an array; the parameters, those the
+ * ChangeSet leaves free.
+ */
+const servedOf = (
+	spec: CaseSpec,
+	admitted: Admitted,
+	rendering: Rendering
+): ReadonlyArray<ServedCall> => {
+	const relations = Arr.map(admitted.arrays, (a) => a.relation)
+	const groups = arrayGroupsOf(spec.change)
+	if (!Arr.isReadonlyArrayNonEmpty(groups) || Arr.dedupe(relations).length !== relations.length) {
+		return []
+	}
+	const drawn = Arr.map(groups, ([relation]) => relation)
+	if (drawn.length !== relations.length || !Arr.every(drawn, (r) => relations.includes(r))) {
+		throw new Error(
+			`the engine's array members ${Arr.join(relations, ", ")} are not the drawn ChangeSet's ${Arr.join(drawn, ", ")}`
+		)
+	}
+	const params = rendering.args({ kind: "record", entries: freeParams(spec.change) })
+	const factsOf = (
+		of: ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<ArrayPart>]>,
+		beside: ReadonlyArray<string>
+	): string =>
+		`{ ${Arr.join(
+			[
+				...Arr.map(
+					of,
+					([relation, parts]) =>
+						`${relation}: [${Arr.join(
+							Arr.flatMap(parts, ({ part }) =>
+								part.kind === "family"
+									? Arr.map(part.facts, (f) => rendering.familyFact(f))
+									: Arr.map(part.facts, (f) => rendering.fact(f))
+							),
+							", "
+						)}]`
+				),
+				...beside
+			],
+			", "
+		)} }`
+	const asBuilt: ServedCall = {
+		variant: "as built",
+		facts: factsOf(groups, []),
+		params,
+		verdict: { kind: "admitted", admitted }
+	}
+	const leftOut: ServedCall = {
+		variant: "a relation left out",
+		facts: factsOf(Arr.tailNonEmpty(groups), []),
+		params,
+		verdict: {
+			kind: "refused",
+			at: "apply",
+			claim: { kind: "prose", why: "the facts leave out an array member's relation" },
+			code: servedShapeCode
+		}
+	}
+	const extra = Arr.findFirst(relNames, (r) => !relations.includes(r))
+	const extraCall: ReadonlyArray<ServedCall> = Option.isSome(extra)
+		? [
+				{
+					variant: "an extra relation",
+					facts: factsOf(groups, [`${extra.value}: []`]),
+					params,
+					verdict: {
+						kind: "refused",
+						at: "apply",
+						claim: {
+							kind: "refusal",
+							refusal: "a served ChangeSet's facts name only the relations of its array members"
+						},
+						code: servedFactCode
+					}
+				}
+			]
+		: []
+	const target = Arr.findFirst(
+		arrayPartsOf(spec.change),
+		(p) => p.member.kind === "array" || p.member.kind === "widened"
+	)
+	const bogusCall: ReadonlyArray<ServedCall> = Option.match(target, {
+		onNone: () => [],
+		onSome: ({ member }) => {
+			if (member.kind !== "array" && member.kind !== "widened") {
+				return []
+			}
+			const [head, ...tail] = member.facts
+			const bogus: MemberSpec = { ...member, facts: [[...head, ["bogus", plainNumber]], ...tail] }
+			const change = withMember(spec.change, member, bogus)
+			const engine = verdictOfOne({
+				change,
+				apply: undefined,
+				fault: "a fact with a field its relation lacks"
+			})
+			return [
+				{
+					variant: "a fact with a field its relation lacks",
+					facts: factsOf(arrayGroupsOf(change), []),
+					params,
+					verdict:
+						engine.kind === "refused" ? { ...engine, at: "apply", code: servedFactCode } : engine
+				}
+			]
+		}
+	})
+	return [asBuilt, leftOut, ...extraCall, ...bogusCall]
 }
 
 interface Drawn {
@@ -2687,7 +2898,14 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 		rendering.uses.add("flip")
 	}
 	const verdict = verdictOf(spec)
+	const served = verdict.kind === "admitted" ? servedOf(spec, verdict.admitted, rendering) : []
 	const notes = new Set<ChangeSetNote>(reached)
+	for (const call of served) {
+		notes.add(`served: ${call.variant}`)
+		if (call.verdict.kind === "refused" && call.verdict.claim.kind === "refusal") {
+			notes.add(refusalNotes[call.verdict.claim.refusal])
+		}
+	}
 	if (verdict.kind === "admitted") {
 		notes.add("admitted")
 	} else {
@@ -2706,7 +2924,7 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	for (const pairing of ownerPairingsOf(spec.change)) {
 		notes.add(pairing)
 	}
-	return { spec, change, args, choice, verdict, uses: rendering.uses, notes }
+	return { spec, change, args, choice, verdict, served, uses: rendering.uses, notes }
 }
 
 /**
@@ -2964,9 +3182,34 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 						: [])
 				]
 			: []
+	const servedHandle = `WorkloadHandles<typeof Writer, { readonly m: typeof c${i} }>["m"]`
+	const served =
+		v.kind === "admitted"
+			? [
+					`export type F${i} = [Expect<Equals<keyof ArraysOf<typeof c${i}>, ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.relation)))}>>, Expect<Equals<Parameters<${servedHandle}["apply"]>["length"], ${Arr.isReadonlyArrayNonEmpty(v.admitted.arrays) ? 2 : 1}>>${Arr.join(
+						Arr.flatMap(
+							c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change),
+							([relation, parts]) => {
+								const { level, part } = Arr.headNonEmpty(parts)
+								return Arr.every(parts, (p) => p.level === level && p.part.op === part.op)
+									? [
+											`, Expect<Equals<ArraysOf<typeof c${i}>[${jsonText(relation)}]["row"], ${part.op === "insert" ? `AdditionIn<typeof ${level}, typeof ${relation}>` : `Written<typeof ${relation}>`}>>`
+										]
+									: []
+							}
+						),
+						""
+					)}]`,
+					...Arr.flatMap(c.served, (call, k) => [
+						`export const s${i}_${k} = (h: ${servedHandle}) =>`,
+						...directiveOf(call.verdict, "apply"),
+						`\th.apply(${call.facts}, ${call.params})`
+					])
+				]
+			: []
 	const apply = c.spec.apply
 	if (apply === undefined) {
-		return Arr.join([...change, ...assertions, ""], "\n")
+		return Arr.join([...change, ...assertions, ...served, ""], "\n")
 	}
 	const passed = apply.args.kind === "variable" ? `w${i}` : c.args
 	const given =
@@ -2999,6 +3242,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		[
 			...change,
 			...assertions,
+			...served,
 			...(apply.args.kind === "variable" ? [`export const w${i} = ${c.args} as const`] : []),
 			`export const a${i} = (${handle}) =>`,
 			...directiveOf(v, "apply"),
@@ -3008,6 +3252,35 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		],
 		"\n"
 	)
+}
+
+/**
+ * pantry's import, kept beside the drawn cases: one insertAll over the role's every top-level relation
+ * (insertableNamesOf), its rows a record typed as insertAll takes them (InsertAllRowsOf), which its served call then
+ * passes as its facts. The engine compiles that ChangeSet for Writer, which writes every one of those relations.
+ */
+const pantryShape = (): ReadonlyArray<string> => {
+	const desc = changeSetDesc(
+		changeSetOver
+			.empty(Writer)
+			.insertAll(Rec.fromEntries(Arr.map(insertableNamesOf(Work), (name) => [name, []] as const)))
+	)
+	if (desc === undefined) {
+		throw new Error("a ChangeSet the facade built has no Description")
+	}
+	const world = roleWorlds.Writer
+	const compiled = compileWrite(world.checked, desc, world.options)
+	if (!compiled.ok) {
+		throw new Error(
+			`the engine refuses pantry's insertAll for Writer: ${messageOf(compiled.error)}`
+		)
+	}
+	return [
+		"declare const pantryRows: { readonly [Name in keyof InsertAllRowsOf<typeof Work>]: ReadonlyArray<InsertAllRowsOf<typeof Work>[Name][number]> }",
+		"export const pantry = ChangeSet.empty(Writer).insertAll(pantryRows)",
+		'export const pantryServed = (h: WorkloadHandles<typeof Writer, { readonly m: typeof pantry }>["m"]) =>',
+		"\th.apply(pantryRows, {})"
+	]
 }
 
 /** The program over the run's cases: one module, each case a block. */
@@ -3027,7 +3300,8 @@ export const changeSetModules = (
 			"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
 			'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
 			"",
-			...Arr.map(cases, blockOf)
+			...Arr.map(cases, blockOf),
+			...pantryShape()
 		],
 		"\n"
 	)

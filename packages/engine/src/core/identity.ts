@@ -1007,6 +1007,19 @@ export const identity = Object.freeze({
 			`pattern law of ${relation}.${field} under ${domain.display}`,
 			hashed
 		),
+	/**
+	 * The law of one generated field, that its term has a value at every row, which its column's NOT NULL refuses where
+	 * it has none: one law per field, so the relation and the field name it. No constraint or function carries it; the
+	 * snapshot's derived facts and a served file's key laws hold it, outside every fingerprint.
+	 */
+	generatedLaw: (relation: string, field: string): Identity<"generatedLaw"> =>
+		mint(
+			"generatedLaw",
+			[relation, field],
+			[...nameSegments(relation), "generated", ...nameSegments(field)],
+			`generated law of ${relation}.${field}`,
+			hashed
+		),
 	/** A login's PostgreSQL role, `<schema>__<login>`: roles are cluster-wide, so its installation is part of it. */
 	login: (installation: Identity<"schema">, name: DeclaredName): Identity<"login"> => {
 		const segments = nameSegments(name)

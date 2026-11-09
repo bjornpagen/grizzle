@@ -35,6 +35,7 @@ export type {
 	CompilableProgram,
 	Compiled,
 	CompileTarget,
+	FactsApply,
 	Plan,
 	ProgramDecoding,
 	QueryReader,

@@ -71,7 +71,9 @@ export default defineConfig({
   roles, and names queries, ordered queries, ChangeSets and relation keys. An ordered query the application pages is
   the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and generate compiles a page
   template for no other member. Two programs of one name across a login's workloads are refused when the login is
-  built.
+  built. A ChangeSet member whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them
+  with each call, `db.workload.<name>.apply(facts, params)`: one array under each such member's relation name, typed
+  and checked as that member's own facts; every other member is `apply(params)`.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for

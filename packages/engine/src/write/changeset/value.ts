@@ -659,13 +659,13 @@ const distinctReads = (
  * its result is the value of the state it makes, whose phantoms are the ones the signature names (each builder below
  * takes them from its contextual result type), and whose decoder is this one, or for read this one merged with the new
  * read-back's. */
-const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
+const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
 	reads: ReadonlyArray<ReadBackState>,
 	boundParams: ReadonlyMap<string, BoundParam>,
 	decoder: RowDecoder<Rd>
-): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const scope = canonicalBindings({ strata, reads, bound: boundParams })
 	const canonical = Object.freeze(scope.strata)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
@@ -679,7 +679,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		desc,
 		inputs
 	})
-	const value: ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember = {
+	const value: ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember = {
 		...builtMark,
 		schema: over.value,
 		reads: decoder,
@@ -791,13 +791,13 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
 	}
 }
 
-const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
+const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	op: MemberOp,
 	relation: unknown,
 	facts: MemberInput
-): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = `ChangeSet.${op}`
 	const name = memberRelation(relation, state.over, label)
 	const member = memberState(state, op, name, captureLoc(`${op} ${name}`, []), facts, label)
@@ -826,11 +826,11 @@ const insertRows = (
 }
 
 /** insertAll: each key's members inserted as insert inserts them, in the record's order, into one ChangeSet made once. */
-const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
+const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	rows: Readonly<Record<string, MemberInput>>
-): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.insertAll"
 	const scope = insertRows(rows, label).reduce<Scope>((at, [key, facts]) => {
 		const name = memberRelationNamed(key, state.over, label)
@@ -856,13 +856,14 @@ const addRead = <
 	const Name extends string,
 	IHead,
 	Done extends Strata,
-	Last extends Stratum
+	Last extends Stratum,
+	A
 >(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	nameArg: ReadName<Name, Rd>,
 	readBack: (delta: Delta<S>) => Decoders<unknown, IHead>
-): ChangeSetOf<S, P, W, WithRead<Rd, Name, IHead>, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, WithRead<Rd, Name, IHead>, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.read"
 	const name = requireName(nameArg, label, "a read-back name")
 	if (state.reads.some((r) => r.name === name)) {
@@ -908,11 +909,11 @@ const absent = (value: unknown): boolean => value === undefined || value === nul
  * refuses it, and nothing after the read runs the caller's code.
  *
  * A free name is no private one, so the bound parameter keeps its name until make() makes it canonical. */
-const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends Stratum>(
+const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	params: ParamMap
-): ChangeSetOf<S, unknown, W, Rd, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, unknown, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.bind"
 	const read = hostRead(
 		() => malformed(label, "a record of parameter values whose reading throws nothing"),
@@ -999,7 +1000,7 @@ const emptyOf = <S, Done extends Strata, Last extends Stratum>(
 			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
 		)
 	}
-	return make<S, unknown, never, unknown, Done, Last>(
+	return make<S, unknown, never, unknown, Done, Last, unknown>(
 		over,
 		[[]],
 		[],
@@ -1031,11 +1032,11 @@ const combined = <R1, R2>(
 }
 
 /** ChangeSet.union(a, b): the commutative combination, strata position by position. */
-const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last extends Stratum>(
+const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last extends Stratum, A>(
 	a: ReadsMember<R1>,
 	b: ReadsMember<R2>,
 	extra: ReadonlyArray<unknown>
-): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.union"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const n = Math.max(x.strata.length, y.strata.length)
@@ -1047,11 +1048,11 @@ const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last exten
 }
 
 /** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's. */
-const sequenceOf = <S, P, W extends string, R1, R2, Done extends Strata, Last extends Stratum>(
+const sequenceOf = <S, P, W extends string, R1, R2, Done extends Strata, Last extends Stratum, A>(
 	a: ReadsMember<R1>,
 	b: ReadsMember<R2>,
 	extra: ReadonlyArray<unknown>
-): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, Done, Last> & SchemaMember => {
+): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.sequence"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])

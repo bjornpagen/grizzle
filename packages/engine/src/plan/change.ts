@@ -7,7 +7,10 @@ export type { Family } from "#compiler/ir/family.ts"
 export type { FamilyId, TableRelation } from "#compiler/ir/law.ts"
 export type {
 	AnyChangeSet,
+	ArraysOf,
 	ChangeSet,
+	FactsCheck,
+	FactsShape,
 	Law,
 	PlannedStrata,
 	Refused,

@@ -1,5 +1,7 @@
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { GeneratedLawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
 import { type Family, orderOf } from "#compiler/ir/family.ts"
@@ -109,11 +111,15 @@ export type GeneratedLaw = Extract<Law, { readonly kind: "generated" }>
 export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
 	Object.freeze({ kind: "generated", relation, field })
 
-/** A stored field PostgreSQL generates: its relation, the field, and the field's law (generatedLaw). */
+/**
+ * A stored field PostgreSQL generates: its relation, the field, the field's law (generatedLaw) and the law's identifier
+ * (core/identity.ts generatedLaw), which no fingerprinted part of a snapshot holds.
+ */
 export interface GeneratedFieldLaw {
 	readonly relation: TableRelation
 	readonly field: LawField
 	readonly law: GeneratedLaw
+	readonly id: GeneratedLawId
 }
 
 /**
@@ -127,7 +133,14 @@ export const generatedFieldLaws = (
 	relations.flatMap((relation) =>
 		relation.fields.flatMap((field): ReadonlyArray<GeneratedFieldLaw> =>
 			field.writing.kind === "generated"
-				? [Object.freeze({ relation, field, law: generatedLaw(relation.name, field.name) })]
+				? [
+						Object.freeze({
+							relation,
+							field,
+							law: generatedLaw(relation.name, field.name),
+							id: identifierOf(identity.generatedLaw(relation.name, field.name))
+						})
+					]
 				: []
 		)
 	)

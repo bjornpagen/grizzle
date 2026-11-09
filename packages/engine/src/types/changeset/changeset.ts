@@ -437,6 +437,18 @@ type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"
 			: false
 
 /**
+ * insertAll's array members (ArraysAdded), one for each key whose members are an array: that key's relation, with the
+ * additions insert takes for it.
+ */
+type InsertedArrays<S, Rows> = {
+	readonly [
+		K in keyof Rows as [Rows[K]] extends [ReadonlyArray<unknown>]
+			? NameOf<InsertedRelation<S, K>>
+			: never
+	]-?: ArrayFacts<InsertedRelation<S, K>, AdditionIn<S, InsertedRelation<S, K>>>
+}
+
+/**
  * The parameters insertAll's members need together: each member's map (ParamsOf), joined as successive inserts join
  * them, and unknown where none names one.
  */
@@ -566,7 +578,8 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * Writes is the union of the relation names its members write; db.apply checks it against the role's write list. Over
  * a role a ChangeSet writes the world relations the role's write list names, besides ordinary relations. Cx is the union
  * of the contexts its members and read-backs match, which db.apply checks against the role's (WithinRoleContexts).
- * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum).
+ * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum). Arrays is its array
+ * members by relation name (ArrayFacts), the facts a served workload's member takes with each call (FactsCheck).
  *
  * What an applied ChangeSet's outcome reads back is a real member: `reads`, the decoder of the record of its
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
@@ -580,7 +593,8 @@ export interface ChangeSet<
 	Reads = unknown,
 	Cx = never,
 	Done extends Strata = Strata,
-	Last extends Stratum = Stratum
+	Last extends Stratum = Stratum,
+	Arrays = unknown
 > extends Phantom<{
 	readonly params: Params
 	readonly paramsInvariant: Invariant<Params>
@@ -588,6 +602,7 @@ export interface ChangeSet<
 	readonly contexts: Cx
 	readonly schema: Invariant<S>
 	readonly strata: readonly [...Done, Last]
+	readonly arrays: Arrays
 }> {
 	/** The decoder of the outcome's read-backs, by name. */
 	readonly reads: RowDecoder<Reads>
@@ -613,7 +628,8 @@ export interface ChangeSet<
 			Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
 			Last["needs"] | FixedOwnerOf<S, R>,
 			EditsWith<Last, S, R>
-		>
+		>,
+		Arrays & ArraysAdded<R, M, AdditionIn<S, R>>
 	>
 	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
@@ -633,7 +649,8 @@ export interface ChangeSet<
 			Last["inserts"] | InsertedWrites<S, Rows>,
 			Last["needs"] | InsertedNeeds<S, Rows>,
 			InsertedEdits<Last, S, Rows>
-		>
+		>,
+		Arrays & InsertedArrays<S, Rows>
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
@@ -654,7 +671,8 @@ export interface ChangeSet<
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
-		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>
+		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
+		Arrays & ArraysAdded<R, M, Written<R>>
 	>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
@@ -676,7 +694,8 @@ export interface ChangeSet<
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
-		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>
+		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
+		Arrays & ArraysAdded<R, M, Written<R>>
 	>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
@@ -693,11 +712,12 @@ export interface ChangeSet<
 		Simplify<Reads & { readonly [K in Name]: ReadonlyArray<IHead> }>,
 		Cx | ContextsOf<Q>,
 		Done,
-		Last
+		Last,
+		Arrays
 	>
 	bind<const Arg>(
 		params: ParamArg<Params> & Arg & OnlyParams<Arg, Params>
-	): ChangeSet<S, unknown, Writes, Reads, Cx, Done, Last>
+	): ChangeSet<S, unknown, Writes, Reads, Cx, Done, Last, Arrays>
 }
 
 /**
@@ -706,6 +726,50 @@ export interface ChangeSet<
  * two of them is one program.
  */
 type JointParams<A, B> = [keyof (A & B)] extends [never] ? unknown : Simplify<A & B>
+
+/**
+ * An array member of a ChangeSet: the relation R it writes and the type of each of its facts, Row, the facts insert,
+ * delete or put takes for R (AdditionIn for an insert, its sequences' members nested at its count fields, and Written
+ * for a delete or a put). A served workload's member takes an array member's facts with each call, in place of the
+ * array the ChangeSet was built with.
+ */
+interface ArrayFacts<R, Row> {
+	readonly relation: R
+	readonly row: Row
+}
+
+/**
+ * The array members member M of R adds, under R's name: one where M is an array, none for a Stream or a query member,
+ * whose facts no call supplies. A ChangeSet's Arrays is the intersection of every member's, so two array members of
+ * one relation would hold the intersection of both under one name, and a call's facts there would have to be facts of
+ * both; the engine refuses such a ChangeSet in a served workload (UnservedMember).
+ */
+type ArraysAdded<R, M, Row> = [M] extends [ReadonlyArray<unknown>]
+	? { readonly [N in NameOf<R>]: ArrayFacts<R, Row> }
+	: unknown
+
+/** A ChangeSet's array members by relation name (ArrayFacts), unknown for a program that holds none. */
+export type ArraysOf<X> = X extends Phantom<{ readonly arrays: infer A }> ? A : unknown
+
+/**
+ * What a served member's facts F must be for the array members A: an array under each one's relation name, so a call
+ * that leaves one out is a type error. Its facts are inferred apart from their rows' types, as insert's are, so
+ * FactsCheck alone decides which rows fit.
+ */
+export type FactsShape<A> = { readonly [N in keyof A]: ReadonlyArray<unknown> }
+
+/**
+ * Each relation's facts in F checked as the member A holds for it checks its own (MemberCheck): exactly an arm of its
+ * row type each, no field beyond it, and no two literal facts at one primary key; and a key naming no array member's
+ * relation refused, as the engine refuses one (write/program memberFactsOf), so a misspelt relation drops no rows.
+ */
+export type FactsCheck<F, A> = {
+	readonly [N in keyof F]: N extends keyof A
+		? A[N] extends { readonly relation: infer R; readonly row: infer Row }
+			? MemberCheck<F[N], Row, R>
+			: never
+		: Refusal<"a served ChangeSet's facts name only the relations of its array members">
+}
 
 /**
  * What one stratum of a ChangeSet writes, as the engine's front end plans it (write/frontend/compile.ts): the relations
@@ -935,10 +999,12 @@ export interface ChangeSetConstructor {
 		D1 extends Strata,
 		D2 extends Strata,
 		L1 extends Stratum,
-		L2 extends Stratum
+		L2 extends Stratum,
+		A1,
+		A2
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2> &
+		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1, A1>,
+		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
 			UnionEdits<D1, L1, D2, L2>
@@ -949,7 +1015,8 @@ export interface ChangeSetConstructor {
 		Simplify<R1 & R2>,
 		C1 | C2,
 		Leading<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
-		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>
+		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
+		A1 & A2
 	>
 	/**
 	 * Strata: b is evaluated against the state a produced. The result is over the higher of the two schemas, each of
@@ -969,10 +1036,12 @@ export interface ChangeSetConstructor {
 		D1 extends Strata,
 		D2 extends Strata,
 		L1 extends Stratum,
-		L2 extends Stratum
+		L2 extends Stratum,
+		A1,
+		A2
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2> &
+		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1, A1>,
+		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
 			EditsRefusal<[EditsIn<D1, L1>, EditsIn<D2, L2>] extends [true, true] ? true : false>
@@ -983,7 +1052,8 @@ export interface ChangeSetConstructor {
 		Simplify<R1 & R2>,
 		C1 | C2,
 		readonly [...D1, L1, ...D2],
-		L2
+		L2,
+		A1 & A2
 	>
 }
 
