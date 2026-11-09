@@ -23,12 +23,113 @@ export interface Prelude {
 	readonly types: ReadonlyArray<string>
 }
 
+/** A character of a name: an ASCII letter or digit, `_` or `$`. */
+const isNameChar = (c: string): boolean =>
+	(c >= "a" && c <= "z") ||
+	(c >= "A" && c <= "Z") ||
+	(c >= "0" && c <= "9") ||
+	c === "_" ||
+	c === "$"
+
 /**
- * The identifiers a program's text names outside its comments, which its imports are read off: a name a directive or a
- * case's doc mentions is no use of it.
+ * The names a program's code reads, which its imports are read off: each identifier outside its comments and its
+ * string literals, a template's text included and its substitutions code, that is neither the property a `.` reads of
+ * another value nor the key of an object or type literal's member (`{ Line: … }`, `readonly r0: …`). A name a
+ * directive or a case's doc mentions, a string spells (a roster's handle, `Rostered<"Kind">`, a relation's name in a
+ * union of names), a member access names or a key states is no read of it, and an import of a value no code reads is
+ * a TS6133 the program never states.
  */
-export const identifiers = (text: string): ReadonlySet<string> =>
-	new Set(Str.split(Str.replace(comment(), "")(text), regex("[^A-Za-z0-9_$]+")))
+export const identifiers = (text: string): ReadonlySet<string> => {
+	const chars = Str.split(text, "")
+	const char = (i: number): string => chars[i] ?? ""
+	const blank = (c: string): boolean => c === " " || c === "\t" || c === "\n" || c === "\r"
+	/** The index of the first `close` at or after `from`, or the text's end. */
+	const until = (from: number, close: ReadonlyArray<string>): number => {
+		let i = from
+		while (i < chars.length && !Arr.every(close, (c, k) => char(i + k) === c)) {
+			i += 1
+		}
+		return i
+	}
+	const names = new Set<string>()
+	/** The closing quote of each string or template the scan is inside, innermost last, or `}` for a substitution. */
+	const open: Array<string> = []
+	let at = 0
+	let previous = ""
+	while (at < chars.length) {
+		const c = char(at)
+		const inside = open.at(-1)
+		if (inside === '"' || inside === "'" || inside === "`") {
+			if (c === "\\") {
+				at += 2
+			} else if (c === inside) {
+				open.pop()
+				at += 1
+			} else if (inside === "`" && c === "$" && char(at + 1) === "{") {
+				open.push("}")
+				at += 2
+			} else {
+				at += 1
+			}
+			continue
+		}
+		if (c === "/" && char(at + 1) === "/") {
+			at = until(at, ["\n"])
+			continue
+		}
+		if (c === "/" && char(at + 1) === "*") {
+			at = until(at + 2, ["*", "/"]) + 2
+			continue
+		}
+		if (c === '"' || c === "'" || c === "`") {
+			open.push(c)
+			at += 1
+			previous = c
+			continue
+		}
+		if (c === "." && char(at + 1) === "." && char(at + 2) === ".") {
+			at += 3
+			previous = "..."
+			continue
+		}
+		if (inside === "}" && c === "}") {
+			open.pop()
+			at += 1
+			continue
+		}
+		if (inside === "}" && c === "{") {
+			open.push("}")
+			at += 1
+			continue
+		}
+		if (isNameChar(c)) {
+			let end = at
+			while (end < chars.length && isNameChar(char(end))) {
+				end += 1
+			}
+			const name = Arr.join(chars.slice(at, end), "")
+			let next = end
+			while (next < chars.length && blank(char(next))) {
+				next += 1
+			}
+			const colon = char(next) === ":" || (char(next) === "?" && char(next + 1) === ":")
+			const key =
+				colon &&
+				(previous === "{" || previous === "," || previous === ";" || previous === "readonly")
+			if (previous !== "." && !key) {
+				names.add(name)
+			}
+			previous = name
+			at = end
+			continue
+		}
+		if (!blank(c)) {
+			previous = c
+		}
+		at += 1
+	}
+	return names
+}
 
 /** One exported name of a prelude: the name it exports under, and whether it is a type alone. */
 interface Exported {
