@@ -290,7 +290,9 @@ const printFacts = (facts: PayrollFacts): string =>
  * per program, run in one rolled-back transaction on one pinned owner session:
  *
  * 1. the facts load as typed literal INSERTs, every deferred law judges them at once (SET CONSTRAINTS ALL IMMEDIATE),
- *    so an unlawful state fails as such, RunTotal's view is refreshed, and the tables are analyzed;
+ *    so an unlawful state fails as such, every materialized view of the installation's levels is refreshed, lower
+ *    levels first, each level in a PostgreSQL schema of its own (RunTotal's is Reporting's), and the tables are
+ *    analyzed;
  * 2. under the case's planner settings, each program's conservative statements run, then its optimized statements and
  *    each per-execution variant, an attachment's parent keys read from its parent statement's delivered rows;
  * 3. every optimized run equals the conservative run statement by statement as raw output-function text sets,
@@ -333,8 +335,8 @@ export const runPayrollCase = (
 					yield* exec("SET CONSTRAINTS ALL IMMEDIATE", "the generated state's laws")
 					const views = yield* session
 						.queryValues(
-							"SELECT pg_catalog.format('%I.%I', schemaname, matviewname) FROM pg_catalog.pg_matviews WHERE schemaname = $1",
-							[installed.schema]
+							"SELECT pg_catalog.format('%I.%I', schemaname, matviewname) FROM pg_catalog.pg_matviews WHERE schemaname = ANY ($1::text[]) ORDER BY pg_catalog.array_position($1::text[], schemaname::text)",
+							[Arr.map(installed.installation.names.levels, (level) => level.identifier)]
 						)
 						.pipe(Effect.catch((e) => e.pipe(sqlMessage, fail)))
 					for (const [view] of views) {
