@@ -122,6 +122,15 @@ post-beta swarm's fixes for the next release.
   foreign key immediate and puts the member's insert before one owner's insert and another member's after it
   (AssembledReference contained in TestReference, beside its PlacedReference members). test/pg/write/stratum-order
   draws that shape alone (option b). When the core grows, give it such a shared-field column so the swarm draws it.
+- **pg/fin/fold-ends met 40001 once, with no writer beside it (WASTE-QTI, 2026-11-09):** the full run at f6f1afbf
+  (TEST_SEED=1966458093, the steered phase, case 24) failed one apply with TransientFailure 40001. Replayed three times
+  at da0e9a93 it passes. Nothing in its database writes beside it: the file claims its database under an advisory lock
+  (substrate/shared.ts claimSharedDatabase), runs its cases one at a time (concurrency 1), and its other statements
+  (cleared's TRUNCATE, tableState's reads) are each committed before the next apply. The cluster was running several
+  lanes' pg suites at once, and PostgreSQL's SERIALIZABLE bookkeeping is shared by the whole cluster: that load, not
+  a writer in its own database, is the candidate cause. Record the next one with pg_stat_activity of every database at
+  that moment. Replay:
+  `TEST_REPLAY='pg/fin/fold-ends:5ffffffffffffffffe739ce739ce739ce739ce739ce739ce739ce739850a142850a142850a142850a142850a142850a1429f3e7cf9f04:1.0.f.1.a.0.2.0.1.0.0.0.1.0.2.0.0.0.0.2.7.7.0.3.2o.7.7.8.3.mk.3.0.3.4.f.7.4.1w.5r.9b.1.0.6.b.f.1d.26.1e.24.0.0.0.9.q.o.i.62.1m.3.1.0.7.b.q.16.2t.2j.e3.0.2.5.6.d.h.9.2p.8c.0.3.4.1.u.17.w.29.90.2.1.4.5.1.h1.3.8.5.1.2.bm.1.1.0.0.0.2.0.0.2.1.0.1.0.1.1.0.0'`
 
 ## Upstream, for the owner to file
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
