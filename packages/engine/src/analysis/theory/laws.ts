@@ -140,8 +140,7 @@ interface StatedRule {
  * carries and the folds over it. Every written detail is one of these too, so a law's identity reads either.
  */
 export type StatedDetail =
-	| Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" | "rule" }>
-	| StatedCheck
+	| Exclude<LawDetail, { readonly kind: "family" | "tree" | "rule" }>
 	| StatedRule
 	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds"> }
 	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds"> }
@@ -169,10 +168,7 @@ export type LawDetail =
 			/** The key as the checked schema minted it: its fields' handles, its span, its constraint identifier. */
 			readonly key: KeyName
 	  }
-	| (StatedCheck & {
-			/** The predicate as the law's violation query lowers it, a node of the theory's DAG. */
-			readonly lowered: ScalarExpr
-	  })
+	| StatedCheck
 	| {
 			readonly kind: "contract"
 			readonly contract: string
@@ -364,10 +360,8 @@ interface StatementSource {
 	readonly loc: SourceLoc
 }
 
-/**
- * A law before it has an identity: its record but its statements, the statements it comes from, and how its detail and
- * its violation query are written.
- */
+/** A law before it has an identity: its record but its statements, the statements it comes from, and how its detail is
+ * written. */
 interface LawDraft {
 	readonly identity: Omit<LawIdentity, "statements">
 	readonly sources: ReadonlyArray<StatementSource>
@@ -375,29 +369,20 @@ interface LawDraft {
 }
 
 /**
- * How a law is written: in the theory's builder, its detail as the theory carries it (theory.ts buildTheory) apart from
- * its violation query, which only the violation queries' writer writes (laws/model/violations.ts); or, for a rule over
- * a query, as a query description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits
- * and the violation queries' writer merges into its DAG.
+ * How a law's detail is written as the theory carries it (theory.ts buildTheory): a family's and a tree's resolved once
+ * the theory resolves its families, any other law's as stated; or, for a rule over a query, with its violation query, a
+ * description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits and carries checked.
+ * No law's violation query is written here (laws/model/violations.ts), and no predicate is lowered: law specialization
+ * lowers what it serves or installs.
  */
 type LawWriting =
-	| { readonly kind: "built"; readonly detail: (b: ViolationBuilder) => WrittenDetail }
+	| { readonly kind: "built"; readonly detail: () => LawDetail }
 	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: StatedRule }
 
-/**
- * A law's detail as the theory law carries it, and the nodes of the theory's DAG it lowered: a row check's with its
- * predicate lowered over a scan of its row, which `roots` reads; a family's and a tree's resolved; any other law's as
- * stated, lowering nothing.
- */
-interface WrittenDetail {
-	readonly detail: LawDetail
-	readonly roots: ReadonlyArray<RelNode>
-}
-
-/** A draft whose detail is as stated: every law but a row check, a family and a tree. */
+/** A draft whose detail is as stated: every law but a family and a tree. */
 interface StatedDraft {
 	readonly identity: Omit<LawIdentity, "statements" | "detail"> & {
-		readonly detail: Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" }>
+		readonly detail: Exclude<LawDetail, { readonly kind: "family" | "tree" }>
 	}
 	readonly sources: ReadonlyArray<StatementSource>
 }
@@ -406,7 +391,7 @@ interface StatedDraft {
 const lawDraft = (draft: StatedDraft): LawDraft => ({
 	identity: draft.identity,
 	sources: draft.sources,
-	write: { kind: "built", detail: () => ({ detail: draft.identity.detail, roots: [] }) }
+	write: { kind: "built", detail: () => draft.identity.detail }
 })
 
 /** The draft of a key ownership owned over `r`, its handles the checked schema's: a relation's primary key, or a key
@@ -1239,7 +1224,7 @@ export class Normalizer {
 					predicate: s.predicate,
 					named: s.check.named
 				}
-				this.#keep(
+				this.#push(
 					{
 						identity: {
 							shape: "check",
@@ -1247,20 +1232,9 @@ export class Normalizer {
 							reads: [s.relation],
 							detail: stated
 						},
-						sources,
-						write: {
-							kind: "built",
-							detail: (b) => {
-								const lowered = checkPredicate(b, this.env, r, s.predicate, loc)
-								return {
-									detail: { ...stated, lowered: lowered.predicate },
-									roots: [b.project(lowered.region, [["check", lowered.predicate]])]
-								}
-							}
-						}
+						sources
 					},
-					loc,
-					(kept) => this.#laws.push(kept)
+					loc
 				)
 				return
 			}
@@ -1486,10 +1460,7 @@ export class Normalizer {
 				sources: [{ index, loc }],
 				write: {
 					kind: "built",
-					detail: () => ({
-						detail: { kind: "family", family: this.#resolvedFamily(f.id) },
-						roots: []
-					})
+					detail: () => ({ kind: "family", family: this.#resolvedFamily(f.id) })
 				}
 			},
 			loc,
@@ -1524,10 +1495,7 @@ export class Normalizer {
 						if (resolved.members.kind !== "tree") {
 							throw defect("a tree's resolved family keeps its tree members")
 						}
-						return {
-							detail: { kind: "tree", family: { ...resolved, members: resolved.members } },
-							roots: []
-						}
+						return { kind: "tree", family: { ...resolved, members: resolved.members } }
 					}
 				}
 			},

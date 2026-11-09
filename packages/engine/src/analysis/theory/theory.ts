@@ -29,7 +29,6 @@ import {
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
@@ -59,7 +58,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
-import type { HeadingColumn, KeySet, RelNode } from "#compiler/ir/rel.ts"
+import type { HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -581,10 +580,11 @@ class Builder {
 	/**
 	 * Each law with its detail written, in law order: each primary key's law with its relation, then every other law.
 	 * The families are resolved first, each fold's step selection lowered, since a family's and a tree's law carry
-	 * them; a row check's predicate is lowered over a scan of its row; a rule over a query is admitted, its violation
-	 * query checked against the checked schema. No law's violation query is written (laws/model/violations.ts writes
-	 * them). The DAG holds what the theory lowered, each fold's nonempty step selection and each row check's predicate
-	 * projected over its scan, so the law model's own DAG extends it under labels apart from every one they carry.
+	 * them; a rule over a query is admitted, its violation query checked against the checked schema. No law's violation
+	 * query is written (laws/model/violations.ts writes them) and no row check's predicate is lowered (law
+	 * specialization lowers the checks it keeps). The DAG holds what the theory lowered, each fold's nonempty step
+	 * selection projected over its scan, so the law model's own DAG extends it under labels apart from every one it
+	 * carries.
 	 */
 	#written(
 		normalizer: Normalizer,
@@ -597,7 +597,7 @@ class Builder {
 	} {
 		const vb = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const resolved = normalizer.resolve(vb)
-		const roots: Array<RelNode> = resolved.selections.map((s) =>
+		const roots = resolved.selections.map((s) =>
 			vb.project(
 				s.region,
 				s.where.map((w, i) => [`where${i}`, w] as const)
@@ -607,11 +607,8 @@ class Builder {
 			const law = { id: identifierOf(k.named), named: k.named, ...k.identity, loc: k.loc }
 			const writing = k.draft.write
 			switch (writing.kind) {
-				case "built": {
-					const written = writing.detail(vb)
-					appendAll(roots, written.roots)
-					return Object.freeze({ ...law, detail: written.detail })
-				}
+				case "built":
+					return Object.freeze({ ...law, detail: writing.detail() })
 				case "query": {
 					const checked = checkQuery(this.checked, writing.violation, {
 						read: "rows",

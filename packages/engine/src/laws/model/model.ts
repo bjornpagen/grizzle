@@ -654,11 +654,18 @@ const immediateOf = (plans: ReadonlyArray<LawPlan>, deferred: Deferral): Readonl
 		)
 	)
 
-/** A plan's native object as the specializer materializes it: a generated CHECK with its predicate lowered into the
- * extension DAG (`#lowerCheck`), a law column with its value lowered there (`ColumnLowering`), a ClosedCheck with its
- * guard lowered, every other as its plan states it. */
+/** A plan's native object as the specializer materializes it: a declared row check with its predicate lowered into the
+ * extension DAG over its relation's row (`ColumnLowering`), a generated CHECK with its predicate lowered there
+ * (`#lowerCheck`), a law column with its value lowered there, a ClosedCheck with its guard lowered, every other as its
+ * plan states it. */
 type PlacedNative =
-	| Exclude<NativePlan, { readonly kind: "GeneratedCheck" | "LawColumn" | "ClosedCheck" }>
+	| Exclude<
+			NativePlan,
+			{ readonly kind: "TableCheck" | "GeneratedCheck" | "LawColumn" | "ClosedCheck" }
+	  >
+	| (Omit<Extract<NativePlan, { readonly kind: "TableCheck" }>, "predicate"> & {
+			readonly predicate: ScalarExpr
+	  })
 	| (Omit<NativeOf<"ClosedCheck">, "lawIds" | "pairs"> & {
 			readonly pairs: Extract<NativePlan, { readonly kind: "ClosedCheck" }>["pairs"]
 	  })
@@ -748,6 +755,17 @@ class ColumnLowering {
 			)
 		}
 		return guards
+	}
+
+	/**
+	 * A declared row check's predicate lowered over its relation's row, total, as its violation query lowers it, reached
+	 * from a root of its own.
+	 */
+	check(relation: TheoryRelation, predicate: ExprDesc, loc: SourceLoc): ScalarExpr {
+		const row = this.#row(relation)
+		const lowered = unwrap(lowerPredicate(predicate, this.#env(row, loc, new Map()))).expr
+		this.#roots.push(this.#ext.project(row.region, [["check", lowered]]))
+		return lowered
 	}
 
 	value(plan: LawColumnPlan, named: Identity<"lawColumn">, loc: SourceLoc): LawColumnValue {
@@ -943,7 +961,7 @@ class Specializer {
 		const deferred = this.#deferral(plans)
 		const immediate = immediateOf(plans, deferred)
 
-		/** The extension DAG: each generated CHECK's predicate and each law column's value. */
+		/** The extension DAG: each declared and generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const roots: Array<RelNode> = []
 		const columns = new ColumnLowering(ext, this.#typing, this.checked.closedReads, roots, (plan) =>
@@ -966,10 +984,11 @@ class Specializer {
 					}
 				case "ClosedCheck":
 					return { ...n, guard: columns.guards(n.relation, n.guard, plan.law.loc) }
+				case "TableCheck":
+					return { ...n, predicate: columns.check(n.relation, n.predicate, plan.law.loc) }
 				case "PrimaryKey":
 				case "Unique":
 				case "Domain":
-				case "TableCheck":
 				case "RosterDomain":
 				case "ForeignKey":
 				case "WithoutOverlaps":
@@ -1433,7 +1452,7 @@ class Specializer {
 					kind: "TableCheck",
 					relation: n.relation,
 					check: { kind: "declared", name: n.name, named: n.named },
-					predicate: n.predicate,
+					predicate: renamed(n.predicate),
 					lawIds
 				}
 			case "LoweredCheck":
@@ -1736,8 +1755,8 @@ const specialize = (
  *   other rule's minted from its law (identity.lawTrigger), each running a function of its own
  *   (identity.lawFunction), and each listed in the constraint map under its table, so a violation it raises names the
  *   rule. A rule that reads closed relations alone is discharged by the migration, as every such law is.
- * - The DAG: the theory's violation queries plus each generated CHECK's predicate and each generated law column's
- *   value.
+ * - The DAG: the theory's lowered fold selections plus each declared and generated CHECK's predicate and each
+ *   generated law column's value, each lowered here over its relation's row.
  *
  * The law model of an owned schema, or the first refusal: a theory refusal, a law shape the compiler does not
  * admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law planned once:

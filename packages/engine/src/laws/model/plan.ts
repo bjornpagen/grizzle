@@ -414,8 +414,8 @@ export type NativePlan =
 			readonly relation: RelationInfo
 			readonly name: string
 			readonly named: Identity<"check">
-			/** The predicate as the check law's violation query lowers it. */
-			readonly predicate: ScalarExpr
+			/** The predicate as the check states it, which specialization lowers over the relation's row. */
+			readonly predicate: ExprDesc
 	  }
 	| {
 			/** One CHECK a law generates on `relation`: the conjunction of every row condition it states there. */
@@ -1199,7 +1199,7 @@ export class Recognizer {
 								relation: d.rel,
 								name: d.name,
 								named: d.named,
-								predicate: d.lowered
+								predicate: d.predicate
 							}
 						])
 			case "contract":
