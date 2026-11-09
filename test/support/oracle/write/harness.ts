@@ -1270,7 +1270,7 @@ export const runCase = (
 			})
 		}
 		const program = entry.success.program
-		const baseline = conservativeChange(entry.success, t.ctx.artifacts.reads)
+		const baseline = conservativeChange(entry.success, t.ctx)
 		if (!baseline.ok) {
 			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet's conservative realization does not compile: ${baseline.error.message}`

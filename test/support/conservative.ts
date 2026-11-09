@@ -187,17 +187,21 @@ export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): Read
 						return EffectResult.succeed(compiled)
 					}
 					const page = source.page
-					return EffectResult.map(
-						conservativePageRuntime(
-							page.runtime,
-							page.compiled.template,
-							page.compiled.desc,
-							ctx.artifacts
-						),
-						(runtime): ReadForm<unknown> => ({
-							...compiled,
-							page: { kind: "compiled", page: { ...page, runtime } }
-						})
+					return EffectResult.flatMap(
+						toResult(ctx.programArtifacts({ kind: "query", query: page.compiled.desc })),
+						({ artifacts }) =>
+							EffectResult.map(
+								conservativePageRuntime(
+									page.runtime,
+									page.compiled.template,
+									page.compiled.desc,
+									artifacts
+								),
+								(runtime): ReadForm<unknown> => ({
+									...compiled,
+									page: { kind: "compiled", page: { ...page, runtime } }
+								})
+							)
 					)
 				}
 			)
@@ -218,18 +222,25 @@ export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): Read
 /**
  * The write oracle's baseline of a compiled ChangeSet: `entry` with its program's conservative realization
  * (write/program/compile.ts conservativeWrite) and that realization's read-backs in their place, which an application
- * then runs as it runs the optimized one. `reads` names the relations the members and read-backs read under, the
- * entry's role's.
+ * then runs as it runs the optimized one, its members and read-backs read under the names of the artifacts its role
+ * compiled it against (db/context.ts RoleContext.programArtifacts).
  */
 export const conservativeChange = (
 	entry: CompiledChange,
-	reads: PhysicalNames
+	role: Pick<DbContext, "programArtifacts">
 ): Result.Result<CompiledChange, CompileError> =>
-	Result.map(conservativeWrite(entry.program, { names: entry.names, reads }), (program) => ({
-		...entry,
-		program,
-		readBacks: readBacks(program, entry.names.codes)
-	}))
+	Result.flatMap(
+		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
+		({ artifacts }) =>
+			Result.map(
+				conservativeWrite(entry.program, { names: entry.names, reads: artifacts.reads }),
+				(program) => ({
+					...entry,
+					program,
+					readBacks: readBacks(program, entry.names.codes)
+				})
+			)
+	)
 
 /**
  * The conservative lowering of a page compiled from `input` (lower/shapes/page/compile.ts compilePage), its

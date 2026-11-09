@@ -40,6 +40,7 @@ import { type ConservativeParamSlot, statementOutput } from "#compiler/lower/con
 import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/decode.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
@@ -173,6 +174,8 @@ type Flight = { readonly kind: "awaiting" } | { readonly kind: "flown"; readonly
 interface Recorded {
 	readonly prepared: CompiledTemplate
 	readonly desc: QueryDesc
+	/** The artifacts the template was compiled against (db/context.ts ProgramTemplate). */
+	readonly artifacts: SchemaArtifacts
 }
 
 /**
@@ -450,7 +453,7 @@ const probeOf = (
 }
 
 const checkPage =
-	(ctx: DbContext, conversion: Conversion) =>
+	(conversion: Conversion) =>
 	(
 		recordedPage: Option.Option<Recorded>,
 		sent: SentRuns,
@@ -464,7 +467,7 @@ const checkPage =
 		const runtime = pageTemplateFor({
 			template: recorded.prepared.template,
 			desc: recorded.desc,
-			artifacts: ctx.artifacts
+			artifacts: recorded.artifacts
 		})
 		if (Result.isFailure(runtime)) {
 			throw new Error("a page whose page template does not compile")
@@ -514,7 +517,11 @@ const recordingCompile = (ctx: DbContext) => {
 	const pages = new WeakMap<object, Recorded>()
 	const compile: DbContext["compile"] = (input, request) =>
 		Engine.map(ctx.compile(input, request), (prepared) => {
-			const recorded: Recorded = { prepared: prepared.compiled, desc: input.desc }
+			const recorded: Recorded = {
+				prepared: prepared.compiled,
+				desc: input.desc,
+				artifacts: prepared.artifacts
+			}
 			last = Option.some(recorded)
 			if (request.read === "page") {
 				pages.set(input.desc, recorded)
@@ -553,7 +560,7 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictRe
 	}
 	const reader: ReaderValue = makeReader(context, executor)
 	const read = checkRead(conversion, ctx.artifacts.names.codes)
-	const paged = checkPage(ctx, conversion)
+	const paged = checkPage(conversion)
 
 	const checked = <A, E>(
 		answer: Effect.Effect<A, E>,

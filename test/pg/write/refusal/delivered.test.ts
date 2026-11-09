@@ -346,7 +346,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								}
 								const entry = succeeded(
 									Result.flatMap(compiledWrite(opened, changes, opened.claims), (compiled) =>
-										toResult(conservativeChange(compiled, opened.artifacts.reads))
+										toResult(conservativeChange(compiled, opened))
 									),
 									"the ChangeSet's conservative realization compiles"
 								)

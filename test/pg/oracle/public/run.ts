@@ -30,8 +30,8 @@ import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import * as EngineResult from "#compiler/core/result.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StatementRoots, StatementTree } from "#compiler/lower/conservative/types.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
@@ -980,7 +980,7 @@ const queryAgain = (
  */
 const queryRead = (
 	c: ProgramCase,
-	names: PhysicalNames,
+	ctx: Pick<DbContext, "programArtifacts">,
 	reader: ReaderValue,
 	perturbed: StrictReader,
 	apply: Applier,
@@ -1074,7 +1074,10 @@ const queryRead = (
 		const unordered = Exit.isSuccess(compiled)
 			? unorderedArtifacts(
 					succeeded(
-						withConservative(compiled.value.compiled.template, names),
+						EngineResult.flatMap(
+							ctx.programArtifacts({ kind: "query", query: compiled.value.compiled.desc }),
+							({ artifacts }) => withConservative(compiled.value.compiled.template, artifacts.reads)
+						),
 						"the read's conservative lowering"
 					)
 				)
@@ -1693,7 +1696,7 @@ export const runCase = (
 			} else {
 				const reread = yield* queryRead(
 					c,
-					ctx.artifacts.reads,
+					ctx,
 					reader,
 					perturbed,
 					apply,

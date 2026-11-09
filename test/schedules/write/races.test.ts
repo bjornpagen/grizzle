@@ -69,7 +69,11 @@ import { queryOver as query, varsOver as v } from "#compiler/query/build/query.t
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import {
+	changeSetOver as ChangeSet,
+	type ChangeSetValue,
+	changeSetDesc
+} from "#compiler/write/changeset/value.ts"
 import {
 	columnsOf,
 	type DirectAnswer,
@@ -1066,12 +1070,20 @@ const runRace = (
 							)
 						)
 						const key = `${session.actor}#${i}`
+						const sliced = ctx.programArtifacts({
+							kind: "changeSet",
+							changeSet: defined(changeSetDesc(built.changes), "a ChangeSet value")
+						})
+						if (!sliced.ok) {
+							return yield* report(`${describeOp(op)} does not compile: ${sliced.error.message}`)
+						}
+						const described = sliced.value.artifacts.described
 						steps.push({
 							label: describeOp(op),
 							outcome: Effect.map(
 								Effect.result(untilAnswered(applyValue(ctx, built.changes, built.params))),
 								(r) => {
-									seen.set(key, answerOf(ctx.artifacts.described, r))
+									seen.set(key, answerOf(described, r))
 									return succeeded
 								}
 							),

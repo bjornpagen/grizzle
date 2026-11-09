@@ -13,6 +13,7 @@ import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
 import { apply, compileChange, runApplication } from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { openDbContext } from "#adapter/db/open.ts"
+import { fromEngine } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { Session } from "#adapter/wire/session.ts"
@@ -509,12 +510,17 @@ export const applyWith = (
 		Effect.result(attempt(new Map())),
 		(result): Effect.Effect<Applied, SqlError> => {
 			if (Result.isSuccess(result)) {
-				return Effect.succeed({
-					outcome: Result.succeed(outcomeOf(t.ctx.artifacts.described, result.success.value)),
-					collided: result.success.collided,
-					flights,
-					start
-				})
+				return Effect.map(
+					Effect.orDie(
+						fromEngine(t.ctx.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }))
+					),
+					({ artifacts }): Applied => ({
+						outcome: Result.succeed(outcomeOf(artifacts.described, result.success.value)),
+						collided: result.success.collided,
+						flights,
+						start
+					})
+				)
 			}
 			const failure = result.failure
 			return failure._tag === "SqlError"

@@ -787,7 +787,7 @@ export const observedConservative = (
 	labelOf: (f: AttemptFailure) => string
 ): Result.Result<ObservedChange, CompileError | Error> =>
 	observedArtifact(opened.ctx, changes, labelOf, { kind: "none" }, (entry) =>
-		toResult(conservativeChange(entry, opened.ctx.artifacts.reads))
+		toResult(conservativeChange(entry, opened.ctx))
 	)
 
 const observedArtifact = (
