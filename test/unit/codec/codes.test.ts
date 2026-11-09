@@ -21,7 +21,6 @@ import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { scalarReader } from "#compiler/codec/read.ts"
-import { positionalColumns, relationNormalizer } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
@@ -35,7 +34,6 @@ import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { echoed, outputText, paramText } from "#test/support/wire.ts"
-import { normalizedBy } from "#test/unit/codec/support.ts"
 
 /** The codes a roster of the box has minted, holes included. */
 const size = 5
@@ -248,55 +246,5 @@ describe("the closed-id and set codecs", () => {
 					roundTrips
 				)
 			)
-	)
-})
-
-/**
- * The heading text a relation input over a closed id and a set is normalized under, its codes drafted afresh: equal
- * whenever the codes are, however the codebook was built, so it is a function of the codes alone (the codec's
- * content, never its lookup Map); and distinct for distinct codes, so a hole moved is a heading changed.
- */
-const headingOf = (live: number): string => {
-	const { book, code, bits } = installed(live)
-	const normalize = relationNormalizer({
-		relation: "Coded",
-		columns: positionalColumns([
-			{ name: "id", type: code },
-			{ name: "kinds", type: bits }
-		]),
-		slot: { kind: "none" },
-		codes: book
-	})
-	return succeeded(normalizedBy(normalize, []), "an empty input normalizes").heading
-}
-
-describe("a relation input over closed ids and sets", () => {
-	it.effect("is normalized under a heading that is a function of its codes alone", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/codec/codes-heading",
-					generator: (s) => ({
-						a: s.draw(int(1, 2 ** size - 1)),
-						b: s.draw(int(1, 2 ** size - 1))
-					}),
-					literal: Formatter.format,
-					limit: (2 ** size - 1) ** 2,
-					coverage: requiredInSpace<"equal codes" | "other codes">(["equal codes", "other codes"]),
-					caseHang,
-					box: "every pair of hole patterns of five codes",
-					oracle: { kind: "universal", name: "metamorphic: equal codes, equal heading" }
-				},
-				(
-					{ a, b }: { readonly a: number; readonly b: number },
-					c: Case<"equal codes" | "other codes">
-				) =>
-					Effect.sync(() => {
-						assert.equal(headingOf(a) === headingOf(b), a === b, `hole patterns ${a} and ${b}`)
-						c.note(a === b ? "equal codes" : "other codes")
-					})
-			)
-		)
 	)
 })

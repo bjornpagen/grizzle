@@ -45,25 +45,6 @@ export type CarrierSpec =
 	| { readonly carrier: "vector"; readonly dimensions: number }
 	| { readonly carrier: "range4" | "range8" | "rangeDate"; readonly width: bigint | undefined }
 
-/**
- * A carrier spec as plain data, what its canonical text encodes: a closed id's or a set's spec by its roster's name
- * and its names in code order, a hole the empty name, which are its codec's whole content; its lookup Map is derived
- * from them and no canonical encoding reads one. Two specs of equal content encode equally.
- */
-export type SpecContent =
-	| Exclude<CarrierSpec, { readonly carrier: "code" | "bits" }>
-	| {
-			readonly carrier: "code" | "bits"
-			readonly roster: string
-			readonly names: ReadonlyArray<string>
-	  }
-
-/** A spec's content (SpecContent). */
-export const specContent = (spec: CarrierSpec): SpecContent =>
-	spec.carrier === "code" || spec.carrier === "bits"
-		? { carrier: spec.carrier, roster: spec.roster.roster, names: spec.roster.names }
-		: spec
-
 export interface CarrierHost {
 	readonly int2: number
 	readonly int4: number

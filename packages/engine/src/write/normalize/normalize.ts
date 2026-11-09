@@ -1,7 +1,7 @@
 import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
+import { normalFacts, type RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
@@ -106,7 +106,7 @@ export const refilledSlot = (
 	for (const e of slot.entries) {
 		refilled.set(e.identity, { fact: Object.freeze(facts(e.fact)) })
 	}
-	const normal = slot.slot.normalForm(refilled)
+	const normal = normalFacts(refilled)
 	return Object.freeze({
 		...keyNormalized({ ...normal, binary: slot.binary }),
 		slot: slot.slot,
@@ -729,7 +729,7 @@ export const normalizeChangeSet = (
 			sets.delete.delete(id)
 		}
 		for (const [category, slot] of slotOf) {
-			normals.push({ slot, relation: relation.name, normal: slot.normalForm(sets[category]) })
+			normals.push({ slot, relation: relation.name, normal: normalFacts(sets[category]) })
 		}
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its

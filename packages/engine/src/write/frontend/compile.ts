@@ -5,8 +5,6 @@ import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import {
-	type NormalForm,
-	normalForm,
 	positionalColumns,
 	type RelationNormalizer,
 	type RelationSlot,
@@ -154,8 +152,6 @@ export interface MemberSlot {
 	readonly transport: "enumerated" | "stream"
 	/** The fields its facts carry, in heading order: its class's (`InsertClasses`), none for the unit relation. */
 	readonly heading: Heading
-	/** The normal form of its admitted facts, which its relation parameter's placeholders encode. */
-	readonly normalForm: NormalForm
 	/** The slot as its action's relation input, its columns in key-first order (insert/input.ts relationInput). */
 	readonly input: RelationInput
 }
@@ -1399,7 +1395,6 @@ const compile = (
 							slot: id,
 							transport,
 							heading: carried,
-							normalForm: normalForm(spec({ kind: "none" }, carried)),
 							input: relationInput(id, carried, relation)
 						}),
 						normalizer: (member) =>

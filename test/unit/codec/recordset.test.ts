@@ -21,7 +21,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record, String as Str }
 import {
 	arrayTexts,
 	normalArray,
-	normalForm,
+	normalFacts,
 	parameterNormalizer,
 	positionalColumns,
 	type RelationSpec,
@@ -421,7 +421,7 @@ describe("relation normalization", () => {
 								for (const e of normal.entries) {
 									byIdentity.set(e.identity, { fact: e.fact })
 								}
-								const marked = normalForm(heading)(byIdentity)
+								const marked = normalFacts(byIdentity)
 								for (const { encode, write } of statements) {
 									const arrays = succeeded(encode(facts)).arrays
 									assert.deepEqual<ReadonlyArray<string>>(

@@ -12,7 +12,6 @@ import {
 	textParam
 } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -40,8 +39,7 @@ import {
 	type HeadingPlan,
 	headingPlan,
 	type ReadFact,
-	readFact,
-	specContent
+	readFact
 } from "#compiler/scalar/values/identity.ts"
 
 interface RelationColumn {
@@ -236,45 +234,10 @@ const rowOf = (
 	return Object.freeze(row)
 }
 
-/** The canonical text of a heading's fields and carrier specs' content (specContent) in field-name order. */
-const headingText = (plan: HeadingPlan): string =>
-	canonicalTextOf(plan.fields.map((f) => [f.name, specContent(f.spec)]))
-
 type Fact = { readonly [field: string]: unknown }
 
 /** The brand's one claim, which only normalFacts makes. */
-const mintNormal = nominal<Pick<NormalFacts, "heading" | "facts" | "entries">, NormalFacts>()
-
-/**
- * The one mint of normal facts: the facts of `byIdentity` under `heading`, keyed by their fact identities, which a
- * TupleMap holds once each, so the facts are distinct by construction, put in the canonical order of their identities
- * here (compareFactIdentities), and frozen.
- */
-const normalFacts = (
-	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>,
-	heading: string
-): NormalFacts => {
-	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
-		Object.freeze({ identity, fact })
-	)
-	entries.sort((a, b) => compareFactIdentities(a.identity, b.identity))
-	return mintNormal(
-		Object.freeze({
-			heading,
-			facts: Object.freeze(entries.map((e) => e.fact)),
-			entries: Object.freeze(entries)
-		})
-	)
-}
-
-/**
- * Admitted facts as normal facts over a heading, keyed by their fact identities: each fact was admitted by
- * factIdentity over that heading, its key is its identity, and it is frozen. The TupleMap holds each identity once, so
- * the facts are a set by construction, and the normal form puts them in identity order itself.
- */
-export type NormalForm = (
-	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>
-) => NormalFacts
+const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>()
 
 /**
  * Relation-valued inputs: the array encoder and the Stream collector.
@@ -301,11 +264,23 @@ export type NormalForm = (
  * A Stream member is collected on the host before it reaches this codec (the shell's adapter/apply/collect.ts and
  * adapter/reader/params.ts), and then normalized exactly like an array. A caller's retry replays the Stream.
  *
- * The normal form over `spec`'s heading.
+ * The one mint of normal facts: the facts of `byIdentity`, each admitted by factIdentity over one heading and frozen,
+ * keyed by its fact identity, which a TupleMap holds once each, so the facts are distinct by construction, put in the
+ * canonical order of their identities here (compareFactIdentities), and frozen.
  */
-export const normalForm = (spec: RelationSpec): NormalForm => {
-	const heading = headingText(buildSpec(spec).plan)
-	return (byIdentity) => normalFacts(byIdentity, heading)
+export const normalFacts = (
+	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>
+): NormalFacts => {
+	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
+		Object.freeze({ identity, fact })
+	)
+	entries.sort((a, b) => compareFactIdentities(a.identity, b.identity))
+	return mintNormal(
+		Object.freeze({
+			facts: Object.freeze(entries.map((e) => e.fact)),
+			entries: Object.freeze(entries)
+		})
+	)
 }
 
 /**
@@ -318,7 +293,6 @@ export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 
 const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
-	const ownHeading = headingText(s.plan)
 	const bytesAt = s.plan.entries.flatMap((f, at) => (f.spec.carrier === "bytes" ? [at] : []))
 	/** The bytes one fact's value at bytes field `at` takes in its column's array, past the array's header. */
 	const elements = (read: ReadFact, at: number): number => {
@@ -390,7 +364,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 				byIdentity.set(identity, { fact })
 			}
 		}
-		const normal = normalFacts(byIdentity, ownHeading)
+		const normal = normalFacts(byIdentity)
 		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))
 	}
 	return { columns: columns.length, read, admit }
@@ -578,22 +552,16 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
 	)
 
 /**
- * The placeholder of `spec`'s column at `part` over normal facts: its heading checked against the spec's, and the
- * column, or none for an input of no column. Its columns are its input's whole heading in the statement's order, which
- * every statement over an input declares, so the facts are normal under the spec's heading; facts normal under another
- * are the compiler's defect, never the caller's input, since admitting them again under it could only refuse them.
+ * The placeholder of `spec`'s column at `part`: the column, or none for an input of no column. Its columns are its
+ * input's whole heading in the statement's order, which every statement over an input declares, so the facts it writes
+ * are normal under the spec's heading.
  */
 const placeholderOf = (spec: RelationSpec) => {
 	const built = buildSpec(spec)
-	const ownHeading = headingText(built.plan)
-	return (normal: NormalFacts, part: number): BuiltColumn | undefined => {
-		if (normal.heading !== ownHeading) {
-			throw defect(`a placeholder of ${spec.relation} reads a heading other than its input's`)
-		}
-		return built.columns.length === 0
+	return (part: number): BuiltColumn | undefined =>
+		built.columns.length === 0
 			? undefined
 			: defined(built.columns[part], "a placeholder's column among its input's columns")
-	}
 }
 
 /**
@@ -607,7 +575,7 @@ export const normalArray = (
 ): ((normal: NormalFacts, part: number) => Result.Result<Param, LiteralBound>) => {
 	const placeholder = placeholderOf(spec)
 	return (normal, part) => {
-		const column = placeholder(normal, part)
+		const column = placeholder(part)
 		if (column === undefined) {
 			return Result.ok(countParam(normal.facts.length))
 		}
@@ -628,7 +596,7 @@ export const memberArray = (
 ): ((normal: KeyedFacts, part: number) => Result.Result<Param, LiteralBound>) => {
 	const placeholder = placeholderOf(spec)
 	return (normal, part) => {
-		const column = placeholder(normal, part)
+		const column = placeholder(part)
 		if (column === undefined) {
 			return Result.ok(countParam(normal.facts.length))
 		}

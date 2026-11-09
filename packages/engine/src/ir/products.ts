@@ -38,8 +38,7 @@ export interface IdentifiedFact {
 declare const normalFactsBrand: unique symbol
 
 /**
- * Facts in normal form over one heading: frozen admitted facts, distinct by fact identity and in identity order, with
- * the heading they were normalized against (the canonical text of its name-ordered fields and carrier specs). A
+ * Facts in normal form over one heading: frozen admitted facts, distinct by fact identity and in identity order. A
  * ChangeSet's facts are normalized once on the host and then encoded for every statement that binds them, and a
  * relation parameter's once per execution and then written in each statement's column order: normalizing them again
  * under the same heading would admit every value again, find no repeat and keep the order, so a holder of normal facts
@@ -49,7 +48,6 @@ declare const normalFactsBrand: unique symbol
  * construction and their order is the mint's, and no other value stands where normal facts are taken.
  */
 export interface NormalFacts {
-	readonly heading: string
 	/** The admitted facts, frozen, in canonical order. */
 	readonly facts: ReadonlyArray<{ readonly [field: string]: unknown }>
 	/** The same facts each with its identity. */
