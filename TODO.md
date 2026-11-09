@@ -49,6 +49,18 @@ post-beta swarm's fixes for the next release.
     under text/ would be a side table. The one representation that removes it: the regex analysis types (RegexNode,
     the DFA and Known, PatternAnalysis, TextRefinement, Pattern) moved into ir, after which a registered descriptor's
     refinement reaches its ScalarType and the built matches and when nodes carry their Pattern and narrowed refinement.
+  - A generated CHECK's trial lowering (LAWS-BASIS, 2026-11-09; not cut). laws/model/model.ts #lowerCheck lowers each
+    family and fold CHECK predicate into a throwaway DAG, then lowers it again for real: over its contract-typed
+    leaves as they are where that typing admits it, else over their bases (baseLeaves), which changes the installed
+    CHECK's text. On the kit's qti layer (author_app) at e2a0249a it runs 123 times and the trial refuses 8 (the 8
+    stack captures): #lowerCheck is 29–46 profile-ms, the trial about half; the Ledger's slice plans no generated
+    CHECK, so 0 there. The blocker: no fact the builder (laws/model/plan.ts RowConditions) holds decides it, since of
+    the 22 predicates with a compute node 14 lower plain and 8 do not (the lowering's "a contract and its bare base
+    never meet"), and the layer cannot skip lowering, since the witness judges a CHECK by evaluating its lowered
+    predicate on the host (write/program/witness.ts checkOf, write/family/fold.ts hostEvaluator) and pattern-order.ts
+    and lawPatterns read its lowered matches; no host evaluator reads the unlowered predicate. Lowering plain into
+    the extension DAG and base only on refusal is a try-then-alternative that leaves unreachable nodes and moves DAG
+    labels, ruled out (main, 2026-11-09).
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
