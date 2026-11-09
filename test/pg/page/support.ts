@@ -1,9 +1,9 @@
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import type { CompiledOps } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
-import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
 import type { ReadExecutor } from "#adapter/reader/executor.ts"
-import { type CompiledReadValue, type QueryResultValue } from "#adapter/reader/reader.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -11,13 +11,14 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 
 /**
- * A page as the runtime delivers it, trusted at its documented shape: the runtime readers type it unknown, since their
- * queries are.
+ * A page as the runtime delivers it, trusted at its documented shape: a served member's operations type it unknown,
+ * since its program is.
  */
 export interface PageValue {
 	readonly edges: ReadonlyArray<{ readonly node: unknown; readonly cursor: string }>
@@ -31,49 +32,22 @@ export interface PageValue {
 
 const admitPage = (page: unknown): PageValue => trusted<PageValue>(page)
 
-/** A reader over unknown values, for loops over queries of different types and for the requests the types refuse. */
-interface UntypedReader {
-	page(
-		query: unknown,
-		params: unknown,
-		request: unknown
-	): Effect.Effect<PageValue, ReadError | CursorError>
-	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
-}
-
 /**
- * The UntypedReader of a runtime reader (packages/grizzle/src/adapter/reader/reader.ts): the reader the typed Db is at run time.
- * A runtime reader's page and execute, at the row type unknown; a compiled handle's page bound to its query is one.
- */
-interface RuntimeReads {
-	page(
-		query: unknown,
-		params: unknown,
-		request: unknown
-	): Effect.Effect<unknown, ReadError | CursorError>
-	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
-}
-
-export const untyped = (reader: RuntimeReads): UntypedReader => ({
-	execute: (query, params) => reader.execute(query, params),
-	page: (query, params, request) => Effect.map(reader.page(query, params, request), admitPage)
-})
-
-/**
- * A compiled handle's page, admitted as a reader's is.
+ * A page of the paged member `ops` with `params`, admitted at its documented shape.
  *
  * Shared helpers for the page runtime suites (test/pg/page).
  *
- * Every suite pages through the real readers, Db and its compiled handles, exactly as an application does, over the Paging fixture
- * and the boundary-value Measures fixture of the unit page suites (test/unit/page/fixtures.ts). A page's nodes are compared as canonical values (`canon`), which keep every carrier's
- * identity: a bigint, a Decimal's text, a float's sign of zero and NaN, an Option.
+ * Every suite pages through the members of a login's served workload, exactly as an application does, over the Paging
+ * fixture and the boundary-value Measures fixture of the unit page suites (test/unit/page/fixtures.ts). A page's nodes
+ * are compared as canonical values (`canon`), which keep every carrier's identity: a bigint, a Decimal's text, a float's
+ * sign of zero and NaN, an Option.
  */
-export const compiledPage = (
-	compiled: CompiledReadValue,
-	params: unknown,
+export const pageOf = (
+	ops: CompiledOps<unknown>,
+	params: ParamMap,
 	request: unknown
 ): Effect.Effect<PageValue, ReadError | CursorError> =>
-	Effect.map(compiled.page(params, request), admitPage)
+	Effect.map(ops.page(params, request), admitPage)
 
 /** A delivered row as the record it is. */
 export const rowOf = (row: unknown): Readonly<Record<string, unknown>> => {
@@ -117,21 +91,22 @@ export const canon = (value: unknown): unknown => {
 	return value
 }
 
-/** A page template with the installation's codes, which its rows' closed ids and sets order and decode by. */
-export interface TestPage extends CompiledPage {
+/** A paged member's page runtime with the installation's codes, which its rows' closed ids and sets order and decode by. */
+export interface TestPage {
+	readonly runtime: PageRuntime
 	readonly codes: Codebook
 }
 
 /**
- * The page template a reader of the Db of `ctx` compiles for `query` (packages/grizzle/src/adapter/page/page.ts), with
- * the codes of the installation the Db is admitted at.
+ * The page runtime of the paged member `member`, as its served file holds it and its layer loads it
+ * (adapter/served/load.ts LoadedPage), with `codes`, the installation's: a member that pages nothing is a defect of the
+ * test.
  */
-export const pageTemplate = (ctx: DbContext, query: unknown): TestPage => {
-	const compiled = compilePageTemplate(ctx, query)
-	if (Result.isFailure(compiled)) {
-		throw new Error(`${compiled.failure.stage}: ${compiled.failure.message}`)
+export const pageTemplate = (member: LoadedMember, codes: Codebook): TestPage => {
+	if (member.kind !== "paged") {
+		throw new Error(`the member ${member.name} pages nothing`)
 	}
-	return { ...compiled.success, codes: ctx.artifacts.names.codes }
+	return { runtime: member.page.runtime, codes }
 }
 
 /**
@@ -232,13 +207,12 @@ export interface Traversal {
 const traversalPagesMax = 1_000
 
 /**
- * Every page of D forward from { first }, following each endCursor while hasNextPage, or backward from { last },
- * following each startCursor while hasPreviousPage.
+ * Every page of D through the paged member `ops`, forward from { first }, following each endCursor while hasNextPage,
+ * or backward from { last }, following each startCursor while hasPreviousPage.
  */
 export const traverse = (
-	reader: UntypedReader,
-	query: unknown,
-	params: unknown,
+	ops: CompiledOps<unknown>,
+	params: ParamMap,
 	direction: "forward" | "backward",
 	size: number,
 	/** Where the traversal starts: the first or last tuple, or an anchor's cursor. */
@@ -255,7 +229,7 @@ export const traverse = (
 					? { last: size }
 					: { last: size, before: from.cursor }
 		for (let n = 0; n < traversalPagesMax; n++) {
-			const page = yield* reader.page(query, params, request)
+			const page = yield* pageOf(ops, params, request)
 			pages.push(page)
 			const more =
 				direction === "forward" ? page.pageInfo.hasNextPage : page.pageInfo.hasPreviousPage

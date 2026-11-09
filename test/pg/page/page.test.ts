@@ -14,39 +14,37 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
+import { memberOps, memberOpsOn } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
-import { makeReader } from "#adapter/reader/reader.ts"
 import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { paged } from "#compiler/public/workload.ts"
 import {
 	assertEdges,
 	canon,
 	countingExecutor,
 	type PageValue,
+	pageOf,
 	pageOrder,
 	pageTemplate,
-	compiledPage,
 	rowOf,
 	sortedResult,
 	strictlyAfter,
-	strictlyBefore,
-	untyped
+	strictlyBefore
 } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import {
 	ascendingTasks,
 	descendingTasks,
@@ -68,12 +66,13 @@ import {
  * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
  * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
  * suite's (test/pg/adapter/suites/round-trips.ts). Here the Paging fixture installs under a fresh schema and opens
- * through Db.open and a DbLayer as its full world, exactly as an application pages:
+ * through Db.open and its login's served file as its full world, every ordered query a paged member of its workload,
+ * exactly as an application pages:
  *
- * - every request answers exactly by the D of the moment and its anchor's encoded values, through db.page or a
- *   compiled handle, whatever happened to D since the anchor's cursor was made: over drawn facts, a drawn query of
- *   the fixture and a walk of drawn requests, each anchored on an edge some earlier page delivered, through either
- *   handle, with drawn changes to D between them (deleting an anchor's task, moving it, deleting the last page,
+ * - every request answers exactly by the D of the moment and its anchor's encoded values, through the query's paged
+ *   member or its twin, another member paging the same query, whatever happened to D since the anchor's cursor was
+ *   made: over drawn facts, a drawn query of the fixture and a walk of drawn requests, each anchored on an edge some
+ *   earlier page delivered, through either member, with drawn changes to D between them (deleting an anchor's task, moving it, deleting the last page,
  *   inserting, flagging, emptying the account), each written as the facts' whole new state in one transaction that
  *   reads nothing (test/support/substrate/replace.ts), so no reset is an SSI pivot under load. A first page holds D's
  *   first k tuples and a last page its last k; an after page the first k tuples strictly after the anchor, a before
@@ -169,6 +168,31 @@ const pagedQueryNames: Arr.NonEmptyReadonlyArray<PagedQuery> = [
 	"flagged by title"
 ]
 
+/** The member that pages a query, or its twin, another member paging the same query: a request goes through either. */
+type Handle = "member" | "twin"
+
+/** A paged query's member name, or its twin's: its position among the fixture's paged queries. */
+const memberName = (q: PagedQuery, handle: Handle): string =>
+	`${handle}${Arr.findFirstIndex(pagedQueryNames, (n) => n === q).pipe(Option.getOrThrow)}`
+
+/** Every paged query, served under its member's name, and the query of its shape with another filter. */
+const tokenMembers: Readonly<Record<string, unknown>> = {
+	...Rec.fromEntries(
+		Arr.map(pagedQueryNames, (q) => [memberName(q, "member"), paged(pagedQueries[q])])
+	),
+	nonNegative: paged(nonNegativeTasks)
+}
+
+/** Every paged query, served under its member's name and its twin's. */
+const walkMembers: Readonly<Record<string, unknown>> = Rec.fromEntries(
+	Arr.flatMap(pagedQueryNames, (q) =>
+		Arr.map(["member", "twin"] as const, (handle) => [
+			memberName(q, handle),
+			paged(pagedQueries[q])
+		])
+	)
+)
+
 /** A task the facts or a write draw: its account (0 is the one paged, 1 another), priority and title. */
 interface TaskSketch {
 	readonly other: boolean
@@ -233,7 +257,7 @@ interface RequestSketch {
 	readonly variant: "first" | "last" | "after" | "before"
 	readonly size: number
 	readonly anchor: AnchorPick
-	readonly handle: "db" | "compiled"
+	readonly handle: Handle
 }
 
 /**
@@ -257,7 +281,7 @@ const requestSketchGen: Gen<RequestSketch> = (source) => ({
 			(inner) => ({ kind: "any", pick: inner.draw(pickGen) })
 		])
 	),
-	handle: source.draw(element(["db", "compiled"] as const))
+	handle: source.draw(element(["member", "twin"] as const))
 })
 
 interface StepSketch {
@@ -279,7 +303,7 @@ interface WalkSketch {
  * it, so an anchored page whose anchor and every tuple on one side of it left D, whose opposite flag the probe alone
  * can clear, is reached on every run.
  */
-const handleGen: Gen<RequestSketch["handle"]> = element(["db", "compiled"] as const)
+const handleGen: Gen<RequestSketch["handle"]> = element(["member", "twin"] as const)
 
 const stepsGen: Gen<ReadonlyArray<StepSketch>> = weighted<ReadonlyArray<StepSketch>>([
 	[
@@ -345,8 +369,8 @@ const walkSketchGen: Gen<WalkSketch> = (source) => ({
 
 type WalkFeature =
 	| `query ${PagedQuery}`
-	| `${RequestSketch["variant"]} through ${RequestSketch["handle"]}`
-	| "a cursor of the other handle"
+	| `${RequestSketch["variant"]} through the ${RequestSketch["handle"]}`
+	| "a cursor of the other member"
 	| "an anchor gone from D"
 	| "an anchor still in D"
 	| "an opposite flag cleared past a gone anchor"
@@ -363,7 +387,7 @@ interface ModelTask {
 	readonly flag: "High" | "Low" | "none"
 }
 
-/** An edge some page delivered: its cursor, its node, the handle that made it. */
+/** An edge some page delivered: its cursor, its node, the member that made it. */
 interface Delivered {
 	readonly cursor: string
 	readonly node: unknown
@@ -622,7 +646,7 @@ const nonString = (value: Extract<Tamper, { kind: "not a string" }>["value"]): u
 
 layer(Substrate.layer)("the page runtime through the readers", (it) => {
 	it.effect(
-		"answers every request by the D of the moment and its anchor's encoded values, through either handle, whatever changed since its cursor was made",
+		"answers every request by the D of the moment and its anchor's encoded values, through either member, whatever changed since its cursor was made",
 		(ctx) =>
 			searched(
 				ctx,
@@ -632,288 +656,293 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						{},
 						{ label: "real", extensions: [], programs: {} }
 					)
-					return yield* Effect.gen(function* () {
-						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
-						const pages = untyped(dbReader(dbCtx))
-						return yield* explore(
-							{
-								oracle: { kind: "unstated" },
-								suite: "pg/page/walks",
-								draw: drawn(walkSketchGen),
-								literal: Formatter.format,
-								kept: [],
-								runs: 100,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang,
-								coverage: required<WalkFeature>(
-									[
-										...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
-										...Arr.flatMap(["first", "last", "after", "before"] as const, (variant) =>
-											Arr.map(
-												["db", "compiled"] as const,
-												(handle): WalkFeature => `${variant} through ${handle}`
-											)
-										),
-										"a cursor of the other handle",
-										"an anchor gone from D",
-										"an anchor still in D",
-										"an opposite flag cleared past a gone anchor",
-										"an empty anchored page",
-										"an emptied D",
-										"a write between requests"
-									],
-									{ cases: 100, sense: notesOnly }
-								)
-							},
-							(walk, c) =>
-								Effect.gen(function* () {
-									const q = pagedQueries[walk.query]
-									const params = { account: A }
-									const compiled = pageTemplate(dbCtx, q)
-									const order = pageOrder(compiled)
-									const handle = yield* dbReader(dbCtx).compile(q)
-									/** The facts: the drawn tasks, a note pair once, a flag per task. */
-									const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
-										id: t(n),
-										account: x.other ? B : A,
-										priority: x.priority,
-										title: titleOf(x.title),
-										flag: "none"
-									}))
-									for (const f of walk.flags) {
-										if (model.length > 0) {
-											const at = pickIndex(f.task, model.length)
-											model[at] = { ...defined(model[at]), flag: f.high ? "High" : "Low" }
-										}
-									}
-									const notes = new Map<string, { readonly task: string; readonly note: string }>()
-									for (const n of walk.notes) {
-										if (model.length > 0) {
-											const owner = defined(model[pickIndex(n.task, model.length)]).id
-											notes.set(`${owner} ${n.note}`, { task: owner, note: `note ${n.note}` })
-										}
-									}
-									/**
-									 * D's facts as the model holds them when it runs: its tasks, the notes of the tasks it
-									 * still holds, its flags.
-									 */
-									const writeModel = Effect.suspend(() =>
-										replace(opened.installed, {
-											Task: Arr.map(model, (x) => ({
-												id: x.id,
-												account: x.account,
-												priority: x.priority,
-												title: x.title
-											})),
-											Note: Arr.filter([...notes.values()], (n) =>
-												Arr.some(model, (x) => x.id === n.task)
-											),
-											Flag: Arr.flatMap(model, (x) =>
-												x.flag === "none" ? [] : [{ task: x.id, level: x.flag }]
-											)
-										})
-									)
-									yield* writeModel
-									let fresh = walk.tasks.length
-									const pool: Array<Delivered> = []
-									let last: ReadonlyArray<Delivered> = []
-									for (const step of walk.steps) {
-										/** The writes, each resolved against the model. */
-										const targets = (pick: number): ReadonlyArray<string> => {
-											const marked = [
-												...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.node, model)))
-											]
-											const candidates =
-												marked.length > 0
-													? marked
-													: Arr.map(
-															Arr.filter(model, (x) => x.account === A),
-															(x) => x.id
-														)
-											if (candidates.length === 0) {
-												return []
-											}
-											const chosen = defined(candidates[pickIndex(pick, candidates.length)])
-											return Option.match(
-												Arr.findFirst(pool, (d) =>
-													tasksOf(walk.query, d.node, model).includes(chosen)
-												),
-												{
-													onNone: () => [chosen],
-													onSome: (node) => tasksOf(walk.query, node.node, model)
-												}
-											)
-										}
-										/** A removed task takes its notes and its flag with it. */
-										const remove = (ids: ReadonlyArray<string>) => {
-											for (const i of ids) {
-												const at = Arr.findFirstIndex(model, (x) => x.id === i)
-												if (Option.isSome(at)) {
-													model.splice(at.value, 1)
-												}
-											}
-										}
-										/** Each target task, changed in place in the model. */
-										const update = (
-											ids: ReadonlyArray<string>,
-											change: (task: ModelTask) => ModelTask
-										) => {
-											for (const i of ids) {
-												const at = Option.getOrThrow(Arr.findFirstIndex(model, (x) => x.id === i))
-												model[at] = change(defined(model[at]))
-											}
-										}
-										for (const write of step.writes) {
-											switch (write.kind) {
-												case "delete an edge's tasks":
-													remove(targets(write.target))
-													break
-												case "delete the last page":
-													remove([
-														...new Set(Arr.flatMap(last, (d) => tasksOf(walk.query, d.node, model)))
-													])
-													break
-												case "empty the account":
-													remove(
-														Arr.map(
-															Arr.filter(model, (x) => x.account === A),
-															(x) => x.id
-														)
+					return yield* withServedDb(
+						opened.installed,
+						opened.server.roles.app,
+						{},
+						({ ctx: dbCtx, load }) =>
+							Effect.gen(function* () {
+								const loaded = yield* load(walkMembers)
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										suite: "pg/page/walks",
+										draw: drawn(walkSketchGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 100,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										caseHang,
+										coverage: required<WalkFeature>(
+											[
+												...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
+												...Arr.flatMap(["first", "last", "after", "before"] as const, (variant) =>
+													Arr.map(
+														["member", "twin"] as const,
+														(handle): WalkFeature => `${variant} through the ${handle}`
 													)
-													break
-												case "move an edge's tasks":
-													update(targets(write.target), (task) => ({
-														...task,
-														priority: write.priority,
-														title: titleOf(write.title)
-													}))
-													break
-												case "insert":
-													model.push({
-														id: t(fresh++),
-														account: write.task.other ? B : A,
-														priority: write.task.priority,
-														title: titleOf(write.task.title),
-														flag: "none"
-													})
-													break
-												case "flag":
-													update(targets(write.target), (task) => ({
-														...task,
-														flag: write.level
-													}))
-													break
-											}
-										}
-										if (step.writes.length > 0) {
-											yield* writeModel
-										}
-										if (step.writes.length > 0 && pool.length > 0) {
-											c.note("a write between requests")
-										}
-										/** The request, anchored on a delivered edge when it names one and one exists. */
-										const r = step.request
-										const anchor =
-											r.variant === "after" || r.variant === "before"
-												? anchorOf(r.anchor, last, pool)
-												: Option.none<Delivered>()
-										const variant = Option.isSome(anchor)
-											? r.variant
-											: r.variant === "first" || r.variant === "after"
-												? "first"
-												: "last"
-										const request = Option.isSome(anchor)
-											? variant === "after"
-												? { first: r.size, after: anchor.value.cursor }
-												: { last: r.size, before: anchor.value.cursor }
-											: variant === "first"
-												? { first: r.size }
-												: { last: r.size }
-										const page =
-											r.handle === "db"
-												? yield* pages.page(q, params, request)
-												: yield* compiledPage(handle, params, request)
-										assertEdges(page, `${variant} ${r.size}`)
-										/** The oracle: D now, and the anchor's values as its cursor encoded them. */
-										const rows = yield* Effect.flatMap(
-											pages.execute(q, params),
-											(result) => result.collect
+												),
+												"a cursor of the other member",
+												"an anchor gone from D",
+												"an anchor still in D",
+												"an opposite flag cleared past a gone anchor",
+												"an empty anchored page",
+												"an emptied D",
+												"a write between requests"
+											],
+											{ cases: 100, sense: notesOnly }
 										)
-										const full = sortedResult(compiled, rows)
-										const k = r.size
-										const expected: Expected = Option.match(anchor, {
-											onNone: () =>
-												variant === "first"
-													? {
-															nodes: full.slice(0, k),
-															hasPreviousPage: false,
-															hasNextPage: full.length > k
+									},
+									(walk, c) =>
+										Effect.gen(function* () {
+											const params = { account: A }
+											const ops = (handle: Handle) =>
+												memberOps(dbCtx, member(loaded, memberName(walk.query, handle)))
+											const compiled = pageTemplate(
+												member(loaded, memberName(walk.query, "member")),
+												opened.installed.names.codes
+											)
+											const order = pageOrder(compiled)
+											/** The facts: the drawn tasks, a note pair once, a flag per task. */
+											const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
+												id: t(n),
+												account: x.other ? B : A,
+												priority: x.priority,
+												title: titleOf(x.title),
+												flag: "none"
+											}))
+											for (const f of walk.flags) {
+												if (model.length > 0) {
+													const at = pickIndex(f.task, model.length)
+													model[at] = { ...defined(model[at]), flag: f.high ? "High" : "Low" }
+												}
+											}
+											const notes = new Map<
+												string,
+												{ readonly task: string; readonly note: string }
+											>()
+											for (const n of walk.notes) {
+												if (model.length > 0) {
+													const owner = defined(model[pickIndex(n.task, model.length)]).id
+													notes.set(`${owner} ${n.note}`, { task: owner, note: `note ${n.note}` })
+												}
+											}
+											/**
+											 * D's facts as the model holds them when it runs: its tasks, the notes of the tasks it
+											 * still holds, its flags.
+											 */
+											const writeModel = Effect.suspend(() =>
+												replace(opened.installed, {
+													Task: Arr.map(model, (x) => ({
+														id: x.id,
+														account: x.account,
+														priority: x.priority,
+														title: x.title
+													})),
+													Note: Arr.filter([...notes.values()], (n) =>
+														Arr.some(model, (x) => x.id === n.task)
+													),
+													Flag: Arr.flatMap(model, (x) =>
+														x.flag === "none" ? [] : [{ task: x.id, level: x.flag }]
+													)
+												})
+											)
+											yield* writeModel
+											let fresh = walk.tasks.length
+											const pool: Array<Delivered> = []
+											let last: ReadonlyArray<Delivered> = []
+											for (const step of walk.steps) {
+												/** The writes, each resolved against the model. */
+												const targets = (pick: number): ReadonlyArray<string> => {
+													const marked = [
+														...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.node, model)))
+													]
+													const candidates =
+														marked.length > 0
+															? marked
+															: Arr.map(
+																	Arr.filter(model, (x) => x.account === A),
+																	(x) => x.id
+																)
+													if (candidates.length === 0) {
+														return []
+													}
+													const chosen = defined(candidates[pickIndex(pick, candidates.length)])
+													return Option.match(
+														Arr.findFirst(pool, (d) =>
+															tasksOf(walk.query, d.node, model).includes(chosen)
+														),
+														{
+															onNone: () => [chosen],
+															onSome: (node) => tasksOf(walk.query, node.node, model)
 														}
-													: {
-															nodes: full.slice(Math.max(0, full.length - k)),
-															hasPreviousPage: full.length > k,
-															hasNextPage: false
-														},
-											onSome: ({ node }) => {
-												if (variant === "after") {
-													const past = strictlyAfter(compiled, rows, node)
-													return {
-														nodes: past.slice(0, k),
-														hasPreviousPage: Arr.some(rows, (row) => order(row, node) <= 0),
-														hasNextPage: past.length > k
+													)
+												}
+												/** A removed task takes its notes and its flag with it. */
+												const remove = (ids: ReadonlyArray<string>) => {
+													for (const i of ids) {
+														const at = Arr.findFirstIndex(model, (x) => x.id === i)
+														if (Option.isSome(at)) {
+															model.splice(at.value, 1)
+														}
 													}
 												}
-												const before = strictlyBefore(compiled, rows, node)
-												return {
-													nodes: before.slice(Math.max(0, before.length - k)),
-													hasPreviousPage: before.length > k,
-													hasNextPage: Arr.some(rows, (row) => order(row, node) >= 0)
+												/** Each target task, changed in place in the model. */
+												const update = (
+													ids: ReadonlyArray<string>,
+													change: (task: ModelTask) => ModelTask
+												) => {
+													for (const i of ids) {
+														const at = Option.getOrThrow(
+															Arr.findFirstIndex(model, (x) => x.id === i)
+														)
+														model[at] = change(defined(model[at]))
+													}
 												}
+												for (const write of step.writes) {
+													switch (write.kind) {
+														case "delete an edge's tasks":
+															remove(targets(write.target))
+															break
+														case "delete the last page":
+															remove([
+																...new Set(
+																	Arr.flatMap(last, (d) => tasksOf(walk.query, d.node, model))
+																)
+															])
+															break
+														case "empty the account":
+															remove(
+																Arr.map(
+																	Arr.filter(model, (x) => x.account === A),
+																	(x) => x.id
+																)
+															)
+															break
+														case "move an edge's tasks":
+															update(targets(write.target), (task) => ({
+																...task,
+																priority: write.priority,
+																title: titleOf(write.title)
+															}))
+															break
+														case "insert":
+															model.push({
+																id: t(fresh++),
+																account: write.task.other ? B : A,
+																priority: write.task.priority,
+																title: titleOf(write.task.title),
+																flag: "none"
+															})
+															break
+														case "flag":
+															update(targets(write.target), (task) => ({
+																...task,
+																flag: write.level
+															}))
+															break
+													}
+												}
+												if (step.writes.length > 0) {
+													yield* writeModel
+												}
+												if (step.writes.length > 0 && pool.length > 0) {
+													c.note("a write between requests")
+												}
+												/** The request, anchored on a delivered edge when it names one and one exists. */
+												const r = step.request
+												const anchor =
+													r.variant === "after" || r.variant === "before"
+														? anchorOf(r.anchor, last, pool)
+														: Option.none<Delivered>()
+												const variant = Option.isSome(anchor)
+													? r.variant
+													: r.variant === "first" || r.variant === "after"
+														? "first"
+														: "last"
+												const request = Option.isSome(anchor)
+													? variant === "after"
+														? { first: r.size, after: anchor.value.cursor }
+														: { last: r.size, before: anchor.value.cursor }
+													: variant === "first"
+														? { first: r.size }
+														: { last: r.size }
+												const page = yield* pageOf(ops(r.handle), params, request)
+												assertEdges(page, `${variant} ${r.size}`)
+												/** The oracle: D now, and the anchor's values as its cursor encoded them. */
+												const rows = yield* Effect.flatMap(
+													ops("member").execute(params),
+													(result) => result.collect
+												)
+												const full = sortedResult(compiled, rows)
+												const k = r.size
+												const expected: Expected = Option.match(anchor, {
+													onNone: () =>
+														variant === "first"
+															? {
+																	nodes: full.slice(0, k),
+																	hasPreviousPage: false,
+																	hasNextPage: full.length > k
+																}
+															: {
+																	nodes: full.slice(Math.max(0, full.length - k)),
+																	hasPreviousPage: full.length > k,
+																	hasNextPage: false
+																},
+													onSome: ({ node }) => {
+														if (variant === "after") {
+															const past = strictlyAfter(compiled, rows, node)
+															return {
+																nodes: past.slice(0, k),
+																hasPreviousPage: Arr.some(rows, (row) => order(row, node) <= 0),
+																hasNextPage: past.length > k
+															}
+														}
+														const before = strictlyBefore(compiled, rows, node)
+														return {
+															nodes: before.slice(Math.max(0, before.length - k)),
+															hasPreviousPage: before.length > k,
+															hasNextPage: Arr.some(rows, (row) => order(row, node) >= 0)
+														}
+													}
+												})
+												assert.deepEqual(
+													answered(page),
+													expected,
+													`${variant} ${k} through the ${r.handle}`
+												)
+												c.note(`query ${walk.query}`)
+												c.note(`${variant} through the ${r.handle}`)
+												if (Option.isSome(anchor)) {
+													const gone = !Arr.some(rows, (row) => order(row, anchor.value.node) === 0)
+													c.note(gone ? "an anchor gone from D" : "an anchor still in D")
+													const opposite =
+														variant === "after" ? expected.hasPreviousPage : expected.hasNextPage
+													if (gone && !opposite) {
+														c.note("an opposite flag cleared past a gone anchor")
+													}
+													if (expected.nodes.length === 0) {
+														c.note("an empty anchored page")
+													}
+													if (full.length === 0) {
+														c.note("an emptied D")
+													}
+													if (anchor.value.handle !== r.handle) {
+														c.note("a cursor of the other member")
+													}
+												}
+												last = Arr.map(page.edges, (e) => ({
+													cursor: e.cursor,
+													node: e.node,
+													handle: r.handle
+												}))
+												appendAll(pool, last)
 											}
-										})
-										assert.deepEqual(
-											answered(page),
-											expected,
-											`${variant} ${k} through ${r.handle}`
-										)
-										c.note(`query ${walk.query}`)
-										c.note(`${variant} through ${r.handle}`)
-										if (Option.isSome(anchor)) {
-											const gone = !Arr.some(rows, (row) => order(row, anchor.value.node) === 0)
-											c.note(gone ? "an anchor gone from D" : "an anchor still in D")
-											const opposite =
-												variant === "after" ? expected.hasPreviousPage : expected.hasNextPage
-											if (gone && !opposite) {
-												c.note("an opposite flag cleared past a gone anchor")
-											}
-											if (expected.nodes.length === 0) {
-												c.note("an empty anchored page")
-											}
-											if (full.length === 0) {
-												c.note("an emptied D")
-											}
-											if (anchor.value.handle !== r.handle) {
-												c.note("a cursor of the other handle")
-											}
-										}
-										last = Arr.map(page.edges, (e) => ({
-											cursor: e.cursor,
-											node: e.node,
-											handle: r.handle
-										}))
-										appendAll(pool, last)
-									}
-								}).pipe(Effect.scoped)
-						)
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
+										}).pipe(Effect.scoped)
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)
@@ -930,247 +959,258 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						extensions: [],
 						programs: {}
 					})
-					return yield* Effect.gen(function* () {
-						const { ctx: context } = yield* openDbContext(opened.server.roles.app, {})
-						const { executor, counts } = countingExecutor(poolExecutor(context))
-						const counted = untyped(makeReader(context, executor))
-						return yield* explore(
-							{
-								oracle: { kind: "unstated" },
-								/**
-								 * Refused before any SQL: no transaction opened, no statement sent.
-								 *
-								 * The token itself still continues.
-								 */
-								suite: "pg/page/tokens",
-								draw: drawn(tokenCaseGen),
-								literal: Formatter.format,
-								kept: [],
-								runs: 200,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang,
-								coverage: required<Tamper["kind"] | `issued by ${PagedQuery}`>(
-									[
-										"a character of a digest changed",
-										"truncated",
-										"padded",
-										"a foreign character",
-										"oversized",
-										"another query",
-										"another generation",
-										"not a string",
-										"another request shape",
-										"a size out of range",
-										...Arr.map(pagedQueryNames, (q) => `issued by ${q}` as const)
-									],
-									{ cases: 200, sense: notesOnly }
-								)
-							},
-							(c, notes) =>
-								Effect.gen(function* () {
-									const q = pagedQueries[c.query]
-									const params = { account: A }
-									const issued = yield* counted.page(
-										q,
-										params,
-										c.from === "first" ? { first: c.size } : { last: c.size }
-									)
-									const edge = defined(
-										issued.edges[pickIndex(c.edge, issued.edges.length)],
-										"an edge"
-									)
-									const token = edge.cursor
-									const plain = (cursor: unknown): Record<string, unknown> =>
-										c.direction === "after"
-											? { first: 2, after: cursor }
-											: { last: 2, before: cursor }
-									const tamper = c.tamper
-									/** The request sent, the query and parameters it is sent with, and the verdict the contract gives. */
-									const tampered = ((): {
-										readonly query: unknown
-										readonly params: object
-										readonly request: unknown
-										readonly verdict: Verdict
-									} => {
-										const same = { query: q, params }
-										switch (tamper.kind) {
-											case "a character of a digest changed": {
-												const at = pickIndex(
-													tamper.at,
-													Math.min(digestCharacters, token.length - 1)
-												)
-												const was = Option.getOrThrowWith(
-													pipe(base64url, Str.indexOf(defined(token[at]))),
-													() => new Error("a base64url digit")
-												)
-												const to =
-													(was + 1 + pickIndex(tamper.to, base64url.length - 1)) % base64url.length
-												return {
-													...same,
-													request: plain(
-														`${Str.slice(0, at)(token)}${base64url[to]}${Str.slice(at + 1)(token)}`
-													),
-													verdict: { kind: "some cursor refusal" }
-												}
-											}
-											case "truncated":
-												return {
-													...same,
-													request: plain(
-														pipe(token, Str.slice(0, pickIndex(tamper.keep, token.length)))
-													),
-													verdict: { kind: "some cursor refusal" }
-												}
-											case "padded":
-												return {
-													...same,
-													request: plain(`${token}=`),
-													verdict: { kind: "cursor", reason: "cursorEncoding" }
-												}
-											case "a foreign character": {
-												const at = pickIndex(tamper.at, token.length + 1)
-												return {
-													...same,
-													request: plain(
-														`${Str.slice(0, at)(token)}${tamper.char}${Str.slice(at)(token)}`
-													),
-													verdict: { kind: "cursor", reason: "cursorEncoding" }
-												}
-											}
-											case "oversized":
-												return {
-													...same,
-													request: plain(longText(cursorTokenMaxLength + tamper.extra)),
-													verdict: { kind: "cursor", reason: "cursorOversized" }
-												}
-											case "another query": {
-												/** The same TypeScript shape with another filter, or any other query of the fixture. */
-												const others: Arr.NonEmptyReadonlyArray<unknown> = [
-													nonNegativeTasks,
-													...Arr.map(
-														Arr.filter(pagedQueryNames, (n) => n !== c.query),
-														(n) => pagedQueries[n]
-													)
-												]
-												return {
-													query: pickFrom(others, tamper.query),
-													params,
-													request: plain(token),
-													verdict: { kind: "cursor", reason: "cursorQuery" }
-												}
-											}
-											case "another generation": {
-												const template = pageTemplate(context, q)
-												const runtime = template.runtime
-												const old = cursorCodec(
-													{
-														query: runtime.identity.query,
-														comparators: runtime.page.comparators,
-														generation: {
-															schema: `${runtime.identity.generation.schema}-previous`,
-															extensions: {}
+					return yield* withServedDb(
+						opened.installed,
+						opened.server.roles.app,
+						{},
+						({ ctx: context, load }) =>
+							Effect.gen(function* () {
+								const loaded = yield* load(tokenMembers)
+								const { executor, counts } = countingExecutor(poolExecutor(context))
+								/** A paged member's operations, its reads through the counting executor. */
+								const counted = (name: string) =>
+									memberOpsOn(executor, context, member(loaded, name))
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										/**
+										 * Refused before any SQL: no transaction opened, no statement sent.
+										 *
+										 * The token itself still continues.
+										 */
+										suite: "pg/page/tokens",
+										draw: drawn(tokenCaseGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 200,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										caseHang,
+										coverage: required<Tamper["kind"] | `issued by ${PagedQuery}`>(
+											[
+												"a character of a digest changed",
+												"truncated",
+												"padded",
+												"a foreign character",
+												"oversized",
+												"another query",
+												"another generation",
+												"not a string",
+												"another request shape",
+												"a size out of range",
+												...Arr.map(pagedQueryNames, (q) => `issued by ${q}` as const)
+											],
+											{ cases: 200, sense: notesOnly }
+										)
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											const q = memberName(c.query, "member")
+											const params = { account: A }
+											const issued = yield* pageOf(
+												counted(q),
+												params,
+												c.from === "first" ? { first: c.size } : { last: c.size }
+											)
+											const edge = defined(
+												issued.edges[pickIndex(c.edge, issued.edges.length)],
+												"an edge"
+											)
+											const token = edge.cursor
+											const plain = (cursor: unknown): Record<string, unknown> =>
+												c.direction === "after"
+													? { first: 2, after: cursor }
+													: { last: 2, before: cursor }
+											const tamper = c.tamper
+											/** The request sent, the member and parameters it is sent with, and the verdict the contract gives. */
+											const tampered = ((): {
+												readonly query: string
+												readonly params: { readonly account: Uuid }
+												readonly request: unknown
+												readonly verdict: Verdict
+											} => {
+												const same = { query: q, params }
+												switch (tamper.kind) {
+													case "a character of a digest changed": {
+														const at = pickIndex(
+															tamper.at,
+															Math.min(digestCharacters, token.length - 1)
+														)
+														const was = Option.getOrThrowWith(
+															pipe(base64url, Str.indexOf(defined(token[at]))),
+															() => new Error("a base64url digit")
+														)
+														const to =
+															(was + 1 + pickIndex(tamper.to, base64url.length - 1)) %
+															base64url.length
+														return {
+															...same,
+															request: plain(
+																`${Str.slice(0, at)(token)}${base64url[to]}${Str.slice(at + 1)(token)}`
+															),
+															verdict: { kind: "some cursor refusal" }
 														}
-													},
-													cursorTokenMaxLength,
-													template.codes
-												)
-												const decoded = succeeded(runtime.codec.decode(token))
-												const reissued = succeeded(succeeded(old).encode(decoded.values))
-												return {
-													...same,
-													request: plain(reissued),
-													verdict: { kind: "cursor", reason: "cursorGeneration" }
-												}
-											}
-											case "not a string":
-												return {
-													...same,
-													request: plain(nonString(tamper.value)),
-													verdict: { kind: "cursor", reason: "cursorType" }
-												}
-											case "another request shape": {
-												const request = ((): unknown => {
-													switch (tamper.shape) {
-														case "both sizes":
-															return { first: 2, last: 2 }
-														case "the other anchor":
-															return c.direction === "after"
-																? { first: 2, before: token }
-																: { last: 2, after: token }
-														case "both anchors":
-															return {
-																...plain(token),
-																[c.direction === "after" ? "before" : "after"]: token
-															}
-														case "no size":
-															return c.direction === "after" ? { after: token } : { before: token }
-														case "an extra property":
-															return { ...plain(token), size: 2 }
-														case "no object":
-															return token
 													}
-												})()
-												return {
-													...same,
-													request,
-													verdict: { kind: "request", fault: "requestShape" }
+													case "truncated":
+														return {
+															...same,
+															request: plain(
+																pipe(token, Str.slice(0, pickIndex(tamper.keep, token.length)))
+															),
+															verdict: { kind: "some cursor refusal" }
+														}
+													case "padded":
+														return {
+															...same,
+															request: plain(`${token}=`),
+															verdict: { kind: "cursor", reason: "cursorEncoding" }
+														}
+													case "a foreign character": {
+														const at = pickIndex(tamper.at, token.length + 1)
+														return {
+															...same,
+															request: plain(
+																`${Str.slice(0, at)(token)}${tamper.char}${Str.slice(at)(token)}`
+															),
+															verdict: { kind: "cursor", reason: "cursorEncoding" }
+														}
+													}
+													case "oversized":
+														return {
+															...same,
+															request: plain(longText(cursorTokenMaxLength + tamper.extra)),
+															verdict: { kind: "cursor", reason: "cursorOversized" }
+														}
+													case "another query": {
+														/** The same TypeScript shape with another filter, or any other query of the fixture. */
+														const others: Arr.NonEmptyReadonlyArray<string> = [
+															"nonNegative",
+															...Arr.map(
+																Arr.filter(pagedQueryNames, (n) => n !== c.query),
+																(n) => memberName(n, "member")
+															)
+														]
+														return {
+															query: pickFrom(others, tamper.query),
+															params,
+															request: plain(token),
+															verdict: { kind: "cursor", reason: "cursorQuery" }
+														}
+													}
+													case "another generation": {
+														const template = pageTemplate(
+															member(loaded, q),
+															opened.installed.names.codes
+														)
+														const runtime = template.runtime
+														const old = cursorCodec(
+															{
+																query: runtime.identity.query,
+																comparators: runtime.page.comparators,
+																generation: {
+																	schema: `${runtime.identity.generation.schema}-previous`,
+																	extensions: {}
+																}
+															},
+															cursorTokenMaxLength,
+															template.codes
+														)
+														const decoded = succeeded(runtime.codec.decode(token))
+														const reissued = succeeded(succeeded(old).encode(decoded.values))
+														return {
+															...same,
+															request: plain(reissued),
+															verdict: { kind: "cursor", reason: "cursorGeneration" }
+														}
+													}
+													case "not a string":
+														return {
+															...same,
+															request: plain(nonString(tamper.value)),
+															verdict: { kind: "cursor", reason: "cursorType" }
+														}
+													case "another request shape": {
+														const request = ((): unknown => {
+															switch (tamper.shape) {
+																case "both sizes":
+																	return { first: 2, last: 2 }
+																case "the other anchor":
+																	return c.direction === "after"
+																		? { first: 2, before: token }
+																		: { last: 2, after: token }
+																case "both anchors":
+																	return {
+																		...plain(token),
+																		[c.direction === "after" ? "before" : "after"]: token
+																	}
+																case "no size":
+																	return c.direction === "after"
+																		? { after: token }
+																		: { before: token }
+																case "an extra property":
+																	return { ...plain(token), size: 2 }
+																case "no object":
+																	return token
+															}
+														})()
+														return {
+															...same,
+															request,
+															verdict: { kind: "request", fault: "requestShape" }
+														}
+													}
+													case "a size out of range":
+														return {
+															...same,
+															request:
+																c.direction === "after"
+																	? { first: sizeOf(tamper.size), after: token }
+																	: { last: sizeOf(tamper.size), before: token },
+															verdict: { kind: "request", fault: "requestSize" }
+														}
 												}
+											})()
+											const within = counts.within
+											const statements = counts.statements
+											const failure = yield* Effect.flip(
+												pageOf(counted(tampered.query), tampered.params, tampered.request)
+											)
+											switch (tampered.verdict.kind) {
+												case "cursor":
+													assert.deepEqual(
+														failure,
+														cursorFailure(tampered.verdict.reason),
+														tamper.kind
+													)
+													break
+												case "some cursor refusal":
+													assert.ok(
+														failure instanceof CursorError,
+														`${tamper.kind}: ${String(failure)}`
+													)
+													break
+												case "request":
+													assert.deepEqual(
+														failure,
+														new ReadFailure({
+															reason: new PageRequestRefused({ fault: tampered.verdict.fault })
+														}),
+														tamper.kind
+													)
+													break
 											}
-											case "a size out of range":
-												return {
-													...same,
-													request:
-														c.direction === "after"
-															? { first: sizeOf(tamper.size), after: token }
-															: { last: sizeOf(tamper.size), before: token },
-													verdict: { kind: "request", fault: "requestSize" }
-												}
-										}
-									})()
-									const within = counts.within
-									const statements = counts.statements
-									const failure = yield* Effect.flip(
-										counted.page(tampered.query, tampered.params, tampered.request)
-									)
-									switch (tampered.verdict.kind) {
-										case "cursor":
-											assert.deepEqual(failure, cursorFailure(tampered.verdict.reason), tamper.kind)
-											break
-										case "some cursor refusal":
-											assert.ok(
-												failure instanceof CursorError,
-												`${tamper.kind}: ${String(failure)}`
-											)
-											break
-										case "request":
 											assert.deepEqual(
-												failure,
-												new ReadFailure({
-													reason: new PageRequestRefused({ fault: tampered.verdict.fault })
-												}),
-												tamper.kind
+												[counts.within, counts.statements],
+												[within, statements],
+												"no SQL"
 											)
-											break
-									}
-									assert.deepEqual(
-										[counts.within, counts.statements],
-										[within, statements],
-										"no SQL"
-									)
-									yield* counted.page(q, params, plain(token))
-									notes.note(tamper.kind)
-									notes.note(`issued by ${c.query}`)
-								})
-						)
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
+											yield* pageOf(counted(q), params, plain(token))
+											notes.note(tamper.kind)
+											notes.note(`issued by ${c.query}`)
+										})
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)

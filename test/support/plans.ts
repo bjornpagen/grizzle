@@ -1,12 +1,16 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import type { DbContext, ServedDbContext } from "#adapter/db/context.ts"
+import { memberOpsOn } from "#adapter/db/handles.ts"
+import type { CompiledOps } from "#adapter/db/ops.ts"
+import type { ReadError } from "#adapter/errors/execution.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
-import { makeReader } from "#adapter/reader/reader.ts"
+import { makeReader, type QueryResultValue } from "#adapter/reader/reader.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { countingExecutor, untyped } from "#test/pg/page/support.ts"
+import { type Counts, countingExecutor } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -307,5 +311,26 @@ export const createdIndexes = (schema: string) =>
 export const recordingReader = (ctx: DbContext) => {
 	const { executor, counts } = countingExecutor(poolExecutor(ctx))
 	const reader = makeReader(ctx, executor)
-	return Effect.succeed({ reader: untyped(reader), compileWith: reader.compileWith, counts })
+	const reads: UntypedReads = reader
+	return Effect.succeed({ reader: reads, compileWith: reader.compileWith, counts })
+}
+
+/** A runtime reader's execute over any query value, its rows typed unknown, as the in-process recordingReader gives it. */
+interface UntypedReads {
+	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
+}
+
+/**
+ * The operations of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load), every read
+ * of them through one executor over the Db's pool that records every statement it sends (adapter/db/handles.ts
+ * memberOpsOn), and the counts it records into, which every member's reads share.
+ */
+export const recordingMembers = (
+	ctx: ServedDbContext
+): {
+	readonly ops: (member: LoadedMember) => CompiledOps<unknown>
+	readonly counts: Counts
+} => {
+	const { executor, counts } = countingExecutor(poolExecutor(ctx))
+	return { ops: (member) => memberOpsOn(executor, ctx, member), counts }
 }

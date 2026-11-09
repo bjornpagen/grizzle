@@ -5,11 +5,12 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, Record as Rec, String as Str } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
+import { memberOps } from "#adapter/db/handles.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { pageTemplate, rowOf, sortedResult, traverse, untyped } from "#test/pg/page/support.ts"
+import { paged } from "#compiler/public/workload.ts"
+import { pageOf, pageTemplate, rowOf, sortedResult, traverse } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -23,7 +24,7 @@ import {
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
-import { dbReader } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -39,7 +40,6 @@ import {
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 /**
  * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
  *
@@ -231,130 +231,135 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 					const names = namesOf(opened.installed)
 					const table = names.table(Measure)
 					const column = (field: Field | "id"): string => names.column(Measure, field)
-					return yield* Effect.gen(function* () {
-						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
-						const pages = untyped(dbReader(dbCtx))
-						return yield* explore(
-							{
-								oracle: { kind: "unstated" },
-								/** The pages at the drawn sizes concatenate to D, with exact flags. */
-								suite: "pg/page/values",
-								draw: drawn(valuesCaseGen),
-								literal: Formatter.format,
-								kept: [],
-								runs: 60,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang,
-								coverage: required<ValuesFeature>(
-									[
-										...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
-										"float -0",
-										"float NaN",
-										"float infinity",
-										"float subnormal",
-										"numeric NaN",
-										"numeric of more than 17 digits",
-										"bigint extreme",
-										"bigint beyond 2^53",
-										"empty text",
-										"text beyond the BMP",
-										"a tie on the leading key"
-									],
-									{ cases: 60, sense: notesOnly }
+					return yield* withServedDb(
+						opened.installed,
+						opened.server.roles.app,
+						{},
+						({ ctx: dbCtx, load }) =>
+							Effect.gen(function* () {
+								/** Every ordered query, a paged member of the workload under its position's name. */
+								const loaded = yield* load(
+									Rec.fromEntries(Arr.map(orderedNames, (q, i) => [`paged${i}`, paged(queries[q])]))
 								)
-							},
-							(c, notes) =>
-								Effect.gen(function* () {
-									/** The case's facts replace the last case's whole (substrate/replace.ts). */
-									const stored = Arr.map(c.facts, storedFact)
-									const texts = Arr.map(stored, factTexts)
-									yield* replaceRows(
-										s.admin,
-										installationGroup(names),
-										Arr.map(texts, (f, n) => ({
-											sql: `INSERT INTO ${table} (${column("id")}, ${column("x")}, ${column("amount")}, ${column("big")}, ${column("label")}) VALUES ($1::uuid, $2::double precision, $3::numeric, $4::bigint, $5::text)`,
-											params: [id(n + 1), f.x, f.amount, f.big, f.label]
-										}))
-									)
-									const q = queries[c.query]
-									const compiled = pageTemplate(dbCtx, q)
-									const runtime = compiled.runtime
-									const rows = yield* Effect.flatMap(
-										pages.execute(q, {}),
-										(result) => result.collect
-									)
-									assert.equal(rows.length, c.facts.length)
-									const full = sortedResult(compiled, rows)
-									for (const [direction, size] of [
-										["forward", c.forward],
-										["backward", c.backward]
-									] as const) {
-										const walked = yield* traverse(pages, q, {}, direction, size, { kind: "end" })
-										assert.deepEqual(walked.nodes, full, `${direction} ${size}`)
-										const ordered =
-											direction === "forward" ? walked.pages : Arr.reverse(walked.pages)
-										let offset = 0
-										for (const [k, page] of ordered.entries()) {
-											assert.equal(
-												page.pageInfo.hasPreviousPage,
-												offset > 0,
-												`${direction} ${size} page ${k} previous`
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										/** The pages at the drawn sizes concatenate to D, with exact flags. */
+										suite: "pg/page/values",
+										draw: drawn(valuesCaseGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 60,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										caseHang,
+										coverage: required<ValuesFeature>(
+											[
+												...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
+												"float -0",
+												"float NaN",
+												"float infinity",
+												"float subnormal",
+												"numeric NaN",
+												"numeric of more than 17 digits",
+												"bigint extreme",
+												"bigint beyond 2^53",
+												"empty text",
+												"text beyond the BMP",
+												"a tie on the leading key"
+											],
+											{ cases: 60, sense: notesOnly }
+										)
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											/** The case's facts replace the last case's whole (substrate/replace.ts). */
+											const stored = Arr.map(c.facts, storedFact)
+											const texts = Arr.map(stored, factTexts)
+											yield* replaceRows(
+												s.admin,
+												installationGroup(names),
+												Arr.map(texts, (f, n) => ({
+													sql: `INSERT INTO ${table} (${column("id")}, ${column("x")}, ${column("amount")}, ${column("big")}, ${column("label")}) VALUES ($1::uuid, $2::double precision, $3::numeric, $4::bigint, $5::text)`,
+													params: [id(n + 1), f.x, f.amount, f.big, f.label]
+												}))
 											)
-											offset += page.edges.length
-											assert.equal(
-												page.pageInfo.hasNextPage,
-												offset < full.length,
-												`${direction} ${size} page ${k} next`
+											const pagedMember = member(
+												loaded,
+												`paged${Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(Option.getOrThrow)}`
 											)
-										}
-									}
-									/**
-									 * Each cursor's boundary texts, read back by PostgreSQL as their columns' types, equal the
-									 * edge's stored values.
-									 */
-									const page = yield* pages.page(q, {}, { first: c.facts.length })
-									for (const edge of page.edges) {
-										const decoded = succeeded(runtime.codec.decode(edge.cursor))
-										const node = rowOf(edge.node)
-										for (const [i, comparator] of runtime.page.comparators.entries()) {
-											const field = comparator.field
-											assert.ok(isCompared(field), `a comparator of ${field}, no field of Measure`)
-											const [answer] = yield* s.admin.queryValues(
-												`SELECT ($1::${sqlTypes[field]} = m.${column(field)})::text FROM ${table} AS m WHERE m.${column("id")} = $2::uuid`,
-												[defined(decoded.texts[i]), String(node["id"])]
+											const q = memberOps(dbCtx, pagedMember)
+											const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
+											const runtime = compiled.runtime
+											const rows = yield* Effect.flatMap(q.execute({}), (result) => result.collect)
+											assert.equal(rows.length, c.facts.length)
+											const full = sortedResult(compiled, rows)
+											for (const [direction, size] of [
+												["forward", c.forward],
+												["backward", c.backward]
+											] as const) {
+												const walked = yield* traverse(q, {}, direction, size, { kind: "end" })
+												assert.deepEqual(walked.nodes, full, `${direction} ${size}`)
+												const ordered =
+													direction === "forward" ? walked.pages : Arr.reverse(walked.pages)
+												let offset = 0
+												for (const [k, page] of ordered.entries()) {
+													assert.equal(
+														page.pageInfo.hasPreviousPage,
+														offset > 0,
+														`${direction} ${size} page ${k} previous`
+													)
+													offset += page.edges.length
+													assert.equal(
+														page.pageInfo.hasNextPage,
+														offset < full.length,
+														`${direction} ${size} page ${k} next`
+													)
+												}
+											}
+											/**
+											 * Each cursor's boundary texts, read back by PostgreSQL as their columns' types, equal the
+											 * edge's stored values.
+											 */
+											const page = yield* pageOf(q, {}, { first: c.facts.length })
+											for (const edge of page.edges) {
+												const decoded = succeeded(runtime.codec.decode(edge.cursor))
+												const node = rowOf(edge.node)
+												for (const [i, comparator] of runtime.page.comparators.entries()) {
+													const field = comparator.field
+													assert.ok(
+														isCompared(field),
+														`a comparator of ${field}, no field of Measure`
+													)
+													const [answer] = yield* s.admin.queryValues(
+														`SELECT ($1::${sqlTypes[field]} = m.${column(field)})::text FROM ${table} AS m WHERE m.${column("id")} = $2::uuid`,
+														[defined(decoded.texts[i]), String(node["id"])]
+													)
+													assert.deepEqual(
+														answer,
+														["true"],
+														`${c.query}: ${field} of ${String(node["id"])} as its cursor carries it`
+													)
+												}
+											}
+											notes.note(`query ${c.query}`)
+											notes.noteAll(reached(stored))
+											/** A tie on the leading key, by the column type's own equality. */
+											const leading = defined(runtime.page.comparators[0]).field
+											if (!isCompared(leading)) {
+												return assert.fail(`a comparator of ${leading}, no field of Measure`)
+											}
+											const [tied] = yield* s.admin.queryValues(
+												`SELECT (count(*) > count(DISTINCT m.${column(leading)}))::text FROM ${table} AS m`,
+												[]
 											)
-											assert.deepEqual(
-												answer,
-												["true"],
-												`${c.query}: ${field} of ${String(node["id"])} as its cursor carries it`
-											)
-										}
-									}
-									notes.note(`query ${c.query}`)
-									notes.noteAll(reached(stored))
-									/** A tie on the leading key, by the column type's own equality. */
-									const leading = defined(runtime.page.comparators[0]).field
-									if (!isCompared(leading)) {
-										return assert.fail(`a comparator of ${leading}, no field of Measure`)
-									}
-									const [tied] = yield* s.admin.queryValues(
-										`SELECT (count(*) > count(DISTINCT m.${column(leading)}))::text FROM ${table} AS m`,
-										[]
-									)
-									if (tied?.[0] === "true") {
-										notes.note("a tie on the leading key")
-									}
-								})
-						)
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(opened.installed, opened.server)), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
+											if (tied?.[0] === "true") {
+												notes.note("a tie on the leading key")
+											}
+										})
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)
