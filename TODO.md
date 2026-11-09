@@ -73,6 +73,21 @@ post-beta swarm's fixes for the next release.
       a CHECK by its lowered predicate on the host (write/program/witness.ts checkOf, write/family/fold.ts
       hostEvaluator) and pattern-order.ts and lawPatterns read its lowered matches; lowering plain into the extension
       DAG and base only on refusal, a try-then-alternative that leaves unreachable nodes and moves DAG labels.
+  - scheduleStratum's pairwise reference scans (WORKLOAD, 2026-11-09; held until ONERTT-WRITE2's C4 lands, since C4
+    edits write/frontend/schedule.ts). On the kit's qti layer (author_app), pantry importWrite's one stratum, one call
+    per loginRoles, has 157 actions, 241 family statements and 80 immediate references. scheduleStratum tests every
+    ordered pair of plain actions on different relations with a references.some (about 2.0M closure calls, almost all
+    false), and scans every reference for each action and family statement pair (about 3.0M), though an edge exists
+    only between two relations a reference joins.
+    - **What it deletes:** both scans. Group the actions by relation and the references by (from, to) once, then walk
+      the references and join their relation groups, and look up an action and statement pair's references by its two
+      relations. Smaller, in the same cut: statements keyed by (relation, step) instead of a statements.find per
+      rowsOf, statementOf and nodeOf; a ready count per vertex instead of remaining.find with every and filter per
+      placement (398 vertices); dependsOn without an ordered.slice per action.
+    - **Byte-identical:** follows is a Set whose order no reader takes (the topological pick tests membership,
+      cycleAmong walks remaining's order, dependsOn uses has), so equal edge sets give the same schedule and the same
+      refusal text.
+    - **Notes:** ~/.cache/grizzle-release/WORKLOAD/scratch/sched-analysis.txt.
 - **A key over exactly the primary key's fields states the primary key's law, plain as span:** the draft and migration
   probe are in ~/.cache/grizzle-release/LAWSTMT/step2. It still needs its PostgreSQL run and a migration guard for a
   foreign key into the dropped redundant span UNIQUE.
