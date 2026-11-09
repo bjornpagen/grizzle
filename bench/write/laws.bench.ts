@@ -525,7 +525,6 @@ const conditions = (
 	c: Pick<Conditions, "workload" | "parameters" | "resultSemantics" | "cacheState">
 ): Conditions => ({ ...c, schemaState, dataDistribution: data })
 
-/** @internal */
 export default defineGate({
 	name: "write-laws",
 	gates: ["law-cost"],

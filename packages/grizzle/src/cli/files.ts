@@ -96,8 +96,6 @@ const readFolder = Effect.fnUntraced(function* (schema: string, directory: strin
 
 /**
  * Reads one schema's directory; a missing directory is a schema with no migration yet.
- *
- * @internal
  */
 export const readSchemaTree = Effect.fn("readSchemaTree")(
 	function* (
@@ -168,8 +166,6 @@ const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 
 /**
  * Writes a drafted folder into the schema's directory, whole or not at all; returns its path.
- *
- * @internal
  */
 export const writeFolder = Effect.fn("writeFolder")(
 	function* (
@@ -206,8 +202,6 @@ export const writeFolder = Effect.fn("writeFolder")(
 
 /**
  * Replaces the schema's snapshot.json by rename; returns its path.
- *
- * @internal
  */
 export const writeSnapshotFile = Effect.fn("writeSnapshotFile")(
 	function* (

@@ -63,7 +63,6 @@ const freshFamily = (s: ReturnType<typeof build>, id: number, length: number) =>
 		{ id, members: Arr.map(indices(length), (k) => ({ payload: k })) }
 	])
 
-/** @internal */
 export default defineGate({
 	name: "write-families",
 	gates: ["families"],

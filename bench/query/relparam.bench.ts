@@ -70,7 +70,6 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-/** @internal */
 export default defineGate({
 	name: "query-relparam",
 	gates: ["R22"],

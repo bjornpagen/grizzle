@@ -10,8 +10,6 @@ import { printCommentTarget } from "#compiler/plan/common.ts"
  * Every object grizzle installs is named by the naming door (core/identity.ts): a readable name spells what it is, and a
  * hashed one's COMMENT holds its identity spelled out. Each line is one hashed object, as COMMENT ON names it, then that
  * text. A schema with no snapshot yet installs nothing.
- *
- * @internal
  */
 export const names = (
 	config: ResolvedConfig

@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util"
 import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
 import { runDevtool } from "@grizzle/devtools/run"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Console,
@@ -15,7 +16,6 @@ import {
 } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
 
-import { regex } from "arkregex"
 interface CallFrame {
 	readonly functionName: string
 	readonly url: string

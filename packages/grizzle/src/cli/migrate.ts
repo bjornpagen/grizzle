@@ -11,8 +11,6 @@ import { readSchemaTree } from "#cli/files.ts"
 /**
  * Every configured schema's migration target, read before connecting: its committed snapshot and folders, compiling
  * nothing.
- *
- * @internal
  */
 export const readTargets = (
 	config: ResolvedConfig
@@ -45,8 +43,6 @@ export const readTargets = (
  * committed. A folder not yet applied is a mismatch of its own.
  *
  * Applies every configured schema's pending migrations, connecting with `connection`, the configuration's.
- *
- * @internal
  */
 export const migrate = Effect.fn("migrate")(function* (
 	config: ResolvedConfig,
@@ -63,8 +59,6 @@ export const migrate = Effect.fn("migrate")(function* (
 /**
  * Checks every configured schema's catalog against its committed snapshot, applying nothing; it connects with
  * `connection`, as migrate does.
- *
- * @internal
  */
 export const drift = Effect.fn("drift")(function* (
 	config: ResolvedConfig,

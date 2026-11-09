@@ -315,8 +315,6 @@ const writtenBench = Effect.fn("writtenBench")(function* (options: ColdOptions, 
 
 /**
  * Runs the benchmark and writes its record to `outDir`/cold.json.
- *
- * @internal
  */
 export const runColdBench = (
 	options: ColdOptions,

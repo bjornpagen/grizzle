@@ -1,4 +1,3 @@
-import { regex } from "arkregex"
 /**
  * The catalog of performance gates: R01 to R42, the compiler's performance rules, then the work-queue claim at a reference
  * load, the refresh lifetime and what a law over a closed relation's constant costs a write. Each gate is stated here, as data, with the rule it measures, its owner and its gate
@@ -7,6 +6,7 @@ import { regex } from "arkregex"
  * owner's under bench/query, the write owner's (the write, law, queue and refresh gates; R40 is a refresh measurement,
  * so a write gate) under bench/write and bench/queue. The numbering keeps the gaps of the rules that are no gates.
  */
+import { regex } from "arkregex"
 import { Array as Arr, String as Str } from "effect"
 const ruleIds = [
 	"R01",

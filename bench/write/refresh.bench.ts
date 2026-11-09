@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Effect,
@@ -46,7 +47,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 /**
  * R40: refresh with REFRESH MATERIALIZED VIEW CONCURRENTLY, and refreshes one level per call.
  *
@@ -142,7 +142,6 @@ const refreshTransaction = (sql: string): TransactionPlan => ({
 	wal: true
 })
 
-/** @internal */
 export default defineGate({
 	name: "write-refresh",
 	gates: ["R40", "refresh-lifetime"],

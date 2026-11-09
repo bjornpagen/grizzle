@@ -27,8 +27,6 @@ export const resolveConnection = (
  * ConfigProvider: refused when it sets a startup variable that reaches an owner's session (connection/environment.ts),
  * PGOPTIONS or PGREPLICATION, which pg would send at the startup of each, since an owner's session sets no options of
  * its own and starts under its role's and its database's defaults.
- *
- * @internal
  */
 export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 	Effect.sync(() => startupVariableSet("owner")),
@@ -42,8 +40,6 @@ export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 /**
  * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, in a process environment that
  * sends no startup variable (ownerEnvironment).
- *
- * @internal
  */
 export const migrationConnection = (
 	config: ResolvedConfig

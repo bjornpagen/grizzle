@@ -231,7 +231,6 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 type Gates = "R01" | "R02" | "R03" | "R17"
 
-/** @internal */
 export default defineGate({
 	name: "query-fusion",
 	gates: ["R01", "R02", "R03", "R17"],

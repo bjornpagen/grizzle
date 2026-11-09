@@ -129,7 +129,6 @@ const figures = (m: VariantMeasure): Readonly<Record<string, number>> => {
 	}
 }
 
-/** @internal */
 export default defineGate({
 	name: "query-payload",
 	gates: ["R06"],

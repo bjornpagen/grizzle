@@ -219,7 +219,6 @@ const statementsText = (statements: ReadonlyArray<ObservedStatement>) =>
 		", "
 	)
 
-/** @internal */
 export default defineGate({
 	name: "write-changeset",
 	gates: ["R35"],

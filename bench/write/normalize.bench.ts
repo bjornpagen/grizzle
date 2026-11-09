@@ -69,7 +69,6 @@ const outcomeText = (o: ObservedApply): string =>
 			: o.value.kind
 	}; ${o.failure.kind === "none" ? "no wire failure" : `wire ${o.failure.failure.sqlstate}`}`
 
-/** @internal */
 export default defineGate({
 	name: "write-normalize",
 	gates: ["R34"],

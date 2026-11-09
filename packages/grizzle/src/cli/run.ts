@@ -391,8 +391,6 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
  *
  * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock. No command reads the
  * environment for where to connect: migrate and drift connect with the configuration's connection (connection.ts).
- *
- * @internal
  */
 export const runCli = Effect.fn("runCli")(function* (
 	argv: ReadonlyArray<string>,

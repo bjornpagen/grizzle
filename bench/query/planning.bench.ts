@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import { explain, findNodes, type PlanNode } from "#bench/harness/explain.ts"
@@ -48,7 +49,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
-import { regex } from "arkregex"
 /**
  * R14: keep planning growth bounded.
  *
@@ -265,7 +265,6 @@ const unfenced = (compiled: Compiled): boolean =>
 		return featureCount(shape, "offset literal") === 0 && !has(shape, "cte materialized")
 	})
 
-/** @internal */
 export default defineGate({
 	name: "query-planning",
 	gates: ["R14"],

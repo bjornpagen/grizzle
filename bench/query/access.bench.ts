@@ -379,7 +379,6 @@ const parameterBounds = (
 	return ops
 }
 
-/** @internal */
 export default defineGate({
 	name: "query-access",
 	gates: ["R04", "R18", "R39"],

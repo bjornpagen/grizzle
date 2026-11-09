@@ -213,7 +213,6 @@ const scanLoops = (plan: PlanNode, table: string): number => {
 	)
 }
 
-/** @internal */
 export default defineGate({
 	name: "query-take",
 	gates: ["R20", "R27", "R42"],

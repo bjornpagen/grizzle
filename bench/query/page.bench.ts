@@ -85,7 +85,6 @@ const rowsVariant = (
 	outside: {}
 })
 
-/** @internal */
 export default defineGate({
 	name: "query-page",
 	gates: ["R05"],

@@ -1,9 +1,9 @@
+import { regex } from "arkregex"
 import { Effect } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
-import { regex } from "arkregex"
 /**
  * WAL measurement for the performance gates.
  *

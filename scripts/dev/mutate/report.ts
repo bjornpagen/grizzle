@@ -51,8 +51,6 @@ export type Stored = {
 
 /**
  * The report at `path`, or none when there is none yet.
- *
- * @internal
  */
 export const readStored = Effect.fn("readStored")(function* (path: string) {
 	const fs = yield* FileSystem.FileSystem
@@ -101,8 +99,6 @@ const readVerdicts = Effect.fn("readVerdicts")(function* (path: string) {
  * current population (@grizzle/testing/mutants: the id digests the file, operator, enclosing function, original and
  * replacement text and ordinal), so a verdict whose id no current mutant has is refused: its code moved or changed,
  * and the fault it judged now has another id, which a run lists as untriaged.
- *
- * @internal
  */
 export const readTriage = Effect.fn("readTriage")(function* (input: TriageInput) {
 	const all = yield* readVerdicts(input.path)
@@ -130,8 +126,6 @@ interface Pruned {
 /**
  * Rewrites the triage at `path` without the verdicts whose mutant is in no current population, the orphans
  * `readTriage` refuses, and reports how many it kept and the ids it dropped.
- *
- * @internal
  */
 export const pruneTriage = Effect.fn("pruneTriage")(function* (input: TriageInput) {
 	const fs = yield* FileSystem.FileSystem

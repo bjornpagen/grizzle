@@ -359,8 +359,6 @@ const packFaultText = (fault: PackFault): string => {
 /**
  * Every configured schema's findings, in configured order, each schema compiled first (config.ts compileSchema): a
  * schema or login that does not compile is the configuration's refusal.
- *
- * @internal
  */
 export const check = (
 	config: ResolvedConfig,
@@ -376,8 +374,6 @@ export const check = (
  * Every configured schema's committed files checked, in configured order, compiling nothing (checkCommitted, each
  * literal pack held to the digest and the rows it states): the checks `grizzle migrate` runs before it connects, since
  * it applies the committed files as they are.
- *
- * @internal
  */
 export const checkFiles = (
 	config: ResolvedConfig,

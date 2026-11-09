@@ -1,7 +1,7 @@
+import { regex } from "arkregex"
 import { Array as Arr, Result, String as Str } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
 
-import { regex } from "arkregex"
 interface Range {
 	readonly startOffset: number
 	readonly endOffset: number

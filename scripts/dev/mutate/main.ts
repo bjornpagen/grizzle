@@ -7,6 +7,7 @@ import { shuffled } from "@grizzle/testing/gen"
 import { applied, type Mutant as LibraryMutant, mutantsOf } from "@grizzle/testing/mutants"
 import { wordsOf } from "@grizzle/testing/random"
 import { generate, randomChooser } from "@grizzle/testing/source"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Clock,
@@ -54,7 +55,6 @@ import {
 } from "#scripts/dev/mutate/world.ts"
 import { hardenedNode, sourceCondition } from "#test/support/process.ts"
 
-import { regex } from "arkregex"
 /** This tool's directory, which every worker tree takes from the working tree rather than from the commit. */
 const self = "scripts/dev/mutate"
 

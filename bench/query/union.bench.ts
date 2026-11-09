@@ -248,7 +248,6 @@ const idsOf = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
 
 const asRows = (ids: ReadonlyArray<string>): ReadonlyArray<TextRow> => Arr.map(ids, (id) => [id])
 
-/** @internal */
 export default defineGate({
 	name: "query-union",
 	gates: ["R21", "R25"],

@@ -3229,7 +3229,7 @@ pnpm pg:doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test <file>                  # some files
-pnpm check                        # the gate (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
+pnpm check                        # before a release (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
 ```
 
 Every generated suite draws from one seed, `TEST_SEED`, which a run prints first. Setting it reproduces a run, and whether a suite reaches what it requires never depends on it. [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules and how the tests are built on the testing library.

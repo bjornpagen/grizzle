@@ -464,8 +464,6 @@ export interface Runtime {
  * and every other unnamed, as a Db's. Every statement its flights send is recorded with its text
  * parameters, but the prologue's two statements that fence and enter the role (wire/batch.ts Prologue): they are no
  * statements of the delivery.
- *
- * @internal
  */
 export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	fixture: Fixture<S>,

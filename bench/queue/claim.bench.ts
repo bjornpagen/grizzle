@@ -341,7 +341,6 @@ const baselineFailed = (f: BaselineFailure): Option.Option<FailedOutcome> => {
 	}
 }
 
-/** @internal */
 export default defineGate({
 	name: "queue-claim",
 	gates: ["queue"],

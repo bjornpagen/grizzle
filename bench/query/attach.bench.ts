@@ -290,7 +290,6 @@ const outerJoins: ReadonlyArray<string> = ["Left", "Right", "Full"]
 
 type Gates = "R36" | "R37"
 
-/** @internal */
 export default defineGate({
 	name: "query-attach",
 	gates: ["R36", "R37"],

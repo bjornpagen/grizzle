@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Data,
@@ -24,7 +25,6 @@ import type { ReachedSummary, TransactionSeries } from "#bench/harness/transacti
 import type { VariantComparison, VariantMeasure } from "#bench/harness/variant.ts"
 import type { Substrate, SubstrateShape } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 /**
  * A gate's bench file, its verdicts and its record. `pnpm bench` writes JSON records with the git sha, the PostgreSQL
  * pin and phase timings; every gate of the catalog (rules.ts) has a bench file and a recorded verdict.
@@ -168,7 +168,6 @@ export interface GateContext<O> {
 	readonly substrate: SubstrateShape
 }
 
-/** @internal */
 export interface GateSpec<
 	G extends readonly [GateId, ...ReadonlyArray<GateId>],
 	O extends Readonly<Record<string, unknown>>,
@@ -205,8 +204,6 @@ export interface GateRun {
 
 /**
  * A defined gate, with its options type erased: what a bench file exports and the runner runs.
- *
- * @internal
  */
 export interface Gate {
 	readonly [gateBrand]: true

@@ -1,4 +1,5 @@
 import { arch, availableParallelism, cpus, platform, release, totalmem } from "node:os"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Config,
@@ -20,7 +21,6 @@ import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
-import { regex } from "arkregex"
 /**
  * The identity every bench/cold record carries: the full benchmark identity (git sha, PostgreSQL pin, phases). A
  * benchmark record identifies its source, extension and build versions, schema and index state, data distribution,
@@ -122,8 +122,6 @@ const pinConfig = Config.all({
 
 /**
  * scripts/pg/pin.env, the one file every script, test and benchmark reads the pin from; every key it needs is set.
- *
- * @internal
  */
 export const readPin: Effect.Effect<PgPin, IdentityUnreadable, FileSystem.FileSystem> = Effect.gen(
 	function* () {
@@ -159,8 +157,6 @@ const git = Effect.fn("git")(function* (
 
 /**
  * The commit the run measures, and whether the working tree differed from it when the run started.
- *
- * @internal
  */
 export const sourceIdentity: Effect.Effect<
 	SourceIdentity,
@@ -181,10 +177,8 @@ interface Manifest {
 
 /**
  * The installed version of each pinned package.
- *
- * @internal
  */
-export const packageVersions: Effect.Effect<
+const packageVersions: Effect.Effect<
 	Readonly<Record<string, string>>,
 	IdentityUnreadable,
 	FileSystem.FileSystem
@@ -290,8 +284,6 @@ interface RunIdentityInput {
 
 /**
  * The identity of a run about to start, read now: the pin, the runtime, the packages and the time.
- *
- * @internal
  */
 export const runIdentity = Effect.fn("runIdentity")(function* (input: RunIdentityInput) {
 	const pgPin = yield* readPin
@@ -336,7 +328,6 @@ interface IdentityInput extends RunIdentityInput {
 	readonly server: ServerIdentity
 }
 
-/** @internal */
 export const benchIdentity = (
 	input: IdentityInput
 ): Effect.Effect<BenchIdentity, IdentityUnreadable, FileSystem.FileSystem> =>

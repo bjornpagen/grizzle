@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Cause,
@@ -54,7 +55,6 @@ import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 /**
  * The gate runner: `pnpm bench` writes JSON records with the git sha, the PostgreSQL pin and phase timings; every gate
  * of the catalog (R01-R42 and the rest) has a bench file and a recorded verdict, and the gate listing (listing.ts)
@@ -97,7 +97,7 @@ const recordPath = (outDir: string, name: string, scale: Scale): string =>
 const failedRecordPath = (outDir: string, name: string, scale: Scale): string =>
 	`${gatesDirectory(outDir)}/${name}.${scale}.failed.json`
 
-export interface DiscoveredGate {
+interface DiscoveredGate {
 	readonly gate: Gate
 	readonly path: string
 	/** Repository-relative, as records name it. */
@@ -171,8 +171,6 @@ const problemsOf = (
 
 /**
  * Every gate file under `directories`, in path order; fails listing every problem found.
- *
- * @internal
  */
 export const discoverGates = Effect.fn("discoverGates")(function* (
 	directories: ReadonlyArray<string>
@@ -202,7 +200,7 @@ const selects = (g: DiscoveredGate, selectors: ReadonlyArray<string>): boolean =
 
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
-export interface RunGateOptions {
+interface RunGateOptions {
 	readonly quick: boolean
 	/** Read once per run, so every record of the run names the same source. */
 	readonly source: SourceIdentity
@@ -285,10 +283,8 @@ export const recordOf = (
  * of the runner's own and released once the run has ended, so the run's outcome and the release's are two Exits; a
  * failure to build the database is the run's. Only the run is interruptible: an interrupted run is a failed one, and
  * the release runs whatever ended it.
- *
- * @internal
  */
-export const runGate = (
+const runGate = (
 	discovered: DiscoveredGate,
 	options: RunGateOptions
 ): Effect.Effect<GateRecord, IdentityUnreadable, FileSystem.FileSystem> =>
@@ -344,10 +340,8 @@ export const runGate = (
 /**
  * Writes `record` where its kind and scale put it. A returned run's record removes the same scale's failed one; a
  * failed run's record leaves the returned one in place.
- *
- * @internal
  */
-export const writeRecord = Effect.fn("writeRecord")(
+const writeRecord = Effect.fn("writeRecord")(
 	function* (
 		outDir: string,
 		record: GateRecord
@@ -403,8 +397,6 @@ const isRecordFile = (f: string): boolean =>
 
 /**
  * Every record on disk under `outDir` whose bench file still exists, in file name order.
- *
- * @internal
  */
 export const readRecords = Effect.fn("readRecords")(
 	function* (outDir: string) {
@@ -515,7 +507,6 @@ export const summarizeRecords = (records: ReadonlyArray<RecordedGate>): GateSumm
 	}
 }
 
-/** @internal */
 export const writeSummary = Effect.fn("writeSummary")(
 	function* (
 		outDir: string,

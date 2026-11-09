@@ -281,8 +281,6 @@ const draftInput = Effect.fn("draftInput")(function* (
  * The draft of a schema's change from `previous` under `declared`, its folder unnamed, as `grizzle check` compares it
  * with the committed snapshot (draftInput, then the pure generator's draftMigration), beside the installation it drafts
  * against, whose constants check holds the migrations' literal packs to. Nothing is written.
- *
- * @internal
  */
 export const draftSchema = Effect.fn("draftSchema")(function* (
 	schema: CompiledSchema,
@@ -301,10 +299,8 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 /**
  * The draft of a schema's change from `previous` as `grizzle generate` writes it, its folder named by `naming` and
  * `timestamp` (draftInput, then the pure generator's generateMigration). Nothing is written.
- *
- * @internal
  */
-export const generateSchema = Effect.fn("generateSchema")(function* (
+const generateSchema = Effect.fn("generateSchema")(function* (
 	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	naming: FolderNaming,
@@ -445,7 +441,6 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 	return drafted
 })
 
-/** @internal */
 export const generateMigrations = Effect.fn("generate")(function* (
 	config: ResolvedConfig,
 	options: GenerateOptions

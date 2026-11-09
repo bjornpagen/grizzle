@@ -1,8 +1,8 @@
 #!/bin/sh
-# The pre-commit gate checks exactly what the commit holds. The index is mirrored into a cache directory with an
-# empty git repository of its own, where what .gitignore names (node_modules, TypeScript's build info and declaration
-# output, the tools' caches) persists between commits, and `pnpm check` runs there: work in progress elsewhere in the
-# working tree neither fails nor passes it.
+# Runs `pnpm check` on exactly what the index holds, on demand: there is no commit gate. The index is mirrored into a
+# cache directory with an empty git repository of its own, where what .gitignore names (node_modules, TypeScript's
+# build info and declaration output, the tools' caches) persists between runs, and `pnpm check` runs there: work in
+# progress elsewhere in the working tree neither fails nor passes it.
 set -eu
 root=$(git rev-parse --show-toplevel)
 gate="${XDG_CACHE_HOME:-$HOME/.cache}/grizzle-check/$(printf '%s' "$root" | shasum | cut -c1-12)"

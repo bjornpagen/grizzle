@@ -93,7 +93,6 @@ const family = (s: ReturnType<typeof build>, id: number, length: number, variant
 		}
 	])
 
-/** @internal */
 export default defineGate({
 	name: "write-family-patterns",
 	gates: ["family-patterns"],

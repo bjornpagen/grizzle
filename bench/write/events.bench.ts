@@ -83,7 +83,6 @@ const usedBytes = (m: TransactionMeasure): number => {
 	return events.usedBytes
 }
 
-/** @internal */
 export default defineGate({
 	name: "write-events",
 	gates: ["R12"],

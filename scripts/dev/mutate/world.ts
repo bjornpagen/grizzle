@@ -4,10 +4,10 @@ import {
 	OPERATORS,
 	type Rule
 } from "@grizzle/testing/mutants"
+import { regex } from "arkregex"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import * as ts from "typescript/ast"
 
-import { regex } from "arkregex"
 /**
  * The operators of the `sql-world` family, each a compiler bug in the SQL that installs and enters a world:
  *

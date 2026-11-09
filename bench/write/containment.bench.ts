@@ -81,7 +81,6 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 const weekOf = 1
 
-/** @internal */
 export default defineGate({
 	name: "write-containment",
 	gates: ["R11"],

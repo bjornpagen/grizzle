@@ -102,7 +102,6 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 const daySeconds = 86400
 
-/** @internal */
 export default defineGate({
 	name: "query-spans",
 	gates: ["R38"],

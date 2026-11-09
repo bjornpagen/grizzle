@@ -134,8 +134,6 @@ const listedOf = (command: string): Option.Option<Listed> =>
 
 /**
  * The command `argv` names, every path in it absolute.
- *
- * @internal
  */
 export const parseBenchArgs = Effect.fn("parseBenchArgs")(function* (
 	argv: ReadonlyArray<string>
@@ -182,8 +180,6 @@ export const parseBenchArgs = Effect.fn("parseBenchArgs")(function* (
  * Runs a benchmark entry point to completion in a child process this one owns: the child shares the terminal, an
  * interrupt of this process kills it with its process group, and the effect ends only after it has exited. A child
  * that cannot start, or that a signal ends, fails the effect.
- *
- * @internal
  */
 export const runSuite = Effect.fn("runSuite")(function* (
 	suite: Suite,

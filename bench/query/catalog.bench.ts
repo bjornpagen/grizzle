@@ -169,7 +169,6 @@ const casesOf = (e: Expr): ReadonlyArray<Extract<Expr, { readonly kind: "case" }
 	return cases
 }
 
-/** @internal */
 export default defineGate({
 	name: "query-catalog",
 	gates: ["R08", "R24", "R26", "R28", "R29", "R30", "R31", "R41"],

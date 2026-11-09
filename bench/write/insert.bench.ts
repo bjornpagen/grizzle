@@ -180,7 +180,6 @@ const repeatedAfterConflict = (x: InFlight) =>
 	x.second.kind === "called" &&
 	x.second.observed.value.kind === "no-change"
 
-/** @internal */
 export default defineGate({
 	name: "write-insert",
 	gates: ["R33"],

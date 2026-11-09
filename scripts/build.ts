@@ -1,5 +1,6 @@
 import { stripTypeScriptTypes } from "node:module"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Console,
@@ -15,7 +16,6 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
 
-import { regex } from "arkregex"
 /** Why the build stopped, in words. The build prints it and exits with status 1. */
 class BuildFailure extends Data.TaggedError("BuildFailure")<{ readonly detail: string }> {}
 

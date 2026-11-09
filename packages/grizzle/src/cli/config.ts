@@ -353,8 +353,6 @@ const resolveConfigWith = (
 
 /**
  * Checks a configuration value, the default export of `file`.
- *
- * @internal
  */
 export const resolveConfig = Effect.fn("resolveConfig")(function* (
 	value: unknown,
