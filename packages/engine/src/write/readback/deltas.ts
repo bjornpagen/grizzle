@@ -17,7 +17,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { NameSupply, namesPast } from "#compiler/sql/naming.ts"
 import {
 	type WriteCarrier,
 	type CarrierColumn,
@@ -36,7 +36,7 @@ import type {
 	ReturnedSide,
 	WithSelect
 } from "#compiler/write/insert/statement.ts"
-import { namesPast } from "#compiler/write/insert/statement.ts"
+import { ownStatement } from "#compiler/write/insert/statement.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 
 /** A relation's delta carriers. For a relation no statement both adds to and removes from, a carrier for each side a
@@ -189,8 +189,7 @@ export const withDeltaFills = <
 	const returned = statement.returning
 	const added = returned.kind === "removed" ? undefined : returned.added
 	const removed = returned.kind === "added" ? undefined : returned.removed
-	const used = namesPast(statement.sql.nameMap)
-	const supply = new NameSupply({ relationStart: used.relation, columnStart: used.column })
+	const supply = new NameSupply(namesPast(statement.sql.nameMap, ownStatement))
 	const extra: Array<Cte> = []
 	const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 	/** A carrier's fields as one side of the RETURNING holds them: a delta carrier holds its relation's fields, each read

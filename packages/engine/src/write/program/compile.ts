@@ -47,7 +47,7 @@ import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { declaredSlotOf, statementSpec, writeSlotOf } from "#compiler/lower/template.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { NameSupply, namesPast } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -104,7 +104,6 @@ import {
 	type DeleteResult,
 	type InsertResult,
 	type ModifyingStatement,
-	namesPast,
 	ownStatement,
 	StatementShare,
 	type WriteContext,
@@ -783,15 +782,12 @@ const optimizedPlacement = (
 						/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
 						const fill = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
 						const at = `shared sub-query ${share.node.id}`
-						const supply = new NameSupply({
-							relationStart: start.relation,
-							columnStart: start.column
-						})
+						const supply = new NameSupply(start)
 						const placeholders = new WriteParams()
 						fill.cx.beginWriteStatement(supply, placeholders)
 						const query = memberRows(fill, heading, share.node, at)
 						const params = [...placeholders.slots]
-						const names = freshNames(namesPast(supply.map()), heading.length)
+						const names = freshNames(namesPast(supply.map(), ownStatement), heading.length)
 						start = names.next
 						shares.push({
 							name: names.relation,
@@ -808,7 +804,7 @@ const optimizedPlacement = (
 					}
 					const writes = mapNonEmpty(parts, (part) => {
 						const statement = writeOf({ ...w, start }, part.planned, part.earlier)
-						start = namesPast(statement.sql.nameMap)
+						start = namesPast(statement.sql.nameMap, ownStatement)
 						return { step: writeStep(part.planned, statement), statement }
 					})
 					const single = singleStatement(

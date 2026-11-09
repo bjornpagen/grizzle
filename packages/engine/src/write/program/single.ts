@@ -27,14 +27,13 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
+import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
 	type ModifyingStatement,
-	type NameStart,
-	namesPast
+	ownStatement
 } from "#compiler/write/insert/statement.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 
@@ -69,20 +68,20 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
 /** Fresh names at `start`: `count` columns and, first, one relation; and the start past them. */
 export const freshNames = (
-	start: NameStart,
+	start: NameSupplyStart,
 	count: number
 ): {
 	readonly relation: string
 	readonly columns: ReadonlyArray<string>
 	readonly nameMap: NameMap
-	readonly next: NameStart
+	readonly next: NameSupplyStart
 } => {
-	const supply = new NameSupply({ relationStart: start.relation, columnStart: start.column })
+	const supply = new NameSupply(start)
 	const relation = supply.relation(internal("single statement part"))
 	const columns = Array.from({ length: count }, () =>
 		supply.column(internal("single statement column"))
 	)
-	return { relation, columns, nameMap: supply.map(), next: namesPast(supply.map()) }
+	return { relation, columns, nameMap: supply.map(), next: namesPast(supply.map(), ownStatement) }
 }
 
 /** `slot` numbered `offset` later. */
@@ -147,7 +146,7 @@ const shifted = (
 export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
-	start: NameStart
+	start: NameSupplyStart
 ): SingleStatement => {
 	const shareCtes: Array<Cte> = []
 	const params: Array<WriteParamSlot> = []

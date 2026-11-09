@@ -42,7 +42,7 @@ import {
 	targetAs,
 	withArms
 } from "#compiler/sql/build.ts"
-import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
+import { freshNames, type NameMap, NameSupply, namesPast } from "#compiler/sql/naming.ts"
 
 interface DefinitionOptions {
 	readonly names: PhysicalNames
@@ -58,24 +58,6 @@ export interface LoweredDefinition {
 	readonly certificates: ReadonlyArray<Certificate>
 	/** Every generated name the statement holds, the lowering's and the closing's, so a reader of it mints past them. */
 	readonly nameMap: NameMap
-}
-
-/** The first relation and column numbers the statement's generated names leave free. */
-const freshSupply = (nameMap: NameMap): NameSupply => {
-	let relation = 0
-	let column = 0
-	for (const entry of nameMap) {
-		const n = Number(entry.name.slice(1))
-		if (!Number.isSafeInteger(n)) {
-			continue
-		}
-		if (entry.role === "relation") {
-			relation = Math.max(relation, n)
-		} else {
-			column = Math.max(column, n)
-		}
-	}
-	return new NameSupply({ relationStart: relation + 1, columnStart: column + 1 })
 }
 
 /** How one output column is closed to its view column: a cast to its column type, then the collation; each
@@ -142,7 +124,7 @@ const withColumnTypes = (
 		}))
 		return Result.ok({ query: { ...ast, body: { ...outer, targets } }, nameMap })
 	}
-	const supply = freshSupply(nameMap)
+	const supply = new NameSupply(namesPast(nameMap, freshNames))
 	const origin = { kind: "internal", purpose: "derived view column types" } as const
 	const alias = supply.relation(origin)
 	/** One generated column per heading column, each closed as its heading column's type needs. */
@@ -209,7 +191,7 @@ export const derivedReading = (
 			unsupported(SourceLoc(purpose, []), "a definition read as a derived table, unordered")
 		)
 	}
-	const supply = freshSupply(lowered.nameMap)
+	const supply = new NameSupply(namesPast(lowered.nameMap, freshNames))
 	const origin = { kind: "internal", purpose } as const
 	const alias = supply.relation(origin)
 	const generated = lowered.heading.map(() => supply.column(origin))

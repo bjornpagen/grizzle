@@ -155,13 +155,31 @@ export const isCarrierName = (u: unknown): u is CarrierName => {
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays
  * r0, and a statement that continues another's numbering starts after it.
  */
-interface NameSupplyStart {
+export interface NameSupplyStart {
 	readonly relationStart: number
 	readonly columnStart: number
 }
 
 /** A statement's own numbering, from r1 and c1. */
 export const freshNames: NameSupplyStart = { relationStart: 1, columnStart: 1 }
+
+/**
+ * The numbering past every generated name `map` holds, from `from` at least: a statement that reads or continues the
+ * one `map` names starts there, so their names never collide.
+ */
+export const namesPast = (map: NameMap, from: NameSupplyStart): NameSupplyStart => {
+	let relationStart = from.relationStart
+	let columnStart = from.columnStart
+	for (const entry of map) {
+		const next = Number(entry.name.slice(1)) + 1
+		if (entry.role === "relation") {
+			relationStart = Math.max(relationStart, next)
+		} else {
+			columnStart = Math.max(columnStart, next)
+		}
+	}
+	return { relationStart, columnStart }
+}
 
 /** Fresh names for one statement. Local mutable state owned by one lowering; never shared across statements. */
 export class NameSupply {

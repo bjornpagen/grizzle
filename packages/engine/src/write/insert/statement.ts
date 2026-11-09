@@ -37,7 +37,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 
 /** The installed names a write statement addresses: the query lowering's names plus the installed schema, whose
@@ -230,37 +230,13 @@ export interface WriteContext {
 	readonly names: WriteNames
 	/** Where a statement's generated names start: r0 and c1 for a statement of its own; past every name the parts before
 	 * it used, for a part of a stratum's single statement, so the parts' names never collide. */
-	readonly start: NameStart
+	readonly start: NameSupplyStart
 	/** The statements the compilation built, which an equal request shares (StatementShare). */
 	readonly share: StatementShare
 }
 
-/** The first relation and column numbers a statement's generated names take. */
-export interface NameStart {
-	readonly relation: number
-	readonly column: number
-}
-
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
-export const ownStatement: NameStart = Object.freeze({ relation: 0, column: 1 })
-
-/** The start past every generated name `nameMap` holds: the next part of a single statement starts there. */
-export const namesPast = (nameMap: EmittedSql["nameMap"]): NameStart => {
-	let relation = ownStatement.relation
-	let column = ownStatement.column
-	for (const entry of nameMap) {
-		const n = Number(entry.name.slice(1))
-		if (!Number.isSafeInteger(n)) {
-			continue
-		}
-		if (entry.role === "relation") {
-			relation = Math.max(relation, n + 1)
-		} else {
-			column = Math.max(column, n + 1)
-		}
-	}
-	return { relation, column }
-}
+export const ownStatement: NameSupplyStart = Object.freeze({ relationStart: 0, columnStart: 1 })
 
 interface WriteContextOptions {
 	/** The installed names of the relations the statements write. */
@@ -374,7 +350,7 @@ export const buildStatement = <B extends Built<WriteResult>>(
 	build: (supply: NameSupply) => B
 ): B & Pick<WriteStatement, "sql" | "params"> => {
 	const make = (): Made<B> => {
-		const supply = new NameSupply({ relationStart: w.start.relation, columnStart: w.start.column })
+		const supply = new NameSupply(w.start)
 		const placeholders = new WriteParams()
 		w.cx.beginWriteStatement(supply, placeholders)
 		const built = build(supply)
@@ -389,7 +365,7 @@ export const buildStatement = <B extends Built<WriteResult>>(
 		made = make()
 	} else {
 		let node = sharing.memo
-		for (const part of [w.names, w.start.relation, w.start.column, ...sharing.key]) {
+		for (const part of [w.names, w.start.relationStart, w.start.columnStart, ...sharing.key]) {
 			const known = node.next.get(part)
 			if (known === undefined) {
 				const fresh = unshared<Made<B>>()

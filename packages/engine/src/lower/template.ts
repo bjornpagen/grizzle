@@ -45,7 +45,7 @@ import type {
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { NameSupply, renderNameMap } from "#compiler/sql/naming.ts"
+import { freshNames, NameSupply, namesPast, renderNameMap } from "#compiler/sql/naming.ts"
 
 /** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
 interface OutputColumn {
@@ -94,24 +94,6 @@ const targetColumns = (
 	return out
 }
 
-/** The first relation and column numbers no generated name of the statement uses. */
-const freshSupply = (statement: ConservativeStatement<ConservativeParamSlot>): NameSupply => {
-	let relation = 0
-	let column = 0
-	for (const entry of statement.sql.nameMap) {
-		const n = Number(entry.name.slice(1))
-		if (!Number.isSafeInteger(n)) {
-			continue
-		}
-		if (entry.role === "relation") {
-			relation = Math.max(relation, n)
-		} else {
-			column = Math.max(column, n)
-		}
-	}
-	return new NameSupply({ relationStart: relation + 1, columnStart: column + 1 })
-}
-
 const outerCore = (body: SelectBody) => (body.kind === "core" ? body : undefined)
 
 /**
@@ -123,7 +105,7 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 	const ast = statement.ast
 	const columns = outputColumns(statementOutput(statement.role, statement.heading, statement.fused))
 	const delivered = columns.map((c) => c.delivered)
-	const supply = freshSupply(statement)
+	const supply = new NameSupply(namesPast(statement.sql.nameMap, freshNames))
 	const plain = outerCore(ast.body)
 	if (plain?.distinct === false && plain.groupBy.length === 0) {
 		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength.value)

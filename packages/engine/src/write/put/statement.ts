@@ -201,7 +201,7 @@ const buildPut = (
 		readonly returning: Returning
 	}
 ): PutStatement => {
-	const supply = new NameSupply({ relationStart: w.start.relation, columnStart: w.start.column })
+	const supply = new NameSupply(w.start)
 	const placeholders = new WriteParams()
 	w.cx.beginWriteStatement(supply, placeholders)
 	const built = build(supply)
