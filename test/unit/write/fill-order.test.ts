@@ -14,10 +14,10 @@ import * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { role } from "#compiler/schema/world.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
@@ -63,7 +63,7 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A schema `grizzle generate` accepts is one every write of fills, and one it refuses is one no write could: the fill
- * order (analysis/theory/fill.ts) is decided when the schema compiles, and the host's filler (write/family/fold.ts)
+ * order (analysis/theory/fill.ts) is decided when the schema compiles, and the host's filler (runtime/write/fill.ts)
  * fills by it.
  *
  * Over drawn schemas of relations, trees, ordered and counted families nested in each other, folds over them, copies

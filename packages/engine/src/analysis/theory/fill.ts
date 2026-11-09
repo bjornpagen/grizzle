@@ -38,7 +38,6 @@
  * predecessor axis, are no counted family's to read: a change of a sibling re-places them, which no fill of that row's
  * counted families follows.
  */
-import { familyKey } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { FamilyName, FilledLater, FillAxis, UnwritableCause } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
@@ -47,7 +46,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { lastNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type ExprTable, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { predicateTable, type ScalarExpr, tableReads } from "#compiler/ir/expr.ts"
 import {
 	baseLiteral,
 	type Family,
@@ -56,24 +55,17 @@ import {
 	isSequence,
 	isTreeOf
 } from "#compiler/ir/family.ts"
-import type {
-	FillAt,
-	FillLayout,
-	FillOrder,
-	FillPosition,
-	FillRule,
-	FillStage,
-	FillWriter
+import {
+	type FillLayout,
+	type FillOrder,
+	type FillPosition,
+	type FillRule,
+	type FillStage,
+	type FillWriter,
+	layoutKey
 } from "#compiler/ir/fill.ts"
-import type { LawField, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import { familyKey, type LawField, type LawRelation, type NativeColumn } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-
-/** The field names an expression's table reads of its row. */
-export const tableReads = (table: ExprTable): ReadonlyArray<string> => [
-	...new Set(
-		Object.values(table.exprs).flatMap((e) => (e.kind === "column" ? [e.column.name] : []))
-	)
-]
 
 /** The field names an expression reads of its row. */
 export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => tableReads(predicateTable(expr))
@@ -122,13 +114,6 @@ const fieldColumn = (field: LawField): NativeColumn => ({ kind: "field", field }
 const named = (f: Family): FamilyName => ({ owner: f.id.owner, count: f.id.count })
 
 const sameFamily = (a: Family, b: Family): boolean => familyKey(a.id) === familyKey(b.id)
-
-/** The key of a relation's layout at a position in a FillOrder (FillOrder.layouts), and in a host fill's data
- * (write/family/fold.ts HostFill). */
-export const layoutKey = (relation: string, position: FillAt): string =>
-	position.kind === "top"
-		? `${relation}\u0000top`
-		: `${relation}\u0000${position.kind}\u0000${familyKey(position.family.id)}`
 
 /**
  * Every position a row of `relation` stands at: a tree's root, a family's member, or the ChangeSet's own when it is no

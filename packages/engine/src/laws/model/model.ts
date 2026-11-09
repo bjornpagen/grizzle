@@ -1,7 +1,6 @@
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
-import { familyKey } from "#compiler/analysis/theory/families.ts"
 import type { ResolvedConjunct, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
 import {
@@ -55,6 +54,7 @@ import {
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
+	familyKey,
 	fieldNames,
 	type LawColumnValue,
 	type LawField,
@@ -367,8 +367,8 @@ export interface LawModel {
 /**
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated
  * expressions of every stored relation its slice writes, which are the relations a write's rows are of, every family
- * fold's selections, and every constraint native's predicates the witness judges (write/family/fold.ts hostEvaluator,
- * write/program/witness.ts).
+ * fold's selections, and every constraint native's predicates the witness judges (runtime/write/fill.ts hostEvaluator,
+ * runtime/write/witness.ts).
  */
 const lawPatterns = (
 	stored: ReadonlyArray<TheoryRelation>,

@@ -1,13 +1,12 @@
+import type { ParamId } from "#compiler/core/ids.ts"
+import type { Family } from "#compiler/ir/family.ts"
 /**
  * The chains a refill's reads follow (write/frontend/refill.ts): from a change of a stratum to the rows it reaches,
  * through each owner axis it cascades along and each refilled family's groups, to the groups a refill rewrites or the
  * owner rows a cascade carries a change through. A chain's rows are read in the one read flight before any write
  * (write/family/statements.ts chainReadSql).
  */
-import { familyKey } from "#compiler/analysis/theory/families.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
-import type { Family } from "#compiler/ir/family.ts"
-import type { RelationInfo } from "#compiler/ir/law.ts"
+import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 
 /**
  * Rows of one relation a chain reaches: a put's rows by the keys of its slot's facts; the members of the groups the

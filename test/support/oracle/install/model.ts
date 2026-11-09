@@ -2,9 +2,9 @@ import type { Array as Arr } from "effect"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import type { ClosedRows } from "#compiler/runtime/write/fill.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
-import type { ClosedRows } from "#compiler/write/family/fold.ts"
 
 /**
  * How a host value of a column is spelled as a typed SQL literal (literal.ts). A contract column spells its base's
@@ -116,7 +116,7 @@ export interface OracleDomain {
 }
 
 /**
- * What the loader fills a family's drawn values from, as grizzle's own host fill does (write/family/fold.ts filler): the
+ * What the loader fills a family's drawn values from, as grizzle's own host fill does (runtime/write/fill.ts filler): the
  * law model's fill order of its families, and the rows of the closed relations a fill's generated fields and fold
  * selections may read.
  * A fact never states a drawn value: each member's index, its copy of its owner's count and each fold's running values,

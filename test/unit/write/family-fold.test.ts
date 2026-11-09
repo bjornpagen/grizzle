@@ -7,9 +7,6 @@ import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
-import { own, rostersOf } from "#compiler/schema/own.ts"
 import {
 	closedLeaf,
 	columnKey,
@@ -17,9 +14,12 @@ import {
 	type FilledNode,
 	type Filler,
 	filler,
-	type HostNode,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
+	hostEvaluator,
+	type HostNode
+} from "#compiler/runtime/write/fill.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
+import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, folded, identityOf, type Planes } from "#test/support/families/fold.ts"
@@ -43,7 +43,7 @@ import { compiledModel } from "#test/unit/laws/model/natives.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * The host's fills of a fold (write/family/fold.ts `filler`, W3.P2): every member's index and copy of its owner's
+ * The host's fills of a fold (runtime/write/fill.ts `filler`, W3.P2): every member's index and copy of its owner's
  * count, each plane's before and after, named or hidden, and the owner's count and ends, from one family's members in
  * slot order.
  *

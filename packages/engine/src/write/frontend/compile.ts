@@ -1,6 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { layoutKey, readsOf } from "#compiler/analysis/theory/fill.ts"
+import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
@@ -21,7 +21,8 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import { layoutKey } from "#compiler/ir/fill.ts"
+import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -47,6 +48,15 @@ import {
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
+import {
+	closedLeaf,
+	type ClosedRows,
+	columnKey,
+	fieldKey,
+	type HostEvaluator,
+	hostEvaluator
+} from "#compiler/runtime/write/fill.ts"
+import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -63,18 +73,10 @@ import {
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
+import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
 import { relationDepths } from "#compiler/write/family/compose.ts"
 import { fixedSentence } from "#compiler/write/family/edit.ts"
-import {
-	closedLeaf,
-	type ClosedRows,
-	columnKey,
-	familyKey,
-	fieldKey,
-	type HostEvaluator,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
-import { type Nesting, nestingOf, sentLayout } from "#compiler/write/family/nesting.ts"
+import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
 	endColumns,
 	memberFamilies,
@@ -110,7 +112,7 @@ import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
-import { type HostChecks, hostChecks, type StartData } from "#compiler/write/normalize/normalize.ts"
+import { hostChecks } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProof } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {

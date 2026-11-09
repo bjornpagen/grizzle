@@ -1,6 +1,6 @@
 /**
  * The stored rows of a fact set's family relations, filled as grizzle's own host fill fills a nested insert
- * (write/family/fold.ts filler). A fact is a written row (rows-first): its caller's fields and its serial ones, never a
+ * (runtime/write/fill.ts filler). A fact is a written row (rows-first): its caller's fields and its serial ones, never a
  * value a family draws. The fill draws the rest from the facts alone: each owner's count and ends, each member's group
  * fields from its owner, its index, its copy of its owner's count, and each fold's running values, in the row layout
  * every family statement writes (write/family/statements.ts rowLayout). So the loader states no drawn value, and the
@@ -19,17 +19,17 @@ import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
-import { builtinType } from "#compiler/sql/build.ts"
 import {
 	closedLeaf,
 	type ColumnKey,
-	type FilledNode,
 	fieldKey,
+	type FilledNode,
 	filler,
-	type HostNode,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
+	hostEvaluator,
+	type HostNode
+} from "#compiler/runtime/write/fill.ts"
+import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
+import { builtinType } from "#compiler/sql/build.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"

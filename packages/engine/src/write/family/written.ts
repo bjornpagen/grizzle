@@ -16,6 +16,7 @@ import {
 	type WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type {
 	Cte,
 	EmittedSql,
@@ -50,7 +51,6 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, fieldKey } from "#compiler/write/family/fold.ts"
 import type { Shaped } from "#compiler/write/family/scan.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"

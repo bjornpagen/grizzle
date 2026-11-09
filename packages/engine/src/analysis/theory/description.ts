@@ -5,7 +5,13 @@ import type { GeneratedLawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
 import { type Family, orderOf } from "#compiler/ir/family.ts"
-import { fieldNames, type LawField, type TableRelation } from "#compiler/ir/law.ts"
+import {
+	fieldNames,
+	type GeneratedLaw,
+	generatedLaw,
+	type LawField,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -100,16 +106,6 @@ const ruleSideOf = (side: RuleSide): SideDesc => sideDesc(side, [...side.selecti
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
 export const contractLaw = (contract: string): Law => Object.freeze({ kind: "contract", contract })
-
-/** The law a generated field states, that its term has a value at every row: what refuses a row where it is NULL. */
-export type GeneratedLaw = Extract<Law, { readonly kind: "generated" }>
-
-/**
- * A generated field's law, by its relation and field: the one description every refusal of a generated field with no
- * value names, whether the host finds it filling a row or PostgreSQL's NOT NULL refuses the row (23502).
- */
-export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
-	Object.freeze({ kind: "generated", relation, field })
 
 /**
  * A stored field PostgreSQL generates: its relation, the field, the field's law (generatedLaw) and the law's identifier

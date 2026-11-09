@@ -1,7 +1,7 @@
 /**
  * The fill order of a schema's families: every column grizzle writes on a row a family reaches, how it is filled, what
  * of its own row it reads, and when a write fills it. The analysis builds it once, when the schema compiles
- * (analysis/theory/fill.ts), and refuses there every column no write can fill; the host's filler (write/family/fold.ts)
+ * (analysis/theory/fill.ts), and refuses there every column no write can fill; the host's filler (runtime/write/fill.ts)
  * fills by it, so the two never disagree.
  *
  * A write fills a row in stages. The nested walk enters the row (`entering`), then walks the members of each sequence
@@ -16,7 +16,7 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
-import type { FamilyId, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import { type FamilyId, familyKey, type LawRelation, type NativeColumn } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
@@ -30,11 +30,18 @@ export type FillPosition =
 
 /**
  * A position as a fill reads it (`FillPosition`), its family by its id alone: what the host's fill data names a position
- * by (write/family/fold.ts HostFill). Every FillPosition is one.
+ * by (runtime/write/fill.ts HostFill). Every FillPosition is one.
  */
 export type FillAt =
 	| { readonly kind: "top" }
 	| { readonly kind: "member" | "root"; readonly family: { readonly id: FamilyId } }
+
+/** The key of a relation's layout at a position, in the schema's fill order (`FillOrder.layouts`) and in a write's host
+ * fill (runtime/write/fill.ts HostFill). */
+export const layoutKey = (relation: string, position: FillAt): string =>
+	position.kind === "top"
+		? `${relation}\u0000top`
+		: `${relation}\u0000${position.kind}\u0000${familyKey(position.family.id)}`
 
 /**
  * How a column of a row is filled:

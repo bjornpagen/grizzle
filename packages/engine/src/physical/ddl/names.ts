@@ -525,7 +525,7 @@ const collated = (type: TypeRef): ColumnType => ({
  * The type of a column a law adds (a constant tag, a partial term, a family's drawn column): its held field's type's
  * base, the fixed collation for text, and never a contract's, a pattern's or a roster's domain.
  *
- * - A fold's hidden accumulator holds the fold's running value, filled in its carrier (write/family/fold.ts), which the
+ * - A fold's hidden accumulator holds the fold's running value, filled in its carrier (runtime/write/fill.ts), which the
  *   plane's contract need not admit between members: a sum under an upper bound can pass the bound and come back under
  *   it, so the contract's domain would refuse a state whose laws hold.
  * - Every other law column holds a value of its field's type, or NULL outside its selection: a field's own, which its

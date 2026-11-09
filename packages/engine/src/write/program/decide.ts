@@ -1,14 +1,20 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { contractLaw } from "#compiler/analysis/theory/description.ts"
-import { layoutKey } from "#compiler/analysis/theory/fill.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type ExprTable, predicateTable } from "#compiler/ir/expr.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"
-import type { FillAt, FillColumn, FillOrder, FillPosition, FillRule } from "#compiler/ir/fill.ts"
-import type { FamilyId, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type FillAt,
+	type FillColumn,
+	type FillOrder,
+	type FillPosition,
+	type FillRule,
+	layoutKey
+} from "#compiler/ir/fill.ts"
+import { type FamilyId, familyKey, type LawRelation, type RelationInfo } from "#compiler/ir/law.ts"
 import {
 	baseOf,
 	contractOf,
@@ -17,33 +23,6 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
-import {
-	type ClosedRows,
-	type ColumnKey,
-	columnKey,
-	type Evaluation,
-	familyKey,
-	type FillColumnData,
-	type FillFamily,
-	type FillLayoutData,
-	type FillRelation,
-	type FillRuleData,
-	fieldKey,
-	type HostFill
-} from "#compiler/write/family/fold.ts"
-import { headingData, type NestedLayoutData, nestingData } from "#compiler/write/family/nesting.ts"
-import { endColumns, laidLayout, rowLayout } from "#compiler/write/family/statements.ts"
-import type {
-	EnumeratedInput,
-	MemberSlot,
-	SlotGroup,
-	WriteFrontend,
-	WrittenRelation
-} from "#compiler/write/frontend/compile.ts"
-import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
-import type { GroupData, InputData, SlotData } from "#compiler/write/normalize/normalize.ts"
 import type {
 	Binding,
 	CountedFamily,
@@ -55,7 +34,22 @@ import type {
 	NestedAt,
 	NestedOwner,
 	OwnedColumn
-} from "#compiler/write/program/binding.ts"
+} from "#compiler/runtime/write/binding.ts"
+import {
+	type ClosedRows,
+	type ColumnKey,
+	columnKey,
+	type Evaluation,
+	fieldKey,
+	type FillColumnData,
+	type FillFamily,
+	type FillLayoutData,
+	type FillRelation,
+	type FillRuleData,
+	type HostFill
+} from "#compiler/runtime/write/fill.ts"
+import type { NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
+import type { GroupData, InputData, SlotData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	CheckTest,
 	LawCheckData,
@@ -64,7 +58,19 @@ import type {
 	WitnessEntry,
 	WitnessField,
 	WitnessTable
-} from "#compiler/write/program/witness.ts"
+} from "#compiler/runtime/write/witness.ts"
+import { irLiteral } from "#compiler/scalar/compute/literal.ts"
+import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { headingData, nestingData } from "#compiler/write/family/nesting.ts"
+import { endColumns, laidLayout, rowLayout } from "#compiler/write/family/statements.ts"
+import type {
+	EnumeratedInput,
+	MemberSlot,
+	SlotGroup,
+	WriteFrontend,
+	WrittenRelation
+} from "#compiler/write/frontend/compile.ts"
+import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
 
 /** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
  * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
@@ -325,7 +331,7 @@ const fillStarts = (
 ]
 
 /**
- * The slice of the schema's fill order a write's fills meet (fold.ts HostFill): each layout from `starts`, then the
+ * The slice of the schema's fill order a write's fills meet (runtime/write/fill.ts HostFill): each layout from `starts`, then the
  * layout of every member of each family a met layout's rows own, in the order they are met.
  */
 export const hostFillOf = (
@@ -733,7 +739,7 @@ const witnessData = (frontend: WriteFrontend): WitnessData => {
 }
 
 /**
- * The binding of a compiled write (write/program/binding.ts Binding): every judgment binding one application takes from
+ * The binding of a compiled write (runtime/write/binding.ts Binding): every judgment binding one application takes from
  * the law model, decided once over the write's front end, and the slice of the schema's fill order and closed relations
  * its fills read.
  */

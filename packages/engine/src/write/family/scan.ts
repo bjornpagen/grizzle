@@ -36,6 +36,7 @@ import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Cte, Expr, FromItem, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -54,7 +55,6 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
 import type { WriteContext } from "#compiler/write/insert/statement.ts"
 
 /** A CTE's rows by the native columns they hold, each under a column name of the CTE. */

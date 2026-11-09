@@ -1,4 +1,3 @@
-import type { GeneratedLaw } from "#compiler/analysis/theory/description.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	arrayTexts,
@@ -18,10 +17,25 @@ import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
+import { type FamilyId, familyKey, type GeneratedLaw, type RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
+import type {
+	FamilyNames,
+	FreshStratum,
+	JudgedRelation,
+	OwnedColumn
+} from "#compiler/runtime/write/binding.ts"
+import {
+	type ColumnKey,
+	fieldKey,
+	type Filler,
+	fillRefusal,
+	type GeneratedNull,
+	type HostNode,
+	literalHost
+} from "#compiler/runtime/write/fill.ts"
 import {
 	type FlightForm,
 	type FlightStatement,
@@ -30,8 +44,29 @@ import {
 	type ServedWriteChoice,
 	sentForm
 } from "#compiler/runtime/write/flight.ts"
+import {
+	type NestedLayoutData,
+	type NestedRow,
+	rowOfValues,
+	sentLayout
+} from "#compiler/runtime/write/nesting.ts"
+import {
+	type GroupData,
+	type InputData,
+	type MemberFacts,
+	normalizeChangeSet,
+	type NormalizedSlot,
+	refilledSlot,
+	type SlotData
+} from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
+import {
+	type FilledColumn,
+	hostJudgement,
+	type JudgedRow,
+	type StatedRows
+} from "#compiler/runtime/write/witness.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
@@ -71,22 +106,6 @@ import {
 	type Values
 } from "#compiler/write/family/edit.ts"
 import {
-	type ColumnKey,
-	familyKey,
-	fieldKey,
-	type Filler,
-	fillRefusal,
-	type GeneratedNull,
-	type HostNode,
-	literalHost
-} from "#compiler/write/family/fold.ts"
-import {
-	type NestedLayoutData,
-	type NestedRow,
-	rowOfValues,
-	sentLayout
-} from "#compiler/write/family/nesting.ts"
-import {
 	columnArray,
 	type FamilyStatement,
 	type OwnerWrite,
@@ -120,21 +139,6 @@ import {
 import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { isCarried, type Proposal } from "#compiler/write/insert/statement.ts"
-import {
-	type GroupData,
-	type InputData,
-	type MemberFacts,
-	type NormalizedSlot,
-	normalizeChangeSet,
-	refilledSlot,
-	type SlotData
-} from "#compiler/write/normalize/normalize.ts"
-import type {
-	FamilyNames,
-	FreshStratum,
-	JudgedRelation,
-	OwnedColumn
-} from "#compiler/write/program/binding.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { familyNames, ownerSlots } from "#compiler/write/program/decide.ts"
 import { flightOf, servedWrite } from "#compiler/write/program/served.ts"
@@ -147,12 +151,6 @@ import {
 	type NestedRowBound,
 	statementPart
 } from "#compiler/write/program/staged.ts"
-import {
-	type FilledColumn,
-	hostJudgement,
-	type JudgedRow,
-	type StatedRows
-} from "#compiler/write/program/witness.ts"
 
 interface BindInputs {
 	/** The facts each member slot of the ChangeSet value supplies (`collectInputs`). */
@@ -248,7 +246,7 @@ export type Flights =
 
 /**
  * A write the host refuses before any write statement, filling a row whose generated field has no value
- * (write/family/fold.ts GeneratedNull): `invariant-rejected` on the field's law, witnessed as PostgreSQL's NOT NULL
+ * (runtime/write/fill.ts GeneratedNull): `invariant-rejected` on the field's law, witnessed as PostgreSQL's NOT NULL
  * refusal of the statement that writes the row is (witness.ts hostJudgement), so the outcome is one whoever finds the
  * NULL.
  */
@@ -260,7 +258,7 @@ export interface GeneratedRejection {
 
 /**
  * An application's write statements under one plan: each statement's executions (`Chunks`), and the rows the ChangeSet
- * states as that plan fills them (write/program/witness.ts StatedRows), which a refusal of one of them judges.
+ * states as that plan fills them (runtime/write/witness.ts StatedRows), which a refusal of one of them judges.
  */
 export interface PlanWrites {
 	readonly chunks: Chunks
@@ -677,7 +675,7 @@ export const bindWrite = (
 			`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
 		)
 	/**
-	 * A generated field with no value a stratum's plan filled a row by (write/family/fold.ts GeneratedNull) as its
+	 * A generated field with no value a stratum's plan filled a row by (runtime/write/fill.ts GeneratedNull) as its
 	 * write's refusal: the field's law, witnessed by the first row the ChangeSet states of its relation at `stratum`
 	 * whose term has no value, as PostgreSQL's NOT NULL refusal of the statement writing them is (witness.ts
 	 * hostJudgement); unreported where the ChangeSet writes no row of the relation.
@@ -1677,7 +1675,7 @@ interface FreshCounts {
 /**
  * Each owner a stratum whose family statements run in the call's flight inserts (binding.ts FreshStratum), every row's
  * counts and ends drawn on the host by the filler from the stratum's own appended members naming it, its member slots'
- * facts and its nested rows (write/family/fold.ts filler): an owner it inserts is fresh, so those are its every member,
+ * facts and its nested rows (runtime/write/fill.ts filler): an owner it inserts is fresh, so those are its every member,
  * and the filler reads no stored row. Its own insert carries them, so every CHECK over them and every member's axes meet its final values:
  * an owner slot's facts, filled as the ChangeSet's own rows, and a nested owner's rows, filled where the walk stands
  * them (nesting.ts NestedLayout position), whose other columns the walk filled.

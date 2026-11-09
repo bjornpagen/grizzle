@@ -18,7 +18,7 @@
  */
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import type { ColumnIdent, ParamId } from "#compiler/core/ids.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -41,6 +41,8 @@ import {
 	type TaggedArm,
 	taggedArm
 } from "#compiler/lower/delivery.ts"
+import { type ColumnKey, columnKey } from "#compiler/runtime/write/fill.ts"
+import type { LaidColumn, LaidLayout } from "#compiler/runtime/write/nesting.ts"
 import type {
 	Assignment,
 	Cte,
@@ -90,7 +92,6 @@ import {
 	type RowsOf,
 	rowsRelation
 } from "#compiler/write/family/chain.ts"
-import { type ColumnKey, columnKey } from "#compiler/write/family/fold.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -128,23 +129,6 @@ export interface RowLayout {
 	readonly relation: string
 	readonly key: NonEmptyReadonlyArray<RowColumn>
 	readonly columns: ReadonlyArray<RowColumn>
-}
-
-/** A row layout's column as binding reads it (`RowColumn`): its key, its type, and what it is, a field by its name or a law
- * column by its identifier. A RowColumn is one. */
-export interface LaidColumn {
-	readonly key: ColumnKey
-	readonly type: ScalarType
-	readonly column:
-		| { readonly kind: "field"; readonly field: { readonly name: string } }
-		| { readonly kind: "law"; readonly column: ColumnIdent }
-}
-
-/** A row layout as binding reads it (`RowLayout`): its relation, its key's columns and its others'. A RowLayout is one. */
-export interface LaidLayout {
-	readonly relation: string
-	readonly key: NonEmptyReadonlyArray<LaidColumn>
-	readonly columns: ReadonlyArray<LaidColumn>
 }
 
 /** A row layout as a binding holds it (`LaidLayout`), each column projected to what binding reads of it. */

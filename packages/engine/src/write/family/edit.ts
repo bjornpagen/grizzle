@@ -1,3 +1,30 @@
+import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
+import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { sameOrder } from "#compiler/core/array.ts"
+import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import * as Result from "#compiler/core/result.ts"
+import {
+	type ReadonlyTupleMap,
+	type ReadonlyTupleSet,
+	TupleMap,
+	TupleSet
+} from "#compiler/core/tuple-map.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
+import { predicateTable } from "#compiler/ir/expr.ts"
+import { type Family, familyColumnType, type FoldPlane, isSequence } from "#compiler/ir/family.ts"
+import {
+	familyKey,
+	generatedLaw,
+	type LawField,
+	type LawRelation,
+	type RelationInfo
+} from "#compiler/ir/law.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
 /**
  * Rows first: a changeset's rows are data and a family is a law over them, so grizzle owns every
  * value a family draws. Per family, a changeset's rows are grouped by group, the group-key value for a counted family
@@ -27,36 +54,9 @@
  * index is a coordinate, never a multiplicity. A member key a family's changes name twice is refused, never a second
  * member.
  */
-import { generatedLaw } from "#compiler/analysis/theory/description.ts"
-import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { sameOrder } from "#compiler/core/array.ts"
-import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
-	type ReadonlyTupleMap,
-	type ReadonlyTupleSet,
-	TupleMap,
-	TupleSet
-} from "#compiler/core/tuple-map.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import { predicateTable } from "#compiler/ir/expr.ts"
-import { type Family, familyColumnType, type FoldPlane, isSequence } from "#compiler/ir/family.ts"
-import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { sqlNull } from "#compiler/scalar/compute/evaluate.ts"
-import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
-import type { CountRow, MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
-import {
-	baseOf,
 	type ColumnKey,
 	columnKey,
-	familyKey,
 	fieldKey,
 	fillRefusal,
 	type FillStop,
@@ -65,7 +65,11 @@ import {
 	literalHost,
 	selects,
 	stepped
-} from "#compiler/write/family/fold.ts"
+} from "#compiler/runtime/write/fill.ts"
+import { sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
+import type { CountRow, MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
+import { baseOf } from "#compiler/write/family/fold.ts"
 import type { OwnerWrite, RelationWrite } from "#compiler/write/family/order.ts"
 import { endColumns, type ReadShape, type RowLayout } from "#compiler/write/family/statements.ts"
 

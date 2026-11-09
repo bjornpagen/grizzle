@@ -79,7 +79,7 @@ const noRows: Raw = []
 /**
  * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
  * statement wrote: its relations and the host's judgement of a native refusal over the facts this application states
- * (write/program/witness.ts statementRelations, hostJudgement).
+ * (runtime/write/witness.ts statementRelations, hostJudgement).
  */
 interface WitnessContext {
 	readonly violation: WriteEntry["violation"]

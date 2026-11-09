@@ -8,6 +8,7 @@
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import { familyColumnType, type Family } from "#compiler/ir/family.ts"
 import type { LawRelation } from "#compiler/ir/law.ts"
+import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
 	type FillContext,
@@ -17,7 +18,6 @@ import {
 	type Values,
 	valueAt
 } from "#compiler/write/family/edit.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
 import type { RowLayout } from "#compiler/write/family/statements.ts"
 
 /** Rows by relation name and key, each its host values by column key. */

@@ -18,6 +18,8 @@ import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import { prepareBinding } from "#compiler/runtime/write/binding.ts"
+import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -26,8 +28,6 @@ import type {
 	MemberSlot,
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
-import { type Normalization, normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
-import { prepareBinding } from "#compiler/write/program/binding.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import {
 	assert,

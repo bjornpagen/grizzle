@@ -15,17 +15,17 @@ import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import { writeSlotOf } from "#compiler/runtime/lower/slots.ts"
 import {
+	type Binding,
+	type PreparedBinding,
+	prepareBinding
+} from "#compiler/runtime/write/binding.ts"
+import {
 	type OutcomeContext,
 	type WrittenHeading,
 	writtenOutcome
 } from "#compiler/runtime/write/outcome.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import {
-	type Binding,
-	type PreparedBinding,
-	prepareBinding
-} from "#compiler/write/program/binding.ts"
 import type { Staged } from "#compiler/write/program/staged.ts"
 
 /** A form of a write statement as an execution sends it: its text, and what fills each placeholder, $n by

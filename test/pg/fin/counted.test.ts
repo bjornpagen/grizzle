@@ -5,7 +5,7 @@
  * count with the new end (test/support/families/counted.ts swapWithLast). Between the delete and the move the freed
  * slot's successor has no predecessor, so the predecessor axis must be deferred, and the installed one is.
  *
- * - **Two implementations agreeing:** the reference fold (families/fold.ts) and the host's fill (write/family/fold.ts
+ * - **Two implementations agreeing:** the reference fold (families/fold.ts) and the host's fill (runtime/write/fill.ts
  *   filler) of the families swap-with-last leaves must be one state; every swap-with-last commits to those families,
  *   its stored state that fold of them, and the end unchanged but for the removed member's step,
  *   since every monoid is commutative.

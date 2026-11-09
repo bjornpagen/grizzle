@@ -5,7 +5,7 @@
  * single junk accumulator, and PostgreSQL's verdict judged three ways.
  *
  * - **Two implementations agreeing:** the reference fold (test/support/families/fold.ts folded), exact: counts, int4
- *   and numeric sums and max in their least units, sets as code masks; and the host's fill (write/family/fold.ts
+ *   and numeric sums and max in their least units, sets as code masks; and the host's fill (runtime/write/fill.ts
  *   filler over the installation's own families and codes), which must fill every lawful family exactly as the reference
  *   does before PostgreSQL judges what both wrote. Every lawful state must commit and read back exactly; the twos fold's at most one of K, `bit_count(twos & K) = 0` as a
  *   check of its twos plane, refuses exactly the families where a handle of K is held twice.

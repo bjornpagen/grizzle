@@ -1,16 +1,3 @@
-/**
- * A stratum's refills as its write front end plans them (analysis/theory/refill.ts): the closure of the changes its
- * writes make on stored rows, refused where grizzle cannot draw a stale value again, and the reads that locate every row
- * a refill rewrites and every owner row a cascade carries a change through.
- *
- * A read follows a chain from a change of the stratum to the rows it reaches, all in the one read flight before any
- * write: from a put's rows, by the keys its facts state, or from the groups an edit of a family touches, through each
- * owner axis the change cascades along (an owner's members), each refilled family's groups (a member's groups, then
- * their owners for the family's recount or their members for its redraw), to the groups a refill rewrites or the owner
- * rows a cascade reaches before it is drawn into a member. Every row a chain passes is read whole, so the host draws
- * each value along it as PostgreSQL's cascade and generated fields would.
- */
-import { familyKey } from "#compiler/analysis/theory/families.ts"
 import {
 	type Carried,
 	type Change,
@@ -34,7 +21,19 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
-import type { RelationInfo } from "#compiler/ir/law.ts"
+/**
+ * A stratum's refills as its write front end plans them (analysis/theory/refill.ts): the closure of the changes its
+ * writes make on stored rows, refused where grizzle cannot draw a stale value again, and the reads that locate every row
+ * a refill rewrites and every owner row a cascade carries a change through.
+ *
+ * A read follows a chain from a change of the stratum to the rows it reaches, all in the one read flight before any
+ * write: from a put's rows, by the keys its facts state, or from the groups an edit of a family touches, through each
+ * owner axis the change cascades along (an owner's members), each refilled family's groups (a member's groups, then
+ * their owners for the family's recount or their members for its redraw), to the groups a refill rewrites or the owner
+ * rows a cascade reaches before it is drawn into a member. Every row a chain passes is read whole, so the host draws
+ * each value along it as PostgreSQL's cascade and generated fields would.
+ */
+import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import {
 	type GroupsOf,
 	groupsKey,

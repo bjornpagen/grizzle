@@ -1,5 +1,4 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { layoutKey } from "#compiler/analysis/theory/fill.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -11,7 +10,8 @@ import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
+import { type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
+import { type FamilyId, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, ProgramArtifacts, StatementSpec } from "#compiler/ir/products.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -70,8 +70,9 @@ import {
 	type WriteWorld
 } from "#compiler/write/entry/precheck.ts"
 
-import type { FillColumn } from "#compiler/ir/fill.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import type { Binding } from "#compiler/runtime/write/binding.ts"
+import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -83,8 +84,6 @@ import {
 	type RowSource
 } from "#compiler/write/family/additions.ts"
 import type { EditTarget } from "#compiler/write/family/edit.ts"
-import { familyKey } from "#compiler/write/family/fold.ts"
-import { sentLayout } from "#compiler/write/family/nesting.ts"
 import {
 	type Deferring,
 	type EditedMember,
@@ -147,7 +146,6 @@ import {
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import type { Binding } from "#compiler/write/program/binding.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"

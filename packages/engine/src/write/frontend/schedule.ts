@@ -16,7 +16,7 @@ interface ScheduledAction<A> {
  * owners (`owners`), the owner relation `relation` of the member relation `member`, which update the owner's rows
  * (write/family/order.ts FamilyStatement). A refill rewrites in place the rows whose families' values a change of the
  * stratum leaves stale, ahead of the change that would cascade into them (analysis/theory/refill.ts). A refill, an
- * update in place and a count change only the columns `changes` names, by key (write/family/fold.ts ColumnKey), each
+ * update in place and a count change only the columns `changes` names, by key (runtime/write/fill.ts ColumnKey), each
  * generated column that reads one of them among them.
  */
 export type FamilyNode =
@@ -139,7 +139,7 @@ const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<s
 			? []
 			: [node.member]
 
-/** A column PostgreSQL generates from its row, by key (write/family/fold.ts ColumnKey), with the keys of the columns it
+/** A column PostgreSQL generates from its row, by key (runtime/write/fill.ts ColumnKey), with the keys of the columns it
  * reads. */
 export interface GeneratedColumn {
 	readonly key: string
@@ -151,7 +151,7 @@ export type MemberOp = "insert" | "put" | "delete" | "nested"
 
 /**
  * A stratum's edits of one member relation as its update in place writes them (write/family/edit.ts planEdits), by key
- * (write/family/fold.ts ColumnKey): the operations they state; `own`, the columns a put writes of a stored member, its
+ * (runtime/write/fill.ts ColumnKey): the operations they state; `own`, the columns a put writes of a stored member, its
  * caller's fields but its key and its groups; `placed`, the columns its counted families draw on a member they move into
  * a freed slot or draw again from a changed step, an index, a copy of an owner's column and an accumulator, a copy of a
  * count aside, which the owner axis cascades; `refreshed`, the columns of the rows as the stratum's other changes leave
@@ -205,7 +205,7 @@ export const generating = (
  * A family of the schema, a tree's aside, as the schedule orders its statements: the family, its owner relation and its
  * member relation, and its owner axis: whether the axis is immediate, which orders the member's rows after their
  * owner's and before them going, and the columns its cascade writes on the member and reads on the owner, by key
- * (write/family/fold.ts ColumnKey).
+ * (runtime/write/fill.ts ColumnKey).
  */
 export interface FamilyPair {
 	readonly family: FamilyId
@@ -271,7 +271,7 @@ interface Scheduled {
 
 /**
  * An immediate reference: facts of `from` name facts of `to` at every statement, by the columns `fromColumns` and
- * `toColumns`, each by key (write/family/fold.ts ColumnKey); `cascade` where an update of the referenced facts carries
+ * `toColumns`, each by key (runtime/write/fill.ts ColumnKey); `cascade` where an update of the referenced facts carries
  * itself into the referencing ones (ON UPDATE CASCADE), so only a deletion removes what they reference.
  */
 export interface ImmediateReference {

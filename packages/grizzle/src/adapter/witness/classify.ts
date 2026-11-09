@@ -67,7 +67,7 @@ type ViolationFields = Pick<
  *   domain, so a native violation is read under its owner alone. PostgreSQL
  *   states the violating key of a native violation only in its message and DETAIL prose, which for a CHECK holds the
  *   whole failing row with each value cut at 64 bytes, and the classifier reads neither: the witness is the host's
- *   (WrittenAt judge, write/program/witness.ts hostJudgement), the key of a fact the ChangeSet states for the failing
+ *   (WrittenAt judge, runtime/write/witness.ts hostJudgement), the key of a fact the ChangeSet states for the failing
  *   statement that breaks what refused it, the table constraint or the domain's columns among the statement's tables,
  *   or `unreported` where it names none (hostJudgement). A table CHECK's refusal of a stated fact names `every` law
  *   of that table's CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever
@@ -127,7 +127,7 @@ export type Violation =
 /**
  * What the failing statement wrote: the stored relations it writes or casts its facts into, by declared name (none for
  * a COMMIT, a read-back or a statement that states no fact), and the host's judgement of a native refusal there, over
- * the facts the ChangeSet states for it (write/program/witness.ts hostJudgement): the witness of the first that breaks
+ * the facts the ChangeSet states for it (runtime/write/witness.ts hostJudgement): the witness of the first that breaks
  * the refuser, or unreported where none does, and which laws the refusal names.
  */
 export interface WrittenAt {
@@ -232,7 +232,7 @@ const objectRefused = (laws: Arr.NonEmptyReadonlyArray<Law>): Refused => {
 }
 
 /**
- * The laws a native refusal names, as the host judged it (write/program/witness.ts RefusedLaws): every law of its
+ * The laws a native refusal names, as the host judged it (runtime/write/witness.ts RefusedLaws): every law of its
  * table's CHECKs or of its domain's columns the stated row breaks; the CHECK PostgreSQL reported first, `broken`,
  * where no stated row breaks it or the host leaves one of its table's CHECKs unjudged; and for any other refusal the
  * laws its one object discharges that the statement can break, `broken`, decided where it is one.

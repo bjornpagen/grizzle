@@ -78,9 +78,6 @@ export type TreeStatement = Extract<StatementDesc, { readonly kind: "tree" }>
 /** A fold statement as ownership admitted it. */
 export type FoldStatement = Extract<StatementDesc, { readonly kind: "fold" }>
 
-/** One count counts one family: a family's key in the theory's maps. */
-export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}`
-
 /** fin(O, n), as a refusal and a display spell a family. */
 export const slotsText = (id: FamilyId): string => `fin(${id.owner}, ${id.count})`
 

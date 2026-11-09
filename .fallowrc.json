@@ -303,7 +303,7 @@
 				// The runtime names the compiled forms it runs by type alone; its witness decode site is the decode zone's.
 				"from": "runtime",
 				"allow": ["codec", "core", "decode", "ir", "scalar"],
-				"allowTypeOnly": ["lower", "sql", "write"]
+				"allowTypeOnly": ["laws", "lower", "sql", "types", "write"]
 			},
 			{
 				"from": "core",

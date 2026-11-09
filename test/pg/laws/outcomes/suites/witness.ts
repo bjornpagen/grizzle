@@ -271,7 +271,7 @@ const club = (
  * under the constraint the naming door names for its law, and db.apply reports the law and the key of the fact it
  * states that breaks it: a unique object's refusal, which the insert protocol finds in its own rows, probing a unique
  * object besides its arbiter, names the requested fact at the object's fields; a CHECK's and a domain's, which
- * PostgreSQL states only in prose, the host names, judging the stated club or member (write/program/witness.ts). The
+ * PostgreSQL states only in prose, the host names, judging the stated club or member (runtime/write/witness.ts). The
  * text domain PostgreSQL names is Club's code's and Member's code's alike, so its refusal names the law of the field
  * of the relation the statement writes, never the other.
  *

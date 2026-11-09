@@ -6,7 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { generatedLaw } from "#compiler/analysis/theory/description.ts"
+import { generatedLaw } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
 	accumulated,
@@ -29,13 +29,13 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
-import { prepareBinding } from "#compiler/write/program/binding.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { hostJudgement, type StatedRows } from "#compiler/write/program/witness.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -46,9 +46,9 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * A generated field with no value refuses its write as one outcome, `invariant-rejected` on the field's law
  * (analysis/theory/description.ts generatedLaw) witnessed by the key of the first stated row whose term has no value,
  * whatever the write's shape and whoever finds the NULL: the nesting's walk, which evaluates every generated field of
- * each row it fills (write/family/fold.ts `filler`); a family's edit, which evaluates those its fill reads, a fold's
+ * each row it fills (runtime/write/fill.ts `filler`); a family's edit, which evaluates those its fill reads, a fold's
  * selection or step (write/family/edit.ts `planEdits`); or PostgreSQL, whose NOT NULL refuses a row whose field no fill
- * reads (23502), judged by the host as the shell judges it (write/program/witness.ts hostJudgement).
+ * reads (23502), judged by the host as the shell judges it (runtime/write/witness.ts hostJudgement).
  *
  * The schema is an ordered family of members, each of a kind whose weight a closed relation gives, a generated field
  * that is NULL at the kind the relation lacks. One fold sums the members' quantities over a selection, another sums

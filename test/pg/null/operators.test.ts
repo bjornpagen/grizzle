@@ -23,6 +23,7 @@ import {
 	ordered,
 	schema
 } from "#compiler/public/schema.ts"
+import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
@@ -30,7 +31,6 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
-import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"

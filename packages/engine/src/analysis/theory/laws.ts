@@ -14,7 +14,6 @@ import {
 	type FamilyStatement,
 	carriedRank,
 	FamilyEntry,
-	familyKey,
 	familyShape,
 	familyText,
 	type FoldEntry,
@@ -74,6 +73,7 @@ import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type DeclaredSide,
 	type FamilyId,
+	familyKey,
 	isSpanField,
 	type KeyName,
 	type LawField,

@@ -981,6 +981,13 @@ const normalName = (index: number): ExprId => ExprId(`e#${index}`)
  * breadth-first through the arguments in operand order, each at its first occurrence, every argument by its number.
  * The number of an expression met for the first time is minted as it is met, so every argument has one.
  */
+/** The field names an expression's table reads of its row. */
+export const tableReads = (table: ExprTable): ReadonlyArray<string> => [
+	...new Set(
+		Object.values(table.exprs).flatMap((e) => (e.kind === "column" ? [e.column.name] : []))
+	)
+]
+
 export const predicateTable = (root: ScalarExpr): ExprTable => {
 	const names = new Map<ScalarExpr, ExprId>()
 	const queue: Array<ScalarExpr> = []

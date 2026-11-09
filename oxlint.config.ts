@@ -177,7 +177,7 @@ export default defineConfig(
 					{ doors: ["packages/engine/src/codec/recordset.ts"], brands: ["NormalFacts"] },
 					{ doors: ["packages/engine/src/ir/desc.ts"], brands: ["AdmittedClosedRelation"] },
 					{
-						doors: ["packages/engine/src/write/normalize/normalize.ts"],
+						doors: ["packages/engine/src/runtime/write/normalize.ts"],
 						brands: ["KeyNormalized"]
 					},
 					{ doors: ["packages/engine/src/codec/bits.ts"], brands: ["Accumulator"] },

@@ -14,9 +14,9 @@ import type {
 	VarDesc
 } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import type { HostChecks, HostKeyField } from "#compiler/runtime/write/normalize.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import { isSerialField } from "#compiler/write/insert/statement.ts"
-import type { HostChecks, HostKeyField } from "#compiler/write/normalize/normalize.ts"
 
 /** A fill's relation parameter, its declared name: the front end substitutes the sources that fill the fill for it
  * before the DAG is built (dag.ts substitute). */

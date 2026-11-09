@@ -1,3 +1,9 @@
+import { readsOf } from "#compiler/analysis/theory/fill.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { DerivedReader } from "#compiler/core/causes.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 /**
  * What a write changes on rows already stored, and the families whose drawn values read such a change, which grizzle
  * draws again by refilling their groups (write/family/refill.ts).
@@ -23,14 +29,7 @@
  * The refills a write needs close over the changes the refills make in turn. A refill whose own changes reach it again
  * is a cycle no order of the refills draws.
  */
-import { familyKey } from "#compiler/analysis/theory/families.ts"
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import type { DerivedReader } from "#compiler/core/causes.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import { familyKey, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 
 /** A native column's identity within its relation: a field by its name, a law column by its identifier. */
 const columnId = (c: NativeColumn): string =>

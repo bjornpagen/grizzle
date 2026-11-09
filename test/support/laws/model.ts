@@ -563,7 +563,7 @@ export type Witnessed =
  * A key's or a span key's witness names the refused fact by the law's own key fields, as a write statement's refusal
  * raises them (packages/engine/src/write/refusal.ts): a candidate key's by its fields, never by the primary key. A row
  * check's names the fact that breaks it by its relation's primary key, as the host judges the facts a ChangeSet states
- * (packages/engine/src/write/program/witness.ts); a containment's and a coverage's name none.
+ * (packages/engine/src/runtime/write/witness.ts); a containment's and a coverage's name none.
  */
 export const witnessOf = (law: HostLaw, schema: HostSchema): Witnessed => {
 	switch (law.kind) {

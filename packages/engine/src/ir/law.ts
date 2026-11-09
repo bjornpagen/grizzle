@@ -316,6 +316,24 @@ export interface FamilyId {
 	readonly count: string
 }
 
+/** A family's key: one count counts one family. */
+export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}`
+
+/** A generated field's law, by its relation and field (the `generated` arm of the public Law): its term has a value at
+ * every row. */
+export interface GeneratedLaw {
+	readonly kind: "generated"
+	readonly relation: string
+	readonly field: string
+}
+
+/**
+ * A generated field's law, by its relation and field: the one description every refusal of a generated field with no
+ * value names, whether the host finds it filling a row or PostgreSQL's NOT NULL refuses the row (23502).
+ */
+export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
+	Object.freeze({ kind: "generated", relation, field })
+
 /**
  * What a drawn law column holds, which the host draws from the nested arrays: ‹n›, the owner's count on each member; a
  * counted family's index ‹i›; a tree's ‹ps›, its parent's start; or a fold's accumulator, before or after the member's

@@ -8,11 +8,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import type { Binding } from "#compiler/runtime/write/binding.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { bindWrite, runnableWrite } from "#compiler/write/program/bind.ts"
-import type { Binding } from "#compiler/write/program/binding.ts"
 import { compileWrite, type CompiledWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -34,7 +34,7 @@ import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * A compiled write binds by what its compile decided, never by the law model (write/program/binding.ts Binding). Over
+ * A compiled write binds by what its compile decided, never by the law model (runtime/write/binding.ts Binding). Over
  * drawn schemas of trees, ordered and counted families nested in each other, folds and copies (test/support/families/
  * fill.ts), and an instance of each inserted whole:
  *

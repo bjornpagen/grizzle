@@ -52,12 +52,12 @@ import {
 	closedLeaf,
 	type ColumnKey,
 	columnKey,
-	type FilledNode,
 	fieldKey,
+	type FilledNode,
 	filler,
-	type HostNode,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
+	hostEvaluator,
+	type HostNode
+} from "#compiler/runtime/write/fill.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import {
 	type Catalogued,
@@ -955,7 +955,7 @@ export const judgedFold = (
 	})
 
 /**
- * The host's fill of one owner's family on a fold seat (write/family/fold.ts filler over the installation's fill order
+ * The host's fill of one owner's family on a fold seat (runtime/write/fill.ts filler over the installation's fill order
  * and codes), read back as the reference's state: the second implementation the reference fold is judged beside. A
  * family it will not fill is the disagreement it reports.
  */

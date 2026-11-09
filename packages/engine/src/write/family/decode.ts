@@ -13,6 +13,7 @@ import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
 	drawnAt,
@@ -27,7 +28,6 @@ import {
 	type StoredMember,
 	type Values
 } from "#compiler/write/family/edit.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
 import type { ChainShape, ReadShape, RowLayout } from "#compiler/write/family/statements.ts"
 
 /** An arm a read's answer holds no row of. */

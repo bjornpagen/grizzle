@@ -31,6 +31,7 @@ import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
+import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
 	evaluateTable,
@@ -44,7 +45,6 @@ import type { Expr } from "#compiler/sql/ast.ts"
 import { and, cast, lit, tableCol } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
-import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))

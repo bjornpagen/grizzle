@@ -2,8 +2,9 @@
  * The change plan: what a compiled ChangeSet is, and what the shell runs it by — its write program, the normalization of
  * its facts, its statements' binding, and the outcome, witness and refusal its rows are read into.
  */
-export { generatedFieldLaws, generatedLaw } from "#compiler/analysis/theory/description.ts"
+export { generatedFieldLaws } from "#compiler/analysis/theory/description.ts"
 export type { Family } from "#compiler/ir/family.ts"
+export { generatedLaw } from "#compiler/ir/law.ts"
 export type { FamilyId, TableRelation } from "#compiler/ir/law.ts"
 export type {
 	AnyChangeSet,
@@ -30,11 +31,7 @@ export type { Unsendable } from "#compiler/write/family/order.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
-export {
-	type GroupData,
-	type MemberFacts,
-	memberSlots
-} from "#compiler/write/normalize/normalize.ts"
+export { type GroupData, type MemberFacts, memberSlots } from "#compiler/runtime/write/normalize.ts"
 export type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 export type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 export {
@@ -74,7 +71,7 @@ export {
 	type Refuser,
 	type StatementAt,
 	statementRelations
-} from "#compiler/write/program/witness.ts"
+} from "#compiler/runtime/write/witness.ts"
 export {
 	type ConcurrentChange,
 	type LawDetail,

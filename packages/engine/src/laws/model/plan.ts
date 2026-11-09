@@ -1,4 +1,4 @@
-import { familyKey, familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
+import { familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
 import {
 	fixedSelection,
 	type ResolvedConjunct,
@@ -30,6 +30,7 @@ import {
 	type ClosedTheoryRelation,
 	type Drawn,
 	type FamilyId,
+	familyKey,
 	fieldNames,
 	isSpanField,
 	type KeyName,

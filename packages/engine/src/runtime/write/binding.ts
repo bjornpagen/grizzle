@@ -14,26 +14,25 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import {
-	type ColumnKey,
 	closedLeaf,
+	type ColumnKey,
 	type Evaluation,
 	type Filler,
 	filler,
 	type HostEvaluator,
-	type HostFill,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
-import type { NestedLayoutData } from "#compiler/write/family/nesting.ts"
-import type { LaidLayout } from "#compiler/write/family/statements.ts"
-import type { Proposal } from "#compiler/write/insert/statement.ts"
-import { type BindGroup, bindGroup, type GroupData } from "#compiler/write/normalize/normalize.ts"
+	hostEvaluator,
+	type HostFill
+} from "#compiler/runtime/write/fill.ts"
+import type { LaidLayout, NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
+import { type BindGroup, bindGroup, type GroupData } from "#compiler/runtime/write/normalize.ts"
 import {
 	prepareWitness,
 	type WitnessData,
 	type Witnessing
-} from "#compiler/write/program/witness.ts"
+} from "#compiler/runtime/write/witness.ts"
+import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { Proposal } from "#compiler/write/insert/statement.ts"
 
 /**
  * A counted family as binding reads it: its id, its owner and member relations by name, its count and its ends, the
@@ -67,7 +66,7 @@ export type OwnedColumn =
 	  }
 
 /**
- * A relation the ChangeSet writes as its stated rows are judged (write/program/witness.ts JudgedRow): the fields a fact
+ * A relation the ChangeSet writes as its stated rows are judged (runtime/write/witness.ts JudgedRow): the fields a fact
  * of it states, its caller's and serial ones, by name; its primary key's fields, by name; its row layout
  * (write/family/statements.ts rowLayout); and each column of it a counted family it owns draws, by column key, the first
  * family in the law model's order that draws it.

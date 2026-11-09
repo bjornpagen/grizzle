@@ -1,22 +1,21 @@
 /**
- * The law model's own judgments of a compiled write's binding (write/program/binding.ts Binding), read off the write's
+ * The law model's own judgments of a compiled write's binding (runtime/write/binding.ts Binding), read off the write's
  * front end and its law model as binding read them on every application before they were decided at compile time: the
  * oracle a binding is judged against (test/unit/write/program/binding.test.ts). Each judgment is stated here from the law
  * model's meaning, never through write/program/decide.ts.
  */
 import { Array as Arr, Option, String as Str } from "effect"
-import { layoutKey } from "#compiler/analysis/theory/fill.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"
-import type { FillPosition } from "#compiler/ir/fill.ts"
-import type { RelationInfo } from "#compiler/ir/law.ts"
+import { type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
+import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import { familyKey, fieldKey } from "#compiler/write/family/fold.ts"
+import type { Binding } from "#compiler/runtime/write/binding.ts"
+import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { endColumns, rowLayout } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, SlotGroup, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
-import type { Binding } from "#compiler/write/program/binding.ts"
 import { assert, defined } from "#test/support/assert.ts"
 
 /** Which facts of a member slot its statement proposes, by the law model: an INSERT into a relation of drawn or

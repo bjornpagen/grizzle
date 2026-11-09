@@ -46,12 +46,13 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
-import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
+import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -78,7 +79,6 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import {
 	type PerGroup,
 	readAt,

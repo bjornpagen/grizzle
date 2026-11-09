@@ -5,15 +5,15 @@ import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { own, rostersOf } from "#compiler/schema/own.ts"
 import {
 	closedLeaf,
 	columnKey,
 	fieldKey,
 	filler,
-	type HostNode,
-	hostEvaluator
-} from "#compiler/write/family/fold.ts"
+	hostEvaluator,
+	type HostNode
+} from "#compiler/runtime/write/fill.ts"
+import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
@@ -33,7 +33,7 @@ import { compiledModel } from "#test/unit/laws/model/natives.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * The host's fill of a concat fold (write/family/fold.ts `filler`, combineHost's concat): every member's before and
+ * The host's fill of a concat fold (runtime/write/fill.ts `filler`, combineHost's concat): every member's before and
  * after, and the owner's end, over an ordered family whose (before, after) pair is named, stepping over every member
  * or those a selection holds of.
  *

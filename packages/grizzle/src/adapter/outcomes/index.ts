@@ -58,7 +58,7 @@ import { sqlstates } from "#compiler/plan/common.ts"
  *   key-law map, narrowed by the relations the failing statement writes where a shared domain's columns decide them,
  *   and a 23502 on a generated column the generated field's law; a native violation reports its key only in its
  *   message, so its witness is the host's, the key of a fact the ChangeSet states for the failing statement that breaks
- *   it (write/program/witness.ts hostJudgement), or `unreported` where it states none.
+ *   it (runtime/write/witness.ts hostJudgement), or `unreported` where it states none.
  *   The law model's map (laws/model constraintToLaw) is part of the installation's, which adds the constraints
  *   installer extensions name, such as span storage.
  * - A 23514 on one of the installation's roster domains, a code domain or a bits domain, is grizzle's own defect:
@@ -113,7 +113,7 @@ interface ClassifyContext {
 	readonly origin: FailureOrigin
 	/**
 	 * What a statement wrote, as the classifier reads it: the stored relations it writes or casts into
-	 * (write/program/witness.ts statementRelations), and the host's witness of a native refusal at it, over the facts
+	 * (runtime/write/witness.ts statementRelations), and the host's witness of a native refusal at it, over the facts
 	 * the application's ChangeSet states for it (hostWitness).
 	 */
 	readonly statement: (at: StatementAt) => WrittenAt
