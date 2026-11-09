@@ -18,9 +18,13 @@ import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
+import { workloadExtension } from "#compiler/physical/access/extension.ts"
+import { workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { charSet, complement } from "#compiler/scalar/regex/charset.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
@@ -28,11 +32,13 @@ import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { sourceSet } from "#compiler/scalar/regex/source.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
-import { regexField } from "#compiler/text/field.ts"
+import { type RegexText, regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { jsAccepts, patternOver } from "#test/unit/text/generators.ts"
 
@@ -424,11 +430,14 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  * - the host: the chain evaluated by hand on a text whose first step's image takes the program's most bytes, built from
  *   its choices, and on drawn values of t's type: no image takes more than the bound, a translation first takes exactly
  *   the most, and where the cast compiles every image is of T.
+ * - the installation: the chain stored uncast in T installs with a workload reading it, as generate drafts it
+ *   (installsStored), whatever refinement its type states.
  *
  * Planted bugs, each refuted by the search: a collapse and a translation that carry no byte bound, the type before this
  * search, refused where the bound fits; a translation that keeps its operand's bound under a map to wider characters,
  * admitted where a value outgrows it; a translation's bound read without the operand's character bound, refused where
- * few characters fit.
+ * few characters fit; a generated field cast into its term's computed type, which names no domain, refused at its
+ * installation.
  */
 interface ByteCase {
 	readonly operand: Operand
@@ -908,6 +917,37 @@ const computed = (step: Step, term: unknown, operand: unknown): unknown => {
 const chained = (steps: ReadonlyArray<Step>, term: unknown): unknown =>
 	Arr.reduce(steps, term, (inner, step) => computed(step, inner, term))
 
+/**
+ * The chain stored uncast in a generated field of `Target`, the text entering its column as computed, its column's
+ * domain the judge (ir/scalar.ts enteredType), and a workload reading the relation: the schema is admitted, and it
+ * installs with the workload's plan as `grizzle generate` drafts it (compile, completeInstallOptions). A stored
+ * computation's own refinement, a translation's image or a collapse's or a concatenation's byte bound, names no domain,
+ * so neither the generated column nor the workload asks for one.
+ */
+const installsStored = (
+	steps: Arr.NonEmptyReadonlyArray<Step>,
+	Operand: RegexText<string>,
+	Target: RegexText<string>
+): void => {
+	const Stored = relation.generated("R", { id: uuid, t: Operand }, ["id"], (r) => ({
+		n: generatedField(Target, chained(steps, r.t), [])
+	}))
+	const Installed = schema("Stored", { R: Stored }, [])
+	const reads = queryOver(Installed).rule((r: RuleValue) => {
+		const row = varsOver(Stored, "row")
+		return r.match(Stored, row).find(row)
+	})
+	const plan = succeeded(
+		compileTestWorkload(
+			[{ login: "server", workloads: [workload(Installed, { reads })] }],
+			Installed,
+			testCompile
+		),
+		`the workload over ${Formatter.format(steps)} stored uncast`
+	)
+	compile(Installed, { ...asDrafted, extensions: [workloadExtension(plan)] })
+}
+
 describe("a transformed text's byte bound", () => {
 	it.effect(
 		"admits a cast into a bounded text exactly when the bound its operations prove and their language fit it",
@@ -1003,6 +1043,7 @@ describe("a transformed text's byte bound", () => {
 							)
 							const route = Arr.lastNonEmpty(c.steps).kind
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
+							installsStored(c.steps, OperandText, TargetText)
 							const verdict = inclusion(
 								[nfaOf(languageSource(typed.language), "u")],
 								[nfaOf(target.source, target.flags)]

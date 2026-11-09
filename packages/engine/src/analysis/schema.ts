@@ -46,7 +46,13 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { closedCell, type DeclaredKey } from "#compiler/ir/rel.ts"
-import { Roster, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	enteredType,
+	Roster,
+	type ScalarType,
+	sameScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
@@ -633,7 +639,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * A generated field's writing: its expression, which keeps the generated-field rule (#ordinaryInfo checked it), typed
 	 * in "check" mode over its row, each field a column of `rowNode` of its written type, and the closed relations it may
 	 * apply, and held at its declared type. A Compute.base emits no node of its own, so where the node still carries the
-	 * contract the term drops, the expression casts it, as a query's head does.
+	 * contract the term drops, the expression casts it, as a query's head does. A node that computes the type its column
+	 * enters a value at (ir/scalar.ts enteredType), the plain text of a refined text a computation's type states, is
+	 * stored as it is computed: the column's domain judges it, and the term's refinement, a translation's image, a
+	 * collapse's or a concatenation's byte bound, names no domain of its own.
 	 */
 	#generated(
 		r: OwnedOrdinary,
@@ -694,16 +703,18 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		return {
 			kind: "generated",
-			expr: sameScalarType(term.expr.type, term.nominal)
-				? term.expr
-				: emit({
-						kind: "cast",
-						cast: binaryCoercion,
-						args: [term.expr],
-						type: term.nominal,
-						nonNull: "strict",
-						volatility: "immutable"
-					})
+			expr:
+				sameScalarType(term.expr.type, term.nominal) ||
+				sameScalarType(term.expr.type, enteredType(term.nominal))
+					? term.expr
+					: emit({
+							kind: "cast",
+							cast: binaryCoercion,
+							args: [term.expr],
+							type: term.nominal,
+							nonNull: "strict",
+							volatility: "immutable"
+						})
 		}
 	}
 
