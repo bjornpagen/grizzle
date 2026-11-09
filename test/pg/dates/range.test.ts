@@ -6,7 +6,8 @@
  * that has taken on the full role inserts a drawn date text, which PostgreSQL's date_in reads: a day of the calendar's
  * common era up to 9999, a year past 9999, a day before the common era, or an infinity. The oracle restates the range
  * over the drawn day: a day inside it is stored and reads back through grizzle as the CalendarDate its text spells;
- * every other is refused with 23514 under the column's range CHECK, and stores nothing.
+ * every other is refused with 23514 under the column's range CHECK, and stores nothing. grizzle reads the column through
+ * a member of the full world's served workload.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -15,7 +16,7 @@ import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, pipe, Result, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
@@ -30,12 +31,11 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const Event = relation("Event", { id: pg.integer, day: date }, ["id"])
 const Events = schema("Events", { Event }, [])
 
-/** Every event's day, as grizzle reads it. */
+/** Every event's day, as grizzle reads it: the full world's workload member `days`. */
 const days = query(Events).rule((r) => {
 	const { id, day } = v(Event, "event")
 	return r.match(Event, { id, day }).find({ id, day })
@@ -93,13 +93,17 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(Events, {}, { label: "dates", extensions: [], programs: {} })
+						const o = yield* installed(
+							Events,
+							{},
+							{ label: "dates", extensions: [], programs: { days } }
+						)
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						const range = identifierOf(identity.dateCheck("Event", "day"))
 						const insert = `INSERT INTO ${names.table(Event)} (${names.column(Event, "id")}, ${names.column(Event, "day")}) VALUES ($1::integer, $2::date)`
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							const writer = yield* s.session({
 								...worldSession(o.installed.world(o.app)),
 								label: "writer"
@@ -134,7 +138,10 @@ layer(Substrate.layer)(
 										yield* replaceRows(s.admin, group, [])
 										const text = textOf(d)
 										const written = yield* Effect.result(writer.query(insert, ["1", text]))
-										const stored = yield* Effect.flatMap(db.execute(days, {}), (r) => r.collect)
+										const stored = yield* Effect.flatMap(
+											db.workload.days.execute({}),
+											(r) => r.collect
+										)
 										if (inRange(d)) {
 											assert.ok(Result.isSuccess(written), `${text} is stored`)
 											assert.deepEqual(stored, [
@@ -156,7 +163,7 @@ layer(Substrate.layer)(
 										c.note(d.kind === "common era" ? "refused past 9999" : `refused: ${d.kind}`)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+						}).pipe(Effect.scoped, withLayer(o.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)
