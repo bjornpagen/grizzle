@@ -144,18 +144,26 @@ const gatedPassword = (secret: Redacted.Redacted) =>
 
 /**
  * Where a drawn lease is cut: after a drawn number of the scheduler's turns, the lease run a drawn few operations a
- * turn, so the cut lands at every step of its acquisition on the fiber's side; or after a drawn number of milliseconds
- * of real time, so it lands while pg connects, while TLS and the startup run, or once the session is held.
+ * turn, so the cut lands at every step of its acquisition on the fiber's side; after a drawn number of milliseconds of
+ * real time, so it lands while pg connects, while TLS and the startup run, or once the session is held; or once its
+ * own connection asks for its password, which waits at the lease's gate until the cut has landed, so the cut lands
+ * while that connection is being established, wherever the network's timing puts the rest.
  */
 type CutAt =
 	| { readonly kind: "turns"; readonly turns: number; readonly ops: number }
 	| { readonly kind: "millis"; readonly millis: number }
+	| { readonly kind: "establishing" }
 
-/** One lease of an interleaving: kept to its end, or cut; holding its session idle, or running a statement on it. */
-interface LeasePlan {
-	readonly cut: { readonly kind: "kept" } | { readonly kind: "cut"; readonly at: CutAt }
-	readonly work: "idle" | "statement"
-}
+/**
+ * One lease of an interleaving: kept to its end or cut where CutAt says, holding its session idle or running a
+ * statement on it; or a statement's lease cut once its statement runs, which the statement's length outlasts.
+ */
+type LeasePlan =
+	| {
+			readonly cut: { readonly kind: "kept" } | { readonly kind: "cut"; readonly at: CutAt }
+			readonly work: "idle" | "statement"
+	  }
+	| { readonly cut: { readonly kind: "running" }; readonly work: "statement" }
 
 interface Interleaving {
 	readonly max: number
@@ -168,18 +176,22 @@ interface Interleaving {
  */
 const cutAtGen: Gen<CutAt> = oneOf<CutAt>([
 	(source) => ({ kind: "turns", turns: source.draw(int(0, 24)), ops: source.draw(int(3, 8)) }),
-	(source) => ({ kind: "millis", millis: source.draw(int(0, 30)) })
+	(source) => ({ kind: "millis", millis: source.draw(int(0, 30)) }),
+	() => ({ kind: "establishing" })
 ])
 
-const leasePlanGen: Gen<LeasePlan> = (source) => ({
-	cut: source.draw(
-		oneOf<LeasePlan["cut"]>([
-			() => ({ kind: "kept" }),
-			(cut) => ({ kind: "cut", at: cut.draw(cutAtGen) })
-		])
-	),
-	work: source.draw(element<LeasePlan["work"]>(["idle", "statement"]))
-})
+const leasePlanGen: Gen<LeasePlan> = oneOf<LeasePlan>([
+	(source) => ({
+		cut: source.draw(
+			oneOf<{ readonly kind: "kept" } | { readonly kind: "cut"; readonly at: CutAt }>([
+				() => ({ kind: "kept" }),
+				(cut) => ({ kind: "cut", at: cut.draw(cutAtGen) })
+			])
+		),
+		work: source.draw(element<LeasePlan["work"]>(["idle", "statement"]))
+	}),
+	() => ({ cut: { kind: "running" }, work: "statement" })
+])
 
 /** Up to eight leases at once on a pool of one to three: often more than the pool holds, so some wait in its queue. */
 const interleavingGen: Gen<Interleaving> = (source) => ({
@@ -251,12 +263,14 @@ const running = "SELECT pg_catalog.pg_sleep(0.05)::text"
 /**
  * Leases cut at arbitrary points lose nothing, against the cluster: a property over drawn interleavings of up to
  * eight leases started at once on a pool of one to three, each kept to its end or cut, after a drawn number of the
- * scheduler's turns or of real milliseconds, while it asks (queued for a permit, while pg connects it over TLS, or
- * once pg answered and before the lease took the client), while it holds its session, or while a statement runs on
- * it. A lease cut while it asks was establishing a connection exactly when the pool had started one for it: its
- * connection's password ran under its own services (AskingLease), whatever connections other leases were
- * establishing. A client that arrives for an ask whose lease was cut goes straight back to the pool with its permit;
- * a session cut mid-statement sends its CancelRequest, is destroyed and is counted out of the pool.
+ * scheduler's turns or of real milliseconds, once its own connection asks for its password, or once its statement
+ * runs: while it asks (queued for a permit, while pg connects it over TLS, or once pg answered and before the lease
+ * took the client), while it holds its session, or while a statement runs on it. A lease cut while it asks was
+ * establishing a connection exactly when the pool had started one for it: its connection's password ran under its own
+ * services (AskingLease), whatever connections other leases were establishing; a lease cut once its connection asks
+ * for its password is cut there, its password held at its gate until the cut has landed. A client that arrives for an
+ * ask whose lease was cut goes straight back to the pool with its permit; a session cut mid-statement sends its
+ * CancelRequest, is destroyed and is counted out of the pool.
  *
  * Once every lease has ended: every kept lease succeeded and every cut one ended as an interruption; the pool leases
  * nothing, opens at most its maximum, and queues nothing in pg's Pool; the role's backends fall to at most the
@@ -289,11 +303,20 @@ const cutLeases = Effect.gen(function* () {
 			Effect.gen(function* () {
 				/** The leases the pool started a connection for: each connection's password names its lease. */
 				const connecting = new Set<number>()
-				const password = Effect.map(AskingLease, (lease) => {
-					if (Option.isSome(lease)) {
-						connecting.add(lease.value)
+				/** The gate of each lease cut once its connection asks for its password, which its cut opens. */
+				const gates = yield* Effect.forEach(leases, () => Deferred.make<void>())
+				const password = Effect.flatMap(AskingLease, (lease) => {
+					if (Option.isNone(lease)) {
+						return Effect.succeed(reader.password)
 					}
-					return reader.password
+					connecting.add(lease.value)
+					const plan = leases[lease.value]
+					const gate = gates[lease.value]
+					return plan?.cut.kind === "cut" &&
+						plan.cut.at.kind === "establishing" &&
+						gate !== undefined
+						? Effect.as(Deferred.await(gate), reader.password)
+						: Effect.succeed(reader.password)
 				})
 				const pool = yield* poolFor(reader, {
 					...defaultPool,
@@ -323,7 +346,7 @@ const cutLeases = Effect.gen(function* () {
 								yield* rowsOn(session, running, [])
 								progress[index] = "holding"
 							}
-							if (plan.cut.kind === "cut") {
+							if (plan.cut.kind !== "kept") {
 								return yield* Effect.never
 							}
 						})
@@ -342,20 +365,37 @@ const cutLeases = Effect.gen(function* () {
 					(plan, index) =>
 						Effect.gen(function* () {
 							const fiber = fibers[index]
-							if (plan.cut.kind === "kept" || fiber === undefined) {
+							const cut = plan.cut
+							if (cut.kind === "kept" || fiber === undefined) {
 								return
 							}
-							const at = plan.cut.at
-							if (at.kind === "turns") {
-								for (let turn = 0; turn < at.turns; turn++) {
-									yield* Effect.yieldNow
-								}
+							if (cut.kind === "running") {
+								yield* until(Effect.sync(() => progress[index] === "running"))
 							} else {
-								yield* wallClock(at.millis)
+								const at = cut.at
+								switch (at.kind) {
+									case "turns":
+										for (let turn = 0; turn < at.turns; turn++) {
+											yield* Effect.yieldNow
+										}
+										break
+									case "millis":
+										yield* wallClock(at.millis)
+										break
+									case "establishing":
+										yield* until(
+											Effect.sync(() => connecting.has(index) || progress[index] !== "asking")
+										)
+										break
+								}
 							}
 							const reached = progress[index]
 							const establishing = connecting.has(index)
 							yield* Fiber.interrupt(fiber)
+							const gate = gates[index]
+							if (gate !== undefined) {
+								yield* Deferred.succeed(gate, undefined)
+							}
 							switch (reached) {
 								case "asking":
 									c.note(
