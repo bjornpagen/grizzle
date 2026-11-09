@@ -48,10 +48,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * under the owner's ordinary path and under the installation's schemas first (test/support/ambient.ts), the second
  * migrate as the installation's own owner login, under the same path. A case's schema holds the named objects and the
  * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span, a serial and a
- * handle of the closed relation, mutable, with a contract field; a relation contained in it; and, a level up, the
- * derived relation counting the holder's entries, each entry matched by its key, so the count folds over keyed rows.
- * Its login's writer and reader hold every relation whole. Properties,
- * for every case:
+ * handle of the closed relation, mutable, with a contract field; a relation contained in it; and, a level up in a
+ * schema of its own, the derived relation counting the holder's entries, each entry matched by its key, so the count
+ * folds over keyed rows. Its login's writer and reader hold every relation whole. Properties, for every case:
  *
  * - its first migration applies, and migrate's drift check after it matches the catalog against the snapshot;
  * - the migrated catalog holds the installed-catalog checker's posture, its columns' types pg_catalog's own;
@@ -143,7 +142,7 @@ const schemaOf = (names: Names): SchemaDesc => {
 		extends: undefined
 	})
 	return decodedSchema({
-		name: "Box",
+		name: "Counts",
 		extends: base,
 		relations: [
 			{
