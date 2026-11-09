@@ -62,7 +62,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
  * the level carries the derived relation with the definition's head as the minimal rules stage.
  */
 export const ReportsDesc: SchemaDesc = decodedSchema({
-	name: "Work",
+	name: "Reports",
 	extends: WorkDesc,
 	relations: [
 		{

@@ -432,6 +432,7 @@ const mutated = (
 						)
 					: Arr.append<Level, Level>(levels, {
 							...Arr.lastNonEmpty(levels),
+							name: `${root.name}_${levels.length}`,
 							relations: [twinAbove],
 							statements: []
 						})

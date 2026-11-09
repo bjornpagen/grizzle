@@ -74,12 +74,17 @@ const lawIdsOf = (
 }
 
 /**
- * The PostgreSQL role an installation gives a role of a name, whether it holds one or not: a role it dropped had this
- * name, since the naming door mints it from the installed schema's identity and the role's name alone.
+ * The PostgreSQL role an installation gives a role of a name over its top level, whether it holds one or not: a role it
+ * dropped had this name, since the naming door mints it from the identity of its level's schema and the role's name
+ * alone.
  */
 export const installedRoleName = (installation: Installation, name: string): string =>
 	identifierOf(
-		roleIdentity(installation.names.installation, parsedName(name), SourceLoc(`world ${name}`, []))
+		roleIdentity(
+			Arr.lastNonEmpty(installation.names.levels),
+			parsedName(name),
+			SourceLoc(`world ${name}`, [])
+		)
 	)
 
 /**
@@ -301,7 +306,7 @@ export const namesOfBuiltAt = (
 							l.name,
 							identifierOf(
 								loginIdentity(
-									installation.names.installation,
+									Arr.lastNonEmpty(installation.names.levels),
 									parsedName(l.name),
 									SourceLoc(`login ${l.name}`, [])
 								)

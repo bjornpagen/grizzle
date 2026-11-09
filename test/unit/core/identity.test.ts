@@ -25,7 +25,7 @@ import type { CommentTarget } from "#compiler/sql/ast.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { installationAbstraction } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { allocatedLevels, installationSql } from "#test/support/compile.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { aliasGroups, refusedNames } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -67,7 +67,13 @@ const installed = (owned: Owned, login: AnyLogin, at: Identity<"schema">): Insta
 	return succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, [at], logins, [], firstCodebook(rostersOf(owned)))
+			completeInstallOptions(
+				owned,
+				allocatedLevels(at, owned.levels),
+				logins,
+				[],
+				firstCodebook(rostersOf(owned))
+			)
 		)
 	)
 }

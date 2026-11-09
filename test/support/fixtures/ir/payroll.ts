@@ -395,7 +395,7 @@ const RunTotalDefinition = decodedQuery({
 })
 
 export const ReportingDesc: SchemaDesc = decodedSchema({
-	name: "Payroll",
+	name: "Reporting",
 	extends: PayrollDesc,
 	relations: [
 		{

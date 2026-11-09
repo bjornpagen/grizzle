@@ -78,8 +78,7 @@ interface Program {
 }
 
 /**
- * A schema value, the name its WorkloadDesc records (an extension keeps its base's), and programs over it or one of its
- * levels.
+ * A schema value, the name its WorkloadDesc records (an extension's own), and programs over it or one of its levels.
  */
 interface Workloads {
 	readonly schema: unknown
@@ -121,7 +120,7 @@ const workloads: Arr.NonEmptyReadonlyArray<Workloads> = [
 	workWorkloads,
 	{
 		schema: W.Reports,
-		name: "Work",
+		name: "Reports",
 		programs: [namedQuery("tasksById", W.tasksById), namedQuery("accountBudgets", W.accountBudgets)]
 	}
 ]
