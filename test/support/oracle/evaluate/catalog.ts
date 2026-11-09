@@ -33,7 +33,7 @@ import {
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
 import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
-import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"

@@ -1,16 +1,14 @@
 import { defect } from "#compiler/core/invariant.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import {
 	contractOf,
-	octetsOf,
 	type PatternSource,
 	type RegexRef,
 	type ScalarType,
 	textOf
 } from "#compiler/ir/scalar.ts"
-import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
+import { matchFlags, memberOf, type ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 
@@ -56,22 +54,6 @@ export interface PatternAutomata extends PatternReads {
 	readonly parse: (pattern: PatternSource) => ParsedPattern
 }
 
-/**
- * Whether a text is a member of a regex refinement, each of its patterns parsed by `parse`: within its byte bound where
- * str.bytes cuts it (ir/scalar.ts octetsOf), and a match of every member's automaton.
- */
-const memberOf = (
-	regex: RegexRef,
-	parse: (pattern: PatternSource) => ParsedPattern,
-	text: string
-): boolean => {
-	const octets = octetsOf(regex.check)
-	return (
-		(octets === undefined || utf8Length(text) <= octets) &&
-		regex.patterns.every((pattern) => matches(parse(pattern).nfa, text))
-	)
-}
-
 /** Parses, by flags and then source. */
 type ParseTable = Map<RegexFlags, Map<string, ParsedPattern>>
 
@@ -98,7 +80,8 @@ export class CompilePatterns implements PatternAutomata {
 	readonly parse = (pattern: PatternSource): ParsedPattern =>
 		tabled(this.#table, pattern) ?? entered(this.#table, pattern)
 
-	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.parse, text)
+	readonly member = (regex: RegexRef, text: string): boolean =>
+		memberOf(regex, (pattern) => this.parse(pattern).nfa, text)
 
 	readonly matches = (source: string, text: string): boolean =>
 		matches(this.parse({ source, flags: matchFlags }).nfa, text)
@@ -135,10 +118,21 @@ export class ProgramPatterns implements PatternAutomata {
 		return known
 	}
 
-	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.parse, text)
+	readonly member = (regex: RegexRef, text: string): boolean =>
+		memberOf(regex, (pattern) => this.parse(pattern).nfa, text)
 
 	readonly matches = (source: string, text: string): boolean =>
 		matches(this.parse({ source, flags: matchFlags }).nfa, text)
+
+	/**
+	 * Each pattern of the table with its automaton, in the order the table first met them: what a served file carries
+	 * of the patterns its types read, so its load builds every matcher without the parser (matcher.ts ServedPatterns).
+	 */
+	served(): ReadonlyArray<ServedMatcher> {
+		return [...this.#table].flatMap(([flags, bySource]) =>
+			[...bySource].map(([source, parsed]) => ({ pattern: { source, flags }, nfa: parsed.nfa }))
+		)
+	}
 }
 
 /**

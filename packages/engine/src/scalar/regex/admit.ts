@@ -10,6 +10,7 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import {
 	parsePattern,
@@ -98,9 +99,6 @@ export const admitPattern = (
 		? Result.ok({ ir: admitted.value, nfa: buildNfa(admitted.value) })
 		: Result.err(refusalAt(admitted.error, source, flags, loc))
 }
-
-/** The flags every Compute.matches pattern is read under: str.regex's default. */
-export const matchFlags: RegexFlags = "u"
 
 /**
  * Why an admission refuses a Compute.matches pattern, wherever it is read: as any pattern grizzle hands PostgreSQL is

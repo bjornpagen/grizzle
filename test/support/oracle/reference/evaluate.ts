@@ -26,7 +26,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"

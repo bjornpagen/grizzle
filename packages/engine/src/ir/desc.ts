@@ -273,7 +273,7 @@ export type Spelled = ParamsAs<{ readonly name: string }>
  * zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a match of a
  * literal pattern. The first four are facts a term's TypeScript type states; within states an interval, which no type
  * does (scalar/compute/bounds.ts); matches retypes a text subject as text of the pattern's language, the type
- * str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/admit.ts matchFlags).
+ * str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/matcher.ts matchFlags).
  */
 export type GuardDesc =
 	| { readonly kind: "nonzero" }
