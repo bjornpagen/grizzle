@@ -24,6 +24,14 @@ post-beta swarm's fixes for the next release.
     cascade reaches it. A sequence's own copy is the kept count where its group is recounted here, so it escapes. The
     fix, held by ONERTT-WRITE2: a re-inserted row copies each counted family's kept count where the statement recounts
     its group.
+  - test/pg/write/swarm/families.test.ts, its kept case "a put of an owner whose v two owner axes carry, into an
+    ordered family's members' copies and on into a counted family's members' copies, which its sum fold steps": the
+    follow-up's put of the owner is invariant-rejected. The shape: R0 owns an ordered family of R1, whose members copy
+    R0's `v`; R1 owns a counted family of R2, whose members copy R1's copy and sum it; a put of R0 refills R2's fold
+    along both owner axes, the multi-hop way of 8df4c050 in the call's one flight. PostgreSQL refuses the removals
+    statement's refill with 23514 on R2's sum-fold CHECK (`__r_2_check_r_1_n_1_sum_fold`): the refilled row's family
+    columns are index 1, ‹n› 0, before 1, after 0, where the reference has 0, 1, 0, 5. The cause is in
+    write/family/removals.ts cascaded or its merge into the redraw, still to find; the fix is held by ONERTT-WRITE2.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**

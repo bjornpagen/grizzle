@@ -397,12 +397,14 @@ const steppedCopy = coreOf(
 	[{ family: 0, copy: 0 }]
 )
 
-/** A mutable owner R0 of a counted family of R1, itself the owner of a counted family of R2 whose sum fold steps R2's
- * copy of R1's copy of R0's `v`: a put of R0 reaches the fold along two owner axes. */
+/** A mutable owner R0 of an ordered family of R1, itself the owner of a counted family of R2 whose sum fold steps R2's
+ * copy of R1's copy of R0's `v`: a put of R0 reaches the fold along two owner axes. The first family is a sequence, whose
+ * walk fills R1's copy before the counted family's fill reads it; a counted family's copy of another counted family's is
+ * no column a fill reaches (UnfillableField). */
 const twoHopCopy = coreOf(
 	[true, true, true],
 	[
-		{ kind: "counted", owner: 0, member: 1, fold: "none" },
+		{ kind: "ordered", owner: 0, member: 1, fold: "none" },
 		{ kind: "counted", owner: 1, member: 2, fold: "sum" }
 	],
 	[
@@ -1526,7 +1528,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		reaches: ["a follow-up refilling a value", "a member owning a family written"]
 	},
 	{
-		note: "a put of an owner whose v two owner axes carry into a counted family's members' copies, which its sum fold steps: the refill reaches the fold through the middle relation's rows, which the stratum neither puts nor deletes, and rides in the call's one flight",
+		note: "a put of an owner whose v two owner axes carry, into an ordered family's members' copies and on into a counted family's members' copies, which its sum fold steps: the refill reaches the fold through the middle relation's rows, which the stratum neither puts nor deletes, and rides in the call's one flight",
 		sketch: {
 			spec: bare(twoHopCopy),
 			steps: [
