@@ -6,7 +6,7 @@ import type {
 	ServedRoles
 } from "#adapter/types/layer.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
-import { builtMark, defect, trusted } from "#compiler/plan/runtime.ts"
+import { builtMark, defect, servedFile } from "#compiler/plan/runtime.ts"
 
 /**
  * served(file, name): a login's served workload, as an application holds it, and the tokens of its roles.
@@ -18,18 +18,11 @@ import { builtMark, defect, trusted } from "#compiler/plan/runtime.ts"
  * (ServedLoginRefused). grizzle trusts its own file: `grizzle check` holds every committed file to the compile of the
  * snapshot it was written under, and every Db's prologue guards the database with the file's fingerprint.
  *
- * served reads nothing of the file but its roles' names, each a token Db.open takes, and its login's PostgreSQL role
- * (roleNameOf); DbLayer.make reads the rest, once, when the layer is built.
- *
- * The members of a served file's JSON value served reads: its base's declared name, its login's PostgreSQL role, and
- * its roles' names. Each is a plain string of the file's JSON form, which grizzle's names never escape (a declared name
- * and a role name never begin with `~`).
+ * served reads the file once, through the one reader of a served file's JSON value (served/json.ts servedFile), which
+ * rebuilds every value JSON cannot hold and takes every other member as it is: no code reads the file's JSON form but
+ * that reader. The login holds the file read, whose roles' names are each a token Db.open takes and whose login's
+ * PostgreSQL role names its credential (roleNameOf); DbLayer.make loads the rest from it, once, when the layer is built.
  */
-interface ServedHead {
-	readonly base: string
-	readonly role: string
-	readonly roles: ReadonlyArray<{ readonly name: string }>
-}
 
 /** The token of the role `role` of the served login `login` over the base `base`. */
 const servedRole = <R, P>(base: string, login: string, role: string): ServedRole<R, P> =>
@@ -51,22 +44,28 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 	file: unknown,
 	name: NoInfer<L["name"]>
 ): ServedLogin<L> => {
-	const head = trusted<ServedHead>(file)
+	const read = servedFile(file)
 	const roles: Record<string, ServedRole<unknown, unknown>> = {}
-	const names = Arr.map(head.roles, (role) => role.name)
+	const names = Arr.map(read.roles, (role) => role.name)
 	for (const role of names) {
-		roles[role] = servedRole(head.base, name, role)
+		roles[role] = servedRole(read.base, name, role)
 	}
 	Object.freeze(roles)
 	if (!isServedRoles<L>(roles, names)) {
 		throw defect("served builds one token under each of its file's role names")
 	}
-	return Object.freeze({ ...builtMark, kind: "servedLogin", name, base: head.base, roles, file })
+	return Object.freeze({
+		...builtMark,
+		kind: "servedLogin",
+		name,
+		base: read.base,
+		roles,
+		file: read
+	})
 }
 
 /**
  * roleNameOf(login): the PostgreSQL role a served login logs in as, which its file names: what a platform names the
- * login's password or IAM credential by. It reads the one member of the file and evaluates no schema.
+ * login's password or IAM credential by. It reads the one member of the file served read and evaluates no schema.
  */
-export const roleNameOf = <L>(login: ServedLogin<L>): string =>
-	trusted<Pick<ServedHead, "role">>(login.file).role
+export const roleNameOf = <L>(login: ServedLogin<L>): string => login.file.role

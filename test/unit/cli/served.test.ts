@@ -6,22 +6,12 @@ import { constant, filter, type Gen, int, map, oneOf, subarray } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	DateTime,
-	Effect,
-	FileSystem,
-	Formatter,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, DateTime, Effect, FileSystem, Formatter, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
-import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { servedDirectory, servedPath } from "#compiler/served/forms.ts"
+import { trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { type ServedFile, servedDirectory, servedPath } from "#compiler/served/forms.ts"
+import { servedFile, servedText } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -35,6 +25,7 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { editedAt, firstSql } from "#test/support/served.ts"
 
 /**
  * A login's served file is held to its workload's compile, byte for byte: `grizzle generate` writes
@@ -106,113 +97,36 @@ const at = (second: number) =>
 		millisecond: 0
 	})
 
-/** The path of the first string under a member named `sql` within `json`, its records walked in key order. */
-const firstSql = (
-	json: unknown,
-	path: ReadonlyArray<string | number>
-): ReadonlyArray<string | number> | undefined => {
-	if (isList(json)) {
-		for (const [i, item] of json.entries()) {
-			const found = firstSql(item, [...path, i])
-			if (found !== undefined) {
-				return found
-			}
-		}
-		return undefined
-	}
-	if (!isRecord(json)) {
-		return undefined
-	}
-	for (const key of Arr.sort(Rec.keys(json), Order.String)) {
-		const member = json[key]
-		const found =
-			key === "sql" && typeof member === "string"
-				? [...path, key]
-				: firstSql(member, [...path, key])
-		if (found !== undefined) {
-			return found
-		}
-	}
-	return undefined
-}
-
-/** The name a served file's role or program records, which generate always writes as text. */
-const nameOf = (record: unknown, what: string): string => {
-	const name = isRecord(record) ? record["name"] : undefined
-	return typeof name === "string" ? name : assert.fail(`${what} records its name`)
-}
-
 /**
- * Every program of a served file's JSON form that states SQL under a member named `sql`, in the file's order: its roles',
- * each role's programs in order.
+ * Every program of a served file, as a layer reads it (served/json.ts servedFile), that states SQL under a member named
+ * `sql`, in the file's order: its roles', each role's programs in order.
  */
-/**
- * A list member of a served file's JSON record, with the path to its items: a list holding a revived value is written
- * `{"~a": [item, ...], "~": [index, ...]}` (served/json.ts), its items under `~a`.
- */
-const listOf = (
-	record: unknown,
-	key: string
-): { readonly items: ReadonlyArray<unknown>; readonly at: ReadonlyArray<string> } => {
-	const value = isRecord(record) ? record[key] : undefined
-	if (isList(value)) {
-		return { items: value, at: [key] }
-	}
-	const revived = isRecord(value) ? value["~a"] : undefined
-	return isList(revived) ? { items: revived, at: [key, "~a"] } : { items: [], at: [key] }
-}
-
-const programsOf = (file: Json): ReadonlyArray<Program> => {
-	const roles = listOf(file, "roles")
-	return Arr.flatMap(roles.items, (role, i) => {
-		const members = listOf(role, "members")
-		return Arr.flatMap(members.items, (member, j): ReadonlyArray<Program> => {
-			const sql = firstSql(member, [...roles.at, i, ...members.at, j])
-			return sql === undefined
-				? []
-				: [
-						{
-							role: nameOf(role, `role ${i}`),
-							program: nameOf(member, `program ${j} of role ${i}`),
-							sql
-						}
-					]
+const programsOf = (file: ServedFile): ReadonlyArray<Program> =>
+	Arr.flatMap(file.roles, (role, i) =>
+		Arr.flatMap(role.members, (member, j): ReadonlyArray<Program> => {
+			const sql = firstSql(member, ["roles", i, "members", j])
+			return sql === undefined ? [] : [{ role: role.name, program: member.name, sql }]
 		})
-	})
-}
+	)
 
-/** `json` with the string at `path` replaced by what `edit` makes of it. */
-const editedAt = (
-	json: Json,
-	path: ReadonlyArray<string | number>,
-	edit: (text: string) => string
-): Json => {
-	const [head, ...rest] = path
-	if (head === undefined) {
-		return typeof json === "string" ? edit(json) : json
-	}
-	if (isList(json) && typeof head === "number") {
-		return Arr.map(json, (item, i) => (i === head ? editedAt(item, rest, edit) : item))
-	}
-	if (isRecord(json) && typeof head === "string") {
-		return { ...json, [head]: editedAt(defined(json[head], `member ${head}`), rest, edit) }
-	}
-	return json
-}
-
-/** The served file's text with the plant's programs edited, laid out as canonical JSON, as generate writes it. */
+/**
+ * The served file's text with the plant's programs edited: the file read as a layer reads it, each planted program's
+ * first SQL text edited, and written again as generate writes a file (served/json.ts servedText).
+ */
 const editedText = (
 	text: string,
 	programs: ReadonlyArray<Program>,
 	plant: Extract<Plant, { readonly kind: "edited" }>
 ): string => {
-	const edited = Arr.reduce(plant.programs, trustedJson<Json>(text), (json, i) =>
-		editedAt(json, defined(programs[i], `program ${i}`).sql, (sql) => {
-			const place = plant.at % (sql.length + 1)
-			return `${Str.slice(0, place)(sql)}${String.fromCharCode(plant.code)}${Str.slice(place)(sql)}`
-		})
+	const edited = Arr.reduce(plant.programs, servedFile(trustedJson<unknown>(text)), (file, i) =>
+		trusted<ServedFile>(
+			editedAt(file, defined(programs[i], `program ${i}`).sql, (sql) => {
+				const place = plant.at % (sql.length + 1)
+				return `${Str.slice(0, place)(sql)}${String.fromCharCode(plant.code)}${Str.slice(place)(sql)}`
+			})
+		)
 	)
-	return `${succeeded(writeCanonicalJson(edited), "the edited served file's text")}\n`
+	return succeeded(servedText(edited), "the edited served file's text")
 }
 
 /** Every plant of a served file holding `programs` programs. */
@@ -312,7 +226,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 					assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
 					const file = `${base}/${schemaDir}/${servedPath(login)}`
 					const text = yield* fs.readFileString(file)
-					const programs = nonEmpty(programsOf(trustedJson<Json>(text)), "the served programs")
+					const programs = nonEmpty(
+						programsOf(servedFile(trustedJson<unknown>(text))),
+						"the served programs"
+					)
 					const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
 					const entries = Arr.sort(listed, Order.String)
 					return yield* explore(

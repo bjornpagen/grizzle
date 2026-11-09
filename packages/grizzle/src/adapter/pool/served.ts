@@ -30,6 +30,8 @@ import type {
 } from "#adapter/types/layer.ts"
 import { makePool, type SessionPool } from "#adapter/wire/session.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
+import { trusted } from "#compiler/plan/runtime.ts"
+import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
  * The DbLayer service: one served login's workload, loaded, its verify, and its one session pool.
@@ -105,12 +107,12 @@ export const servedSessions = <R, P>(
 	)
 
 /**
- * A DbConfig parsed: the served login it names, its file's JSON value and its name, its connection, its pool's bounds,
+ * A DbConfig parsed: the served login it names, its file as served(...) read it and its name, its connection, its pool's bounds,
  * the hook each pool is handed when it is built, which attaches nothing when the config names none, and its token
  * check.
  */
 interface ParsedDbConfig extends ParsedConnection {
-	readonly login: { readonly name: string; readonly base: string; readonly file: unknown }
+	readonly login: { readonly name: string; readonly base: string; readonly file: ServedFile }
 	readonly pool: PoolBounds
 	readonly attachPool: (pool: ConnectionPool) => void
 	readonly token: TokenCheck
@@ -161,7 +163,7 @@ const ownSettings = <L extends AnyLogin>(
 				)
 			}
 			return Result.succeed({
-				login: { name: login.name, base: login.base, file: login.file },
+				login: { name: login.name, base: login.base, file: trusted<ServedFile>(login.file) },
 				attachPool: config.attachPool ?? attachNothing,
 				token:
 					config.verify === undefined ? { kind: "none" } : { kind: "verify", verify: config.verify }

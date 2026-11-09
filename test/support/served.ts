@@ -77,3 +77,52 @@ const differenceAt = (
  */
 export const runtimeDifference = (a: unknown, b: unknown): string | undefined =>
 	differenceAt(a, b, [])
+
+/** The path of the first string under a member named `sql` within a served value, its records walked in key order. */
+export const firstSql = (
+	value: unknown,
+	path: ReadonlyArray<string | number>
+): ReadonlyArray<string | number> | undefined => {
+	if (isList(value)) {
+		for (const [i, item] of value.entries()) {
+			const found = firstSql(item, [...path, i])
+			if (found !== undefined) {
+				return found
+			}
+		}
+		return undefined
+	}
+	if (!isRecord(value) || value instanceof Map || value instanceof Set) {
+		return undefined
+	}
+	for (const key of Arr.sort(Rec.keys(value), Order.String)) {
+		const member = value[key]
+		const found =
+			key === "sql" && typeof member === "string"
+				? [...path, key]
+				: firstSql(member, [...path, key])
+		if (found !== undefined) {
+			return found
+		}
+	}
+	return undefined
+}
+
+/** A served value with the string at `path` replaced by what `edit` makes of it, every value beside the path its own. */
+export const editedAt = (
+	value: unknown,
+	path: ReadonlyArray<string | number>,
+	edit: (text: string) => string
+): unknown => {
+	const [head, ...rest] = path
+	if (head === undefined) {
+		return typeof value === "string" ? edit(value) : value
+	}
+	if (isList(value) && typeof head === "number") {
+		return Arr.map(value, (item, i) => (i === head ? editedAt(item, rest, edit) : item))
+	}
+	if (isRecord(value) && typeof head === "string") {
+		return { ...value, [head]: editedAt(value[head], rest, edit) }
+	}
+	return value
+}

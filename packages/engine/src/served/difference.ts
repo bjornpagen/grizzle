@@ -1,16 +1,17 @@
-import { catchSignal, compareText } from "#compiler/core/canonical.ts"
+import { catchSignal, compareText, taggedValueOf } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
+import { servedFile } from "#compiler/served/json.ts"
 
 /**
  * Where a committed served file first parts from the one the compile writes, in the file's order: its text is no JSON
  * record (`unread`); one of its members besides its roles (`member`), such as its fingerprint; a role of the compile,
  * whose own fields differ or which the committed file lacks (`role`); a role past the compile's (`extraRole`); a
  * program of a role, which differs or which the committed file lacks (`program`); a program past the role's
- * (`extraProgram`); or nowhere, the two reading alike in another layout (`layout`). A role or program is compared with
- * every type it names read from the file's types table (served/json.ts), so a changed type parts the files at the first
- * program that names it.
+ * (`extraProgram`); or nowhere, the two reading alike in another layout (`layout`). A role or program is compared as a
+ * layer reads it (served/json.ts servedFile), every type it names its own value, so a changed type parts the files at
+ * the first program that names it.
  */
 export type ServedPart =
 	| { readonly kind: "unread" }
@@ -41,84 +42,103 @@ export const servedPartText = (part: ServedPart): string => {
 	}
 }
 
-/** The members of a served file's JSON record that hold its roles, a role's programs, and its types table. */
+/** The members of a served file that hold its roles and a role's programs. */
 const rolesMember = "roles"
 const membersMember = "members"
-const typesMember = "types"
 
-/** A type's occurrence in a served file (served/json.ts): `~t:` and its index in the file's types table. */
-const typeOccurrence = "~t:"
-
-/** A JSON record, which no list is. */
+/** A record, which no list, Map or Set is. */
 const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
-	isRecord(value) && !isList(value)
-
-/** JSON text read as any JSON value, or the SyntaxError of text that is no JSON (core/canonical.ts catchSignal). */
-const parsedJson = (text: string): Result.Result<unknown, SyntaxError> =>
-	catchSignal(SyntaxError, (): unknown => JSON.parse(text))
-
-/** A JSON value with every type occurrence in it replaced by the entry of `types` it indexes. */
-const withTypes = (json: unknown, types: ReadonlyArray<unknown>): unknown => {
-	if (typeof json === "string") {
-		return json.startsWith(typeOccurrence) ? types[Number(json.slice(typeOccurrence.length))] : json
-	}
-	if (isList(json)) {
-		return json.map((item) => withTypes(item, types))
-	}
-	if (!isObject(json)) {
-		return json
-	}
-	const out: Record<string, unknown> = {}
-	for (const [key, member] of Object.entries(json)) {
-		out[key] = withTypes(member, types)
-	}
-	return out
-}
-
-/** A served file's types table, each entry with the earlier entries it names read into it. */
-const typesOf = (file: Readonly<Record<string, unknown>>): ReadonlyArray<unknown> => {
-	const table = file[typesMember]
-	const types: Array<unknown> = []
-	for (const entry of isList(table) ? table : []) {
-		types.push(withTypes(entry, types))
-	}
-	return types
-}
-
-/** Whether two JSON values are one value: the same scalar, or lists or records of the same members. */
-const sameJson = (a: unknown, b: unknown): boolean => {
-	if (isList(a) || isList(b)) {
-		return (
-			isList(a) && isList(b) && a.length === b.length && a.every((item, i) => sameJson(item, b[i]))
-		)
-	}
-	if (isObject(a) && isObject(b)) {
-		const keys = Object.keys(a)
-		return (
-			keys.length === Object.keys(b).length &&
-			keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
-		)
-	}
-	return a === b
-}
-
-/** A revived list's JSON form, `{"~a": [item, ...], "~": [index, ...]}` (served/json.ts): the key its items are under. */
-const listKey = "~a"
+	isRecord(value) && !isList(value) && !(value instanceof Map) && !(value instanceof Set)
 
 /**
- * The items of a list member of a JSON record, a list holding a revived value read through its JSON form as a load
- * reads it (served/json.ts); none when it holds no list.
+ * A served file's text read through the one reader of its JSON form (served/json.ts servedFile), every value JSON cannot
+ * hold rebuilt; undefined for text that is no JSON record, or that no served file's reader reads. The committed text is
+ * anyone's to have edited, so whatever it holds is read as values of any shape.
  */
-const itemsOf = (record: unknown, member: string): ReadonlyArray<unknown> => {
-	const items = isObject(record) ? record[member] : undefined
-	if (isList(items)) {
-		return items
-	}
-	const revived = isObject(items) ? items[listKey] : undefined
-	return isList(revived) ? revived : []
+const revived = (text: string): Readonly<Record<string, unknown>> | undefined => {
+	const read = catchSignal(Error, (): unknown => {
+		const json: unknown = JSON.parse(text)
+		return isObject(json) ? servedFile(json) : undefined
+	})
+	return read.ok && isObject(read.value) ? read.value : undefined
 }
 
-/** A JSON record with its member `skip` left out. */
+/**
+ * Whether two values a served file's reader rebuilt are one value: the same scalar; a canonical value of one tag and
+ * payload; a Roster of one declared name, whose handles the files' rosters hold; lists, Maps and Sets of the same
+ * members in order; records of the same members. The pairs still to compare wait on a stack on the heap, so no depth of
+ * value deepens the call stack.
+ */
+const sameServed = (a: unknown, b: unknown): boolean => {
+	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
+	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
+		const [x, y] = pair
+		if (x === y) {
+			continue
+		}
+		if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) {
+			return false
+		}
+		if (x instanceof Roster || y instanceof Roster) {
+			if (!(x instanceof Roster) || !(y instanceof Roster) || x.closed !== y.closed) {
+				return false
+			}
+			continue
+		}
+		const taggedX = taggedValueOf(x)
+		const taggedY = taggedValueOf(y)
+		if (taggedX !== undefined || taggedY !== undefined) {
+			if (
+				taggedX === undefined ||
+				taggedY === undefined ||
+				taggedX.tag !== taggedY.tag ||
+				taggedX.payload !== taggedY.payload
+			) {
+				return false
+			}
+			continue
+		}
+		const listX = x instanceof Map || x instanceof Set ? [...x] : isList(x) ? x : undefined
+		const listY = y instanceof Map || y instanceof Set ? [...y] : isList(y) ? y : undefined
+		if (listX !== undefined || listY !== undefined) {
+			if (
+				listX === undefined ||
+				listY === undefined ||
+				listX.length !== listY.length ||
+				x instanceof Map !== y instanceof Map ||
+				x instanceof Set !== y instanceof Set
+			) {
+				return false
+			}
+			for (const [i, item] of listX.entries()) {
+				pending.push([item, listY[i]])
+			}
+			continue
+		}
+		if (!isObject(x) || !isObject(y)) {
+			return false
+		}
+		const keys = Object.keys(x)
+		if (keys.length !== Object.keys(y).length) {
+			return false
+		}
+		for (const key of keys) {
+			if (!Object.hasOwn(y, key)) {
+				return false
+			}
+			pending.push([x[key], y[key]])
+		}
+	}
+	return true
+}
+
+/** The items of a list member of a record; none when it holds no list. */
+const itemsOf = (record: unknown, member: string): ReadonlyArray<unknown> => {
+	const items = isObject(record) ? record[member] : undefined
+	return isList(items) ? items : []
+}
+
+/** A record with its member `skip` left out. */
 const without = (record: unknown, skip: string): unknown => {
 	if (!isObject(record)) {
 		return record
@@ -157,40 +177,33 @@ const firstParted = (
 
 /**
  * Where the committed served file's text `committed` first parts from `ours`, the text the compile writes, which it is
- * not (ServedPart). The committed text is anyone's to have edited: it is read as any JSON, never trusted; `ours` is
- * grizzle's own.
+ * not (ServedPart). Both are read as a layer reads them (served/json.ts servedFile) and compared as the values read, so
+ * a changed type parts the files at the first program that names it and nothing of the files' JSON form is read here;
+ * the committed text is anyone's to have edited, and one no served file's reader reads is `unread`.
  */
 export const servedDifference = (ours: string, committed: string): ServedPart => {
-	const read = parsedJson(committed)
-	if (!read.ok || !isObject(read.value)) {
+	const theirs = revived(committed)
+	if (theirs === undefined) {
 		return { kind: "unread" }
 	}
-	const theirs = read.value
-	const own = trustedJson<Readonly<Record<string, unknown>>>(ours)
-	const ourTypes = typesOf(own)
-	const theirTypes = typesOf(theirs)
-	const alike = (a: unknown, b: unknown): boolean =>
-		sameJson(withTypes(a, ourTypes), withTypes(b, theirTypes))
+	const own = trusted<Readonly<Record<string, unknown>>>(servedFile(trustedJson<unknown>(ours)))
 	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareText)
 	for (const key of keys) {
-		if (key === typesMember) {
-			continue
-		}
 		const found =
 			key !== rolesMember
-				? alike(own[key], theirs[key])
+				? sameServed(own[key], theirs[key])
 					? undefined
 					: ({ kind: "member", member: key } satisfies ServedPart)
 				: firstParted(
 						itemsOf(own, rolesMember),
 						itemsOf(theirs, rolesMember),
 						(role, theirRole, named) =>
-							alike(without(role, membersMember), without(theirRole, membersMember))
+							sameServed(without(role, membersMember), without(theirRole, membersMember))
 								? firstParted(
 										itemsOf(role, membersMember),
 										itemsOf(theirRole, membersMember),
 										(program, theirProgram, programNamed) =>
-											alike(program, theirProgram)
+											sameServed(program, theirProgram)
 												? undefined
 												: { kind: "program", role: named.name, program: programNamed.name },
 										(programNamed) => ({
@@ -208,7 +221,5 @@ export const servedDifference = (ours: string, committed: string): ServedPart =>
 			return found
 		}
 	}
-	return alike(own[typesMember], theirs[typesMember])
-		? { kind: "layout" }
-		: { kind: "member", member: typesMember }
+	return { kind: "layout" }
 }

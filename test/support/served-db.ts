@@ -11,6 +11,7 @@ import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts
 import type { Json } from "#compiler/core/canonical.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
+import { servedFile } from "#compiler/served/json.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -131,7 +132,7 @@ export const withServedDb = <A, E, R>(
 			const load: ServedDb["load"] = (programs) =>
 				Effect.gen(function* () {
 					const json = yield* servedJson(installed, login, [workload(role.role, programs)])
-					const loaded = yield* Effect.fromResult(loadServed(json, login.name))
+					const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
 					return new Map(
 						Arr.map(
 							roleMembers(loaded.roles, role.role.name),

@@ -12,6 +12,7 @@ import type {
 	RolesOf,
 	phantom
 } from "#compiler/plan/common.ts"
+import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
  * The connection layer. Types only: packages/grizzle/src/adapter implements DbLayer. A platform's credentials (an RDS IAM token, a
@@ -143,10 +144,10 @@ export type ServedRoles<L> = L extends { readonly roles: infer Rs }
 	: never
 
 /**
- * A login's served workload, the file `grizzle generate` committed as `migrations/<schema>/served/<login>.json`, held
- * as served(file, name) was given it, under the login type L it serves: its name, L's, its base's, and its roles, the
- * tokens Db.open takes. Nothing of it is read beyond its roles' names until DbLayer.make builds the layer over it, and no schema
- * module is evaluated: L is a type alone. Only served(...) builds one.
+ * A login's served workload, the file `grizzle generate` committed as `migrations/<schema>/served/<login>.json`, read
+ * once by served(file, name), under the login type L it serves: its name, L's, its base's, and its roles, the tokens
+ * Db.open takes. Nothing of it is loaded until DbLayer.make builds the layer over it, and no schema module is
+ * evaluated: L is a type alone. Only served(...) builds one.
  */
 export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }> {
 	readonly kind: "servedLogin"
@@ -154,8 +155,8 @@ export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }
 	/** The declared name of the level the login is over, as its file names it: its layer's key, with the name. */
 	readonly base: string
 	readonly roles: ServedRoles<L>
-	/** The file's JSON value, as given; DbLayer.make reads it. */
-	readonly file: unknown
+	/** The file, read once by served(...) (served/json.ts servedFile); DbLayer.make loads it. */
+	readonly file: ServedFile
 }
 
 /**

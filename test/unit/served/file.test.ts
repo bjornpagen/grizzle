@@ -11,11 +11,21 @@
  * - Round trip: the forms read back are the forms written (runtimeDifference finds no member that differs).
  * - Plant: one member of the file's JSON value, drawn among all of them, left out; the forms read back differ from the
  *   ones written, or reading them is a defect: a member the encoder drops is never one the decoder makes up.
+ * - A host's read: the file's bytes, written to disk, read back and parsed, and imported as a JSON module, as an
+ *   application reads its committed file; each served (adapter/served/served.ts served), which names the file's roles,
+ *   its login's role read (roleNameOf), and the layer over it built with no database (DbLayer.make), which loads it
+ *   (served/load.ts loadServed). Every reader of the file reads it through servedFile, so a value its JSON form holds as
+ *   no JSON value holds it, a Map, a Set, a bigint, a type, in a list or a record, reads as the runtime's own: its roles,
+ *   a list whose records hold Maps, are what served names.
+ * - A stale file: the first SQL text of one program, drawn among those stating one, edited, and the file written as
+ *   generate writes one; check's difference finder (served/difference.ts servedDifference), reading both texts as a
+ *   layer does, names that program.
  *
  * Essay ideas: an oracle (the forms served, compared as the runtime reads them) over generated programs, and a plant
  * that keeps it honest.
  */
-import { describe, it } from "@effect/vitest"
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
@@ -26,18 +36,25 @@ import {
 	Result as Answered,
 	Array as Arr,
 	Effect,
+	Exit,
+	FileSystem,
 	Formatter,
+	Layer,
 	Record as Rec,
 	String as Str
 } from "effect"
+import { DbLayer, served } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { servedPage, servedRead, servedSession } from "#compiler/program/served.ts"
+import { servedDifference } from "#compiler/served/difference.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
+import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	codebookFor,
@@ -51,7 +68,9 @@ import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import type { ProgramCase } from "#test/support/oracle/public/program.ts"
-import { runtimeDifference } from "#test/support/served.ts"
+import { clusterPool } from "#test/support/pg.ts"
+import { editedAt, firstSql, runtimeDifference } from "#test/support/served.ts"
+import { testVerify } from "#test/support/worlds.ts"
 import { compiledPageResult } from "#test/unit/page/fixtures.ts"
 
 type Feature =
@@ -59,6 +78,9 @@ type Feature =
 	| "a paged read"
 	| "an attachment"
 	| "a dropped member that does not read back"
+	| "a file a host reads that loads"
+	| "a stale program named"
+	| "a list holding a Map"
 
 /** Every member path of a JSON value, a record's keys and an array's indices, outermost first. */
 const memberPaths = (
@@ -138,10 +160,10 @@ const fileOf = (
 const ok = <A, E extends { readonly message: string }>(
 	r: Result.Result<A, E>,
 	what: string,
-	c: ProgramCase
+	printed: () => string
 ): A => {
 	if (!r.ok) {
-		throw new Error(`${what}: ${r.error.message}\n${printCase(c)}`)
+		throw new Error(`${what}: ${r.error.message}\n${printed()}`)
 	}
 	return r.value
 }
@@ -152,63 +174,168 @@ const readsBack = (json: unknown): ServedFile | undefined => {
 	return Answered.isSuccess(read) ? read.success : undefined
 }
 
-const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => void): void => {
-	const built = buildSchema(c.schema)
-	const value = built.schema
-	const codes = ok(codebookFor(schemaInputOf(value), firstCodes), "the schema's codes", c)
-	const members: Array<ServedMember> = []
-	for (const read of c.reads) {
-		if (read.kind !== "query") {
-			continue
+/** Whether a served value holds a Map at some depth: a value a load rebuilds, not one it reads as it is. */
+const holdsMap = (value: unknown): boolean => {
+	const pending: Array<unknown> = [value]
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		if (next instanceof Map) {
+			return true
 		}
-		const query = buildRoot(built, value, read.query)
-		const template = ok(compileTemplate(query, value, testCompile), "a generated query compiles", c)
-		const desc = ok(queryInput(query), "the builder takes a generated query", c).desc
-		const served = servedRead(template, desc, query.rows)
-		const name = `q${members.length}`
-		const compiledPage =
-			read.query.delivery.kind === "ordered"
-				? compiledPageResult(query, testCompile)
-				: Answered.fail(undefined)
-		if (Answered.isSuccess(compiledPage)) {
-			const page = ok(
-				servedPage(compiledPage.success.page, codes, name, { schema: "served", extensions: {} }),
-				"a compiled page's specs emit",
-				c
-			)
-			members.push({ name, kind: "paged", read: served, page })
-			note("a paged read")
-		} else {
-			members.push({ name, kind: "read", read: served })
-			note("a read")
-		}
-		if (read.query.attachments.length > 0) {
-			note("an attachment")
+		if (isList(next)) {
+			pending.push(...next)
+		} else if (isRecord(next)) {
+			pending.push(...Rec.values(next))
 		}
 	}
-	const file = fileOf(
-		members,
-		new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const))
-	)
-	const text = ok(servedText(file), "the served file's text", c)
-	const json = trustedJson<unknown>(text)
-	const back = servedFile(json)
-	const differs = runtimeDifference(file, back)
-	assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printCase(c)}`)
-	const paths = memberPaths(json, [])
-	const dropped = paths[pick % paths.length]
-	if (dropped === undefined) {
-		return
-	}
-	const planted = readsBack(without(json, dropped))
-	assert.ok(
-		planted === undefined || runtimeDifference(file, planted) !== undefined,
-		`the file without ${Arr.join(Arr.map(dropped, String), ".")} reads back as the file\n${printCase(c)}`
-	)
-	note("a dropped member that does not read back")
+	return false
 }
 
-describe("a served file", () => {
+/**
+ * `text`, the file `file` was written as, read as a host reads it (see the header): written to disk, its bytes read and
+ * parsed, and imported as a JSON module; each served, its roles named and its login's role read, and the layer over it
+ * built with no database, which loads it.
+ */
+const hostReads = (file: ServedFile, text: string, printed: () => string) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const dir = yield* fs.makeTempDirectoryScoped()
+		const path = `${dir}/${file.login}.json`
+		yield* fs.writeFileString(path, text)
+		const bytes = yield* fs.readFileString(path)
+		const imported: unknown = yield* Effect.promise(
+			(): Promise<unknown> => import(path, { with: { type: "json" } })
+		)
+		const reads: ReadonlyArray<readonly [string, unknown]> = [
+			["parsed", trustedJson<unknown>(bytes)],
+			["imported", trusted<{ readonly default: unknown }>(imported).default]
+		]
+		for (const [how, json] of reads) {
+			const login = served(json, file.login)
+			assert.deepEqual(
+				Rec.keys(login.roles),
+				Arr.map(file.roles, (role) => role.name),
+				`${how}: served names the file's roles\n${printed()}`
+			)
+			assert.equal(
+				roleNameOf(login),
+				file.role,
+				`${how}: roleNameOf reads the file's role\n${printed()}`
+			)
+			const built = yield* Effect.exit(
+				Effect.scoped(
+					Layer.build(
+						DbLayer.make({ ...offlineConnection, pool: clusterPool, login, verify: testVerify })
+					)
+				)
+			)
+			assert.ok(
+				Exit.isSuccess(built),
+				`${how}: the layer over the file a host reads builds and loads it: ${Formatter.format(built)}\n${printed()}`
+			)
+		}
+	})
+
+/**
+ * A stale copy of `file`, written as `text`: the first SQL text of the program at `pick` among those stating one edited,
+ * and the file written as generate writes one, which check's difference finder names at that program. Whether `file`
+ * holds a program to edit.
+ */
+const staleNamed = (
+	file: ServedFile,
+	text: string,
+	pick: number,
+	printed: () => string
+): boolean => {
+	const programs = Arr.flatMap(file.roles, (role, i) =>
+		Arr.flatMap(role.members, (member, j) => {
+			const sql = firstSql(member, ["roles", i, "members", j])
+			return sql === undefined ? [] : [{ role: role.name, program: member.name, sql }]
+		})
+	)
+	const target = programs[pick % Math.max(programs.length, 1)]
+	if (target === undefined) {
+		return false
+	}
+	const stale = trusted<ServedFile>(editedAt(file, target.sql, (sql) => `${sql} `))
+	const staleText = ok(servedText(stale), "the stale file's text", printed)
+	assert.deepEqual(
+		servedDifference(text, staleText),
+		{ kind: "program", role: target.role, program: target.program },
+		`check names the stale program ${target.program}\n${printed()}`
+	)
+	return true
+}
+
+const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => void) =>
+	Effect.gen(function* () {
+		const printed = () => printCase(c)
+		const built = buildSchema(c.schema)
+		const value = built.schema
+		const codes = ok(codebookFor(schemaInputOf(value), firstCodes), "the schema's codes", printed)
+		const members: Array<ServedMember> = []
+		for (const read of c.reads) {
+			if (read.kind !== "query") {
+				continue
+			}
+			const query = buildRoot(built, value, read.query)
+			const template = ok(
+				compileTemplate(query, value, testCompile),
+				"a generated query compiles",
+				printed
+			)
+			const desc = ok(queryInput(query), "the builder takes a generated query", printed).desc
+			const form = servedRead(template, desc, query.rows)
+			const name = `q${members.length}`
+			const compiledPage =
+				read.query.delivery.kind === "ordered"
+					? compiledPageResult(query, testCompile)
+					: Answered.fail(undefined)
+			if (Answered.isSuccess(compiledPage)) {
+				const page = ok(
+					servedPage(compiledPage.success.page, codes, name, { schema: "served", extensions: {} }),
+					"a compiled page's specs emit",
+					printed
+				)
+				members.push({ name, kind: "paged", read: form, page })
+				note("a paged read")
+			} else {
+				members.push({ name, kind: "read", read: form })
+				note("a read")
+			}
+			if (read.query.attachments.length > 0) {
+				note("an attachment")
+			}
+		}
+		const file = fileOf(
+			members,
+			new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const))
+		)
+		const text = ok(servedText(file), "the served file's text", printed)
+		const json = trustedJson<unknown>(text)
+		const back = servedFile(json)
+		const differs = runtimeDifference(file, back)
+		assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printed()}`)
+		const paths = memberPaths(json, [])
+		const dropped = paths[pick % paths.length]
+		if (dropped !== undefined) {
+			const planted = readsBack(without(json, dropped))
+			assert.ok(
+				planted === undefined || runtimeDifference(file, planted) !== undefined,
+				`the file without ${Arr.join(Arr.map(dropped, String), ".")} reads back as the file\n${printed()}`
+			)
+			note("a dropped member that does not read back")
+		}
+		if (holdsMap(back.roles)) {
+			note("a list holding a Map")
+		}
+		yield* hostReads(file, text, printed)
+		note("a file a host reads that loads")
+		if (staleNamed(back, text, pick, printed)) {
+			note("a stale program named")
+		}
+	})
+
+layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) => {
 	it.effect(
 		"reads back every compiled read as the runtime reads it, and no member is dropped unseen",
 		(ctx) =>
@@ -230,7 +357,10 @@ describe("a served file", () => {
 								"a read",
 								"a paged read",
 								"an attachment",
-								"a dropped member that does not read back"
+								"a dropped member that does not read back",
+								"a file a host reads that loads",
+								"a stale program named",
+								"a list holding a Map"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -242,7 +372,10 @@ describe("a served file", () => {
 						caseHang
 					},
 					([sketch, pick], notes) =>
-						Effect.sync(() => roundTrip(notes.draw(resolveCase(sketch)), pick, notes.note))
+						roundTrip(notes.draw(resolveCase(sketch)), pick, notes.note).pipe(
+							Effect.scoped,
+							Effect.orDie
+						)
 				)
 			)
 	)

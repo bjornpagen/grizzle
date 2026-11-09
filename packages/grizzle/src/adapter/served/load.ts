@@ -32,7 +32,6 @@ import {
 	memberFactsOf,
 	recordsReader,
 	rosterCodebook,
-	servedFile,
 	servedRunnable,
 	SourceLoc
 } from "#compiler/plan/runtime.ts"
@@ -335,15 +334,13 @@ const loadRole = (
 const refusedFile = (reason: ServedLoginRefused): OpenError => new OpenError({ reason })
 
 /**
- * The served login a layer serves, loaded from the file's JSON value `json`, as served(...) held it, for the login
- * named `name`: the file read once (served/json.ts servedFile), refused at stage config when it is another login's;
- * then everything its programs run, rebuilt under the codebook of its own rosters (see the header). A form the file
- * holds that its own compile would not bind is a refusal at stage schema, which `grizzle check` keeps from any
- * committed file.
+ * The served login a layer serves, loaded from its file as served(...) read it (served/json.ts servedFile), for the
+ * login named `name`: refused at stage config when the file is another login's; then everything its programs run,
+ * rebuilt under the codebook of its own rosters (see the header). A form the file holds that its own compile would not
+ * bind is a refusal at stage schema, which `grizzle check` keeps from any committed file.
  */
-export const loadServed = (json: unknown, name: string): Result.Result<LoadedLogin, OpenError> =>
+export const loadServed = (file: ServedFile, name: string): Result.Result<LoadedLogin, OpenError> =>
 	Result.gen(function* () {
-		const file = servedFile(json)
 		if (file.login !== name) {
 			return yield* new ServedLoginRefused({ login: name, file: file.login }).pipe(
 				refusedFile,
