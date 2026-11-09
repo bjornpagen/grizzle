@@ -12,6 +12,7 @@ import {
 	builtExpr,
 	type ColumnRef,
 	describeOp,
+	floatSpecials,
 	predicateTable,
 	type ScalarExpr,
 	spanLiteralText,
@@ -74,14 +75,7 @@ export const persistentLiteral = (
 		case "float":
 			return lit.float(literal.value, sqlType)
 		case "floatSpecial":
-			return lit.float(
-				literal.value === "NaN"
-					? Number.NaN
-					: literal.value === "Infinity"
-						? Number.POSITIVE_INFINITY
-						: Number.NEGATIVE_INFINITY,
-				sqlType
-			)
+			return lit.float(floatSpecials[literal.value], sqlType)
 		case "money":
 			return lit.text(moneyText(moneyMinorUnits(literal.value)), sqlType)
 		case "bool":

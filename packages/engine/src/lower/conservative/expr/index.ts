@@ -5,6 +5,7 @@ import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/code
 import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	describeOp,
+	floatSpecials,
 	type ScalarExpr,
 	spanLiteralText,
 	type TypedLiteral
@@ -79,14 +80,7 @@ export const lowerLiteral = (
 		case "float":
 			return lit.float(literal.value, sqlType)
 		case "floatSpecial":
-			return lit.float(
-				literal.value === "NaN"
-					? Number.NaN
-					: literal.value === "Infinity"
-						? Number.POSITIVE_INFINITY
-						: Number.NEGATIVE_INFINITY,
-				sqlType
-			)
+			return lit.float(floatSpecials[literal.value], sqlType)
 		case "money":
 			return lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), sqlType)
 		case "bool":

@@ -34,6 +34,7 @@ import {
 } from "#compiler/ir/carriers.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
+import { type FloatSpecialName, floatSpecialNames } from "#compiler/ir/expr.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
@@ -68,7 +69,7 @@ export type LiteralDesc =
 				readonly end: number | bigint | CalendarDate
 			}
 	  }
-	| { readonly float: "NaN" | "Infinity" | "-Infinity" }
+	| { readonly float: FloatSpecialName }
 	| { readonly handles: ReadonlyArray<string> }
 
 /** Field descriptors, aliases already normalized: decimal is numeric, bool is boolean. */
@@ -1326,7 +1327,7 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	moneyShape,
 	vectorShape,
 	S.struct({ span: S.struct({ start: spanEndpointShape, end: spanEndpointShape }) }),
-	S.struct({ float: S.literalsShape(["NaN", "Infinity", "-Infinity"]) }),
+	S.struct({ float: S.literalsShape(floatSpecialNames) }),
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
 

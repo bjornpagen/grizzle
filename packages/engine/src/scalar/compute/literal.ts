@@ -6,7 +6,7 @@ import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
+import { floatSpecials, type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
@@ -93,13 +93,6 @@ const asBigint = (value: unknown): bigint | undefined => {
 	}
 	return undefined
 }
-
-/** The float value of each special a decoded Description spells. */
-const floatSpecials = {
-	NaN: Number.NaN,
-	Infinity: Number.POSITIVE_INFINITY,
-	"-Infinity": Number.NEGATIVE_INFINITY
-} as const
 
 /** The components of a Vector a Description carries as "~v:" (scalar/values' Vector.canonical, ir/carriers.ts VectorText). */
 const taggedVector = (value: unknown): VectorText | undefined => {

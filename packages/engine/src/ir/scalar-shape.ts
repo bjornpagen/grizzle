@@ -16,6 +16,7 @@ import {
 	definedOp,
 	type ExprDeps,
 	type ExprTable,
+	floatSpecialNames,
 	type TypedLiteral,
 	OpId,
 	partialOp,
@@ -548,7 +549,7 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 		)
 	}),
 	float: S.struct({ value: S.canonicalFloat }),
-	floatSpecial: S.struct({ value: S.literalsShape(["NaN", "Infinity", "-Infinity"]) }),
+	floatSpecial: S.struct({ value: S.literalsShape(floatSpecialNames) }),
 	money: S.struct({
 		value: S.canonicalParsed<MoneyValue>(
 			moneyTag,

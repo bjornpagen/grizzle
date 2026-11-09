@@ -228,6 +228,17 @@ export interface ColumnRef {
 	readonly name: string
 }
 
+/** The floats a literal names by a word, NaN and the infinities, in one order. */
+export const floatSpecialNames = ["NaN", "Infinity", "-Infinity"] as const
+export type FloatSpecialName = (typeof floatSpecialNames)[number]
+
+/** Each float a literal names by a word, as the number it is. */
+export const floatSpecials: Readonly<Record<FloatSpecialName, number>> = {
+	NaN: Number.NaN,
+	Infinity: Number.POSITIVE_INFINITY,
+	"-Infinity": Number.NEGATIVE_INFINITY
+}
+
 /**
  * A typed literal ("every literal is a typed literal"). The kind fixes the host representation and the
  * expression's type fixes the native type, and the two agree (literalProblem). Decimal, Money and Vector values are
@@ -238,7 +249,7 @@ export type TypedLiteral =
 	| { readonly kind: "int"; readonly value: bigint }
 	| { readonly kind: "numeric"; readonly value: DecimalValue }
 	| { readonly kind: "float"; readonly value: CanonicalFloat }
-	| { readonly kind: "floatSpecial"; readonly value: "NaN" | "Infinity" | "-Infinity" }
+	| { readonly kind: "floatSpecial"; readonly value: FloatSpecialName }
 	| { readonly kind: "money"; readonly value: MoneyValue }
 	| { readonly kind: "bool"; readonly value: boolean }
 	| { readonly kind: "text"; readonly value: string }
