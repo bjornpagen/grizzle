@@ -427,31 +427,6 @@ export class MissingCapability extends Data.TaggedError("MissingCapability")<{
 }
 
 /**
- * A layer whose snapshot does not record what its login runs, found when DbLayer.make builds it: its base is another
- * schema than the snapshot's (`schema`), or a program of the login's workloads is one the snapshot does not record, one
- * it records that no workload holds, or one whose access paths or statistics moved (`program`, naming it). Running
- * `grizzle generate` records them.
- */
-type UngeneratedFault =
-	| { readonly kind: "schema"; readonly schema: string }
-	| { readonly kind: "program"; readonly sentence: string }
-
-export class WorkloadUngenerated extends Data.TaggedError("WorkloadUngenerated")<{
-	readonly login: string
-	readonly fault: UngeneratedFault
-}> {
-	override get message(): string {
-		const fault = this.fault
-		switch (fault.kind) {
-			case "schema":
-				return `login ${this.login}: schema ${fault.schema} is not the one snapshot.json records; run grizzle generate`
-			case "program":
-				return `${fault.sentence}; run grizzle generate`
-		}
-	}
-}
-
-/**
  * db.explain of a ChangeSet whose input `law` rejects before any SQL: two facts of one relation input share a key and
  * differ in payload.
  */

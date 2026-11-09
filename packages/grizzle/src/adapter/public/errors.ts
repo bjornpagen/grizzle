@@ -62,6 +62,5 @@ export {
 	type TransactionFate,
 	type TransientReason,
 	UnreadableAnswer,
-	UnseenOccupant,
-	WorkloadUngenerated
+	UnseenOccupant
 } from "#adapter/errors/failures.ts"

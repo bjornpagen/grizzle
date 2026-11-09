@@ -7,7 +7,6 @@
  * codes, recorded with it, and given to every compilation of the schema's artifacts, while a closed id's type holds
  * only its roster's live handles in code order and stays the same type in a fresh installation and a migrated one.
  */
-import { sameOrder } from "#compiler/core/array.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
@@ -195,28 +194,8 @@ export const liveHex = (codec: RosterCodec): string => {
 }
 
 /**
- * The first of `rosters` whose codes `book` does not hold exactly as its live handles in declared order, or undefined
- * when the book serves them all: what an installation's recorded codebook is checked by once, where it is read, since
- * every codec and every literal of the schema's artifacts reads it.
- */
-export const unservedRoster = (
-	book: Codebook,
-	rosters: ReadonlyArray<Roster>
-): Roster | undefined =>
-	rosters.find((roster) => {
-		const codec = book.rosters.get(roster.closed)
-		return (
-			codec === undefined ||
-			!sameOrder(
-				codec.names.filter((name) => name !== ""),
-				roster.handles
-			)
-		)
-	})
-
-/**
  * The codec of `roster`. A schema's codebook holds every roster the schema declares, its live handles in the roster's
- * order (unservedRoster), so a roster it lacks is a defect.
+ * order, so a roster it lacks is a defect.
  */
 export const codecOf = (book: Codebook, roster: Roster): RosterCodec => {
 	const codec = book.rosters.get(roster.closed)

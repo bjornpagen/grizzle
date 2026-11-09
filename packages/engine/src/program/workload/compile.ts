@@ -271,7 +271,7 @@ const baseName = (schema: SchemaInput): string =>
 
 /**
  * Each program of a login's workloads, by name in code point order, with its access paths and statistics, under the
- * base's artifacts: what the snapshot records for the login, and what DbLayer.make compares with it at startup.
+ * base's artifacts: what the snapshot records for the login, and what `grizzle check` compares with it.
  *
  * Each program is checked as the database would compile it, against its workload's schema: a query or ordered query by
  * the query checker, a ChangeSet by the write front end, a key by its lookup query. A program's own schema is a level
@@ -282,7 +282,7 @@ const baseName = (schema: SchemaInput): string =>
  * index serves; a ChangeSet adds the primary key each written relation's statements match facts on, which its key
  * index serves. A program the checker refuses is refused with its CompileError, at its path in the workload.
  */
-export const loginAccess = (
+const loginAccess = (
 	workloads: ReadonlyArray<unknown>,
 	schema: SchemaInput,
 	artifacts: SchemaArtifacts
@@ -459,7 +459,7 @@ const sameAccess = (a: ProgramAccess, b: ProgramAccess): boolean =>
 /**
  * Every program whose access differs from the record, in program name order: the workload's access paths and
  * statistics (loginAccess) against those the snapshot recorded for the login, none when the login is no key of it.
- * Startup (DbLayer.make) and `grizzle check` refuse any, naming the program and saying to run `grizzle generate`.
+ * `grizzle check` reports each, naming the program and saying to run `grizzle generate`.
  */
 export const accessDrift = (
 	recorded: WorkloadAccess,
@@ -482,7 +482,7 @@ export const accessDrift = (
 	})
 }
 
-/** A drift's sentence, naming the login's program: what DbLayer.make's refusal and `grizzle check`'s finding say. */
+/** A drift's sentence, naming the login's program: what `grizzle check`'s finding says. */
 export const accessDriftText = (login: string, drift: AccessDrift): string => {
 	const program = `program ${login}.${drift.program}`
 	switch (drift.kind) {

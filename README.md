@@ -1111,7 +1111,7 @@ CREATE UNIQUE INDEX "__model_spend_key_model_workspace_p5jkdouxat" ON "reporting
 GRANT MAINTAIN ON TABLE "reporting"."model_spend" TO "reporting__analyst";
 ```
 
-Change `callLog` so that it needs another index, and `grizzle check`, and `DbLayer.make` at startup, refuse until you run `grizzle generate` again.
+Change `callLog` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again.
 
 ### Drizzle to grizzle, API by API
 
@@ -1323,7 +1323,7 @@ export const EtlJob = login(Blog, "etl_job", [Etl])
 
 A query for a role is written over the role and sees only what the role sees: `MemberPost` is already the member's filtered view of posts, so `memberFeed` has no filter to forget.
 
-A `workload` names the queries and writes your app runs on its hot paths. The app compiles them once, when it starts; `grizzle generate` compiles them the same way, derives the indexes they need and records them in the snapshot, so a program the app would refuse to start with, generate refuses first. Edit `memberFeed` so that it needs another index, and `grizzle check` and the app's startup both refuse until you run `grizzle generate` again: the index ships in the same migration as the query that needs it.
+A `workload` names the queries and writes your app runs on its hot paths. The app compiles them once, when it starts; `grizzle generate` compiles them the same way, derives the indexes they need and records them in the snapshot, so a program the app would refuse to start with, generate refuses first. Edit `memberFeed` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again: the index ships in the same migration as the query that needs it.
 
 A `login` is one PostgreSQL user, the one `roleNameOf(Web)` names (here `blog__web`), with its password and its own connection pool, that can act as the roles it lists. The login is the trust boundary: whoever holds its password can act as any of its roles, with any claims. So the web app and the nightly job get separate logins, and no token sent to the web app can make it write view counts.
 
@@ -2834,7 +2834,7 @@ throws `CompileError` for a rule that is no check of the schema.
 | `config`                    | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                     |
 | `role`                      | `RoleOutsideLayers`                                                                                                                     |
 | `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
-| `schema`                    | `CompileError`; `WorkloadUngenerated`, a workload out of step with the snapshot                                                        |
+| `schema`                    | `CompileError`                                                                                                                         |
 | `capability`                | `MissingCapability`, a workload program needing an extension the database lacks                                                        |
 | a check's stage             | `AdmissionRefused`, with every mismatch, at the first stage one is at                                                                  |
 | `admission`                 | `AdmissionTransient` (`SerializationFailure` or `Deadlock`, the server's report its `error`), retryable; `AdmissionFailed`, no verdict |

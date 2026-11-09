@@ -428,10 +428,10 @@ The command line's own refusals, by stage:
   `{ max, min, idleTimeoutMs }`. grizzle states no number of its own: a `Db` call waits for a session until it gets
   one or is interrupted, and an interrupted statement sends one CancelRequest and destroys its session.
 
-  `DbLayer.make` compiles every program of the login's workloads once and compares their access paths with the
-  snapshot's: a program added, renamed or dropped, or whose access paths moved, since the snapshot was generated
-  fails the layer at the stage `schema`, naming the program; run `grizzle generate`. A program edit that moves no
-  access path just takes effect. `Db.open` admits the database only when no migration is running or stopped part-way and its latest complete
+  `DbLayer.make` compiles every program of the login's workloads once, under the snapshot it is given, which it
+  compares with nothing: `grizzle check` finds a program added, renamed or dropped, or whose access paths moved,
+  since the snapshot was generated; run `grizzle generate`. A program edit that moves no access path just takes
+  effect. `Db.open` admits the database only when no migration is running or stopped part-way and its latest complete
   migration reached that snapshot, and refuses a snapshot of another schema at the stage ledger. While a migration is
   being applied, no snapshot opens; once it completes, only the new one does. It also requires the login's and the role's settings and
   privileges to be exactly the snapshot's, the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB,

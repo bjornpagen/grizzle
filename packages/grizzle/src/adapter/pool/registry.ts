@@ -8,7 +8,6 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import { servedLevel } from "#adapter/admission/snapshots.ts"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
 	loginSettings,
@@ -25,8 +24,7 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
-	RoleOutsideLayers,
-	WorkloadUngenerated
+	RoleOutsideLayers
 } from "#adapter/errors/failures.ts"
 import type {
 	ConnectionPool,
@@ -65,20 +63,15 @@ import {
 	queryUses,
 	roleArtifacts,
 	type RoleDesc,
-	rostersOf,
 	type SchemaArtifacts,
-	SourceLoc,
-	unservedRoster
+	SourceLoc
 } from "#compiler/plan/common.ts"
 import {
-	accessDrift,
-	accessDriftText,
 	codebookOf,
 	type DeploySnapshot,
 	installBasis,
 	type InstallBasis,
-	ledgerStatements,
-	loginAccess
+	ledgerStatements
 } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
 
@@ -91,11 +84,10 @@ import { templateFor } from "#compiler/plan/read.ts"
  * installation's codes it records (deploy/snapshot/build.ts codebookOf), the codes of every closed id and set a Db
  * writes or reads, since a roster's codes are its history and no schema alone determines them; each role's artifacts
  * (program/schema.ts schemaArtifacts), compiled under those codes, which compile every program a Db of the role runs;
- * every program of
- * the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload), after their access
- * paths are compared with the snapshot's (program/workload/compile.ts accessDrift): a schema that is not the
- * snapshot's, or a program the snapshot does not record as it is, fails the layer with WorkloadUngenerated naming it;
- * the login's own PostgreSQL role; and the login's one session pool. Every session of the pool logs in as the login's
+ * every program of the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload); the
+ * login's own PostgreSQL role; and the login's one session pool. The snapshot is the database's: the layer compiles
+ * under what it records and compares nothing with it, and a program's access paths are `grizzle check`'s to compare
+ * (program/workload/compile.ts accessDrift). Every session of the pool logs in as the login's
  * role (program/names.ts loginRoleName, the role roleNameOf names), which no Db outlives: each of a Db's transactions
  * enters the Db's own role by its prologue (wire/batch.ts runFramed), two statements run as the login. So one pool
  * serves every role of the login. The pool lives as long as the layer, in its
@@ -410,46 +402,16 @@ export const loginRoles = (
 const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> =>
 	Effect.mapError(Effect.fromResult(parseSnapshot(given)), (reason) => new OpenError({ reason }))
 
-/**
- * The startup check: the snapshot is of the login's base, its codes are the base's rosters' (ir/codes.ts
- * unservedRoster: each roster's live handles in its declared order), and it records the access of every program of the
- * login's workloads exactly as they compile now under those codes (program/workload/compile.ts loginAccess,
- * accessDrift), the comparison `grizzle check` makes. A schema change, or a program added, renamed, dropped or whose
- * access paths or statistics moved since the snapshot was generated, is WorkloadUngenerated, naming the first such
- * program. A snapshot of the base records the codes it drafted for the base's rosters, which serve them, so codes that
- * do not are a snapshot of another schema. The base's artifacts are compiled once, here, after the snapshot is known to
- * be the base's, and every role of the login reads them.
- */
-const startupCheck = Effect.fn("startupCheck")(function* (
-	snapshot: DeploySnapshot,
-	codes: Codebook,
-	login: BuiltLogin,
-	owned: OwnedLogin
-): Effect.fn.Return<{ readonly artifacts: SchemaArtifacts; readonly above: LawsAbove }, OpenError> {
-	const ungenerated = (fault: WorkloadUngenerated["fault"]) =>
-		new OpenError({ reason: new WorkloadUngenerated({ login: owned.name, fault }) })
-	const level = servedLevel(snapshot, owned.base)
-	if (Option.isNone(level) || unservedRoster(codes, rostersOf(owned.base)) !== undefined) {
-		return yield* ungenerated({ kind: "schema", schema: owned.base.name })
-	}
-	const artifacts = yield* openStage(artifactsUnder(owned.base, codes))
-	const access = yield* openStage(loginAccess(login.workload, login.base, artifacts))
-	const [drift] = accessDrift(snapshot.workload, owned.name, access)
-	if (drift !== undefined) {
-		return yield* ungenerated({ kind: "program", sentence: accessDriftText(owned.name, drift) })
-	}
-	return { artifacts, above: lawsAbove(snapshot, level.value) }
-})
-
 /** An engine result as the layer's: a refusal is OpenError with the compiler's reason. */
 const openStage = <A>(result: Engine.Result<A, CompileError>): Effect.Effect<A, OpenError> =>
 	Effect.mapError(fromEngine(result), (reason) => new OpenError({ reason }))
 
 /**
  * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed, its codes read; the
- * login's base owned once and the login over it; then checked against the snapshot, which compiles the base's
- * artifacts once (startupCheck); every role's artifacts and programs over them; the login's role, its pool and the
- * prologue's statements (see the header).
+ * login's base owned once and the login over it; the base's artifacts compiled once under the codes (artifactsUnder),
+ * which every role reads, and the laws of the levels above the base's that the snapshot records (witness/keylaw.ts
+ * lawsAbove), the base's level the last of its own levels; every role's artifacts and programs over them; the login's
+ * role, its pool and the prologue's statements (see the header).
  */
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
@@ -459,7 +421,8 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const base = yield* openStage(own(config.login.base.desc))
 	const owned = yield* openStage(ownLoginOver(config.login, base))
 	const loginRole = yield* openStage(loginRoleName(config.login.desc))
-	const { artifacts, above } = yield* startupCheck(snapshot, codes, config.login, owned)
+	const artifacts = yield* openStage(artifactsUnder(owned.base, codes))
+	const above = lawsAbove(snapshot, owned.base.levels.length - 1)
 	const roles = yield* Effect.mapError(
 		loginRoles(config.login, owned, artifacts, above),
 		(reason) => new OpenError({ reason })

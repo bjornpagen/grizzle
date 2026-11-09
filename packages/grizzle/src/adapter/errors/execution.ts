@@ -14,7 +14,6 @@ import {
 	InputTooLarge,
 	LawRejected,
 	MissingCapability,
-	WorkloadUngenerated,
 	PageRequestRefused,
 	PutTargetConflict,
 	RoleOutsideLayers,
@@ -65,7 +64,6 @@ export type OpenReason =
 	| ClaimRefused
 	| CompileError
 	| MissingCapability
-	| WorkloadUngenerated
 
 /**
  * Why Db.open refused, which it judges on the host alone: a role no provided layer serves; a token verify refused or
@@ -82,9 +80,8 @@ export type DbOpenReason =
 /**
  * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
  * refused; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token verify refused
- * or whose claims do not decode; `schema`, a value that does not compile or parse, or a layer whose snapshot does not
- * record its workloads (WorkloadUngenerated); or `capability`, a workload program needing an extension the snapshot does
- * not install.
+ * or whose claims do not decode; `schema`, a value that does not compile or parse; or `capability`, a workload program
+ * needing an extension the snapshot does not install.
  */
 export type OpenStage = "config" | "role" | "token" | "schema" | "capability"
 
@@ -99,7 +96,6 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "ClaimRefused":
 			return "token"
 		case "CompileError":
-		case "WorkloadUngenerated":
 			return "schema"
 		case "MissingCapability":
 			return "capability"

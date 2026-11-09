@@ -30,11 +30,11 @@ import { fullWorld } from "#test/support/worlds.ts"
  * dictionary (test/support/kernel/dict.ts), whose alias groups are names the production conversion maps to one
  * identifier. A schema whose two relations, or two fields of one relation, convert to one identifier does not compile:
  * DbLayer.make, which owns its login's base when the layer is built, fails with OpenError{stage: "schema"} whose cause
- * is that CompileError, IdentifierCollision; fields of different relations live in different scopes and never collide.
- * A schema that compiles is refused by the layer's startup check at the stage schema too: the snapshot it is given is
- * another schema's (WorkloadUngenerated).
- * Either way no connection is attempted, which the password Effect, evaluated by every attempt, counts, so no database
- * is needed.
+ * is that CompileError, IdentifierCollision, and no connection is attempted, which the password Effect, evaluated by
+ * every attempt, counts; fields of different relations live in different scopes and never collide. A schema that
+ * compiles builds its layer, which compiles under the snapshot it is given (another schema's) and compares nothing with
+ * it, so Db.open goes on to acquire a session, whose password Effect refuses it at the stage credential. No database is
+ * needed.
  *
  * The other stages are provoked elsewhere, each through Db.open and asserted by stage:
  * - role (a role no provided login holds, a value that is not a role), token, settings, locale, capability,
@@ -205,21 +205,21 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 									snapshot: otherSnapshot
 								})
 								/**
-								 * A schema that does not compile fails the layer; one that compiles fails it too, at the
-								 * startup check of the other schema's snapshot it is given.
+								 * A schema that does not compile fails the layer; one that compiles builds it, so Db.open
+								 * acquires a session, whose password Effect refuses.
 								 */
 								const error = yield* Effect.flip(
 									Effect.scoped(Db.open(world.server.roles.app, {})).pipe(withLayer(layer))
 								)
 								assert.ok(error instanceof OpenError, String(error))
-								assert.equal(error.stage, "schema")
-								assert.equal(attempts, 0, "no connection is attempted")
 								if (collision) {
+									assert.equal(error.stage, "schema")
+									assert.equal(attempts, 0, "no connection is attempted")
 									assert.ok(isCompileError(error.reason), String(error.reason))
 									assert.equal(error.reason.reason._tag, "IdentifierCollision")
 								} else {
-									assert.ok(error.reason._tag === "WorkloadUngenerated", String(error.reason))
-									assert.equal(error.reason.fault.kind, "schema")
+									assert.equal(error.stage, "credential")
+									assert.ok(attempts > 0, "the layer is built, so a connection is attempted")
 								}
 							})
 					)

@@ -72,7 +72,7 @@ interface CheckFinding {
  *   their rows the reviewer has neither written in nor left out (lossDecisions), each named with what it loses;
  * - a workload program whose access moved: each login's workloads' programs read through other access paths or
  *   statistics than snapshot.json records, or a program it does not record, or it records one no workload holds, each
- *   finding naming the login's program (program/workload/compile.ts accessDrift), as DbLayer.make refuses at startup;
+ *   finding naming the login's program (program/workload/compile.ts accessDrift);
  * - a roster reordered: a roster declares a handle before one that holds a lower code in snapshot.json, which no
  *   draft can keep every stored code's meaning across (cli/errors.ts RosterReordered), so nothing else of the schema
  *   is compared;

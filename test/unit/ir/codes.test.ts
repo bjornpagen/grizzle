@@ -20,6 +20,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { sameOrder } from "#compiler/core/array.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import {
@@ -34,12 +35,27 @@ import {
 	keptRosters,
 	noRenames,
 	reorderRefusal,
-	type RosterRenames,
-	unservedRoster
+	type RosterRenames
 } from "#compiler/ir/codes.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, defined, failed, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+
+/**
+ * The first of `rosters` whose codes `book` does not hold exactly as its live handles in declared order, none when the
+ * book serves them all.
+ */
+const unservedRoster = (book: Codebook, rosters: ReadonlyArray<Roster>): Option.Option<Roster> =>
+	Arr.findFirst(rosters, (roster) => {
+		const codec = book.rosters.get(roster.closed)
+		return (
+			codec === undefined ||
+			!sameOrder(
+				Arr.filter(codec.names, (name) => name !== ""),
+				roster.handles
+			)
+		)
+	})
 
 /** The names a roster's handles are drawn from: at most four handles are ever minted. */
 const pool = ["a", "b", "c", "d"] as const
@@ -225,7 +241,11 @@ const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 				assert.deepEqual(refused, { roster: closed, earlier, later })
 				const error = reorderRefusal(refused)
 				assert.equal(error.reason._tag, "UnsupportedOperation")
-				assert.equal(unservedRoster(book, others)?.closed, closed, "a reordered roster is unserved")
+				assert.equal(
+					Option.getOrUndefined(Option.map(unservedRoster(book, others), (r) => r.closed)),
+					closed,
+					"a reordered roster is unserved"
+				)
 				c.note("a reorder")
 				return
 			}
@@ -241,7 +261,7 @@ const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 			for (const roster of rosters()) {
 				assert.deepEqual(codecOf(again, roster).codes, codecOf(book, roster).codes, "idempotent")
 			}
-			assert.equal(unservedRoster(book, rosters()), undefined, "the draft serves its rosters")
+			assert.ok(Option.isNone(unservedRoster(book, rosters())), "the draft serves its rosters")
 			c.note(
 				command.kind === "grow"
 					? "a growth"

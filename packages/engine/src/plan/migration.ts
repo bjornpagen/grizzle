@@ -73,7 +73,6 @@ export {
 export {
 	accessDrift,
 	accessDriftText,
-	compileWorkload,
-	loginAccess
+	compileWorkload
 } from "#compiler/program/workload/compile.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"

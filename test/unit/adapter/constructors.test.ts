@@ -133,8 +133,7 @@ const constructors: {
 	TransientFailure: Public.TransientFailure,
 	TransportFailure: Public.TransportFailure,
 	UnreadableAnswer: Public.UnreadableAnswer,
-	UnseenOccupant: Public.UnseenOccupant,
-	WorkloadUngenerated: Public.WorkloadUngenerated
+	UnseenOccupant: Public.UnseenOccupant
 }
 
 /** Whether the adapter built `failure` with the public constructor of its tag. */

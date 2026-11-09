@@ -94,8 +94,7 @@ export {
 	draftCodebook,
 	type HandleRenames,
 	type RosterCodec,
-	type RosterRenames,
-	unservedRoster
+	type RosterRenames
 } from "#compiler/ir/codes.ts"
 export {
 	type AttachDesc,
