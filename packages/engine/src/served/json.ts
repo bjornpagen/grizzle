@@ -273,16 +273,21 @@ class ServedWriter {
 	}
 }
 
-/** The served file's text of `file` (see the header), ending in a newline; refused where a form holds no served value. */
+/**
+ * The served file's text of `file` (see the header), ending in a newline; refused where a form holds no served value.
+ * Its members are walked as one record, and beside them its rosters and its types table, which a load reads first and
+ * by name (servedFile), so the record's `~` lists only the members a load walks to a revived value.
+ */
 export const servedText = (file: ServedFile): Result.Result<string, CompileError> =>
 	Result.flatMap(
 		catchRefusal(() => {
 			const writer = new ServedWriter()
-			const { json } = writer.value(file)
+			const { rosters, ...members } = file
+			const { json } = writer.value(members)
 			if (typeof json !== "object" || isList(json)) {
 				throw defect("a served file's JSON form is a record")
 			}
-			return { ...json, types: writer.types }
+			return { ...json, rosters: writer.value(rosters).json, types: writer.types }
 		}),
 		(json) => Result.map(writeCanonicalJson(json), (text) => `${text}\n`)
 	)

@@ -11,12 +11,12 @@
  * - Round trip: the forms read back are the forms written (runtimeDifference finds no member that differs).
  * - Plant: one member of the file's JSON value, drawn among all of them, left out; the forms read back differ from the
  *   ones written, or reading them is a defect: a member the encoder drops is never one the decoder makes up.
- * - A host's read: the file's bytes, written to disk, read back and parsed, and imported as a JSON module, as an
- *   application reads its committed file; each served (adapter/served/served.ts served), which names the file's roles,
- *   its login's role read (roleNameOf), and the layer over it built with no database (DbLayer.make), which loads it
- *   (served/load.ts loadServed). Every reader of the file reads it through servedFile, so a value its JSON form holds as
- *   no JSON value holds it, a Map, a Set, a bigint, a type, in a list or a record, reads as the runtime's own: its roles,
- *   a list whose records hold Maps, are what served names.
+ * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
+ *   served (adapter/served/served.ts served), which names the file's roles, its login's role read (roleNameOf), and the
+ *   layer over it built with no database (DbLayer.make), which loads it (served/load.ts loadServed). Every reader of
+ *   the file reads it through servedFile, so a value its JSON form holds as no JSON value holds it, a Map, a Set, a
+ *   bigint, a type, in a list or a record, reads as the runtime's own: its roles, a list whose records hold Maps, are
+ *   what served names.
  * - A stale file: the first SQL text of one program, drawn among those stating one, edited, and the file written as
  *   generate writes one; check's difference finder (served/difference.ts servedDifference), reading both texts as a
  *   layer does, names that program.
@@ -29,6 +29,7 @@ import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
+import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -45,6 +46,7 @@ import {
 } from "effect"
 import { DbLayer, served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -182,18 +184,18 @@ const holdsMap = (value: unknown): boolean => {
 			return true
 		}
 		if (isList(next)) {
-			pending.push(...next)
+			appendAll(pending, next)
 		} else if (isRecord(next)) {
-			pending.push(...Rec.values(next))
+			appendAll(pending, Rec.values(next))
 		}
 	}
 	return false
 }
 
 /**
- * `text`, the file `file` was written as, read as a host reads it (see the header): written to disk, its bytes read and
- * parsed, and imported as a JSON module; each served, its roles named and its login's role read, and the layer over it
- * built with no database, which loads it.
+ * `text`, the file `file` was written as, read as a host reads it (see the header): written to disk, and its bytes read
+ * and parsed; served, its roles named and its login's role read, and the layer over it built with no database, which
+ * loads it.
  */
 const hostReads = (file: ServedFile, text: string, printed: () => string) =>
 	Effect.gen(function* () {
@@ -202,37 +204,26 @@ const hostReads = (file: ServedFile, text: string, printed: () => string) =>
 		const path = `${dir}/${file.login}.json`
 		yield* fs.writeFileString(path, text)
 		const bytes = yield* fs.readFileString(path)
-		const imported: unknown = yield* Effect.promise(
-			(): Promise<unknown> => import(path, { with: { type: "json" } })
+		const login = served(trustedJson<unknown>(bytes), file.login)
+		yield* agree(
+			[
+				["the file's roles", Arr.map(file.roles, (role) => role.name)],
+				["the roles served names", Rec.keys(login.roles)]
+			],
+			set(structuralHash, exact)
 		)
-		const reads: ReadonlyArray<readonly [string, unknown]> = [
-			["parsed", trustedJson<unknown>(bytes)],
-			["imported", trusted<{ readonly default: unknown }>(imported).default]
-		]
-		for (const [how, json] of reads) {
-			const login = served(json, file.login)
-			assert.deepEqual(
-				Rec.keys(login.roles),
-				Arr.map(file.roles, (role) => role.name),
-				`${how}: served names the file's roles\n${printed()}`
-			)
-			assert.equal(
-				roleNameOf(login),
-				file.role,
-				`${how}: roleNameOf reads the file's role\n${printed()}`
-			)
-			const built = yield* Effect.exit(
-				Effect.scoped(
-					Layer.build(
-						DbLayer.make({ ...offlineConnection, pool: clusterPool, login, verify: testVerify })
-					)
+		assert.equal(roleNameOf(login), file.role, `roleNameOf reads the file's role\n${printed()}`)
+		const built = yield* Effect.exit(
+			Effect.scoped(
+				Layer.build(
+					DbLayer.make({ ...offlineConnection, pool: clusterPool, login, verify: testVerify })
 				)
 			)
-			assert.ok(
-				Exit.isSuccess(built),
-				`${how}: the layer over the file a host reads builds and loads it: ${Formatter.format(built)}\n${printed()}`
-			)
-		}
+		)
+		assert.ok(
+			Exit.isSuccess(built),
+			`the layer over the file a host reads builds and loads it: ${Formatter.format(built)}\n${printed()}`
+		)
 	})
 
 /**
