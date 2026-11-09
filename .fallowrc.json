@@ -179,6 +179,11 @@
 				"patterns": ["packages/engine/src/public/**"]
 			},
 			{
+				// A login's served workload as data and its file's JSON form, which generate writes and a layer reads.
+				"name": "served",
+				"patterns": ["packages/engine/src/served/**"]
+			},
+			{
 				"name": "plan",
 				"patterns": ["packages/engine/src/plan/**"]
 			},
@@ -246,6 +251,7 @@
 					"query",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"text",
 					"types",
@@ -409,6 +415,12 @@
 				"allow": ["allen", "core", "program", "query", "scalar", "schema", "text", "types", "write"]
 			},
 			{
+				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
+				"from": "served",
+				"allow": ["core", "ir", "scalar"],
+				"allowTypeOnly": ["codec", "laws", "lower", "physical", "sql", "types", "write"]
+			},
+			{
 				"from": "plan",
 				"allow": [
 					"analysis",
@@ -424,6 +436,7 @@
 					"query",
 					"scalar",
 					"schema",
+					"served",
 					"sql",
 					"types",
 					"write"

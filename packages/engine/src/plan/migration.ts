@@ -48,4 +48,5 @@ export {
 	accessDriftText,
 	compileWorkload
 } from "#compiler/program/workload/compile.ts"
+export { servedText } from "#compiler/served/json.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"
