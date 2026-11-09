@@ -906,15 +906,10 @@ class Specializer {
 		return named
 	}
 
-	/** The laws whose containment evidence holds at every statement (immediateOf), from the plans alone. */
-	immediate(): ReadonlySet<LawId> {
-		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
-		return immediateOf(plans, this.#deferral(plans))
-	}
-
-	run(immediate: ReadonlySet<LawId>): LawModel {
+	run(): LawModel {
 		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
 		const deferred = this.#deferral(plans)
+		const immediate = immediateOf(plans, deferred)
 
 		/** The extension DAG: each generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
@@ -1677,17 +1672,9 @@ const baseLeaves = (
 
 const specialize = (
 	theory: Theory,
-	checked: CheckedSchema,
-	immediate: ReadonlySet<LawId>
-): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked).run(immediate))
-
-/** The laws a theory's specialization proves immediate (Specializer.immediate), or the refusal of a plan. */
-const immediateLaws = (
-	theory: Theory,
 	checked: CheckedSchema
-): Result.Result<ReadonlySet<LawId>, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked).immediate())
+): Result.Result<LawModel, CompileError> =>
+	catchRefusal(() => new Specializer(theory, checked).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law's LawLowering. It runs theory normalization with
  * the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized law (`Recognizer`),
@@ -1730,14 +1717,10 @@ const immediateLaws = (
  *   value.
  *
  * The law model of an owned schema, or the first refusal: a theory refusal, a law shape the compiler does not
- * admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once; its plans settle foreign key
- * deferral and so the laws they prove immediate (Specializer.immediate), and specialization states the evidence each
- * law gives with that validity context (theoryEvidence). */
+ * admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law planned once:
+ * the plans settle foreign key deferral and so the laws they prove immediate (immediateOf), and specialization states
+ * the evidence each law gives with that validity context (theoryEvidence). */
 export const compileLaws = (owned: Owned): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
-		Result.flatMap(buildTheory(checked), (theory) =>
-			Result.flatMap(immediateLaws(theory, checked), (immediate) =>
-				specialize(theory, checked, immediate)
-			)
-		)
+		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked))
 	)
