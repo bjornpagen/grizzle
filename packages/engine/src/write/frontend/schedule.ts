@@ -294,7 +294,8 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   not, so the other order would overwrite them stale;
  * - one family relation's insertion before the insertion of a family relation an immediate key names it from, and
  *   the deletion of the naming one first: an owner's insertion before its members' and their deletion before its
- *   own where the owner axis is immediate, and no order where it is deferred, as on a cycle of families.
+ *   own where the owner axis is immediate, and no order where it is deferred, as on a cycle of families; so is one
+ *   member relation's additions before another's, and their removals the other way, each in its own statement.
  * Against an action, a family statement adds, removes and changes facts as the keys see them: an insertion adds, a
  * deletion removes, and an update in place or a count adds and changes facts only at the columns it changes
  * (FamilyNode `changes`), so a key over other columns orders nothing; and an action runs before the family statements
@@ -434,6 +435,16 @@ export const scheduleStratum = <A extends Scheduled>(
 			}
 		}
 	}
+	for (const { node: n, vertex: x } of statements) {
+		for (const { node: m, vertex: y } of statements) {
+			if (
+				(n.kind === "additions" && m.kind === "additions" && x !== y) ||
+				(n.kind === "removals" && m.kind === "removals" && x !== y)
+			) {
+				orderFamilyWrites(n, x, m, y, references)
+			}
+		}
+	}
 	for (const { action, vertex: x } of plain) {
 		for (const { node, vertex: y } of statements) {
 			const a = action.action.relation
@@ -550,6 +561,36 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 		if (asTarget !== undefined) {
 			order(y, asTarget, x, actionEffect(action), r)
 		}
+	}
+}
+
+/**
+ * Orders two of a stratum's family additions, or two of its removals, `x` writing `n`'s member and `y` writing `m`'s, by
+ * the immediate references from `m`'s member into `n`'s, as the family planner's own statements of the two relations are
+ * (`scheduleStratum`): the referenced member's additions before the referencing one's, and the referencing member's
+ * removals before the referenced one's. An additions and a removals are ordered already, every removals first, and an
+ * owner's recount orders nothing against another statement's, as a count statement's does not.
+ */
+const orderFamilyWrites = <V extends { readonly follows: Set<V> }>(
+	n: FamilyAdditions | FamilyRemovals,
+	x: V,
+	m: FamilyAdditions | FamilyRemovals,
+	y: V,
+	references: ReadonlyArray<ImmediateReference>
+): void => {
+	const referenced = writtenMembers(n)
+	const referencing = writtenMembers(m)
+	if (
+		!references.some(
+			(r) => r.from !== r.to && referencing.includes(r.from) && referenced.includes(r.to)
+		)
+	) {
+		return
+	}
+	if (n.kind === "additions") {
+		y.follows.add(x)
+	} else {
+		x.follows.add(y)
 	}
 }
 

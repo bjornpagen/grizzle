@@ -1263,6 +1263,35 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a cycle of families written", "a member owning a family written"]
+	},
+	{
+		note: "found: a counted member's members inserted beside it, named before it, their owner axis immediate, once appended by a statement that ran before their owner's, as the relations' names ordered them",
+		sketch: {
+			spec: bare(
+				coreOf(
+					[false, true, true],
+					[
+						{ kind: "counted", owner: 2, member: 1, fold: "none" },
+						{ kind: "counted", owner: 0, member: 2, fold: "none" }
+					],
+					[],
+					[]
+				)
+			),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 2, id: 2, v: 1n, memberOf: [{ family: 1, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: 2n, memberOf: [{ family: 0, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a member owning a family written"]
 	}
 ]
 
