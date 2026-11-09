@@ -40,7 +40,7 @@ import { isVector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	changeSetOver as ChangeSet,
@@ -68,13 +68,14 @@ import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { realizeConservative } from "#test/support/oracle/write/realize.ts"
 import { checking } from "#test/support/policy.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 const Pair = pg.vector(2)
@@ -625,11 +626,10 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					/**
 					 * An attachment correlated on a parent's vector, its child a correlated take, read through the real
 					 * reader: as a read, and as the read-back of a ChangeSet that writes nothing, which runs inside the
-					 * write transaction and so reads the conservative artifact. The queries are built over the installed
-					 * schema.
+					 * write transaction and so reads the conservative artifact, each a member of the full world's served
+					 * workload. The queries are built over the installed schema.
 					 */
 					const value = schema(installed.declared, Pairs.relations, Pairs.statements)
-					const world = fullWorld(value, {})
 					const twins = query(value)
 						.rule((r) => {
 							const { id: key, value: pair } = v(A, "a")
@@ -686,8 +686,13 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 								[]
 							)
 						})
+					const world = fullWorld(value, {
+						twins,
+						readBack: PublicChangeSet.empty(value).read("readBack", () => twins)
+					})
+					const served = yield* servedFixture(installed, world.server)
 					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(world.server.roles.app, {})
+						const db = yield* Db.open(served.login.roles.app, {})
 						return yield* explore(
 							{
 								suite: "pg/vector/equality",
@@ -729,11 +734,9 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 										const found = yield* run(writer, spec, {})
 										assert.deepEqual(idsOf(found), expected.unmatched, "the unmatched")
 									}
-									const read: ReadonlyArray<unknown> = yield* (yield* db.execute(twins, {})).collect
-									const outcome = yield* db.apply(
-										PublicChangeSet.empty(value).read("readBack", () => twins),
-										{}
-									)
+									const read: ReadonlyArray<unknown> = yield* (yield* db.workload.twins.execute({}))
+										.collect
+									const outcome = yield* db.workload.readBack.apply({})
 									if (outcome.kind !== "accepted" && outcome.kind !== "no-change") {
 										return assert.fail(`the read-back's apply was ${outcome.kind}`)
 									}
@@ -752,7 +755,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 									k.noteAll(featuresOf(c, expected))
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(installed, world.server)))
+					}).pipe(Effect.scoped, withLayer(served.layer))
 				})
 			)
 	)
