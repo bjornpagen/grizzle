@@ -183,4 +183,3 @@ export const shopV4: SchemaDesc = {
 		key(on("Account", ["name"]))
 	]
 }
-

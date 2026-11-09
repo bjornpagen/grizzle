@@ -28,6 +28,7 @@ import {
 	ledgerPrivilegesObject
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
+import { rosterCodebook } from "#compiler/deploy/snapshot/served.ts"
 import {
 	type DeploySnapshot,
 	manifestFileName,
@@ -41,7 +42,6 @@ import {
 	type SnapshotTheory,
 	type SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { rosterCodebook } from "#compiler/deploy/snapshot/served.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
@@ -904,7 +904,9 @@ const fileText = (form: RecordOf<CompactLine>): string =>
  * the snapshot's canonical JSON form laid out for review, so a changed statement is one changed line and the same
  * snapshot is the same bytes on every machine. The layout is the writer's: the fingerprint digests the content's
  * canonical text (contentForm), which no layout changes, and joinedSnapshot puts the two back together. */
-export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<SnapshotFiles, CompileError> =>
+export const writeSnapshot = (
+	snapshot: DeploySnapshot
+): Result.Result<SnapshotFiles, CompileError> =>
 	catchRefusal(() => ({
 		snapshot: fileText(runtimeForm(snapshot, asLines)),
 		manifest: fileText(migrationForm(snapshot, asLines, laidOutRelationForm))
@@ -937,7 +939,9 @@ export const joinedSnapshot = (
 		return Result.err(unjoined(snapshotFileName, ["rosters"], "recording each roster's codes"))
 	}
 	if (!isRecord(theory) || !isRecord(relations)) {
-		return Result.err(unjoined(manifestFileName, ["theory", "relations"], "recording the theory's relations"))
+		return Result.err(
+			unjoined(manifestFileName, ["theory", "relations"], "recording the theory's relations")
+		)
 	}
 	const shared = Object.keys(served).find((key) => Object.hasOwn(migration, key))
 	if (shared !== undefined) {
@@ -948,7 +952,11 @@ export const joinedSnapshot = (
 		const relation = relations[name]
 		if (!isRecord(relation) || relation["kind"] !== "closed" || Object.hasOwn(relation, "codes")) {
 			return Result.err(
-				unjoined(manifestFileName, ["theory", "relations", name], "recording the roster whose codes snapshot.json holds")
+				unjoined(
+					manifestFileName,
+					["theory", "relations", name],
+					"recording the roster whose codes snapshot.json holds"
+				)
 			)
 		}
 		joined[name] = { ...relation, codes }

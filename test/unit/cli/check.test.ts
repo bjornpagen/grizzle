@@ -288,7 +288,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					)
 					assert.equal(custom.code, 0, custom.stderr)
 					const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-					assert.deepEqual(Arr.sort(committed, Order.String), [init, seed, manifestFileName, snapshotFileName])
+					assert.deepEqual(Arr.sort(committed, Order.String), [
+						init,
+						seed,
+						manifestFileName,
+						snapshotFileName
+					])
 					const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
 					const layout: Layout = {
 						setup: phaseFile(files, "setup"),

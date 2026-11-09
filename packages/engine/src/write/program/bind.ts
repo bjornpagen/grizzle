@@ -1398,7 +1398,10 @@ export const bindWrite = (
 		if (refusal._tag === "EncodingFailure") {
 			return Result.err(refusal)
 		}
-		return Result.ok({ kind: "generated-rejected", rejection: generatedRejection(refusal.stratum, refusal) })
+		return Result.ok({
+			kind: "generated-rejected",
+			rejection: generatedRejection(refusal.stratum, refusal)
+		})
 	}
 	const fresh = freshlyCounted.value
 	const flown: Result.Result<Flights, GeneratedRejection> =
@@ -1503,7 +1506,9 @@ const freshOwners = (
 		}
 		const appended = frontend.edits.flatMap((e) =>
 			e.stratum === s
-				? [e.inserts, e.puts].flatMap((slot) => (slot === undefined ? [] : [{ relation: e.relation.name, slot }]))
+				? [e.inserts, e.puts].flatMap((slot) =>
+						slot === undefined ? [] : [{ relation: e.relation.name, slot }]
+					)
 				: []
 		)
 		const counted = frontend.laws.families.filter(
@@ -1530,7 +1535,9 @@ const freshOwners = (
 		for (const owner of new Set(counted.map((f) => f.owner.name))) {
 			const families = counted.filter((f) => f.owner.name === owner)
 			/** The counts and ends the fill draws, which the slot's facts carry at their starts. */
-			const drawnNames = new Set(families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)]))
+			const drawnNames = new Set(
+				families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)])
+			)
 			for (const slot of ownerSlots(s, owner)) {
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
@@ -1569,7 +1576,9 @@ const freshOwners = (
 				}
 				out.set(
 					slot,
-					refilledSlot(current, (fact) => defined(filledFacts.get(fact), "an owner fact the fill filled"))
+					refilledSlot(current, (fact) =>
+						defined(filledFacts.get(fact), "an owner fact the fill filled")
+					)
 				)
 			}
 		}

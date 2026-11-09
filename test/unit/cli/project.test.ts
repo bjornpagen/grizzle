@@ -1331,7 +1331,11 @@ const runGenerate = (
 			)
 			assert.equal(name, draft.folder.name)
 			yield* confirmFolder(dir, draft.folder)
-			assert.deepEqual(text, Option.some(draft.snapshotFiles), "the snapshot's files are the draft's")
+			assert.deepEqual(
+				text,
+				Option.some(draft.snapshotFiles),
+				"the snapshot's files are the draft's"
+			)
 			const placeholders = Arr.flatMap(draft.folder.files, (f) =>
 				Arr.filter(findMarkers(f.text), (m) => m.kind === "placeholder")
 			).length

@@ -30,9 +30,9 @@ import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { AddedTag, RemovedTag } from "#compiler/write/delta/net.ts"
-import type { FamilyPart } from "#compiler/write/family/written.ts"
 import type { FamilyStatement } from "#compiler/write/family/order.ts"
 import type { FamilySql } from "#compiler/write/family/statements.ts"
+import type { FamilyPart } from "#compiler/write/family/written.ts"
 import type {
 	DeleteResult,
 	InsertResult,

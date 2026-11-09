@@ -19,7 +19,10 @@ export interface OneFlight {
 	readonly context: DbContext
 	/** `effect`'s outcome, after asserting its traffic was one round trip, BEGIN and the transaction's end its only simple
 	 * queries, or no traffic at all. */
-	readonly judged: <A, E, R>(label: string, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+	readonly judged: <A, E, R>(
+		label: string,
+		effect: Effect.Effect<A, E, R>
+	) => Effect.Effect<A, E, R>
 }
 
 /** `context` with its pool replaced by one session through a tap, and the judge of each call's traffic on it. */
@@ -36,9 +39,14 @@ export const oneFlight = (
 			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 		})
 		yield* Effect.orDie(
-			Effect.scoped(Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", [])))
+			Effect.scoped(
+				Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
+			)
 		)
-		const judged = <A, E, R>(label: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+		const judged = <A, E, R>(
+			label: string,
+			effect: Effect.Effect<A, E, R>
+		): Effect.Effect<A, E, R> =>
 			Effect.gen(function* () {
 				const mark = tap.mark()
 				const value = yield* Effect.result(effect)
@@ -46,7 +54,11 @@ export const oneFlight = (
 				if (window.roundTrips > 0) {
 					assert.equal(window.roundTrips, 1, `${label}: round trips on the wire`)
 					const framing = queryTexts(window)
-					assert.equal(framing.length, 2, `${label}: the flight's BEGIN and its end, its only simple queries`)
+					assert.equal(
+						framing.length,
+						2,
+						`${label}: the flight's BEGIN and its end, its only simple queries`
+					)
 					assert.equal(
 						framing[0],
 						"BEGIN ISOLATION LEVEL SERIALIZABLE",

@@ -16,7 +16,9 @@ import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
  * generate` wrote records every roster under a name the declared-name rule admits, so one it refuses is a defect of
  * the compiler that wrote it.
  */
-export const rosterCodebook = (rosters: ReadonlyArray<readonly [string, RosterCodes]>): Codebook => {
+export const rosterCodebook = (
+	rosters: ReadonlyArray<readonly [string, RosterCodes]>
+): Codebook => {
 	const book = new Map<DeclaredName, RosterCodec>()
 	for (const [name, codes] of rosters) {
 		const roster = parseDeclaredName(name)

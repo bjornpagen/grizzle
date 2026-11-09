@@ -64,7 +64,11 @@ export const parseSnapshot = (
 	level: number
 ): Result.Result<ServedSnapshot, CompileError> =>
 	readHost(
-		malformedArtifact("snapshot", [], "a snapshot read as data, as an import of snapshot.json yields it"),
+		malformedArtifact(
+			"snapshot",
+			[],
+			"a snapshot read as data, as an import of snapshot.json yields it"
+		),
 		() => toResult(servedSnapshot(json, level))
 	)
 
