@@ -19,7 +19,7 @@ import {
 	FileCommitRefused,
 	InputRefused,
 	LedgerUnlocked,
-	type LockTable,
+	type ServerLockTable,
 	LockTableExhausted,
 	LockUnread,
 	type MigrateError,
@@ -205,8 +205,8 @@ const settingColumn = (name: string): C.CatalogExpr =>
 		)
 	)
 
-/** The settings that size the server's lock table (LockTable). */
-const lockTableRead: CatalogQuery<Extract<LockTable, { readonly kind: "read" }>> = {
+/** The settings that size the server's lock table (ServerLockTable). */
+const lockTableRead: CatalogQuery<Extract<ServerLockTable, { readonly kind: "read" }>> = {
 	sql: emitCatalog(
 		C.query(
 			[

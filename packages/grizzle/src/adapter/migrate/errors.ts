@@ -108,7 +108,7 @@ const serverSaid = (e: ServerError): string =>
  * back: about max_locks_per_transaction × (max_connections + max_prepared_transactions) locks, which every
  * transaction of the server shares; or the read's own failure, when that session could not answer it.
  */
-export type LockTable =
+export type ServerLockTable =
 	| {
 			readonly kind: "read"
 			readonly maxLocksPerTransaction: string
@@ -118,7 +118,7 @@ export type LockTable =
 	| { readonly kind: "unread"; readonly failure: ReadFailure }
 
 /** The lock table's size, as a refusal states it. */
-const lockTableText = (table: LockTable): string => {
+const lockTableText = (table: ServerLockTable): string => {
 	const formula = "max_locks_per_transaction × (max_connections + max_prepared_transactions)"
 	switch (table.kind) {
 		case "read":
@@ -137,7 +137,7 @@ const lockTableText = (table: LockTable): string => {
  */
 export class LockTableExhausted extends Data.TaggedError("LockTableExhausted")<{
 	readonly error: ServerError
-	readonly table: LockTable
+	readonly table: ServerLockTable
 }> {
 	override get message(): string {
 		return `the server ran out of shared memory for locks (${serverSaid(this.error)}): a migration's transaction holds one lock per object it creates or alters until it ends, and the server's lock table holds ${lockTableText(this.table)} for every transaction at once; raise max_locks_per_transaction (a server restart) until it holds more than the objects the migration creates, then run grizzle migrate again`
