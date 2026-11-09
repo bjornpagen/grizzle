@@ -8,6 +8,7 @@ import {
 	Path,
 	type PlatformError,
 	Redacted,
+	type Layer,
 	type Result,
 	type Scope,
 	Stream
@@ -15,20 +16,27 @@ import {
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { DbConnection } from "#adapter/types/layer.ts"
+import type { DbConnection, DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
 import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import type { AnyLogin } from "#compiler/public/schema.ts"
+import { servedPath } from "#compiler/served/forms.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
-import { clusterConnection } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { sourceCondition } from "#test/support/process.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
+import { testVerify } from "#test/support/worlds.ts"
 
 const repo = repoRoot
 /** The module a CLI child process's grizzle.config.ts builds its configuration through (config.child.ts). */
@@ -430,3 +438,52 @@ export const bin = (
 			return ran
 		})
 	)
+
+/** A login served from the file generate wrote, as an application serves it: its served login, typed by L, and its layer. */
+export interface ServedFromFile<L> {
+	readonly login: ServedLogin<L>
+	readonly layer: Layer.Layer<DbLayerOf<L>, OpenError>
+}
+
+/**
+ * The served file `grizzle generate` wrote for `login` in the schema directory `directory`, served under L's type as an
+ * application's import of it is.
+ */
+export const servedAt = <L extends AnyLogin>(
+	directory: string,
+	login: L
+): Effect.Effect<ServedLogin<L>, PlatformError.PlatformError, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const text = yield* fs.readFileString(`${directory}/${servedPath(login.name)}`)
+		return served<L>(trustedJson<unknown>(text), login.name)
+	})
+
+/**
+ * The served file `grizzle generate` wrote for `login` in the workspace `dir`, under the PostgreSQL schema `schema`'s
+ * directory (servedAt), and the DbLayer of it on the substrate's database as the login's own PostgreSQL role, with its
+ * password, the test pool and testVerify: what a deployment of the workspace runs.
+ */
+export const servedFromFile = <L extends AnyLogin>(
+	dir: string,
+	schema: string,
+	login: L
+): Effect.Effect<
+	ServedFromFile<L>,
+	PlatformError.PlatformError | SqlError,
+	FileSystem.FileSystem | Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const file = yield* servedAt(`${dir}/migrations/${schema}`, login)
+		const credentials = yield* substrate.login(roleNameOf(file))
+		return {
+			login: file,
+			layer: DbLayer.make({
+				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+				pool: clusterPool,
+				login: file,
+				verify: testVerify
+			})
+		}
+	})

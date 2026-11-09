@@ -20,12 +20,11 @@ import {
 import type { TestContext } from "vitest"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { defineConfig } from "#adapter/config/define.ts"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
+import { Db } from "#adapter/public/db.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { servedDirectory } from "#compiler/served/forms.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
@@ -39,16 +38,15 @@ import {
 	ownerOn,
 	resolvedConfig,
 	type SchemaSpec,
+	servedFromFile,
 	workspace,
 	writeConfig
 } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { loginLayerOf } from "#test/support/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -70,8 +68,8 @@ const nextNow = cliClock()
  * (its directory, snapshot and ledger):
  * - generate, check and migrate exit 0; each schema's ledger records exactly its own folders, complete, its latest
  *   target its own committed snapshot's; an Effect password is evaluated for the connection;
- * - Db.open admits each schema as its writer and its reader, through its login's layer given its committed
- *   snapshot.json, which records the login's workload, a write is accepted and read back;
+ * - Db.open admits each schema as its writer and its reader, through its login's served file generate wrote, served
+ *   as an application serves it, and the writer's served insert is accepted and the reader's served key reads it back;
  * - a second migrate exits 0 and changes no ledger.
  * When the role migrate connects as does not own the declared schemas, which exist, migrate exits 1 at the stage
  * owner (the typed refusal, in process) and nothing runs in any of them.
@@ -178,48 +176,47 @@ const runner = (executor: Executor, dir: string) => (argv: ReadonlyArray<string>
 		: Effect.map(bin(dir, argv, strayEnvironment), (r) => r.status)
 
 /**
- * A customer written as the writer and read back as the reader, through the login's layer given the committed
- * snapshot, for a shop or a ledger.
+ * A customer written as the writer and read back as the reader, through the login's served file generate wrote in the
+ * workspace `dir`, served and laid over the database as an application serves it (support.ts servedFromFile): the
+ * writer's `addCustomer` with the customer as its call's facts, then the reader's `customer` by its id, for a shop or a
+ * ledger.
  */
-const roundTrip = (name: string, fixture: Fixture, snapshot: string, n: number) =>
+const roundTrip = (dir: string, name: string, fixture: Fixture, n: number) =>
 	Effect.gen(function* () {
-		const committed = snapshotJson(snapshot)
 		if (fixture.fixture === "shop") {
-			const s = shopV1(name, fixture.workload)
-			const loginLayer = yield* loginLayerOf(s.server, committed)
+			const s = yield* servedFromFile(dir, name, shopV1(name, fixture.workload).server)
 			const outcome = yield* Effect.scoped(
-				Effect.flatMap(compiledOpen(s.server.roles.writer, {}), (db) =>
-					db.apply(ChangeSet.empty(s.schema).insert(s.Customer, [{ id: id(n), name: "ada" }]), {})
+				Effect.flatMap(Db.open(s.login.roles.writer, {}), (db) =>
+					db.workload.addCustomer.apply({ Customer: [{ id: id(n), name: "ada" }] }, {})
 				)
-			).pipe(withLayer(loginLayer))
+			).pipe(withLayer(s.layer))
 			assert.equal(outcome.kind, "accepted")
-			const rows = yield* Effect.scoped(
-				Effect.flatMap(compiledOpen(s.server.roles.reader, {}), (db) =>
-					Effect.flatMap(db.execute(s.customersByName, { name: "ada" }), (r) => r.collect)
+			const row = yield* Effect.scoped(
+				Effect.flatMap(Db.open(s.login.roles.reader, {}), (db) =>
+					db.workload.customer.get({ id: id(n) })
 				)
-			).pipe(withLayer(loginLayer))
+			).pipe(withLayer(s.layer))
 			assert.deepEqual(
-				Arr.map(rows, (r) => r.id),
-				[id(n)]
+				Option.map(row, (r) => r.id),
+				Option.some(id(n))
 			)
 			return
 		}
-		const l = ledger(name)
-		const loginLayer = yield* loginLayerOf(l.server, committed)
+		const l = yield* servedFromFile(dir, name, ledger(name).server)
 		const outcome = yield* Effect.scoped(
-			Effect.flatMap(compiledOpen(l.server.roles.writer, {}), (db) =>
-				db.apply(ChangeSet.empty(l.schema).insert(l.Customer, [{ id: id(n), name: "ada" }]), {})
+			Effect.flatMap(Db.open(l.login.roles.writer, {}), (db) =>
+				db.workload.addCustomer.apply({ Customer: [{ id: id(n), name: "ada" }] }, {})
 			)
-		).pipe(withLayer(loginLayer))
+		).pipe(withLayer(l.layer))
 		assert.equal(outcome.kind, "accepted")
-		const rows = yield* Effect.scoped(
-			Effect.flatMap(compiledOpen(l.server.roles.reader, {}), (db) =>
-				Effect.flatMap(db.execute(l.customersByName, { name: "ada" }), (r) => r.collect)
+		const row = yield* Effect.scoped(
+			Effect.flatMap(Db.open(l.login.roles.reader, {}), (db) =>
+				db.workload.customer.get({ id: id(n) })
 			)
-		).pipe(withLayer(loginLayer))
+		).pipe(withLayer(l.layer))
 		assert.deepEqual(
-			Arr.map(rows, (r) => r.id),
-			[id(n)]
+			Option.map(row, (r) => r.id),
+			Option.some(id(n))
 		)
 	})
 
@@ -341,12 +338,7 @@ const configurations = (ctx: TestContext) =>
 							assert.equal(state.partial, undefined, `${name}'s ledger records no partial folder`)
 							const files = yield* snapshotFilesOf(ws, name)
 							assert.equal(state.latest, succeeded(readSnapshot(files)).snapshot.fingerprint)
-							yield* roundTrip(
-								name,
-								defined(sketch.schemas[i], "the schema's fixture"),
-								files.snapshot,
-								i + 1
-							)
+							yield* roundTrip(ws, name, defined(sketch.schemas[i], "the schema's fixture"), i + 1)
 							ledgers.push(state)
 						}
 						const secondMigrateExit = yield* run(["migrate", configName])

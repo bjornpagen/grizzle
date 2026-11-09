@@ -1,3 +1,4 @@
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -64,7 +65,13 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
 		schema: s,
 		reader,
 		writer,
-		server: login(s, "server", [reader, writer], { workload: owned }),
+		server: login(s, "server", [reader, writer], {
+			workload: [
+				workload(s, { customer: Customer }),
+				workload(writer, { addCustomer: ChangeSet.empty(writer).insert(Customer, []) }),
+				...owned
+			]
+		}),
 		Customer,
 		Order,
 		customersByName,
@@ -107,7 +114,13 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
 		schema: s,
 		reader,
 		writer,
-		server: login(s, "server", [reader, writer], { workload: owned }),
+		server: login(s, "server", [reader, writer], {
+			workload: [
+				workload(s, { customer: Customer }),
+				workload(writer, { addCustomer: ChangeSet.empty(writer).insert(Customer, []) }),
+				...owned
+			]
+		}),
 		Customer,
 		Order,
 		customersByName,
@@ -129,6 +142,11 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
  * access path; Order references Customer. Version 2 adds Customer.tier, a field that needs a reviewer's value for the
  * existing rows. The full workload looks customers up by name, which drafts `customer__ix__name`; its
  * ordersOf program is a lookup the foreign key's own index already serves.
+ *
+ * Besides the programs its configuration names, every fixture's login serves the round trip the CLI suites make through
+ * the served file `grizzle generate` writes: `customer`, a customer by its id, on every role, and `addCustomer`, the
+ * writer's insert of the customers each call supplies. A key on the primary key and an insert draft no index, so they
+ * change no folder a configuration drafts.
  *
  * And a ledger (`ledger`), whose generate output needs what a plain shop's does not. Payment's plan selects one of two
  * arm relations through `alternatives`, whose forward and reverse containments are native foreign keys, the reverse
@@ -204,7 +222,11 @@ export const ledger = (name: string) => {
 		writer,
 		refresher,
 		server: login(s, "server", [reader, writer, refresher], {
-			workload: [workload(s, { customersByName, frequentSpenders })]
+			workload: [
+				workload(s, { customer: Customer }),
+				workload(writer, { addCustomer: ChangeSet.empty(writer).insert(Customer, []) }),
+				workload(s, { customersByName, frequentSpenders })
+			]
 		}),
 		Customer,
 		Payment,

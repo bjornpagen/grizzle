@@ -33,7 +33,6 @@ import {
 	Struct
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
-import { compiledOpen } from "#adapter/db/open.ts"
 import {
 	type OpenError,
 	type ReadError,
@@ -42,7 +41,8 @@ import {
 } from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer } from "#adapter/public/layer.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
@@ -57,6 +57,7 @@ import {
 	cliClock,
 	configName,
 	ownerOn,
+	servedAt,
 	workspace,
 	writeConfig,
 	wrongPassword
@@ -67,7 +68,6 @@ import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -103,8 +103,9 @@ const nextNow = cliClock()
  * - `grizzle generate --custom` with a data step, failing or not, and the fix of a failing one;
  * - tampering, undone after: snapshot.json or meta.json made unreadable or off the chain (check, migrate and generate
  *   all refuse, nothing written or run), or an applied file edited (migrate refuses, nothing run);
- * - Db.open against the committed snapshot: its first read answers exactly when every folder up to the last generated
- *   one is applied, a custom folder after it keeping the snapshot's target;
+ * - Db.open against the committed snapshot: through the login's served file generate wrote, its first read answers
+ *   exactly when every folder up to the last generated one is applied, a custom folder after it keeping the snapshot's
+ *   target;
  * - `grizzle migrate` with a wrong password: refused at its connection, nothing run;
  * - scenarios, each a step drawn with the steps that make it reachable: a workload program removed, a placeholder
  *   reviewed, a folder resumed after its failing data step was fixed, a first call answering on a database fully
@@ -709,7 +710,8 @@ const runTamper = (r: Workspace, kind: TamperKind, model: Model) =>
 	})
 
 /**
- * A Db opened against the committed snapshot and its first call, a read: Db.open contacts nothing, so it always opens,
+ * A Db opened through the login's served file generate wrote, under the committed snapshot's fingerprint, and its first
+ * call, the served key's read: Db.open contacts nothing, so it always opens,
  * and the read answers once the ledger's latest complete target is the snapshot, whichever folders are still pending.
  * The first migration creates the login's role: before it there is no role to log in as, and the read's connection is
  * refused at stage acquire whatever its password. Both versions' login is one login, `server`. A pending folder leaves
@@ -719,7 +721,6 @@ const runOpen = (r: Workspace, model: Model) =>
 	Effect.gen(function* () {
 		const answers = atSnapshot(model)
 		r.c.note(answers ? "a first call answers" : "a first call is refused")
-		const snapshot = yield* readText(`${schemaDir(r)}/snapshot.json`)
 		/** The configuration the committed snapshot was generated from: its schema value, its login's workload. */
 		const generated = defined(
 			model.generated,
@@ -733,27 +734,28 @@ const runOpen = (r: Workspace, model: Model) =>
 		const connection = {
 			...clusterConnection(substrate.cluster, substrate.database, password),
 			pool: clusterPool,
-			snapshot: snapshotJson(snapshot),
 			verify: testVerify
 		}
-		/** Opened as the reader of that schema value, through its login's layer given the committed snapshot, and read. */
+		const servedV2 = yield* servedAt(schemaDir(r), v2.server)
+		const servedV1 = yield* servedAt(schemaDir(r), v1.server)
+		/** Opened as the reader of that schema value, through its login's served file generate wrote, and read. */
 		const read: Effect.Effect<unknown, OpenError | ReadError> =
 			generated.version === 2
 				? withLayer(
 						Effect.scoped(
-							Effect.flatMap(compiledOpen(v2.server.roles.reader, {}), (db) =>
-								db.get(v2.Customer, { id: id(1) })
+							Effect.flatMap(Db.open(servedV2.roles.reader, {}), (db) =>
+								db.workload.customer.get({ id: id(1) })
 							)
 						),
-						compiledDbLayer({ ...connection, login: v2.server })
+						DbLayer.make({ ...connection, login: servedV2 })
 					)
 				: withLayer(
 						Effect.scoped(
-							Effect.flatMap(compiledOpen(v1.server.roles.reader, {}), (db) =>
-								db.get(v1.Customer, { id: id(1) })
+							Effect.flatMap(Db.open(servedV1.roles.reader, {}), (db) =>
+								db.workload.customer.get({ id: id(1) })
 							)
 						),
-						compiledDbLayer({ ...connection, login: v1.server })
+						DbLayer.make({ ...connection, login: servedV1 })
 					)
 		const answered = yield* Effect.result(read)
 		if (answers) {

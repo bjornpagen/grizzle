@@ -43,8 +43,9 @@ import { caseHang } from "#test/support/limits.ts"
  * differs, named with the first program where it parts, one missing, and one of a login the configuration does not
  * list), each a finding of its own naming the login.
  *
- * A case takes the committed directory of one schema's first draft, whose login serves two programs on each of two
- * roles, and plants one fault (Plant): the SQL of a nonempty set of its programs edited, each at a drawn place by a drawn
+ * A case takes the committed directory of one schema's first draft, whose login serves reads, a key and a ChangeSet over
+ * its two roles (the CLI fixture's shop, test/pg/cli/fixture.ts), and plants one fault (Plant): the SQL of a nonempty
+ * set of its programs that state SQL edited, each at a drawn place by a drawn
  * character; its file deleted; or a stray file beside it, of a drawn login name the configuration does not list. The
  * oracle is the first draft: check passes on it as generate wrote it, so a login compiles to the same bytes from the
  * drafted snapshot and from the committed one; after the plant, check finds exactly the plant's one finding, at the
@@ -135,18 +136,31 @@ const firstSql = (
 	return undefined
 }
 
-/** Every program of a served file's JSON form, in the file's order: its roles', each role's programs in order. */
+/** The name a served file's role or program records, which generate always writes as text. */
+const nameOf = (record: unknown, what: string): string => {
+	const name = isRecord(record) ? record["name"] : undefined
+	return typeof name === "string" ? name : assert.fail(`${what} records its name`)
+}
+
+/**
+ * Every program of a served file's JSON form that states SQL under a member named `sql`, in the file's order: its roles',
+ * each role's programs in order.
+ */
 const programsOf = (file: Json): ReadonlyArray<Program> => {
 	const roles = isRecord(file) ? file["roles"] : undefined
 	return Arr.flatMap(isList(roles) ? roles : [], (role, i) => {
 		const members = isRecord(role) ? role["members"] : undefined
-		return Arr.map(isList(members) ? members : [], (member, j): Program => {
-			const path = ["roles", i, "members", j]
-			return {
-				role: String(isRecord(role) ? role["name"] : ""),
-				program: String(isRecord(member) ? member["name"] : ""),
-				sql: defined(firstSql(member, path), `program ${j} of role ${i} states its SQL`)
-			}
+		return Arr.flatMap(isList(members) ? members : [], (member, j): ReadonlyArray<Program> => {
+			const sql = firstSql(member, ["roles", i, "members", j])
+			return sql === undefined
+				? []
+				: [
+						{
+							role: nameOf(role, `role ${i}`),
+							program: nameOf(member, `program ${j} of role ${i}`),
+							sql
+						}
+					]
 		})
 	})
 }

@@ -17,8 +17,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { Db } from "#adapter/public/db.ts"
 import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -35,17 +34,22 @@ import {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
+import {
+	cliOver,
+	configName,
+	connectionOf,
+	ownerOn,
+	servedFromFile,
+	workspace
+} from "#test/pg/cli/support.ts"
 import { assert, throwsRefused } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { rolePrefix } from "#test/support/substrate/names.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { testVerify, tokenOf } from "#test/support/worlds.ts"
+import { tokenOf } from "#test/support/worlds.ts"
 
 /**
  * On PostgreSQL 19: a login's and its roles' PostgreSQL roles and schemas as the installation names them, at the
@@ -64,8 +68,8 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
  *   connection, applies it; the installed schema is the allocation; the roles the catalog holds under the allocation
  *   are exactly roleNameOf of the login, which alone logs in, and of every role, and the schemas it holds there exactly
- *   schemaNameOf of every role; and Db.open of every role, its layer given the committed snapshot and the password of
- *   roleNameOf of the login, logs in and is admitted;
+ *   schemaNameOf of every role; and Db.open of every role, its layer given the served file generate wrote and the
+ *   password of roleNameOf of the login, logs in and is admitted;
  * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
  *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
  */
@@ -233,7 +237,6 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				const ran = yield* run(command)
 				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
 			}
-			const text = yield* fs.readFileString(`${dir}/migrations/${allocated}/snapshot.json`)
 			const catalog = yield* readCatalog(substrate.admin, [allocated])
 			assert.equal(catalog.kind, "present", `the schema is installed as ${allocated}`)
 			const loginRole = roleNameOf(world.login)
@@ -270,16 +273,9 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				Arr.sort(Arr.map(world.roles, schemaNameOf), Order.String),
 				"schemaNameOf names every role's schema the installation holds, and only those"
 			)
-			const credentials = yield* substrate.login(loginRole)
-			const dbLayer = compiledDbLayer({
-				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
-				pool: clusterPool,
-				login: world.login,
-				snapshot: snapshotJson(text),
-				verify: testVerify
-			})
-			for (const r of Rec.values(world.login.roles)) {
-				yield* Effect.scoped(compiledOpen(r, { token: tokenOf({}) })).pipe(withLayer(dbLayer))
+			const servedLogin = yield* servedFromFile(dir, allocated, world.login)
+			for (const r of Rec.values(servedLogin.login.roles)) {
+				yield* Effect.scoped(Db.open(r, { token: tokenOf({}) })).pipe(withLayer(servedLogin.layer))
 			}
 		})
 	)
