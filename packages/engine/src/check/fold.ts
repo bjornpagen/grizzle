@@ -18,7 +18,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
- * A fold's typing (fin.md §4.3, w4-w7 §2.3): what `fold(family, Monoid.m, step, end)` names, resolved to its fields.
+ * A fold's typing: what `fold(family, Monoid.m, step, end)` names, resolved to its fields.
  * The theory resolves the statement's sides to these fields (analysis/theory); this rule says whether their types and
  * writings are the monoid's.
  */
@@ -121,7 +121,7 @@ const one: ExprDesc = { kind: "literal", value: 1n, type: undefined }
 /**
  * Why the CHECK that proves a fold's after over a plane of type `plane` is no total predicate, as the refusal's
  * sentence, or undefined when it is one: every after, named or hidden, is a drawn law column the host fills, proved by
- * `(after = combine(befores, x)) IS TRUE` (fin.md §4.3), typed in "check" mode as a row check is, each before, after
+ * `(after = combine(befores, x)) IS TRUE`, typed in "check" mode as a row check is, each before, after
  * and x a column of the plane's type with no text refinement (scalar.ts enteredType), which each of them refines on its
  * own. The comparison widens both sides into exact arithmetic where the combine computes
  * there (count's and sum's `+`), so nothing narrows; the combine applies Compute's operations (ir/monoid.ts CombineFn),

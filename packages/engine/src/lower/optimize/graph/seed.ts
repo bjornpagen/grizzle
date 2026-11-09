@@ -37,7 +37,7 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
  *
  * Each conjunct reads R's columns or its region variables and parameters, nothing correlated; and every column it reads must be
  * carried, so the predicate on the seed is the predicate on the state: a predicate over carried columns is a function
- * of their values, since no reading grizzle emits sees more than a value (I2, registry.ts OperandReading). R must be read only by the site's node, through one data input (a region
+ * of their values, since no reading grizzle emits sees more than a value (registry.ts OperandReading). R must be read only by the site's node, through one data input (a region
  * matching R twice reads it twice, DagEditor.readers), so restricting R changes no other consumer; it is never a
  * root, never on another recursion's step (the frame skips the feedback region), and its feedback is positive and
  * linear. The predicate is added to R's base as a filter and also stays where it was: the consumer's predicate is then

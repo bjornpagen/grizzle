@@ -307,7 +307,7 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 /**
  * A native call's operands as PostgreSQL must read them (registry.ts OperandReading): as they are for an overload that
  * reads values, and each through trim_scale for one that reads the display scale, so the scale it reads is the value's
- * least and its result a function of the operands' values (I2).
+ * least and its result a function of the operands' values.
  */
 const operandsAsRead = (reads: OperandReading, args: ReadonlyArray<Expr>): ReadonlyArray<Expr> => {
 	switch (reads) {

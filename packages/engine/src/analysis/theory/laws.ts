@@ -134,7 +134,7 @@ export type StatedDetail =
 	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds"> }
 
 /**
- * Where a containment lowers: to its own native, or onto the axis of a family it rides (§2.1), its pairs beyond the
+ * Where a containment lowers: to its own native, or onto the axis of a family it rides (families.ts ridesOf), its pairs beyond the
  * axis's key carried by that axis's foreign key and its law among the laws the foreign key states.
  */
 export type ContainmentLowering =
@@ -177,7 +177,7 @@ export type LawDetail =
 			readonly to: ResolvedSide
 			readonly pairs: NonEmptyReadonlyArray<ResolvedPair>
 			readonly pairing: ContainmentPairing
-			/** Its own native, or a family axis it rides (§2.1). */
+			/** Its own native, or a family axis it rides. */
 			readonly lowers: ContainmentLowering
 	  }
 	| { readonly kind: "family"; readonly family: Family }
@@ -319,13 +319,13 @@ export interface ContractUse {
  * - a containment: a source tuple with no matching target tuple, a pred term compared in numeric; one whose sides pair
  *   a span field is a coverage law: a source fact a point of whose span no target fact of its scalar group covers, evaluated
  *   against the maximal covered segments;
- * - an alternatives statement: its expansion's containments (fin.md §7), each a containment law;
- * - a family (fin.md §5.2): a member with no owner, and, ordered, two members at one slot, a slot at or past its owner's
+ * - an alternatives statement: its expansion's containments (desc.ts expandAlternatives), each a containment law;
+ * - a family: a member with no owner, and, ordered, two members at one slot, a slot at or past its owner's
  *   count, a slot above zero with no member below it, or a count above zero with no member at its last slot; counted,
  *   an owner whose count is not its number of members; each arm naming the owner;
- * - a tree (trees.md §2): its family's lemmas over every row but its root, and T0 to T6 with the root pin, each arm
+ * - a tree: its family's lemmas over every row but its root, and T0 to T6 with the root pin, each arm
  *   naming a row;
- * - a fold (fin.md §4.3): with its accumulators named, its copies, its combine and its identity pins; hidden, an owner
+ * - a fold: with its accumulators named, its copies, its combine and its identity pins; hidden, an owner
  *   whose end is not the monoid's aggregate of its members' step values; each arm naming the owner;
  * - a containment that rides a family axis and carries an accumulated column: besides, a base row of the axis whose
  *   copy is not its start, each arm naming the axis's group.
@@ -569,7 +569,7 @@ const holds = (f: LawField, h: string): ExprDesc => ({
 
 /**
  * A copy an axis carries whose source column is accumulated, pinned at the axis's base: its relation's rows where `at`
- * is 0 hold `start` in `field` (w4-w7 §2.3, OPEN-F2 (b)).
+ * is 0 hold `start` in `field`.
  */
 interface Pin {
 	readonly relation: RelationInfo
@@ -603,7 +603,7 @@ interface FamilySides {
 		| undefined
 }
 
-/** The sides a tree's own laws read beside its family's (trees.md T0 to T6). */
+/** The sides a tree's own laws read beside its family's, T0 to T6 (treeArms). */
 interface TreeSides {
 	/** T0: each member's root field in its parent's. */
 	readonly rootCopy: readonly [ResolvedSide, ResolvedSide]
@@ -858,7 +858,7 @@ export class Normalizer {
 	 */
 	families(statements: ReadonlyArray<OwnedStatement>): void {
 		/** Each member relation's sequence, an ordered family or a tree: the caller nests a sequence's members, so one
-		 * relation's rows are nested under at most one (rows-first §1). */
+		 * relation's rows are nested under at most one. */
 		const sequences = new Map<string, FamilyShape>()
 		for (const s of statements) {
 			if (s.kind !== "family" && s.kind !== "tree") {
@@ -894,7 +894,7 @@ export class Normalizer {
 	}
 
 	/**
-	 * One statement's laws. An alternatives statement's are its containments (fin.md §7, desc.ts expandAlternatives),
+	 * One statement's laws. An alternatives statement's are its containments (desc.ts expandAlternatives),
 	 * each a containment law of source `alternatives`, so a restated one is one law with both statements.
 	 */
 	statement(s: OwnedStatement, index: number): void {
@@ -1216,7 +1216,7 @@ export class Normalizer {
 		}
 	}
 
-	/** An ordered or counted family's law: its lemmas (fin.md §5.2), read over its fields. */
+	/** An ordered or counted family's law: its lemmas, read over its fields. */
 	#family(s: FamilyStatement, index: number): void {
 		const loc = s.loc
 		const f = this.#entry(s.slots, loc).shape
@@ -1242,7 +1242,7 @@ export class Normalizer {
 	}
 
 	/**
-	 * A tree's law (trees.md): its family's lemmas over its members, every row but its root, and T0 to T6 with the root
+	 * A tree's law: its family's lemmas over its members, every row but its root, and T0 to T6 with the root
 	 * pin. Its copies are its axes' pairs: ‹ps› → start and r → r on the owner axis (T3, T0), start → end on the
 	 * predecessor (T4), end → end on the last (T5).
 	 */
@@ -1386,7 +1386,7 @@ export class Normalizer {
 	}
 
 	/**
-	 * A fold over a family (fin.md §4.3): resolved by families.ts foldEntry, which refuses what check/fold.ts foldRule
+	 * A fold over a family: resolved by families.ts foldEntry, which refuses what check/fold.ts foldRule
 	 * refuses, and its proving CHECK typed by combineRule. Its copies are its family's axes' pairs, before ← after on the
 	 * predecessor axis and end ← after on the last, and it names its accumulators and ends.
 	 */
@@ -2555,7 +2555,7 @@ const pastCount = (
 }
 
 /**
- * A family's lemmas (fin.md §5.2) over its fields, each arm naming the owner whose family breaks:
+ * A family's lemmas over its fields, each arm naming the owner whose family breaks:
  *
  * - every member has an owner: F[g] ⊆ O[k];
  * - ordered: no two members share a slot, every slot is below its owner's count, the downward closure F(g, pred(i)) ⊆
@@ -2593,7 +2593,7 @@ const familyArms = (
 }
 
 /**
- * A tree's own laws beside its family's (trees.md T0 to T6), each arm naming a row of the tree: T0, each member's root
+ * A tree's own laws beside its family's, T0 to T6, each arm naming a row of the tree: T0, each member's root
  * field its parent's; T1, (r, start) a key; T2, the root pin and T6, row checks; T3, each first child's start one past
  * its parent's; T4, each later child's start its predecessor's end; T5, each parent's end its last child's end.
  */
@@ -2652,7 +2652,7 @@ const clashViolation = (
 }
 
 /**
- * A fold's law (fin.md §4.3), each arm naming the owner whose fold breaks:
+ * A fold's law, each arm naming the owner whose fold breaks:
  *
  * - accumulators named by its step side: each plane's before is its predecessor's after, and its identity at the first
  *   slot; each member's after is combine(before, x) where the step selects it and its before elsewhere; each owner's

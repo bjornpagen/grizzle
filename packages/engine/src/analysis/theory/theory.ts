@@ -115,7 +115,7 @@ interface ContainmentEvidence {
 	readonly to: EvidenceSide
 	readonly coverage: boolean
 	/**
-	 * What states it: a `contained` statement, or an alternatives statement's expansion (fin.md §7). attach reads only
+	 * What states it: a `contained` statement, or an alternatives statement's expansion (desc.ts expandAlternatives). attach reads only
 	 * declared containments.
 	 */
 	readonly statement: "contained" | "alternatives"

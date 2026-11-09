@@ -54,7 +54,7 @@ const roundedSum = (total: Expr, exact: ExactCarrier): Expr => {
 }
 
 /**
- * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (I2), over the count, rounded
+ * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (registry.ts OperandReading), over the count, rounded
  * once to double precision as IEEE 754 rounds.
  */
 const roundedMean = (total: Expr, count: Expr): Expr =>

@@ -37,12 +37,12 @@ import type {
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 
 /**
- * Families and their axes, as the theory resolves them (fin.md §4, w4-w7 §2.1 to §2.3, trees.md).
+ * Families and their axes, as the theory resolves them.
  *
  * A family or tree statement resolves to its shape: its owner, count, member, group, index, ‹n› and members, every one
  * a handle the checked schema typed. Each family has three axes, foreign keys every lemma, fold copy and tree law
  * rides: owner (member to owner), predecessor (member to the member one slot before it) and last (owner to its last
- * member). A containment rides an axis when its sides are the axis's ends (§2.1, `ridesOf`): its relation and selection
+ * member). A containment rides an axis when its sides are the axis's ends (`ridesOf`): its relation and selection
  * are the axis's source's and target's, and its terms begin with the axis's key terms, paired in order, a user's
  * pred(i) standing for the generated ‹p›. Its remaining pairs join the axis's carried pairs and its law joins the axis's
  * laws, so a tree, a fold or a merged copy adds no foreign key of its own. It is exact because an axis's target key
@@ -50,7 +50,7 @@ import { monoidSpecs } from "#compiler/ir/monoid.ts"
  *
  * Every drawn field is named by one family or tree statement, as its index, count, start or end, and every accumulated
  * field by one statement that fills it: a fold, as an accumulator or an end, or one containment riding an axis, as a
- * carried source column (OPEN-F2 (b)). `Namings` holds both counts; the theory refuses a field named by none or two.
+ * carried source column. `Namings` holds both counts; the theory refuses a field named by none or two.
  */
 
 /**
@@ -65,7 +65,7 @@ export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "
 /** A tree's members: every row but its root, its own columns beside them. */
 export type TreeMembers = { readonly kind: "tree" } & TreeShape
 
-/** A tree's family shape, its members the tree's (trees.md). */
+/** A tree's family shape, its members the tree's. */
 export type TreeFamilyShape = FamilyShape & { readonly members: TreeMembers }
 
 /** A tree's family, resolved (LawDetail's tree arm). */
@@ -174,7 +174,7 @@ const drawnField = (r: TheoryRelation, f: LawField, role: string, loc: SourceLoc
 
 /**
  * Each member group field with the owner key field it pairs with, in key order: the member side's first terms. The
- * group key is how a member names its owner (rows-first §1): a projection of the member's caller fields, one per owner
+ * group key is how a member names its owner: a projection of the member's caller fields, one per owner
  * key field; a field grizzle or PostgreSQL writes names no owner a caller chose. Each is of its key field's identity,
  * which the field classes hold (laws.ts Normalizer.familyPairings), refusing another at the family's statement.
  */
@@ -414,7 +414,7 @@ interface AxisEnd {
 	readonly key: NonEmptyReadonlyArray<TermDesc>
 }
 
-/** An axis's two ends (§2.1's table). */
+/** An axis's two ends. */
 interface AxisShape {
 	readonly axis: AxisKind
 	readonly source: AxisEnd
@@ -504,7 +504,7 @@ const atEnd = (f: FamilyShape, end: AxisEnd, side: RidingSide): boolean =>
 		: side.selection.conjuncts.length === 0)
 
 /**
- * The axis a containment rides (§2.1), or undefined when it rides none and keeps its own native: the first family, in
+ * The axis a containment rides, or undefined when it rides none and keeps its own native: the first family, in
  * the order the families were stated, and its first axis, whose source is the containment's left side and whose target
  * its right, whose key terms begin the containment's pairs in order, and after which every pair is of two fields. Every
  * axis that admits it is exact, so the first is chosen for determinism.
@@ -739,11 +739,11 @@ const endFields = (f: FamilyShape, end: SideDesc, loc: SourceLoc): ReadonlyArray
  * A fold statement over its family, resolved as the fold whose law is `law`: its step value, its accumulator pairs (the
  * fields the step side names, or hidden drawn law columns named by its law), its ends and each plane's identity. The
  * fold's typing is check/fold.ts foldRule's, refused here at the fold's statement: the step value, a commutative
- * monoid over a counted family, whose order is hidden (fin.md §4.2), no accumulator pair over a counted family, the pair
+ * monoid over a counted family, whose order is hidden, no accumulator pair over a counted family, the pair
  * and end counts, the accumulators' types and writings and their starts at the identity. A fold steps over its
  * family's member rows, each distinct by the member's primary key and by its (group, index) slot, never over a
- * projection of its step side, which names what each member contributes and not the set it ranges over (rows-first
- * §0): two members of one step value are two steps.
+ * projection of its step side, which names what each member contributes and not the set it ranges over: two members
+ * of one step value are two steps.
  */
 export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law">): FoldEntry => {
 	const loc = s.loc
