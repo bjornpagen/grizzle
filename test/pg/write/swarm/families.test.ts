@@ -407,6 +407,19 @@ const twoHopCopy = coreOf(
 	[{ family: 1, copy: 1 }]
 )
 
+/** A mutable owner R0 of a counted family of R1 whose members copy R0's `v` and the family's count along its owner
+ * axis, and whose sum fold steps the copy of `v`: a put of R0 refills the fold, and an append recounts the owner, whose
+ * count the stored members copy. */
+const copiedCount = coreOf(
+	[true, true],
+	[{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+	[
+		{ family: 0, axis: "owner", source: { kind: "caller" } },
+		{ family: 0, axis: "owner", source: { kind: "count", family: 0 } }
+	],
+	[{ family: 0, copy: 0 }]
+)
+
 /** A case over `spec` whose first insert of a drawn instance of at least `least` top rows per relation breaks a law
  * as `how` says: one top fact stated twice at its key, or a counted member naming no owner. */
 const brokenFirst =
@@ -1575,6 +1588,40 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted", "a follow-up refilling a value", "an ordered member deleted"]
+	},
+	{
+		note: "a put of an owner whose counted members copy its v, which their sum fold steps, beside a member appended under it, whose recount the stored members' copies of the count take: one member relation refilled from the owner's put and recounted by the append, both in the call's one flight",
+		sketch: {
+			spec: bare(copiedCount),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 1 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.some(5n),
+						inserted: [{ relation: 1, id: 4, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 2 }] }],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
 	}
 ]
 
