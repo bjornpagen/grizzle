@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -68,31 +68,41 @@ interface Requested {
 	readonly deleteB: ReadonlyArray<Fact>
 }
 
-const insertionsGen =
-	(stored: ReadonlyArray<Fact>): Gen<ReadonlyArray<Fact>> =>
-	(source) =>
-		Arr.map(
-			source.draw(
-				subarray(Arr.filter([1, 2, 3, 4], (id) => !Arr.some(stored, (f) => f.id === id)))
-			),
-			(id) => ({ id, ref: source.draw(int(1, 4)) })
-		)
+const minus = (xs: ReadonlyArray<Fact>, ys: ReadonlyArray<Fact>): ReadonlyArray<Fact> =>
+	Arr.filter(xs, (x) => !Arr.some(ys, (y) => y.id === x.id))
 
+/** The ids 1 to 4 no fact of `stored` holds: where an insertion may go. */
+const freeIds = (stored: ReadonlyArray<Fact>): ReadonlyArray<number> =>
+	Arr.filter([1, 2, 3, 4], (id) => !Arr.some(stored, (f) => f.id === id))
+
+/**
+ * A stored state and a ChangeSet over it: insertions at ids nobody stores, and deletions of stored facts. In the case's
+ * lawful arm each insertion references a key the other relation holds after the ChangeSet, its kept facts' or its
+ * insertions', so facts inserted together name each other; otherwise any id 1 to 4, keys nobody holds among them.
+ */
 const caseGen: Gen<readonly [Stored, Requested]> = (source) => {
 	const stored = source.draw(storedGen)
+	const deleteA = source.draw(subarray(stored.a))
+	const deleteB = source.draw(subarray(stored.b))
+	const idsA = source.draw(subarray(freeIds(stored.a)))
+	const idsB = source.draw(subarray(freeIds(stored.b)))
+	const lawful = source.draw(boolean)
+	const into = (kept: ReadonlyArray<Fact>, inserted: ReadonlyArray<number>): Gen<number> => {
+		const keys = [...Arr.map(kept, (f) => f.id), ...inserted]
+		return lawful && Arr.isReadonlyArrayNonEmpty(keys) ? element(keys) : int(1, 4)
+	}
+	const keyOfB = into(minus(stored.b, deleteB), idsB)
+	const keyOfA = into(minus(stored.a, deleteA), idsA)
 	return [
 		stored,
 		{
-			insertA: source.draw(insertionsGen(stored.a)),
-			insertB: source.draw(insertionsGen(stored.b)),
-			deleteA: source.draw(subarray(stored.a)),
-			deleteB: source.draw(subarray(stored.b))
+			insertA: Arr.map(idsA, (id) => ({ id, ref: source.draw(keyOfB) })),
+			insertB: Arr.map(idsB, (id) => ({ id, ref: source.draw(keyOfA) })),
+			deleteA,
+			deleteB
 		}
 	] as const
 }
-
-const minus = (xs: ReadonlyArray<Fact>, ys: ReadonlyArray<Fact>): ReadonlyArray<Fact> =>
-	Arr.filter(xs, (x) => !Arr.some(ys, (y) => y.id === x.id))
 
 /** The references of `from` without their target among `to`'s keys. */
 const dangling = (from: ReadonlyArray<Fact>, to: ReadonlyArray<Fact>): boolean =>
