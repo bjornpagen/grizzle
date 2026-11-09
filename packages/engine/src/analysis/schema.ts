@@ -48,6 +48,7 @@ import {
 import { closedCell, type DeclaredKey } from "#compiler/ir/rel.ts"
 import {
 	enteredType,
+	isRefined,
 	Roster,
 	type ScalarType,
 	sameScalarType,
@@ -722,7 +723,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * A roster's or a closed relation's reading. A roster is the closed relation whose one field `id` is a closed id of
 	 * itself, keyed by it, one row per handle in roster order. A closed relation's key is its declared key in key order,
 	 * its rows its declared rows in its key's text order, each value a literal of its field's type, its base proved where
-	 * the relation was admitted and its refinements judged here (#admittedCell).
+	 * the relation was admitted and its refinements judged here (#cells).
 	 * Its heading is its key fields, then its payload in canonical order; its theory rows list the same literals in
 	 * declared field order.
 	 */
@@ -737,13 +738,17 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		const heading: NonEmptyReadonlyArray<LawField> = [...primaryFields, ...payload]
 		const literals: ReadonlyArray<Readonly<Record<string, LiteralDesc>>> =
 			desc.kind === "closed" ? desc.handles.map((handle) => ({ id: handle })) : desc.rows
+		const readers = declared.map((f) => ({
+			field: f.name,
+			read: this.#cells(f.type, patterns, (row) => childLoc(loc, "rows", row, f.name))
+		}))
 		const rows = literals.map((row, i) =>
-			declared.map((f) => {
-				const value = row[f.name]
+			readers.map(({ field, read }) => {
+				const value = row[field]
 				if (value === undefined) {
-					return fail("MalformedDescription", loc, `row ${i} of ${name} with a value of ${f.name}`)
+					return fail("MalformedDescription", loc, `row ${i} of ${name} with a value of ${field}`)
 				}
-				return this.#admittedCell(value, f.type, childLoc(loc, "rows", i, f.name), patterns)
+				return read(value, i)
 			})
 		)
 		const relation: ClosedTheoryRelation = {
@@ -805,24 +810,26 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			),
 			"a slot's count is a field of its owner"
 		).type
+		const at = (row: number): SourceLoc => childLoc(owner.loc, "rows", row, slot.fin.count)
+		const countCell = this.#cells(countType, patterns, at)
+		const ownerCells = mapNonEmpty(fields, (f) => ({
+			field: f.field,
+			read: this.#cells(f.own.type, patterns, at)
+		}))
 		return {
 			field: slot.field,
 			fin: { relation: owner.name, count: slot.fin.count },
 			owner: mapNonEmpty(fields, (f) => f.own.name),
 			counts: owner.rows.map((row, i) => {
-				const at = childLoc(owner.loc, "rows", i, slot.fin.count)
-				const count = this.#admittedCell(
-					defined(row[slot.fin.count], "a row's count"),
-					countType,
-					at,
-					patterns
-				)
+				const count = countCell(defined(row[slot.fin.count], "a row's count"), i)
 				return {
-					owner: mapNonEmpty(fields, (f) =>
-						this.#admittedCell(defined(row[f.field], "a row's key value"), f.own.type, at, patterns)
+					owner: mapNonEmpty(ownerCells, (c) =>
+						c.read(defined(row[c.field], "a row's key value"), i)
 					),
 					count:
-						count.kind === "int" ? count.value : fail("MalformedDescription", at, "a natural count")
+						count.kind === "int"
+							? count.value
+							: fail("MalformedDescription", at(i), "a natural count")
 				}
 			})
 		}
@@ -908,22 +915,26 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	}
 
 	/**
-	 * A cell of a closed relation or a roster, each admitted (ir/desc.ts AdmittedClosedRelation, a roster's rows its own
-	 * handles): converted at its field's type and never held to the type's base again (scalar/compute/literal.ts
-	 * admittedLiteral). Only the type's refinements, a contract's predicate and a pattern, which only a schema reads, are
-	 * judged here (ContractLiteral).
+	 * The reader of a closed relation's or a roster's cells of type `type`, each admitted (ir/desc.ts
+	 * AdmittedClosedRelation, a roster's rows its own handles): converted at the type and never held to its base again
+	 * (scalar/compute/literal.ts admittedLiteral). Only the type's refinements, a contract's predicate and a pattern,
+	 * which only a schema reads, are judged here (ContractLiteral), so a type without one judges no cell, and a refused
+	 * cell is placed at `at` of its row, which no admitted cell spells.
 	 */
-	#admittedCell(
-		value: LiteralDesc,
+	#cells(
 		type: ScalarType,
-		loc: SourceLoc,
-		patterns: PatternAutomata
-	): TypedLiteral {
-		const judged = refined(admittedLiteral(value, type), type, patterns)
-		if (!judged.ok) {
-			return fail(judged.error.reason, loc, judged.error.capability)
+		patterns: PatternAutomata,
+		at: (row: number) => SourceLoc
+	): (value: LiteralDesc, row: number) => TypedLiteral {
+		if (!isRefined(type)) {
+			return (value) => admittedLiteral(value, type).literal
 		}
-		return judged.value.literal
+		return (value, row) => {
+			const judged = refined(admittedLiteral(value, type), type, patterns)
+			return judged.ok
+				? judged.value.literal
+				: fail(judged.error.reason, at(row), judged.error.capability)
+		}
 	}
 
 	/** Whether a literal is a value of `type`: one `literal` admits at it rather than refuses. */
