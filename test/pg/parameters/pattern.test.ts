@@ -3,7 +3,7 @@
  *
  * Notes declares Code, ^[a-z]{1,4}$, on a stored field and no field of Slug, ^[a-z]{1,8}$, so its installation holds a
  * domain of Code and none of Slug. A relation parameter's fields of each, and a scalar parameter of each, are delivered
- * as they are bound: a parameter's refinement travels with it, checked at bind as a stored column's domain checks it,
+ * as they are bound by the members of the full world's served workload that read them: a parameter's refinement travels with it, checked at bind as a stored column's domain checks it,
  * whether or not the installation holds its domain. The oracle restates each pattern over the drawn text: a case some
  * value of which is outside its pattern is refused at bind, EncodingFailure with reason refinedValue, before any SQL;
  * every other case delivers exactly the values it bound.
@@ -15,8 +15,8 @@ import { array, codePoint, element, type Gen, oneOf, string } from "@grizzle/tes
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { ReadFailure, type ReadError } from "#adapter/errors/execution.ts"
+import { Db } from "#adapter/public/db.ts"
 import { type CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -27,7 +27,6 @@ import { assert, bareRecord, nonEmpty, unorderedEqual } from "#test/support/asse
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A pattern no stored field of the schema declares, so the installation holds no domain of it. */
 const Slug = str.regex("^[a-z]{1,8}$", "u")
@@ -114,10 +113,10 @@ layer(Substrate.layer)(
 						const o = yield* installed(
 							Notes,
 							{ Note: [{ id: noteId, code: "abc" }] },
-							{ label: "real", extensions: [], programs: {} }
+							{ label: "real", extensions: [], programs: { echoed, tagged } }
 						)
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									suite: "parameters/pattern",
@@ -157,7 +156,7 @@ layer(Substrate.layer)(
 										> = k.via === "relation"
 											? yield* Effect.result(
 													Effect.flatMap(
-														db.execute(echoed, {
+														db.workload.echoed.execute({
 															rows: Arr.map(rows, (b, n) => ({ slug: b.slug, code: b.code, n }))
 														}),
 														(result) => result.collect
@@ -165,7 +164,7 @@ layer(Substrate.layer)(
 												)
 											: yield* Effect.result(
 													Effect.flatMap(
-														db.execute(tagged, {
+														db.workload.tagged.execute({
 															slug: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).slug,
 															code: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).code
 														}),
@@ -205,7 +204,7 @@ layer(Substrate.layer)(
 										c.note(`${k.via} delivered`)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+						}).pipe(Effect.scoped, withLayer(o.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)
