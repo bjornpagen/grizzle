@@ -9,8 +9,19 @@ export { cursorError } from "#compiler/codec/cursor/fault.ts"
 export { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 export { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 export { scalarReader } from "#compiler/codec/read.ts"
-export { columnLiteral, normalArray, parameterNormalizer, positionalColumns } from "#compiler/codec/recordset.ts"
-export { carrierSpecOf, countParam, paramEncoder, scalarCodec, textParam } from "#compiler/codec/scalar.ts"
+export {
+	columnLiteral,
+	normalArray,
+	parameterNormalizer,
+	positionalColumns
+} from "#compiler/codec/recordset.ts"
+export {
+	carrierSpecOf,
+	countParam,
+	paramEncoder,
+	scalarCodec,
+	textParam
+} from "#compiler/codec/scalar.ts"
 export { nominal } from "#compiler/core/brand.ts"
 export { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 export { outputTextOf, rowCell, rowText } from "#compiler/core/decoder.ts"
@@ -19,7 +30,12 @@ export { noOpaque, readsAsData } from "#compiler/core/host.ts"
 export { admittedIdentifier } from "#compiler/core/identity.ts"
 export { SchemaFingerprint } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
-export { flightMaxBytes, maxStringLength, messageMaxBytes, published } from "#compiler/core/limits.ts"
+export {
+	flightMaxBytes,
+	maxStringLength,
+	messageMaxBytes,
+	published
+} from "#compiler/core/limits.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { builtMark } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
