@@ -78,7 +78,8 @@ import {
 	type RoleSamples,
 	sampleRole,
 	updatesInPlace,
-	writesOf
+	writesOf,
+	writtenInPlace
 } from "#bench/write/support/writes.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -306,13 +307,21 @@ const showRead = (r: StoredRead): string =>
 	`statement ${r.statement}: ${r.node.nodeType} on ${r.relation}${Option.match(r.node.index, { onNone: () => "", onSome: (index) => ` using ${index}` })}${r.bounded ? "" : " (unbounded)"}`
 
 /**
- * The put of Work a claim program makes, by its steps: a displacing DELETE then the put's INSERT, and nothing that
- * updates Work in place.
+ * The put of Work a claim program makes where Work is immutable, by its steps: a displacing DELETE then the put's
+ * INSERT, and nothing that updates Work in place.
  */
 const putsWorkAsPair = (statements: ReadonlyArray<ObservedStatement>): boolean => {
 	const writes = writesOf(statements, QueueWork.name)
 	return writes.length === 2 && displacedThenInserted(writes) && !Arr.some(writes, updatesInPlace)
 }
+
+/**
+ * The put of Work a claim program makes where Work is mutable, by its steps: one UPDATE in place. Work's UNIQUE (key,
+ * standing), which the alternatives' arms reference, compares its whole primary key, so no update of one fact meets
+ * it, and nothing else would make the put the pair.
+ */
+const putsWorkInPlace = (statements: ReadonlyArray<ObservedStatement>): boolean =>
+	writtenInPlace(writesOf(statements, QueueWork.name))
 
 /** No two accepted claims of one installation leased the same (key, epoch), and there was at least one. */
 const distinctLeases = (
@@ -1315,8 +1324,8 @@ export default defineGate({
 			const queue: VerdictInput = {
 				checks: [
 					mechanism(
-						"the claim's put of Work is the displacing DELETE then the put's INSERT in both declarations (Work's UNIQUE (key, standing))",
-						putsWorkAsPair(claimStatements) && putsWorkAsPair(groupB.claimStatements),
+						"the claim's put of Work is one UPDATE in place where Work is mutable, and the displacing DELETE then the put's INSERT where it is immutable",
+						putsWorkInPlace(claimStatements) && putsWorkAsPair(groupB.claimStatements),
 						`${Arr.join(Arr.map(writesOf(claimStatements, QueueWork.name), labelText), ", ")} | ${Arr.join(Arr.map(writesOf(groupB.claimStatements, QueueWork.name), labelText), ", ")}`
 					),
 					mechanism(
