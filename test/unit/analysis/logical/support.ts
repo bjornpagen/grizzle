@@ -6,6 +6,7 @@ import {
 	type Theory,
 	theoryEvidence
 } from "#compiler/analysis/theory/theory.ts"
+import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -47,11 +48,22 @@ import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
 /** No containment into an open relation proved immediate: every one holds in lawful committed snapshots. */
 export const noImmediate: ReadonlySet<LawId> = new Set()
 
+/** A theory as the logical tests read it: its laws' evidence, and their violation queries, by which the reference
+ * evaluator reads each law's meaning. */
+export interface TestTheory extends EvidencedTheory {
+	readonly violations: TheoryViolations
+}
+
 /** The theory of a schema with its laws' evidence, a containment into an open relation immediate exactly when the test
- * names it among `immediate`, as law specialization would prove it. */
-export const theoryUnder = (desc: SchemaDesc, immediate: ReadonlySet<LawId>): EvidencedTheory => {
-	const t = succeeded(theoryResultOf(desc))
-	return Object.freeze({ ...t, evidence: theoryEvidence(t.laws, immediate) })
+ * names it among `immediate`, as law specialization would prove it, and its laws' violation queries. */
+export const theoryUnder = (desc: SchemaDesc, immediate: ReadonlySet<LawId>): TestTheory => {
+	const checked = succeeded(Result.flatMap(ownedInput(desc), checkedSchema))
+	const t = succeeded(buildTheory(checked))
+	return Object.freeze({
+		...t,
+		evidence: theoryEvidence(t.laws, immediate),
+		violations: succeeded(theoryViolations(checked))
+	})
 }
 
 /** The theory of a schema, or its first refusal. */
@@ -103,10 +115,10 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
 
 /** The violating witnesses of every law over `facts`, by law id, as JSON-ish rows. */
 const violations = (
-	t: Theory,
+	t: TestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> => {
-	const ref = Reference.of(t.dag, {
+	const ref = Reference.of(t.violations.dag, {
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),
 		params: {},
@@ -114,7 +126,7 @@ const violations = (
 	})
 	return new Map(
 		Arr.map(t.laws, (law) => {
-			const forbid = law.violation
+			const forbid = defined(t.violations.forbids.get(law.id), `${law.id}'s violation query`)
 			assert.ok(forbid.kind === "Forbid", `${law.id} names a Forbid node`)
 			const rows = ref.eval(forbid.violation, noBindings).rows
 			return [
@@ -129,7 +141,7 @@ const violations = (
 
 /** The nonempty violations only. */
 export const violated = (
-	t: Theory,
+	t: TestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> =>
 	new Map(Arr.filter([...violations(t, facts)], ([, rows]) => rows.length > 0))

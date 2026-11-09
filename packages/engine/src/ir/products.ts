@@ -164,7 +164,8 @@ export interface CheckedTheory {
 	readonly classes: ReadonlyArray<CompatibilityClass>
 	readonly laws: ReadonlyArray<NormalizedLaw>
 	readonly lowerings: Readonly<Record<LawId, LawLowering>>
-	/** The violation queries the laws name, in one DAG. */
+	/** The nodes and expressions the theory and its law model lower, in one DAG: no law's violation query, which only
+	 * analysis/theory/violations.ts writes. */
 	readonly dag: ValidDag
 	/** Relation dependencies: each relation and the relations its laws read. */
 	readonly dependencies: Readonly<Record<string, ReadonlyArray<string>>>

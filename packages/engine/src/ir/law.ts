@@ -6,7 +6,7 @@ import type { Direction } from "#compiler/core/order.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { DeclaredKey, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
+import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	isSpanCarrier,
 	type RegexRef,
@@ -217,11 +217,11 @@ export interface LawSource {
 /**
  * Laws: the normalized law node and its native objects.
  *
- * Every law is one IR node, a violation query that must be empty (rel.ts Forbid); the public constructors produce its
- * recognized shapes. A NormalizedLaw records one recognized obligation with its source identity, and the law model
- * lowers it to native objects alone (LawLowering): keys, foreign keys, table CHECKs, domains and a family's drawn
- * columns, which PostgreSQL enforces on every statement or at commit. A law over closed relations alone is checked once,
- * by its violation query, in the migration that installs it.
+ * Every law means a violation query that must be empty (rel.ts Forbid, analysis/theory/violations.ts); the public
+ * constructors produce its recognized shapes. A NormalizedLaw records one recognized obligation with its source
+ * identity, and the law model lowers it to native objects alone (LawLowering): keys, foreign keys, table CHECKs, domains
+ * and a family's drawn columns, which PostgreSQL enforces on every statement or at commit. A law over closed relations
+ * alone is checked once, by its violation query, in the migration that installs it.
  */
 export interface NormalizedLaw {
 	readonly id: LawId
@@ -229,8 +229,6 @@ export interface NormalizedLaw {
 	readonly shape: LawShape
 	/** The relations its violation query reads, which the theory's relation dependency graph joins. */
 	readonly reads: ReadonlyArray<string>
-	/** The Forbid node whose violation query must be empty, a node of the theory's DAG. */
-	readonly violation: RelNode
 	/**
 	 * Where the law is declared: its first declaring statement's location, or for a law no statement declares, the
 	 * relation of its primary key or its contract.

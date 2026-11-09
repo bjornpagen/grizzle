@@ -4,7 +4,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -253,7 +252,7 @@ const treeSchema: SchemaDesc = schemaOf(
 )
 
 describe("a tree's law", () => {
-	const t: Theory = theoryOf(treeSchema)
+	const t = theoryOf(treeSchema)
 	it.effect(
 		"is violated exactly when the rows of some r are no one tree with pre-order intervals",
 		(ctx) =>

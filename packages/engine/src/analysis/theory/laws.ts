@@ -343,8 +343,9 @@ export interface TheoryLaw extends NormalizedLaw {
 	readonly detail: LawDetail
 }
 
-/** What a law's identity is computed from: everything but its id and its violation node, its detail as stated. */
-export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "violation" | "loc" | "detail"> & {
+/** What a law's identity is computed from: everything but its id, its location and its detail as written, its detail as
+ * stated. */
+export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "loc" | "detail"> & {
 	readonly detail: StatedDetail
 }
 
@@ -355,8 +356,8 @@ interface StatementSource {
 }
 
 /**
- * A law before it has an identity: its record but its statements, the statements it comes from, and how to write its
- * violation query.
+ * A law before it has an identity: its record but its statements, the statements it comes from, and how its detail and
+ * its violation query are written.
  */
 interface LawDraft {
 	readonly identity: Omit<LawIdentity, "statements">
@@ -365,39 +366,49 @@ interface LawDraft {
 }
 
 /**
- * How a law's violation query is written: in the theory's builder, or, for a rule over a query, as a query description
- * the checker reads (analysis/theory/query.ts violationQuery), which the theory merges into its DAG.
+ * How a law is written: in the theory's builder, its detail as the theory carries it (theory.ts buildTheory) apart from
+ * its violation query, which only the violation queries' writer writes (violations.ts); or, for a rule over a query, as
+ * a query description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits and the
+ * violation queries' writer merges into its DAG.
  */
 type LawWriting =
-	| { readonly kind: "built"; readonly write: (b: ViolationBuilder) => WrittenLaw }
+	| {
+			readonly kind: "built"
+			readonly detail: (b: ViolationBuilder) => WrittenDetail
+			readonly violation: (b: ViolationBuilder) => RelNode
+	  }
 	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: RuleDetail }
 
 /** A rule over a query's detail. */
 type RuleDetail = Extract<LawDetail, { readonly kind: "rule" }>
 
-/** A law's violation query as written, and its detail as the theory law carries it: a row check's with its predicate
- * as the query lowers it, any other law's as stated. */
-interface WrittenLaw {
-	readonly violation: RelNode
+/**
+ * A law's detail as the theory law carries it, and the nodes of the theory's DAG it lowered: a row check's with its
+ * predicate lowered over a scan of its row, which `roots` reads; a family's and a tree's resolved; any other law's as
+ * stated, lowering nothing.
+ */
+export interface WrittenDetail {
 	readonly detail: LawDetail
+	readonly roots: ReadonlyArray<RelNode>
 }
 
-/** A draft whose detail its violation query leaves as stated: every law but a row check. */
+/** A draft whose detail is as stated: every law but a row check, a family and a tree. */
 interface StatedDraft {
 	readonly identity: Omit<LawIdentity, "statements" | "detail"> & {
-		readonly detail: Exclude<LawDetail, { readonly kind: "check" }>
+		readonly detail: Exclude<LawDetail, { readonly kind: "check" | "family" | "tree" }>
 	}
 	readonly sources: ReadonlyArray<StatementSource>
 	readonly violation: (b: ViolationBuilder) => RelNode
 }
 
-/** A stated draft as a law draft: its violation written, its detail as stated. */
+/** A stated draft as a law draft: its detail as stated, its violation written when asked. */
 const lawDraft = (draft: StatedDraft): LawDraft => ({
 	identity: draft.identity,
 	sources: draft.sources,
 	write: {
 		kind: "built",
-		write: (b) => ({ violation: draft.violation(b), detail: draft.identity.detail })
+		detail: () => ({ detail: draft.identity.detail, roots: [] }),
+		violation: draft.violation
 	}
 })
 
@@ -430,9 +441,21 @@ export interface PrimaryKeyKept {
 	readonly kept: KeptLaw
 }
 
-/** A row check's violation query, and its predicate as the query lowers it. */
-interface CheckViolation {
-	readonly violation: RelNode
+/** A fold's nonempty step selection, lowered over a scan of its member's row, which `region` is. */
+interface FoldSelection {
+	readonly region: RelNode
+	readonly where: NonEmptyReadonlyArray<ScalarExpr>
+}
+
+/** The families resolved (Normalizer.resolve), with each fold's nonempty step selection and its scan. */
+export interface ResolvedFamilies {
+	readonly families: ReadonlyArray<Family>
+	readonly selections: ReadonlyArray<FoldSelection>
+}
+
+/** A row check's predicate lowered over a scan of its relation's row, which `region` is. */
+interface CheckPredicate {
+	readonly region: RelNode
 	readonly predicate: ScalarExpr
 }
 
@@ -977,13 +1000,14 @@ export class Normalizer {
 						sources,
 						write: {
 							kind: "built",
-							write: (b) => {
-								const written = checkViolation(b, this.env, r, s.predicate, loc)
+							detail: (b) => {
+								const lowered = checkPredicate(b, this.env, r, s.predicate, loc)
 								return {
-									violation: written.violation,
-									detail: { ...stated, lowered: written.predicate }
+									detail: { ...stated, lowered: lowered.predicate },
+									roots: [b.project(lowered.region, [["check", lowered.predicate]])]
 								}
-							}
+							},
+							violation: (b) => checkViolation(b, this.env, r, s.predicate, loc)
 						}
 					},
 					loc,
@@ -1241,10 +1265,11 @@ export class Normalizer {
 				sources: [{ index, loc }],
 				write: {
 					kind: "built",
-					write: (b) => ({
-						violation: b.union(familyArms(b, this.env, sides, loc)),
-						detail: { kind: "family", family: this.#resolvedFamily(f.id) }
-					})
+					detail: () => ({
+						detail: { kind: "family", family: this.#resolvedFamily(f.id) },
+						roots: []
+					}),
+					violation: (b) => b.union(familyArms(b, this.env, sides, loc))
 				}
 			},
 			loc,
@@ -1345,19 +1370,21 @@ export class Normalizer {
 				sources: [{ index, loc }],
 				write: {
 					kind: "built",
-					write: (b) => {
+					detail: () => {
 						const resolved = this.#resolvedFamily(f.id)
 						if (resolved.members.kind !== "tree") {
 							throw defect("a tree's resolved family keeps its tree members")
 						}
 						return {
-							violation: b.union([
-								...familyArms(b, this.env, sides, loc),
-								...treeArms(b, this.env, sides.witness, f.member, tree, loc)
-							]),
-							detail: { kind: "tree", family: { ...resolved, members: resolved.members } }
+							detail: { kind: "tree", family: { ...resolved, members: resolved.members } },
+							roots: []
 						}
-					}
+					},
+					violation: (b) =>
+						b.union([
+							...familyArms(b, this.env, sides, loc),
+							...treeArms(b, this.env, sides.witness, f.member, tree, loc)
+						])
 				}
 			},
 			loc,
@@ -1712,20 +1739,26 @@ export class Normalizer {
 
 	/**
 	 * Every family resolved, in statement order: its axes' pairs complete, and each fold's step selection lowered into
-	 * the theory's DAG over a scan of the member's row, as a row check's predicate is. Called once, after `finish` and
-	 * before any law's violation is written, which reads the resolved families.
+	 * the theory's DAG over a scan of the member's row, as a row check's predicate is, each nonempty selection with its
+	 * scan. Called once, after `finish` and before any law's detail or violation is written, which read the resolved
+	 * families.
 	 */
-	resolve(b: ViolationBuilder): ReadonlyArray<Family> {
+	resolve(b: ViolationBuilder): ResolvedFamilies {
+		const selections: Array<FoldSelection> = []
 		const families = [...this.#families.values()].map((entry): Family => {
 			const shape = entry.shape
 			const folds = entry.folds.map((f): FamilyFold => {
 				const region = b.scan(shape.member, shape.member.fields, [])
+				const where = f.where.map((c) =>
+					lowerTotal(b, this.env, c, f.loc, rowLeaf(shape.member, region))
+				)
+				if (isNonEmpty(where)) {
+					selections.push({ region, where })
+				}
 				return Object.freeze({
 					law: f.law,
 					monoid: f.monoid,
-					where: Object.freeze(
-						f.where.map((c) => lowerTotal(b, this.env, c, f.loc, rowLeaf(shape.member, region)))
-					),
+					where: Object.freeze(where),
 					step: f.step,
 					planes: Object.freeze(mapNonEmpty(f.planes, (p) => Object.freeze({ ...p })))
 				})
@@ -1733,7 +1766,7 @@ export class Normalizer {
 			return Object.freeze({ ...shape, axes: entry.axes(), folds: Object.freeze(folds) })
 		})
 		this.#resolved = new Map(families.map((f) => [familyKey(f.id), f] as const))
-		return Object.freeze(families)
+		return { families: Object.freeze(families), selections }
 	}
 
 	/**
@@ -1916,6 +1949,18 @@ const differsElsewhere = (
 			return b.op("ne", [b.col(join.node, pair.left), b.col(join.node, pair.right)])
 		})
 
+/** A row check's predicate, lowered total over a scan of R's row. */
+const checkPredicate = (
+	b: ViolationBuilder,
+	env: NormalizeEnv,
+	r: TheoryRelation,
+	predicate: ExprDesc,
+	loc: SourceLoc
+): CheckPredicate => {
+	const region = b.scan(r, r.fields, [])
+	return { region, predicate: lowerTotal(b, env, predicate, loc, rowLeaf(r, region)) }
+}
+
 /** A row of R whose predicate is false; the witness is R's primary key. */
 const checkViolation = (
 	b: ViolationBuilder,
@@ -1923,17 +1968,13 @@ const checkViolation = (
 	r: TheoryRelation,
 	predicate: ExprDesc,
 	loc: SourceLoc
-): CheckViolation => {
-	const region = b.scan(r, r.fields, [])
-	const pred = lowerTotal(b, env, predicate, loc, rowLeaf(r, region))
-	const filtered = b.filter(region, b.not(pred))
-	return {
-		violation: b.project(
-			filtered,
-			mapNonEmpty(r.primaryFields, (f) => [f.name, b.col(filtered, f)] as const)
-		),
-		predicate: pred
-	}
+): RelNode => {
+	const lowered = checkPredicate(b, env, r, predicate, loc)
+	const filtered = b.filter(lowered.region, b.not(lowered.predicate))
+	return b.project(
+		filtered,
+		mapNonEmpty(r.primaryFields, (f) => [f.name, b.col(filtered, f)] as const)
+	)
 }
 
 const columnLeaf = (node: RelNode, c: HeadingColumn): ExprSpec => ({

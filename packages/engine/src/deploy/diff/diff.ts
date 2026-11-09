@@ -61,7 +61,7 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { migrationChecks, ruleChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { lawChecks, type MigrationCheck } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
@@ -792,7 +792,8 @@ class Differ {
 			})
 		}
 		this.sql("setup.drop", this.input.renames)
-		this.migrationChecks()
+		const checks = lawChecks(this.input.installation)
+		this.migrationChecks(checks.migrations)
 		this.dropWorlds()
 		this.dropViews()
 		this.dropReplaced()
@@ -801,7 +802,7 @@ class Differ {
 			this.visit(t)
 		}
 		this.backfill()
-		this.ruleChecks()
+		this.ruleChecks(checks.rules)
 		this.validations()
 		for (const p of this.previous.toReversed()) {
 			if (p.fate.kind === "removed") {
@@ -824,8 +825,8 @@ class Differ {
 	 * each law's violation query over the rows the target states, raising with the law's identity when it returns a
 	 * row. A law is checked exactly when the previous snapshot does not record its check as it is, so a law that is new,
 	 * or whose rows changed, is checked once, and a regenerate checks nothing. */
-	migrationChecks(): void {
-		for (const c of migrationChecks(this.input.installation)) {
+	migrationChecks(checks: ReadonlyArray<MigrationCheck>): void {
+		for (const c of checks) {
 			const was = this.input.previous.theory.laws[c.law]
 			if (was?.kind === "migration" && was.digest === c.digest) {
 				continue
@@ -834,13 +835,13 @@ class Differ {
 		}
 	}
 
-	/** The checks of the rules over queries (violation.ts ruleChecks), in Validate, once every row the migration writes
+	/** The checks of the rules over queries (violation.ts lawChecks), in Validate, once every row the migration writes
 	 * is written and before the rules' triggers are created: each rule's violation query over every row, raising with the
 	 * rule's identity when it returns a row. A rule is checked exactly when the previous snapshot does not record its
 	 * check as it is, so a rule that is new, or whose definition changed, is checked once, and a regenerate checks
 	 * nothing. */
-	ruleChecks(): void {
-		for (const c of ruleChecks(this.input.installation)) {
+	ruleChecks(checks: ReadonlyArray<MigrationCheck>): void {
+		for (const c of checks) {
 			const was = this.input.previous.theory.laws[c.law]
 			if (was?.kind === "trigger" && was.digest === c.digest) {
 				continue

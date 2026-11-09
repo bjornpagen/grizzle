@@ -201,7 +201,8 @@ export interface Theory extends CheckedTheory {
 	/** Each ordinary relation with its primary key's law, a law of `laws`, in relation order: the theory states one
 	 * primary key per ordinary relation. */
 	readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
-	/** The violation queries the laws name, in one DAG, with its label supply, which the law model's merge reads. */
+	/** What the theory lowers, in one DAG (Builder.#written), with its label supply, which the law model's merge reads:
+	 * no law's violation query (violations.ts). */
 	readonly dag: LabelledDag
 	/**
 	 * Every family, ordered, counted or a tree, in statement order, with its axes' carried pairs and its folds resolved
@@ -513,10 +514,9 @@ class Builder {
 	/**
 	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
 	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
-	 * their values. Then the drawn and accumulated fields' namings are checked, the families resolved and every law's
-	 * violation written.
+	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet.
 	 */
-	run(): Theory {
+	normalize(): Normalizer {
 		const normalizer = new Normalizer({
 			relations: this.relations,
 			definition: (relation) => this.definitions.get(relation),
@@ -553,9 +553,15 @@ class Builder {
 			)
 		}
 		normalizer.finish()
+		return normalizer
+	}
+
+	/** The schema's laws normalized (`normalize`), the families resolved and every law's detail written. */
+	run(): Theory {
+		const normalizer = this.normalize()
 		const kept = normalizer.laws
 		const classes = this.#classes(kept, normalizer.familyPairings())
-		const { laws, primaryKeys, dag, families } = this.#violations(normalizer, kept)
+		const { laws, primaryKeys, dag, families } = this.#written(normalizer, kept)
 		const fill = fillOrder(families, laws)
 		if (!fill.ok) {
 			throw new Refusal(fill.error)
@@ -577,13 +583,14 @@ class Builder {
 	}
 
 	/**
-	 * Each law, its violation query under a Forbid node of its identity, in law order, as one DAG: each primary key's law
-	 * with its relation, then every other law. The families are resolved into the DAG first, each fold's step selection
-	 * lowered there, since a family's and a tree's law carry them. The kept laws and their identities are a pure function
-	 * of the owned schema, and the builder allocates its identifiers in the same order for the same laws, so every build
-	 * of an owned schema builds one DAG.
+	 * Each law with its detail written, in law order: each primary key's law with its relation, then every other law. The
+	 * families are resolved first, each fold's step selection lowered, since a family's and a tree's law carry them; a
+	 * row check's predicate is lowered over a scan of its row; a rule over a query is admitted, its violation query
+	 * checked against the checked schema. No law's violation query is written (violations.ts writes them). The DAG holds
+	 * what the theory lowered, each fold's nonempty step selection and each row check's predicate projected over its
+	 * scan, so the law model's own DAG extends it under labels apart from every one they carry.
 	 */
-	#violations(
+	#written(
 		normalizer: Normalizer,
 		kept: ReadonlyArray<KeptLaw>
 	): {
@@ -593,31 +600,21 @@ class Builder {
 		readonly families: ReadonlyArray<Family>
 	} {
 		const vb = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
-		const families = normalizer.resolve(vb)
-		/** A law with its violation written in the builder, or a rule over a query's checked violation query. */
-		type Written =
-			| { readonly kind: "built"; readonly law: TheoryLaw }
-			| {
-					readonly kind: "query"
-					readonly law: Omit<TheoryLaw, "violation">
-					readonly query: ValidDag
-					readonly root: RelNode
-			  }
-		const write = (k: KeptLaw): Written => {
-			const id = identifierOf(k.named)
-			const law = { id, named: k.named, ...k.identity, loc: k.loc }
+		const resolved = normalizer.resolve(vb)
+		const roots: Array<RelNode> = resolved.selections.map((s) =>
+			vb.project(
+				s.region,
+				s.where.map((w, i) => [`where${i}`, w] as const)
+			)
+		)
+		const write = (k: KeptLaw): TheoryLaw => {
+			const law = { id: identifierOf(k.named), named: k.named, ...k.identity, loc: k.loc }
 			const writing = k.draft.write
 			switch (writing.kind) {
 				case "built": {
-					const written = writing.write(vb)
-					return {
-						kind: "built",
-						law: Object.freeze({
-							...law,
-							detail: written.detail,
-							violation: vb.forbid(id, written.violation)
-						})
-					}
+					const written = writing.detail(vb)
+					roots.push(...written.roots)
+					return Object.freeze({ ...law, detail: written.detail })
 				}
 				case "query": {
 					const checked = checkQuery(this.checked, writing.violation, {
@@ -627,38 +624,21 @@ class Builder {
 					if (!checked.ok) {
 						throw new Refusal(checked.error)
 					}
-					return {
-						kind: "query",
-						law: { ...law, detail: writing.detail },
-						query: checked.value.dag,
-						root: checked.value.dag.roots[0]
-					}
+					return Object.freeze({ ...law, detail: writing.detail })
 				}
 			}
 		}
-		const keyed = normalizer.primaryKeys.map((p: PrimaryKeyKept) => ({
-			relation: p.relation,
-			written: write(p.kept)
-		}))
-		const written = kept.map(write)
-		const supply = new LabelSupply(
-			vb.b.build(
-				[...keyed.map((p) => p.written), ...written].flatMap((w) =>
-					w.kind === "built" ? [w.law.violation] : []
-				)
-			)
+		const primaryKeys = normalizer.primaryKeys.map((p: PrimaryKeyKept): PrimaryKeyLaw =>
+			Object.freeze({ relation: p.relation, law: write(p.kept) })
 		)
-		const lawOf = (w: Written): TheoryLaw => {
-			if (w.kind === "built") {
-				return w.law
-			}
-			return Object.freeze({ ...w.law, violation: supply.forbid(w.query, w.root, w.law.id) })
+		const laws = [...primaryKeys.map((p) => p.law), ...kept.map(write)]
+		const built = vb.b.build(roots)
+		return {
+			laws,
+			primaryKeys,
+			dag: new LabelSupply(built).dag(built.roots),
+			families: resolved.families
 		}
-		const primaryKeys = keyed.map((p): PrimaryKeyLaw =>
-			Object.freeze({ relation: p.relation, law: lawOf(p.written) })
-		)
-		const laws = [...primaryKeys.map((p) => p.law), ...written.map(lawOf)]
-		return { laws, primaryKeys, dag: supply.dag(laws.map((law) => law.violation)), families }
 	}
 
 	/**
@@ -768,6 +748,14 @@ class Builder {
  */
 export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, CompileError> =>
 	catchRefusal(() => new Builder(checked).run())
+
+/**
+ * An owned schema's laws normalized as buildTheory normalizes them (Builder.normalize), none written, or the first
+ * refusal thrown: what the violation queries' writer (violations.ts) writes them from, so it names and orders every law
+ * as the theory does.
+ */
+export const normalizedLaws = (checked: CheckedSchema): Normalizer =>
+	new Builder(checked).normalize()
 
 /**
  * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement

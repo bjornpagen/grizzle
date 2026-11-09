@@ -1,22 +1,30 @@
+import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 
 /**
- * The full violation query of a law of `installation`'s theory, rooted at `violation`, lowered by the oracle baseline
- * over every row: one parameterless statement whose rows are the law's violations. A violation probe reads stored
- * values, which already satisfy their refinements, so a text refinement no stored column carries, such as a contract's
- * base pattern, is typed as text (`ConservativeSubject`).
+ * The full violation query of a law of `installation`'s theory, its Forbid node in `violations`, lowered by the oracle
+ * baseline over every row: one parameterless statement whose rows are the law's violations. A violation probe reads
+ * stored values, which already satisfy their refinements, so a text refinement no stored column carries, such as a
+ * contract's base pattern, is typed as text (`ConservativeSubject`).
  */
-const violationQuery = (installation: Installation, law: LawId, violation: RelNode): Select => {
+const violationQuery = (
+	installation: Installation,
+	violations: TheoryViolations,
+	law: LawId
+): Select => {
+	const violation = violations.forbids.get(law)
+	if (violation === undefined) {
+		throw defect(`the violation queries hold the law ${law} of the theory`)
+	}
 	const lowered = lowerConservative(
-		{ dag: installation.laws.theory.dag, root: violation },
+		{ dag: violations.dag, root: violation },
 		{ names: installation.names, params: [], subject: { kind: "violationProbe" } }
 	)
 	if (!lowered.ok) {
@@ -46,9 +54,13 @@ export interface MigrationCheck {
 	readonly digest: string
 }
 
-/** The check of `law`, whose violation query is rooted at `violation`, digested. */
-const checkOf = (installation: Installation, law: LawId, violation: RelNode): MigrationCheck => {
-	const query = violationQuery(installation, law, violation)
+/** The check of `law`, its violation query lowered, digested. */
+const checkOf = (
+	installation: Installation,
+	violations: TheoryViolations,
+	law: LawId
+): MigrationCheck => {
+	const query = violationQuery(installation, violations, law)
 	const d = digest("migration-check", query, everyProperty)
 	if (!d.ok) {
 		throw new Refusal(d.error)
@@ -56,23 +68,28 @@ const checkOf = (installation: Installation, law: LawId, violation: RelNode): Mi
 	return { law, query, digest: d.value }
 }
 
-/** The migration checks of an installation's theory, in the law model's order of its migration-discharged laws. */
-export const migrationChecks = (installation: Installation): ReadonlyArray<MigrationCheck> => {
-	const theory = installation.laws.theory
-	return installation.laws.migrationLaws.map((law): MigrationCheck => {
-		const declared = theory.laws.find((l) => l.id === law)
-		if (declared === undefined) {
-			throw defect(`the theory holds the migration-discharged law ${law}`)
-		}
-		return checkOf(installation, law, declared.violation)
-	})
-}
-
 /**
- * The checks of an installation's rules over queries, in law order: each rule's violation query over every row, which
- * the migration that adds the rule, or changes it or a definition it reads, runs once its rows are written, before
- * its triggers hold it at every COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the query's, so a change of
- * the rule or of a definition it reads is a new check.
+ * An installation's checks, from its theory's violation queries written once (analysis/theory/violations.ts):
+ * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws;
+ * `rules`, each rule over a query in law order, its violation query over every row, which the migration that adds the
+ * rule, or changes it or a definition it reads, runs once its rows are written, before its triggers hold it at every
+ * COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the query's, so a change of the law, of the rows it
+ * reads or of a definition a rule reads is a new check.
  */
-export const ruleChecks = (installation: Installation): ReadonlyArray<MigrationCheck> =>
-	installation.laws.rules.map((r) => checkOf(installation, r.law.id, r.law.violation))
+export const lawChecks = (
+	installation: Installation
+): {
+	readonly migrations: ReadonlyArray<MigrationCheck>
+	readonly rules: ReadonlyArray<MigrationCheck>
+} => {
+	const violations = theoryViolations(installation.laws.checked)
+	if (!violations.ok) {
+		throw new Refusal(violations.error)
+	}
+	return {
+		migrations: installation.laws.migrationLaws.map((law) =>
+			checkOf(installation, violations.value, law)
+		),
+		rules: installation.laws.rules.map((r) => checkOf(installation, violations.value, r.law.id))
+	}
+}

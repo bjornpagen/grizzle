@@ -2,6 +2,7 @@ import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { buildTheory, type Theory } from "#compiler/analysis/theory/theory.ts"
+import { type TheoryViolations, theoryViolations } from "#compiler/analysis/theory/violations.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -47,12 +48,22 @@ export const schemaOf = (
 	statements: SchemaDesc["statements"]
 ): SchemaDesc => ({ name: "T", relations, statements, extends: undefined })
 
-/** The theory of a schema description, or its first refusal. */
-export const theoryResult = (desc: SchemaDesc): Result.Result<Theory, CompileError> =>
-	Result.flatMap(Result.flatMap(own(decodedSchema(desc)), checkedSchema), buildTheory)
+/** A theory as the unit tests read it: with its laws' violation queries, by which the reference evaluator reads each
+ * law's meaning. */
+export interface TestTheory extends Theory {
+	readonly violations: TheoryViolations
+}
+
+/** The theory of a schema description with its laws' violation queries, or its first refusal. */
+export const theoryResult = (desc: SchemaDesc): Result.Result<TestTheory, CompileError> =>
+	Result.flatMap(Result.flatMap(own(decodedSchema(desc)), checkedSchema), (checked) =>
+		Result.flatMap(buildTheory(checked), (t) =>
+			Result.map(theoryViolations(checked), (violations) => Object.freeze({ ...t, violations }))
+		)
+	)
 
 /** The theory of a schema the test states is lawful. */
-export const theoryOf = (desc: SchemaDesc): Theory =>
+export const theoryOf = (desc: SchemaDesc): TestTheory =>
 	succeeded(theoryResult(desc), "the schema's theory builds")
 
 /** A schema's statements decoded, each located as ownership locates it: what families.ts resolves. */
@@ -129,8 +140,8 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts =>
  * The laws whose violation queries are nonempty over `facts`, each with its witness rows: the reference evaluator's
  * reading of every Forbid node of the theory's DAG.
  */
-const violatedLaws = (t: Theory, facts: HostFacts): ReadonlyMap<LawId, number> => {
-	const ref = Reference.of(t.dag, {
+const violatedLaws = (t: TestTheory, facts: HostFacts): ReadonlyMap<LawId, number> => {
+	const ref = Reference.of(t.violations.dag, {
 		schema: genSchemaOf(t),
 		facts: genFactsOf(t, facts),
 		params: {},
@@ -138,7 +149,7 @@ const violatedLaws = (t: Theory, facts: HostFacts): ReadonlyMap<LawId, number> =
 	})
 	return new Map(
 		Arr.flatMap(t.laws, (law) => {
-			const forbid = law.violation
+			const forbid = defined(t.violations.forbids.get(law.id), `${law.id}'s violation query`)
 			if (forbid.kind !== "Forbid") {
 				return assert.fail(`${law.id} names a Forbid node`)
 			}
@@ -149,5 +160,5 @@ const violatedLaws = (t: Theory, facts: HostFacts): ReadonlyMap<LawId, number> =
 }
 
 /** Whether `law`'s violation query is nonempty over `facts`. */
-export const violates = (t: Theory, law: TheoryLaw, facts: HostFacts): boolean =>
+export const violates = (t: TestTheory, law: TheoryLaw, facts: HostFacts): boolean =>
 	Option.isSome(Option.fromUndefinedOr(violatedLaws(t, facts).get(law.id)))

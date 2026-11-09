@@ -57,6 +57,7 @@ import {
 } from "#test/support/oracle/gen/schema.ts"
 import {
 	noImmediate,
+	type TestTheory,
 	theoryResultOf,
 	theoryUnder,
 	violated
@@ -110,7 +111,7 @@ const alternativeOf = (t: Theory, from: string, to: string) =>
  * exactly its witnesses.
  */
 const violatedSorted = (
-	t: Theory,
+	t: TestTheory,
 	facts: HostFacts
 ): ReadonlyMap<LawId, ReadonlyArray<ReadonlyArray<unknown>>> =>
 	new Map(Arr.map([...violated(t, facts)], ([law, rows]) => [law, Arr.sort(rows, byText)]))
@@ -1027,7 +1028,7 @@ describe("law identities", () => {
 								)
 							}
 							for (const law of moved.laws) {
-								const { id, named, violation, loc, ...identity } = law
+								const { id, named, loc, ...identity } = law
 								assert.ok(
 									identifierOf(lawIdentityOf(identity)) === id,
 									`${id} is its identity's identifier`

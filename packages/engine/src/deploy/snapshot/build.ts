@@ -43,7 +43,7 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { migrationChecks, ruleChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import {
 	type Codebook,
@@ -289,8 +289,9 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		relations[name] = relation
 	}
 	const laws: Record<string, SnapshotLaw> = {}
-	const migrations = new Map(migrationChecks(installation).map((c) => [c.law, c.digest] as const))
-	const rules = new Map(ruleChecks(installation).map((c) => [c.law, c.digest] as const))
+	const checks = lawChecks(installation)
+	const migrations = new Map(checks.migrations.map((c) => [c.law, c.digest] as const))
+	const rules = new Map(checks.rules.map((c) => [c.law, c.digest] as const))
 	for (const law of theory.laws.toSorted(
 		mapInput(compareStrings, (l: { readonly id: string }) => l.id)
 	)) {
