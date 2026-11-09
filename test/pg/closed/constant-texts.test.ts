@@ -67,7 +67,10 @@ import { withLayer } from "#test/support/with-layer.ts"
  * - a containment of the selection of φ into a closed relation, a table CHECK guarded by φ.
  *
  * The oracle is the contract restated over the drawn texts: SQL's three-valued logic, a closed read at an absent key
- * NULL, texts ordered by code point. The schema must install. Each row written by grizzle's writer is accepted where
+ * NULL, texts ordered by code point. A list value is a bare literal, which adopts its subject's type and is judged by it,
+ * and a concatenation is text of at most its operands' bytes together, a literal operand by its own (README,
+ * Compute.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
+ * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
  * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
  *
  * The planted bug, the lowering's constant folding turned off, fails the installation of the first case whose
@@ -347,6 +350,37 @@ const picksOf = (p: Const): ReadonlyArray<number> => {
 	}
 }
 
+/** A text's UTF-8 bytes. */
+const bytesOf = (text: string): number => new TextEncoder().encode(text).length
+
+/**
+ * The bytes a text term's type bounds it within: a concatenation of two literals', each by its own bytes; none for any
+ * other term, whose operands' types (Wild, Pick.at's) bound no bytes.
+ */
+const boundOf = (t: TextTerm): number | undefined =>
+	t.kind === "concat" && t.a.kind === "literal" && t.b.kind === "literal"
+		? bytesOf(t.a.text) + bytesOf(t.b.text)
+		: undefined
+
+/** Whether a constant lists a value of more bytes than its subject's type bounds, which no value of it can equal. */
+const listsStray = (p: Const): boolean => {
+	switch (p.kind) {
+		case "in": {
+			const bound = boundOf(p.a)
+			return bound !== undefined && Arr.some(p.values, (v) => bytesOf(v) > bound)
+		}
+		case "compare":
+		case "startsWith":
+		case "endsWith":
+			return false
+		case "and":
+		case "or":
+			return listsStray(p.args[0]) || listsStray(p.args[1])
+		case "not":
+			return listsStray(p.arg)
+	}
+}
+
 const Wild = str.regex("^.*$", "su")
 
 /** A text term with the API's text type, whatever its node and whatever values its column delivers. */
@@ -469,6 +503,7 @@ type Feature =
 	| "a closed read at a constant key it holds no row at"
 	| "a constant text generated"
 	| "a NULL constant text generated, refused by its NOT NULL"
+	| "a list value no value of its concatenation, refused"
 
 const truths: ReadonlyArray<Truth> = ["true", "false", "unknown"]
 const situations: NonEmptyReadonlyArray<Feature> = [
@@ -536,11 +571,23 @@ const verdict = (
 const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
-		const o = yield* installed(
+		const install = installed(
 			built.Constants,
 			{},
 			{ label: "constants", extensions: [], programs: built.programs }
 		)
+		if (
+			Arr.some([c.generated, c.checked, c.keyed, c.contained], (phi) => listsStray(phi.constant))
+		) {
+			const refused = yield* Effect.flip(install)
+			assert.ok(
+				refused._tag === "CompileError" && refused.reason._tag === "ContractLiteral",
+				`a list value no value of its concatenation is ContractLiteral, not ${Formatter.format(refused)}: ${Formatter.format(c)}`
+			)
+			notes.note("a list value no value of its concatenation, refused")
+			return
+		}
+		const o = yield* install
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(c)}`
@@ -648,10 +695,65 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "SQL's three-valued logic over the drawn texts ordered by code point, a closed read at an absent key NULL, and a schema that compiles installs"
+							name: "SQL's three-valued logic over the drawn texts ordered by code point, a closed read at an absent key NULL, a list value longer than a concatenation of literals ContractLiteral, and a schema that compiles installs"
 						},
 						coverage: required<Feature>(situations, { cases: 48, sense: notesOnly }),
 						kept: [
+							{
+								note: "a pin run's draw: '' || '' IN a list of U+1D4B3, four bytes opposite text of at most none, ContractLiteral",
+								sketch: {
+									kinds: 2,
+									pick: [undefined, ""],
+									allowed: [true, true],
+									generated: {
+										constant: {
+											kind: "in",
+											a: {
+												kind: "concat",
+												a: { kind: "literal", text: "" },
+												b: { kind: "literal", text: "" }
+											},
+											values: ["\u{1d4b3}"]
+										},
+										mixed: { kind: "alone" }
+									},
+									text: {
+										kind: "concat",
+										a: { kind: "pick", handle: 0 },
+										b: { kind: "literal", text: "" }
+									},
+									checked: {
+										constant: {
+											kind: "compare",
+											op: "eq",
+											a: { kind: "literal", text: "" },
+											b: { kind: "literal", text: "" }
+										},
+										mixed: { kind: "alone" }
+									},
+									keyed: {
+										constant: {
+											kind: "compare",
+											op: "eq",
+											a: { kind: "literal", text: "" },
+											b: { kind: "literal", text: "" }
+										},
+										mixed: { kind: "alone" }
+									},
+									contained: {
+										constant: {
+											kind: "compare",
+											op: "eq",
+											a: { kind: "literal", text: "" },
+											b: { kind: "literal", text: "" }
+										},
+										mixed: { kind: "alone" }
+									},
+									items: [{ kind: 0, n: 0, m: 0 }]
+								},
+								draws: "",
+								reaches: ["a list value no value of its concatenation, refused"]
+							},
 							{
 								note: "GEN-NULL: a generated field whose condition ORs a row arm with 'ab' IN ('ab', 'bb'), and one comparing Pick.at at a handle written in the term with a literal",
 								sketch: {
