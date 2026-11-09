@@ -1764,12 +1764,17 @@ const termDescShape: S.Shape<TermDesc> = S.tagged("kind", {
 
 const selectionDescShape: S.Shape<SelectionDesc> = S.struct({ conjuncts: S.array(exprDescShape) })
 
+const sideTerms = S.nonEmptyUniqueArray(termDescShape, termKey, "side terms")
+
 /** A side's terms are distinct: a field and pred of it are two terms, each at most once. */
 const sideDescShape: S.Shape<SideDesc> = S.struct({
 	relation: name,
-	terms: S.nonEmptyUniqueArray(termDescShape, termKey, "side terms"),
+	terms: sideTerms,
 	selection: selectionDescShape
 })
+
+/** A side's relation and terms, as a decode of the side reads them, its selection passed over. */
+const sideTermsShape = S.struct({ relation: name, terms: sideTerms })
 
 /** A contained statement's fields: its two sides. */
 const sideLinkShape = S.located(S.structWith({ left: sideDescShape, right: sideDescShape }, loc))
@@ -2346,15 +2351,17 @@ export const admitLoginRoles = (
 	return repeated === undefined ? Result.ok(loginDescOver(base, login)) : Result.err(repeated)
 }
 
-/** A contained statement's Description, decoded as the statement decoder decodes one. */
-export const decodeContainedStatement = (
-	value: unknown
-): Result.Result<Extract<StatementDesc, { readonly kind: "contained" }>, CompileError> =>
-	S.decodeWith(S.tagged("kind", { contained: sideLinkShape }), value, subjects.statement)
-
-/** A side's Description, decoded as a statement's side is. */
-export const decodeSide = (value: unknown): Result.Result<SideDesc, CompileError> =>
-	S.decodeWith(sideDescShape, value, "side description")
+/**
+ * A side's Description: its relation and terms, which its caller wrote, decoded as a statement's side decodes them,
+ * over its selection, whose conjuncts the selection's predicate decoded.
+ */
+export const decodeSide = (
+	value: unknown,
+	selection: SelectionDesc
+): Result.Result<SideDesc, CompileError> =>
+	Result.map(S.decodeWith(sideTermsShape, value, "side description"), (side) =>
+		Object.freeze({ relation: side.relation, terms: side.terms, selection })
+	)
 
 /**
  * The Description boundary.

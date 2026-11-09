@@ -2,17 +2,16 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
 	type ArmDesc,
+	builtNode,
 	type ContainedDesc,
 	candidateKeyFields,
 	conjunctsOf,
-	decodeContainedStatement,
-	decodeDesc,
 	decodeSide,
+	everyFact,
 	type ExprDesc,
 	type FieldDesc,
 	type MonoidName,
 	monoidNames,
-	type SelectionDesc,
 	type SideDesc,
 	type SlotsDesc,
 	type StatementDesc,
@@ -64,10 +63,11 @@ import type {
 } from "#compiler/types/schema/statements.ts"
 
 /**
- * The admission cores: each checks a JavaScript caller's arguments and returns the decoded Description the statement
- * is owned with, the one path a statement's Description is built by.
+ * The admission cores: each checks a JavaScript caller's arguments and returns the Description the statement is owned
+ * with, the one path a statement's Description is built by. A statement is built of parts already decoded where they
+ * entered (a side by on, a predicate by its check, a name by requireName), which it holds as they are.
  */
-const admitted = (desc: StatementDesc): StatementDesc => orThrow(decodeDesc("statement", desc))
+const admitted = (desc: StatementDesc): StatementDesc => builtNode(desc)
 
 /**
  * The statement builders.
@@ -359,10 +359,11 @@ const admitOn = (source: unknown, terms: unknown): SideDesc => {
 	const label = `on ${rel.name}`
 	const list = requireTerms(terms, label)
 	requireTermsOf(rel, list, label)
-	const selection: SelectionDesc = {
-		conjuncts: selected === undefined ? [] : conjunctsOf(selected.desc.predicate)
-	}
-	return orThrow(decodeSide({ relation: rel.name, terms: list, selection }))
+	const selection =
+		selected === undefined
+			? everyFact
+			: Object.freeze({ conjuncts: Object.freeze(conjunctsOf(selected.desc.predicate)) })
+	return orThrow(decodeSide({ relation: rel.name, terms: list }, selection))
 }
 
 /**
@@ -395,10 +396,7 @@ const containedDesc = (
 	right: SideDesc,
 	label: string,
 	path: ReadonlyArray<string>
-): ContainedDesc =>
-	orThrow(
-		decodeContainedStatement({ kind: "contained", left, right, loc: builderLoc(label, path) })
-	)
+): ContainedDesc => builtNode({ kind: "contained", left, right, loc: builderLoc(label, path) })
 
 const admitContained = (left: unknown, right: unknown): ContainedDesc => {
 	const [l, r] = sidePair(left, right, "contained")
@@ -496,18 +494,20 @@ const admitAlternatives = (
 				`the arm ${h} keyed like the parent: ${armKey.fields.length} key field(s) against ${parentKey.fields.length}`
 			)
 		}
-		armDescs.push({ handle: h, arm: admitOn(armKey.value, armKey.fields) })
+		armDescs.push(Object.freeze({ handle: h, arm: admitOn(armKey.value, armKey.fields) }))
 	}
 	const [first, ...rest] = armDescs
 	if (first === undefined) {
 		throw malformed(label, "an arm map from handles to key descriptors, with at least one arm")
 	}
+	const armList: readonly [ArmDesc, ...Array<ArmDesc>] = [first, ...rest]
+	Object.freeze(armList)
 	return admitted({
 		kind: "alternatives",
 		parent: admitOn(parentKey.value, parentKey.fields),
 		discriminator: disc,
 		roster: rosterDesc.name,
-		arms: [first, ...rest],
+		arms: armList,
 		loc: builderLoc(label, [parentRel.name, "alternatives", disc])
 	})
 }
@@ -550,7 +550,7 @@ const slotsOf = (value: unknown, label: string): SlotsDesc => {
 			`an ordinary relation's count; ${fin.owner.name} is a closed relation, whose count numbers the slots of a closed relation's key`
 		)
 	}
-	return fin.slots
+	return Object.freeze(fin.slots)
 }
 
 /** A family's or a tree's member side: a side of an ordinary relation, over every fact. */
