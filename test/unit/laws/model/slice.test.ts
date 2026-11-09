@@ -19,12 +19,14 @@
  *   rules that read a written relation, and the written relations with their keys and unique objects;
  * - what the slice compiles: the natives of its named relations and the foreign keys into them in the whole model's
  *   order, names, laws and descriptions; every constraint a write of the slice can raise naming the whole model's laws
- *   in the witness; and each program's ChangeSet, compiled through its role as db.apply compiles it, compiling over
- *   the slice exactly when it does over the whole schema, to the same statements, certificates and requirements.
+ *   in the witness; each program's query, compiled through its role as db.read compiles it in either context, and
+ *   each program's ChangeSet, compiled through its role as db.apply compiles it, compiling over the slice exactly when
+ *   it does over the whole schema, to the same statements, certificates and requirements.
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
- * of it; derived relations of them at the level above, and over those at a third; up to two relations at the level
+ * of it; derived relations of them at the level above, and over those at a third, each live or materialized; up to two
+ * relations at the level
  * above, containing into a relation below or into a derived relation of one (a rule over a query); one or two roles,
  * each holding every relation whole beside world entries over relations below; and one to three programs, each a query
  * or a ChangeSet with read-backs.
@@ -53,10 +55,19 @@ import {
 	type ProgramDesc,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
+import type { TemplateContext } from "#compiler/ir/evidence.ts"
+import type { ProgramArtifacts } from "#compiler/ir/products.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis, planBasis } from "#compiler/physical/install/plan.ts"
-import { baseArtifacts, roleArtifacts, type SchemaArtifacts } from "#compiler/program/schema.ts"
+import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
+import {
+	baseArtifacts,
+	parseSchemaInput,
+	roleArtifacts,
+	type SchemaArtifacts,
+	type SchemaInput
+} from "#compiler/program/schema.ts"
 import {
 	fullRoleDesc,
 	type OwnedLogin,
@@ -148,6 +159,9 @@ interface SliceCase {
 	/** The root relations with a derived relation of their live rows at the level above, and those with one over it. */
 	readonly derived: ReadonlyArray<number>
 	readonly chained: ReadonlyArray<number>
+	/** The derived relations stored as materialized views, which a role holds as entries, the others live: one over
+	 * another only where that one is materialized too, as a view's definition reads stored relations alone. */
+	readonly materialized: ReadonlyArray<string>
 	readonly crossings: ReadonlyArray<UpDraw>
 	readonly rules: ReadonlyArray<UpDraw>
 	readonly roles: Arr.NonEmptyReadonlyArray<RoleDraw>
@@ -190,6 +204,14 @@ const caseGen: Gen<SliceCase> = (s) => {
 				)
 			)
 		: []
+	const materializedOver = Arr.filter(derived, () => s.draw(boolean))
+	const materialized = [
+		...Arr.map(materializedOver, derivedName),
+		...Arr.map(
+			Arr.filter(chained, (i) => materializedOver.includes(i) && s.draw(boolean)),
+			chainedName
+		)
+	]
 	const ordinary = int(0, roots + tops - 1)
 	const roleGen: Gen<RoleDraw> = (t) => ({
 		writes: distinct(t.draw(array(ordinary, { min: 0, max: 3 }))),
@@ -240,6 +262,7 @@ const caseGen: Gen<SliceCase> = (s) => {
 		),
 		derived,
 		chained,
+		materialized,
 		crossings,
 		rules,
 		roles,
@@ -299,12 +322,17 @@ const idsOf = (source: string, selected: boolean): QueryDesc =>
 		]
 	})
 
-/** A derived relation of the level above, of derived level `level`, over the ids `query` reads. */
-const derivedOf = (name: string, level: number, query: QueryDesc): AuthoredRelationDesc => ({
+/** A derived relation of derived level `level` over the ids `query` reads, materialized or live as the case draws. */
+const derivedOf = (
+	c: SliceCase,
+	name: string,
+	level: number,
+	query: QueryDesc
+): AuthoredRelationDesc => ({
 	kind: "derived",
 	name,
 	level,
-	storage: "live",
+	storage: c.materialized.includes(name) ? "materialized" : "live",
 	query
 })
 
@@ -349,7 +377,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 			...Arr.makeBy(c.tops, (i) =>
 				relation(topName(i), { id: f.integer, a: f.integer, r: f.integer }, ["id"])
 			),
-			...Arr.map(c.derived, (i) => derivedOf(derivedName(i), 1, idsOf(rootName(i), true)))
+			...Arr.map(c.derived, (i) => derivedOf(c, derivedName(i), 1, idsOf(rootName(i), true)))
 		],
 		statements: [
 			...Arr.map(c.crossings, (u) =>
@@ -365,7 +393,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 		? {
 				name: "SliceChain",
 				relations: Arr.map(c.chained, (i) =>
-					derivedOf(chainedName(i), 2, idsOf(derivedName(i), false))
+					derivedOf(c, chainedName(i), 2, idsOf(derivedName(i), false))
 				),
 				statements: [],
 				extends: top
@@ -705,6 +733,8 @@ type SliceFeature =
 	| "a rule reading the writes"
 	| "a contract's domain used outside the names"
 	| "a ChangeSet compiled over the slice"
+	| "a query compiled over the slice"
+	| "a query of a derived relation compiled over the slice"
 
 const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"a relation outside the names",
@@ -717,7 +747,9 @@ const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"a selection key on a named relation outside the writes",
 	"a rule reading the writes",
 	"a contract's domain used outside the names",
-	"a ChangeSet compiled over the slice"
+	"a ChangeSet compiled over the slice",
+	"a query compiled over the slice",
+	"a query of a derived relation compiled over the slice"
 ]
 
 /**
@@ -745,6 +777,31 @@ const compiledChange = (
 		)
 	})
 
+/**
+ * A query compiled as a role's db.read compiles it (program/template.ts templateFor): against `base`'s artifacts read
+ * through the role's views, as a Description over the schema `schema`, for `context`.
+ */
+const compiledQuery = (
+	base: SchemaArtifacts,
+	role: OwnedRole,
+	schema: SchemaInput,
+	query: QueryDesc,
+	context: TemplateContext
+): Result.Result<QueryTemplate, CompileError> =>
+	Result.flatMap(roleArtifacts(role, base), (artifacts) =>
+		Result.flatMap(querySchema({ kind: "described", desc: query }, schema), (source) =>
+			compileQuery(source, { context, artifacts, read: "rows" })
+		)
+	)
+
+/** What an application runs of a template or a program and what it rests on: its statements, its certificates, its
+ * requirements. */
+const ran = (p: ProgramArtifacts) => ({
+	optimized: p.optimized,
+	certificates: p.certificates,
+	requirements: p.requirements
+})
+
 /** The ledger's shape: a relation of the level above written alone, its rule reading a family's member below. */
 const ledgerShape: Kept<SliceCase, SliceFeature> = {
 	note: "the level above written alone, its rule over a derived relation of a family member below",
@@ -758,6 +815,7 @@ const ledgerShape: Kept<SliceCase, SliceFeature> = {
 		rosters: [],
 		derived: [1],
 		chained: [],
+		materialized: [],
 		crossings: [],
 		rules: [{ from: 0, to: 1 }],
 		roles: [{ writes: [2], worlds: [] }],
@@ -781,6 +839,7 @@ const memberAlone: Kept<SliceCase, SliceFeature> = {
 		rosters: [{ from: 2, selected: true }],
 		derived: [],
 		chained: [],
+		materialized: [],
 		crossings: [],
 		rules: [],
 		roles: [{ writes: [1], worlds: [] }],
@@ -811,6 +870,7 @@ const cycleOutside: Kept<SliceCase, SliceFeature> = {
 		rosters: [],
 		derived: [],
 		chained: [],
+		materialized: [],
 		crossings: [],
 		rules: [],
 		roles: [{ writes: [], worlds: [] }],
@@ -1038,12 +1098,40 @@ describe("a compile's law model", () => {
 							}
 						}
 
+						const schema = succeeded(parseSchemaInput(owned.desc), "the base as a schema input")
 						for (const u of c.uses) {
 							const program = programOf(c, u)
-							if (program.kind !== "changeSet") {
+							const role = defined(roles.get(roleName(u.role)), "the use's role")
+							if (program.kind === "query") {
+								for (const context of ["snapshot", "transaction"] as const) {
+									const overWhole = compiledQuery(
+										wholeArtifacts,
+										role,
+										schema,
+										program.query,
+										context
+									)
+									const overSlice = compiledQuery(sliced, role, schema, program.query, context)
+									assert.deepEqual(
+										overSlice.ok,
+										overWhole.ok,
+										`the query compiles over the slice in ${context} exactly when over the whole schema`
+									)
+									if (!overWhole.ok || !overSlice.ok) {
+										continue
+									}
+									sameApartFromLabels(
+										{ ...ran(overSlice.value), context: overSlice.value.requiredContext },
+										{ ...ran(overWhole.value), context: overWhole.value.requiredContext },
+										`the query's ${context} template, its statements, certificates and requirements, as over the whole schema`
+									)
+									k.note("a query compiled over the slice")
+									if (Arr.some(u.reads, (r) => r.kind === "derived" || r.kind === "chained")) {
+										k.note("a query of a derived relation compiled over the slice")
+									}
+								}
 								continue
 							}
-							const role = defined(roles.get(roleName(u.role)), "the use's role")
 							const overWhole = compiledChange(wholeArtifacts, role, program.changeSet)
 							const overSlice = compiledChange(sliced, role, program.changeSet)
 							assert.deepEqual(
@@ -1053,16 +1141,8 @@ describe("a compile's law model", () => {
 							)
 							if (overWhole.ok && overSlice.ok) {
 								sameApartFromLabels(
-									{
-										optimized: overSlice.value.optimized,
-										certificates: overSlice.value.certificates,
-										requirements: overSlice.value.requirements
-									},
-									{
-										optimized: overWhole.value.optimized,
-										certificates: overWhole.value.certificates,
-										requirements: overWhole.value.requirements
-									},
+									ran(overSlice.value),
+									ran(overWhole.value),
 									"the ChangeSet's statements, certificates and requirements, as over the whole schema"
 								)
 								k.note("a ChangeSet compiled over the slice")
