@@ -85,21 +85,25 @@ interface ClosedIdParts {
 	readonly env: ScalarEnv
 }
 
+/** A closed relation whose reading threw, refused at the user's call site, whose stack is read for the refusal alone. */
+const unreadable: unique symbol = Symbol("unreadable")
+
 /**
  * The admission core of closedId: a JavaScript caller can pass anything. Reading its value can run its code (a proxy's
  * traps, a getter), so it is read once through hostRead, and a value whose reading throws is refused like any other
  * value that is no closed relation.
  */
 export const closedIdParts = (closed: unknown): ClosedIdParts => {
-	const read = hostRead(
-		malformedDescription(
-			captureLoc("closedId", []),
-			"a closed relation whose properties can be read: no refusing proxy"
-		),
-		() => readRoster(closed)
+	const read = hostRead<ClosedRoster, CompileError | typeof unreadable>(unreadable, () =>
+		readRoster(closed)
 	)
 	if (!read.ok) {
-		throw read.error
+		throw read.error === unreadable
+			? malformedDescription(
+					captureLoc("closedId", []),
+					"a closed relation whose properties can be read: no refusing proxy"
+				)
+			: read.error
 	}
 	const roster = read.value
 	return {

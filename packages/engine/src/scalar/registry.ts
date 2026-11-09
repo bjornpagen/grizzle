@@ -445,23 +445,35 @@ const isSafeInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isSafeInteger(value)
 
 /**
+ * What the registry holds for a field descriptor a builder made: an owned descriptor itself, or what a str.regex,
+ * str.and or str.bytes descriptor's registration answered (its Description, or the refusal of its patterns); undefined
+ * for any other value, which refusedField refuses where it was passed.
+ */
+export const registeredField = (
+	value: unknown
+): Result.Result<Described, CompileError> | undefined => {
+	if (isOwnedDescriptor(value)) {
+		return Result.ok(value)
+	}
+	return hasProperties(value) ? ownedText.get(value)?.described : undefined
+}
+
+/**
  * The FieldDesc, ScalarType and column of a field descriptor a builder made, or MalformedDescription. `loc` names
  * the position the descriptor was passed in, for the diagnostic.
  */
 export const describeField = (
 	value: unknown,
 	loc: SourceLoc
-): Result.Result<Described, CompileError> => {
-	if (isOwnedDescriptor(value)) {
-		return Result.ok(value)
-	}
+): Result.Result<Described, CompileError> => registeredField(value) ?? refusedField(value, loc)
+
+/** The refusal at `loc` of a value that is no field descriptor a builder made: registeredField holds nothing for it. */
+export const refusedField = (
+	value: unknown,
+	loc: SourceLoc
+): Result.Result<never, CompileError> => {
 	if (!hasProperties(value)) {
 		return Result.err(malformedDescription(loc, "a field descriptor"))
-	}
-	/** A str.regex descriptor: its regex is its Description; str.regex owns the rest of its metadata. */
-	const regex = ownedText.get(value)
-	if (regex !== undefined) {
-		return regex.described
 	}
 	/**
 	 * Testing for the brand reads the caller's value, which can run its code (`in` runs a proxy's `has` trap) and throw:

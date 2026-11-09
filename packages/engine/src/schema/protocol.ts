@@ -19,7 +19,7 @@ import {
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/term.ts"
-import { type Described, describeField } from "#compiler/scalar/registry.ts"
+import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type {
 	ClosedRelationDesc,
@@ -133,10 +133,11 @@ export const requireNames = (
 
 /**
  * A field descriptor a builder made, as the registry reads it: its FieldDesc, ScalarType and column. A copy of a
- * descriptor and a JavaScript look-alike are refused (MalformedDescription).
+ * descriptor and a JavaScript look-alike are refused (MalformedDescription) at the user's call site, whose stack is
+ * read for the refusal alone.
  */
 export const describedField = (value: unknown, label: string): Described =>
-	orThrow(describeField(value, builderLoc(label, [])))
+	orThrow(registeredField(value) ?? refusedField(value, builderLoc(label, [])))
 
 /** The FieldDesc of a field descriptor a builder made. */
 export const fieldDescOf = (value: unknown, label: string): FieldDesc =>
