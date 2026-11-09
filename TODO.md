@@ -12,6 +12,17 @@ post-beta swarm's fixes for the next release.
   every performance gate passing, both perfect on the exact commit; then the owner's go.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
+- **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
+  - test/pg/world-model/inductive hangs over 1h (TEST_SEED=3194260561; the old token no longer reproduces). Suspect the
+    lead look-ahead in test/support/worlds/generate/action.ts waysOf; profile it under --inspect.
+  - test/pg/physical/world-serving: witness precheck reads 42 buffers over its 32 bound (TEST_SEED=221355609), and its
+    readingOf holds a cost-chosen index to the filter-count rule serving.ts dropped in 4c5d869d.
+  - test/pg/api-errors/apply-errors: a planted parameter's EncodingFailure has place Fact, expected Slot (fails before
+    8e6635ee too).
+  - Tests cull: the deferred test-only exports (CompileReasonTag, TransientTag, queryValueDesc, continued,
+    ReaderValue), real test-only code in production, fallow dupes in test/, @internal tags in tests, the W6.Q10 title,
+    and pg/fin/plans and pg/substrate/tree still checking generic plans of named statements that no longer exist.
+  - The shell cull's RefreshReport and populatedSql (a statement per schema only tests read).
 - **Waste hunt (remove work, never add machinery):**
   - Building qti-pie's Qti schema value costs about 36 s, a third of it grizzle's construction: ir/shape parse,
     schema/relation closedRows and admitClosedRelation, core/canonical, protocol rosterHandlesOf. The profile is
