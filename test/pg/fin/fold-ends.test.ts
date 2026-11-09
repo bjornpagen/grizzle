@@ -8,8 +8,7 @@ import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
 import { apply } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
@@ -841,13 +840,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const world = fullWorld(value)
 								const seat = yield* seatOfInstalled(done, s.relations, `ends_${kind}`)
 								const context = yield* Layer.build(loginLayer(done, world.server))
-								const db = yield* Db.open(world.server.roles.app, {}).pipe(
+								const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(
 									Effect.provideContext(context)
 								)
-								const dbc = dbContext(db)
-								if (dbc === undefined) {
-									return yield* Effect.die(new Error("Db.open registered no context"))
-								}
 								return { kind, s, done, value, seat, dbc } as const
 							})
 						)

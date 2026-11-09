@@ -13,14 +13,13 @@ import {
 	serverMismatches,
 	serverRows
 } from "#adapter/admission/expectation.ts"
-import { dbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	type AdmissionMismatch,
 	AdmissionRefused,
 	type AdmissionStage
 } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { OutputRows } from "#compiler/core/wire.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
@@ -100,8 +99,7 @@ layer(Substrate.layer)("pgvector admission", (it) => {
 
 					/** The admission a Db.open of the vector schema made: the vector extension it requires. */
 					const expected = yield* Effect.gen(function* () {
-						const db = yield* Db.open(vectors.server.roles.app, {})
-						const opened = defined(dbContext(db), "an opened Db has a context")
+						const { ctx: opened } = yield* openDbContext(vectors.server.roles.app, {})
 						assert.equal(
 							opened.installedExtensions.get("vector"),
 							opened.artifacts.names.vectorSchema
@@ -134,24 +132,24 @@ layer(Substrate.layer)("pgvector admission", (it) => {
 						switch (c.schema) {
 							case "vectors":
 								return Effect.scoped(
-									Db.open(vectors.server.roles.app, {}).pipe(
+									openDbContext(vectors.server.roles.app, {}).pipe(
 										withLayer(
 											c.database === "with pgvector"
 												? vectors.layer
 												: loginLayerIn(database, vectors.installed, vectors.server)
 										),
-										Effect.map(dbContext)
+										Effect.map((opened) => opened.ctx)
 									)
 								)
 							case "plain":
 								return Effect.scoped(
-									Db.open(plain.server.roles.app, {}).pipe(
+									openDbContext(plain.server.roles.app, {}).pipe(
 										withLayer(
 											c.database === "with pgvector"
 												? plain.layer
 												: loginLayerIn(database, plain.installed, plain.server)
 										),
-										Effect.map(dbContext)
+										Effect.map((opened) => opened.ctx)
 									)
 								)
 						}

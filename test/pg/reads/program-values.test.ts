@@ -14,8 +14,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Record as Rec } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
 import { CompileError, CursorError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -169,8 +169,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the query a read takes", 
 				Effect.gen(function* () {
 					const o = yield* installed(W.Work, workFacts, { label: "programs", extensions: [] })
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
-						const reader = dbReader(db)
+						const { ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
+						const reader = dbReader(dbCtx)
 						const changeSet = ChangeSet.empty(o.schema)
 						return yield* explore(
 							{

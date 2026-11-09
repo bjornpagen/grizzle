@@ -7,8 +7,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
 import { apply } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { check, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
@@ -522,11 +521,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									}
 								]
 								yield* Effect.gen(function* () {
-									const db = yield* Db.open(world.server.roles.app, {})
-									const context = dbContext(db)
-									if (context === undefined) {
-										return yield* Effect.die(new Error("Db.open registered no context"))
-									}
+									const { ctx: context } = yield* openDbContext(world.server.roles.app, {})
 									let stored: ReadonlyArray<OwnerRow> = []
 									let size = 0
 									for (const [i, step] of steps.entries()) {

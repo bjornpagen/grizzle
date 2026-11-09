@@ -8,8 +8,7 @@ import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { apply } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
 import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
@@ -1239,11 +1238,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							const host = hostSchema(spec, built, laws)
 							const world = fullWorld(value)
 							yield* Effect.gen(function* () {
-								const db = yield* Db.open(world.server.roles.app, {})
-								const context = dbContext(db)
-								if (context === undefined) {
-									return yield* Effect.die(new Error("Db.open registered no context"))
-								}
+								const { ctx: context } = yield* openDbContext(world.server.roles.app, {})
 								let state = nothingStored
 								for (const [i, step] of steps.entries()) {
 									const label = `step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`

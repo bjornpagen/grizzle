@@ -7,8 +7,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { apply } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
@@ -641,11 +640,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								cs.insert(defined(built.relations[relationName(r)]), facts.get(r) ?? [])
 							)
 							yield* Effect.gen(function* () {
-								const db = yield* Db.open(world.server.roles.app, {})
-								const ctx = dbContext(db)
-								if (ctx === undefined) {
-									return yield* Effect.die(new Error("Db.open registered no context"))
-								}
+								const { ctx } = yield* openDbContext(world.server.roles.app, {})
 								const outcome = yield* apply(ctx, changes, changes.reads, {})
 								assert.equal(
 									outcome.kind,

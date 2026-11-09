@@ -154,7 +154,7 @@ export const openPayroll: Effect.Effect<
 		cs: () => ChangeSet.empty(s),
 		attempt: (role, changes) => ({
 			changes,
-			outcome: f.withDb(role, (db) => applyRuntime(db, changes, {}))
+			outcome: f.withDb(role, (...[, ctx]) => applyRuntime(ctx, changes, {}))
 		})
 	}
 	return payroll

@@ -1,3 +1,19 @@
+import { layer } from "@effect/vitest"
+import { type Case as ExploreCase, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 /**
  * Keys over generated fields, against PostgreSQL 19.
  *
@@ -40,23 +56,7 @@
  * term than its column's (write/insert/unique.ts `buildProbe`) fails the search, at a stored clash it misses or a clash
  * it invents.
  */
-import { layer } from "@effect/vitest"
-import { type Case as ExploreCase, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -955,7 +955,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 					}
 					const host = hostOf(laws)
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
+						const { db, ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
 						const S = o.schema
 						/** Each relation's rows as grizzle reads them, generated and drawn fields included. */
 						const reads = {
@@ -1200,7 +1200,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 								Effect.gen(function* () {
 									const k = aimedCase(drawnCase, c)
 									yield* replaceRows(s.admin, group, [])
-									const seeded = yield* applyRuntime(db, seed(k.stored), {})
+									const seeded = yield* applyRuntime(dbCtx, seed(k.stored), {})
 									const none =
 										k.stored.mapKeys.length +
 											k.stored.uses.length +
@@ -1221,7 +1221,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 									)
 									const stratum = stratumOf(k.writes)
 									const applied = yield* Effect.result(
-										applyRuntime(db, stratum.changes, stratum.params)
+										applyRuntime(dbCtx, stratum.changes, stratum.params)
 									)
 									if (Result.isFailure(applied)) {
 										return assert.fail(
@@ -1323,7 +1323,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 						const text = names.column(Label, "text")
 						const value = names.column(Label, "value")
 						const explored = Effect.gen(function* () {
-							const db = yield* Db.open(desk.roles.writer, {})
+							const { ctx: dbCtx } = yield* openDbContext(desk.roles.writer, {})
 							return yield* explore(
 								{
 									suite: "pg/write/generated-key/entry",
@@ -1374,7 +1374,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											c.edit === "insert"
 												? changeSetOver.empty(writer).insert(writer.relations.Low, [sentOf(c)])
 												: changeSetOver.empty(writer).put(writer.relations.Low, [sentOf(c)])
-										const applied = yield* Effect.result(applyRuntime(db, changes, {}))
+										const applied = yield* Effect.result(applyRuntime(dbCtx, changes, {}))
 										if (Result.isFailure(applied)) {
 											return assert.fail(
 												`a write through Low is an outcome: ${applied.failure._tag}: ${applied.failure.message}`

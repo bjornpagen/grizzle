@@ -17,15 +17,13 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
-import { makeDb } from "#adapter/db/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import {
 	type ReadError,
 	ReadFailure,
 	type ReadStage,
 	TransientFailure
 } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { CursorError } from "#compiler/core/errors.ts"
@@ -610,8 +608,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 							Effect.scoped(
 								Effect.gen(function* () {
 									const substrate = yield* Substrate
-									const opened = yield* Db.open(o.server.roles.app, {}).pipe(withLayer(o.layer))
-									const context = defined(dbContext(opened), "the opened Db's context")
+									const { ctx: context } = yield* openDbContext(o.server.roles.app, {}).pipe(
+										withLayer(o.layer)
+									)
 									const tap = makeTap(substrate.cluster)
 									const poolScope = yield* Scope.make()
 									yield* Effect.addFinalizer(() => Scope.close(poolScope, Exit.void))
@@ -625,7 +624,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 											rowsOn(session, "SELECT 'warm'::text", [])
 										)
 									)
-									const reader = dbReader(makeDb({ ...context, pool }, {}))
+									const reader = dbReader({ ...context, pool })
 									const handleScope = yield* Scope.make()
 									yield* Effect.addFinalizer(() => Scope.close(handleScope, Exit.void))
 									const real: Subject = {

@@ -9,7 +9,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
 import { refreshReport } from "#adapter/refresh/index.ts"
 import { summarize } from "#bench/cold/stats.ts"
 import { explain, planNodes } from "#bench/harness/explain.ts"
@@ -180,11 +179,7 @@ export default defineGate({
 			})
 			yield* settle(fx)
 			const view = (rel: string) => fx.table(rel)
-			const db = yield* openDb(fx, R.refreshers.roles.refresher)
-			const context = dbContext(db)
-			if (context === undefined) {
-				throw new GateSetupError({ what: "the refresher's Db has no context" })
-			}
+			const { ctx: context } = yield* openDb(fx, R.refreshers.roles.refresher)
 			/** db.refresh of `relations`, reporting the statements its one transaction ran. */
 			const refreshed = (relations: Arr.NonEmptyReadonlyArray<{ readonly name: string }>) =>
 				refreshReport(context, relations)

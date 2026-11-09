@@ -1,9 +1,8 @@
 import { type Array as Arr, Effect, type Scope } from "effect"
 import { apply, compileFailure } from "#adapter/apply/index.ts"
-import { type DbContext, dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import { type CompiledOps, notAChangeSet, notAProgram, runtimeOf } from "#adapter/db/db.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
-import type { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -38,8 +37,8 @@ export interface DbRuntime {
 	}
 }
 
-/** The runtime over an opened Db's context (see DbRuntime). */
-const runtimeFor = (ctx: DbContext): DbRuntime => {
+/** The runtime of an opened Db, over its context (see DbRuntime). */
+export const dbRuntime = (ctx: DbContext): DbRuntime => {
 	const runtime = runtimeOf(ctx)
 	return {
 		reader: runtime.reader,
@@ -61,36 +60,18 @@ const runtimeFor = (ctx: DbContext): DbRuntime => {
 	}
 }
 
-/**
- * The DbContext of an opened Db; any other value is a defect of the test.
- */
-export const contextOf = <R, P>(db: Db<R, P>): DbContext => {
-	const ctx = dbContext(db)
-	if (ctx === undefined) {
-		throw new Error("not a Db value")
-	}
-	return ctx
-}
-
-/** The runtime of an opened Db (see DbRuntime); undefined for a value Db.open did not return. */
-export const dbRuntime = <R, P>(db: Db<R, P>): DbRuntime | undefined => {
-	const ctx = dbContext(db)
-	return ctx === undefined ? undefined : runtimeFor(ctx)
-}
-
 /** The reader db.get, db.execute and db.page dispatch to: one transaction per read from the pool. */
-export const dbReader = <R, P>(db: Db<R, P>): ReaderValue => runtimeFor(contextOf(db)).reader
+export const dbReader = (ctx: DbContext): ReaderValue => dbRuntime(ctx).reader
 
 /** db.apply. */
-export const applyRuntime = <R, P>(
-	db: Db<R, P>,
+export const applyRuntime = (
+	ctx: DbContext,
 	changes: unknown,
 	params: ParamMap
-): ReturnType<DbRuntime["methods"]["apply"]> =>
-	runtimeFor(contextOf(db)).methods.apply(changes, params)
+): ReturnType<DbRuntime["methods"]["apply"]> => dbRuntime(ctx).methods.apply(changes, params)
 
 /** db.compile(program) for any program: its compiled handle, its operations as a JavaScript caller sees them. */
-export const compileRuntime = <R, P>(
-	db: Db<R, P>,
+export const compileRuntime = (
+	ctx: DbContext,
 	program: unknown
-): ReturnType<DbRuntime["compile"]> => runtimeFor(contextOf(db)).compile(program)
+): ReturnType<DbRuntime["compile"]> => dbRuntime(ctx).compile(program)

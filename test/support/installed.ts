@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, type Layer, Option, type Scope, String as Str } from "effect"
 import type { CompiledOps } from "#adapter/db/db.ts"
-import { openDb as openRuntime } from "#adapter/db/open.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -377,11 +377,11 @@ const openDb = (
 	role: AnyLoginRole,
 	token: string
 ): Effect.Effect<OpenedDb, OpenError, DbLayer<AnyRole>> =>
-	Effect.map(openRuntime(role, { token }), (db) => {
-		const reader = dbReader(db)
+	Effect.map(openDbContext(role, { token }), ({ ctx }) => {
+		const reader = dbReader(ctx)
 		return {
 			execute: (query, params) => reader.execute(query, params),
-			compile: (program) => compileRuntime(db, program)
+			compile: (program) => compileRuntime(ctx, program)
 		}
 	})
 

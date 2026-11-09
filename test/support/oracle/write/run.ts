@@ -11,9 +11,10 @@ import {
 } from "effect"
 import { type CompiledChange, compiledWrite } from "#adapter/apply/compile.ts"
 import { apply, compileChange, runApplication } from "#adapter/apply/index.ts"
-import { type DbContext, dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -179,11 +180,9 @@ export const openTarget = (
 		const value = built.rename(done.schema)
 		const world = built.worldOf(value)
 		const context = yield* Layer.build(loginLayer(done, world.server))
-		const db = yield* Db.open(world.server.roles.writer, {}).pipe(Effect.provideContext(context))
-		const ctx = dbContext(db)
-		if (ctx === undefined) {
-			return yield* Effect.die(new Error("Db.open registered no context"))
-		}
+		const { ctx } = yield* openDbContext(world.server.roles.writer, {}).pipe(
+			Effect.provideContext(context)
+		)
 		return {
 			schema,
 			built,

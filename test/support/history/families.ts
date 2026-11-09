@@ -179,10 +179,7 @@ const historyEnv = <P>(
 		const g = yield* grizzleActor("g", login, [])
 		const second = yield* openWriter({ installed: i.installed, schema })
 		const h = yield* grizzleActor("h", login, [g.pid])
-		const runtimes = { g: dbRuntime(first.db), h: dbRuntime(second.db) }
-		if (runtimes.g === undefined || runtimes.h === undefined) {
-			return yield* Effect.die(new Error("Db.open registered no runtime"))
-		}
+		const runtimes = { g: dbRuntime(first.ctx), h: dbRuntime(second.ctx) }
 		return {
 			host: i.host,
 			domains: i.domains,

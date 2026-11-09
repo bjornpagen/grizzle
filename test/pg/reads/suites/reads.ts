@@ -28,7 +28,8 @@ import {
 	Stream,
 	String as Str
 } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -207,8 +208,7 @@ const accountTaskNotes = query(W.Work)
 	)
 
 /** A Db context over a pool that counts its leases: a read refused before any SQL leases none. */
-const countingReader = (db: object) => {
-	const ctx = defined(dbContext(db), "a Db's context")
+const countingReader = (ctx: DbContext) => {
 	const leases = { count: 0 }
 	const pool = {
 		...ctx.pool,
@@ -380,10 +380,10 @@ export const readSuite = () => {
 					Effect.gen(function* () {
 						const opened = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const sessions = yield* Layer.build(opened.layer)
-						const db = yield* Db.open(opened.server.roles.app, {}).pipe(
+						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {}).pipe(
 							Effect.provideContext(sessions)
 						)
-						const { reader } = countingReader(db)
+						const { reader } = countingReader(dbCtx)
 						const stored = workFacts.Task
 						return yield* explore(
 							{

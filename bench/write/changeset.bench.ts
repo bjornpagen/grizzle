@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
+import type { OpenedDb } from "#adapter/db/open.ts"
 import {
 	type CaseRecord,
 	defineGate,
@@ -42,6 +43,7 @@ import {
 	type Statement,
 	schema
 } from "#compiler/public/schema.ts"
+import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -277,9 +279,9 @@ export default defineGate({
 			 * Credits on fresh accounts, through a Db of its own of `login`, whose backends report their counters as they
 			 * exit, which the catalog reading waits for (exited). The reading feeds only the catalog measure, never a check.
 			 */
-			const measure = <D extends object, E>(
+			const measure = <E>(
 				login: string,
-				open: Effect.Effect<D, E, Substrate | Scope.Scope>,
+				open: Effect.Effect<OpenedDb<AnyRole, unknown>, E, Substrate | Scope.Scope>,
 				changes: unknown
 			) =>
 				Effect.gen(function* () {
@@ -316,9 +318,9 @@ export default defineGate({
 			const accountWritesMut = writesOf(mutableRun.statements, Account.name)
 
 			/** Two concurrent appliers whose described members overlap: every applier credits the same account. */
-			const overlap = <F, D extends object, E>(
+			const overlap = <F, E>(
 				fx: Fixture<F>,
-				open: () => Effect.Effect<D, E, Substrate | Scope.Scope>,
+				open: () => Effect.Effect<OpenedDb<AnyRole, unknown>, E, Substrate | Scope.Scope>,
 				changes: unknown
 			) =>
 				Effect.scoped(

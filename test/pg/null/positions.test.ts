@@ -16,8 +16,8 @@ import {
 	Record as Rec,
 	Result
 } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -733,11 +733,8 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(nc)}`
 		const delivered = yield* Effect.gen(function* () {
-			const db = yield* Db.open(o.server.roles.app, {})
-			const run = dbRuntime(db)
-			if (run === undefined) {
-				return assert.fail("Db.open returns a Db")
-			}
+			const { ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
+			const run = dbRuntime(dbCtx)
 			/** One write of `facts` into `relation`, held to the laws it breaks (verdict). */
 			const judge = (
 				relation: unknown,

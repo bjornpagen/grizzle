@@ -9,7 +9,7 @@ import {
 	type Scope
 } from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
-import { openDb as openRuntime } from "#adapter/db/open.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
@@ -36,7 +36,7 @@ import {
 } from "#test/support/oracle/perturb.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { checkedIn } from "#test/support/policy.ts"
-import { contextOf, dbReader } from "#test/support/runtime-db.ts"
+import { dbReader } from "#test/support/runtime-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -247,11 +247,13 @@ export const openCaseDb = (
 	Effect.gen(function* () {
 		const perturbation = yield* CurrentPerturbation
 		const context = yield* dbContextAs(o, role.login)
-		const db = yield* openRuntime(role, { token: tokenOf({}) }).pipe(Effect.provideContext(context))
+		const { ctx } = yield* openDbContext(role, { token: tokenOf({}) }).pipe(
+			Effect.provideContext(context)
+		)
 		return {
-			db: dbReader(db),
-			ctx: perturbedContext(contextOf(db), perturbation),
-			again: perturbedContext(contextOf(db), complementOf(perturbation))
+			db: dbReader(ctx),
+			ctx: perturbedContext(ctx, perturbation),
+			again: perturbedContext(ctx, complementOf(perturbation))
 		}
 	})
 

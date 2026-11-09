@@ -12,6 +12,8 @@ import {
 	Result,
 	type Scope
 } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
@@ -25,7 +27,7 @@ import {
 	TransientFailure
 } from "#adapter/errors/execution.ts"
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -113,7 +115,7 @@ import {
 	type StoredFact,
 	type Var
 } from "#test/support/oracle/public/program.ts"
-import { applyRuntime, contextOf, dbReader } from "#test/support/runtime-db.ts"
+import { applyRuntime, dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
@@ -1560,9 +1562,9 @@ const restore = (
 	})
 
 /** Stores the case's facts through db.apply of the ChangeSet inserting them: accepted, each relation's facts added. */
-const store = <R, P>(
+const store = (
 	c: ProgramCase,
-	db: Db<R, P>,
+	ctx: DbContext,
 	built: BuiltSchema,
 	value: SchemaValue
 ): Effect.Effect<void, Disagreement> =>
@@ -1571,7 +1573,7 @@ const store = <R, P>(
 		if (Option.isNone(changes)) {
 			return
 		}
-		const exit = yield* sideExit(applyRuntime(db, changes.value, {}))
+		const exit = yield* sideExit(applyRuntime(ctx, changes.value, {}))
 		const outcome = Exit.isSuccess(exit) ? exit.value : undefined
 		const counted =
 			outcome?.kind === "accepted" &&
@@ -1673,7 +1675,7 @@ export const runCase = (
 			Layer.build(loginLayer(done, world.server)),
 			unready("the DbLayer refused its config")
 		)
-		const db = yield* Db.open(world.server.roles.app, {}).pipe(
+		const { ctx } = yield* openDbContext(world.server.roles.app, {}).pipe(
 			Effect.provideContext(context),
 			Effect.mapError(unready("Db.open refused the installation"))
 		)
@@ -1681,11 +1683,11 @@ export const runCase = (
 			note("facts by a direct writer")
 			yield* storeDirectly(c, done, world.server.roles.app.role)
 		} else {
-			yield* store(c, db, built, value)
+			yield* store(c, ctx, built, value)
 		}
-		const reader = dbReader(db)
-		const apply: Applier = (changes) => applyRuntime(db, changes, {})
-		const perturbed = strictReaderOf(perturbedContext(contextOf(db), c.perturbation), conversion)
+		const reader = dbReader(ctx)
+		const apply: Applier = (changes) => applyRuntime(ctx, changes, {})
+		const perturbed = strictReaderOf(perturbedContext(ctx, c.perturbation), conversion)
 		const again: Array<Again> = []
 		for (const [i, read] of c.reads.entries()) {
 			if (read.kind === "key") {

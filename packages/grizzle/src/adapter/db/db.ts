@@ -5,7 +5,7 @@ import {
 	compileChange,
 	compileFailure
 } from "#adapter/apply/index.ts"
-import { type DbContext, registerContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
 import { type CompiledRead, makeReader, poolExecutor, type Reader } from "#adapter/reader/reader.ts"
@@ -162,12 +162,11 @@ export const runtimeOf = <S>(ctx: DbContext): Runtime<S> => {
  * - apply and explain are the write and explain runtime (../apply, ../explain), and refresh the
  *   derived-relation runtime (../refresh). The Db dispatches to each on a fixed path.
  *
- * Every operation reads the one DbContext Db.open built (context.ts), which is also registered for the operations that
- * need the Db's internals (dbContext). The Db value is built under the public type Db<R, P>: each method is implemented
- * under its signature, so its program argument has its precise type, and dispatches to the runtime operation that
- * runs it. The rows a read delivers and the read-backs an apply delivers are the records of the program value's own
- * decoders (a query's rows, a ChangeSet's reads), and parameters arrive as ParamArg<P>, each a ParamValue, which the
- * runtime takes as a ParamMap (types/core).
+ * Every operation reads the one DbContext Db.open built (context.ts). The Db value is built under the public type
+ * Db<R, P>: each method is implemented under its signature, so its program argument has its precise type, and
+ * dispatches to the runtime operation that runs it. The rows a read delivers and the read-backs an apply delivers are
+ * the records of the program value's own decoders (a query's rows, a ChangeSet's reads), and parameters arrive as
+ * ParamArg<P>, each a ParamValue, which the runtime takes as a ParamMap (types/core).
  */
 export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): DbOf<R, P> => {
 	const runtime = runtimeOf<R>(ctx)
@@ -195,6 +194,5 @@ export const makeDb = <R, P>(ctx: DbContext, workload: WorkloadHandles<R, P>): D
 		refresh: (...relations) => runtime.refresh(relations),
 		explain: (program, params) => runtime.explain(program, params)
 	}
-	registerContext(db, ctx)
 	return db
 }

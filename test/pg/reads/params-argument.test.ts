@@ -5,8 +5,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import { type ApplyError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
 import { type CursorError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -162,10 +162,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 						})
 					)
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.server.roles.app, {})
-						const reader: ReaderValue = dbReader(db)
+						const { ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
+						const reader: ReaderValue = dbReader(dbCtx)
 						const compiled = yield* reader.compile(tasks)
-						const runtime = defined(dbRuntime(db), "the runtime of the opened Db")
+						const runtime = dbRuntime(dbCtx)
 						const writer: ApplyValue = runtime.methods
 						const compiledChange: CompiledApplyValue = yield* runtime.compile(unchanged)
 						const reads: { readonly [C in Call]: Read } = {

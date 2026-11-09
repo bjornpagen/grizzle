@@ -23,8 +23,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
 import { apply } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
@@ -452,13 +451,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const world = fullWorld(value)
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_shapes")
 						const context = yield* Layer.build(loginLayer(done, world.server))
-						const db = yield* Db.open(world.server.roles.app, {}).pipe(
+						const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(
 							Effect.provideContext(context)
 						)
-						const dbc = dbContext(db)
-						if (dbc === undefined) {
-							return yield* Effect.die(new Error("Db.open registered no context"))
-						}
 						return yield* exhaust(
 							{
 								suite: "laws/rule-query-shapes",

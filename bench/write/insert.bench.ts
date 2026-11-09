@@ -1,4 +1,5 @@
 import { Array as Arr, Deferred, Effect, Fiber, Formatter, Result } from "effect"
+import type { OpenedDb } from "#adapter/db/open.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import {
 	type CaseRecord,
@@ -40,6 +41,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { key, mutable, on, relation as defineRelation, schema } from "#compiler/public/schema.ts"
 import type { Insert } from "#compiler/sql/ast.ts"
+import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -126,7 +128,7 @@ interface InFlight {
 }
 
 const applyOn = (
-	d: object,
+	d: OpenedDb<AnyRole, unknown>,
 	changes: unknown,
 	params: Readonly<Record<string, bigint | number>>
 ) => {

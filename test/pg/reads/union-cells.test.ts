@@ -18,8 +18,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, Record as Rec } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -527,8 +527,8 @@ layer(Substrate.layer)("union cells", (it) => {
 						", "
 					)}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const rows = dbReader(db)
+						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
+						const rows = dbReader(dbCtx)
 						/** The case's facts replace the last case's whole (substrate/replace.ts). */
 						const records = (q: QueryValue) =>
 							Effect.flatMap(rows.execute(q, {}), (result) => result.collect)

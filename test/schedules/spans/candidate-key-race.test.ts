@@ -35,8 +35,9 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Scope } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import { type ApplyOutcome } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -243,7 +244,7 @@ const runRace = (
 			])
 		}
 		const app = yield* rig.writer("app", (context) =>
-			Db.open(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+			openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
 		)
 		const direct = yield* openActors(s, {
 			direct: { kind: "raw", as: rig.direct },

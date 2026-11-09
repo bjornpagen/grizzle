@@ -1,6 +1,8 @@
 import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
+import type { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -82,13 +84,13 @@ export interface Fixture {
 	 */
 	readonly psql: (role: AnyRole) => Effect.Effect<PsqlWriter, PsqlProcessError, Scope.Scope>
 	/**
-	 * Runs `body` with `role`, a role of the rebuilt worlds reached through its login, opened through a DbLayer of that
-	 * login. The Db is typed by no particular role: the bodies apply ChangeSets through its runtime
-	 * (test/support/runtime-db.ts).
+	 * Runs `body` with a Db of `role`, a role of the rebuilt worlds reached through its login, opened through a DbLayer
+	 * of that login, and the context it reads. The Db is typed by no particular role: a body applies ChangeSets through
+	 * it or through the runtime over its context (test/support/runtime-db.ts).
 	 */
 	readonly withDb: <A, E>(
 		role: AnyLoginRole,
-		body: (db: Db<AnyRole, unknown>) => Effect.Effect<A, E, Scope.Scope>
+		body: (db: Db<AnyRole, unknown>, ctx: DbContext) => Effect.Effect<A, E, Scope.Scope>
 	) => Effect.Effect<A, E | OpenError>
 }
 
@@ -176,7 +178,11 @@ export const openFixture = (
 				Effect.scoped(
 					Effect.flatMap(Layer.build(layer(role.login)), (context) =>
 						Effect.provideContext(
-							Effect.scoped(Effect.flatMap(Db.open(role, { token: tokenOf({}) }), body)),
+							Effect.scoped(
+								Effect.flatMap(openDbContext(role, { token: tokenOf({}) }), (opened) =>
+									body(opened.db, opened.ctx)
+								)
+							),
 							context
 						)
 					)

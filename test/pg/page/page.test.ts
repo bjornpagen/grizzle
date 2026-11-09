@@ -15,10 +15,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
@@ -628,8 +627,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 				Effect.gen(function* () {
 					const opened = yield* installed(Paging, {}, { label: "real", extensions: [] })
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const pages = untyped(dbReader(db))
+						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
+						const pages = untyped(dbReader(dbCtx))
 						return yield* explore(
 							{
 								oracle: { kind: "unstated" },
@@ -666,9 +665,9 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								Effect.gen(function* () {
 									const q = pagedQueries[walk.query]
 									const params = { account: A }
-									const compiled = pageTemplate(db, q)
+									const compiled = pageTemplate(dbCtx, q)
 									const order = pageOrder(compiled)
-									const handle = yield* dbReader(db).compile(q)
+									const handle = yield* dbReader(dbCtx).compile(q)
 									/** The facts: the drawn tasks, a note pair once, a flag per task. */
 									const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
 										id: t(n),
@@ -922,11 +921,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 				Effect.gen(function* () {
 					const opened = yield* installed(Paging, facts, { label: "real", extensions: [] })
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const context = dbContext(db)
-						if (context === undefined) {
-							return yield* Effect.die(new Error("no context"))
-						}
+						const { ctx: context } = yield* openDbContext(opened.server.roles.app, {})
 						const { executor, counts } = countingExecutor(poolExecutor(context))
 						const counted = untyped(makeReader(context, executor))
 						return yield* explore(
@@ -1057,7 +1052,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 												}
 											}
 											case "another generation": {
-												const template = pageTemplate(db, q)
+												const template = pageTemplate(context, q)
 												const runtime = template.runtime
 												const old = cursorCodec(
 													{

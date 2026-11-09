@@ -1,4 +1,6 @@
 import { Array as Arr, type Context, Effect, Layer, type Scope } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
+import type { OpenedDb } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
@@ -28,9 +30,10 @@ interface RigWorlds {
 	readonly direct: AnyRole
 }
 
-/** A grizzle writer: its role's Db, and the actor its operation steps run as. */
+/** A grizzle writer: its role's Db and the context it reads, and the actor its operation steps run as. */
 export interface Writer<R, P> {
 	readonly db: Db<R, P>
+	readonly ctx: DbContext
 	readonly actor: GrizzleActor
 }
 
@@ -57,13 +60,15 @@ export interface Rig<W extends RigWorlds> {
 	) => Effect.Effect<void, SqlError | TransactionRolledBack>
 	/**
 	 * Builds a DbLayer of the worlds' login of its own, given the installation's snapshot, opens a role's Db over it
-	 * with `open` (the caller's Db.open(server.roles.<role>, {}), provided the layer's context), as an application opens
-	 * it, then resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of
+	 * with `open` (the caller's openDbContext(server.roles.<role>, {}), provided the layer's context), as an application
+	 * opens it, then resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of
 	 * the rig holds.
 	 */
 	readonly writer: <R, P>(
 		name: string,
-		open: (context: Context.Context<DbLayerOf<W["server"]>>) => Effect.Effect<Db<R, P>, OpenError>
+		open: (
+			context: Context.Context<DbLayerOf<W["server"]>>
+		) => Effect.Effect<OpenedDb<R, P>, OpenError>
 	) => Effect.Effect<Writer<R, P>, OpenError, Substrate | Scope.Scope>
 }
 
@@ -120,10 +125,10 @@ export const openRig = <W extends RigWorlds>(
 				Effect.gen(function* () {
 					const login: W["server"] = worlds.server
 					const context = yield* Layer.build(loginLayer(installed, login))
-					const db = yield* open(context)
+					const { db, ctx } = yield* open(context)
 					const actor = yield* grizzleActor(actorName, installed.as(login).role, opened)
 					opened.push(actor.pid)
-					return { db, actor }
+					return { db, ctx, actor }
 				})
 		}
 	})

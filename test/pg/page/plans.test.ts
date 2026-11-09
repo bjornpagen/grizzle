@@ -6,8 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
@@ -146,11 +145,7 @@ const explorePlans = Effect.gen(function* () {
 	)
 	yield* s.admin.query(`VACUUM ANALYZE ${task}`, [])
 	return yield* Effect.gen(function* () {
-		const db = yield* Db.open(opened.server.roles.app, {})
-		const ctx = dbContext(db)
-		if (ctx === undefined) {
-			return yield* Effect.die(new Error("no context"))
-		}
+		const { ctx } = yield* openDbContext(opened.server.roles.app, {})
 		const { executor, counts } = countingExecutor(poolExecutor(ctx))
 		const pager = untyped(makeReader(ctx, executor))
 		/** The rows statement the runtime sends for a request: the first statement of that request. */

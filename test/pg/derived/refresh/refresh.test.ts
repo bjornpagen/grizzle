@@ -4,9 +4,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Result } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import { refreshReport } from "#adapter/refresh/index.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -249,11 +248,7 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 							)
 					)
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(f.server.roles.partial, {})
-						const ctx = dbContext(db)
-						if (ctx === undefined) {
-							return yield* Effect.die(new Error("the Db has no context"))
-						}
+						const { ctx } = yield* openDbContext(f.server.roles.partial, {})
 						/** The Db's context over a pool that counts its leases: a refusal before any SQL leases none. */
 						const leases = { count: 0 }
 						const counting = {

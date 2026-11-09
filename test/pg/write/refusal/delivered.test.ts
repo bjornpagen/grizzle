@@ -8,8 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { compiledWrite } from "#adapter/apply/compile.ts"
 import { runApplication } from "#adapter/apply/index.ts"
-import { dbContext } from "#adapter/db/context.ts"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -24,7 +23,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, defined, failureOf, succeeded } from "#test/support/assert.ts"
+import { assert, bareRecord, failureOf, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -337,8 +336,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							]
 						}
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
-							const opened = defined(dbContext(db), "the opened Db's context")
+							const { db, ctx: opened } = yield* openDbContext(o.server.roles.app, {})
 							const run = (artifact: Artifact, note: NoteFact) => {
 								const changes = write(s, note)
 								if (artifact === "optimized") {

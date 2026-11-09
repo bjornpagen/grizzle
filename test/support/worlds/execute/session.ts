@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, Result } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
@@ -13,7 +14,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { type DbRuntime, dbRuntime } from "#test/support/runtime-db.ts"
+import { dbRuntime } from "#test/support/runtime-db.ts"
 import { artifactsAgree } from "#test/support/worlds/execute/artifacts.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 import { headDomains } from "#test/support/worlds/execute/describe.ts"
@@ -68,17 +69,12 @@ export interface DbSession {
 	readonly described: ReadonlyMap<LawId, Law>
 	readonly value: BuiltRole
 	readonly db: Db<BuiltRole, unknown>
+	/** The context `db` reads, which the runtime reads and writes through (test/support/runtime-db.ts). */
+	readonly ctx: DbContext
 }
 
 /** The role a write or a read is built through: its spec, and its value as the builders made it. */
 export type WritingRole = Pick<DbSession, "role" | "value">
-
-const runtimeOf = (db: Db<BuiltRole, unknown>): Effect.Effect<DbRuntime> => {
-	const runtime = dbRuntime(db)
-	return runtime === undefined
-		? Effect.die(new Error("a Db session holds no Db value"))
-		: Effect.succeed(runtime)
-}
 
 /** The fields of a role relation, each with its domain: a whole entry's relation's, a query entry's head. */
 export const entryFields = (
@@ -432,7 +428,7 @@ export const readSession = (
 		if (Result.isFailure(program)) {
 			return refusedWith({ kind: "compile-refused" }, program.failure.refusal)
 		}
-		const runtime = yield* runtimeOf(session.db)
+		const runtime = dbRuntime(session.ctx)
 		const read = (reader: ReaderValue) =>
 			factsVia(reader, session, relation, program.success, fields, via)
 		const facts = yield* Effect.result(read(runtime.reader))
@@ -453,7 +449,7 @@ export const readSession = (
 				}
 			}
 		}
-		const agree = yield* artifactsAgree(session.db, read)
+		const agree = yield* artifactsAgree(session.ctx, read)
 		return agree
 			? seen({ kind: "rows", rows: facts.success })
 			: seen({ kind: "artifacts-disagree" })
@@ -580,7 +576,7 @@ export const applySession = (
 			return refusedWith({ kind: "compile-refused" }, write.failure)
 		}
 		const { changes, planned } = write.success
-		const runtime = yield* runtimeOf(session.db)
+		const runtime = dbRuntime(session.ctx)
 		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
@@ -657,7 +653,7 @@ const readBackOf = (plan: ReadBackPlan, reads: unknown): Effect.Effect<ReadBack>
 /** A value handed to db.apply, whatever it is. */
 export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = yield* runtimeOf(session.db)
+		const runtime = dbRuntime(session.ctx)
 		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
@@ -670,7 +666,7 @@ export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<
 /** A value handed to db.execute, whatever it is: its rows are not compared, only whether grizzle refuses it. */
 export const executeValue = (session: DbSession, program: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = yield* runtimeOf(session.db)
+		const runtime = dbRuntime(session.ctx)
 		const rows = yield* Effect.result(
 			Effect.flatMap(runtime.reader.execute(program, {}), (r) => r.collect)
 		)
@@ -684,7 +680,7 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 /** A refresh of a derived relation the role holds whole, by the value handed to db.refresh. */
 export const refreshValue = (session: DbSession, relation: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = yield* runtimeOf(session.db)
+		const runtime = dbRuntime(session.ctx)
 		const done = yield* Effect.result(runtime.methods.refresh([relation]))
 		if (Result.isFailure(done)) {
 			const failed = yield* applyFailed(done.failure)

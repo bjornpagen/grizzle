@@ -1,5 +1,5 @@
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref } from "effect"
-import { type DbContext, dbContext, dbReadFrame } from "#adapter/db/context.ts"
+import { type DbContext, dbReadFrame } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { makeReader, type ReaderValue, type ReadExecutor } from "#adapter/reader/reader.ts"
 import {
@@ -192,14 +192,10 @@ const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>
  * here is an answer no observation names, so it is raised as a defect of the run.
  */
 export const artifactsAgree = <E>(
-	db: object,
+	ctx: DbContext,
 	read: (reader: ReaderValue) => Effect.Effect<ReadonlyArray<HostFact>, E>
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
-		const ctx = yield* Option.match(Option.fromNullishOr(dbContext(db)), {
-			onNone: () => Effect.die(new Error("a Db session holds no Db context")),
-			onSome: Effect.succeed
-		})
 		const meeting = yield* Ref.make<Meeting>({ kind: "open" })
 		const sideRead = (side: Side, context: DbContext) =>
 			Effect.ensuring(

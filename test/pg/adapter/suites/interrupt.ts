@@ -14,8 +14,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
@@ -316,11 +316,9 @@ const interruptCases = Effect.gen(function* () {
 	const writerRole = o.installed.as(o.server).role
 	const reads = W.workReads(o.schema)
 	let serial = 0
-	const opened = yield* Effect.scoped(withLayer(Db.open(o.server.roles.app, {}), o.layer))
-	const context = dbContext(opened)
-	if (context === undefined) {
-		return yield* Effect.die(new Error("not a Db value"))
-	}
+	const { ctx: context } = yield* Effect.scoped(
+		withLayer(openDbContext(o.server.roles.app, {}), o.layer)
+	)
 	const notesNow = Effect.map(
 		s.admin.queryValues(
 			`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,

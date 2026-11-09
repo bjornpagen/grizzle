@@ -7,7 +7,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	type AdmissionMismatch,
@@ -15,7 +15,6 @@ import {
 	type AdmissionStage,
 	MissingCapability
 } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor, type ReaderValue } from "#adapter/reader/reader.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
@@ -29,7 +28,7 @@ import {
 	roleDefaults
 } from "#test/pg/adapter/support.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
-import { assert, assertVariant, defined, unorderedEqual } from "#test/support/assert.ts"
+import { assert, assertVariant, unorderedEqual } from "#test/support/assert.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -309,48 +308,54 @@ export const openSuite = (): void => {
 									const opened =
 										c.schema === "Work"
 											? yield* Effect.result(
-													Effect.flatMap(Db.open(work.server.roles.app, {}), (db) =>
-														Effect.gen(function* () {
-															const context = defined(dbContext(db), "an opened Db's context")
-															const reader: ReaderValue = makeReader(context, poolExecutor(context))
-															const hasVector = c.database === "installed"
-															assert.equal(context.installedExtensions.has("vector"), hasVector)
-															const found = yield* Effect.orDie(reader.get(W.Task, { id: t1 }))
-															assert.equal(
-																Option.isSome(found),
-																c.database === "installed",
-																"a task is found exactly where the facts were loaded"
-															)
-															k.note("a task read")
-															const activity = s.admin.queryValues(
-																"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
-																[database, loginRole]
-															)
-															const before = yield* activity
-															const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
-															assertInstanceOf(read, ReadFailure)
-															assertInstanceOf(read.reason, MissingCapability)
-															assert.equal(read.stage, "capability")
-															const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
-															assertInstanceOf(got, ReadFailure)
-															assertInstanceOf(got.reason, MissingCapability)
-															assert.equal(got.stage, "capability")
-															const compiled = yield* Effect.flip(
-																Effect.scoped(db.compile(vectorProbe))
-															)
-															if (!isCompileError(compiled)) {
-																return assert.fail("the probe's compile fails with a CompileError")
-															}
-															assert.equal(compiled.reason._tag, "UnsupportedOperation")
-															const after = yield* activity
-															assert.deepEqual(after, before)
-															k.note(
-																hasVector
-																	? "a vector probe refused, its schema not the role's to use"
-																	: "a vector probe refused, its extension absent"
-															)
-															k.note("Work admitted")
-														})
+													Effect.flatMap(
+														openDbContext(work.server.roles.app, {}),
+														({ db, ctx: context }) =>
+															Effect.gen(function* () {
+																const reader: ReaderValue = makeReader(
+																	context,
+																	poolExecutor(context)
+																)
+																const hasVector = c.database === "installed"
+																assert.equal(context.installedExtensions.has("vector"), hasVector)
+																const found = yield* Effect.orDie(reader.get(W.Task, { id: t1 }))
+																assert.equal(
+																	Option.isSome(found),
+																	c.database === "installed",
+																	"a task is found exactly where the facts were loaded"
+																)
+																k.note("a task read")
+																const activity = s.admin.queryValues(
+																	"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
+																	[database, loginRole]
+																)
+																const before = yield* activity
+																const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
+																assertInstanceOf(read, ReadFailure)
+																assertInstanceOf(read.reason, MissingCapability)
+																assert.equal(read.stage, "capability")
+																const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
+																assertInstanceOf(got, ReadFailure)
+																assertInstanceOf(got.reason, MissingCapability)
+																assert.equal(got.stage, "capability")
+																const compiled = yield* Effect.flip(
+																	Effect.scoped(db.compile(vectorProbe))
+																)
+																if (!isCompileError(compiled)) {
+																	return assert.fail(
+																		"the probe's compile fails with a CompileError"
+																	)
+																}
+																assert.equal(compiled.reason._tag, "UnsupportedOperation")
+																const after = yield* activity
+																assert.deepEqual(after, before)
+																k.note(
+																	hasVector
+																		? "a vector probe refused, its schema not the role's to use"
+																		: "a vector probe refused, its extension absent"
+																)
+																k.note("Work admitted")
+															})
 													).pipe(
 														withLayer(
 															Layer.fresh(loginLayerIn(database, work.installed, work.server))
@@ -358,24 +363,26 @@ export const openSuite = (): void => {
 													)
 												)
 											: yield* Effect.result(
-													Effect.flatMap(Db.open(searching.server.roles.app, {}), (db) =>
-														Effect.gen(function* () {
-															assert.equal(
-																dbContext(db)?.artifacts.names.vectorSchema,
-																testTypeSchema("vector_ext")
-															)
-															const found = yield* db.get(search.Document, {
-																id: "00000000-0000-4000-8000-000000000001"
-															})
-															assert.equal(found._tag, "None")
-															const probed = yield* Effect.flatMap(
-																db.execute(searchProbe, { qs }),
-																(r) => r.collect
-															)
-															assert.deepEqual(probed, [])
-															k.note("a vector probe answered")
-															k.note("Search admitted")
-														}).pipe(Effect.orDie)
+													Effect.flatMap(
+														openDbContext(searching.server.roles.app, {}),
+														({ db, ctx: dbCtx }) =>
+															Effect.gen(function* () {
+																assert.equal(
+																	dbCtx.artifacts.names.vectorSchema,
+																	testTypeSchema("vector_ext")
+																)
+																const found = yield* db.get(search.Document, {
+																	id: "00000000-0000-4000-8000-000000000001"
+																})
+																assert.equal(found._tag, "None")
+																const probed = yield* Effect.flatMap(
+																	db.execute(searchProbe, { qs }),
+																	(r) => r.collect
+																)
+																assert.deepEqual(probed, [])
+																k.note("a vector probe answered")
+																k.note("Search admitted")
+															}).pipe(Effect.orDie)
 													).pipe(
 														withLayer(
 															Layer.fresh(

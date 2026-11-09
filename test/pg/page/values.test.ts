@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, Record as Rec, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pageTemplate, rowOf, sortedResult, traverse, untyped } from "#test/pg/page/support.ts"
@@ -227,8 +227,8 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 					const table = names.table(Measure)
 					const column = (field: Field | "id"): string => names.column(Measure, field)
 					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const pages = untyped(dbReader(db))
+						const { ctx: dbCtx } = yield* openDbContext(opened.server.roles.app, {})
+						const pages = untyped(dbReader(dbCtx))
 						return yield* explore(
 							{
 								oracle: { kind: "unstated" },
@@ -274,7 +274,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 										}))
 									)
 									const q = queries[c.query]
-									const compiled = pageTemplate(db, q)
+									const compiled = pageTemplate(dbCtx, q)
 									const runtime = compiled.runtime
 									const rows = yield* Effect.flatMap(
 										pages.execute(q, {}),

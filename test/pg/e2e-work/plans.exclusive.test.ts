@@ -1,3 +1,11 @@
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
+import type { TestContext } from "vitest"
 /**
  * The worked example's plans at volume, read as a tenant through its world: every selective workload read is planned
  * through its indexes, and every index the workload creates is read.
@@ -26,15 +34,7 @@
  * arm's row goes, and the serving suites (test/pg/physical/serving.ts, world-serving.ts) hold every law's probe and
  * every world function to the index planned for it.
  */
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
-import type { TestContext } from "vitest"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -366,10 +366,10 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 						/**
 						 * The layer is provided around every use of the Db: its pools end when the layer's scope closes.
 						 */
-						const db = yield* Db.open(world.server.roles.tenant, {
+						const { ctx: dbCtx } = yield* openDbContext(world.server.roles.tenant, {
 							token: tokenOf({ account })
 						})
-						const { reader, counts } = yield* recordingReader(db)
+						const { reader, counts } = yield* recordingReader(dbCtx)
 						const problems: Array<string> = []
 						for (const read of selectiveReads(world.reads, e, sizes, pick, account)) {
 							const before = counts.sent.length

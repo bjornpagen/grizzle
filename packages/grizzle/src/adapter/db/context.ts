@@ -75,15 +75,3 @@ export interface DbContext extends RoleContext, DbCapabilities {
 /** The frame of every read of the Db, and of every write and refresh. */
 export const dbReadFrame = (ctx: Pick<DbContext, "prologue">): Frame => readFrame(ctx.prologue)
 export const dbWriteFrame = (ctx: Pick<DbContext, "prologue">): Frame => writeFrame(ctx.prologue)
-
-/**
- * The internals of an opened Db, for the operations other packages implement over it (apply, refresh, explain,
- * page) and for the tests that inspect which template a read selected. Never part of the public API.
- */
-const contexts = new WeakMap<object, DbContext>()
-
-export const registerContext = (db: object, context: DbContext): void => {
-	contexts.set(db, context)
-}
-
-export const dbContext = (db: object): DbContext | undefined => contexts.get(db)

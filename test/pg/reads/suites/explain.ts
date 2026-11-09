@@ -8,11 +8,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
+import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -63,9 +63,8 @@ const estimateOnly = (plan: Plan): void => {
  * An opened Db of no workload program whose operations run on a tapped pool of one session, warmed so a window holds
  * one call's traffic.
  */
-const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
+const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
 	Effect.gen(function* () {
-		const ctx = defined(dbContext(db), "a Db's context")
 		const { cluster } = yield* Substrate
 		const tap = makeTap(cluster)
 		const pool = yield* poolFor(credentials, {
@@ -76,7 +75,8 @@ const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
 		yield* Effect.scoped(
 			Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 		)
-		return { db: makeDb<R, unknown>({ ...ctx, pool }, {}), tap }
+		const context: DbContext = { ...opened.ctx, pool }
+		return { db: makeDb<R, unknown>(context, {}), context, tap }
 	})
 
 /**
@@ -300,8 +300,8 @@ export const explainSuite = (): void => {
 								"array"
 							)
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(o.server.roles.app, {})
-							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
+							const opened = yield* openDbContext(o.server.roles.app, {})
+							const { context, tap } = yield* tapped(opened, o.installed.as(o.server))
 							const reads = {
 								"a plain read": { query: W.automaticBudget, params: () => ({}) },
 								"a union": { query: W.taskPayloads, params: () => ({}) },
@@ -334,17 +334,17 @@ export const explainSuite = (): void => {
 									Effect.gen(function* () {
 										const read = reads[c.read]
 										const params = read.params(c.pick)
-										const plans = yield* explain(defined(dbContext(db)), read.query, params)
+										const plans = yield* explain(context, read.query, params)
 										const executed = yield* observe(
 											tap,
 											Effect.flatMap(
-												dbReader(db).execute(read.query, params),
+												dbReader(context).execute(read.query, params),
 												(result) => result.collect
 											)
 										)
 										assert.equal(
 											plans.length,
-											plannedStatements(tap, executed.window, defined(dbContext(db)).prologue),
+											plannedStatements(tap, executed.window, context.prologue),
 											"one plan per statement"
 										)
 										for (const plan of plans) {
@@ -380,8 +380,8 @@ export const explainSuite = (): void => {
 								lastValue()
 							])
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(o.server.roles.app, {})
-							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
+							const opened = yield* openDbContext(o.server.roles.app, {})
+							const { db, context, tap } = yield* tapped(opened, o.installed.as(o.server))
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },
@@ -516,7 +516,7 @@ export const explainSuite = (): void => {
 										const applied = yield* observe(tap, Effect.result(db.apply(changes, {})))
 										assert.equal(
 											plans.length,
-											plannedStatements(tap, applied.window, defined(dbContext(db)).prologue),
+											plannedStatements(tap, applied.window, context.prologue),
 											"one plan per statement"
 										)
 										if (applied.value._tag === "Failure") {
@@ -550,8 +550,7 @@ export const explainSuite = (): void => {
 						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const before = yield* tableState(o.installed, W.TaskNote)
 						const explored = yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.server.roles.app, {})
-							const ctx = defined(dbContext(db), "a Db's context")
+							const { ctx } = yield* openDbContext(o.server.roles.app, {})
 							/** The explain over a pool that counts its leases: every refusal is found on the host. */
 							const leases = { count: 0 }
 							const counting = {

@@ -1,7 +1,7 @@
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { type Array as Arr, type Context, Effect, type Scope } from "effect"
+import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -119,7 +119,6 @@ const renamedSched = (name: string) => {
 	}
 }
 type SchedWorlds = ReturnType<typeof renamedSched>
-type SchedDb = Db<SchedWorlds["app"], unknown>
 
 export interface Opened {
 	readonly rig: Rig<SchedWorlds>
@@ -139,5 +138,7 @@ export const open: Effect.Effect<
 /** The rig's writer `open`: the role `app`'s Db over the writer's DbLayer. */
 export const openApp =
 	(rig: Rig<SchedWorlds>) =>
-	(context: Context.Context<DbLayerOf<SchedWorlds["server"]>>): Effect.Effect<SchedDb, OpenError> =>
-		Db.open(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+	(
+		context: Context.Context<DbLayerOf<SchedWorlds["server"]>>
+	): Effect.Effect<OpenedDb<SchedWorlds["app"], unknown>, OpenError> =>
+		openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))

@@ -14,10 +14,10 @@ import {
 	Result,
 	Scope
 } from "effect"
+import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -42,7 +42,6 @@ import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.t
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
-import { contextOf } from "#test/support/runtime-db.ts"
 import { snapshotJson, snapshotValue } from "#test/support/snapshot-json.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -668,7 +667,7 @@ const realizeWith = (
 		const opened = (
 			value: BuiltRole,
 			held: Option.Option<Held>,
-			exit: Exit.Exit<Db<BuiltRole, unknown>, OpenError>,
+			exit: Exit.Exit<OpenedDb<BuiltRole, unknown>, OpenError>,
 			verifyCalls: 0 | 1
 		): Effect.Effect<Seen> =>
 			Exit.match(exit, {
@@ -680,14 +679,14 @@ const realizeWith = (
 								refusedWith(observation, error)
 							)
 					}),
-				onSuccess: (db) => openedDb(value, held, db, verifyCalls)
+				onSuccess: (o) => openedDb(value, held, o, verifyCalls)
 			})
 
 		/** A Db opened: a session of its role in its login, minted; one for a role the installation does not hold is a defect. */
 		const openedDb = (
 			value: BuiltRole,
 			held: Option.Option<Held>,
-			db: Db<BuiltRole, unknown>,
+			o: OpenedDb<BuiltRole, unknown>,
 			verifyCalls: 0 | 1
 		): Effect.Effect<Seen> =>
 			Option.match(held, {
@@ -703,7 +702,8 @@ const realizeWith = (
 							base: current.spec.base,
 							described: current.installation.described,
 							value,
-							db
+							db: o.db,
+							ctx: o.ctx
 						})
 						return seen({ kind: "opened", session, verifyCalls })
 					})
@@ -722,7 +722,10 @@ const realizeWith = (
 				const exit = yield* Effect.exit(
 					Effect.scoped(
 						Effect.flatMap(target.layers, (context) =>
-							handing(handed, Effect.provideContext(Db.open(target.reached, options), context))
+							handing(
+								handed,
+								Effect.provideContext(openDbContext(target.reached, options), context)
+							)
 						)
 					)
 				)
@@ -937,7 +940,7 @@ const realizeWith = (
 							target.reached,
 							Option.some(value),
 							target.context,
-							(db, verifyCalls) => openedDb(target.value, target.held, db, verifyCalls)
+							(opened, verifyCalls) => openedDb(target.value, target.held, opened, verifyCalls)
 						)
 					}
 					case "session":
@@ -955,21 +958,22 @@ const realizeWith = (
 			})
 
 		/**
-		 * Db.open handed a value its types refuse, as a JavaScript caller hands it: a refusal is observed at its stage, and a
-		 * Db it opens (a wild token it reads as no token, or as a payload) is `onOpened`'s.
+		 * Db.open handed a value its types refuse, as a JavaScript caller hands it, through openDbContext, the open Db.open
+		 * keeps the Db of: a refusal is observed at its stage, and a Db it opens (a wild token it reads as no token, or as a
+		 * payload) is `onOpened`'s.
 		 */
 		const openWild = (
 			role: unknown,
 			token: Option.Option<unknown>,
 			context: Context.Context<DbLayerOf<BuiltLogin>>,
-			onOpened: (db: Db<BuiltRole, unknown>, verifyCalls: 0 | 1) => Effect.Effect<Seen>
+			onOpened: (opened: OpenedDb<BuiltRole, unknown>, verifyCalls: 0 | 1) => Effect.Effect<Seen>
 		): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
 				const options = Option.match(token, {
 					onNone: () => ({}),
 					onSome: (t) => ({ token: t })
 				})
-				const opening: unknown = Reflect.apply(Db.open.bind(Db), undefined, [role, options])
+				const opening: unknown = Reflect.apply(openDbContext, undefined, [role, options])
 				if (!isOpening(opening)) {
 					return yield* Effect.die(new Error("Db.open handed a wild value returned no Effect"))
 				}
@@ -999,7 +1003,7 @@ const realizeWith = (
 										)
 									: Effect.die(thrown.cause)
 						}),
-					onSuccess: (db) => onOpened(db, verifyCalls)
+					onSuccess: (opened) => onOpened(opened, verifyCalls)
 				})
 			})
 
@@ -1239,7 +1243,7 @@ const realizeWith = (
 				if (session.kind === "direct") {
 					return yield* probeDirect(session)
 				}
-				return yield* probePool(contextOf(session.db).pool)
+				return yield* probePool(session.ctx.pool)
 			})
 
 		const storedRelations = (v: Version) => [
@@ -1485,13 +1489,13 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 const wildValue = (kind: WildKind): unknown => passed({ kind: "wild", wild: wildOf(kind) })
 
 /**
- * Whether Db.open, handed a wild value, returned an Effect. It is read with Db.open's declared answer: a Db of the role
- * it was handed, its failure an OpenError (which the caller still checks on the value), its requirement the phantom
- * DbLayer service, which no runtime value holds (adapter/types/layer.ts).
+ * Whether openDbContext, handed a wild value, returned an Effect. It is read with its declared answer: a Db of the role
+ * it was handed and its context, its failure an OpenError (which the caller still checks on the value), its requirement
+ * the phantom DbLayer service, which no runtime value holds (adapter/types/layer.ts).
  */
 const isOpening = (
 	value: unknown
-): value is Effect.Effect<Db<BuiltRole, unknown>, OpenError, DbLayerOf<BuiltLogin>> =>
+): value is Effect.Effect<OpenedDb<BuiltRole, unknown>, OpenError, DbLayerOf<BuiltLogin>> =>
 	Effect.isEffect(value)
 
 /** Realizes an installation under the ambient session `ambient` (test/support/ambient.ts): see RealWorld. */

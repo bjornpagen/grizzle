@@ -9,8 +9,9 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
 import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { Db, EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
+import { EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
 
+import { openDbContext } from "#adapter/db/open.ts"
 import { tappedDb } from "#test/pg/api-errors/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -230,8 +231,8 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 						})
 					})
 					return yield* Effect.gen(function* () {
-						const untapped = yield* Db.open(o.server.roles.app, {})
-						const { db, tap } = yield* tappedDb(untapped, o.installed.as(o.server))
+						const untapped = yield* openDbContext(o.server.roles.app, {})
+						const { ctx: dbCtx, tap } = yield* tappedDb(untapped.ctx, o.installed.as(o.server))
 						return yield* explore(
 							{
 								oracle: { kind: "unstated" },
@@ -285,7 +286,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 									}
 									const params = c.form === "parameter" ? { ...live, [c.field]: value } : {}
 									const mark = tap.mark()
-									const outcome = yield* Effect.result(applyRuntime(db, built.success, params))
+									const outcome = yield* Effect.result(applyRuntime(dbCtx, built.success, params))
 									if (Result.isSuccess(outcome)) {
 										assert.ok(c.value.kind === "wild", `a planted ${c.field} is refused`)
 										cx.note("wild admitted")

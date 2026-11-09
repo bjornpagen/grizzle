@@ -10,9 +10,10 @@ import {
 } from "effect"
 import { writeProgramOf, runApplication } from "#adapter/apply/index.ts"
 import type { ArtifactKind } from "#adapter/apply/readback.ts"
-import { dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/public/db.ts"
 import {
 	type Answer,
 	controlText,
@@ -121,26 +122,26 @@ export const installWrites = <S extends Parameters<typeof fullWorld>[0]>(
 > => installFixture(schema, options.programs, label, options.logins)
 
 /**
- * A Db of `role`, a role over the gate's schema rebuilt under the installed name reached through the rebuilt login that
- * holds it, opened through a DbLayer of that login, built in the scope, on the substrate's route: an instance of the
- * application, with its own session pool. The Db is typed by no particular role: a gate applies through observedChange,
+ * A Db of `role` and the context it reads, a role over the gate's schema rebuilt under the installed name reached
+ * through the rebuilt login that holds it, opened through a DbLayer of that login, built in the scope, on the
+ * substrate's route: an instance of the application, with its own session pool. The Db is typed by no particular role: a gate applies through observedChange,
  * or a Db's own members over values of the rebuilt schema. A token is given, of no claims, so a role reading no context
  * opens as one reading one does: its Db holds no context fact either way.
  */
 export const openDb = Effect.fn("openDb")(function* <F>(
 	fixture: Fixture<F>,
 	role: AnyLoginRole
-): Effect.fn.Return<Db<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> {
+): Effect.fn.Return<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> {
 	const s = yield* Substrate
 	const context = yield* Layer.build(loginLayerIn(s.database, fixture.installed, role.login))
-	return yield* Db.open(role, { token: tokenOf({}) }).pipe(Effect.provideContext(context))
+	return yield* openDbContext(role, { token: tokenOf({}) }).pipe(Effect.provideContext(context))
 })
 
 /** A Db of the full world of `value`, the gate's schema rebuilt under the installed name (openDb). */
 export const openFull = <F>(
 	fixture: Fixture<F>,
 	value: Parameters<typeof fullWorld>[0]
-): Effect.Effect<Db<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> =>
+): Effect.Effect<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> =>
 	openDb(fixture, fullWorld(value).server.roles.app)
 
 /**
@@ -751,40 +752,36 @@ const attemptedOf = (
 }
 
 /**
- * A ChangeSet value compiled for observed application on `db` (see the head of this file). `labelOf` turns an attempt's
- * failure into the gate's retry label, and `beforeCommit` probes the attempt's transaction just before its COMMIT, or
- * not. A refused query whose text is no statement of the program is a defect of the observation.
+ * A ChangeSet value compiled for observed application on the Db `opened` (see the head of this file). `labelOf` turns
+ * an attempt's failure into the gate's retry label, and `beforeCommit` probes the attempt's transaction just before its
+ * COMMIT, or not. A refused query whose text is no statement of the program is a defect of the observation.
  */
 export const observedChange = (
-	db: object,
+	opened: { readonly ctx: DbContext },
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit
 ): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(db, changes, labelOf, beforeCommit, "optimized")
+	observedArtifact(opened.ctx, changes, labelOf, beforeCommit, "optimized")
 
 /**
  * The same, applying the program's conservative realization, every stratum's statements in sequence, which the write
  * oracle compares the optimized artifact against.
  */
 export const observedConservative = (
-	db: object,
+	opened: { readonly ctx: DbContext },
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string
 ): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(db, changes, labelOf, { kind: "none" }, "conservative")
+	observedArtifact(opened.ctx, changes, labelOf, { kind: "none" }, "conservative")
 
 const observedArtifact = (
-	db: object,
+	context: DbContext,
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit,
 	kind: ArtifactKind
 ): Result.Result<ObservedChange, CompileError | GateSetupError> => {
-	const context = dbContext(db)
-	if (context === undefined) {
-		return Result.fail(new GateSetupError({ what: "observedChange: not an opened Db" }))
-	}
 	if (!isChangeSetValue(changes)) {
 		return Result.fail(new GateSetupError({ what: "observedChange: not a ChangeSet value" }))
 	}

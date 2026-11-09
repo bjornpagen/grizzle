@@ -9,8 +9,9 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
@@ -66,9 +67,12 @@ export interface OpenedPlatform {
 	readonly table: (relation: string) => string
 	/** Every stored relation's rows deleted, as the owner: the next case starts from an empty platform. */
 	readonly clear: Effect.Effect<void, SqlError>
-	/** Runs `body` on the platform opened as `billing`, in a scope of its own, with whatever else it needs. */
+	/**
+	 * Runs `body` on the platform opened as `billing`, and the context its Db reads, in a scope of its own, with whatever
+	 * else it needs.
+	 */
 	readonly withDb: <A, E, R>(
-		body: (db: PlatformDb) => Effect.Effect<A, E, R | Scope.Scope>
+		body: (db: PlatformDb, ctx: DbContext) => Effect.Effect<A, E, R | Scope.Scope>
 	) => Effect.Effect<A, E | OpenError, R>
 }
 
@@ -139,7 +143,11 @@ export const openPlatformWith = (
 				Effect.scoped(
 					Effect.flatMap(Layer.build(layer), (context) =>
 						Effect.provideContext(
-							Effect.scoped(Effect.flatMap(Db.open(schema.server.roles.billing, {}), body)),
+							Effect.scoped(
+								Effect.flatMap(openDbContext(schema.server.roles.billing, {}), (opened) =>
+									body(opened.db, opened.ctx)
+								)
+							),
 							context
 						)
 					)

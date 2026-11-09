@@ -4,10 +4,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { constant, element, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
@@ -52,9 +52,8 @@ const paramsOf = (fx: Fixture) => ({ account: accountB, vector: vectorParam(fx.p
  * Why a read through `db` underfilled: the iterative scan setting and the candidates statement's plan, both
  * read in the Db's own pooled session, which tell a setting missing there from an early stop of the strict scan.
  */
-const underfill = (db: object, fx: Fixture) =>
+const underfill = (ctx: DbContext, fx: Fixture) =>
 	Effect.gen(function* () {
-		const ctx = defined(dbContext(db), "the Db's context")
 		const spec = defined(
 			compile(candidates, fx.installed, "query").specs[0],
 			"the candidates statement"
@@ -204,7 +203,7 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 							Effect.scoped(
 								Effect.gen(function* () {
 									yield* changedDefault(fx, change)
-									const open = Db.open(fx.opened.server.roles.app, {})
+									const open = openDbContext(fx.opened.server.roles.app, {})
 									const { setting } = change
 									if (!Option.contains(change.value, setting.value)) {
 										const error = yield* Effect.flip(
@@ -237,14 +236,16 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 										return
 									}
 									yield* Effect.gen(function* () {
-										const db = yield* open
+										const { db, ctx: dbCtx } = yield* open
 										assert.deepEqual(
 											admittedPolicy(fx.opened.installed.snapshot, role),
 											policySettings
 										)
 										const rows = yield* (yield* db.execute(candidates, paramsOf(fx))).collect
 										const why =
-											rows.length === 20 ? "the policy fills the request" : yield* underfill(db, fx)
+											rows.length === 20
+												? "the policy fills the request"
+												: yield* underfill(dbCtx, fx)
 										assert.equal(rows.length, 20, why)
 										for (const row of rows) {
 											assert.equal(typeof row.distance, "number")

@@ -60,7 +60,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
 import type { ApplyError, OpenError, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -1049,10 +1048,7 @@ const runRace = (
 						})
 						continue
 					}
-					const ctx = dbContext(writers[session.actor].db)
-					if (ctx === undefined) {
-						return yield* Effect.die(new Error("Db.open registered no context"))
-					}
+					const ctx = writers[session.actor].ctx
 					const steps: Array<OpStep> = []
 					for (const [i, op] of session.ops.entries()) {
 						const built = changeSetOf(o, op)

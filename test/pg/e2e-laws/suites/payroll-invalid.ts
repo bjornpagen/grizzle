@@ -255,7 +255,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				.insert(P.TaxProfile, [{ employee: fresh(3), filing: "single", extra: 0n }])
 			return {
 				changes,
-				outcome: p.f.withDb(p.w.server.roles.hr, (db) => applyRuntime(db, changes, {}))
+				outcome: p.f.withDb(p.w.server.roles.hr, (...[, ctx]) => applyRuntime(ctx, changes, {}))
 			}
 		},
 		law: L.patternLaw(P.Employee, "code"),
@@ -646,8 +646,8 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 			const changes = p.cs().insert(P.Posting, p.postings)
 			return {
 				changes,
-				outcome: p.f.withDb(p.w.server.roles.clerk, (db) =>
-					applyRuntime(db, changes, { run: run1 })
+				outcome: p.f.withDb(p.w.server.roles.clerk, (...[, ctx]) =>
+					applyRuntime(ctx, changes, { run: run1 })
 				)
 			}
 		},
@@ -835,8 +835,8 @@ export const payrollInvalidSuite = (): void => {
 						const pay = p.cs().put(P.PayRun, p.payPut).insert(P.Payment, p.payPayment)
 						yield* accepted({
 							changes: pay,
-							outcome: p.f.withDb(p.w.server.roles.clerk, (db) =>
-								applyRuntime(db, pay, { run: run1, now: Instant(tNow) })
+							outcome: p.f.withDb(p.w.server.roles.clerk, (...[, ctx]) =>
+								applyRuntime(ctx, pay, { run: run1, now: Instant(tNow) })
 							)
 						})
 						return yield* everyRow("after-pay", p, afterPay)

@@ -10,6 +10,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
+import type { OpenedDb } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { summarize, type Summary } from "#bench/cold/stats.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
@@ -83,6 +84,7 @@ import { appendAll, indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
@@ -464,8 +466,8 @@ export default defineGate({
 			 * The holders of one installation, each its own Db on the substrate's route with the claim and the settlement
 			 * compiled on it, and the claim program's statements, which every holder's program holds alike.
 			 */
-			const holdersOf = <D extends object>(
-				open: () => Effect.Effect<D, OpenError, Substrate | Scope.Scope>,
+			const holdersOf = (
+				open: () => Effect.Effect<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope>,
 				claim: unknown,
 				settlement: unknown
 			) =>
@@ -734,7 +736,7 @@ export default defineGate({
 						 * a patient application does, by the gate's enqueueRetry policy. An enqueue whose every attempt failed is
 						 * tallied as `transient`.
 						 */
-						const outcome = yield* enqueuer.apply(change, {}).pipe(
+						const outcome = yield* enqueuer.db.apply(change, {}).pipe(
 							Effect.retry({
 								times: options.enqueueRetry.times,
 								schedule: backoffOf(options.enqueueRetry),

@@ -630,7 +630,7 @@ const boxSession = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const value = boxSchema(p, installed.declared)
-		const { db } = yield* openWriter({ installed, schema: value })
+		const { ctx } = yield* openWriter({ installed, schema: value })
 		const host = hostOf(p)
 		const q = quoteIdent(installed.schema)
 		const table = (r: Rel) => `${q}.${quoteIdent(r.host.table)}`
@@ -656,7 +656,7 @@ const boxSession = (
 				)
 				c = c[o.kind](relationValue, facts)
 			}
-			return applyRuntime(db, c, {})
+			return applyRuntime(ctx, c, {})
 		}
 		return {
 			host,

@@ -8,9 +8,8 @@ import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { admit } from "#adapter/admission/admit.ts"
 import { admissionExpectation } from "#adapter/admission/expectation.ts"
 import type { ClaimValue } from "#adapter/db/claims.ts"
-import { dbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -202,8 +201,7 @@ layer(Substrate.layer, { excludeTestServices: true })("Db.open's admission of cl
 					Effect.gen(function* () {
 						const o = yield* installed(Probes, {}, { label: "claims", extensions: [] })
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(o.server.roles.app, {})
-							const opener = defined(dbContext(opened), "an opened Db's context")
+							const { ctx: opener } = yield* openDbContext(o.server.roles.app, {})
 							const substrate = yield* Substrate
 							const tap = makeTap(substrate.cluster)
 							const pool = yield* poolFor(o.installed.as(o.server), {

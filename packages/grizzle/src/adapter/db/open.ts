@@ -113,8 +113,14 @@ export const openToken = (options: unknown): Result.Result<Option.Option<string>
 	return Result.fail(refusedOption("Db.open's token: a string, the token the layer's verify reads"))
 }
 
+/** An opened Db and the one context every operation of it reads (context.ts). */
+export interface OpenedDb<R, P> {
+	readonly db: DbOf<R, P>
+	readonly ctx: DbContext
+}
+
 /**
- * Db.open(Web.roles.member, { token? }).
+ * Db.open(Web.roles.member, { token? }), and the context the Db reads.
  *
  * Opening acquires a database for a role reached through its login and admits it before it yields; it never installs
  * or changes a schema. In order:
@@ -146,10 +152,10 @@ export const openToken = (options: unknown): Result.Result<Option.Option<string>
  * snapshot is ever derived from the schema alone. The Db's workload handles (`db.workload`) are built here over the
  * programs the layer compiled for the role, each ChangeSet's for the contexts the Db's claims hold a fact of.
  */
-export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
+export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	role: LoginRole<R, P>,
 	options: OpenOptions<R>
-): Effect.fn.Return<DbOf<R, P>, OpenError, DbLayerService<R>> {
+): Effect.fn.Return<OpenedDb<R, P>, OpenError, DbLayerService<R>> {
 	const reached = loginRoleOf(role)
 	if (reached === undefined) {
 		return yield* refusedOption("a role reached through its login: Db.open(Web.roles.member, ...)")
@@ -218,10 +224,10 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 			defect(`the workload handles of role ${desc.name}: one per program of its layer`)
 		)
 	}
-	return makeDb<R, P>(ctx, handles)
+	return { db: makeDb<R, P>(ctx, handles), ctx }
 })
 
-/** Db.open. The role is reached through its login, whose layer provides the Effect. */
+/** Db.open: the Db openDbContext opens. The role is reached through its login, whose layer provides the Effect. */
 export const DbValue: DbConstructor = {
-	open: (role, options) => openDb(role, options)
+	open: (role, options) => Effect.map(openDbContext(role, options), (opened) => opened.db)
 }

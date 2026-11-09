@@ -12,6 +12,8 @@ import {
 	Result,
 	type Scope
 } from "effect"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
@@ -392,6 +394,8 @@ export interface Opened<S extends AnySchema> {
 	readonly installed: Installed
 	readonly schema: S
 	readonly db: Db<FamilyWriters["app"], unknown>
+	/** The context `db` reads, which the runtime applies through (test/support/runtime-db.ts). */
+	readonly ctx: DbContext
 }
 
 /**
@@ -428,8 +432,10 @@ export const openWriter = <S extends AnySchema>(opened: {
 		const s = yield* Substrate
 		const writers = familyWriters(opened.schema)
 		const context = yield* Layer.build(loginLayerIn(s.database, opened.installed, writers.server))
-		const db = yield* Db.open(writers.server.roles.app, {}).pipe(Effect.provideContext(context))
-		return { installed: opened.installed, schema: opened.schema, db }
+		const { db, ctx } = yield* openDbContext(writers.server.roles.app, {}).pipe(
+			Effect.provideContext(context)
+		)
+		return { installed: opened.installed, schema: opened.schema, db, ctx }
 	})
 
 /** One installed family schema as the harness drives it. */
@@ -530,10 +536,7 @@ export const runtimeSession = <S extends AnySchema>(
 	opened: Opened<S>,
 	relations: Readonly<Record<string, unknown>>
 ): Effect.Effect<Session, never, Substrate> => {
-	const runtime = dbRuntime(opened.db)
-	if (runtime === undefined) {
-		return Effect.die(new Error("Db.open registered no runtime"))
-	}
+	const runtime = dbRuntime(opened.ctx)
 	return sessionOf(host, opened.installed, (ops) =>
 		runtime.methods.apply(changeSetOf(opened.schema, relations, ops), {})
 	)

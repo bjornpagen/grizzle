@@ -4,9 +4,9 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
-import { makeDb } from "#adapter/db/db.ts"
+import type { DbContext } from "#adapter/db/context.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
-import { Db } from "#adapter/public/db.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -20,7 +20,7 @@ import { t3, t4, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
-import { applyRuntime, compileRuntime, contextOf } from "#test/support/runtime-db.ts"
+import { applyRuntime, compileRuntime } from "#test/support/runtime-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"
@@ -139,7 +139,7 @@ export const applySuite = () => {
 							accounts: tableState(done, W.Account)
 						})
 						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(rebuilt.server.roles.app, {})
+							const opened = yield* openDbContext(rebuilt.server.roles.app, {})
 							/**
 							 * The Db's runtime on a tapped pool, its first session warmed, so a window holds one call's traffic.
 							 */
@@ -153,7 +153,7 @@ export const applySuite = () => {
 							yield* Effect.scoped(
 								Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 							)
-							const tapped = makeDb<typeof rebuilt.app, unknown>({ ...contextOf(db), pool }, {})
+							const tapped: DbContext = { ...opened.ctx, pool }
 							const s0 = rebuilt.Extended
 							/**
 							 * A described insert over a relation parameter bound to a Stream: one note per wanted task that exists.
@@ -280,7 +280,7 @@ export const applySuite = () => {
 												 * With the notes deleted again, the second application adds them again only if it
 												 * collects the Stream anew: a Stream read once would add nothing.
 												 */
-												const removed = yield* db.apply(
+												const removed = yield* opened.db.apply(
 													ChangeSet.empty(s0).delete(W.TaskNote, [
 														{ task: t3, note: "streamed" },
 														{ task: t4, note: "streamed" }

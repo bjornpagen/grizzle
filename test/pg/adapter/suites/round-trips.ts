@@ -6,11 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
+import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { explain } from "#adapter/explain/index.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { CompileError, CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -178,9 +177,8 @@ export const roundTripSuite = (): void => {
 		 *
 		 * The session's startup, outside every window.
 		 */
-		const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
+		const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
 			Effect.gen(function* () {
-				const ctx = defined(dbContext(db), "an opened Db's context")
 				const substrate = yield* Substrate
 				const tap = makeTap(substrate.cluster)
 				const pool = yield* poolFor(credentials, {
@@ -191,7 +189,7 @@ export const roundTripSuite = (): void => {
 				yield* Effect.scoped(
 					Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 				)
-				const context = { ...ctx, pool }
+				const context = { ...opened.ctx, pool }
 				return { db: makeDb<R, unknown>(context, {}), context, tap }
 			})
 
@@ -286,9 +284,9 @@ export const roundTripSuite = (): void => {
 						} as const
 						const pages = { budgets, noted } as const
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(o.server.roles.app, {})
-							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
-							const reader = dbReader(db)
+							const opened = yield* openDbContext(o.server.roles.app, {})
+							const { context, tap } = yield* tapped(opened, o.installed.as(o.server))
+							const reader = dbReader(context)
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },
@@ -345,7 +343,7 @@ export const roundTripSuite = (): void => {
 														: call.kind === "get"
 															? reader.get(W.Task, { id: call.present ? t1 : tMissing })
 															: call.kind === "explain"
-																? explain(defined(dbContext(db)), target.query, target.params)
+																? explain(context, target.query, target.params)
 																: reader.page(
 																		page,
 																		{ account: a1 },
@@ -407,7 +405,7 @@ export const roundTripSuite = (): void => {
 						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const s = o.schema
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(o.server.roles.app, {})
+							const opened = yield* openDbContext(o.server.roles.app, {})
 							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
 							const tasks = [t1, t4, t5] as const
 							return yield* explore(
@@ -523,7 +521,7 @@ export const roundTripSuite = (): void => {
 							(rows) => rows[0]?.[0] === true
 						)
 						return yield* Effect.gen(function* () {
-							const opened = yield* Db.open(fixture.server.roles.refresher, {})
+							const opened = yield* openDbContext(fixture.server.roles.refresher, {})
 							const { db, tap } = yield* tapped(opened, installation.as(fixture.server))
 							return yield* explore(
 								{

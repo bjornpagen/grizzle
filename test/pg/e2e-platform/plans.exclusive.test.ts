@@ -15,6 +15,7 @@ import {
 	Result
 } from "effect"
 import type { TestContext } from "vitest"
+import { openDbContext } from "#adapter/db/open.ts"
 /**
  * The platform's plans at volume: every workload read is planned through an index, and law maintenance never scans the
  * relation it counts.
@@ -58,7 +59,6 @@ import type { TestContext } from "vitest"
  * PostgreSQL finds cheaper), which counts as used. The engine's own serving rule is never consulted: a copy of it would
  * agree with it.
  */
-import { Db } from "#adapter/public/db.ts"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
@@ -1127,9 +1127,9 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 									used.add(index)
 								}
 							})
-						yield* o.withDb((db) =>
+						yield* o.withDb((...[, dbCtx]) =>
 							Effect.gen(function* () {
-								const { reader, counts } = yield* recordingReader(db)
+								const { reader, counts } = yield* recordingReader(dbCtx)
 								for (const pr of probes(e, pick)) {
 									const before = counts.sent.length
 									yield* (yield* reader.execute(pr.query, pr.params)).collect
@@ -1138,10 +1138,10 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 							})
 						)
 						yield* Effect.gen(function* () {
-							const db = yield* Db.open(tenants.roles.tenant, {
+							const { ctx: dbCtx } = yield* openDbContext(tenants.roles.tenant, {
 								token: tokenOf({ org: pickOf(e.orgs, pick, uid(0xdead, 2)) })
 							})
-							const { compileWith, counts } = yield* recordingReader(db)
+							const { compileWith, counts } = yield* recordingReader(dbCtx)
 							for (const pr of probes(e, pick)) {
 								const before = counts.sent.length
 								const read = yield* compileWith(descriptionOf(pr.query), () => rowsOf(pr.query))

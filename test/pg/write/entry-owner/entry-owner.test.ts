@@ -1,3 +1,11 @@
+import { layer } from "@effect/vitest"
+import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 /**
  * A family's owner written through a role's query entry, on PostgreSQL 19, through grizzle's own apply: Stores own a
  * counted family of Items (test/support/families/entry-owner.ts), and each declared shape of the entry-owner box is a
@@ -16,15 +24,7 @@
  * that leaves the stores as they were, an insert of a visible store under its own label among them. A case that is both
  * outside the entry and at an unseen store's key may report either, as the README promises.
  */
-import { layer } from "@effect/vitest"
-import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { openDbContext } from "#adapter/db/open.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { type AnySchema, login, role } from "#compiler/public/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
@@ -249,11 +249,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(read) => String(read[0]?.[0])
 						)
 						return yield* Effect.gen(function* () {
-							const keeper = yield* Db.open(defined(b.login.roles["keeper"], "the keeper"), {})
+							const { ctx: keeper } = yield* openDbContext(
+								defined(b.login.roles["keeper"], "the keeper"),
+								{}
+							)
 							const opened = yield* Effect.forEach(b.writers.keys(), (name) =>
 								Effect.map(
-									Db.open(defined(b.login.roles[name], "an entry role"), {}),
-									(db) => [name, db] as const
+									openDbContext(defined(b.login.roles[name], "an entry role"), {}),
+									(o) => [name, o.ctx] as const
 								)
 							)
 							const writers = new Map(opened)

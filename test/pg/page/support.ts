@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { dbContext } from "#adapter/db/context.ts"
+import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { type CompiledPage, compilePageTemplate } from "#adapter/page/page.ts"
 import type { CompiledReadValue, QueryResultValue, ReadExecutor } from "#adapter/reader/reader.ts"
@@ -122,14 +122,10 @@ export interface TestPage extends CompiledPage {
 }
 
 /**
- * The page template a reader of `db` compiles for `query` (packages/grizzle/src/adapter/page/page.ts), with the codes
- * of the installation the Db is admitted at.
+ * The page template a reader of the Db of `ctx` compiles for `query` (packages/grizzle/src/adapter/page/page.ts), with
+ * the codes of the installation the Db is admitted at.
  */
-export const pageTemplate = (db: object, query: unknown): TestPage => {
-	const ctx = dbContext(db)
-	if (ctx === undefined) {
-		throw new Error("not a Db")
-	}
+export const pageTemplate = (ctx: DbContext, query: unknown): TestPage => {
 	const compiled = compilePageTemplate(ctx, query)
 	if (Result.isFailure(compiled)) {
 		throw new Error(`${compiled.failure.stage}: ${compiled.failure.message}`)
