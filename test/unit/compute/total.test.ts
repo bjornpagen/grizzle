@@ -469,21 +469,24 @@ describe("the ContractLiteral check", () => {
 	const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
 
 	it.effect(
-		"checks a literal that adopts a contract against its predicate, and none that adopts its base",
+		"checks a literal opposite a contract's term against its predicate, compared with it or beside it in arithmetic",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "README: a value opposite a term is a value of its type, so the contract judges it wherever it stands"
+						},
 						suite: "unit/compute/contract-literal",
 						draw: drawn((source) => ({
 							n: source.draw(bigint(-1000n, 1000n)),
 							site: source.draw(element(["compare" as const, "arithmetic" as const]))
 						})),
 						literal: Formatter.format,
-						coverage: required<"compare admitted" | "compare refused" | "arithmetic admitted">(
-							["compare admitted", "compare refused", "arithmetic admitted"],
+						coverage: required<`${"compare" | "arithmetic"} ${"admitted" | "refused"}`>(
+							["compare admitted", "compare refused", "arithmetic admitted", "arithmetic refused"],
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
@@ -497,36 +500,32 @@ describe("the ContractLiteral check", () => {
 					({ n, site }, c) =>
 						Effect.sync(() => {
 							const vars = { c: { kind: "column", type: Cents.scalar } } as const
-							if (site === "arithmetic") {
-								c.note("arithmetic admitted")
-								succeeded(
-									lowerWith(
-										"query",
-										spelledExpr(Compute.add(v("c", Cents), n).expr),
-										vars,
-										false,
-										baseParams
-									)
-								)
-								return
-							}
-							const result = lowerWith(
-								"query",
-								{
-									kind: "compare",
-									op: "ge",
-									left: { kind: "var", var: "c" },
-									right: { kind: "literal", value: n, type: undefined }
-								},
-								vars,
-								true,
-								baseParams
-							)
+							const result =
+								site === "arithmetic"
+									? lowerWith(
+											"query",
+											spelledExpr(Compute.add(v("c", Cents), n).expr),
+											vars,
+											false,
+											baseParams
+										)
+									: lowerWith(
+											"query",
+											{
+												kind: "compare",
+												op: "ge",
+												left: { kind: "var", var: "c" },
+												right: { kind: "literal", value: n, type: undefined }
+											},
+											vars,
+											true,
+											baseParams
+										)
 							if (n >= 0n) {
-								c.note("compare admitted")
+								c.note(`${site} admitted`)
 								succeeded(result)
 							} else {
-								c.note("compare refused")
+								c.note(`${site} refused`)
 								refused(result, "ContractLiteral")
 							}
 						})

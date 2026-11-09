@@ -406,12 +406,18 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
-type Role = "compare" | "operand"
+/**
+ * Where a bare literal stands opposite a term: compared with it (a comparison, an IN list, BETWEEN bounds, a
+ * conditional's branch), an arithmetic operand beside it (+, -, *, /, %, quot, rem, power, gcd, lcm), or a text
+ * operation's second operand (concat, startsWith, endsWith).
+ */
+type Role = "compare" | "arithmetic" | "operand"
 
 /**
  * The type a bare literal adopts opposite a term of type `t` (see the header): compared with a contract, the contract;
  * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text
- * and a span's its endpoint's, so a literal is typed by the term it meets and never on its own.
+ * and a span's its endpoint's, so a literal is typed by the term it meets and never on its own. An arithmetic operand
+ * is typed at the base and judged a value of the term's contract beside it (Lowering.operand).
  */
 export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
 	if (role === "compare" && contractOf(t) !== undefined) {
@@ -1975,11 +1981,27 @@ class Lowering<R extends Refs> {
 	/**
 	 * An operand opposite `against`: a bare literal adopts its type, anything else, a parameter among them, is a term that
 	 * meets it (types.ts meets). Opposite an exact value a bare literal adopts its family's plain carrier (bigint, money),
-	 * which the operation widens exactly (exactPair).
+	 * which the operation widens exactly (exactPair). A bare literal beside a contract's term in arithmetic is a value
+	 * opposite that term, so it is a value of its type, as README reads a value opposite a term: the contract judges it
+	 * (ContractLiteral, where compilation reads the contract), and the operation reads it at the base it computes over.
 	 */
 	operand(desc: ExprDesc<Located, R>, against: Lowered, role: Role, at: SourceLoc): Lowered {
 		if (desc.kind === "literal" && desc.type === undefined) {
-			return this.literal(desc.value, this.adopt(against.nominal, role), at)
+			const literal = this.literal(desc.value, this.adopt(against.nominal, role), at)
+			if (
+				role === "arithmetic" &&
+				this.env.mode !== "build" &&
+				contractOf(against.nominal) !== undefined
+			) {
+				const judged = admitLiteral(desc.value, against.nominal, {
+					kind: "refinements",
+					patterns: this.env.patterns
+				})
+				if (!judged.ok) {
+					return stop(judged.error.reason, at, judged.error.capability)
+				}
+			}
+			return literal
 		}
 		const term = this.lower(desc, at)
 		if (!meets(against.nominal, term.nominal)) {
@@ -3401,7 +3423,7 @@ class Lowering<R extends Refs> {
 			case "quot":
 			case "rem": {
 				const a = this.term(arg(0), here)
-				const b = this.operand(arg(1), a, "operand", here)
+				const b = this.operand(arg(1), a, "arithmetic", here)
 				this.requireNumeric(valueType(a.nominal), desc.fn, here)
 				const op = this.overload(desc.fn, [valueType(a.nominal), valueType(b.nominal)], here)
 				const bounds =
@@ -3431,7 +3453,7 @@ class Lowering<R extends Refs> {
 			}
 			case "power": {
 				const a = this.term(arg(0), here)
-				const b = this.operand(arg(1), a, "operand", here)
+				const b = this.operand(arg(1), a, "arithmetic", here)
 				const v = valueType(a.nominal)
 				const op = this.overload("power", [v, v], here)
 				const bounds = powerBounds(a, b, v)
@@ -3734,7 +3756,7 @@ class Lowering<R extends Refs> {
 		at: SourceLoc
 	): Lowered {
 		const a0 = this.term(left, at)
-		const b0 = this.operand(right, a0, "operand", at)
+		const b0 = this.operand(right, a0, "arithmetic", at)
 		const va = valueType(a0.nominal)
 		if (this.check && (isFloat(va) || va.carrier === "money" || va.carrier === "exactMoney")) {
 			return this.floatArithmetic(fn, va, at)
@@ -3897,7 +3919,7 @@ class Lowering<R extends Refs> {
 			return stop("MalformedDescription", at, `${fn} takes a term or a parameter, never a literal`)
 		}
 		const a0 = this.term(left, at)
-		const b0 = this.operand(right, a0, "operand", at)
+		const b0 = this.operand(right, a0, "arithmetic", at)
 		const widen =
 			valueType(a0.nominal).carrier === "int2" ||
 			valueType(a0.nominal).carrier === "exactInteger" ||
@@ -4634,7 +4656,8 @@ const run = <R extends Refs>(
  * - A literal never stands first and has no type of its own: it adopts the type of the term it meets. In a comparison,
  *   an IN list, BETWEEN bounds or a conditional's branch it adopts that term's contract or regex refinement and is
  *   checked against it here, the ContractLiteral check; in arithmetic it adopts the term's value type, the unconstrained
- *   base, and opposite an exact value its family's plain carrier.
+ *   base, opposite an exact value its family's plain carrier, and is judged by the contract of the term it stands
+ *   beside, the ContractLiteral check too.
  * - A parameter is a term of its declared type, first included, which its caller binds; a typed constant
  *   (Compute.literal) is a term of its stated type.
  * - When both branches of Compute.cond are literals, number literals are integer and every other literal is its own

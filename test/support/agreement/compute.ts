@@ -3759,10 +3759,30 @@ const domainKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = 
 	}
 ]
 
+/**
+ * The program whose bare literal opposite a contract's term in arithmetic the engine once read at the base, where the
+ * types read it as a value of the contract, as README reads a value opposite a term: Divisor's term plus 0, which
+ * Divisor refuses, so both sides refuse it, the types naming the fact it lacks. Every run holds it.
+ */
+const arithmeticKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "apply",
+			fn: "add",
+			args: [
+				{ kind: "field", field: "divisor" },
+				{ kind: "literal", lit: { text: "0", value: 0 } }
+			]
+		}
+	}
+]
+
 /** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
 	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
 	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
+	...Arr.map(arithmeticKept, (spec) => caseOf({ spec, reached: new Set(["add"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
 	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
 ]
