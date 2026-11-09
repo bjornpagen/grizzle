@@ -204,7 +204,7 @@ const typeOf = (p: PlaneKind): ScalarType =>
 export type Value = bigint | string
 
 /** One value per plane, in plane order. */
-export type Planes = Arr.NonEmptyReadonlyArray<Value>
+type Planes = Arr.NonEmptyReadonlyArray<Value>
 
 /**
  * A cell's step field: none for count, which steps by one; a field its caller writes; or a field PostgreSQL generates
@@ -240,7 +240,7 @@ export const cellLabel = (c: Cell): CellLabel =>
 		: `${c.monoid} over ${planeLabel(c.plane)}`
 
 /** The field a member's steps record holds a cell's value at: its written step, or the token PostgreSQL doubles. */
-export const stepKeyOf = (c: Cell): string | undefined => {
+const stepKeyOf = (c: Cell): string | undefined => {
 	switch (c.step.kind) {
 		case "none":
 			return undefined
@@ -293,7 +293,7 @@ const cellsOf = (kind: FamilyKind): ReadonlyArray<Arr.NonEmptyReadonlyArray<Cell
 	})
 
 /** The identity of each plane of a cell's monoid, in exact units: 0, the empty set, max's least value, the empty text. */
-export const identityOf = (c: Cell): Planes => {
+const identityOf = (c: Cell): Planes => {
 	switch (c.monoid) {
 		case "count":
 		case "sum":
@@ -353,13 +353,13 @@ const combine = (m: MonoidName, befores: Planes, x: Value | undefined): Planes =
 }
 
 /** A member's running values: each plane before its step and after it. */
-export interface Running {
+interface Running {
 	readonly before: Planes
 	readonly after: Planes
 }
 
 /** The fold of a cell over its members' steps in order: each member's running values, and the end. */
-export const foldOf = (
+const foldOf = (
 	c: Cell,
 	steps: ReadonlyArray<Value | undefined>
 ): { readonly running: ReadonlyArray<Running>; readonly end: Planes } => {
@@ -374,7 +374,7 @@ export const foldOf = (
 }
 
 /** A plane's value as the host value a fact holds and a stored row reads back. */
-export const hostOf = (p: PlaneKind, v: Value): unknown => {
+const hostOf = (p: PlaneKind, v: Value): unknown => {
 	switch (p.kind) {
 		case "int2":
 		case "int4":
@@ -732,7 +732,7 @@ const stepAt = (steps: Steps, field: string): Value =>
 	defined(Rec.has(steps, field) ? steps[field] : undefined, `the step ${field}`)
 
 /** A cell's step value of a member, as its fold reads it: none for count, and a piece its token doubled. */
-export const stepOf = (c: Cell, steps: Steps): Value | undefined => {
+const stepOf = (c: Cell, steps: Steps): Value | undefined => {
 	switch (c.step.kind) {
 		case "none":
 			return undefined
