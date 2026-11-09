@@ -14,12 +14,7 @@ import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type {
-	ParamDecl,
-	StatementSpec,
-	WriteProgram,
-	WriteSlot
-} from "#compiler/ir/products.ts"
+import type { ParamDecl, StatementSpec, WriteProgram, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -75,10 +70,12 @@ import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	type AppendedMember,
 	additionsSql,
-	type PutOwner
+	type PutOwner,
+	type RowSource
 } from "#compiler/write/family/additions.ts"
 import type { EditTarget } from "#compiler/write/family/edit.ts"
 import { familyKey } from "#compiler/write/family/fold.ts"
+import { sentLayout } from "#compiler/write/family/nesting.ts"
 import {
 	type Deferring,
 	type EditedMember,
@@ -448,16 +445,25 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "additions" || node.kind === "removals") {
 				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
-				const familiesOf = (relation: RelationInfo) => {
-					const own = memberFamilies(relation.name, all).filter((f) => !isTreeOf(f, relation.name))
+				/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
+				 * whose nodes the host's walk draws (write/family/nesting.ts). */
+				const familiesOf = (relation: RelationInfo) =>
+					memberFamilies(relation.name, all)
+						.filter((f) => !isTreeOf(f, relation.name))
+						.map((family) => ({
+							family,
+							drawn: familyDrawn(frontend, relation.name, family),
+							inputs: familyInputs(family, relation)
+						}))
+				/** The families a removals statement redraws its rows of `relation` by, at least one. */
+				const removedFamilies = (relation: RelationInfo) => {
+					const own = familiesOf(relation)
 					if (!isNonEmpty(own)) {
-						throw defect(`the families of ${relation.name}, which a family write draws`)
+						throw defect(
+							`the families of ${relation.name}, which a family removals statement redraws`
+						)
 					}
-					return mapNonEmpty(own, (family) => ({
-						family,
-						drawn: familyDrawn(frontend, relation.name, family),
-						inputs: familyInputs(family, relation)
-					}))
+					return own
 				}
 				const slotOf = (slot: ParamId | undefined): MemberSlot | undefined =>
 					slot === undefined ? undefined : memberSlotOf(frontend, slot)
@@ -473,20 +479,43 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					)
 				const w0 = { ...w, start: ownStatement }
 				if (node.kind === "additions") {
-					const appended = stratumEdits.flatMap((edit): ReadonlyArray<AppendedMember> => {
-						if (edit.inserts === undefined && edit.puts === undefined) {
-							return []
-						}
-						const relation = info(edit.relation.name)
-						return [
-							{
-								relation,
-								layout: layoutOf(relation.name),
-								inserts: slotOf(edit.inserts),
-								puts: slotOf(edit.puts),
-								families: familiesOf(relation)
-							}
+					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout). */
+					const nestedRows = new Map(
+						frontend.nested.flatMap((n) =>
+							n.stratum === s
+								? [...n.nesting.layouts].map(
+										([relation, at]) => [relation, sentLayout(at)] as const
+									)
+								: []
+						)
+					)
+					/** Each appended relation's row sources: its slots, then its nested rows. */
+					const sourced = new Map<string, [RowSource, ...Array<RowSource>]>()
+					for (const edit of stratumEdits) {
+						const slots = [
+							...(edit.inserts === undefined
+								? []
+								: [{ as: "inserts" as const, slot: memberSlotOf(frontend, edit.inserts) }]),
+							...(edit.puts === undefined
+								? []
+								: [{ as: "puts" as const, slot: memberSlotOf(frontend, edit.puts) }])
 						]
+						if (isNonEmpty(slots)) {
+							sourced.set(edit.relation.name, [{ kind: "slots", slots }])
+						}
+					}
+					for (const [name, layout] of nestedRows) {
+						const source: RowSource = { kind: "nestedRows", stratum: s, layout }
+						const known = sourced.get(name)
+						if (known === undefined) {
+							sourced.set(name, [source])
+						} else {
+							known.push(source)
+						}
+					}
+					const appended = [...sourced].map(([name, sources]): AppendedMember => {
+						const relation = info(name)
+						return { relation, layout: layoutOf(name), sources, families: familiesOf(relation) }
 					})
 					const edited = new Set(stratumEdits.map((e) => e.relation.name))
 					const putOwners = ownerSlots("put").flatMap(
@@ -523,7 +552,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 							layout: layoutOf(relation.name),
 							puts: slotOf(edit.puts),
 							deletes: slotOf(edit.deletes),
-							families: familiesOf(relation)
+							families: removedFamilies(relation)
 						}
 					]
 				})

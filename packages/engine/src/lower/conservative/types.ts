@@ -169,6 +169,18 @@ export interface MemberParamSlot extends ValuePlaceholder {
 }
 
 /**
+ * One placeholder of a stratum's nested rows of `relation` (write/family/nesting.ts NestedRow), one array of the rows
+ * over `columns`, the columns of the relation's row layout its nesting fills, key first (nesting.ts sentLayout).
+ */
+export interface NestedRowsParamSlot extends ValuePlaceholder {
+	readonly kind: "nestedRows"
+	readonly stratum: number
+	readonly relation: string
+	readonly columns: ReadonlyArray<RelationColumn>
+	readonly part: ArrayPart
+}
+
+/**
  * A placeholder the page request fills with one of `F`, cast where the page compiler places it
  * (lower/shapes/page/seek.ts SizeSlots, BoundarySlots): a limit or a size to bigint, a boundary to its comparator's base
  * type. A plain request's statement holds size fills alone, so no binding of it reads a boundary.
@@ -181,14 +193,15 @@ export interface PageParamSlot<F extends PageFill = PageFill> extends ValuePlace
 /** A declared parameter's placeholder, which every lowering allocates: every placeholder of a query's statement. */
 export type DeclaredParamSlot = ScalarParamSlot | RelationParamSlot
 
-/** A placeholder only its own lowering allocates: a write statement's member slot, a page statement's fill. */
-export type OwnParamSlot = MemberParamSlot | PageParamSlot
+/** A placeholder only its own lowering allocates: a write statement's member slot or nested rows, a page statement's
+ * fill. */
+export type OwnParamSlot = MemberParamSlot | NestedRowsParamSlot | PageParamSlot
 
-/** A placeholder of a relation input's arrays: a relation parameter's or a write's member slot. */
-export type ArraySlot = RelationParamSlot | MemberParamSlot
+/** A placeholder of a relation input's arrays: a relation parameter's, a write's member slot's or its nested rows'. */
+export type ArraySlot = RelationParamSlot | MemberParamSlot | NestedRowsParamSlot
 
-/** The placeholders of a write statement: its declared parameters' and its member slots'. */
-export type WriteParamSlot = DeclaredParamSlot | MemberParamSlot
+/** The placeholders of a write statement: its declared parameters', its member slots' and its nested rows'. */
+export type WriteParamSlot = DeclaredParamSlot | MemberParamSlot | NestedRowsParamSlot
 
 /** The placeholders of a page statement: its declared parameters' and the page request's fills, each one of `F`. */
 export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot | PageParamSlot<F>

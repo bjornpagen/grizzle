@@ -162,6 +162,7 @@ const fill =
 			case "relation":
 				return undefined
 			case "member":
+			case "nestedRows":
 			case "page":
 				throw new Error(
 					`a query statement's placeholder is a declared parameter, not a ${slot.kind} placeholder`

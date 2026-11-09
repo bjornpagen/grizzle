@@ -27,6 +27,7 @@ import {
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
 	type MemberParamSlot,
+	type NestedRowsParamSlot,
 	type OwnParamSlot,
 	type RelationColumn,
 	type RelationParamSlot,
@@ -278,9 +279,38 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 	}
 }
 
-/** The placeholders of one write statement: its declared parameters' and its member slots' arrays. */
-export class WriteParams extends StatementParams<MemberParamSlot> {
+/** The placeholders of one write statement: its declared parameters', its member slots' and its nested rows' arrays. */
+export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsParamSlot> {
 	readonly #members = new Map<ParamId, NonEmptyReadonlyArray<MemberParamSlot>>()
+	readonly #nested = new Map<string, NonEmptyReadonlyArray<NestedRowsParamSlot>>()
+
+	/**
+	 * The array placeholders of a stratum's nested rows of `relation`, one per column, its columns those `allocate` gives
+	 * at the first use.
+	 */
+	nestedRows(
+		stratum: number,
+		relation: string,
+		allocate: () => ReadonlyArray<RelationColumn>
+	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
+		const key = `${stratum}\u0000${relation}`
+		const known = this.#nested.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const columns = allocate()
+		const slots = this.allocateArrays(columns, (number, part): NestedRowsParamSlot => ({
+			kind: "nestedRows",
+			placeholder: "value",
+			number,
+			stratum,
+			relation,
+			columns,
+			part
+		}))
+		this.#nested.set(key, slots)
+		return slots
+	}
 
 	/**
 	 * The array placeholders of an enumerated member slot of a write, one per column or its count, its columns those
@@ -550,6 +580,29 @@ export class LowerContext {
 					"UnsupportedOperation",
 					at,
 					`the member slot ${slot} of ${relation} outside a write statement that fills it`
+				)
+		}
+	}
+
+	/**
+	 * The array placeholders of a stratum's nested rows of `relation`, its columns those `allocate` gives at the first use.
+	 * Nested rows are a write's: outside a write statement, which fills them, they are UnsupportedOperation.
+	 */
+	nestedRows(
+		stratum: number,
+		relation: string,
+		allocate: () => ReadonlyArray<RelationColumn>,
+		at: string
+	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
+		const statement = this.#shared.statement
+		switch (statement.kind) {
+			case "write":
+				return statement.params.nestedRows(stratum, relation, allocate)
+			case "query":
+				return refuse(
+					"UnsupportedOperation",
+					at,
+					`the nested rows of ${relation} in stratum ${stratum} outside a write statement that fills them`
 				)
 		}
 	}

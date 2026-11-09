@@ -223,12 +223,26 @@ const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "p
 	fill: slot.fill
 })
 
-/** What fills a write statement's placeholder under the installation's codes, with its encoder: a declared
- * parameter's or a member slot's. */
+/** What fills a write statement's placeholder under the installation's codes: a declared parameter's or a member
+ * slot's, with its encoder, or a column of a stratum's nested rows, which the binding encodes. */
 export const writeSlotOf =
 	(codes: Codebook) =>
-	(slot: WriteParamSlot): WriteSlot =>
-		slot.kind === "member" ? memberSlotOf(slot, codes) : declaredSlotOf(codes)(slot)
+	(slot: WriteParamSlot): WriteSlot => {
+		switch (slot.kind) {
+			case "member":
+				return memberSlotOf(slot, codes)
+			case "nestedRows":
+				return {
+					kind: "nestedRows",
+					stratum: slot.stratum,
+					relation: slot.relation,
+					part: partIndex(slot.part)
+				}
+			case "scalar":
+			case "relation":
+				return declaredSlotOf(codes)(slot)
+		}
+	}
 
 /** What fills a page statement's placeholder under the installation's codes: a declared parameter's, with its
  * encoder, or a page fill. */

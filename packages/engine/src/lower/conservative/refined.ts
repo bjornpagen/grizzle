@@ -139,6 +139,7 @@ const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [numbe
 				: [[slot.number, { name: `${slot.param}.${field.name}`, type: field.type }]]
 		}
 		case "member":
+		case "nestedRows":
 		case "page":
 			return []
 	}

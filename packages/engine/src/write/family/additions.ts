@@ -3,8 +3,11 @@
  * draw, and every owner those appends recount, computed by PostgreSQL from the groups as the statement finds them, so
  * the write reads nothing back to the host and goes in the call's one flight.
  *
- * For each member relation the stratum appends to, its appended rows are the facts of its insert slot no stored row
- * repeats exactly (rule 0: no change), and each of its families draws them:
+ * For each member relation the stratum appends to, its appended rows are those of each of its sources (`RowSource`) no
+ * stored row repeats exactly (rule 0: no change): its insert and put slots' facts, and the rows its stratum's nested
+ * writes fill, which the host's walk drew every sequence column of (write/family/nesting.ts). Each of its families draws
+ * the rows of the sources it draws, every family its slots' and a counted family its nested rows', a union where it
+ * draws both:
  *
  * - the groups they join, each with its kept count, the slots past its stored members, `max(index) + 1`, which the
  *   group's (group, index) key reads in one probe: a group's members hold its slots 0 … n − 1 at every statement of a
@@ -12,8 +15,9 @@
  * - each group's seed, its stored member at the kept count's slot less one, which the first appended member's
  *   predecessor copies and accumulators continue;
  * - the appended members at the kept count's slots on, in key order (a counted family's order is hidden), each with
- *   its group's new count and its owner's columns, an owner no row stores copied at the copy's base, so its insert
- *   meets the family's owner axis at the statement's end, as a member naming no owner does;
+ *   its group's new count and its owner's columns: a stored owner's, else those of the owner a nested write of the
+ *   stratum inserts in this statement, else the copy's base, so its insert meets the family's owner axis at the
+ *   statement's end, as a member naming no owner does;
  * - its scan (write/family/scan.ts), which draws each appended member's index, copy of the count, owner copies,
  *   predecessor copies and fold planes in slot order.
  *
@@ -34,12 +38,14 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
-import { WriteParams } from "#compiler/lower/conservative/context.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
+	arrays,
 	binary,
 	call,
 	cast,
@@ -101,23 +107,42 @@ import {
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
 
-/** A member relation a stratum appends to by its insert slot, with what draws its rows. */
+/**
+ * Where a member relation's appended rows come from:
+ * - its slots: its insert slot, whose facts no stored row repeats exactly are appended, and its put slot, whose facts
+ *   at no key a row stores are appended, a new member or one the stratum's removals deleted from its old groups
+ *   (write/family/removals.ts); every family draws them;
+ * - the rows a nested write of its stratum fills (write/family/nesting.ts), every column of its row layout but those
+ *   its counted families fill after the walk (`sentLayout`), those no stored row repeats exactly: its counted families
+ *   draw them, and the walk drew its sequences'.
+ */
+export type RowSource =
+	| {
+			readonly kind: "slots"
+			readonly slots: NonEmptyReadonlyArray<{
+				readonly as: "inserts" | "puts"
+				readonly slot: MemberSlot
+			}>
+	  }
+	| { readonly kind: "nestedRows"; readonly stratum: number; readonly layout: RowLayout }
+
+/** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
 	readonly relation: RelationInfo
 	/** Every column its rows are written with (statements.ts rowLayout). */
 	readonly layout: RowLayout
-	/** Its insert slot, whose facts no stored row repeats exactly are appended. */
-	readonly inserts: MemberSlot | undefined
-	/** Its put slot, whose facts at no key a row stores are appended: a new member, or one the stratum's removals
-	 * deleted from its old groups (write/family/removals.ts). */
-	readonly puts: MemberSlot | undefined
-	/** Its families, each drawing its appended rows by the columns its fill layout gives it at the member's position in
-	 * the family, in fill order (ir/fill.ts FillLayout). */
-	readonly families: NonEmptyReadonlyArray<{
+	readonly sources: NonEmptyReadonlyArray<RowSource>
+	/** Its families, each drawing the appended rows of the sources it draws (`RowSource`) by the columns its fill layout
+	 * gives it at the member's position in the family, in fill order (ir/fill.ts FillLayout). */
+	readonly families: ReadonlyArray<{
 		readonly family: Family
 		readonly drawn: ReadonlyArray<FillColumn>
 	}>
 }
+
+/** Whether `family` draws the appended rows of `source`: every family draws its slots', a counted one its nested rows'. */
+const draws = (family: Family, source: RowSource): boolean =>
+	source.kind === "slots" || !isSequence(family)
 
 /** An owner relation the stratum puts, whose groups of `families`, each a family of a member the stratum edits, its
  * additions recount after the put, as the removals leave them (write/family/removals.ts). */
@@ -127,9 +152,10 @@ export interface PutOwner {
 	readonly families: NonEmptyReadonlyArray<Family>
 }
 
-/** One member relation's appends, drawn: its appended rows' CTE and each family's scan of them. */
+/** One source's appended rows of a member relation, drawn: its rows' CTE and the scan of each family that draws it. */
 interface Drawn {
 	readonly member: AppendedMember
+	readonly source: RowSource
 	readonly appended: Shaped
 	readonly scans: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>
 }
@@ -149,23 +175,88 @@ export const additionsSql = (
 	w.cx.beginWriteStatement(supply, params)
 	const ctes: Array<Cte> = []
 	const slots = slotReader(w, supply, ctes)
-	const drawn = members.map((member): Drawn => {
-		const appended = appendedOf(w, supply, ctes, member, slots)
+	/** Each relation's nested rows of the stratum, a CTE pushed at its first read and shared by every later one. */
+	const nestedRead = new Map<string, Shaped>()
+	const nested: NestedReader = (relation, source) => {
+		const known = nestedRead.get(relation.name)
+		if (known !== undefined) {
+			return known
+		}
+		const rows = nestedRowsOf(w, supply, ctes, relation, source)
+		nestedRead.set(relation.name, rows)
+		return rows
+	}
+	/** The nested rows of an owner relation this statement inserts, which no scan finds stored: none where it inserts
+	 * none. */
+	const nestedOwners = new Map(
+		members.flatMap((m) =>
+			m.sources.flatMap((source) =>
+				source.kind === "nestedRows"
+					? [[m.relation.name, () => nested(m.relation, source)] as const]
+					: []
+			)
+		)
+	)
+	/** Each member's scans, one per family, of the union of the sources the family draws. */
+	const scanned: Array<{ readonly family: Family; readonly scan: Scanned }> = []
+	const drawn = members.flatMap((member): ReadonlyArray<Drawn> => {
+		const sources = member.sources.map((source) => ({
+			source,
+			appended: appendedOf(w, supply, ctes, member, source, slots, nested),
+			scans: new Array<{ readonly family: Family; readonly scan: Scanned }>()
+		}))
+		/** Each source's rows with every column the families scanned so far drew. */
+		const rows = new Map(sources.map((x) => [x, x.appended] as const))
 		/** The member's sequence first, each family after reading the rows with every column the families before it
 		 * drew: a counted family's fold may step or select the copy a sequence's owner axis gives the member. */
 		const ordered = member.families.toSorted(
 			(a, b) => Number(!isSequence(a.family)) - Number(!isSequence(b.family))
 		)
-		const scans: Array<{ readonly family: Family; readonly scan: Scanned }> = []
-		let rows = appended
 		for (const { family, drawn: columns } of ordered) {
-			const scan = appendScan(w, supply, ctes, member, family, columns, rows)
-			scans.push({ family, scan })
-			rows = withDrawn(supply, ctes, member, rows, scan, columns)
+			const read = sources.filter((x) => draws(family, x.source))
+			const [first, ...rest] = read
+			if (first === undefined) {
+				continue
+			}
+			const input = unionOf(
+				supply,
+				ctes,
+				mapNonEmpty([first, ...rest], (x) => defined(rows.get(x), "a source's rows"))
+			)
+			const scan = appendScan(
+				w,
+				supply,
+				ctes,
+				member,
+				family,
+				columns,
+				input,
+				nestedOwners.get(family.owner.name)
+			)
+			scanned.push({ family, scan })
+			for (const x of read) {
+				x.scans.push({ family, scan })
+				rows.set(
+					x,
+					withDrawn(supply, ctes, member, defined(rows.get(x), "a source's rows"), scan, columns)
+				)
+			}
 		}
-		return { member, appended, scans }
+		return sources.map((x) => ({ member, source: x.source, appended: x.appended, scans: x.scans }))
 	})
-	const returnings: Array<FamilyReturning> = drawn.map((d) => insertOf(w, supply, ctes, d))
+	const returnings: Array<FamilyReturning> = drawn.map((d) =>
+		insertOf(
+			w,
+			supply,
+			ctes,
+			d,
+			d.source.kind === "nestedRows"
+				? scanned.filter(
+						(x) => x.family.owner.name === d.member.relation.name && !isSequence(x.family)
+					)
+				: []
+		)
+	)
 	/** Each mutable owner relation's recounted families, each with its appends' scan and the facts of its put, by owner
 	 * name. */
 	const owners = new Map<string, Map<Family, Recounted>>()
@@ -180,11 +271,9 @@ export const additionsSql = (
 		byFamily.set(family, fresh)
 		return fresh
 	}
-	for (const d of drawn) {
-		for (const s of d.scans) {
-			if (s.family.owner.mutable) {
-				recountedOf(s.family).scans.push(s.scan)
-			}
+	for (const s of scanned) {
+		if (s.family.owner.mutable) {
+			recountedOf(s.family).scans.push(s.scan)
 		}
 	}
 	for (const put of putOwners) {
@@ -254,65 +343,198 @@ const withDrawn = (
 }
 
 /**
- * A member relation's appended rows: its insert slot's facts no stored row repeats exactly, every field its fact carries
- * equal (rule 0 makes such an insert no change), and its put slot's facts at no key a row stores.
+ * A member relation's appended rows of one source (`RowSource`): its insert slot's facts no stored row repeats exactly,
+ * every field its fact carries equal (rule 0 makes such an insert no change), and its put slot's facts at no key a row
+ * stores; or its nested rows no stored row repeats exactly, each with every column of its sent layout.
  */
 const appendedOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	member: AppendedMember,
-	slots: SlotReader
+	source: RowSource,
+	slots: SlotReader,
+	nested: NestedReader
 ): Shaped => {
 	const name = member.relation.name
-	const sources = [
-		...(member.inserts === undefined ? [] : [{ kind: "inserts" as const, slot: member.inserts }]),
-		...(member.puts === undefined ? [] : [{ kind: "puts" as const, slot: member.puts }])
-	]
-	const [firstSource] = sources
-	if (firstSource === undefined) {
-		throw defect(`an appended member ${name} with no insert or put slot`)
-	}
-	const keys = firstSource.slot.heading.map((c) => fieldKey(c.name))
-	const appended = shapedCte(supply, "appended member", keys)
-	const arms = sources.map((source) => {
-		const facts = slots(name, source.slot)
+	/** The arm of `facts`' rows no stored row repeats at `compared`, each of the appended CTE's columns. */
+	const unstored = (
+		facts: Shaped,
+		compared: NonEmptyReadonlyArray<{
+			readonly key: ColumnKey
+			readonly column: NativeColumn
+			readonly type: ScalarType
+		}>,
+		appended: Shaped
+	): SetArm => {
 		const a = supply.relation(internal("appended fact"))
 		const s = supply.relation(internal("stored at key"))
-		const compared = source.kind === "inserts" ? source.slot.heading : member.relation.primaryFields
-		const [first, ...rest] = compared
-		if (first === undefined) {
-			throw defect(`the fields of ${name}'s slot, which holds its key`)
-		}
 		const stored = and(
-			mapNonEmpty([first, ...rest], (c) =>
+			mapNonEmpty(compared, (c) =>
 				typedEq(
 					c.type,
-					col(s, w.names.column(name, c.name)),
-					col(a, columnAt(facts, fieldKey(c.name))),
+					col(s, installed(w, name, c.column)),
+					col(a, columnAt(facts, c.key)),
 					w.names.vectorSchema
 				)
 			)
 		)
 		return provedCore(
 			"input",
-			keys.map((k) => targetAs(col(a, columnAt(facts, k)), columnAt(appended, k))),
+			[...appended.columns.keys()].map((k) =>
+				targetAs(col(a, columnAt(facts, k)), columnAt(appended, k))
+			),
 			[cteRefAs(facts.name, a)],
 			notExists(simpleSelect([target(one)], [tableAs(w, name, s)], stored))
 		)
-	})
-	const [firstArm, ...restArms] = arms
-	if (firstArm === undefined) {
-		throw defect(`an appended member ${name} with no slot`)
 	}
+	const fieldOf = (field: { readonly name: string; readonly type: ScalarType }) => {
+		const law = defined(
+			member.relation.fields.find((f) => f.name === field.name),
+			`the field ${field.name} of ${name}`
+		)
+		return {
+			key: fieldKey(field.name),
+			column: { kind: "field" as const, field: law },
+			type: field.type
+		}
+	}
+	switch (source.kind) {
+		case "slots": {
+			const keys = source.slots[0].slot.heading.map((c) => fieldKey(c.name))
+			const appended = shapedCte(supply, "appended member", keys)
+			const arms = mapNonEmpty(source.slots, ({ as, slot }) => {
+				const compared =
+					as === "inserts" ? slot.heading.map(fieldOf) : member.relation.primaryFields.map(fieldOf)
+				const [first, ...rest] = compared
+				if (first === undefined) {
+					throw defect(`the fields of ${name}'s slot, which holds its key`)
+				}
+				return unstored(slots(name, slot), [first, ...rest], appended)
+			})
+			ctes.push(
+				cte(appended.name, [...appended.columns.values()], select(unionAll("disjoint", arms)))
+			)
+			return appended
+		}
+		case "nestedRows": {
+			const columns = [...source.layout.key, ...source.layout.columns]
+			const sent = nested(member.relation, source)
+			const appended = shapedCte(
+				supply,
+				"appended nested row",
+				columns.map((c) => c.key)
+			)
+			const compared = columns.filter((c) => c.column.kind === "field")
+			const [first, ...rest] = compared
+			if (first === undefined) {
+				throw defect(`the fields of ${name}'s nested rows`)
+			}
+			ctes.push(
+				cte(
+					appended.name,
+					[...appended.columns.values()],
+					select(unstored(sent, [first, ...rest], appended))
+				)
+			)
+			return appended
+		}
+	}
+}
+
+/** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsOf`). */
+type NestedReader = (
+	relation: RelationInfo,
+	source: Extract<RowSource, { readonly kind: "nestedRows" }>
+) => Shaped
+
+/** A stratum's nested rows of `relation` as a CTE: each column of their sent layout, read from their arrays and cast into
+ * its column's type as a write stores it, by key. */
+const nestedRowsOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	source: Extract<RowSource, { readonly kind: "nestedRows" }>
+): Shaped => {
+	const columns = [...source.layout.key, ...source.layout.columns]
+	const origin = internal("nested rows")
+	const placeholders = w.cx.nestedRows(
+		source.stratum,
+		relation.name,
+		() =>
+			relationColumns(
+				columns.map((c) => ({ name: c.key, type: c.type })),
+				() => supply.column(origin),
+				(t) => w.cx.baseTypeRef(t)
+			),
+		`a family write of ${relation.name}'s nested rows`
+	)
+	const raw = supply.relation(origin)
+	const arrayColumn = new Map(
+		placeholders[0].columns.map((c) => [c.name, c.definition.name] as const)
+	)
+	const rows = shapedCte(
+		supply,
+		"nested row",
+		columns.map((c) => c.key)
+	)
 	ctes.push(
 		cte(
-			appended.name,
-			[...appended.columns.values()],
-			select(unionAll("disjoint", [firstArm, ...restArms]))
+			rows.name,
+			[...rows.columns.values()],
+			select(
+				provedCore(
+					"input",
+					columns.map((c) =>
+						targetAs(
+							written(w, col(raw, defined(arrayColumn.get(c.key), "a nested rows' array")), c.type),
+							columnAt(rows, c.key)
+						)
+					),
+					[arrays(arraysSource(placeholders), raw)],
+					undefined
+				)
+			)
 		)
 	)
-	return appended
+	return rows
+}
+
+/** The union of `shapes`, each a source's rows of one member relation, at the columns every one holds; the one shape
+ * itself where there is one. */
+const unionOf = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	shapes: NonEmptyReadonlyArray<Shaped>
+): Shaped => {
+	const [first, ...rest] = shapes
+	if (!isNonEmpty(rest)) {
+		return first
+	}
+	const keys = [...first.columns.keys()].filter((k) => rest.every((x) => x.columns.has(k)))
+	const union = shapedCte(supply, "appended union", keys)
+	ctes.push(
+		cte(
+			union.name,
+			[...union.columns.values()],
+			select(
+				unionAll(
+					"disjoint",
+					mapNonEmpty(shapes, (shape) => {
+						const a = supply.relation(internal("appended source"))
+						return provedCore(
+							"input",
+							keys.map((k) => targetAs(col(a, columnAt(shape, k)), columnAt(union, k))),
+							[cteRefAs(shape.name, a)],
+							undefined
+						)
+					})
+				)
+			)
+		)
+	)
+	return union
 }
 
 /**
@@ -327,7 +549,8 @@ const appendScan = (
 	member: AppendedMember,
 	family: Family,
 	drawnColumns: ReadonlyArray<FillColumn>,
-	appended: Shaped
+	appended: Shaped,
+	nestedOwner: (() => Shaped) | undefined
 ): Scanned => {
 	const bigint = types.bigint
 	const name = member.relation.name
@@ -476,24 +699,45 @@ const appendScan = (
 			baseLiteral(family, read.from),
 			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
 		)
+		const stored = {
+			when: exists(simpleSelect([target(one)], [tableAs(w, owner.name, o)], ownerAt)),
+			result: {
+				kind: "subquery" as const,
+				query: simpleSelect(
+					[target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
+					[tableAs(w, owner.name, o)],
+					ownerAt
+				)
+			}
+		}
+		/** The owner among the rows this statement's nested writes insert, which no scan finds stored. */
+		const inserted = (owners: Shaped) => {
+			const n = supply.relation(internal("nested owner"))
+			const at = and(
+				mapNonEmpty(family.group, (g, i) =>
+					eq(col(n, columnAt(owners, fieldKey(g.owner.name))), defined(aGroup[i], "a group key"))
+				)
+			)
+			return {
+				when: exists(simpleSelect([target(one)], [cteRefAs(owners.name, n)], at)),
+				result: {
+					kind: "subquery" as const,
+					query: simpleSelect(
+						[
+							target(
+								cast(col(n, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type))
+							)
+						],
+						[cteRefAs(owners.name, n)],
+						at
+					)
+				}
+			}
+		}
 		return {
 			kind: "case",
 			operand: undefined,
-			whens: [
-				{
-					when: exists(simpleSelect([target(one)], [tableAs(w, owner.name, o)], ownerAt)),
-					result: {
-						kind: "subquery",
-						query: simpleSelect(
-							[
-								target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))
-							],
-							[tableAs(w, owner.name, o)],
-							ownerAt
-						)
-					}
-				}
-			],
+			whens: nestedOwner === undefined ? [stored] : [stored, inserted(nestedOwner())],
 			else: lowerLiteral(w.names, base, read.type)
 		}
 	}
@@ -565,7 +809,8 @@ const insertOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
-	d: Drawn
+	d: Drawn,
+	owned: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>
 ): FamilyReturning => {
 	const relation = d.member.relation
 	const name = relation.name
@@ -600,8 +845,47 @@ const insertOf = (
 			drawnBy.set(columnKey(c.column), col(s.alias, columnAt(s.scan, columnKey(c.column))))
 		}
 	}
+	/** Each count and end of a counted family `owned` scans, which the row's appended members draw: the group's new count
+	 * and its last member's column, where the scan appends to the row's group, else the row's own. */
+	const recounted = new Map<ColumnKey, Expr>()
+	for (const { family, scan } of owned) {
+		const s = supply.relation(internal("owned scan"))
+		const at = and([
+			...mapNonEmpty(family.group, (g, i) =>
+				eq(
+					col(s, defined(scan.group[i], "a scan group column")),
+					col(a, columnAt(d.appended, fieldKey(g.owner.name)))
+				)
+			),
+			eq(col(s, scan.slot), binary("-", col(s, scan.count), lit.int(1, types.bigint)))
+		])
+		const fromLast = (key: ColumnKey, value: Expr): Expr => ({
+			kind: "case",
+			operand: undefined,
+			whens: [
+				{
+					when: exists(simpleSelect([target(one)], [cteRefAs(scan.name, s)], at)),
+					result: {
+						kind: "subquery",
+						query: simpleSelect([target(value)], [cteRefAs(scan.name, s)], at)
+					}
+				}
+			],
+			else: col(a, columnAt(d.appended, key))
+		})
+		recounted.set(
+			fieldKey(family.count.name),
+			fromLast(fieldKey(family.count.name), col(s, scan.count))
+		)
+		for (const p of family.axes.last) {
+			if (p.from.kind === "field" && p.from.field.writing.kind === "accumulated") {
+				const key = columnKey(p.from)
+				recounted.set(key, fromLast(key, scannedValue(w, family.member, s, scan, p.to)))
+			}
+		}
+	}
 	const valueOf = (key: ColumnKey, field: LawField | undefined): Expr => {
-		const drawnValue = drawnBy.get(key)
+		const drawnValue = drawnBy.get(key) ?? recounted.get(key)
 		if (drawnValue !== undefined) {
 			return drawnValue
 		}

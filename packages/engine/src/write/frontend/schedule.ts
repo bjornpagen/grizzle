@@ -41,19 +41,30 @@ export type FamilyNode =
 	| FamilyAdditions
 	| FamilyRemovals
 
-/**
- * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members`, none where
- * it only recounts owners its stratum puts, and changes the rows of `owners` at the columns `changes` names of each,
- * their counts and ends, each generated column that reads one of them among them.
- */
-export interface FamilyAdditions {
-	readonly kind: "additions"
-	readonly members: ReadonlyArray<string>
-	readonly owners: NonEmptyReadonlyArray<{
-		readonly relation: string
-		readonly changes: ReadonlyArray<string>
-	}>
+/** An owner relation a family statement changes the rows of, at the columns `changes` names: their counts and ends,
+ * each generated column that reads one of them among them. */
+export interface OwnerChanges {
+	readonly relation: string
+	readonly changes: ReadonlyArray<string>
 }
+
+/**
+ * A stratum's family additions as one statement (write/family/additions.ts): it inserts rows of `members` and changes
+ * the rows of `owners`; it appends rows, or, appending none, recounts the owners its stratum puts.
+ */
+export type FamilyAdditions =
+	| {
+			readonly kind: "additions"
+			readonly appends: "rows"
+			readonly members: NonEmptyReadonlyArray<string>
+			readonly owners: ReadonlyArray<OwnerChanges>
+	  }
+	| {
+			readonly kind: "additions"
+			readonly appends: "nothing"
+			readonly members: readonly []
+			readonly owners: NonEmptyReadonlyArray<OwnerChanges>
+	  }
 
 /**
  * A stratum's family removals as one statement (write/family/removals.ts): it deletes, re-places and updates in place
@@ -506,12 +517,12 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	const a = action.action.relation
 	if (
 		node.kind === "additions" &&
-		(node.members.includes(a) || node.owners.some((o) => o.relation === a))
+		(node.members.some((m) => m === a) || node.owners.some((o) => o.relation === a))
 	) {
 		y.follows.add(x)
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
-		if (node.members.includes(relation)) {
+		if (node.members.some((m) => m === relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
 				: { adds: true, removes: true, updates: true }

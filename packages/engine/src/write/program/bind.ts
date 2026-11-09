@@ -25,7 +25,13 @@ import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
 import { decodeChain, decodeRead } from "#compiler/write/family/decode.ts"
-import type { MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
+import {
+	type MemberKey,
+	type Owner,
+	type Recount,
+	type Row,
+	rowTexts
+} from "#compiler/write/family/draw.ts"
 import {
 	callerValues,
 	countRows,
@@ -62,9 +68,15 @@ import {
 	type HostNode,
 	literalHost
 } from "#compiler/write/family/fold.ts"
-import { type NestedRow, rowOfValues } from "#compiler/write/family/nesting.ts"
+import {
+	type NestedLayout,
+	type NestedRow,
+	rowOfValues,
+	sentLayout
+} from "#compiler/write/family/nesting.ts"
 import {
 	columnArray,
+	typedColumnArray,
 	type FamilyStatement,
 	type OwnerWrite,
 	type Phase,
@@ -359,12 +371,15 @@ export const bindWrite = (
 			)
 		)
 	/**
-	 * A placeholder's text: a declared parameter's host value, by its declared name, or the array at its part of a
-	 * relation parameter's normalized input or a member slot's normal facts, which its own encoder writes.
+	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
+	 * relation parameter's normalized input or a member slot's normal facts, which its own encoder writes; or the array
+	 * of one column of a stratum's nested rows of a relation in their sent layout, as a family statement's rows are
+	 * written (order.ts columnArray).
 	 */
 	const encodeSlot = (
 		slot: WriteSlot,
-		slotFacts: (slot: ParamId) => NormalizedSlot
+		slotFacts: (slot: ParamId) => NormalizedSlot,
+		nestedRows: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
 	): Result.Result<Param, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
@@ -379,6 +394,23 @@ export const bindWrite = (
 				)
 			case "member":
 				return slot.encode(slotFacts(slot.slot), slot.part)
+			case "nestedRows": {
+				const layout = sentLayout(nestedAt(slot.stratum, slot.relation))
+				return typedColumnArray(
+					slot.relation,
+					`column ${slot.part + 1}`,
+					defined(
+						[...layout.key, ...layout.columns][slot.part],
+						"the sent layout's column a nested rows placeholder carries"
+					).type,
+					nestedRows(slot.stratum, slot.relation).map((row) =>
+						defined(
+							rowTexts(rowOfValues(frontend.codes, layout, row.values))[slot.part],
+							"a nested row holds each column of its sent layout"
+						)
+					)
+				)
+			}
 		}
 	}
 	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
@@ -386,15 +418,19 @@ export const bindWrite = (
 	const runsLarge = (choice: RelationChoice): boolean =>
 		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
 	const form = (statement: ArtifactStatement): SentForm => sentForm(statement, runsLarge)
-	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts. */
+	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts, and `nestedRows`, each stratum's
+	 * nested rows of a relation. */
 	const valuesOver =
-		(slotFacts: (slot: ParamId) => NormalizedSlot) =>
+		(
+			slotFacts: (slot: ParamId) => NormalizedSlot,
+			nestedRows: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
+		) =>
 		(
 			statement: ArtifactStatement
 		): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> => {
 			const out: Array<Param> = []
 			for (const slot of form(statement).paramSlots) {
-				const encoded = encodeSlot(slot, slotFacts)
+				const encoded = encodeSlot(slot, slotFacts, nestedRows)
 				if (!encoded.ok) {
 					return Result.err(encoded.error)
 				}
@@ -402,7 +438,9 @@ export const bindWrite = (
 			}
 			return Result.ok(out)
 		}
-	const values = valuesOver(factsOf)
+	const values = valuesOver(factsOf, (stratum, relation) => [
+		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
+	])
 	const noRows: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> = new Map()
 	/** Each relation's depth among the families, which orders a stratum's relations' statements. */
 	const depthOf = relationDepths(frontend.laws.families)
@@ -841,6 +879,18 @@ export const bindWrite = (
 			}
 			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
+	/** Where `relation` stands in a nested write of `stratum` that fills its rows (nesting.ts NestedLayout). */
+	const nestedAt = (stratum: number, relation: string): NestedLayout => {
+		for (const n of frontend.nested) {
+			const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
+			if (at !== undefined) {
+				return at
+			}
+		}
+		throw defect(
+			`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
+		)
+	}
 	/** The row layout of `relation`, whose rows a nested write of the stratum fills. */
 	const nestedLayout = (stratum: number, relation: string): RowLayout => {
 		for (const n of frontend.nested) {
@@ -933,7 +983,9 @@ export const bindWrite = (
 	> => {
 		const strata = [
 			...new Set([
-				...frontend.nested.map((n) => n.stratum),
+				...frontend.nested.flatMap((n) =>
+					familyWrittenInFlight(frontend, n.stratum) ? [] : [n.stratum]
+				),
 				...edits.map((e) => e.program.edit.stratum),
 				...refills.map((r) => r.program.stratum)
 			])
@@ -1328,10 +1380,12 @@ export const bindWrite = (
 	const chunksOf = (
 		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
 	): Chunks => {
-		const own = valuesOver((slot) =>
-			plans.ok
-				? (plans.value.slots.get(slot) ?? fresh.get(slot) ?? factsOf(slot))
-				: (fresh.get(slot) ?? factsOf(slot))
+		const own = valuesOver(
+			(slot) =>
+				plans.ok
+					? (plans.value.slots.get(slot) ?? fresh.get(slot) ?? factsOf(slot))
+					: (fresh.get(slot) ?? factsOf(slot)),
+			nestedRowsOf
 		)
 		return (statement) => {
 			const step = statement.step
@@ -1392,7 +1446,10 @@ export const bindWrite = (
 	 * which the insert proposes nothing of (insert/statement.ts Proposal), so its stored families are the statement's to
 	 * draw.
 	 */
-	const freshlyCounted = freshOwners(frontend, (slot) => factsOf(slot), ownerSlots)
+	const nestedRowsOf = (stratum: number, relation: string): ReadonlyArray<NestedRow> => [
+		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
+	]
+	const freshlyCounted = freshOwners(frontend, (slot) => factsOf(slot), ownerSlots, nestedRowsOf)
 	if (!freshlyCounted.ok) {
 		const refusal = freshlyCounted.error
 		if (refusal._tag === "EncodingFailure") {
@@ -1485,23 +1542,32 @@ interface FreshGeneratedNull extends GeneratedNull {
 	readonly stratum: number
 }
 
+/** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
+ * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
+const familyWrittenInFlight = (frontend: CompiledWrite["frontend"], stratum: number): boolean =>
+	defined(frontend.ir.strata[stratum], "a stratum").family.some(
+		({ node }) => node.kind === "additions" || node.kind === "removals"
+	)
+
 /**
- * Each owner slot of a stratum whose family work is one additions statement (frontend/schedule.ts FamilyAdditions),
- * with every fact's counts and ends of each counted family the stratum appends to as the host's filler fills the owner
- * with its appended members, the stratum's member facts naming it (write/family/fold.ts filler): what a fresh owner
- * holds once its appends land, which its own insert carries so every CHECK over them and every member's axes meet its
- * final values. The filler reads no stored row: a fresh owner's every member is one the stratum states.
+ * Each owner slot of a stratum written in the flight (`familyWrittenInFlight`), every fact's counts and ends drawn on
+ * the host by the filler from the stratum's own appended members naming it, its member slots' facts and its nested rows
+ * (write/family/fold.ts filler): an owner it inserts is fresh, so those are its every member, and the filler reads no
+ * stored row. The owner's own insert carries them, so every CHECK over them and every member's axes meet its final
+ * values. An owner among the nested rows is drawn by the additions statement that inserts it (write/family/
+ * additions.ts).
  */
 const freshOwners = (
 	frontend: CompiledWrite["frontend"],
 	factsOf: (slot: ParamId) => NormalizedSlot,
-	ownerSlots: (stratum: number, relation: string) => ReadonlyArray<ParamId>
+	ownerSlots: (stratum: number, relation: string) => ReadonlyArray<ParamId>,
+	nestedOf: (stratum: number, relation: string) => ReadonlyArray<NestedRow>
 ): Result.Result<ReadonlyMap<ParamId, NormalizedSlot>, EncodingFailure | FreshGeneratedNull> => {
-	const out = new Map<ParamId, NormalizedSlot>()
+	const slotsOut = new Map<ParamId, NormalizedSlot>()
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const fill = filler(frontend.laws.theory.fill, frontend.codes, frontend.evaluate)
-	for (const [s, stratum] of frontend.ir.strata.entries()) {
-		if (!stratum.family.some(({ node }) => node.kind === "additions" || node.kind === "removals")) {
+	for (const s of frontend.ir.strata.keys()) {
+		if (!familyWrittenInFlight(frontend, s)) {
 			continue
 		}
 		const appended = frontend.edits.flatMap((e) =>
@@ -1511,56 +1577,62 @@ const freshOwners = (
 					)
 				: []
 		)
+		/** A relation's appended members' values: its slots' facts', then its nested rows'. */
+		const membersOf = (relation: string): ReadonlyArray<ReadonlyMap<ColumnKey, unknown>> => [
+			...appended.flatMap((a) =>
+				a.relation === relation ? factsOf(a.slot).facts.map(factValues) : []
+			),
+			...nestedOf(s, relation).map((row) => row.values)
+		]
 		const counted = frontend.laws.families.filter(
-			(f) => !isSequence(f) && appended.some((a) => a.relation === f.member.name)
+			(f) => !isSequence(f) && membersOf(f.member.name).length > 0
 		)
-		/** Each counted family's appended member facts, by the group they name. */
+		/** Each counted family's appended members' values, by the group they name. */
 		const byGroup = new Map(
 			counted.map((f) => {
-				const groups = new TupleMap<Owner, Array<Fact>>()
-				for (const a of appended) {
-					if (a.relation !== f.member.name) {
-						continue
-					}
-					for (const fact of factsOf(a.slot).facts) {
-						const group = groupOf(ctx, f, factValues(fact))
-						const list = groups.get(group) ?? []
-						list.push(fact)
-						groups.set(group, list)
-					}
+				const groups = new TupleMap<Owner, Array<ReadonlyMap<ColumnKey, unknown>>>()
+				for (const values of membersOf(f.member.name)) {
+					const group = groupOf(ctx, f, values)
+					const list = groups.get(group) ?? []
+					list.push(values)
+					groups.set(group, list)
 				}
 				return [familyKey(f.id), groups] as const
 			})
 		)
 		for (const owner of new Set(counted.map((f) => f.owner.name))) {
 			const families = counted.filter((f) => f.owner.name === owner)
-			/** The counts and ends the fill draws, which the slot's facts carry at their starts. */
+			/** The counts and ends the fill draws, which the owner's facts and rows carry at their starts. */
 			const drawnNames = new Set(
 				families.flatMap((f) => [f.count.name, ...endColumns(f).map((e) => e.name)])
 			)
+			/** An owner's values with its counts and ends drawn from its appended members, or the fill's refusal. */
+			const filledOf = (values: ReadonlyMap<ColumnKey, unknown>) =>
+				fill({
+					relation: owner,
+					values: new Map(
+						[...values].filter(([key]) => ![...drawnNames].some((name) => fieldKey(name) === key))
+					),
+					families: families.map((f) => ({
+						family: f.id,
+						members: (byGroup.get(familyKey(f.id))?.get(groupOfOwner(ctx, f, values)) ?? []).map(
+							(m): HostNode => ({ relation: f.member.name, values: m, families: [] })
+						)
+					}))
+				})
+			const refused = (stop: Parameters<typeof fillRefusal>[0]) => {
+				const refusal = fillRefusal(stop, slotPlace(owner))
+				return refusal._tag === "GeneratedNull"
+					? Result.err({ ...refusal, stratum: s })
+					: Result.err(refusal)
+			}
 			for (const slot of ownerSlots(s, owner)) {
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
 				for (const fact of current.facts) {
-					const values = factValues(fact)
-					const node: HostNode = {
-						relation: owner,
-						values: new Map(
-							[...values].filter(([key]) => ![...drawnNames].some((name) => fieldKey(name) === key))
-						),
-						families: families.map((f) => ({
-							family: f.id,
-							members: (byGroup.get(familyKey(f.id))?.get(groupOfOwner(ctx, f, values)) ?? []).map(
-								(m): HostNode => ({ relation: f.member.name, values: factValues(m), families: [] })
-							)
-						}))
-					}
-					const filled = fill(node)
+					const filled = filledOf(factValues(fact))
 					if (!filled.ok) {
-						const refusal = fillRefusal(filled.error.stop, slotPlace(owner))
-						return refusal._tag === "GeneratedNull"
-							? Result.err({ ...refusal, stratum: s })
-							: Result.err(refusal)
+						return refused(filled.error.stop)
 					}
 					filledFacts.set(
 						fact,
@@ -1574,7 +1646,7 @@ const freshOwners = (
 						)
 					)
 				}
-				out.set(
+				slotsOut.set(
 					slot,
 					refilledSlot(current, (fact) =>
 						defined(filledFacts.get(fact), "an owner fact the fill filled")
@@ -1583,7 +1655,7 @@ const freshOwners = (
 			}
 		}
 	}
-	return Result.ok(out)
+	return Result.ok(slotsOut)
 }
 
 /** A fact's values by column key. */

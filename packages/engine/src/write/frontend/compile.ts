@@ -698,10 +698,12 @@ const familyWriteAt = (
 	if (node.kind === "removals") {
 		return { relation: node.members[0], op: "delete" }
 	}
-	const [member] = node.members
-	return member === undefined
-		? { relation: node.owners[0].relation, op: "count" }
-		: { relation: member, op: "insert" }
+	switch (node.appends) {
+		case "rows":
+			return { relation: node.members[0], op: "insert" }
+		case "nothing":
+			return { relation: node.owners[0].relation, op: "count" }
+	}
 }
 
 /** Whether a member relation's row column is a field its caller writes, a caller's or a serial one. */
@@ -1956,12 +1958,12 @@ const compile = (
 		refill: StratumRefill | undefined
 	): ReadonlyArray<FamilyNode> | undefined => {
 		const own = edits.filter((e) => e.stratum === stratum)
-		if (
-			edited.length === 0 ||
-			refill !== undefined ||
-			nestedWrites.some((n) => n.stratum === stratum) ||
-			own.some((e) => e.write.op === "nested")
-		) {
+		/** The relations whose rows the stratum's nested writes fill, which its additions insert (write/family/nesting.ts
+		 * sentLayout). */
+		const nested = nestedWrites.flatMap((n) =>
+			n.stratum === stratum ? [...n.nesting.layouts.keys()] : []
+		)
+		if ((edited.length === 0 && nested.length === 0) || refill !== undefined) {
 			return undefined
 		}
 		const by = (ops: ReadonlyArray<"insert" | "put" | "delete">) => [
@@ -1987,7 +1989,7 @@ const compile = (
 			}))
 		}
 		const removing = by(["put", "delete"])
-		const adding = by(["insert", "put"])
+		const adding = [...new Set([...by(["insert", "put"]), ...nested])]
 		/**
 		 * The owners the stratum puts by a slot whose groups its removals leave to the additions to recount after the put
 		 * (write/family/removals.ts): a mutable owner of a family of a removed member but a tree, whether or not the
@@ -2017,9 +2019,25 @@ const compile = (
 			...(isNonEmpty(removing)
 				? [{ kind: "removals" as const, members: removing, owners: ownersOf(removing) }]
 				: []),
-			...(isNonEmpty(recounted)
-				? [{ kind: "additions" as const, members: adding, owners: recounted }]
-				: [])
+			...(isNonEmpty(adding)
+				? [
+						{
+							kind: "additions" as const,
+							appends: "rows" as const,
+							members: adding,
+							owners: recounted
+						}
+					]
+				: isNonEmpty(recounted)
+					? [
+							{
+								kind: "additions" as const,
+								appends: "nothing" as const,
+								members: [] as const,
+								owners: recounted
+							}
+						]
+					: [])
 		]
 	}
 

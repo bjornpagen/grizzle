@@ -213,6 +213,7 @@ const slotValue = (params: Params, slot: ConservativeParamSlot): string => {
 			return `[${Arr.join([...new Set(rows)], ",")}]`
 		}
 		case "member":
+		case "nestedRows":
 		case "page":
 			throw new Error(
 				`a query statement's placeholder is a declared parameter, not a ${slot.kind} placeholder`

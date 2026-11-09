@@ -28,11 +28,10 @@ import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { nestedRowsColumn, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -109,13 +108,11 @@ const programOf = (value: unknown): CompiledWrite => {
 interface NestedCase {
 	readonly docs: ReadonlyArray<ReadonlyArray<number>>
 	readonly trees: ReadonlyArray<ReadonlyArray<number>>
-	readonly oneRowEach: boolean
 }
 
 const caseGen: Gen<NestedCase> = (source) => ({
 	docs: source.draw(array(array(int(0, 1), { min: 0, max: 2 }), { min: 1, max: 2 })),
-	trees: source.draw(array(parents({ min: 1, max: 4 }), { min: 1, max: 2 })),
-	oneRowEach: source.draw(int(0, 1)) === 1
+	trees: source.draw(array(parents({ min: 1, max: 4 }), { min: 1, max: 2 }))
 })
 
 /** A tree's nested facts, node ids from `base`: each node its id and its children at `children`. */
@@ -162,7 +159,7 @@ const numberedOf = (
 	return rows
 }
 
-type Feature = "an empty family" | "a chunked family" | "a deep tree" | "two trees"
+type Feature = "an empty family" | "a deep tree" | "two trees"
 
 describe("a nested write through the program", () => {
 	it.effect(
@@ -176,14 +173,9 @@ describe("a nested write through the program", () => {
 						generator: caseGen,
 						literal: Formatter.format,
 						limit: 20_000,
-						coverage: requiredInSpace<Feature>([
-							"an empty family",
-							"a chunked family",
-							"a deep tree",
-							"two trees"
-						]),
+						coverage: requiredInSpace<Feature>(["an empty family", "a deep tree", "two trees"]),
 						caseHang,
-						box: "one or two owners of up to two lines of quantity 0 or 1, one or two trees of up to four nodes, two transports",
+						box: "one or two owners of up to two lines of quantity 0 or 1, one or two trees of up to four nodes",
 						oracle: { kind: "specification", name: "the nested write's rows (w4-w7 §3.10)" }
 					},
 					(box, c) =>
@@ -202,10 +194,9 @@ describe("a nested write through the program", () => {
 							const value = ChangeSet.empty(Nested).insert(Doc, docs).insert(Node, roots)
 							const program = programOf(value)
 							const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-							const transport = box.oneRowEach
-								? { ...inForce(bindFrame), literalUnits: 40 }
-								: inForce(bindFrame)
-							const bound = succeeded(bindWrite(program, { members, params: {}, transport }))
+							const bound = succeeded(
+								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+							)
 							assert.equal(bound.kind, "bound", "the facts bind")
 							if (bound.kind !== "bound") {
 								return
@@ -218,7 +209,15 @@ describe("a nested write through the program", () => {
 							)
 							const { chunks } = bound.flights
 							const statements = program.artifact.statements
-							const family = Arr.filter(statements, (s) => s.step.kind === "family")
+							const additions = defined(
+								Option.getOrUndefined(
+									Arr.findFirst(
+										statements,
+										(s) => s.step.kind === "familyWrite" && s.step.statement === "additions"
+									)
+								),
+								"the stratum's family additions"
+							)
 							const owner = defined(
 								Arr.findFirst(
 									statements,
@@ -226,12 +225,10 @@ describe("a nested write through the program", () => {
 								).pipe((o) => (o._tag === "Some" ? o.value : undefined)),
 								"the owner's own insert"
 							)
-							for (const s of family) {
-								assert.ok(
-									s.index > owner.index,
-									"every family step follows its stratum's own statements"
-								)
-							}
+							assert.ok(
+								additions.index > owner.index,
+								"the stratum's family additions follow its own statements"
+							)
 							const group = defined(program.frontend.slots[0], "the owner's slot group")
 							const [input] = group.inputs
 							const [slot] = inputSlots(input)
@@ -255,39 +252,12 @@ describe("a nested write through the program", () => {
 									c.note("an empty family")
 								}
 							}
-							const lineStep = defined(
-								Option.getOrUndefined(
-									Arr.findFirst(
-										family,
-										(s) => s.step.kind === "family" && s.step.relation === "Line"
-									)
-								),
-								"the family's insert step"
-							)
-							const lineChunks = succeeded(chunks(lineStep))
-							if (lineChunks.length > 1) {
-								c.note("a chunked family")
-							}
-							const nodeStep = defined(
-								Option.getOrUndefined(
-									Arr.findFirst(
-										family,
-										(s) => s.step.kind === "family" && s.step.relation === "Node"
-									)
-								),
-								"the tree's insert step"
-							)
-							const nodeChunks = succeeded(chunks(nodeStep))
-							const nodeIds = Arr.flatMap(nodeChunks, (chunk) =>
-								arrayItems(textOfParam(defined(chunk[0], "the ids' array, the key's")))
-							)
+							const nodeIds = nestedRowsColumn(program, chunks, "Node", 0)
 							const expectedIds = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => r.id)
 							)
 							assert.deepEqual(nodeIds, expectedIds, "a tree's nodes go in pre-order, tree by tree")
-							const starts = Arr.flatMap(nodeChunks, (chunk) =>
-								arrayItems(textOfParam(defined(chunk[4], "the starts' array")))
-							)
+							const starts = nestedRowsColumn(program, chunks, "Node", 4)
 							const expectedStarts = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => String(r.start))
 							)
@@ -309,12 +279,6 @@ describe("a nested write through the program", () => {
 })
 
 /** An array literal's elements, `{"a","b"}` or `{a,b}`: uuids and naturals, which hold no quote or comma, unquoted. */
-const arrayItems = (literal: string): ReadonlyArray<string> =>
-	literal === "{}"
-		? []
-		: Arr.map(Str.split(Str.slice(1, -1)(literal), ","), (item) =>
-				Str.startsWith('"')(item) && Str.endsWith('"')(item) ? Str.slice(1, -1)(item) : item
-			)
 
 interface StatedFact {
 	readonly doc: number
@@ -447,20 +411,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 								"write",
 								"a nested write reads nothing first: every group it writes is its own new owner's"
 							)
-							const { chunks } = bound.flights
-							const lineStep = Option.getOrUndefined(
-								Arr.findFirst(
-									setShaped.artifact.statements,
-									(s) =>
-										s.step.kind === "family" &&
-										s.step.relation === "Line" &&
-										s.step.statement === "insert"
-								)
-							)
-							const written = Arr.flatMap(
-								succeeded(chunks(defined(lineStep, "the Line insert step"))),
-								(chunk) => arrayItems(textOfParam(defined(chunk[0], "the ids' array, the key's")))
-							)
+							const written = nestedRowsColumn(setShaped, bound.flights.chunks, "Line", 0)
 							assert.deepEqual(
 								Arr.sort(written, Str.Order),
 								Arr.sort(
@@ -543,22 +494,8 @@ describe("a nested tree at depth and width", () => {
 							assertVariant(bound, "kind", "bound", "a tree binds")
 							assertVariant(bound.flights, "kind", "write", "a fresh tree reads nothing first")
 							const { chunks } = bound.flights
-							const step = defined(
-								Option.getOrUndefined(
-									Arr.findFirst(
-										treeShaped.artifact.statements,
-										(s) => s.step.kind === "family" && s.step.relation === "Node"
-									)
-								),
-								"the tree's insert step"
-							)
-							const executed = succeeded(chunks(step))
-							const starts = Arr.flatMap(executed, (chunk) =>
-								arrayItems(textOfParam(defined(chunk[4], "the starts' array")))
-							)
-							const ends = Arr.flatMap(executed, (chunk) =>
-								arrayItems(textOfParam(defined(chunk[5], "the ends' array")))
-							)
+							const starts = nestedRowsColumn(treeShaped, chunks, "Node", 4)
+							const ends = nestedRowsColumn(treeShaped, chunks, "Node", 5)
 							assert.equal(starts.length, box.n, "every node is written once")
 							for (let k = 0; k < box.n; k += 1) {
 								const [start, end] =

@@ -249,6 +249,14 @@ export type ParamSlot =
 			readonly part: number
 			readonly encode: MemberEncoder
 	  }
+	| {
+			/** A column of a stratum's nested rows of `relation`, in its sent layout (write/family/nesting.ts sentLayout),
+			 * which the binding encodes as a family statement's rows. */
+			readonly kind: "nestedRows"
+			readonly stratum: number
+			readonly relation: string
+			readonly part: number
+	  }
 	| { readonly kind: "page"; readonly fill: PageFill }
 
 /** A placeholder of a write's statement: a declared parameter or a member slot, never a page fill. */

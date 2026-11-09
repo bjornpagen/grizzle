@@ -464,6 +464,7 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 			return `{${Arr.join(elements, ",")}}`
 		}
 		case "member":
+		case "nestedRows":
 		case "page":
 			return undefined
 	}

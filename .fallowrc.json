@@ -548,8 +548,8 @@
 	// calls ParamCell's on the cell of a BindValue (check/checker.ts). The report and when these entries go are in
 	// upstream/fallow-unused-class-member-union-property. release: fallow does not type a for-of binding, and
 	// SessionPool.release calls SessionStatements.release on each open session it iterates in adapter/wire/session.ts
-	// makePool. member: the union again, WriteParams.member called on the params of a StatementPlaceholders
-	// (lower/conservative/context.ts). retype, scalar and relation: fallow does not follow an interface to its classes,
+	// makePool. member and nestedRows: the union again, WriteParams.member and WriteParams.nestedRows called on the
+	// params of a StatementPlaceholders (lower/conservative/context.ts). retype, scalar and relation: fallow does not follow an interface to its classes,
 	// and the lowering calls StatementParams' through the Placeholders that LowerContext.params returns. _tag:
 	// KeyConflict's tag, read through the error unions that discriminate on it. matches: the interface again, and the
 	// evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
@@ -570,6 +570,7 @@
 		"scalar",
 		"relation",
 		"member",
+		"nestedRows",
 		"matches",
 		"_tag"
 	]

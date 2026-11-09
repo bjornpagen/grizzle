@@ -532,10 +532,22 @@ const hostNodes = (
 	return Result.ok(defined(built.get(root), "the nesting's root"))
 }
 
+/**
+ * The columns of a relation's row layout its nesting's walk fills, key first: every one but those its counted families
+ * fill after the walk (`NestedLayout` pending), which each of its nested rows holds (`NestedRow`) and a family write
+ * sends them with (write/family/additions.ts RowSource).
+ */
+export const sentLayout = (at: NestedLayout): RowLayout => ({
+	relation: at.layout.relation,
+	key: at.layout.key,
+	columns: at.layout.columns.filter((c) => !at.pending.has(c.key))
+})
+
 /** A filled row as its relation's set holds it (`NestedRow`): every column of its row layout the walk filled, its
  * fields' host values, and its identity. */
 const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): NestedRow => {
-	const filled = [...at.layout.key, ...at.layout.columns].filter((c) => !at.pending.has(c.key))
+	const sent = sentLayout(at)
+	const filled = [...sent.key, ...sent.columns]
 	const values = new Map<ColumnKey, unknown>()
 	for (const c of filled) {
 		if (!row.values.has(c.key)) {
