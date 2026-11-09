@@ -858,6 +858,12 @@ export const installationsOf = (owned: Owned): NonEmptyReadonlyArray<Identity<"s
 export const levelChain = (desc: SchemaDesc): NonEmptyReadonlyArray<SchemaDesc> =>
 	desc.extends === undefined ? [desc] : appendNonEmpty(levelChain(desc.extends), desc)
 
+/** The candidate keys and row checks the statements state over one relation, in statement order. */
+interface RelationLaws {
+	readonly keys: ReadonlyArray<OwnedKey>
+	readonly checks: ReadonlyArray<OwnedCheck>
+}
+
 class Owner {
 	readonly #schemaName: string
 	readonly #levels: NonEmptyReadonlyArray<SchemaDesc>
@@ -1730,13 +1736,34 @@ class Owner {
 	 * namespaces, which grizzle treats as one). */
 	readonly #schemaNames = new DeclaredNamespace("relation, roster and contract")
 
-	/** The relations, each owning the keys and checks `statements` state over it. */
+	/** The relations, each owning the keys and checks `statements` state over it, read off them once by relation. */
 	#ownRelations(
 		statements: ReadonlyArray<OwnedStatement>
 	): Readonly<Record<string, OwnedRelation>> {
+		const keys = new Map<string, Array<OwnedKey>>()
+		const checks = new Map<string, Array<OwnedCheck>>()
+		const add = <A>(by: Map<string, Array<A>>, relation: string, item: A): void => {
+			const held = by.get(relation)
+			if (held === undefined) {
+				by.set(relation, [item])
+			} else {
+				held.push(item)
+			}
+		}
+		for (const s of statements) {
+			if (s.kind === "key" && s.key.kind === "candidate") {
+				add(keys, s.side.relation, s.key.key)
+			} else if (s.kind === "check") {
+				add(checks, s.relation, s.check)
+			}
+		}
 		const out: Record<string, OwnedRelation> = {}
 		for (const [name, entry] of byName(this.#relations)) {
-			out[name] = this.#ownRelation(statements, name, entry)
+			out[name] = this.#ownRelation(
+				{ keys: keys.get(name) ?? [], checks: checks.get(name) ?? [] },
+				name,
+				entry
+			)
 		}
 		return out
 	}
@@ -1745,11 +1772,7 @@ class Owner {
 	 * One relation's owned identifiers: its table, roster domain or materialized view, and what each kind owns besides.
 	 * A closed relation installs no relation of its own.
 	 */
-	#ownRelation(
-		statements: ReadonlyArray<OwnedStatement>,
-		declared: string,
-		entry: RelationEntry
-	): OwnedRelation {
+	#ownRelation(laws: RelationLaws, declared: string, entry: RelationEntry): OwnedRelation {
 		const r = entry.desc
 		const what: Readonly<Record<RelationDesc["kind"], string>> = {
 			relation: "relation",
@@ -1761,7 +1784,7 @@ class Owner {
 		const owning: OwnedBase = { name, level: entry.level, loc: entry.desc.loc }
 		switch (r.kind) {
 			case "relation":
-				return this.#ownStored(statements, owning, entry, r)
+				return this.#ownStored(laws, owning, entry, r)
 			case "closed": {
 				const named = identity.rosterDomain(name)
 				return {
@@ -1802,7 +1825,7 @@ class Owner {
 
 	/** A stored relation's columns, identity sequences, keys and row checks. */
 	#ownStored(
-		statements: ReadonlyArray<OwnedStatement>,
+		laws: RelationLaws,
 		owning: OwnedBase,
 		entry: RelationEntry,
 		r: OrdinaryRelationOf
@@ -1836,12 +1859,6 @@ class Owner {
 			true,
 			labeledChildLoc(entry.desc.loc, "primaryKey", `primary key of ${name}`)
 		)
-		const keys = statements.flatMap((s) =>
-			s.kind === "key" && s.key.kind === "candidate" && s.side.relation === name ? [s.key.key] : []
-		)
-		const checks = statements.flatMap((s) =>
-			s.kind === "check" && s.relation === name ? [s.check] : []
-		)
 		const named = identity.table(name)
 		return {
 			...owning,
@@ -1850,8 +1867,8 @@ class Owner {
 			named,
 			ident: identifierOf(named),
 			fields,
-			keys: [primary, ...keys],
-			checks,
+			keys: [primary, ...laws.keys],
+			checks: laws.checks,
 			mutable: this.#mutable.has(name)
 		}
 	}
