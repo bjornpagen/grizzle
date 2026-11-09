@@ -2,6 +2,7 @@ import { Array as Arr, Effect, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { HistoryEnv } from "#test/support/history/run.ts"
@@ -174,10 +175,11 @@ const historyEnv = <P>(
 ): Effect.Effect<HistoryEnv, OpenError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const writers = familyWriters(schema)
+		const login = i.installed.as(writers.server).role
 		const first = yield* openWriter({ installed: i.installed, schema })
-		const g = yield* grizzleActor("g", first.ctx.pool, [])
+		const g = yield* grizzleActor("g", login, first.db.apply(ChangeSet.empty(schema), {}), [])
 		const second = yield* openWriter({ installed: i.installed, schema })
-		const h = yield* grizzleActor("h", second.ctx.pool, [g.pid])
+		const h = yield* grizzleActor("h", login, second.db.apply(ChangeSet.empty(schema), {}), [g.pid])
 		const runtimes = { g: dbRuntime(first.ctx), h: dbRuntime(second.ctx) }
 		return {
 			host: i.host,

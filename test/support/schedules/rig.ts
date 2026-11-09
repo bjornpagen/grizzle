@@ -5,12 +5,14 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { dbRuntime } from "#test/support/runtime-db.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -61,8 +63,9 @@ export interface Rig<W extends RigWorlds> {
 	/**
 	 * Builds a DbLayer of the worlds' login of its own, given the installation's snapshot, opens a role's Db over it
 	 * with `open` (the caller's openDbContext(server.roles.<role>, {}), provided the layer's context), as an application
-	 * opens it, then resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of
-	 * the rig holds.
+	 * opens it, applies the empty ChangeSet through the runtime its methods dispatch to, which leases the Db's session,
+	 * and resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of the
+	 * rig holds.
 	 */
 	readonly writer: <R, P>(
 		name: string,
@@ -126,7 +129,8 @@ export const openRig = <W extends RigWorlds>(
 					const login: W["server"] = worlds.server
 					const context = yield* Layer.build(loginLayer(installed, login))
 					const { db, ctx } = yield* open(context)
-					const actor = yield* grizzleActor(actorName, ctx.pool, opened)
+					const first = dbRuntime(ctx).methods.apply(ChangeSet.empty(worlds.schema), {})
+					const actor = yield* grizzleActor(actorName, installed.as(login).role, first, opened)
 					opened.push(actor.pid)
 					return { db, ctx, actor }
 				})

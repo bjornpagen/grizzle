@@ -19,8 +19,7 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import {
 	type ApplyError,
 	type OpenError,
@@ -34,6 +33,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
@@ -554,7 +554,7 @@ interface Connected {
 
 /**
  * A Db of `app` opened through its own DbLayer of the login `server`, as an application opens it, and its actor: the
- * one session its Db's pool leases, none of `beside` (grizzleActor).
+ * one session of the login that is none of `beside`.
  */
 const openApp = (
 	i: RaceInstall,
@@ -568,10 +568,9 @@ const openApp = (
 	Effect.gen(function* () {
 		const server = i.rig.worlds.server
 		const context = yield* Layer.build(loginLayer(i.rig.installed, server))
-		const { db, ctx } = yield* openDbContext(server.roles.app, {}).pipe(
-			Effect.provideContext(context)
-		)
-		return { db, actor: yield* grizzleActor(name, ctx.pool, beside) }
+		const db = yield* Db.open(server.roles.app, {}).pipe(Effect.provideContext(context))
+		const first = db.apply(ChangeSet.empty(P.Platform), {})
+		return { db, actor: yield* grizzleActor(name, i.rig.installed.as(server).role, first, beside) }
 	})
 
 const connect = (
