@@ -1,117 +1,203 @@
 /**
- * Two SERIALIZABLE writers to one owner's family, every interleaving (W5.SC, fin.md §4.5's current count): each writer
- * runs the planner's three statements for an append to owner 0's ordered family, the count read, the count update
- * and the member insert at the slot the count gives, then COMMIT, on grizzle's installed lowering. The count update is
- * what makes two writers to one owner conflict: two that overlap in time cannot both commit, the later one meets 40001
- * (a concurrent update of the owner's row, or a key conflict with a row its snapshot cannot see), and nothing retries
- * it; two that do not overlap both commit, the second appending after the first.
+ * Two SERIALIZABLE writers appending to one stored owner's family, every interleaving: a direct writer running the
+ * direct-writer protocol for an append to owner 0's counted family (the count read, the count update, and the member
+ * insert at the slot the count gives, then COMMIT), and a grizzle writer applying a ChangeSet that inserts a member of
+ * owner 0, run again after each TransientFailure until it answers, as an application runs it. Either append is lawful
+ * before or after the other.
  *
- * - **The interleaving model:** a run is allowed exactly when, if the two writers' spans overlap, one committed and the
- *   other failed with 40001 at its count update, its insert or its COMMIT, its outcomes ending at that failure; and if
- *   they do not, both committed. Either way the state read back holds the families theorem (theorem.ts) and every
- *   committed append, in commit order.
- * - **Every interleaving** of the two four-move transactions (the library's interleave, `every`, its statements all on
- *   the family's relations, so no two moves commute and every order runs).
+ * - **The interleaving model:** a run is allowed exactly when the grizzle write answers accepted, every TransientFailure
+ *   it met a SerializationFailure, never a refusal by the family's (group, index) key both writers drew from their
+ *   snapshots; the direct writer commits, or fails with 40001 where the grizzle write committed inside its span; and
+ *   the state read back holds the families theorem (theorem.ts), owner 0's family holding its first member and then
+ *   every committed append in commit order.
+ * - **Every interleaving** of the direct writer's four moves and the grizzle write's one (the library's interleave,
+ *   `every`, every move on the family's relations, so no two moves commute and every order runs), some of which block
+ *   the grizzle write on the owner row the direct writer updated, and run it again once that commits.
  */
 import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { openDbContext } from "#adapter/db/open.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
-import { familySeat, familyStoredOf, storedSql } from "#test/pg/fin/family.ts"
-import { cleared } from "#test/pg/fin/installed.ts"
-import { assert, deepEquals } from "#test/support/assert.ts"
+	counted,
+	fin,
+	login,
+	mutable,
+	on,
+	relation,
+	role,
+	schema
+} from "#compiler/public/schema.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
+import { familyStoredOf } from "#test/pg/fin/family.ts"
+import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { theorem } from "#test/support/families/theorem.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
+import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
 	allowed,
 	every,
 	everyRelation,
-	exploreEnv,
 	exploreInterleavings,
 	type Interleaving,
 	interleaveStep,
 	type Judgment,
+	opStep,
 	refusedJudgment,
 	runawayInterleavings,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
-import { attempt } from "#test/support/substrate.ts"
+import { openRig } from "#test/support/schedules/rig.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const WRITERS = ["first", "second"] as const
+const Owner = relation("Owner", { id: pg.int4, n: drawn(natural) }, ["id"])
+const Member = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
 
-/** Owner 0's family before every run: one member, at slot 0. */
-const INITIAL = { members: [0] } as const
+/** The family under a schema name, with a role `app` the grizzle writer opens and a role `direct` the direct writer's. */
+const contended = (name: string) => {
+	const relations = { Owner, Member }
+	const base = schema(name, relations, [mutable(Owner), counted(on(Member, "g"), fin(Owner, "n"))])
+	const app = role(base, "app", relations, { write: ["Owner", "Member"] })
+	const direct = role(base, "direct", relations, { write: ["Owner", "Member"] })
+	return {
+		schema: base,
+		app,
+		direct,
+		server: login(base, "server", [app]),
+		psql: login(base, "psql", [direct])
+	}
+}
+
+/** The direct writer's member and the grizzle writer's. */
+const DIRECT = 10
+const GRIZZLE = 11
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"two SERIALIZABLE writers to one owner's family through grizzle's lowering",
+	"a direct writer and a grizzle writer appending to one stored owner's family",
 	(it) => {
 		it.effect(
-			"in every interleaving of two appends' count read, count update and insert, overlapping writers meet 40001 once and nothing retries, and writers one after the other both commit",
+			"in every interleaving the grizzle write is accepted, its only refusals serialization failures, and both appends are stored at distinct slots in commit order",
 			() =>
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const f = yield* familySeat("ordered", "contention")
-					const { seat } = f
-					const c = (relation: string, role: string) => seat.column(relation, role)
-					const owner = seat.table("Owner")
-					const member = seat.table("Member")
-					const plan = (m: number): ReadonlyArray<string> => [
-						`SELECT ${c("Owner", "n")} FROM ${owner} WHERE ${c("Owner", "id")} = 0`,
-						`UPDATE ${owner} SET ${c("Owner", "n")} = ${c("Owner", "n")} + 1 WHERE ${c("Owner", "id")} = 0`,
-						`INSERT INTO ${member} (${c("Member", "member")}, ${c("Member", "g")}, ${c("Member", "at")}, ${c("Member", "‹n›")}) SELECT ${m}, 0, ${c("Owner", "n")} - 1, ${c("Owner", "n")} FROM ${owner} WHERE ${c("Owner", "id")} = 0`
-					]
-					const txns: ReadonlyArray<Txn> = Arr.map(WRITERS, (session, i): Txn => ({
-						kind: "direct",
-						session,
-						steps: Arr.map(plan(10 + i), (sql) => interleaveStep(sql, everyRelation)),
-						end: "commit",
-						after: undefined
-					}))
-					const reset = Effect.gen(function* () {
-						yield* cleared(seat, ["Owner", "Member"])
-						const written = yield* attempt(seat.session, [
-							`INSERT INTO ${owner} (${c("Owner", "id")}, ${c("Owner", "n")}) VALUES (0, ${INITIAL.members.length})`,
-							`INSERT INTO ${member} (${c("Member", "member")}, ${c("Member", "g")}, ${c("Member", "at")}, ${c("Member", "‹n›")}) VALUES (0, 0, 0, ${INITIAL.members.length})`
-						])
-						assert.equal(written.kind, "committed", "the initial family is written")
-					}).pipe(Effect.orDie)
-					const judge = (run: Interleaving): Judgment => {
-						const span = (w: string) => Option.fromUndefinedOr(run.spans[w])
-						const [a, b] = [span("first"), span("second")]
-						if (Option.isNone(a) || Option.isNone(b)) {
-							return refusedJudgment("a writer never ran")
+					const rig = yield* openRig("Contended", contended)
+					const names = namesOf(rig.installed)
+					const family = defined(names.model.families[0], "the family")
+					const owner = names.table(Owner)
+					const member = names.table(Member)
+					const id = names.column(Owner, "id")
+					const n = names.column(Owner, "n")
+					const m = names.column(Member, "member")
+					const g = names.column(Member, "g")
+					const at = quoteIdent(
+						family.index.kind === "law"
+							? family.index.column
+							: names.columnIdent({ name: "Member" }, family.index.field.name)
+					)
+					const copy = quoteIdent(family.copy)
+					const app = yield* rig.writer("app", (context) =>
+						openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+					)
+					const direct = yield* openActors(s, { direct: { kind: "raw", as: rig.direct } })
+					const appended = ChangeSet.empty(rig.worlds.schema).insert(Member, [
+						{ member: GRIZZLE, g: 0 }
+					])
+					/** The grizzle write's refusals and answer in the current run, set by its move. */
+					let ran:
+						| Result.Result<
+								{ readonly refused: ReadonlyArray<string>; readonly answer: string },
+								string
+						  >
+						| undefined
+					const txns: ReadonlyArray<Txn> = [
+						{
+							kind: "direct",
+							session: "direct",
+							steps: Arr.map(
+								[
+									`SELECT ${n} FROM ${owner} WHERE ${id} = 0`,
+									`UPDATE ${owner} SET ${n} = ${n} + 1 WHERE ${id} = 0`,
+									`INSERT INTO ${member} (${m}, ${g}, ${at}, ${copy}) SELECT ${DIRECT}, 0, ${n} - 1, ${n} FROM ${owner} WHERE ${id} = 0`
+								],
+								(sql) => interleaveStep(sql, everyRelation)
+							),
+							end: "commit",
+							after: undefined
+						},
+						{
+							kind: "grizzle",
+							session: "app",
+							steps: [
+								opStep(
+									"the grizzle append",
+									Effect.tap(Effect.result(untilAnswered(app.db.apply(appended, {}))), (r) =>
+										Effect.sync(() => {
+											ran = Result.isSuccess(r)
+												? Result.succeed({
+														refused: r.success.refused,
+														answer: r.success.answered.kind
+													})
+												: Result.fail(r.failure.message)
+										})
+									),
+									everyRelation
+								)
+							],
+							after: undefined
 						}
-						const overlapped = a.value.start < b.value.end && b.value.start < a.value.end
-						const results = Rec.values(run.results)
-						const committed = Arr.filter(results, (r) => r._tag === "Committed")
-						const failed = Arr.filter(results, (r) => r._tag === "Failed")
-						if (overlapped) {
-							const [loser] = failed
-							if (committed.length !== 1 || loser === undefined || failed.length !== 1) {
-								return refusedJudgment(
-									`overlapping writers: ${committed.length} committed, ${failed.length} failed, where one must commit and one meet 40001`
-								)
-							}
-							if (loser.failure._tag !== "PgError" || loser.failure.fields.code !== "40001") {
-								return refusedJudgment(
-									`the losing writer failed with ${describeStepOutcome(loser.failure)}, not 40001`
-								)
-							}
-						} else if (committed.length !== 2) {
+					]
+					const reset = Effect.andThen(
+						Effect.sync(() => {
+							ran = undefined
+						}),
+						rig.replace([
+							`INSERT INTO ${owner} (${id}, ${n}) VALUES (0, 1)`,
+							`INSERT INTO ${member} (${m}, ${g}, ${at}, ${copy}) VALUES (0, 0, 0, 1)`
+						])
+					).pipe(Effect.orDie)
+					/** Runs in which the grizzle write was refused by a TransientFailure and ran again. */
+					let retried = 0
+					const judge = (run: Interleaving): Judgment => {
+						if (ran === undefined) {
+							return refusedJudgment("the grizzle write made no move")
+						}
+						if (Result.isFailure(ran)) {
+							return refusedJudgment(`the grizzle write failed: ${ran.failure}`)
+						}
+						const { refused, answer } = ran.success
+						if (answer !== "accepted") {
 							return refusedJudgment(
-								`writers one after the other: ${committed.length} committed, where both must: ${Arr.join(
-									Arr.map(failed, (r) => `${r.session} ${describeStepOutcome(r.failure)}`),
-									"; "
-								)}`
+								`the grizzle write answered ${answer} after refusals [${Arr.join(refused, ", ")}], where its append is lawful in either order`
 							)
+						}
+						const other = Arr.filter(refused, (r) => r !== "SerializationFailure")
+						if (Arr.isReadonlyArrayNonEmpty(other)) {
+							return refusedJudgment(
+								`the grizzle write was refused by ${Arr.join(other, ", ")}, where only a serialization failure meets a concurrent append`
+							)
+						}
+						if (refused.length > 0) {
+							retried += 1
+						}
+						const result = defined(run.results["direct"], "the direct writer's result")
+						const span = (w: string) => defined(run.spans[w], `${w}'s span`)
+						const [d, a] = [span("direct"), span("app")]
+						if (result._tag === "Failed") {
+							const inside = d.start < a.end && a.end < d.end
+							if (
+								result.failure._tag !== "PgError" ||
+								result.failure.fields.code !== "40001" ||
+								!inside
+							) {
+								return refusedJudgment(
+									`the direct writer failed with ${describeStepOutcome(result.failure)}, where only 40001 inside a grizzle commit's span is allowed`
+								)
+							}
+						} else if (result._tag !== "Committed") {
+							return refusedJudgment(`the direct writer ended ${result._tag}`)
 						}
 						if (run.state._tag !== "Read") {
 							return refusedJudgment("the family was not read")
@@ -122,28 +208,25 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								`the committed state breaks the families theorem: ${Formatter.format(read.failure)}`
 							)
 						}
-						const appended = Arr.map(run.commits, (w) => (w === "first" ? 10 : 11))
-						const want = [...INITIAL.members, ...appended]
-						const got = Arr.flatMap(read.success, (fam) => (fam.owner === 0 ? fam.members : []))
+						const want = [0, ...Arr.map(run.commits, (w) => (w === "direct" ? DIRECT : GRIZZLE))]
+						const got = Arr.flatMap(read.success, (f) => (f.owner === 0 ? f.members : []))
 						return deepEquals(got, want)
 							? allowed
 							: refusedJudgment(
 									`owner 0's family reads ${Formatter.format(got)}, not its committed appends in order, ${Formatter.format(want)}`
 								)
 					}
-					const env = yield* exploreEnv(s)
-					const direct = yield* openActors(s, {
-						first: { kind: "raw", as: s.owner },
-						second: { kind: "raw", as: s.owner }
-					})
 					const report = yield* exploreInterleavings(
-						env,
-						{ direct, grizzle: {} },
+						rig.env,
+						{ direct, grizzle: { app: app.actor } },
 						{
-							name: "two appends to one owner's family",
+							name: "a direct and a grizzle append to one owner's family",
 							txns,
 							reset,
-							state: { _tag: "Read", sql: storedSql(f) },
+							state: {
+								_tag: "Read",
+								sql: `SELECT 0, ${id}::int8, ${n}::int8, 0::int8, 0::int8 FROM ${owner} UNION ALL SELECT 1, ${m}::int8, ${g}::int8, ${at}::int8, ${copy}::int8 FROM ${member}`
+							},
 							model: (run) => Effect.sync(() => judge(run)),
 							maxInterleavings: runawayInterleavings
 						},
@@ -152,6 +235,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					assert.ok(
 						report.blocked > 0,
 						`of ${report.interleavings} interleavings none blocked on the owner's row`
+					)
+					assert.ok(
+						retried > 0,
+						`of ${report.interleavings} interleavings none refused the grizzle write and ran it again`
 					)
 					assert.ok(
 						Arr.some([...report.committedSets.keys()], Str.includes(",")),

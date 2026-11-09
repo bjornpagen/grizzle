@@ -121,9 +121,10 @@ interface ClassifyContext {
 
 /**
  * The unique violations that are aborts at `origin`: a write statement's own, a single statement's parts'; none at a
- * family's statement, whose drawn index no other writer's can collide with, at a flight's other statements, which write
- * no unique object, at a read-back, and at COMMIT, where every unique constraint is immediate and has already been
- * checked.
+ * family's statement, whose additions recount each stored group's owner before they insert at the indexes they draw
+ * (write/family/additions.ts), so a concurrent writer of the group meets the owner's row first and fails with 40001, at
+ * a flight's other statements, which write no unique object, at a read-back, and at COMMIT, where every unique
+ * constraint is immediate and has already been checked.
  */
 const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 	if (origin.kind !== "statement") {

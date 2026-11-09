@@ -30,8 +30,12 @@
  * owner's family is fixed when it is inserted, so no role holds UPDATE on it and this statement writes none.
  * Immediate foreign keys are checked at the statement's end, so a member and its owner's new count are judged together.
  *
- * The statement returns the facts it inserted and each recounted owner's count and ends after and before, each part's
- * rows behind its tag, which the outcome reads as a family statement's.
+ * The statement returns each recounted owner's count and ends after and before, and then the facts it inserted, each
+ * part's rows behind its tag, which the outcome reads as a family statement's. PostgreSQL runs a data-modifying CTE as
+ * the statement reads its rows, so every recount runs before any insert: a write appending to a stored group writes its
+ * owner's row first, and of two writes appending to one group at once the later meets that row and fails with 40001,
+ * never at the (group, index) key both drew from their snapshots, as the family planner's count statement before its
+ * inserts did.
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -247,7 +251,7 @@ export const additionsSql = (
 		}
 		return sources.map((x) => ({ member, source: x.source, appended: x.appended, scans: x.scans }))
 	})
-	const returnings: Array<FamilyReturning> = drawn.map((d) =>
+	const inserts = drawn.map((d) =>
 		insertOf(
 			w,
 			supply,
@@ -285,14 +289,15 @@ export const additionsSql = (
 			recountedOf(family).puts.push(facts)
 		}
 	}
+	const recounts: Array<FamilyReturning> = []
 	for (const [ownerName, byFamily] of owners) {
 		const [first, ...rest] = [...byFamily.values()]
 		if (first !== undefined) {
 			const owner = defined(relations.get(ownerName), `the owner relation ${ownerName}`)
-			returnings.push(recountOf(w, supply, ctes, owner, [first, ...rest]))
+			recounts.push(recountOf(w, supply, ctes, owner, [first, ...rest]))
 		}
 	}
-	const [firstReturning, ...restReturnings] = returnings
+	const [firstReturning, ...restReturnings] = [...recounts, ...inserts]
 	if (firstReturning === undefined) {
 		throw defect("a family additions statement appends or recounts a put owner")
 	}
