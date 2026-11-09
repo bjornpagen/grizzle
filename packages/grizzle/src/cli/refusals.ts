@@ -133,7 +133,7 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 export const cliStageFix: Readonly<Record<CliStage, string>> = {
 	usage: "run grizzle --help for the commands",
 	config:
-		'fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } })',
+		'fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: () => ({ ... }) })',
 	environment:
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",

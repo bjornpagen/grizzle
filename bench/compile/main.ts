@@ -402,7 +402,7 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 		schemas: [made.base],
 		logins: [made.web],
 		migrations: "migrations",
-		connection: owner
+		connection: () => owner
 	})
 	const load: ConfigLoader = (at) => Effect.succeed({ file: at, value: config })
 	const generate = yield* command("generate", ["generate", file, "--name", "init"], dir, load)

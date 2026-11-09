@@ -2521,7 +2521,7 @@ export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
 	migrations: "migrations",
-	connection: {
+	connection: () => ({
 		driver: pgDriver,
 		transport: {
 			kind: "sslRequest",
@@ -2537,7 +2537,7 @@ export default defineConfig({
 			Effect.mapError((cause) => new CredentialError({ cause }))
 		),
 		connectTimeoutMs: 10_000
-	}
+	})
 })
 ```
 
@@ -2549,8 +2549,9 @@ Every setting is required, and nothing else is configurable:
   over a schema no listed one holds is refused; a login not listed is not installed, nor are its roles. Login and role
   names are unique across an installation.
 - **`migrations`**: the directory, absolute or relative to the config file's directory.
-- **`connection`**: where `migrate` and `drift` connect, as the role that owns the schemas; no other command reads it.
-  Its password is a `Redacted` or an Effect evaluated for each connection attempt.
+- **`connection`**: a function returning where `migrate` and `drift` connect, as the role that owns the schemas. Only
+  they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and run in CI where no
+  cluster is reachable. Its password is a `Redacted` or an Effect evaluated for each connection attempt.
 
 grizzle reads no file you don't name and no environment variable for where to connect: the config reads its own
 credentials.

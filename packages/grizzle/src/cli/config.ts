@@ -112,8 +112,11 @@ export interface ResolvedConfig {
 	readonly migrations: string
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
-	/** The configuration's connection as given, checked only by `grizzle migrate` and `grizzle drift` (connection.ts). */
-	readonly connection: MigrationConnectionConfig
+	/**
+	 * The configuration's connection as given, a function only `grizzle migrate` and `grizzle drift` call, and check
+	 * what it returns (connection.ts).
+	 */
+	readonly connection: () => MigrationConnectionConfig
 }
 
 /** The root of a description's levels, the one schema(...) built. */
@@ -238,7 +241,7 @@ const resolveConfigWith = (
 	if (!nonempty(migrationsSetting)) {
 		return malformedSetting("migrations")
 	}
-	if (connectionSetting === undefined) {
+	if (typeof connectionSetting !== "function") {
 		return Result.fail(cliError(new SettingRefused({ fault: { kind: "unconnected" } })))
 	}
 	const migrations = path.resolve(directory, migrationsSetting)

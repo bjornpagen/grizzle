@@ -239,7 +239,7 @@ const config = defineConfig({
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",
-	connection: offlineOwner
+	connection: () => offlineOwner
 })
 
 const at = (second: number) =>

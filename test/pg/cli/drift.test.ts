@@ -389,7 +389,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 								schemas: [w.schema],
 								logins: [w.desk],
 								migrations: "migrations",
-								connection: connectionOf(substrate.cluster, ownerOn(substrate.database))
+								connection: () => connectionOf(substrate.cluster, ownerOn(substrate.database))
 							})
 							const run = (command: string) => cliOver(ws, config, [command, configName], at)
 							const fresh = yield* Effect.forEach(["generate", "migrate", "drift"], (command) =>

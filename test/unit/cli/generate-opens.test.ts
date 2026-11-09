@@ -136,7 +136,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 									schemas: [pairs.schema],
 									logins: [pairs.login],
 									migrations: "migrations",
-									connection: offlineOwner
+									connection: () => offlineOwner
 								}),
 								file
 							)

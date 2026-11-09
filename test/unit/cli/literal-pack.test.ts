@@ -190,7 +190,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 										schemas: [gridSchema],
 										logins: [],
 										migrations: "migrations",
-										connection: offlineOwner
+										connection: () => offlineOwner
 									})
 									const owned = owning(gridSchema)
 									const installation = succeeded(

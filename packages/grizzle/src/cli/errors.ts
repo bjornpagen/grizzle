@@ -229,8 +229,8 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 export const configSettings = ["schemas", "logins", "migrations", "connection"] as const
 
 /**
- * The settings whose value the configuration reads itself; `connection` is migrate's and drift's to check, so the
- * configuration refuses only its absence.
+ * The settings whose value the configuration reads itself; `connection` is a function migrate and drift call and
+ * check the result of, so the configuration refuses only a connection that is no function.
  */
 type ReadSetting = "schemas" | "logins" | "migrations"
 
@@ -244,7 +244,7 @@ const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 
 /**
  * A setting no configuration has (`unknown`), one whose value is not of its kind (`malformed`), or the connection
- * not given (`unconnected`).
+ * not given as a function (`unconnected`).
  */
 type SettingFault =
 	| { readonly kind: "unknown"; readonly setting: string }
@@ -262,7 +262,7 @@ export class SettingRefused extends Data.TaggedError("SettingRefused")<{
 			case "malformed":
 				return malformedSettingText[fault.setting]
 			case "unconnected":
-				return "connection must be given: where grizzle migrate and grizzle drift connect, as the role that owns the schemas"
+				return "connection must be a function returning where grizzle migrate and grizzle drift connect, as the role that owns the schemas"
 		}
 	}
 }

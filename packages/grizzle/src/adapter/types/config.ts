@@ -21,8 +21,8 @@ export type MigrationConnectionConfig = DbConnection & { readonly role: string }
  *     import { defineConfig } from "@bjornpagen/grizzle"
  *     export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", connection })
  *
- * The connection is the application's to build, from whatever its deploy provides: a password Effect (an RDS IAM
- * token, a secret manager's lookup) is evaluated for each connection attempt.
+ * The connection is the application's to build, from whatever its deploy provides, when a command that connects asks
+ * for it: a password Effect (an RDS IAM token, a secret manager's lookup) is evaluated for each connection attempt.
  *
  * The default export of a configuration file.
  */
@@ -38,6 +38,9 @@ export interface GrizzleConfig {
 	readonly logins: ReadonlyArray<AnyLogin>
 	/** The migrations directory: absolute, or relative to the configuration file's directory. */
 	readonly migrations: string
-	/** Where `grizzle migrate` and `grizzle drift` connect; generate, check and names never read it. */
-	readonly connection: MigrationConnectionConfig
+	/**
+	 * Where `grizzle migrate` and `grizzle drift` connect, built when one of them runs: generate, check and names never
+	 * call it, so they read no cluster setting and no CA file, and run where no cluster is reachable.
+	 */
+	readonly connection: () => MigrationConnectionConfig
 }

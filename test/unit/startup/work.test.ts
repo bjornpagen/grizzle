@@ -257,7 +257,7 @@ const stepsAt = (size: Size) =>
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
-				connection: unreachable
+				connection: () => unreachable
 			})
 			const ws = yield* workspace("startup")
 			const command = (name: "check" | "migrate" | "drift") =>

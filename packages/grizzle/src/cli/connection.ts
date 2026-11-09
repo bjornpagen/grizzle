@@ -1,6 +1,7 @@
 import { Effect, Option, Result } from "effect"
 import { parseConnection, roleSettings } from "#adapter/connection/config.ts"
 import { startupVariableSet } from "#adapter/connection/environment.ts"
+import { readHost } from "#adapter/engine.ts"
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
@@ -37,11 +38,23 @@ export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 	})
 )
 
+/** The configuration's connection function threw, a refusal that quotes nothing it threw, which may hold a credential. */
+const connectionThrew = cliError(
+	new ConnectionRefused({
+		detail: "connection threw: it must return where grizzle migrate and grizzle drift connect"
+	})
+)
+
 /**
- * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, in a process environment that
- * sends no startup variable (ownerEnvironment).
+ * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, called once here, the one place
+ * a command calls it, in a process environment that sends no startup variable (ownerEnvironment).
  */
 export const migrationConnection = (
 	config: ResolvedConfig
 ): Effect.Effect<MigrationConnection, CliError> =>
-	Effect.andThen(ownerEnvironment, Effect.fromResult(resolveConnection(config.connection)))
+	Effect.andThen(
+		ownerEnvironment,
+		Effect.fromResult(
+			readHost(connectionThrew, () => resolveConnection(config.connection()))
+		)
+	)

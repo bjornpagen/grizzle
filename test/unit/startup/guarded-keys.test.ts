@@ -110,7 +110,7 @@ const stepsAt = (k: number) =>
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
-				connection: offlineOwner
+				connection: () => offlineOwner
 			})
 			const ws = yield* workspace("guarded")
 			const [generated, generate] = yield* callCounts(

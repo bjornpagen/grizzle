@@ -31,8 +31,8 @@ export default defineConfig({
 	logins: [Web, EtlJob],
 	/** Required: the migrations directory, relative to this file. */
 	migrations: "migrations",
-	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas. */
-	connection: {
+	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas, built only when they run. */
+	connection: () => ({
 		driver: pgDriver,
 		transport: {
 			kind: "sslRequest",
@@ -48,7 +48,7 @@ export default defineConfig({
 			Effect.mapError((cause) => new CredentialError({ cause }))
 		),
 		connectTimeoutMs: 10_000
-	}
+	})
 })
 ```
 
@@ -77,7 +77,8 @@ export default defineConfig({
   each connection attempt: an RDS IAM token, a secret manager's lookup) and `connectTimeoutMs`, the bound of each
   connection attempt. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`.
 - Never write a credential into the config file: read it where the config runs, as the password Effect does.
-- `generate`, `check` and `names` never read the connection. `migrate` and `drift` refuse a process environment that
+- `connection` is a function: only `migrate` and `drift` call it, so `generate`, `check` and `names` read no cluster
+  setting and no CA file, and `check` runs in CI where no cluster is reachable. `migrate` and `drift` refuse a process environment that
   sets `PGOPTIONS` or `PGREPLICATION`, which node-postgres would send at their session's startup, at the stage
   environment.
 
@@ -389,7 +390,7 @@ The command line's own refusals, by stage:
 | Stage | Fix |
 | --- | --- |
 | usage | run grizzle --help for the commands |
-| config | fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } }) |
+| config | fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: () => ({ ... }) }) |
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |

@@ -19,8 +19,8 @@ export default defineConfig({
 	logins: [Web, EtlJob],
 	/** Required: the migrations directory, relative to this file. */
 	migrations: "migrations",
-	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas. */
-	connection: {
+	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas, built only when they run. */
+	connection: () => ({
 		driver: pgDriver,
 		transport: {
 			kind: "sslRequest",
@@ -36,5 +36,5 @@ export default defineConfig({
 			Effect.mapError((cause) => new CredentialError({ cause }))
 		),
 		connectTimeoutMs: 10_000
-	}
+	})
 })

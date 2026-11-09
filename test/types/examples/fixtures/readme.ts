@@ -914,7 +914,7 @@ export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
 	migrations: "migrations",
-	connection: {
+	connection: () => ({
 		driver: pgDriver,
 		transport: {
 			kind: "sslRequest",
@@ -930,7 +930,7 @@ export default defineConfig({
 			Effect.mapError((cause) => new CredentialError({ cause }))
 		),
 		connectTimeoutMs: 10_000
-	}
+	})
 })
 
 /** README: "Deploying". */

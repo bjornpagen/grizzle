@@ -203,7 +203,7 @@ export const configOf = (cluster: InitializedClusterShape, spec: ConfigSpec): Gr
 		schemas: [first, ...rest],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",
-		connection: connectionOf(cluster, spec.connection)
+		connection: () => connectionOf(cluster, spec.connection)
 	}
 }
 
