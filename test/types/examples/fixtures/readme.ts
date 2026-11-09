@@ -33,11 +33,13 @@ import {
 	natural,
 	on,
 	type PageCursor,
+	paged,
 	type ParamsOf,
 	type ParamType,
 	pg,
 	pred,
 	query,
+	refresh,
 	relation,
 	role,
 	schema,
@@ -428,18 +430,6 @@ export const Reporting = schema.extend(Usage, "Reporting", { ModelSpend }, [])
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
 })
-export const UsageApi = login(Reporting, "usage_api", [Analyst], {
-	workload: [workload(Analyst, { callLog })]
-})
-
-/** The first 50 calls, and the 50 after a cursor the client sent back. */
-export const firstCalls = (db: Db<typeof Analyst, unknown>, workspace: Uuid) =>
-	db.page(callLog, { workspace }, { first: 50 })
-export const moreCalls = (
-	db: Db<typeof Analyst, unknown>,
-	workspace: Uuid,
-	after: PageCursor<typeof callLog>
-) => db.page(callLog, { workspace }, { first: 50, after })
 
 /** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
 export const modelSpend = query(Reporting).rule((r) => {
@@ -454,9 +444,24 @@ export const modelSpend = query(Reporting).rule((r) => {
 		.find({ calls, spend })
 })
 
-export const spendOn = (db: Db<typeof Analyst, unknown>, workspace: Uuid, model: string) =>
-	db.get(modelSpend, { workspace, model })
-export const nightly = (db: Db<typeof Analyst, unknown>) => db.refresh(ModelSpend)
+export const usage = workload(Analyst, {
+	callLog: paged(callLog),
+	modelSpend,
+	nightly: refresh(ModelSpend)
+})
+export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [usage] })
+
+type AnalystDb = Db<typeof Analyst, typeof usage.programs>
+
+/** The first 50 calls, and the 50 after a cursor the client sent back. */
+export const firstCalls = (db: AnalystDb, workspace: Uuid) =>
+	db.workload.callLog.page({ workspace }, { first: 50 })
+export const moreCalls = (db: AnalystDb, workspace: Uuid, after: PageCursor<typeof callLog>) =>
+	db.workload.callLog.page({ workspace }, { first: 50, after })
+
+export const spendOn = (db: AnalystDb, workspace: Uuid, model: string) =>
+	db.workload.modelSpend.get({ workspace, model })
+export const nightly = (db: AnalystDb) => db.workload.nightly.refresh
 
 /** README: "Example", "Who is asking". */
 /** Clerk's session token: the user in `sub`, the active organization's id in the nested object `o`. */

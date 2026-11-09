@@ -115,12 +115,12 @@ const servedRoleOf = (
  * programs into one served file of the login (servedJson), the role's workload holding exactly them, loads it, and runs
  * its members on the opened Db's context, so a case's programs share its Db's pool and claims.
  */
-export const withServedDb = <A, E>(
+export const withServedDb = <A, E, R>(
 	installed: Installed,
 	role: AnyLoginRole,
 	payload: Json,
-	body: (db: ServedDb) => Effect.Effect<A, E, Scope.Scope>
-): Effect.Effect<A, E | ServedRefusal | OpenError, Scope.Scope> =>
+	body: (db: ServedDb) => Effect.Effect<A, E, R>
+): Effect.Effect<A, E | ServedRefusal | OpenError, R | Scope.Scope> =>
 	Effect.gen(function* () {
 		const login = role.login
 		const fixture = yield* servedFixture(installed, login)
