@@ -43,7 +43,7 @@ import {
 	type SnapshotTheory,
 	type SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import type { LawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
@@ -206,7 +206,7 @@ const withoutRosters: EncodeOptions = { omit: (_key, value) => value instanceof 
 const recordedType = (type: ScalarType): string =>
 	recordedDigest("scalar-type", { type, roster: rosterOf(type)?.closed }, withoutRosters)
 
-const theoryOf = (installation: Installation): SnapshotTheory => {
+const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory => {
 	const owned = installation.owned
 	const theory = installation.laws.theory
 	const fillers = fillersOf(theory)
@@ -287,7 +287,6 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		relations[name] = relation
 	}
 	const laws: Record<string, SnapshotLaw> = {}
-	const checks = lawChecks(installation)
 	const migrations = new Map(checks.migrations.map((c) => [c.law, c.digest] as const))
 	const rules = new Map(checks.rules.map((c) => [c.law, c.digest] as const))
 	for (const law of theory.laws.toSorted(
@@ -462,6 +461,8 @@ export const noWorkload: DraftWorkload = { access: {}, accessPaths: [] }
 interface TargetInput {
 	readonly installation: Installation
 	readonly workload: DraftWorkload
+	/** The installation's checks (snapshot/violation.ts lawChecks), whose digests the snapshot records. */
+	readonly checks: LawChecks
 }
 
 /**
@@ -558,7 +559,7 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			schemaName: headNonEmpty(installation.owned.levels).name,
 			schema,
 			levels: levelsOf(installation),
-			theory: theoryOf(installation),
+			theory: theoryOf(installation, input.checks),
 			manifest: { ...installation.manifest, objects, edges },
 			constraintToLaw: {
 				tables: sortedOwners(installation.constraintToLaw.tables),

@@ -62,7 +62,7 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { lawChecks, type MigrationCheck } from "#compiler/deploy/snapshot/violation.ts"
+import type { LawChecks, MigrationCheck } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
@@ -115,6 +115,8 @@ interface DiffInput {
 	readonly target: SnapshotContent
 	/** The compiled target, for the violation queries of the laws a migration discharges. */
 	readonly installation: Installation
+	/** The target's checks (snapshot/violation.ts lawChecks), the ones its snapshot records the digests of. */
+	readonly checks: LawChecks
 	/** The renames the migration declares (declared.ts), which `previous` stands after, drafted once the holders are set
 	 * aside. */
 	readonly renames: ReadonlyArray<SqlStatement>
@@ -816,7 +818,7 @@ class Differ {
 			})
 		}
 		this.sql("setup.drop", this.input.renames)
-		const checks = lawChecks(this.input.installation)
+		const { checks } = this.input
 		this.migrationChecks(checks.migrations)
 		this.dropWorlds()
 		this.dropViews()

@@ -68,6 +68,12 @@ const checkOf = (
 	return { law, query, digest: d.value }
 }
 
+/** An installation's checks (lawChecks): its migration-discharged laws' and its rules over queries'. */
+export interface LawChecks {
+	readonly migrations: ReadonlyArray<MigrationCheck>
+	readonly rules: ReadonlyArray<MigrationCheck>
+}
+
 /**
  * An installation's checks, from its theory's violation queries written once (laws/model/violations.ts):
  * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws;
@@ -76,12 +82,7 @@ const checkOf = (
  * COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the query's, so a change of the law, of the rows it
  * reads or of a definition a rule reads is a new check.
  */
-export const lawChecks = (
-	installation: Installation
-): {
-	readonly migrations: ReadonlyArray<MigrationCheck>
-	readonly rules: ReadonlyArray<MigrationCheck>
-} => {
+export const lawChecks = (installation: Installation): LawChecks => {
 	const violations = theoryViolations(installation.laws.checked, installation.laws.theory)
 	if (!violations.ok) {
 		throw new Refusal(violations.error)

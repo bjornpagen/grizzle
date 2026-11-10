@@ -14,6 +14,7 @@ import {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -167,7 +168,15 @@ describe("snapshot.json", () => {
 								)
 							)
 							const snapshot = succeeded(
-								finishSnapshot(succeeded(targetState({ installation, workload: noWorkload })))
+								finishSnapshot(
+									succeeded(
+										targetState({
+											installation,
+											workload: noWorkload,
+											checks: lawChecks(installation)
+										})
+									)
+								)
 							)
 							const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 							const committed = succeeded(readSnapshot(files))

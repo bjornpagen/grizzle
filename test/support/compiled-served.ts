@@ -9,6 +9,7 @@ import {
 	targetState,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -34,7 +35,10 @@ export const compiledServedFile = (login: AnyLogin): unknown => {
 	)
 	const snapshot = succeeded(
 		finishSnapshot(
-			succeeded(targetState({ installation, workload: noWorkload }), "the base's target state")
+			succeeded(
+				targetState({ installation, workload: noWorkload, checks: lawChecks(installation) }),
+				"the base's target state"
+			)
 		),
 		"the base's snapshot"
 	)

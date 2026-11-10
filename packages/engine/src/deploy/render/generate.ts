@@ -41,6 +41,7 @@ import type {
 	SnapshotDerived,
 	SnapshotFiles
 } from "#compiler/deploy/snapshot/types.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
@@ -159,7 +160,9 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				`the installation's codes of roster ${discontinued} continue the previous snapshot's: compile it under the codes drafted from them`
 			)
 		}
-		const state = unwrap(targetState({ installation, workload: input.workload }))
+		/** The installation's checks, written once: their digests the snapshot records, their queries the diff drafts. */
+		const checks = lawChecks(installation)
+		const state = unwrap(targetState({ installation, workload: input.workload, checks }))
 		/** Every hashed name that stands while the migration runs, the previous installation's and the target's, against
 		 * which each temporary it mints is censused. */
 		const temporaries = new TemporaryCensus([
@@ -175,6 +178,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				previous: setAside(applied.previous, asides),
 				target: state,
 				installation,
+				checks,
 				renames: applied.statements,
 				asides,
 				temporaries,
