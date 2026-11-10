@@ -558,13 +558,30 @@ export const hostEvaluator =
 	}
 
 /**
- * What the host's evaluator reads beside a row, for the expressions a write evaluates: each closed relation they read,
- * by name, and every admitted pattern they are checked against (scalar/regex/patterns.ts tablePatterns, typePatterns).
+ * What the host's evaluator reads beside a row, for the expressions a write evaluates: the name of each closed
+ * relation they read, whose rows its installation's closed table holds (`ClosedTable`), and every admitted pattern they
+ * are checked against (scalar/regex/patterns.ts tablePatterns, typePatterns).
  */
 export interface Evaluation {
-	readonly closed: ReadonlyMap<string, ClosedRows>
+	readonly closed: ReadonlyArray<string>
 	readonly patterns: ReadonlyArray<PatternSource>
 }
+
+/**
+ * The closed relations an installation's evaluators read, by name: where a write compiles, its schema's
+ * (write/program/decide.ts closedTableOf); where a served login loads, its file's, each once (served/forms.ts
+ * ServedFile closed).
+ */
+export type ClosedTable = ReadonlyMap<string, ClosedRows>
+
+/** The closed relations `names` of `table`: what one evaluator reads, each by its name. */
+export const closedNamed = (names: ReadonlyArray<string>, table: ClosedTable): ClosedTable =>
+	new Map(
+		names.map(
+			(name) =>
+				[name, defined(table.get(name), `the closed relation ${name} an evaluator reads`)] as const
+		)
+	)
 
 /** A closed relation as the host reads it: its heading's names, its key's width, and its rows in heading order. */
 export interface ClosedRows {

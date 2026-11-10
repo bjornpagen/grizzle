@@ -38,6 +38,7 @@ import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -277,8 +278,12 @@ const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Out
 		kind: "invariant-rejected",
 		law: weightLaw,
 		witness: hostJudgement(
-			prepareBinding(path.program.binding, path.program.frontend.codes, new CompilePatterns())
-				.witness,
+			prepareBinding(
+				path.program.binding,
+				path.program.frontend.codes,
+				closedTableOf(path.program.frontend),
+				new CompilePatterns()
+			).witness,
 			stated,
 			{ kind: "write", stratum: path.stratum, relations: [member.name] },
 			{ kind: "generated", table: member.ident, column: w.column }

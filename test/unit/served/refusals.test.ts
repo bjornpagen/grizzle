@@ -54,6 +54,7 @@ const fileOf = (refusals: ServedRefusals, rosters: ServedFile["rosters"]): Serve
 	session: servedSession,
 	rosters,
 	matchers: [],
+	closed: new Map(),
 	above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
 	roles: [{ name: "writer", installed: "base__writer", contexts: [], refusals, members: [] }]
 })

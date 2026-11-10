@@ -47,7 +47,9 @@ export {
 } from "#compiler/runtime/write/bind.ts"
 export { runnableWrite } from "#compiler/write/program/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+export { closedTableOf } from "#compiler/write/program/decide.ts"
 export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
+export { closedNamed, type ClosedRows, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 export {
 	type FlightStatement,
 	type FlightWrite,

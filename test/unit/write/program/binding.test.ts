@@ -100,16 +100,7 @@ const widened = (program: CompiledWrite): CompiledWrite => {
 		...program.binding,
 		fill,
 		evaluation: {
-			closed: new Map(
-				Arr.map([...frontend.schema.closed], ([name, c]) => [
-					name,
-					{
-						heading: Arr.map(c.heading, (h) => ({ name: h.name })),
-						key: c.relation.primaryFields.length,
-						rows: c.rows
-					}
-				])
-			),
+			closed: [...frontend.schema.closed.keys()],
 			patterns: evaluationOf(frontend, fill).patterns
 		}
 	}

@@ -36,7 +36,7 @@ import type {
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
 import {
-	type ClosedRows,
+	type ClosedTable,
 	type ColumnKey,
 	columnKey,
 	type Evaluation,
@@ -383,35 +383,29 @@ const fillTables = (fill: HostFill): ReadonlyArray<ExprTable> =>
 	)
 
 /**
- * What a fill's evaluator reads (binding.ts Evaluation): each closed relation one of its expressions reads, as the host
- * reads it (fold.ts ClosedRows), and every admitted pattern they are checked against, each once.
+ * What a fill's evaluator reads (binding.ts Evaluation): the name of each closed relation one of its expressions reads,
+ * and every admitted pattern they are checked against, each once.
  */
 export const evaluationOf = (frontend: WriteFrontend, fill: HostFill): Evaluation =>
 	evaluationOver(frontend, fillTables(fill), [])
 
-/** What an evaluator over `tables` reads: each closed relation they read, as the host reads it (fold.ts ClosedRows), and
- * every admitted pattern they and `patterns` hold, each once. */
+/** What an evaluator over `tables` reads: the name of each closed relation they read, in the order they first read it,
+ * and every admitted pattern they and `patterns` hold, each once. */
 const evaluationOver = (
 	frontend: WriteFrontend,
 	tables: ReadonlyArray<ExprTable>,
 	patterns: ReadonlyArray<PatternSource>
 ): Evaluation => {
-	const closed = new Map<string, ClosedRows>()
+	const closed = new Set<string>()
 	for (const table of tables) {
 		for (const e of Object.values(table.exprs)) {
-			if (
-				(e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas") &&
-				!closed.has(e.relation)
-			) {
-				const c = defined(
-					frontend.schema.closed.get(e.relation),
-					`the closed relation ${e.relation} a fill's expression reads`
-				)
-				closed.set(e.relation, {
-					heading: c.heading.map((h) => ({ name: h.name })),
-					key: c.relation.primaryFields.length,
-					rows: c.rows
-				})
+			if (e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas") {
+				if (!frontend.schema.closed.has(e.relation)) {
+					throw defect(
+						`the schema holds the closed relation ${e.relation} a fill's expression reads`
+					)
+				}
+				closed.add(e.relation)
 			}
 		}
 	}
@@ -422,8 +416,28 @@ const evaluationOver = (
 			flags: pattern.flags
 		})
 	}
-	return Object.freeze({ closed, patterns: [...distinct.values()] })
+	return Object.freeze({ closed: [...closed], patterns: [...distinct.values()] })
 }
+
+/**
+ * The closed relations of a write's schema as its evaluators read them (runtime/write/fill.ts ClosedTable), by name,
+ * each its heading's names, its key's width and its rows in heading order: the table a write compiled in process
+ * prepares its binding against, and a served file's closed relations are drawn from.
+ */
+export const closedTableOf = (frontend: Pick<WriteFrontend, "schema">): ClosedTable =>
+	new Map(
+		[...frontend.schema.closed].map(
+			([name, c]) =>
+				[
+					name,
+					Object.freeze({
+						heading: c.heading.map((h) => ({ name: h.name })),
+						key: c.relation.primaryFields.length,
+						rows: c.rows
+					})
+				] as const
+		)
+	)
 
 /** A member slot as a binding holds it (normalize.ts SlotData). */
 const slotData = (slot: MemberSlot): SlotData => ({

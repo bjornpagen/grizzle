@@ -6,7 +6,14 @@ import { refreshPlan } from "#adapter/refresh/statements.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
 import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
-import { servedWrite } from "#compiler/plan/change.ts"
+import {
+	closedNamed,
+	type ClosedRows,
+	type ClosedTable,
+	closedTableOf,
+	type CompiledWrite,
+	servedWrite
+} from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	defect,
@@ -153,6 +160,38 @@ const noRefusals: ServedRefusals = {
 	entries: new Map()
 }
 
+/** Each compiled write of a ChangeSet's variants. */
+const variantsWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> =>
+	variants.kind === "form"
+		? [variants.form.entry.compiled]
+		: [...variantsWrites(variants.holding), ...variantsWrites(variants.lacking)]
+
+/**
+ * The closed relations a login's served writes evaluate, each once by name (served/forms.ts ServedFile closed): every
+ * one a write's binding or witness names, drawn from the schema the write compiled over (decide.ts closedTableOf), in
+ * the order the roles, their members and their variants first name it.
+ */
+const closedOfLogin = (roles: ReadonlyArray<LayerRole>): ClosedTable => {
+	const table = new Map<string, ClosedRows>()
+	for (const role of roles) {
+		for (const member of role.workload) {
+			if (member.kind === "change") {
+				for (const write of variantsWrites(member.variants)) {
+					const named = [
+						...write.binding.evaluation.closed,
+						...write.binding.witness.evaluation.closed
+					]
+					const missing = Arr.dedupe(Arr.filter(named, (name) => !table.has(name)))
+					for (const [name, rows] of closedNamed(missing, closedTableOf(write.frontend))) {
+						table.set(name, rows)
+					}
+				}
+			}
+		}
+	}
+	return table
+}
+
 /** The relations every variant of a ChangeSet's compile writes (write/frontend/compile.ts WriteFrontend.written). */
 const variantsWritten = (variants: ChangeVariants): ReadonlyArray<string> =>
 	variants.kind === "form"
@@ -252,6 +291,7 @@ export const servedFileOf = (
 				)
 			),
 			matchers: servedMatchers(roles),
+			closed: closedOfLogin(compiled.roles),
 			above: servedAbove(lawsAbove(snapshot)),
 			roles
 		}

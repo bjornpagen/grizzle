@@ -16,6 +16,8 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
 	closedLeaf,
+	closedNamed,
+	type ClosedTable,
 	type ColumnKey,
 	type Evaluation,
 	type Filler,
@@ -170,19 +172,24 @@ export interface PreparedBinding {
 
 /**
  * The closures of a binding (`PreparedBinding`), built once: where the write compiles, and where a served login loads
- * it, each from the binding's data, the installation's codes and its table of the patterns its types read, `patterns`,
- * so none is parsed per row.
+ * it, each from the binding's data, the installation's codes, its closed table and its table of the patterns its types
+ * read, `patterns`, so none is parsed per row.
  */
 export const prepareBinding = (
 	binding: Binding,
 	codes: Codebook,
+	closed: ClosedTable,
 	patterns: PatternReads
 ): PreparedBinding => {
-	const evaluate = hostEvaluator(codes, closedLeaf(binding.evaluation.closed), patterns)
+	const evaluate = hostEvaluator(
+		codes,
+		closedLeaf(closedNamed(binding.evaluation.closed, closed)),
+		patterns
+	)
 	return Object.freeze({
 		evaluate,
 		fill: filler(binding.fill, codes, evaluate),
 		groups: binding.groups.map((g) => bindGroup(g, codes)),
-		witness: prepareWitness(binding.witness, binding.groups, codes, patterns)
+		witness: prepareWitness(binding.witness, binding.groups, codes, closed, patterns)
 	})
 }

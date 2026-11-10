@@ -126,7 +126,8 @@ const without = (json: unknown, path: ReadonlyArray<string | number>): unknown =
 /** The served file of one login of one role holding `members`, under the codes `codes`. */
 const fileOf = (
 	members: ReadonlyArray<ServedMember>,
-	rosters: ServedFile["rosters"]
+	rosters: ServedFile["rosters"],
+	closed: ServedFile["closed"]
 ): ServedFile => {
 	const roles: ReadonlyArray<ServedRoleForm> = [
 		{
@@ -159,6 +160,7 @@ const fileOf = (
 		session: servedSession,
 		rosters,
 		matchers: servedMatchers(roles),
+		closed,
 		above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
 		roles
 	}
@@ -304,7 +306,8 @@ const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => voi
 		}
 		const file = fileOf(
 			members,
-			new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const))
+			new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const)),
+			new Map()
 		)
 		const text = ok(servedText(file), "the served file's text", printed)
 		const json = trustedJson<unknown>(text)

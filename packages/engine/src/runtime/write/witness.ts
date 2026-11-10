@@ -25,6 +25,8 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
 	closedLeaf,
+	closedNamed,
+	type ClosedTable,
 	type ColumnKey,
 	type Evaluation,
 	evalValue,
@@ -629,8 +631,13 @@ interface Judge {
 }
 
 /** The judge of a write's stated rows by what its witness data's evaluation reads, its patterns read from `patterns`. */
-const judgeOf = (evaluation: Evaluation, codes: Codebook, patterns: PatternReads): Judge => {
-	const closed = closedLeaf(evaluation.closed)
+const judgeOf = (
+	evaluation: Evaluation,
+	codes: Codebook,
+	table: ClosedTable,
+	patterns: PatternReads
+): Judge => {
+	const closed = closedLeaf(closedNamed(evaluation.closed, table))
 	const evaluate = (relation: WitnessTable, expr: ExprTable, row: JudgedRow): Evaluated => {
 		/**
 		 * A column's value: a field the row states or its write fills, a generated field's as PostgreSQL generates it
@@ -673,13 +680,14 @@ const judgeOf = (evaluation: Evaluation, codes: Codebook, patterns: PatternReads
 }
 
 /**
- * The witness of a write, prepared once from its data and its slot groups under the installation's codes
- * (`Witnessing`): where the write compiles, and where a served login loads it.
+ * The witness of a write, prepared once from its data and its slot groups under the installation's codes and closed
+ * table (`Witnessing`): where the write compiles, and where a served login loads it.
  */
 export const prepareWitness = (
 	data: WitnessData,
 	groups: ReadonlyArray<GroupData>,
 	codes: Codebook,
+	closed: ClosedTable,
 	patterns: PatternReads
 ): Witnessing => {
 	const slots = new Map<
@@ -696,7 +704,7 @@ export const prepareWitness = (
 	return Object.freeze({
 		data,
 		codes,
-		judge: judgeOf(data.evaluation, codes, patterns),
+		judge: judgeOf(data.evaluation, codes, closed, patterns),
 		tables: new Map(data.tables.map((t) => [t.name, t] as const)),
 		groups,
 		slots

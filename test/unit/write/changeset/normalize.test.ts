@@ -29,7 +29,7 @@ import type {
 	MemberSlot,
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
-import { decideBinding } from "#compiler/write/program/decide.ts"
+import { closedTableOf, decideBinding } from "#compiler/write/program/decide.ts"
 import {
 	assert,
 	assertVariant,
@@ -296,7 +296,12 @@ const normalizedOf = (changes: ChangeSetValue) =>
 	Effect.gen(function* () {
 		const frontend = compiled(Small, changes)
 		const binding = decideBinding(frontend)
-		const prepared = prepareBinding(binding, frontend.codes, new CompilePatterns())
+		const prepared = prepareBinding(
+			binding,
+			frontend.codes,
+			closedTableOf(frontend),
+			new CompilePatterns()
+		)
 		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,

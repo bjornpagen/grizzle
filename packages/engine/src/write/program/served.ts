@@ -32,6 +32,7 @@ import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.t
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import { closedTableOf } from "#compiler/write/program/decide.ts"
 
 /** A relation input's column as its encoder reads it: its name and type. */
 const slotColumn = (column: RelationColumn): SlotColumn =>
@@ -169,4 +170,4 @@ export const servedWrite = (
 
 /** A write compiled in process as an application runs it: projected and loaded, as a served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
-	loadWrite(projectWrite(compiled), codes, new CompilePatterns())
+	loadWrite(projectWrite(compiled), codes, closedTableOf(compiled.frontend), new CompilePatterns())

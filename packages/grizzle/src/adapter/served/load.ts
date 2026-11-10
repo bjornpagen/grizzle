@@ -12,7 +12,7 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import type { ArrayMember } from "#compiler/plan/change.ts"
+import type { ArrayMember, ClosedTable } from "#compiler/plan/change.ts"
 import type {
 	BindContext,
 	Codebook,
@@ -231,17 +231,19 @@ const loadPage = (
 		}
 	})
 
-/** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, read by its role's `witness`. */
+/** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, read by its role's `witness`, its write
+ * prepared against the file's closed relations. */
 const loadChange = (
 	change: ServedChange,
 	witness: WriteEntry["witness"],
+	closed: ClosedTable,
 	codes: Codebook,
 	bind: BindContext,
 	patterns: PatternReads
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
 	const entry: WriteEntry = {
-		program: servedRunnable(loadWrite(program, codes, patterns)),
+		program: servedRunnable(loadWrite(program, codes, closed, patterns)),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes, patterns),
@@ -258,6 +260,7 @@ const loadChange = (
 const loadVariants = (
 	variants: ServedVariants,
 	witness: WriteEntry["witness"],
+	closed: ClosedTable,
 	codes: Codebook,
 	bind: BindContext,
 	patterns: PatternReads
@@ -265,13 +268,27 @@ const loadVariants = (
 	switch (variants.kind) {
 		case "change":
 			return Result.map(
-				loadChange(variants.change, witness, codes, bind, patterns),
+				loadChange(variants.change, witness, closed, codes, bind, patterns),
 				(change): LoadedVariants => ({ kind: "change", change })
 			)
 		case "split":
 			return Result.gen(function* () {
-				const holding = yield* loadVariants(variants.holding, witness, codes, bind, patterns)
-				const lacking = yield* loadVariants(variants.lacking, witness, codes, bind, patterns)
+				const holding = yield* loadVariants(
+					variants.holding,
+					witness,
+					closed,
+					codes,
+					bind,
+					patterns
+				)
+				const lacking = yield* loadVariants(
+					variants.lacking,
+					witness,
+					closed,
+					codes,
+					bind,
+					patterns
+				)
 				return { kind: "split", context: variants.context, holding, lacking }
 			})
 	}
@@ -281,6 +298,7 @@ const loadVariants = (
 const loadMember = (
 	member: ServedMember,
 	witness: WriteEntry["witness"],
+	closed: ClosedTable,
 	codes: Codebook,
 	bind: BindContext,
 	patterns: PatternReads
@@ -307,7 +325,7 @@ const loadMember = (
 			})
 		case "change":
 			return Result.map(
-				loadVariants(member.variants, witness, codes, bind, patterns),
+				loadVariants(member.variants, witness, closed, codes, bind, patterns),
 				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
 			)
 		case "refresh":
@@ -327,7 +345,7 @@ const loadRole = (
 		const witness = servedWitness(role.refusals, file.above, codes)
 		const members: Array<LoadedMember> = []
 		for (const member of role.members) {
-			members.push(yield* loadMember(member, witness, codes, bind, patterns))
+			members.push(yield* loadMember(member, witness, file.closed, codes, bind, patterns))
 		}
 		return {
 			name: role.name,

@@ -19,6 +19,7 @@ import {
 	type PreparedBinding,
 	prepareBinding
 } from "#compiler/runtime/write/binding.ts"
+import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type OutcomeContext,
 	type WrittenHeading,
@@ -99,11 +100,13 @@ export interface FlightWrite {
 	readonly outcome: OutcomeContext
 }
 
-/** A served write as an application runs it under the installation's codes: its binding's closures, each placeholder
- * with its encoder (lower/template.ts writeSlotOf), each written relation with its facts' identity. */
+/** A served write as an application runs it under the installation's codes, closed table and patterns: its binding's
+ * closures, each placeholder with its encoder (lower/template.ts writeSlotOf), each written relation with its facts'
+ * identity. */
 export const loadWrite = (
 	served: ServedWrite,
 	codes: Codebook,
+	closed: ClosedTable,
 	patterns: PatternReads
 ): FlightWrite => {
 	const slotOf = writeSlotOf(codes, patterns)
@@ -112,7 +115,7 @@ export const loadWrite = (
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,
-		prepared: prepareBinding(served.binding, codes, patterns),
+		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
 		patterns,
 		statements: Object.freeze(

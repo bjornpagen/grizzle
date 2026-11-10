@@ -26,6 +26,7 @@ import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
 	nestedRowsColumn,
@@ -182,7 +183,12 @@ const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, lengt
 		nestedRows(
 			nesting,
 			{
-				fill: prepareBinding(program.binding, program.frontend.codes, new CompilePatterns()).fill,
+				fill: prepareBinding(
+					program.binding,
+					program.frontend.codes,
+					closedTableOf(program.frontend),
+					new CompilePatterns()
+				).fill,
 				codes: program.frontend.codes
 			},
 			member,

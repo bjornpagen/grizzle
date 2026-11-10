@@ -101,7 +101,7 @@ import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
-import { familyNames, ownerSlots } from "#compiler/write/program/decide.ts"
+import { closedTableOf, familyNames, ownerSlots } from "#compiler/write/program/decide.ts"
 import { flightOf, servedWrite } from "#compiler/write/program/served.ts"
 
 /** A write compiled in process as binding runs it under the installation's codes (runtime/write/bind.ts
@@ -110,7 +110,9 @@ import { flightOf, servedWrite } from "#compiler/write/program/served.ts"
 export const runnableWrite = (compiled: CompiledWrite, codes: Codebook): RunnableWrite => {
 	const served = servedWrite(compiled)
 	return served.ok
-		? servedRunnable(loadWrite(served.value, codes, new CompilePatterns()))
+		? servedRunnable(
+				loadWrite(served.value, codes, closedTableOf(compiled.frontend), new CompilePatterns())
+			)
 		: Object.freeze({ flight: flightOf(compiled, codes), flights: legacyFlights(compiled) })
 }
 

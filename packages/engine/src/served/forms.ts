@@ -25,6 +25,7 @@ import type {
 } from "#compiler/lower/shapes/page/seek.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 import type { ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
@@ -76,6 +77,11 @@ export interface ServedFile {
 	 * ServedMatcher): what a layer judges every refined value by, so it parses no pattern.
 	 */
 	readonly matchers: ReadonlyArray<ServedMatcher>
+	/**
+	 * Each closed relation the login's writes evaluate, once, by name (runtime/write/fill.ts ClosedTable): every write's
+	 * binding and witness name the ones they read, and a layer prepares each against this table.
+	 */
+	readonly closed: ClosedTable
 	/** What the login's refusals may name of the levels above its base, which a refusal names by its level. */
 	readonly above: ServedAbove
 	/** The login's roles, in the login's declared order. */
