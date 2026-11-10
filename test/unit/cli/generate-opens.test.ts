@@ -6,13 +6,14 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
 import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
@@ -28,20 +29,19 @@ import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
  * `grizzle generate` compiles every program of a login's workloads once, into the login's served file, through the
  * one compile of a login (adapter/served/compile.ts compileServed over adapter/served/login.ts loginRoles), so a program
- * generate admits is one the layer's own compilation admits and its drafted snapshot opens the layer, and one that
- * compilation refuses refuses generate, by the program, with the same CompileError.
+ * generate admits is one the login's compilation over its workload's slice admits and the served file generate drafts
+ * opens the layer, and one that compilation refuses refuses generate, by the program, with the same CompileError.
  *
  * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
  * one query, whose head is every field of two joined relations, split between them evenly, on the bound and one
  * entry past it. The checker admits every width; the statements the layer compiles refuse a head past the
  * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts
- * it and writes its served file, and its snapshot opens a DbLayer, which builds without a connection; past it, the
+ * it and writes its served file, and that file opens a DbLayer, which builds without a connection; past it, the
  * layer refuses the program and generate refuses with the CompileError the layer refuses it with, the draft's access
  * plan or the served file's compile naming the program. A case compiles a program of some 1,664 columns, so the box is
  * the bound and the entry past it alone.
@@ -153,11 +153,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 										[],
 										noDeclarations
 									),
-									(draft) =>
-										Effect.as(
-											servedFiles(compiledSchema, draft.snapshotFiles, draft.served),
-											draft.snapshotFiles
-										)
+									(draft) => servedFiles(compiledSchema, draft.snapshotFiles, draft.served)
 								)
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))
@@ -195,19 +191,22 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 									Result.isSuccess(compiled),
 									"generate drafts and serves only what the layer compiles"
 								)
+								const entry = defined(generated.success[0], "the login's served file")
 								const opened = yield* Effect.exit(
 									Effect.scoped(
 										Layer.build(
-											compiledDbLayer({
+											DbLayer.make({
 												...offlineConnection,
 												pool: clusterPool,
-												login: pairs.login,
-												snapshot: snapshotJson(generated.success.snapshot)
+												login: served<typeof pairs.login>(
+													trustedJson<unknown>(entry.text),
+													"server"
+												)
 											})
 										)
 									)
 								)
-								assert.ok(Exit.isSuccess(opened), "the drafted snapshot opens the layer")
+								assert.ok(Exit.isSuccess(opened), "the drafted served file opens the layer")
 								return
 							}
 							assert.ok(Result.isFailure(compiled), "generate refuses only what the layer refuses")
