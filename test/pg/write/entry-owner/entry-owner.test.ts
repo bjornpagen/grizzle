@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 /**
- * A family's owner written through a role's query entry, on PostgreSQL 19, through grizzle's own apply: Stores own a
+ * A family's owner written through a role's query entry, on PostgreSQL 19, through served ChangeSets: Stores own a
  * counted family of Items (test/support/families/entry-owner.ts), and each declared shape of the entry-owner box is a
  * role writing Store through its entry over the north stores, its head holding none, either or both of the family's
  * count and stock, its filter the fixed region alone or the free label too (`label` is never "zz"); a keeper writes
@@ -23,8 +23,11 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
  * Items is `invariant-rejected` on its family's laws, and of one the role cannot see is `no-change`, as is every write
  * that leaves the stores as they were, an insert of a visible store under its own label among them. A case that is both
  * outside the entry and at an unseen store's key may report either, as the README promises.
+ *
+ * Each role's writes are a JavaScript caller's ChangeSets, served as members of its workload on a Db of its own, each
+ * from its call's facts: the keeper's insert of Store and Item, and each entry role's insert, put and delete of its
+ * entry.
  */
-import { openDbContext } from "#adapter/db/open.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { type AnySchema, login, role } from "#compiler/public/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
@@ -44,10 +47,8 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { applyRuntime } from "#test/support/runtime-db.ts"
+import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 
 const holdsAll = ["neither", "count", "end", "both"] as const
@@ -250,15 +251,43 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(read) => String(read[0]?.[0])
 						)
 						return yield* Effect.gen(function* () {
-							const { ctx: keeper } = yield* openDbContext(
+							const keeper = yield* openServedDb(
+								m,
 								defined(b.login.roles["keeper"], "the keeper"),
 								{}
 							)
-							const opened = yield* Effect.forEach(b.writers.keys(), (name) =>
-								Effect.map(
-									openDbContext(defined(b.login.roles[name], "an entry role"), {}),
-									(o) => [name, o.ctx] as const
-								)
+							const seeds = yield* keeper.serve({
+								seed: changeSetOver
+									.empty(b.keeper)
+									.insert(defined(b.keeper.relations["Store"], "the keeper's Store"), [])
+									.insert(defined(b.keeper.relations["Item"], "the keeper's Item"), [])
+							})
+							/** Each entry role's insert, put and delete of its entry, served on its own Db, by the role's name. */
+							const opened = yield* Effect.forEach(
+								Arr.flatMap(holdsAll, (holds) =>
+									Arr.map(statedFilters, (filter) => [holds, filter] as const)
+								),
+								([holds, filter]) =>
+									Effect.gen(function* () {
+										const name = roleName(holds, filter)
+										const writerRole = defined(b.writers.get(name), "the writer's role")
+										const relation = defined(
+											writerRole.relations[entryName(holds, filter)],
+											"the writer's entry"
+										)
+										const db = yield* openServedDb(
+											m,
+											defined(b.login.roles[name], "an entry role"),
+											{}
+										)
+										const empty = changeSetOver.empty(writerRole)
+										const served = yield* db.serve({
+											insert: empty.insert(relation, []),
+											put: empty.put(relation, []),
+											delete: empty.delete(relation, [])
+										})
+										return [name, served] as const
+									})
 							)
 							const writers = new Map(opened)
 							return yield* explore(
@@ -295,29 +324,22 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								(c, run) =>
 									Effect.gen(function* () {
 										yield* owner.query(`TRUNCATE ${store}, ${items}`, [])
-										const seeded = yield* applyRuntime(
-											keeper,
-											changeSetOver
-												.empty(b.keeper)
-												.insert(
-													defined(b.keeper.relations["Store"], "the keeper's Store"),
-													Arr.map(c.stores, (s) => ({
-														id: uuidAt(0, s.key),
-														region: s.region,
-														label: s.label
-													}))
-												)
-												.insert(
-													defined(b.keeper.relations["Item"], "the keeper's Item"),
-													Arr.flatMap(c.stores, (s) =>
-														Arr.map(s.qtys, (qty, i) => ({
-															id: uuidAt(0xa0, s.key * 4 + i),
-															store: uuidAt(0, s.key),
-															region: s.region,
-															qty: BigInt(qty)
-														}))
-													)
-												),
+										const storeFacts = Arr.map(c.stores, (s) => ({
+											id: uuidAt(0, s.key),
+											region: s.region,
+											label: s.label
+										}))
+										const itemFacts = Arr.flatMap(c.stores, (s) =>
+											Arr.map(s.qtys, (qty, i) => ({
+												id: uuidAt(0xa0, s.key * 4 + i),
+												store: uuidAt(0, s.key),
+												region: s.region,
+												qty: BigInt(qty)
+											}))
+										)
+										const seeded = yield* appliedWith(
+											member(seeds, "seed"),
+											{ insert: { Store: storeFacts, Item: itemFacts } },
 											{}
 										)
 										assert.equal(
@@ -328,23 +350,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const before = yield* itemCount
 										const w = c.write
 										const writer = defined(writers.get(roleName(w.holds, w.filter)), "the writer")
-										const writerRole = defined(
-											b.writers.get(roleName(w.holds, w.filter)),
-											"the writer's role"
-										)
-										const relation = defined(
-											writerRole.relations[entryName(w.holds, w.filter)],
-											"the writer's entry"
-										)
 										const fact = { id: uuidAt(0, w.key), label: w.label }
-										const empty = changeSetOver.empty(writerRole)
-										const changes =
-											w.op === "insert"
-												? empty.insert(relation, [fact])
-												: w.op === "put"
-													? empty.put(relation, [fact])
-													: empty.delete(relation, [fact])
-										const outcome = yield* applyRuntime(writer, changes, {})
+										const outcome = yield* appliedWith(
+											member(writer, w.op),
+											{ [w.op]: { [entryName(w.holds, w.filter)]: [fact] } },
+											{}
+										)
 										const after = yield* rows
 										const stored = Arr.sort(
 											Arr.map(c.stores, rowOf),
@@ -408,7 +419,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										run.note(`a head holding ${w.holds}`)
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(m, b.login)))
+						}).pipe(Effect.scoped)
 					}).pipe(Effect.scoped)
 				)
 		)
