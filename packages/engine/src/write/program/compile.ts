@@ -148,6 +148,7 @@ import {
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
+import { insertOnly } from "#compiler/write/program/insert-only.ts"
 import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
 import {
@@ -1460,6 +1461,7 @@ const compile = (
 		shares: (members) => unwrap(planStatementShares(sharing.index, members))
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
+	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
 	const family = familyProgram(frontend, lowering.w)
 	const program: CompiledWrite = {
 		edits: family.edits,

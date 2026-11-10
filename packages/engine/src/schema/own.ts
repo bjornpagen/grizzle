@@ -62,6 +62,7 @@ import {
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
+	type RoleWritingKey,
 	type SchemaDesc,
 	type SchemaRelationDesc,
 	schemaLevelDesc,
@@ -71,7 +72,8 @@ import {
 	type StatementDesc,
 	type TermDesc,
 	termText,
-	type Writing
+	type Writing,
+	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
@@ -2238,8 +2240,9 @@ export type OwnedWrite =
 
 /**
  * The owned role: its name, its base's Owned, its relations by name, its write list as admitted entries by name in name
- * order, its refresh list in name order, whether it holds every relation of its base whole (a full role, whose base is
- * among its levels), and the contexts its relations read, by name.
+ * order, the key that list was stated under (`insert`: the role holds INSERT and SELECT on what it writes, no DELETE
+ * or UPDATE), its refresh list in name order, whether it holds every relation of its base whole (a full role, whose
+ * base is among its levels), and the contexts its relations read, by name.
  */
 export interface OwnedRole {
 	readonly name: DeclaredName
@@ -2247,6 +2250,7 @@ export interface OwnedRole {
 	readonly base: Owned
 	readonly relations: Readonly<Record<string, OwnedEntry>>
 	readonly writes: ReadonlyMap<string, OwnedWrite>
+	readonly writing: RoleWritingKey
 	readonly refresh: ReadonlyArray<string>
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
@@ -2343,7 +2347,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		targets.set(relation, entry)
 	}
 	const admitted = new Map<string, OwnedWrite>()
-	for (const w of desc.write) {
+	for (const w of writtenNames(desc)) {
 		const r = Object.hasOwn(relations, w) ? relations[w] : undefined
 		if (r === undefined) {
 			broken(desc.loc, { kind: "writeOutside", name: w })
@@ -2397,6 +2401,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		base,
 		relations,
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareText(a, b))),
+		writing: "insert" in desc ? "insert" : "write",
 		refresh: [...desc.refresh].toSorted(compareText),
 		full,
 		contexts: ownedContexts

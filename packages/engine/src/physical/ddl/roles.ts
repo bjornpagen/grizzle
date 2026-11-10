@@ -4,6 +4,7 @@ import {
 	checkedRoleOver,
 	type CheckedSchema,
 	derivedAnalysis,
+	type CheckedEntry,
 	type RoleEntry,
 	type RoleWorld,
 	type RoleWrite
@@ -31,8 +32,9 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type {
@@ -46,6 +48,7 @@ import type { DeployPhase } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
@@ -647,6 +650,41 @@ const takesUpdate: Readonly<Record<HeadStanding, boolean>> = {
 	keyed: false
 }
 
+/** The fields of the table a query entry writes that its role may update by its write list: over a mutable relation,
+ * each head field that takes UPDATE (`takesUpdate`) and that PostgreSQL does not compute; none over an immutable one. */
+const updatableFields = (written: RelationInfo, writable: CheckedEntry): ReadonlyArray<LawField> =>
+	written.mutable
+		? [...writable.head.values()].flatMap((h) =>
+				takesUpdate[h.kind] && h.field.writing.kind !== "generated" ? [h.field] : []
+			)
+		: []
+
+/** What a role's write of one entry holds on the table it writes, in the order a GRANT names them: SELECT and INSERT,
+ * then UPDATE and DELETE, which only a write list holds. */
+type EntryPrivileges = readonly [
+	"SELECT",
+	"INSERT",
+	...ReadonlyArray<Exclude<TablePrivilege, "SELECT" | "INSERT">>
+]
+
+/**
+ * The privileges a role's write of one entry holds on the table it writes, the one source its grants are built from
+ * (`writePlan`) and certification reads (`grantedPrivileges`). By its insert list, SELECT and INSERT alone. By its write
+ * list, DELETE as well, and UPDATE where it may update a field: a whole entry over a mutable relation, or a query entry
+ * with an updatable field (`updatableFields`).
+ */
+const entryPrivileges = (writing: RoleWritingKey, w: WrittenEntry): EntryPrivileges => {
+	if (writing === "insert") {
+		return ["SELECT", "INSERT"]
+	}
+	const write = w.write
+	const updates =
+		write.kind === "whole"
+			? w.relation.mutable
+			: isNonEmpty(updatableFields(w.relation, write.writable))
+	return updates ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"]
+}
+
 const writePlan = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -656,6 +694,7 @@ const writePlan = (
 ): WritePlan => {
 	const e = w.write
 	const written = w.relation
+	const held = entryPrivileges(role.writing, w)
 	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: identifierOf(theory) }]
 	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
 		kind: "grant",
@@ -679,13 +718,10 @@ const writePlan = (
 			membership: everyRow,
 			functions: [],
 			grants: [
-				grant(
-					r.mutable ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"],
-					{
-						kind: "TABLE",
-						names: [tableName]
-					}
-				),
+				grant(held, {
+					kind: "TABLE",
+					names: [tableName]
+				}),
 				...advanceGrants
 			]
 		}
@@ -702,11 +738,7 @@ const writePlan = (
 		...written.fields.filter((f) => f.writing.kind !== "generated").map(column),
 		...drawnColumnsOf(b, relation)
 	]
-	const updatable = written.mutable
-		? [...writable.head.values()].flatMap((h) =>
-				takesUpdate[h.kind] && h.field.writing.kind !== "generated" ? [column(h.field)] : []
-			)
-		: []
+	const updatable = held.includes("UPDATE") ? updatableFields(written, writable).map(column) : []
 	const columnGrant = (
 		privilege: ColumnPrivilege,
 		columns: ReadonlyArray<string>
@@ -718,7 +750,7 @@ const writePlan = (
 		...columnGrant("SELECT", all),
 		...columnGrant("INSERT", insertable),
 		...columnGrant("UPDATE", updatable),
-		grant(["DELETE"], { kind: "TABLE", names: [tableName] }),
+		...(held.includes("DELETE") ? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })] : []),
 		...advanceGrants
 	]
 	/** The entry's probes (see `addWorlds`), exactly those of T's unique objects (write/insert/unique.ts
@@ -947,9 +979,11 @@ const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<stri
  * entries grant, and nothing wider. Column SELECT on exactly what the family's read flight reads of O
  * (write/family/statements.ts suffixReadSql): its key, the owner fields the group pairs with, and `ownerReadColumns`:
  * its count, its ends and the fields its owner axis copies into members, which the role writes into its own member rows.
- * Column UPDATE, when O is mutable, on exactly what the family's count statement sets (countStatement): its count and
- * `endColumns`. No UPDATE on an immutable O, whose family is fixed when it is inserted. None of O's other fields. A role
- * that writes O whole holds all of O already and takes none. `families` are the families of O whose member it writes, in
+ * Column UPDATE, when O is mutable and the role writes by its write list, on exactly what the family's count statement
+ * sets (countStatement): its count and `endColumns`. No UPDATE on an immutable O, whose family is fixed when it is
+ * inserted, nor for a role that writes by its insert list, which holds no UPDATE and whose program is refused a recount
+ * (write/program/insert-only.ts). None of O's other fields. A role that writes O whole holds all of O already and takes
+ * none. `families` are the families of O whose member it writes, in
  * the law model's order; each column list is in O's field order.
  */
 interface OwnerHold {
@@ -962,14 +996,14 @@ interface OwnerHold {
 /** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
  * model's order of their first family. */
 const ownerHolds = (
-	b: InstallBuilder,
+	model: LawModel,
 	role: OwnedRole,
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<OwnerHold> => {
 	const writes = new Set(written.map((w) => w.relation.name))
 	const whole = new Set(written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : [])))
 	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
-	for (const f of b.model.families) {
+	for (const f of model.families) {
 		if (writes.has(f.member.name) && !whole.has(f.owner.name)) {
 			const at = byOwner.get(f.owner.name)
 			byOwner.set(f.owner.name, at === undefined ? [f] : appendNonEmpty(at, f))
@@ -977,7 +1011,7 @@ const ownerHolds = (
 	}
 	return [...byOwner].map(([name, families]): OwnerHold => {
 		const owner = (
-			b.model.relations.get(name) ??
+			model.relations.get(name) ??
 			refuse(
 				"MalformedDescription",
 				role.loc,
@@ -991,7 +1025,7 @@ const ownerHolds = (
 			])
 		)
 		const updated = new Set(
-			owner.mutable
+			owner.mutable && role.writing === "write"
 				? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
 				: []
 		)
@@ -1002,6 +1036,46 @@ const ownerHolds = (
 			update: owner.fields.filter((field) => updated.has(field.name))
 		}
 	})
+}
+
+/**
+ * The table privileges a role holds on each relation of its base, by the relation's name, as its installation grants
+ * them: on each relation it writes, its entry's (`entryPrivileges`); on each owner of a family whose member it writes
+ * and which it does not write whole, SELECT, and UPDATE where it recounts the owner (`ownerHolds`); a relation written
+ * both ways holds both. A column privilege counts as its table's. No other table: the role reads through its views.
+ * What certification reads (analysis/isolation/facts.ts RoleFacts.privileges), and a relation's guard with it.
+ */
+export const grantedPrivileges = (
+	model: LawModel,
+	checked: CheckedSchema<RoleWorld>
+): ReadonlyMap<string, ReadonlySet<TablePrivilege>> => {
+	const role = checked.world.role
+	const written = roleWrites(checked)
+	const held = new Map<string, Set<TablePrivilege>>()
+	const hold = (relation: string, privileges: ReadonlyArray<TablePrivilege>): void => {
+		const at = held.get(relation)
+		if (at === undefined) {
+			held.set(relation, new Set(privileges))
+			return
+		}
+		for (const p of privileges) {
+			at.add(p)
+		}
+	}
+	for (const w of written) {
+		hold(w.relation.name, entryPrivileges(role.writing, w))
+	}
+	for (const h of ownerHolds(model, role, written)) {
+		const privileges: Array<TablePrivilege> = []
+		if (isNonEmpty(h.select)) {
+			privileges.push("SELECT")
+		}
+		if (isNonEmpty(h.update)) {
+			privileges.push("UPDATE")
+		}
+		hold(h.owner.name, privileges)
+	}
+	return held
 }
 
 /**
@@ -1227,7 +1301,7 @@ const addRole = (
 			membership: plan.membership
 		})
 	}
-	const holds = ownerHolds(b, role, written)
+	const holds = ownerHolds(b.model, role, written)
 	for (const hold of holds) {
 		const owner = hold.owner.name
 		const ownerTable = b.names.relation(owner)

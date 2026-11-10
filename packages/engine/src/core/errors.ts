@@ -265,12 +265,18 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 
 /**
  * A relation access a role does not hold, an OutsideRole's: a read of a relation of the role's base the role does not
- * hold (`base` naming the base); a write of a relation outside its write list; a refresh of one outside its refresh
- * list; or a program over the role's base, which is one only for a role holding every relation of it whole.
+ * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
+ * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; or a
+ * program over the role's base, which is one only for a role holding every relation of it whole.
  */
 export type RoleAccess =
 	| { readonly kind: "read"; readonly relation: string; readonly base: string }
 	| { readonly kind: "write"; readonly relation: string }
+	| {
+			readonly kind: "insert"
+			readonly relation: string
+			readonly operation: "UPDATE" | "DELETE"
+	  }
 	| { readonly kind: "refresh"; readonly relation: string }
 	| { readonly kind: "wholeBase"; readonly base: string }
 
@@ -280,6 +286,8 @@ const accessText = (role: string, access: RoleAccess): string => {
 			return `a relation role ${role} holds; ${access.relation} is a relation of its base ${access.base} outside it`
 		case "write":
 			return `a write in role ${role}'s write list; ${access.relation} is outside it`
+		case "insert":
+			return `an insert by role ${role}, which writes by its insert list; the program ${access.operation === "DELETE" ? "deletes from" : "updates"} ${access.relation}`
 		case "refresh":
 			return `a derived relation in role ${role}'s refresh list; ${access.relation} is outside it`
 		case "wholeBase":

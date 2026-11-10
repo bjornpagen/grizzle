@@ -2111,9 +2111,12 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, refresh? })`**: what one kind of user sees. An entry is a table of the
-  schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is a type
-  error), `refresh` the derived tables it refreshes. A role is no schema: `role`, `login`, `schema.extend`,
+- **`role(schema, name, entries, { write?, insert?, refresh? })`**: what one kind of user sees. An entry is a table of
+  the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is a type
+  error), `refresh` the derived tables it refreshes. `insert` lists them in place of `write` for a role that only
+  inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
+  puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
+  when it compiles, naming the table and the operation. A role states one of the two. A role is no schema: `role`, `login`, `schema.extend`,
   `wholeEntriesOf`, `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to
   one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
@@ -2147,7 +2150,8 @@ Roles:
   table's, or not the schema's own; a query entry over a role or over any schema but the role's and those it extends,
   reading a table the schema lacks, or with parameters, nested results, vector search or an `orderBy` without `take`;
   a `write` naming no entry of the role, a roster, a derived table or an unwritable query entry, or two entries over
-  one table; a `refresh` naming anything but a derived table.
+  one table, and so for an `insert`, which also names at least one entry; both a `write` and an `insert`
+  (`writeAndInsert`); a `refresh` naming anything but a derived table.
 
 **Installed names come from the values.** `roleNameOf(Web)` is a login's PostgreSQL role: the one its pool logs in as,
 a password is set on and `rds_iam` is granted to. `roleNameOf(MemberBlog)` is a role's, which a direct SQL writer's
@@ -3100,6 +3104,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | SQLSTATE            | When                                                                                                                                                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 42501               | a table outside the role; a row its filter refuses; an UPDATE of an immutable table, or through a query entry of a column outside it, in a key or fixed by a claim |
+| 42501               | an UPDATE or a DELETE through a role that states `insert`                                                                                                     |
 | 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, or of the advance function of a table the role does not write |
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
 | 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
@@ -3185,6 +3190,8 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 - On the owner of a family whose member it writes: column SELECT on what grizzle reads of the owner to fill the family
   (its key, its count and ends, and the fields its members copy), and, when the owner is mutable, column UPDATE on that
   family's count and ends; nothing else of the owner unless its `write` lists the owner.
+- A role that states `insert` holds the same, less every UPDATE and DELETE: SELECT and INSERT on each table it
+  writes, and column SELECT alone on a family's owner.
 - EXECUTE on:
   - one key probe (a function that looks a key up across the whole table) per key of such a table, and one unique
     probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable query

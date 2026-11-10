@@ -355,14 +355,14 @@ export type DistinctWrites<W> =
 	Repeats<W> extends true ? Refusal<"a write list names each role relation once"> : unknown
 
 /**
- * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write and
- * `refresh` the derived whole entries it may refresh, each empty when left out.
+ * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write, or
+ * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, and `refresh` the
+ * derived whole entries it may refresh, each empty when left out. A role states `write` or `insert`, never both.
  */
 export type RoleOptions<W, F> = readonly [] | readonly [options: RoleOptionRecord<W, F>]
-export interface RoleOptionRecord<W, F> {
-	readonly write?: W
-	readonly refresh?: F
-}
+export type RoleOptionRecord<W, F> =
+	| { readonly write?: W; readonly insert?: never; readonly refresh?: F }
+	| { readonly insert: W; readonly write?: never; readonly refresh?: F }
 
 /**
  * The contexts a role's relations read: never when none does, and unknown for a role whose type does not say (a role

@@ -25,7 +25,8 @@ import {
 	type FieldDesc,
 	type SideDesc,
 	type StatementDesc,
-	type TermDesc
+	type TermDesc,
+	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
 import { contractOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -2768,7 +2769,7 @@ const envOf = (base: Base): Env => {
 		level,
 		entries,
 		derived: counts,
-		writes: listed((desc) => desc.write),
+		writes: listed(writtenNames),
 		refreshes: listed((desc) => desc.refresh)
 	}
 }

@@ -1022,13 +1022,27 @@ export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "whole"; readonly name: string })
 	| (L & { readonly kind: "world"; readonly name: string; readonly query: QueryDesc<L> })
 
+/**
+ * How a role writes the role relations it names: by every operation its programs make (`write`), or by inserting alone
+ * (`insert`), a role that holds no DELETE or UPDATE on any of them (physical/ddl/roles.ts grantedPrivileges). A role
+ * states one of the two.
+ */
+export type RoleWriting =
+	| { readonly write: ReadonlyArray<string> }
+	| { readonly insert: NonEmptyReadonlyArray<string> }
+
 export type RoleDesc<L = Located> = L & {
 	readonly name: string
 	readonly base: SchemaDesc<L>
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc<L>>
-	readonly write: ReadonlyArray<string>
 	readonly refresh: ReadonlyArray<string>
-}
+} & RoleWriting
+
+/** The role relations a role writes, by whichever of `write` and `insert` it states. */
+/** The key a role states its written relations under. */
+export type RoleWritingKey = "write" | "insert"
+export const writtenNames = (writing: RoleWriting): ReadonlyArray<string> =>
+	"insert" in writing ? writing.insert : writing.write
 
 export type LoginDesc<L = Located> = L & {
 	readonly name: string
@@ -2137,36 +2151,52 @@ const roleRelations = S.nonEmptyUniqueArray(
 	"role relation names"
 )
 const roleWrite = S.uniqueStrings("written relations", name)
+const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
 const roleRefresh = S.uniqueStrings("refreshed relations", name)
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
-	S.structWith(
-		{
-			name,
-			base: schemaDescShape,
-			relations: roleRelations,
-			write: roleWrite,
-			refresh: roleRefresh
-		},
-		loc
+	S.unionShape(
+		S.structWith(
+			{
+				name,
+				base: schemaDescShape,
+				relations: roleRelations,
+				write: roleWrite,
+				refresh: roleRefresh
+			},
+			loc
+		),
+		S.structWith(
+			{
+				name,
+				base: schemaDescShape,
+				relations: roleRelations,
+				insert: roleInsert,
+				refresh: roleRefresh
+			},
+			loc
+		)
 	)
 )
 
 /** What a role states over its base: the role's own parts, which a role's Description holds beside the base. */
-type RoleParts = Omit<RoleDesc, "base">
+type RoleParts = Located & {
+	readonly name: string
+	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
+	readonly refresh: ReadonlyArray<string>
+} & RoleWriting
 
 /**
  * A role's own parts as its builder holds them: its caller's name, entries, written and refreshed relations and
  * location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
  * queryDescOf).
  */
-export interface RoleInput {
+export type RoleInput = {
 	readonly name: string
 	readonly relations: ReadonlyArray<RoleEntryDesc>
-	readonly write: ReadonlyArray<string>
 	readonly refresh: ReadonlyArray<string>
 	readonly loc: SourceLoc
-}
+} & RoleWriting
 
 /** A role entry as a decode of its role reads what its caller wrote of it: its kind, its name and its location. */
 type RoleEntryPart = Located & { readonly kind: RoleEntryDesc["kind"]; readonly name: string }
@@ -2182,14 +2212,25 @@ const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged("kind", {
  * no part of it, and is decoded where it was taken.
  */
 const roleWrittenShape = S.located(
-	S.structWith(
-		{
-			name,
-			relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
-			write: roleWrite,
-			refresh: roleRefresh
-		},
-		loc
+	S.unionShape(
+		S.structWith(
+			{
+				name,
+				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
+				write: roleWrite,
+				refresh: roleRefresh
+			},
+			loc
+		),
+		S.structWith(
+			{
+				name,
+				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
+				insert: roleInsert,
+				refresh: roleRefresh
+			},
+			loc
+		)
 	)
 )
 
@@ -2415,7 +2456,9 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 		name: role.name,
 		base,
 		relations: Object.freeze(role.relations),
-		write: Object.freeze(role.write),
+		...("insert" in role
+			? { insert: Object.freeze(role.insert) }
+			: { write: Object.freeze(role.write) }),
 		refresh: Object.freeze(role.refresh),
 		loc: role.loc
 	})
@@ -2443,7 +2486,7 @@ export const decodeRoleOver = (
 			return roleDescOver(base, {
 				name: written.name,
 				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
-				write: written.write,
+				...("insert" in written ? { insert: written.insert } : { write: written.write }),
 				refresh: written.refresh,
 				loc: written.loc
 			})

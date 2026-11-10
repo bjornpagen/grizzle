@@ -622,6 +622,10 @@ The command line's own refusals, by stage:
   `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
   error; `query`, `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed
   twice is a type error, and `RoleRefused` (`writeTwice`) for a JavaScript caller.
+- A role that only inserts lists its entries as `insert` in place of `write`: it holds INSERT and SELECT on them and
+  no UPDATE or DELETE, so a direct writer's UPDATE or DELETE through it is 42501, and a ChangeSet of it that deletes,
+  puts, or adds a member under a mutable owner (which updates the owner's count) is `OutsideRole` (`insert`) when it
+  compiles. Stating both is `RoleRefused` (`writeAndInsert`).
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row

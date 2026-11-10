@@ -9,6 +9,7 @@ import { served } from "#adapter/served/served.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { writtenNames } from "#compiler/ir/desc.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -494,7 +495,7 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 	return {
 		kind: "admitted",
 		entries: Arr.map(desc.relations, (entry) => entry.name),
-		write: desc.write,
+		write: writtenNames(desc),
 		base: compileTemplate(accountSeats, built.value, testCompile).ok,
 		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok
 	}
