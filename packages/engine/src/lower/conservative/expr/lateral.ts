@@ -96,7 +96,8 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */
 type OverRows = "aggregate" | "window"
 
-const overRowsOf = (e: Expr): OverRows | undefined => {
+/** Which call over many rows an expression is, or none: the one classification of the builtins' reach. */
+export const overRowsOf = (e: Expr): OverRows | undefined => {
 	if (e.kind !== "call") {
 		return undefined
 	}
