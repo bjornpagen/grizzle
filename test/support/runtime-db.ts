@@ -61,18 +61,9 @@ export const dbRuntime = (ctx: DbContext): DbRuntime => {
 	}
 }
 
-/** The reader db.get, db.execute and db.page dispatch to: one transaction per read from the pool. */
-export const dbReader = (ctx: DbContext): ReaderValue => dbRuntime(ctx).reader
-
 /** db.apply. */
 export const applyRuntime = (
 	ctx: DbContext,
 	changes: unknown,
 	params: ParamMap
 ): ReturnType<DbRuntime["methods"]["apply"]> => dbRuntime(ctx).methods.apply(changes, params)
-
-/** db.compile(program) for any program: its compiled handle, its operations as a JavaScript caller sees them. */
-export const compileRuntime = (
-	ctx: DbContext,
-	program: unknown
-): ReturnType<DbRuntime["compile"]> => dbRuntime(ctx).compile(program)
