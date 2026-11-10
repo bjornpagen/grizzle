@@ -9,6 +9,7 @@ import type {
 	RelationIdent,
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
@@ -97,12 +98,14 @@ export interface ServedPrologue {
 
 /**
  * What every session of a login sends that no program states, emitted at generate: the startup options pinning its
- * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN, read only or read write, and
- * its COMMIT and ROLLBACK.
+ * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN at each isolation level, read
+ * only or read write, and its COMMIT and ROLLBACK. A transaction begins at its role's level (ServedRoleForm isolation).
  */
 export interface ServedSession {
 	readonly startup: string
-	readonly begin: { readonly readOnly: EmittedText; readonly readWrite: EmittedText }
+	readonly begin: {
+		readonly [I in Isolation]: { readonly readOnly: EmittedText; readonly readWrite: EmittedText }
+	}
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
 }
@@ -125,13 +128,19 @@ export const servedDirectory = "served"
 export const servedPath = (login: string): string => `${servedDirectory}/${login}.json`
 
 /**
- * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier of its refusals, and
- * its workload members in the workloads' order, each program's own record order.
+ * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the isolation level its
+ * writes begin at, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier of
+ * its refusals, and its workload members in the workloads' order, each program's own record order.
  */
 export interface ServedRoleForm {
 	readonly name: string
 	/** The role's installed PostgreSQL role, as the naming door gives it, which every transaction of its Dbs enters. */
 	readonly installed: string
+	/**
+	 * The level the role's writes begin at: SERIALIZABLE, until generate certifies a role for READ COMMITTED over the
+	 * installation (analysis/isolation certify).
+	 */
+	readonly isolation: Isolation
 	readonly contexts: ReadonlyArray<ServedContext>
 	readonly refusals: ServedRefusals
 	readonly members: ReadonlyArray<ServedMember>

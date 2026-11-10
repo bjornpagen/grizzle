@@ -1,3 +1,27 @@
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { int } from "@grizzle/testing/gen"
+import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Result as Answered,
+	Array as Arr,
+	Effect,
+	Exit,
+	FileSystem,
+	Formatter,
+	Layer,
+	Record as Rec,
+	String as Str
+} from "effect"
+import { DbLayer, served } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import { SchemaFingerprint } from "#compiler/core/ids.ts"
 /**
  * A served file reads back as the runtime reads it: a login's compiled reads, written by servedText and read by
  * servedFile from the JSON value an import of the file yields, are the forms the compile served, member by member
@@ -31,30 +55,7 @@
  * Essay ideas: an oracle (the forms served, compared as the runtime reads them) over generated programs, and a plant
  * that keeps it honest.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import {
-	Result as Answered,
-	Array as Arr,
-	Effect,
-	Exit,
-	FileSystem,
-	Formatter,
-	Layer,
-	Record as Rec,
-	String as Str
-} from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -172,16 +173,21 @@ const without = (json: unknown, path: ReadonlyArray<string | number>): unknown =
 	return json
 }
 
-/** The served file of one login of one role holding `members`, under the codes `codes`. */
+/** The isolation level a case's role records, by the case's pick: each level for half the picks. */
+const isolationAt = (pick: number): Isolation => (pick % 2 === 0 ? "serializable" : "readCommitted")
+
+/** The served file of one login of one role at `isolation` holding `members`, under the codes `codes`. */
 const fileOf = (
 	members: ReadonlyArray<ServedMember>,
 	rosters: ServedFile["rosters"],
-	closed: ServedFile["closed"]
+	closed: ServedFile["closed"],
+	isolation: Isolation
 ): ServedFile => {
 	const roles: ReadonlyArray<ServedRoleForm> = [
 		{
 			name: "reader",
 			installed: "base__reader",
+			isolation,
 			contexts: [],
 			refusals: {
 				laws: {
@@ -382,7 +388,8 @@ const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => voi
 		const file = fileOf(
 			members,
 			new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const)),
-			new Map()
+			new Map(),
+			isolationAt(pick)
 		)
 		const reached = yield* readsBackWhole(file, pick, printed)
 		if (reached.dropped) {
@@ -471,7 +478,8 @@ const changeTrip = (
 					([name, codec]) => [name, codec.codes] as const
 				)
 			),
-			closedNamed(read, closedTableOf(program.frontend))
+			closedNamed(read, closedTableOf(program.frontend)),
+			isolationAt(pick)
 		)
 		const reached = yield* readsBackWhole(file, pick, printed)
 		if (reached.dropped) {

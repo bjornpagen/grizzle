@@ -2,6 +2,7 @@ import { requireGet } from "#compiler/analysis/logical/get.ts"
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isList } from "#compiler/core/record.ts"
@@ -177,19 +178,20 @@ export const servedPage = (
 	})
 }
 
+/** A transaction's BEGIN at `isolation`, read only and read write. */
+const beginAt = (isolation: Isolation): ServedSession["begin"][Isolation] => ({
+	readOnly: emitText({ kind: "begin", isolation, readOnly: true }, emptyNameMap).text,
+	readWrite: emitText({ kind: "begin", isolation, readOnly: false }, emptyNameMap).text
+})
+
 /**
  * The texts every session of a login sends that its file carries, emitted now (served/forms.ts ServedSession): the
- * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN,
- * read only or read write, and its COMMIT and ROLLBACK.
+ * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN at
+ * each isolation level, read only or read write, and its COMMIT and ROLLBACK.
  */
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
-	begin: {
-		readOnly: emitText({ kind: "begin", isolation: "serializable", readOnly: true }, emptyNameMap)
-			.text,
-		readWrite: emitText({ kind: "begin", isolation: "serializable", readOnly: false }, emptyNameMap)
-			.text
-	},
+	begin: { serializable: beginAt("serializable"), readCommitted: beginAt("readCommitted") },
 	commit: emitText({ kind: "commit" }, emptyNameMap).text,
 	rollback: emitText({ kind: "rollback" }, emptyNameMap).text
 }

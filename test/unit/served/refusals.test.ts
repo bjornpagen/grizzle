@@ -56,7 +56,16 @@ const fileOf = (refusals: ServedRefusals, rosters: ServedFile["rosters"]): Serve
 	matchers: { sets: [], matchers: [] },
 	closed: new Map(),
 	above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
-	roles: [{ name: "writer", installed: "base__writer", contexts: [], refusals, members: [] }]
+	roles: [
+		{
+			name: "writer",
+			installed: "base__writer",
+			isolation: "serializable",
+			contexts: [],
+			refusals,
+			members: []
+		}
+	]
 })
 
 const ok = <A, E extends { readonly message: string }>(

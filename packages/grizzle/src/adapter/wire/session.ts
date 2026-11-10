@@ -46,7 +46,7 @@ import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import type { EmittedText, OutputRows, Param } from "#compiler/plan/common.ts"
+import type { EmittedText, Isolation, OutputRows, Param } from "#compiler/plan/common.ts"
 import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
@@ -124,11 +124,13 @@ export type Password = ParsedConnection["password"]
 
 /**
  * What a session sends that no program states, each emitted where it was compiled (served/forms.ts ServedSession): a
- * transaction's BEGIN, read-only or read-write, and its end, COMMIT or ROLLBACK. A served login's file carries them, and
- * an owner's session takes generate's own.
+ * transaction's BEGIN at each isolation level, read-only or read-write, and its end, COMMIT or ROLLBACK. A served
+ * login's file carries them, and an owner's session takes generate's own.
  */
 export interface ControlTexts {
-	readonly begin: { readonly [A in Transaction["access"]]: EmittedText }
+	readonly begin: {
+		readonly [I in Isolation]: { readonly [A in Transaction["access"]]: EmittedText }
+	}
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
 }
@@ -159,10 +161,10 @@ export type TxControl =
 	| { readonly kind: "begin"; readonly access: Transaction["access"] }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
-/** The text a control sends, among a session's control texts. */
+/** The text a control sends, among a session's control texts: every transaction begins SERIALIZABLE. */
 export const controlText = (controls: ControlTexts, control: TxControl): EmittedText =>
 	control.kind === "begin"
-		? controls.begin[control.access]
+		? controls.begin.serializable[control.access]
 		: control.end === "COMMIT"
 			? controls.commit
 			: controls.rollback

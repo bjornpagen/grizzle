@@ -217,11 +217,12 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 	)
 }
 
-/** One role of the login, served: its name, its PostgreSQL role, its contexts, its classifier and its members. */
+/** One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its members. */
 const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> =>
 	Result.map(Result.all(Arr.map(role.workload, memberOf)), (members): ServedRoleForm => ({
 		name: role.role.name,
 		installed: role.theory,
+		isolation: "serializable",
 		contexts: contextsOf(role),
 		refusals: refusalsOf(role),
 		members

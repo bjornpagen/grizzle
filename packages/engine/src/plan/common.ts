@@ -75,6 +75,7 @@ export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compil
 export { builtMark, type Delivering, type Phantom, type phantom } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
+export type { Isolation } from "#compiler/core/isolation.ts"
 export type { Result } from "#compiler/core/result.ts"
 export { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
 export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
