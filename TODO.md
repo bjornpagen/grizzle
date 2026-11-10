@@ -7,6 +7,26 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. Main carries the README rewrite and the
 post-beta swarm's fixes for the next release.
 
+### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
+- **An exact repeat returns the row it met (delta.met, REACH's design):** a generated addition that meets a stored row
+  at its arbiter key is a no-change whose delta.added is empty, so a double Start's loser learns its sitting's drawn id
+  only through a read member. A third delta side, delta.met(R), holds the stored facts an insertion met as exact
+  repeats: the arbiter becomes `ON CONFLICT (key) DO SELECT` with no WHERE, PostgreSQL 19's `RETURNING old.<key> IS
+  NULL` marks an inserted row, and verdict rows are inserted, met equal or met differing (the conflict witness). It
+  rewrites every insert's RETURNING, so it waits for the goal.
+- **A SERIALIZABLE READ ONLY read beside a concurrent SERIALIZABLE import can still fail with 40001:** a certified
+  READ COMMITTED role's reads stay SERIALIZABLE READ ONLY (one snapshot across their statements). SSI does not track
+  READ COMMITTED writers, so such a read conflicts only with SERIALIZABLE writers, pantry's importWrite among them, in a
+  dangerous structure among SERIALIZABLE transactions. Measure it under a live import once the goal ships.
+- **A migration's refusal names its law through the final target's map only:** adapter/migrate's law mapping
+  (GENERATE) looks an intermediate folder's constraint up in the final target snapshot's constraintToLaw, since migrate
+  holds no intermediate snapshot; a constraint the final map lacks names no law and shows PostgreSQL's own report.
+- **Qti content is not provably sealed per import:** pantry mints node ids on the host (pantry/src/import/write.ts
+  crypto.randomUUID), so the certifier cannot see that one importWrite call writes a test's content whole. edullm's
+  learner writes read no Qti (the rotation is the app's computation, checked by native FKs), so the goal does not need
+  it. A law enforcing the rotation inside a write would need database-drawn content ids or counted families under the
+  document (a qti-pie change).
+
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
@@ -19,8 +39,8 @@ post-beta swarm's fixes for the next release.
   whenever the driving set's estimate is inflated (unanalyzed tables, a recursive CTE estimated at ten times its first
   term), and the seq scan takes a relation-level SIRead lock. The fix: one lowering rule that probes a stored relation
   per driving key (LATERAL … LIMIT 1, a group's own ORDER BY, `= ANY (ARRAY(...))` for targets) across insert, additions
-  and removals. It lands only with a run showing 0 false 40001s at full width on pantry's import and on edullm's learner
-  workload (20 children through startSitting, saveSelection and recordAnswer, no retry).
+  and removals. It lands only with a run showing 0 false 40001s at full width on pantry's import. edullm's learner
+  workload is the 1,000-children goal's: certified READ COMMITTED, it takes no SIRead lock.
 - **The checker admits an exact integer sum into a plain numeric field (known red on 26e3c15f, a defect since before the
   members model):** test/unit/check/semantics.test.ts,
   TEST_REPLAY='unit/check/semantics-members:-:3.1.0.0.0.0.0.0.1.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.1.3.2.1.8.0.1.0.0'. An
@@ -70,6 +90,8 @@ post-beta swarm's fixes for the next release.
     unchecked. Neither downstream reaches it: edullm's learner and pantry's author write through no query entry (the
     `entries` of both served files' refusals are empty at main), and their whole entries keep each relation's name,
     which the tables hold (app.json 8 of 8, author_app.json 251).
+    The same refusal fails five PostgreSQL files at the 26e3c15f pin's seed (3409253672): education/education, people,
+    services and staff, and world-model/isolation's second cause (NEGATION's pin inventory, 2026-11-10).
 - **Family removals statements scan a whole stored member table (ONERTT-WRITE2, with its removals fixes):** the
   defect the family owner's insert had (a stored relation read through a condition PostgreSQL cannot drive from the
   call's rows, so a sequential scan and a relation-level SIRead lock, a false 40001 between overlapping writers of one
