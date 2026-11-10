@@ -148,7 +148,8 @@ export const openDbContext = Effect.fn("openDb")(function* <R extends AnyRole, P
 		compile,
 		programArtifacts,
 		bind,
-		pool: sessions.pool
+		pool: sessions.pool,
+		isolation: "serializable"
 	}
 	const handles: object = workloadHandles(ctx, workload)
 	if (

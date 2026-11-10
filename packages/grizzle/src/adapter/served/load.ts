@@ -18,6 +18,7 @@ import type {
 	Codebook,
 	CompileError,
 	EncodingFailure,
+	Isolation,
 	ParamDecl,
 	ParamMap,
 	ParamValue,
@@ -148,6 +149,8 @@ export interface LoadedRole {
 	readonly installed: string
 	readonly contexts: ReadonlyArray<TypedContext>
 	readonly members: ReadonlyArray<LoadedMember>
+	/** The level its changes begin at (served/forms.ts ServedRoleForm isolation). */
+	readonly isolation: Isolation
 }
 
 /**
@@ -351,7 +354,8 @@ const loadRole = (
 			name: role.name,
 			installed: role.installed,
 			contexts: Arr.map(role.contexts, (context) => contextOver(context, context.fields, codes)),
-			members
+			members,
+			isolation: role.isolation
 		}
 	})
 

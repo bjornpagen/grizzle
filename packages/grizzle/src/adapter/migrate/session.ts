@@ -104,7 +104,11 @@ export const decidingFailure = (failure: BatchFailure): StatementFailure => {
 }
 
 /** A transactional file's transaction. */
-const fileTransaction: Transaction = { access: "readWrite", end: "COMMIT" }
+const fileTransaction: Transaction = {
+	access: "readWrite",
+	isolation: "serializable",
+	end: "COMMIT"
+}
 
 /** The migration identity's view of a session it holds for the scope. */
 export const migrationSession = (session: Session): MigrationSession => ({

@@ -164,17 +164,22 @@ describe("a write that reads before it writes", () => {
 						const writes = Array.from({ length: c.writes }, (_, at) => statement(writeSql(at)))
 						let made = false
 						const ran = yield* Effect.result(
-							runFramedTwice(session, writeFrame(flightPrologue), reads, (outcomes) => {
-								made = true
-								assert.deepEqual(
-									firstCells(outcomes),
-									Arr.map(reads, (r) => r.sql),
-									"the writes are made from the reads' rows"
-								)
-								return c.fault.kind === "making"
-									? Effect.fail(new WritesUnmade({ writes: c.writes }))
-									: Effect.succeed(writes)
-							})
+							runFramedTwice(
+								session,
+								writeFrame(flightPrologue, "serializable"),
+								reads,
+								(outcomes) => {
+									made = true
+									assert.deepEqual(
+										firstCells(outcomes),
+										Arr.map(reads, (r) => r.sql),
+										"the writes are made from the reads' rows"
+									)
+									return c.fault.kind === "making"
+										? Effect.fail(new WritesUnmade({ writes: c.writes }))
+										: Effect.succeed(writes)
+								}
+							)
 						)
 						const [first, second] = session.flights()
 						const firstTexts = texts(first)

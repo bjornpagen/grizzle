@@ -154,17 +154,22 @@ interface SessionSpec extends ParsedConnection {
 }
 
 /**
- * A transaction control of a pipeline: BEGIN, read-only or not, or the transaction's end, COMMIT or ROLLBACK. Whoever
+ * A transaction control of a pipeline: BEGIN at its transaction's level, read-only or not, or the transaction's end,
+ * COMMIT or ROLLBACK. Whoever
  * reads a pipeline reads which control it is from here, never from its text.
  */
 export type TxControl =
-	| { readonly kind: "begin"; readonly access: Transaction["access"] }
+	| {
+			readonly kind: "begin"
+			readonly access: Transaction["access"]
+			readonly isolation: Transaction["isolation"]
+	  }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
 /** The text a control sends, among a session's control texts: every transaction begins SERIALIZABLE. */
 export const controlText = (controls: ControlTexts, control: TxControl): EmittedText =>
 	control.kind === "begin"
-		? controls.begin.serializable[control.access]
+		? controls.begin[control.isolation][control.access]
 		: control.end === "COMMIT"
 			? controls.commit
 			: controls.rollback

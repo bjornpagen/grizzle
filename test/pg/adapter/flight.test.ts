@@ -17,6 +17,7 @@ import {
 	type Failure,
 	fenceSql,
 	type FlightCase,
+	type FrameName,
 	type InterruptionPoint,
 	interruptionPoint,
 	layoutOf,
@@ -141,8 +142,10 @@ type FlightFeature =
 	| "committed after an interruption"
 	| `interrupted ${Exclude<InterruptionPoint, "none">}`
 	| `ending ${Failure["tag"]}`
+	| `call ${FlightCase["call"]["kind"]} ${FrameName}`
 
 const situations: Arr.NonEmptyReadonlyArray<FlightFeature> = [
+	"call framed readCommittedWrite",
 	"interrupted in flight",
 	"interrupted awaiting COMMIT",
 	"interrupted draining",
@@ -332,6 +335,7 @@ const flightSuite = Effect.gen(function* () {
 				)
 			}
 			const { run, observations, scripted } = agreed.value
+			cx.note(`call ${c.call.kind} ${c.call.frame}`)
 			if (run.session.cutShort()) {
 				cx.note("race cut short")
 			}

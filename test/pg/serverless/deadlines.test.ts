@@ -123,7 +123,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 													},
 													{ sql: testSql(backendPid), params: [] }
 												],
-												{ access, end: "COMMIT" }
+												{ access, isolation: "serializable", end: "COMMIT" }
 											)
 											assert.deepEqual(settings?.rows, outputRows(untouched))
 											backends.add(String(pid?.rows[0]?.[0]))

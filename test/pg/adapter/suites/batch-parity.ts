@@ -60,7 +60,7 @@ const fixture = () =>
 		for (const sql of fenceSql(raw, s.owner.role)) {
 			yield* s.admin.query(sql, [])
 		}
-		const frame = writeFrame(prologueIn(raw))
+		const frame = writeFrame(prologueIn(raw), "serializable")
 		yield* s.admin.query(
 			`CREATE TABLE ${schema}."t" ("k" int4, "v" text NOT NULL, CONSTRAINT ${quoteIdent(tKey)} PRIMARY KEY ("k"))`,
 			[]

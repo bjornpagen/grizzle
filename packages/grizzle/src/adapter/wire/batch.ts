@@ -47,7 +47,13 @@ import {
 	type Session
 } from "#adapter/wire/session.ts"
 import type { BindFrame } from "#compiler/plan/change.ts"
-import type { EmittedText, OutputRows, Param, SchemaFingerprint } from "#compiler/plan/common.ts"
+import type {
+	EmittedText,
+	Isolation,
+	OutputRows,
+	Param,
+	SchemaFingerprint
+} from "#compiler/plan/common.ts"
 
 /** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
 export type MigrationText = string & Brand.Brand<"MigrationText">
@@ -76,11 +82,22 @@ export interface BatchOutcome {
 	readonly rows: OutputRows
 }
 
-/** The transaction a flight runs its statements in, always SERIALIZABLE: whether it writes, and how it ends. */
-export interface Transaction {
-	readonly access: "readOnly" | "readWrite"
-	readonly end: "COMMIT" | "ROLLBACK"
-}
+/**
+ * The transaction a flight runs its statements in: whether it writes, the isolation level it begins at, and how it ends.
+ * A read-only transaction is SERIALIZABLE, one snapshot for all its statements; a read-write one begins at its role's
+ * level.
+ */
+export type Transaction =
+	| {
+			readonly access: "readOnly"
+			readonly isolation: "serializable"
+			readonly end: "COMMIT" | "ROLLBACK"
+	  }
+	| {
+			readonly access: "readWrite"
+			readonly isolation: Isolation
+			readonly end: "COMMIT" | "ROLLBACK"
+	  }
 
 /**
  * A transaction that commits nothing: read-only, or rolled back. Statements alone run in front of no other
@@ -88,8 +105,12 @@ export interface Transaction {
  * them: admission's fence reads, and the drift check rolls back.
  */
 export type Uncommitting =
-	| { readonly access: "readOnly"; readonly end: Transaction["end"] }
-	| { readonly access: "readWrite"; readonly end: "ROLLBACK" }
+	| {
+			readonly access: "readOnly"
+			readonly isolation: "serializable"
+			readonly end: Transaction["end"]
+	  }
+	| { readonly access: "readWrite"; readonly isolation: "serializable"; readonly end: "ROLLBACK" }
 
 /**
  * What every transaction of a Db begins with, at the pipeline positions right after BEGIN, both run as the login (see
@@ -129,9 +150,7 @@ export const prologueOf = (
 })
 
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
-export interface Frame extends Transaction {
-	readonly prologue: Prologue
-}
+export type Frame = Transaction & { readonly prologue: Prologue }
 
 /** The prologue was refused at the pipeline positions right after BEGIN, for no reason of the fence's: nothing ran. */
 class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
@@ -307,7 +326,10 @@ const planOf = <P, F>(
 	const framed: Array<PlannedStatement> = []
 	if (spanOpens(span)) {
 		steps.push(beginStep)
-		pipeline.push({ _tag: "control", control: { kind: "begin", access: transaction.access } })
+		pipeline.push({
+			_tag: "control",
+			control: { kind: "begin", access: transaction.access, isolation: transaction.isolation }
+		})
 		for (const { statement, step } of principal.prologue) {
 			const planned = plannedOf(statement)
 			prologue.push(planned)
@@ -975,16 +997,18 @@ export const runAlongside = (
 		})
 	)
 
-/** Every read of a Db: read-only, one snapshot for all its statements, behind the Db's prologue. */
+/** Every read of a Db: read-only and SERIALIZABLE, one snapshot for all its statements, behind the Db's prologue. */
 export const readFrame = (prologue: Prologue): Frame => ({
 	access: "readOnly",
+	isolation: "serializable",
 	end: "COMMIT",
 	prologue
 })
 
-/** Every write and refresh of a Db, behind its prologue. */
-export const writeFrame = (prologue: Prologue): Frame => ({
+/** A write of a Db at `isolation`, behind its prologue: a change at its role's level, a refresh at SERIALIZABLE. */
+export const writeFrame = (prologue: Prologue, isolation: Isolation): Frame => ({
 	access: "readWrite",
+	isolation,
 	end: "COMMIT",
 	prologue
 })
@@ -1205,6 +1229,12 @@ const shifted = (failure: FlightFailure, by: number): FlightFailure => {
  */
 const unwritten = (failure: FlightFailure): boolean => failure._tag === "InputTooLarge"
 
+/** `transaction` ended by ROLLBACK: the same access and level. */
+const rolledBack = (transaction: Transaction): Transaction =>
+	transaction.access === "readOnly"
+		? { access: "readOnly", isolation: "serializable", end: "ROLLBACK" }
+		: { access: "readWrite", isolation: transaction.isolation, end: "ROLLBACK" }
+
 /**
  * Ends the transaction an opening left open on `session`, for a call that will not close it: a flight of ROLLBACK
  * alone. A session already retired or ended needs none, since its connection, and the transaction with it, ends when
@@ -1213,9 +1243,7 @@ const unwritten = (failure: FlightFailure): boolean => failure._tag === "InputTo
 const rollbackOpening = (session: Session, frame: Frame): Effect.Effect<void> =>
 	session.state() === "open"
 		? Effect.catch(
-				Effect.asVoid(
-					runEntered(session, asLogin, [], { access: frame.access, end: "ROLLBACK" }, "closing")
-				),
+				Effect.asVoid(runEntered(session, asLogin, [], rolledBack(frame), "closing")),
 				() =>
 					Effect.sync(() => {
 						session.retire()

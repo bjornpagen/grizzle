@@ -114,7 +114,13 @@ const longStatement = (statement: LongStatement): BatchStatement =>
 const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>
 	form === "alone"
 		? Effect.asVoid(runAlone(session, statement))
-		: Effect.asVoid(runTransaction(session, [statement], { access: "readOnly", end: "COMMIT" }))
+		: Effect.asVoid(
+				runTransaction(session, [statement], {
+					access: "readOnly",
+					isolation: "serializable",
+					end: "COMMIT"
+				})
+			)
 
 /**
  * An interrupted statement stops on the server, and its session is gone for good, exhaustively over the pool's

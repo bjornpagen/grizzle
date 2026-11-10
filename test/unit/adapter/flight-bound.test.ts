@@ -393,10 +393,10 @@ const statementOfSpec = (spec: StatementSpec): BatchStatement => ({
 	params: spec.params
 })
 
-const write: Transaction = { access: "readWrite", end: "COMMIT" }
+const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
 
 /** The transaction statements apart run in front of, read-only, as admission's fence is (admission/admit.ts). */
-const readOnly: Uncommitting = { access: "readOnly", end: "COMMIT" }
+const readOnly: Uncommitting = { access: "readOnly", isolation: "serializable", end: "COMMIT" }
 
 /** The case's call on `session`. */
 const callOf = (
@@ -416,12 +416,19 @@ const callOf = (
 			)
 		case "framed":
 			return Effect.asVoid(
-				runFramed(session, writeFrame(flightPrologue), Arr.map(c.first, statementOfSpec))
+				runFramed(
+					session,
+					writeFrame(flightPrologue, "serializable"),
+					Arr.map(c.first, statementOfSpec)
+				)
 			)
 		case "framedTwice":
 			return Effect.asVoid(
-				runFramedTwice(session, writeFrame(flightPrologue), Arr.map(c.first, statementOfSpec), () =>
-					Effect.succeed(second)
+				runFramedTwice(
+					session,
+					writeFrame(flightPrologue, "serializable"),
+					Arr.map(c.first, statementOfSpec),
+					() => Effect.succeed(second)
 				)
 			)
 	}

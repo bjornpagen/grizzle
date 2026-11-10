@@ -38,7 +38,15 @@ const alongsideForms: Arr.NonEmptyReadonlyArray<CallForm> = [
 	{ kind: "alongside", frame: "rollback" }
 ]
 
-const callForms: Arr.NonEmptyReadonlyArray<CallForm> = [...framedForms, ...alongsideForms]
+/**
+ * Every form a drawn call takes: the exhaustive cases' framed forms, a change of a role generate certified READ
+ * COMMITTED, whose flight differs from a write's only in its BEGIN, and the forms alongside.
+ */
+const callForms: Arr.NonEmptyReadonlyArray<CallForm> = [
+	...framedForms,
+	{ kind: "framed", frame: "readCommittedWrite" },
+	...alongsideForms
+]
 
 /**
  * The call of a form, its statements alone given for statements alone in front of a transaction, and what a framed

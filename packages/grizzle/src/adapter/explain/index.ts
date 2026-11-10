@@ -63,8 +63,12 @@ const planned = (sql: EmittedText, params: ReadonlyArray<Param>): Explained => (
 /**
  * A query's EXPLAINs in a read-only transaction, a ChangeSet's in a read-write one; either rolled back, never committed.
  */
-const queryFrame: Transaction = { access: "readOnly", end: "ROLLBACK" }
-const changeSetFrame: Transaction = { access: "readWrite", end: "ROLLBACK" }
+const queryFrame: Transaction = { access: "readOnly", isolation: "serializable", end: "ROLLBACK" }
+const changeSetFrame: Transaction = {
+	access: "readWrite",
+	isolation: "serializable",
+	end: "ROLLBACK"
+}
 
 /**
  * The Plan of each planned statement of `explained`, one outcome each in order; a planned statement whose answer is no

@@ -1,7 +1,7 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
-import { type DbContext, dbWriteFrame } from "#adapter/db/context.ts"
+import { type DbContext, dbRefreshFrame } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -138,7 +138,7 @@ const refreshFlight = (
 		...Arr.map(refresh.schemas, (schema) => ({ sql: refresh.populated, params: schema.params })),
 		{ sql: refresh.block, params: [] }
 	]
-	return Effect.map(runFramed(session, dbWriteFrame(ctx), statements), (outcomes) => {
+	return Effect.map(runFramed(session, dbRefreshFrame(ctx), statements), (outcomes) => {
 		/** The places of the targets whose view its schema's catalog statement read populated. */
 		const populated = new Set<number>()
 		for (const [schema, outcome] of Arr.zip(refresh.schemas, outcomes)) {

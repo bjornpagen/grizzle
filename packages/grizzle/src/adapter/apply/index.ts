@@ -8,7 +8,7 @@ import {
 	hostInputs,
 	runWrite
 } from "#adapter/apply/run.ts"
-import { type DbContext, dbWriteFrame } from "#adapter/db/context.ts"
+import { type DbContext, dbChangeFrame } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
 	type ExecutionFailure,
@@ -96,7 +96,7 @@ const applyBound = <R>(
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbWriteFrame(ctx), entry, inputs, reads)
+				(session) => runWrite(session, dbChangeFrame(ctx), entry, inputs, reads)
 			)
 		)
 	})

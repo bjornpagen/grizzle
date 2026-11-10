@@ -8,7 +8,7 @@ import {
 	inputApplyError,
 	runWrite
 } from "#adapter/apply/run.ts"
-import { dbWriteFrame, type ServedDbContext } from "#adapter/db/context.ts"
+import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import {
 	type CompiledOps,
 	factsCompiled,
@@ -177,7 +177,7 @@ const applyChange = (
 		return yield* Effect.scoped(
 			Effect.flatMap(
 				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) => runWrite(session, dbWriteFrame(ctx), change.entry, inputs, change.reads)
+				(session) => runWrite(session, dbChangeFrame(ctx), change.entry, inputs, change.reads)
 			)
 		)
 	})

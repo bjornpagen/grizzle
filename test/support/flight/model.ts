@@ -59,19 +59,19 @@ const flightSchema = "grizzle_flight"
 const flightSnapshot = SchemaFingerprint("flight-snapshot")
 
 /**
- * The frames a call is sent in: every read, every write and refresh, and an EXPLAIN, which rolls back, each as the
- * call's role.
+ * The frames a call is sent in: every read; every write and refresh at SERIALIZABLE; a change of a role generate
+ * certified READ COMMITTED; and an EXPLAIN, which rolls back; each as the call's role.
  */
-const frameNames = ["read", "write", "rollback"] as const
+const frameNames = ["read", "write", "readCommittedWrite", "rollback"] as const
 export type FrameName = (typeof frameNames)[number]
 
 /** The frames statements alone run in front of: those that commit nothing (wire/batch.ts Uncommitting). */
-export type AlongsideFrame = Exclude<FrameName, "write">
+export type AlongsideFrame = Exclude<FrameName, "write" | "readCommittedWrite">
 
 /** The transaction of each frame statements alone run in front of. */
 const alongsideTransactions: { readonly [F in AlongsideFrame]: Uncommitting } = {
-	read: { access: "readOnly", end: "COMMIT" },
-	rollback: { access: "readWrite", end: "ROLLBACK" }
+	read: { access: "readOnly", isolation: "serializable", end: "COMMIT" },
+	rollback: { access: "readWrite", isolation: "serializable", end: "ROLLBACK" }
 }
 
 const frameOf = (name: FrameName, prologue: Prologue): Frame => {
@@ -79,9 +79,11 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 		case "read":
 			return readFrame(prologue)
 		case "write":
-			return writeFrame(prologue)
+			return writeFrame(prologue, "serializable")
+		case "readCommittedWrite":
+			return writeFrame(prologue, "readCommitted")
 		case "rollback":
-			return { access: "readWrite", end: "ROLLBACK", prologue }
+			return { access: "readWrite", isolation: "serializable", end: "ROLLBACK", prologue }
 	}
 }
 
@@ -145,6 +147,7 @@ export const flightPrologue: Prologue = prologueIn(flightSchema)
 const frames: { readonly [F in FrameName]: Frame } = {
 	read: frameOf("read", flightPrologue),
 	write: frameOf("write", flightPrologue),
+	readCommittedWrite: frameOf("readCommittedWrite", flightPrologue),
 	rollback: frameOf("rollback", flightPrologue)
 }
 
@@ -222,10 +225,18 @@ export const layoutOf = (call: Call): Arr.NonEmptyReadonlyArray<Slot> => {
 	]
 }
 
-const beginText = (frame: Transaction): string =>
-	frame.access === "readOnly"
-		? "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY"
-		: "BEGIN ISOLATION LEVEL SERIALIZABLE"
+/** BEGIN as PostgreSQL reads it for `frame`: a read SERIALIZABLE READ ONLY, a write at its level. */
+const beginText = (frame: Transaction): string => {
+	if (frame.access === "readOnly") {
+		return "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY"
+	}
+	switch (frame.isolation) {
+		case "serializable":
+			return "BEGIN ISOLATION LEVEL SERIALIZABLE"
+		case "readCommitted":
+			return "BEGIN ISOLATION LEVEL READ COMMITTED"
+	}
+}
 
 /**
  * How the flight frames a call, query by query: BEGIN's and the end's texts and each statement's SQL exactly, and the

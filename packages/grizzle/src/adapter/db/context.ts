@@ -1,6 +1,7 @@
 import type { RoleContext } from "#adapter/served/role.ts"
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
+import type { Isolation } from "#compiler/plan/common.ts"
 
 /**
  * What every operation of one opened database shares: what each of its transactions begins with, the contexts its
@@ -19,6 +20,8 @@ export interface ServedDbContext {
 	 */
 	readonly claims: ReadonlySet<string>
 	readonly pool: SessionPool
+	/** The level the role's changes begin at, as generate certified it (served/forms.ts ServedRoleForm.isolation). */
+	readonly isolation: Isolation
 }
 
 /**
@@ -27,6 +30,13 @@ export interface ServedDbContext {
  */
 export type DbContext = ServedDbContext & RoleContext
 
-/** The frame of every read of the Db, and of every write and refresh. */
+/** The frame of every read of the Db: SERIALIZABLE READ ONLY. */
 export const dbReadFrame = (ctx: Pick<DbContext, "prologue">): Frame => readFrame(ctx.prologue)
-export const dbWriteFrame = (ctx: Pick<DbContext, "prologue">): Frame => writeFrame(ctx.prologue)
+
+/** The frame of every change of the Db: read-write at its role's level. */
+export const dbChangeFrame = (ctx: Pick<DbContext, "prologue" | "isolation">): Frame =>
+	writeFrame(ctx.prologue, ctx.isolation)
+
+/** The frame of every refresh of the Db: read-write at SERIALIZABLE, whatever its role's changes begin at. */
+export const dbRefreshFrame = (ctx: Pick<DbContext, "prologue">): Frame =>
+	writeFrame(ctx.prologue, "serializable")

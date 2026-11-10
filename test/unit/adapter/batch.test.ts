@@ -101,10 +101,14 @@ const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	"prologue guard lost"
 ]
 
-/** The drawn population's: the exhaustive one's, and a stuck statement the interruption's destruction drains. */
+/**
+ * The drawn population's: the exhaustive one's, a stuck statement the interruption's destruction drains, and a change of
+ * a role certified READ COMMITTED, whose flight begins at that level.
+ */
 const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	...smallRequired,
-	"drained by its destruction"
+	"drained by its destruction",
+	"call framed readCommittedWrite"
 ]
 
 const endingFeature = (observation: Observation): FlightFeature => {
@@ -334,7 +338,7 @@ describe("joined flights", () => {
 								expected.flat()
 							)
 							const values = yield* Effect.flatMap(
-								runFramed(session, writeFrame(flightPrologue), joined.statements),
+								runFramed(session, writeFrame(flightPrologue, "serializable"), joined.statements),
 								joined.read
 							)
 							assert.deepEqual(values, expected)

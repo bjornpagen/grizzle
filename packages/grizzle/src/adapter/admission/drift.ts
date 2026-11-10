@@ -117,7 +117,11 @@ export interface DriftMismatch {
 }
 
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
-export const driftTransaction: Uncommitting = { access: "readWrite", end: "ROLLBACK" }
+export const driftTransaction: Uncommitting = {
+	access: "readWrite",
+	isolation: "serializable",
+	end: "ROLLBACK"
+}
 
 /**
  * The hex digits of a scratch schema's name after `grizzle_admission_`: the leading ones of the schema name's SHA-256.
