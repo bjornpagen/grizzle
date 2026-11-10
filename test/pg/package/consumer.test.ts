@@ -18,15 +18,17 @@ import {
 } from "effect"
 import { compiledOpen } from "#adapter/db/open.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import { derivedOf, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { servedFile, servedText } from "#compiler/served/json.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { servedJson } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
@@ -34,36 +36,38 @@ import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/publis
 
 /**
  * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
- * holds the built packages (test/unit/dev/published.ts), declares a schema, its full role and a login over it, builds
- * the login's DbLayer from the committed snapshot.json and the cluster's connection, opens a Db of the role with
- * Db.open, and reads every note once. The schema is installed through its first migration under an allocated name
- * (test/support/install-migrate.ts), which the consumer declares it under; the test writes each case's notes through a
- * Db of its own, and the consumer must read exactly every note written so far: a model of the table, the notes the
- * cases wrote.
+ * holds the built packages (test/unit/dev/published.ts), serves its login's committed served file with the runtime
+ * entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
+ * Db.open, and reads every note once through its workload's member. The schema is installed through its first
+ * migration under an allocated name (test/support/install-migrate.ts); the login's served file is compiled over that
+ * installation's snapshot by the one compile generate commits (test/support/served-db.ts servedJson) and written as
+ * generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
+ * every note written so far: a model of the table, the notes the cases wrote.
  */
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
 
 const declared = (name: string) => schema(name, { Note }, [])
 
+/** Every note, the one read the consumer's workload serves. */
+const notesOf = (base: ReturnType<typeof declared>) =>
+	query(base).rule((r) => {
+		const { id, n } = v(Note, "note")
+		return r.match(Note, { id, n }).find({ id, n })
+	})
+
 /**
- * The consumer, as an application writes it against the published package: the same schema under the name it was
- * installed under, the same full role and login (test/support/worlds.ts fullWorld), and one read of every note.
+ * The consumer, as an application writes it against the published package: the login's served file, served under the
+ * login's name, the full role's Db of it (test/support/worlds.ts fullWorld), and one read of every note through the
+ * workload's member. It loads the runtime entry alone, so no schema module and none of the compiler runs.
  */
 const consumerProgram = `import { readFileSync } from "node:fs"
 import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
-import { Db, DbLayer, login, pg, query, relation, role, schema, uuid, v } from "@bjornpagen/grizzle"
+import { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"))
-const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
-const App = schema(config.schema, { Note }, [])
-const app = role(App, "app", { Note }, { write: ["Note"] })
-const server = login(App, "server", [app])
-const notes = query(App).rule((r) => {
-	const { id, n } = v(Note, "note")
-	return r.match(Note, { id, n }).find({ id, n })
-})
+const server = served(JSON.parse(readFileSync(config.served, "utf8")), "server")
 const layer = DbLayer.make({
 	driver: pgDriver,
 	transport: {
@@ -78,13 +82,12 @@ const layer = DbLayer.make({
 	password: Redacted.make(config.password),
 	connectTimeoutMs: config.connectTimeoutMs,
 	pool: { max: 1, min: 0, idleTimeoutMs: config.idleTimeoutMs },
-	login: server,
-	snapshot: JSON.parse(readFileSync(config.snapshot, "utf8"))
+	login: server
 })
 const rows = await Effect.runPromise(
 	Effect.gen(function* () {
 		const db = yield* Db.open(server.roles.app, {})
-		return yield* (yield* db.execute(notes, {})).collect
+		return yield* (yield* db.workload.notes.execute({})).collect
 	}).pipe(Effect.provide(layer))
 )
 process.stdout.write(JSON.stringify(rows) + "\\n")
@@ -115,7 +118,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					const path = yield* Path.Path
 					const published = yield* publishedProject
 					const Consumer = declared("Consumer")
-					const world = fullWorld(Consumer, {})
+					const world = fullWorld(Consumer, { notes: notesOf(Consumer) })
 					const installed = yield* installMigrated(Consumer, {
 						ambient: ordinarySession,
 						label: "consumer",
@@ -123,11 +126,12 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						extensions: []
 					})
 					const App = declared(installed.declared)
-					const own = fullWorld(App, {})
-					const snapshot = path.join(published.project, "snapshot.json")
+					const own = fullWorld(App, { notes: notesOf(App) })
+					const file = yield* servedJson(installed, own.server, own.server.workload)
+					const served = path.join(published.project, "server.json")
 					yield* fs.writeFileString(
-						snapshot,
-						succeeded(writeSnapshot(installed.snapshot, derivedOf(installed.installation))).snapshot
+						served,
+						succeeded(servedText(servedFile(file)), "the login's served file's text")
 					)
 					const program = path.join(published.project, "consumer.mjs")
 					yield* fs.writeFileString(program, consumerProgram)
@@ -135,7 +139,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					yield* fs.writeFileString(
 						config,
 						jsonText({
-							schema: installed.declared,
 							host: pgPin.host,
 							port: pgPin.port,
 							ca: installed.cluster.caPem,
@@ -143,7 +146,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							password: Redacted.value(installed.as(world.server).password),
 							connectTimeoutMs: testConnectTimeout.value,
 							idleTimeoutMs: testIdleTimeout.value,
-							snapshot
+							served
 						})
 					)
 					const written: Array<NoteRow> = []
