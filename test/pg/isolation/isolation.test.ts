@@ -483,6 +483,20 @@ const fallbackRace: CounterRace = {
 	]
 }
 
+/**
+ * NEGATION's third B-03c negative, the race and schedule of the fallback's: the fallback's bound import yields only
+ * its default arm, G(1) absent, and writes W(1) = 0; G(1) is inserted and committed; the observer sees G(1) but not
+ * W(1); then the fallback commits.
+ */
+const boundFallbackRace: CounterRace = { ...fallbackRace, shape: "boundFallback" }
+
+/**
+ * NEGATION's fourth B-03c negative, the race and schedule of the fallback's: the fallback's bound recursive import
+ * yields its base row 1, G(1) absent, and writes W(1) = 0; G(1) is inserted and committed; the observer sees G(1) but
+ * not W(1); then the fallback commits.
+ */
+const recursiveFallbackRace: CounterRace = { ...fallbackRace, shape: "recursiveFallback" }
+
 /** One race of each counterexample, every one of which a case runs. */
 type CounterRaces = Readonly<Record<CounterShape, CounterRace>>
 
@@ -497,7 +511,9 @@ const counterRaces: Gen<CounterRaces> = (source) => ({
 	fk: fkRace,
 	deferred: deferredRace,
 	carrier: carrierRace,
-	fallback: fallbackRace
+	fallback: fallbackRace,
+	boundFallback: boundFallbackRace,
+	recursiveFallback: recursiveFallbackRace
 })
 
 const counterShapes: Arr.NonEmptyReadonlyArray<CounterShape> = [
@@ -511,7 +527,9 @@ const counterShapes: Arr.NonEmptyReadonlyArray<CounterShape> = [
 	"fk",
 	"deferred",
 	"carrier",
-	"fallback"
+	"fallback",
+	"boundFallback",
+	"recursiveFallback"
 ]
 
 /** The race of `sketch`: each call in a session of its own, s0, s1, ... */
@@ -1079,7 +1097,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								fk: yield* installedFlawed(fkShape, "fk"),
 								deferred: yield* installedFlawed(deferredShape, "deferred"),
 								carrier: yield* installedFlawed(carrierShape, "carrier"),
-								fallback: yield* installedFlawed(fallbackShape, "fallback")
+								fallback: yield* installedFlawed(
+									(name) => fallbackShape(name, "rules"),
+									"fallback"
+								),
+								boundFallback: yield* installedFlawed(
+									(name) => fallbackShape(name, "bound"),
+									"boundFallback"
+								),
+								recursiveFallback: yield* installedFlawed(
+									(name) => fallbackShape(name, "recursive"),
+									"recursiveFallback"
+								)
 							}
 							return yield* explore(
 								{
@@ -1099,13 +1128,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											"fk caught",
 											"deferred caught",
 											"carrier caught",
-											"fallback caught"
+											"fallback caught",
+											"boundFallback caught",
+											"recursiveFallback caught"
 										],
 										{ cases: runs, sense: notesOnly }
 									),
 									kept: [
 										{
-											note: "the owner's two counterexamples among the nine, and NEGATION's four histories pinned. (a): m1 inserts A(1) and copies every B into P, m2 inserts B(2) and copies every A into Q; at READ COMMITTED both copies miss the other's insert and P and Q stay empty. (b), the read-only anomaly: m1 reads B(1) absent and inserts A(1), m3 inserts B(1) and commits first, and the READ COMMITTED reader between the commits sees B(1) without A(1)",
+											note: "the owner's two counterexamples among the thirteen, and NEGATION's four histories and three B-03c negatives pinned. (a): m1 inserts A(1) and copies every B into P, m2 inserts B(2) and copies every A into Q; at READ COMMITTED both copies miss the other's insert and P and Q stay empty. (b), the read-only anomaly: m1 reads B(1) absent and inserts A(1), m3 inserts B(1) and commits first, and the READ COMMITTED reader between the commits sees B(1) without A(1)",
 											sketch: {
 												partial: {
 													shape: "partial",
@@ -1158,7 +1189,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												fk: fkRace,
 												deferred: deferredRace,
 												carrier: carrierRace,
-												fallback: fallbackRace
+												fallback: fallbackRace,
+												boundFallback: boundFallbackRace,
+												recursiveFallback: recursiveFallbackRace
 											},
 											draws: "",
 											reaches: [
@@ -1172,7 +1205,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"fk caught",
 												"deferred caught",
 												"carrier caught",
-												"fallback caught"
+												"fallback caught",
+												"boundFallback caught",
+												"recursiveFallback caught"
 											]
 										}
 									],

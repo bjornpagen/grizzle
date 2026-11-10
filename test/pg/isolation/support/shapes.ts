@@ -1072,32 +1072,88 @@ const FallbackW = relation("W", { k: pg.integer, val: pg.integer }, ["k"])
 const FallbackZ = relation("Z", { k: pg.integer }, ["k"])
 
 /**
- * NEGATION's B-03c negative under the name `name`: the `fallback`'s `fallback(k)` inserts W(k) from G(k)'s x where G
- * holds k and 0 where it does not, two rules, the second reading G's absence; the `inserter`'s `insertG(k, x)` inserts
- * G(k); the `observer`'s `observe(k)` inserts Z(k) where W(k) and G(k) are both there.
+ * The ways the `fallback` reads G, each a B-03c negative of NEGATION's: "rules", two rules of its insert's query, the
+ * first writing G(k)'s x from G's row, the second 0 from G's absence; "bound", a match of a bound two-rule query, G's
+ * row in one rule and the default 0 in the other, filtered by G's absence; "recursive", a match of a bound recursive
+ * query whose base row is k itself and whose recursive rule joins G, filtered by G's absence, writing 0.
  */
-export const fallbackShape = (name: string) => {
+export type FallbackForm = "rules" | "bound" | "recursive"
+
+/**
+ * NEGATION's B-03c negatives under the name `name`: the `fallback`'s `fallback(k)` inserts W(k) 0 where G holds no k,
+ * and in the forms "rules" and "bound" G(k)'s x where it does, reading G in the form `form`; the `inserter`'s
+ * `insertG(k, x)` inserts G(k); the `observer`'s `observe(k)` inserts Z(k) where W(k) and G(k) are both there.
+ */
+export const fallbackShape = (name: string, form: FallbackForm) => {
 	const relations = { G: FallbackG, W: FallbackW, Z: FallbackZ } as const
 	const base = schema(name, relations, [])
 	const fallbackRole = role(base, "fallback", relations, { insert: ["W"] })
 	const inserter = role(base, "inserter", relations, { insert: ["G"] })
 	const observer = role(base, "observer", relations, { insert: ["Z"] })
 	const f = fallbackRole.relations
-	const fallback = ChangeSet.empty(fallbackRole).insert(
-		f.W,
-		query(fallbackRole)
-			.rule((r) => {
-				const { x } = v(f.G, "g")
-				return r
-					.match(f.G, { k: r.param("k", pg.integer), x })
-					.find({ k: r.param("k", pg.integer), val: x })
-			})
-			.rule((r) =>
-				r
-					.where(r.not(f.G, { k: r.param("k", pg.integer) }))
-					.find({ k: r.param("k", pg.integer), val: 0 })
-			)
-	)
+	const writes = ChangeSet.empty(fallbackRole)
+	const present = query(fallbackRole).rule((r) => {
+		const { x } = v(f.G, "g")
+		return r
+			.match(f.G, { k: r.param("k", pg.integer), x })
+			.find({ k: r.param("k", pg.integer), val: x })
+	})
+	const fallbackOf = () => {
+		switch (form) {
+			case "rules":
+				return writes.insert(
+					f.W,
+					present.rule((r) =>
+						r
+							.where(r.not(f.G, { k: r.param("k", pg.integer) }))
+							.find({ k: r.param("k", pg.integer), val: 0 })
+					)
+				)
+			case "bound": {
+				const candidates = present.rule((r) => r.find({ k: r.param("k", pg.integer), val: 0 }))
+				return writes.insert(
+					f.W,
+					query(fallbackRole).rule((r) => {
+						const c = candidates.bind({ k: r.param("k", pg.integer) })
+						const { k, val } = v(c, "c")
+						return r
+							.match(c, { k, val })
+							.where(r.not(f.G, { k: r.param("k", pg.integer) }))
+							.find({ k, val })
+					})
+				)
+			}
+			case "recursive": {
+				const chain = query(fallbackRole).recursive("Chain", {
+					row: { k: pg.integer },
+					base: [(r) => r.find({ k: r.param("k", pg.integer) })],
+					rec: [
+						(r, s) => {
+							const { k } = v(s, "s")
+							const { x } = v(f.G, "g")
+							return r
+								.match(s, { k })
+								.match(f.G, { k: r.param("k", pg.integer), x })
+								.where(r.eq(k, r.param("k", pg.integer)))
+								.find({ k: x })
+						}
+					]
+				})
+				return writes.insert(
+					f.W,
+					query(fallbackRole).rule((r) => {
+						const c = chain.bind({ k: r.param("k", pg.integer) })
+						const { k } = v(c, "c")
+						return r
+							.match(c, { k })
+							.where(r.not(f.G, { k: r.param("k", pg.integer) }))
+							.find({ k, val: 0 })
+					})
+				)
+			}
+		}
+	}
+	const fallback = fallbackOf()
 	const insertG = ChangeSet.empty(inserter).insert(
 		inserter.relations.G,
 		query(inserter).rule((r) =>

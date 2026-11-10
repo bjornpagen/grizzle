@@ -23,6 +23,8 @@ export type CounterShape =
 	| "deferred"
 	| "carrier"
 	| "fallback"
+	| "boundFallback"
+	| "recursiveFallback"
 
 const readCommitted: RoleCertificate = { level: "readCommitted" }
 
@@ -68,6 +70,11 @@ const app = (role: string, certificate: RoleCertificate): RoleIsolation => ({
  *   relation parameter's arrays: the race shows the rule unsound, not B-02's verdict on this form. fallback:
  *   NEGATION's B-03c negative, a W written from G's row where it holds k and from G's absence where it does not, read
  *   beside G by an observer: a probe neutral in one rule and negated in its sibling, judged per statement.
+ *   boundFallback: NEGATION's third B-03c negative, the same W read through a match of a bound two-rule query, G's row
+ *   in one rule and the default in the other, filtered by G's absence: a probe neutral within the imported query's
+ *   core, judged without the arm that reaches the write past G. recursiveFallback: NEGATION's fourth, W(k) = 0
+ *   written from a match of a bound recursive query filtered by G's absence, whose recursive rule joins G and whose base
+ *   row k reaches the write past G: a probe neutral within a recursive query's core, judged by its recursive rule alone.
  */
 /**
  * A flawed certifier over a counterexample shape: the flaw it stands for, every role's certificate under it, and the
@@ -151,6 +158,26 @@ export const flawedCertificates = (shape: CounterShape): Flawed => {
 		case "fallback":
 			return {
 				flaw: "a probe judged neutral across rules: one rule reads G positively, another its absence, and W's write follows either (B-03c checked per statement, not per core)",
+				roles: [
+					app("fallback", readCommitted),
+					app("inserter", readCommitted),
+					app("observer", readCommitted)
+				],
+				passes: ["fallback"]
+			}
+		case "boundFallback":
+			return {
+				flaw: "a probe judged neutral within a bound import's core: one rule of the imported query reads G positively, its default arm reaches W's write past G, and the match filters by G's absence (B-03c re-staged, checked per core)",
+				roles: [
+					app("fallback", readCommitted),
+					app("inserter", readCommitted),
+					app("observer", readCommitted)
+				],
+				passes: ["fallback"]
+			}
+		case "recursiveFallback":
+			return {
+				flaw: "a probe judged neutral within a bound recursive import's core: its recursive rule reads G positively, its base row reaches W's write past G, and the match filters by G's absence (B-03c re-staged, checked per core)",
 				roles: [
 					app("fallback", readCommitted),
 					app("inserter", readCommitted),
