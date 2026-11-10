@@ -86,6 +86,9 @@ const functionOf = (s: SqlStatement): Option.Option<string> =>
 const guardTriggerOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.name) : Option.none()
 
+const guardedTableOf = (s: SqlStatement): Option.Option<string> =>
+	s.kind === "createGuardTrigger" ? Option.some(s.table.name) : Option.none()
+
 const ruleTriggerOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
 
@@ -313,6 +316,7 @@ export const installedScope = (
 			),
 			views: created(snapshot, "materializedView", viewOf),
 			ledger,
+			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([
 				...functionsOf("refusalFunction", { kind: "refusal" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),

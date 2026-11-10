@@ -27,7 +27,7 @@ export type InstalledFunction =
 	  }
 
 /**
- * What a trigger of the installation is: the isolation guard every table carries, or a rule over a query's deferred
+ * What a trigger of the installation is: the isolation guard a guarded table carries, or a rule over a query's deferred
  * constraint trigger on a table its query reads.
  */
 const installedTriggers = ["isolation", "rule"] as const
@@ -43,6 +43,12 @@ export interface ErasureExpectation {
 	readonly views: ReadonlySet<string>
 	/** The migrations ledger's table: the one table beside the authored ones, which every login reads. */
 	readonly ledger: string
+	/**
+	 * The tables carrying the isolation guard: the ledger's, and each authored table some role writes at SERIALIZABLE or
+	 * no role writes (physical/ddl/isolation.ts addIsolationTrigger); a table whose every writer is certified READ
+	 * COMMITTED carries none.
+	 */
+	readonly guarded: ReadonlySet<string>
 	/** Every function the installation includes, by its name, as what it is. */
 	readonly functions: ReadonlyMap<string, InstalledFunction>
 	/** Every trigger the installation includes but PostgreSQL's internal ones, by its name, as what it is. */
@@ -377,8 +383,8 @@ const loginLacks = (
 
 /**
  * What one catalog relation is to the installation: the materialized view of a declared derived relation or of none, a
- * table it expects (an authored relation's or the migrations ledger, carrying exactly one isolation guard) or one it
- * does not, or a relation of a kind grizzle never installs.
+ * table it expects (an authored relation's or the migrations ledger, carrying exactly one isolation guard when it is
+ * guarded and none otherwise) or one it does not, or a relation of a kind grizzle never installs.
  */
 const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 	if (t.kind === "m") {
@@ -394,7 +400,11 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 		j.catalog.triggers,
 		(g) => g.table === t.name && j.expect.triggers.get(g.name) === "isolation"
 	).length
-	return unless(count === 1, { kind: "guardCount", table: t.name, count })
+	return unless(count === (j.expect.guarded.has(t.name) ? 1 : 0), {
+		kind: "guardCount",
+		table: t.name,
+		count
+	})
 }
 
 /** What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable, MAINTAIN only to a refresher. */

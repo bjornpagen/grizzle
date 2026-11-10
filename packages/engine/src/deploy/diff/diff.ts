@@ -185,13 +185,7 @@ export const loginRoleExchange =
 type Dropped =
 	| Exclude<
 			PhysicalKind,
-			| "databaseDefault"
-			| "extension"
-			| "validation"
-			| "privileges"
-			| "ledger"
-			| "membership"
-			| "isolationTrigger"
+			"databaseDefault" | "extension" | "validation" | "privileges" | "ledger" | "membership"
 	  >
 	| "column"
 
@@ -220,6 +214,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	statistics: 7,
 	materializedView: 9,
 	lawTrigger: 3,
+	isolationTrigger: 3,
 	refusalFunction: 11,
 	advanceFunction: 11,
 	isolationFunction: 11,
@@ -2025,7 +2020,8 @@ class Differ {
 	 * foreign key before the keys, drafts first.
 	 *
 	 *
-	 * A table's isolation trigger goes with its table, the only way it is ever removed. */
+	 * A table's isolation trigger goes with its table, or is dropped on its own where the target guards its table no
+	 * more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts readCommittedRelations). */
 	remove(o: ManifestObject, order: number): void {
 		const t = objectTable(o)
 		const tableGone =
@@ -2154,6 +2150,17 @@ class Differ {
 				)
 				return
 			case "isolationTrigger":
+				if (!tableGone) {
+					drop(
+						v.kind,
+						statement({
+							kind: "dropTrigger",
+							name: v.create.name,
+							table: v.create.table,
+							ifExists: false
+						})
+					)
+				}
 				return
 		}
 	}
