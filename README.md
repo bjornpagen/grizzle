@@ -50,8 +50,9 @@ only your app. A rule over tables becomes one of PostgreSQL's own constraints, a
 stores, a deferred constraint trigger grizzle generates from the query. Each role becomes a PostgreSQL role that reads
 through views of its own, under row-level security where it writes only some rows.
 
-Every call is one SERIALIZABLE transaction, its statements pipelined into one round trip, or two when a write must
-first read stored values it builds on. There are no interactive transactions to hold open: a read that decides a write
+Every call is one transaction, SERIALIZABLE unless `grizzle generate` proved its role's writes safe at READ
+COMMITTED, its statements pipelined into one round trip, or two when a write must first read stored values it builds
+on. There are no interactive transactions to hold open: a read that decides a write
 is a query inside the write. The first migration makes SERIALIZABLE the database's default, and a write below it on a
 grizzle table is refused, so psql and scripts get the same isolation, on every table but one whose every writer is
 certified to run READ COMMITTED and may only insert ([Transactions and concurrency](#transactions-and-concurrency)). Every failure is typed: a broken rule is an
@@ -2982,19 +2983,17 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 - **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
   it, psql included. A write below it on a grizzle table is refused with 25000, by the table's guard trigger.
-- **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role of each
-  login from the statements its workload's ChangeSets send, against every writer of the installation. A role is
-  certified READ COMMITTED when it states `insert`, so it holds only INSERT and SELECT on what it writes, and every
-  read its writes make is one no concurrent writer can change between its snapshot and its commit. Its served file
-  then begins its writes at READ COMMITTED. Every other role stays SERIALIZABLE, and so does a role whose workload
-  holds no ChangeSet. Reads are SERIALIZABLE READ ONLY whatever the role's level. A file `compileServed` compiles from
-  other programs than the committed workload serves every role SERIALIZABLE, since no certificate covers them.
+- **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role from
+  the statements its ChangeSets send, against every other writer, and the role's served file begins its writes at the
+  level it proved ([READ COMMITTED writes](#read-committed-writes)). Reads are always SERIALIZABLE READ ONLY.
 - **A table whose every writer is certified READ COMMITTED has no guard.** Such a table is one some role writes, and
   every role that holds INSERT, UPDATE or DELETE on it is certified to run its writes READ COMMITTED and holds only
   INSERT and SELECT there. The installation creates no guard trigger for it, so a write below SERIALIZABLE is admitted
   there: a direct writer meets the grants of the role it writes as, which insert and read and nothing else, and the
   table's laws, each a constraint PostgreSQL checks at every level. Every other table keeps its guard, and a table no
-  role writes keeps it too. A migration that changes whether a table qualifies drops or creates its guard.
+  role writes keeps it too. A migration that changes whether a table qualifies drops or creates its guard. A role
+  that writes only by direct SQL has no ChangeSet to prove, so it is SERIALIZABLE, and a grant of INSERT, UPDATE or
+  DELETE to it keeps that table's guard and makes every role writing the table SERIALIZABLE too.
 - **One call, one transaction, one round trip or two.** A call sends BEGIN, its statements and COMMIT in one pipelined flight.
   A write that must read stored values first (a family edit of a group already stored, or a refill of a value a change
   leaves stale) sends two flights in its one transaction: one batched read per family of the stored values the edit
@@ -3012,6 +3011,111 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 - **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`; without room, PostgreSQL
   fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a committed
   write's predicate locks are kept until every older transaction ends.
+
+### READ COMMITTED writes
+
+At SERIALIZABLE, PostgreSQL aborts one of two transactions whose reads and writes could cross, with 40001, and under
+load it judges conservatively, so many callers writing at once (a class of children answering the same test) meet
+40001s that no real conflict caused. grizzle never retries. Instead, `grizzle generate` proves, role by role, when a
+role's writes run at READ COMMITTED and still behave as if every call ran alone, one after another, in the order they
+committed. Such a role's writes never meet a serialization failure: a real conflict is a key's law, refused by the
+unique check that decides it.
+
+**When a role is certified READ COMMITTED.** generate reads every statement each ChangeSet of the role's workload can
+send, in every variant and every form, its read-backs included, and judges them against every other role of every
+login. A row "another call can write" is a row of a relation some role writes, other than the call's own rows and
+grizzle's own key checks of what it inserts. A foreign key check counts as a read, made at a later snapshot than its
+statement's. The role is certified READ COMMITTED when all of these hold, and stays SERIALIZABLE otherwise:
+
+- **It has a ChangeSet.** A role that writes only by direct SQL has nothing to prove.
+- **It only inserts.** It states `insert`, not `write`, so it holds INSERT and SELECT alone, and every relation it
+  writes is one no role updates or deletes: by a grant, by a ChangeSet, or by an `ON UPDATE CASCADE` into it.
+- **Its relations' laws are native.** Every law over a relation it writes is one PostgreSQL checks at every level (a
+  key, a CHECK, a domain, a foreign key), none a rule over a query, which a trigger checks. No SERIALIZABLE role's
+  ChangeSet reads such a relation.
+- **Nothing reads the absence or a count of what it writes.** No ChangeSet of any role asks whether a row of it is
+  missing (a negation, a `NOT EXISTS`) or how many there are (a count, an aggregate). grizzle's own checks inside a
+  write (a duplicate within the call, a refusal of a conflicting row) don't count when every row they look at comes
+  through a whole immutable group the same statement reads positively, through one in each arm of a `UNION`, and every
+  write they guard is joined with that group.
+- **It reads other calls' rows in one statement, as whole groups that never change.** Each such read finds one row by a
+  whole declared key of a relation every role only inserts into, all the members of a family whose immutable owner
+  holds their count, or a relation no role writes, keyed by values the call states once: a read keyed by each row of
+  an array the call was given reads one group per row, which another call's rows can split. All of a ChangeSet's reads
+  of other calls' rows are in one
+  statement, beside no foreign key check that reads more of them, and each row it writes is joined with what it read,
+  so a call that finds nothing writes nothing. Each foreign key check it makes finds an immutable row in the same way,
+  or refuses the call whole. A row the call inserted, read back in a later statement by the key it was inserted at,
+  is its own, when no statement up to the insert read other calls' rows.
+- **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
+- **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
+  writes a relation the role reads (by a statement or a foreign key check) reads no row another call can write, makes
+  no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
+  declared key, or of a relation no role writes), and writes no relation a rule over a query reads.
+
+**Reading generate's report.** generate prints one line per role, before the files it writes:
+
+```
+login app, role learner: read committed
+login author_app, role author: serializable (privileges 496, laws 47, absence 1911, snapshot 2993, pivot 3735)
+```
+
+A SERIALIZABLE role lists each condition it failed, with how many places fail it:
+
+| Condition    | What fails it                                                                                                                            |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
+| `members`    | no ChangeSet in its workload                                                                                                             |
+| `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |
+| `laws`       | a rule over a query over a relation it writes, or a SERIALIZABLE ChangeSet reading such a relation                                       |
+| `absence`    | a ChangeSet that reads whether rows of a relation it writes are missing, or counts them, or a check of grizzle's own over rows no whole immutable group of its statement brings |
+| `snapshot`   | a read of other calls' rows beside another one in a later statement, or beside a foreign key check                                      |
+| `pivot`      | a read of other calls' rows that is no whole immutable group, a row it writes not joined with such a read, or a foreign key check of a row that can change |
+| `writers`    | a SERIALIZABLE role writing what it writes, or writing what it reads while reading other calls' rows or making a check of a row that can change |
+
+A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
+check`, like any change to the workload.
+
+**Reads stay SERIALIZABLE READ ONLY.** A query, a key, a page and a refresh run SERIALIZABLE READ ONLY whatever the
+role's level. A ChangeSet's read-backs run in its own transaction, at its level.
+
+**compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
+committed workload has no certificate behind it, so every role in it runs SERIALIZABLE.
+
+**Direct SQL.** A direct writer, psql included, writes at SERIALIZABLE, and the guard refuses anything below it with
+25000, except on a table whose every writer is certified READ COMMITTED. There it may write at any level, as the role it
+writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level.
+
+**Referencing content another role writes: publish it.** A ChangeSet that inserts rows referencing content another role
+maintains (an author edits items, a learner's answer names an item) reads that content in its foreign key checks. If
+the content's writer reads other calls' rows of its own, as an import does, the referencing role stays SERIALIZABLE
+(`writers`). Publish the keys it references instead:
+
+1. Have every role that writes the referenced content relations state `insert` on them, so a content row, once there,
+   never changes.
+2. Add a published relation, keyed by the content's key, with a foreign key into the content and nothing else.
+3. Give it a `publisher` role of its own that states `insert` on it alone, whose ChangeSets insert published keys and
+   read nothing else. It may stay SERIALIZABLE: its only reads are its foreign key checks, each of which finds an
+   immutable content row.
+4. Point the referencing role's foreign keys at the published relation, not at the content.
+
+```ts
+export const Item = relation("Item", { id: uuid, prompt: Prose }, ["id"])
+export const Content = schema("Content", { Item }, [])
+export const Author = role(Content, "author", wholeEntriesOf(Content), { insert: ["Item"] })
+
+export const Published = relation("Published", { item: uuid }, ["item"])
+export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, item: uuid }, ["sitting", "step"])
+export const Ledger = schema.extend(Content, "Ledger", { Published, Answer }, [
+	contained(on(Published, "item"), on(Item, "id")),
+	contained(on(Answer, "item"), on(Published, "item"))
+])
+export const Publisher = role(Ledger, "publisher", wholeEntriesOf(Ledger), { insert: ["Published"] })
+export const Learner = role(Ledger, "learner", wholeEntriesOf(Ledger), { insert: ["Answer"] })
+```
+
+The learner's check now reads `Published`, which only ever gains rows, and its one writer reads nothing another call
+can write, so the check finds an immutable row or refuses the call. Publish an item before a learner may answer it.
 
 ## Deploying
 

@@ -629,6 +629,20 @@ The command line's own refusals, by stage:
   no UPDATE or DELETE, so a direct writer's UPDATE or DELETE through it is 42501, and a ChangeSet of it that deletes,
   puts, or adds a member under a mutable owner (which updates the owner's count) is `OutsideRole` (`insert`) when it
   compiles. Stating both is `RoleRefused` (`writeAndInsert`).
+- A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
+  send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
+  always SERIALIZABLE READ ONLY. generate prints each role's level, a SERIALIZABLE one with the count of each condition
+  it fails: `members` (no ChangeSet), `privileges` (it states `write`, or some role updates or deletes what it writes),
+  `laws` (a rule over a query over what it writes), `absence` (a read of the absence or a count of what it writes),
+  `snapshot` and `pivot` (other calls' rows read across statements, as anything but whole immutable groups keyed by
+  values the call states once, or by a foreign key check of a row that can change), `writers` (a SERIALIZABLE role
+  writing what it writes, or writing what it reads while reading other calls' rows itself), and `facts` (an object
+  the certifier cannot name). Clear one by changing the schema or the workload, never by a flag: there is none. A role
+  that inserts rows referencing content another role maintains publishes the keys it references: every writer of
+  that content states `insert` on it, an insert-only published relation holds the keys with a foreign key into the
+  content, a `publisher` role that inserts nothing else writes it, and the referencing role's foreign keys point at
+  the published relation. `compileServed` of other programs than the committed workload serves every role
+  SERIALIZABLE.
 - A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row
