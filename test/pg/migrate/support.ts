@@ -53,7 +53,10 @@ import {
 	planOf,
 	type Renames,
 	rowsSql,
+	type SqType,
 	serialField,
+	serialRelations,
+	sqBeforeOf,
 	typedValue,
 	type Version,
 	versionLogins
@@ -652,7 +655,10 @@ export const drafted = (
 		const after = planOf(step.version, schema, owner)
 		const reviewed = review(g.value, {
 			losses: "written",
-			value: typedValue({ plan: after, version: step.version })
+			value: typedValue(
+				{ plan: after, version: step.version },
+				sqBeforeOf(prior.version, carried(prior, step, choose && i > 0))
+			)
 		})
 		steps.push({ generated: g.value, files: reviewed.files })
 	}
@@ -678,16 +684,26 @@ export const directory = (steps: ReadonlyArray<Step>, i: number): MigrationTarge
 	}
 }
 
+/** The value of the field `sq` in a version's `n`th row of a relation, by its type: `n`, or a version 7 uuid numbered
+ * `n`, distinct from every uuid the fact generator draws. */
+const sqValue = (type: SqType, n: number): bigint | string => {
+	switch (type) {
+		case "serial":
+		case "bigserial":
+			return BigInt(n)
+		case "uuidv7":
+		case "uuid":
+			return `01800000-0000-7000-8000-${Str.padStart(12, "0")(n.toString(16))}`
+	}
+}
+
 /** A version's facts as the loader's records, with the coded pair's fixed rows when the path draws it; a relation with a
- * serial field numbers its rows from one, the values the row comparison leaves out. */
+ * field `sq` numbers its rows from one in it (sqValue), the values the row comparison leaves out. */
 export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
-	const serial = new Set(
-		Arr.flatMap(v.desc.relations, (r) =>
-			r.kind === "relation" && serialField in r.fields ? [r.name] : []
-		)
-	)
+	const sq = serialRelations(v.schema, v.extras)
 	const out: Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>> = {}
 	for (const r of v.schema.relations) {
+		const type = sq.get(r.name)
 		out[r.name] = Arr.map(facts[r.name] ?? [], (row, i) => ({
 			...Rec.fromEntries(
 				Arr.map(r.columns, (c, k) => {
@@ -698,7 +714,7 @@ export const factSetOf = (v: Version, facts: ValueFacts): FactSet => {
 					return [c.name, typedLiteralDesc(value, c.type)]
 				})
 			),
-			...(serial.has(r.name) ? { [serialField]: BigInt(i + 1) } : {})
+			...(type === undefined ? {} : { [serialField]: sqValue(type, i + 1) })
 		}))
 	}
 	return v.extras.coded.kind === "present" ? { ...out, ...codedFacts } : out

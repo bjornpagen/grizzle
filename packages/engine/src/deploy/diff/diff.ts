@@ -2607,32 +2607,38 @@ const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | u
  * it, or dropped and created again under its name, which leaves it with the default privileges. */
 type SequenceFate = "dropped" | "recreated"
 
-/** What a migration does to a field of a table both snapshots install, read off its type, its writing and its identity
+/** How a column a migration converts in place was drawn: by nothing; by an identity, whose sequence the conversion
+ * drops or creates again under its name (SequenceFate); or by its `uuidv7()` default, which the conversion drops first,
+ * since PostgreSQL casts a column's default with its values and casts no uuid to another type. */
+type DrawnBefore =
+	| { readonly kind: "none" }
+	| { readonly kind: SequenceFate; readonly sequence: ObjectName }
+	| { readonly kind: "uuidv7" }
+
+/** What a migration does to a field of a table both snapshots install, read off its type, its writing and its draw
  * before and after:
- * - converted in place, its type changed, with what becomes of its identity when it was serial;
+ * - converted in place, its type changed, with what becomes of its draw when it was serial;
  * - re-expressed, a generated field whose generation expression changes and whose type does not, by SET EXPRESSION,
  *   which recomputes every row and keeps what is built over the column;
  * - rewritten, dropped and added again: a field whose writing changes between its caller and a generation, a generated
  *   field whose type changes, which PostgreSQL converts by no expression of the reviewer's, or a generated field that
  *   reads a field its table converts in place, which PostgreSQL refuses to convert under it;
- * - otherwise kept, declared serial, or serial no longer, its identity added or dropped in place (inPlace).
+ * - otherwise kept, declared serial, or serial no longer, its draw added or dropped in place (inPlace): an integer's
+ *   identity, or a uuid's `uuidv7()` default.
  *
- * A serial column converted gives its identity up first, whatever its new type, which drops the sequence and its
- * privileges, and the sequence is created again when the converted column takes the target's identity under its name. A
- * field serial before and after keeps its sequence, which its table's pairing renames when the target names it
- * otherwise (KeptPlan sequences). */
+ * A serial column converted gives its draw up first, whatever its new type: its identity, which drops the sequence and
+ * its privileges, or its default. It takes the target's draw once converted: its identity, its sequence created again
+ * under its name, or its default. A field serial before and after keeps its sequence, which its table's pairing renames
+ * when the target names it otherwise (KeptPlan sequences). */
 type FieldChange =
 	| { readonly kind: "kept" }
-	| {
-			readonly kind: "converted"
-			readonly sequence:
-				| { readonly kind: "none" }
-				| { readonly kind: SequenceFate; readonly sequence: ObjectName }
-	  }
+	| { readonly kind: "converted"; readonly drawn: DrawnBefore }
 	| { readonly kind: "reexpressed"; readonly expr: Expr }
 	| { readonly kind: "rewritten" }
 	| { readonly kind: "serialDeclared"; readonly sequence: ObjectName }
 	| { readonly kind: "serialRemoved"; readonly sequence: ObjectName }
+	| { readonly kind: "uuidv7Declared" }
+	| { readonly kind: "uuidv7Removed" }
 
 /** The identity sequence of a serial column. */
 const identitySequence = (c: ColumnDef): ObjectName | undefined =>
@@ -2661,11 +2667,14 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 		}
 		return same(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
 	}
+	const wasUuidv7 = b.generated?.kind === "uuidv7"
+	const nowUuidv7 = c.generated?.kind === "uuidv7"
 	if (retyped(b, c)) {
 		return {
 			kind: "converted",
-			sequence:
-				was === undefined
+			drawn: wasUuidv7
+				? { kind: "uuidv7" }
+				: was === undefined
 					? { kind: "none" }
 					: {
 							kind: now !== undefined && nameKey(now) === nameKey(was) ? "recreated" : "dropped",
@@ -2673,10 +2682,17 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 						}
 		}
 	}
-	if (was === undefined) {
-		return now === undefined ? { kind: "kept" } : { kind: "serialDeclared", sequence: now }
+	if (was !== undefined) {
+		return now === undefined ? { kind: "serialRemoved", sequence: was } : { kind: "kept" }
 	}
-	return now === undefined ? { kind: "serialRemoved", sequence: was } : { kind: "kept" }
+	if (now !== undefined) {
+		return { kind: "serialDeclared", sequence: now }
+	}
+	return wasUuidv7 === nowUuidv7
+		? { kind: "kept" }
+		: nowUuidv7
+			? { kind: "uuidv7Declared" }
+			: { kind: "uuidv7Removed" }
 }
 
 /** The changes of the fields two declarations of one relation share, by name (fieldChange): a generated field that
@@ -2786,11 +2802,12 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
 }
 
 /** The steps that change a field of `t` from `b` to `c` in place, by its change (fieldChange), `convert` converting the
- * column to its new type: a serial column gives its identity up before its conversion, and a column serial after takes
- * the target's identity once converted, advanced past the stored maximum; a field declared serial takes its identity,
- * advanced the same way, and one serial no longer gives it up; a generated field re-expressed takes its new expression;
- * a field rewritten is dropped and added again by `add`; a field kept as it is takes none. The one reading for a field
- * of a table both install but a rewritten one, which changeField drops before the conversions. */
+ * column to its new type: a serial column gives its draw up before its conversion, and a column serial after takes the
+ * target's draw once converted, an identity advanced past the stored maximum or a `uuidv7()` default; a field declared
+ * serial takes its draw, an identity advanced the same way, and one serial no longer gives it up; a generated field
+ * re-expressed takes its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is
+ * takes none. The one reading for a field of a table both install but a rewritten one, which changeField drops before
+ * the conversions. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
@@ -2804,14 +2821,23 @@ const inPlace = (
 		statement(advance(t, c.name, sequence, c.type))
 	]
 	const giveUp = statement(alter(t, [{ kind: "dropIdentity", column: b.name }]))
+	const takeUuidv7 = statement(alter(t, [{ kind: "setUuidv7Default", column: c.name }]))
+	const giveUpUuidv7 = statement(alter(t, [{ kind: "dropDefault", column: b.name }]))
 	switch (change.kind) {
 		case "kept":
 			return []
 		case "converted": {
-			const before = change.sequence.kind === "none" ? [] : [giveUp]
+			const before =
+				change.drawn.kind === "none"
+					? []
+					: change.drawn.kind === "uuidv7"
+						? [giveUpUuidv7]
+						: [giveUp]
 			return c.generated?.kind === "identity"
 				? [...before, ...convert({ ...c, generated: undefined }), ...take(c.generated.sequence)]
-				: [...before, ...convert(c)]
+				: c.generated?.kind === "uuidv7"
+					? [...before, ...convert({ ...c, generated: undefined }), takeUuidv7]
+					: [...before, ...convert(c)]
 		}
 		case "reexpressed":
 			return [statement(alter(t, [{ kind: "setExpression", column: c.name, expr: change.expr }]))]
@@ -2821,6 +2847,10 @@ const inPlace = (
 			return take(change.sequence)
 		case "serialRemoved":
 			return [giveUp]
+		case "uuidv7Declared":
+			return [takeUuidv7]
+		case "uuidv7Removed":
+			return [giveUpUuidv7]
 	}
 }
 
@@ -2831,8 +2861,11 @@ const sequenceFatesOf = (kept: Iterable<KeptTable>): ReadonlyMap<string, Sequenc
 	const out = new Map<string, SequenceFate>()
 	for (const { changes } of kept) {
 		for (const change of changes.values()) {
-			if (change.kind === "converted" && change.sequence.kind !== "none") {
-				out.set(nameKey(change.sequence.sequence), change.sequence.kind)
+			if (
+				change.kind === "converted" &&
+				(change.drawn.kind === "dropped" || change.drawn.kind === "recreated")
+			) {
+				out.set(nameKey(change.drawn.sequence), change.drawn.kind)
 			} else if (change.kind === "serialRemoved") {
 				out.set(nameKey(change.sequence), "dropped")
 			}

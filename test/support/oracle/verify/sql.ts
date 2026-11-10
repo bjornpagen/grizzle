@@ -2375,6 +2375,7 @@ class StatementAuditor {
 									return
 								case "dropColumn":
 								case "dropDefault":
+								case "setUuidv7Default":
 								case "dropIdentity":
 									this.ident(action.column, "column", "column")
 									return

@@ -1610,10 +1610,19 @@ class Model {
 		this.#converted.add(key)
 	}
 
-	/** A column converted to `type`, each row's cell as `conversion` makes it. */
+	/**
+	 * A column converted to `type`, each row's cell as `conversion` makes it. PostgreSQL converts a column's default with
+	 * it, by an assignment cast: a `uuidv7()` default casts to text, which keeps it, and to no other type the model
+	 * holds (42804).
+	 */
 	#retype(table: ObjectName, column: string, type: TypeRef, conversion: Conversion): void {
 		const t = this.#table(table)
 		const at = this.#columnAt(t, table, column, "retyped")
+		if (t.columns[at]?.generation.kind === "uuidv7" && !this.#ofBase(type, "text")) {
+			refuse(
+				`default for column "${column}" cannot be cast automatically to type ${printType(type)} (42804)`
+			)
+		}
 		this.#convertOnce(table.name, column)
 		const [pinned] = this.#pinning(table.name, column)
 		if (pinned !== undefined) {
@@ -1651,6 +1660,12 @@ class Model {
 		}
 		const from = this.#column(this.#table(table), table, column).type
 		return printType(this.#base(from)) === printType(this.#base(type))
+	}
+
+	/** Whether a type is the builtin `name`, a domain of the schema over it read through, and no array of it. */
+	#ofBase(type: TypeRef, name: "uuid" | "text"): boolean {
+		const base = this.#base(type)
+		return base.kind === "builtin" && base.name === name && !base.array
 	}
 
 	/** A column's type as a foreign key compares it: a domain of the schema read through to its base type. */
@@ -2785,9 +2800,36 @@ class Model {
 				case "dropColumn":
 					this.#dropColumn(s.table, a.column)
 					break
-				case "dropDefault":
-					this.#column(this.#table(s.table), s.table, a.column)
+				case "dropDefault": {
+					const t = this.#table(s.table)
+					const at = this.#columnAt(t, s.table, a.column, "defaulted")
+					const c = t.columns[at]
+					if (c?.generation.kind === "uuidv7") {
+						t.columns[at] = { ...c, generation: { kind: "none" } }
+					}
 					break
+				}
+				case "setUuidv7Default": {
+					const t = this.#table(s.table)
+					const at = this.#columnAt(t, s.table, a.column, "defaulted")
+					const c = t.columns[at]
+					if (c?.generation.kind === "identity") {
+						refuse(
+							`column "${a.column}" of relation "${s.table.name}" is an identity column (42601)`
+						)
+					} else if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
+						refuse(
+							`column "${a.column}" of relation "${s.table.name}" is a generated column (42601)`
+						)
+					} else if (c !== undefined && !this.#ofBase(c.type, "uuid")) {
+						refuse(
+							`column "${a.column}" is of type ${printType(c.type)} but default expression is of type uuid (42804)`
+						)
+					} else if (c !== undefined) {
+						t.columns[at] = { ...c, generation: { kind: "uuidv7" } }
+					}
+					break
+				}
 				case "addIdentity": {
 					const t = this.#table(s.table)
 					const at = this.#columnAt(t, s.table, a.column, "identity")

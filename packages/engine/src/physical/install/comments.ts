@@ -68,6 +68,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 			return [{ on: { kind: "SEQUENCE", name: a.sequence }, identifier: a.sequence.name }]
 		case "dropColumn":
 		case "dropDefault":
+		case "setUuidv7Default":
 		case "alterColumnType":
 		case "setExpression":
 		case "dropIdentity":

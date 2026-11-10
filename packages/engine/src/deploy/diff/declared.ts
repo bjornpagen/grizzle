@@ -1224,6 +1224,7 @@ const withColumns = (
 				}
 			case "dropColumn":
 			case "dropDefault":
+			case "setUuidv7Default":
 			case "addIdentity":
 			case "dropIdentity":
 				return { ...a, column: nameIn(into)(a.column) }

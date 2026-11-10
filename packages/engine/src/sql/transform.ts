@@ -933,6 +933,7 @@ export class Transform {
 			}
 			case "dropColumn":
 			case "dropDefault":
+			case "setUuidv7Default":
 			case "dropIdentity":
 			case "enableRowSecurity":
 			case "disableRowSecurity":

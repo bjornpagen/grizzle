@@ -1120,6 +1120,11 @@ export type AlterTableAction =
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
+			/** ALTER COLUMN ... SET DEFAULT pg_catalog.uuidv7(): a pg.uuidv7 field's draw, taken in place. */
+			readonly kind: "setUuidv7Default"
+			readonly column: string
+	  }
+	| {
 			readonly kind: "alterColumnType"
 			readonly column: string
 			readonly type: TypeRef

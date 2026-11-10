@@ -29,6 +29,8 @@ import {
 	resolveLegalIntents,
 	resolveRenamedDraw,
 	serialFields,
+	type SqConversion,
+	sqConversions,
 	statisticsOfRenamedRelation,
 	statisticsOverRetyped,
 	type Version
@@ -105,7 +107,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
  * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
- * ambient session, and whether a version names a relation or a closed roster as PostgreSQL names a type or function. */
+ * ambient session, whether a version names a relation or a closed roster as PostgreSQL names a type or function, and
+ * each conversion of R1's `sq` between an integer serial, a pg.uuidv7 and a uuid, which a kept path of intents makes
+ * each of. */
 const runs = 4
 const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
 
@@ -122,6 +126,7 @@ const featureNames = [
 type Feature =
 	| (typeof featureNames)[number]
 	| `the intent ${LegalIntentKind}`
+	| `sq: ${SqConversion}`
 	| AmbientFeature
 	| "catalog-type name"
 
@@ -200,6 +205,13 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 				}
 			}
 			noteRenames(notes, p)
+			for (const conversion of [
+				...sqConversions(p.path.a, p.path.b),
+				...sqConversions(p.path.b, p.path.c),
+				...sqConversions(p.path.a, p.path.c)
+			]) {
+				notes.note(`sq: ${conversion}`)
+			}
 			notes.note(p.choose ? "the path's renames declared" : "every removal declared a drop")
 			/** The facts A holds: those whose carried forms are lawful through both chains, A to B to C and A to C. */
 			const model = carryChain(
@@ -356,6 +368,57 @@ const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" },
 			"the intent retypeSerial",
 			"a relation renamed in B",
 			"the path's renames declared",
+			"facts carried"
+		]
+	},
+	{
+		note: "R1's serial converted to a uuidv7 in B and back to a serial in C: each conversion gives its draw up first and takes the target's once converted",
+		sketch: {
+			kind: "legal",
+			toB: [{ kind: "sqUuidv7" }],
+			toC: [{ kind: "sqSerial" }],
+			takeDropped: false,
+			choose: true,
+			freshRelations: "before"
+		},
+		draws: ordinaryDraws,
+		reaches: [
+			"the intent sqUuidv7",
+			"the intent sqSerial",
+			"sq: an integer serial to a uuidv7",
+			"sq: a uuidv7 to an integer serial",
+			"facts carried"
+		]
+	},
+	{
+		note: "R1's serial converted to a uuid in B, then a uuidv7 in C: the uuid takes its uuidv7() default in place",
+		sketch: {
+			kind: "legal",
+			toB: [{ kind: "sqUuid" }],
+			toC: [{ kind: "sqUuidv7" }],
+			takeDropped: false,
+			choose: true,
+			freshRelations: "before"
+		},
+		draws: ordinaryDraws,
+		reaches: ["the intent sqUuid", "the intent sqUuidv7", "sq: a uuid to a uuidv7", "facts carried"]
+	},
+	{
+		note: "R1's serial converted to a uuidv7 in B, then a plain uuid in C: the uuidv7 gives its default up in place",
+		sketch: {
+			kind: "legal",
+			toB: [{ kind: "sqUuidv7" }],
+			toC: [{ kind: "sqUuid" }],
+			takeDropped: false,
+			choose: true,
+			freshRelations: "before"
+		},
+		draws: ordinaryDraws,
+		reaches: [
+			"the intent sqUuidv7",
+			"the intent sqUuid",
+			"sq: an integer serial to a uuidv7",
+			"sq: a uuidv7 to a uuid",
 			"facts carried"
 		]
 	}

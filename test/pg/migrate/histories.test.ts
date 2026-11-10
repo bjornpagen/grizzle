@@ -38,6 +38,7 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	carry,
 	noExtras,
+	noSq,
 	type Renames,
 	serialFields,
 	typedValue,
@@ -1123,7 +1124,10 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				}),
 				`step ${h.steps}`
 			)
-			const reviewed = review(g, { losses: "written", value: typedValue({ plan, version: v }) })
+			const reviewed = review(g, {
+				losses: "written",
+				value: typedValue({ plan, version: v }, noSq)
+			})
 			assert.deepEqual(
 				readsBack(g, reviewed.files),
 				[],

@@ -692,6 +692,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 							return ofTable(s.table, a.name)
 						case "dropColumn":
 						case "dropDefault":
+						case "setUuidv7Default":
 						case "alterColumnType":
 						case "addIdentity":
 						case "dropIdentity":

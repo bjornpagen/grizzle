@@ -1121,6 +1121,8 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `DROP COLUMN ${quoteIdent(action.column)}`
 		case "dropDefault":
 			return `ALTER COLUMN ${quoteIdent(action.column)} DROP DEFAULT`
+		case "setUuidv7Default":
+			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "uuidv7" })}`
 		case "alterColumnType":
 			return `ALTER COLUMN ${quoteIdent(action.column)} TYPE ${printType(action.type)}${action.collation === undefined ? "" : ` COLLATE ${printObjectName(action.collation)}`} USING ${printUsing(action.using)}`
 		case "addIdentity":
