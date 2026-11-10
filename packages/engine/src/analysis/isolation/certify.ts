@@ -2,6 +2,7 @@ import type {
 	IsolationInput,
 	MemberFacts,
 	ReadFact,
+	RelationFacts,
 	RoleFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -9,19 +10,48 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
- * The conditions a role's change members must all meet to run READ COMMITTED, in the owner's order:
+ * The conditions a role's change members must all meet to run READ COMMITTED, after `facts`, that the installation
+ * states a fact of every relation the role holds a privilege on, reads or writes. An outside read is a read of rows
+ * another call can write: of a relation some role writes, neither grizzle's own key arbitration nor of the call's own
+ * rows.
  *
- * - `privileges`: the role holds only INSERT and SELECT;
- * - `laws`: every law over a relation it writes is native, and nothing that relies on SERIALIZABLE reads such a
- *   relation, neither a rule over a query's trigger nor a change member of a role that runs SERIALIZABLE;
+ * - `members`: the role has a change member. A role with none writes, if at all, by direct SQL alone, which no member's
+ *   facts prove;
+ * - `privileges`: the role holds only INSERT and SELECT, and every relation it writes is insert-only for every role of
+ *   every login (Writers.insertOnly): no role holds UPDATE or DELETE on it, and no member updates or deletes it. The
+ *   insert protocol at READ COMMITTED rests on it: a row DO SELECT finds beyond the snapshot never combines with the
+ *   snapshot's reads into a write no serial order makes only while no occupant a probe saw can be deleted and replaced
+ *   (write/insert/protocol.ts storedAbsent and the probe and ON CONFLICT DO SELECT arms of buildInsert;
+ *   write/insert/unique.ts RelationUniques, its arbiter and probes);
+ * - `laws`: every law over a relation it writes is native, and no change member of a role that runs SERIALIZABLE reads
+ *   such a relation;
  * - `absence`: no change member of any role reads the absence or a count of a relation it writes;
- * - `statements`: in each of its members, every statement after the first reads only rows the call wrote or rows of
- *   an insert-only relation;
- * - `sealed`: every read of its members of rows the call did not write is of a relation no role writes, or of one
- *   sealed group (ReadSeal), and a read the written rows are derived from finds them, so a group that is not there
- *   writes nothing.
+ * - `snapshot`: in each of its members, an outside read that is no sealed group (ReadSeal) shares its statement with
+ *   every other outside read, so they all see one snapshot;
+ * - `pivot`: a member with an outside read and a write is a pivot, each write of which another call may read. Each of
+ *   its outside reads is a sealed group read positively, and each row it writes reaches every one of them: joined
+ *   with each outside read of its own statement, and, after a statement that read from outside, with a row its own
+ *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
+ *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended;
+ * - `writers`: no role that runs SERIALIZABLE and writes a relation its members read unsealed from outside has an
+ *   outside read of its own or a law over a relation it writes held by triggers, so none is the pivot of a cycle
+ *   through it. A sealed group read is exempt: it covers exactly one writer call's rows, so the reader sees that call
+ *   whole or not at all and cannot observe two SERIALIZABLE calls with one seen and one missed, which is what a
+ *   SERIALIZABLE pivot's anomaly needs, whatever triggers that writer fires.
+ *
+ * With these, an RC member's outside reads behave as one snapshot, its writes commit at once, every write-write
+ * conflict is a native unique check decided in commit order, and no transaction, RC or SERIALIZABLE, can be the pivot of
+ * a dangerous structure (Fekete et al., Making Snapshot Isolation Serializable, 2005), so every history is serializable.
  */
-export type IsolationCondition = "privileges" | "laws" | "absence" | "statements" | "sealed"
+export type IsolationCondition =
+	| "facts"
+	| "members"
+	| "privileges"
+	| "laws"
+	| "absence"
+	| "snapshot"
+	| "pivot"
+	| "writers"
 
 /** One condition a role fails, where: the member and the statement in its flight, and the relation, where they apply. */
 export interface IsolationReason {
@@ -48,24 +78,30 @@ export interface RoleIsolation {
 }
 
 /**
- * What makes a read of a change member safe at READ COMMITTED, or why nothing does:
+ * What a read of a change member is, for the conditions:
  *
- * - `arbiter`: it is grizzle's own key arbitration of a relation the statement writes, which PostgreSQL's unique check
- *   decides;
+ * - `arbiter`: grizzle's own key arbitration of an insert-only relation the statement writes, binding every field of a
+ *   declared key, which PostgreSQL's unique check decides whatever the call read; an arbitration that binds no whole
+ *   declared key is unsealed, since no unique check decides it, and so is one of a relation a role updates or deletes,
+ *   where the occupant a probe saw may be replaced (the `privileges` condition's dependence);
  * - `own`: it reads only rows the call itself wrote;
- * - `unwritten`: no role writes the relation, so every snapshot holds the same rows of it;
- * - `fresh`: it reads one group of an insert-only relation by a key every insert into the relation makes fresh to its
- *   call (a pg.uuidv7 drawn field, or a copy of one the call drew), so the group is one call's output;
- * - `counted`: it reads one group of an insert-only relation that is a family's members under an immutable owner
- *   holding their count, a set the count law fixes;
- * - `unsealed`: none of these, with why.
+ * - `unwritten`: no role writes the relation. The owner writes such a relation by its migrations only, and a migration
+ *   takes the ledger's ACCESS EXCLUSIVE lock before any statement (deploy/ledger/ledger.ts:266 and :331, grizzle
+ *   adapter/migrate/apply.ts:104), where every Db call holds it in ACCESS SHARE, so every call's snapshot sees one
+ *   migration state of it. An owner's psql session writing it outside a migration holds no such lock and falls outside
+ *   this proof, under the documented direct-SQL doctrine;
+ * - `counted`: an outside read of one group of an insert-only relation that is a family's members under an immutable
+ *   owner holding their count, a set the count law fixes, all of it or none;
+ * - `point`: an outside read binding every field of a declared key of an insert-only relation, so one row at most,
+ *   which no later call changes;
+ * - `unsealed`: any other outside read, with why.
  */
 export type ReadSeal =
-	| { readonly kind: "arbiter" }
+	| { readonly kind: "arbiter"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "own" }
 	| { readonly kind: "unwritten" }
-	| { readonly kind: "fresh"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "counted"; readonly key: ReadonlyArray<string> }
+	| { readonly kind: "point"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "unsealed"; readonly detail: string }
 
 /** The privileges a writer holds; a role holding none of them on a relation only reads it. */
@@ -74,17 +110,134 @@ const writing: ReadonlySet<TablePrivilege> = new Set(["INSERT", "UPDATE", "DELET
 /** The privileges a READ COMMITTED role may hold. */
 const insertAndSelect: ReadonlySet<TablePrivilege> = new Set(["SELECT", "INSERT"])
 
-/** Every statement of a role's members, each with its member and its place in the member's flight. */
-interface Placed {
-	readonly member: MemberFacts
-	readonly index: number
-	readonly reads: ReadonlyArray<ReadFact>
+/** Whether two keys name the same fields. */
+const sameKey = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	a.length === b.length && a.every((f) => b.includes(f))
+
+/** What the installation's roles state of each relation, read once: whether any role writes it, and whether any
+ * updates or deletes it. */
+class Writers {
+	readonly #written = new Set<string>()
+	readonly #changed = new Set<string>()
+
+	constructor(input: IsolationInput) {
+		for (const role of input.roles) {
+			for (const [relation, privileges] of role.privileges) {
+				for (const p of privileges) {
+					if (writing.has(p)) {
+						this.#written.add(relation)
+					}
+					if (p === "UPDATE" || p === "DELETE") {
+						this.#changed.add(relation)
+					}
+				}
+			}
+			for (const member of role.members) {
+				for (const s of member.statements) {
+					for (const w of s.writes) {
+						this.#written.add(w.relation)
+						if (w.op !== "insert") {
+							this.#changed.add(w.relation)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/** Whether no role writes the relation. */
+	unwritten(relation: string): boolean {
+		return !this.#written.has(relation)
+	}
+
+	/** Whether no role updates or deletes the relation: a row of it, once committed, stays as it is. */
+	insertOnly(relation: string): boolean {
+		return !this.#changed.has(relation)
+	}
 }
 
-const placedOf = (role: RoleFacts): ReadonlyArray<Placed> =>
-	role.members.flatMap((member) =>
-		member.statements.map((s, index) => ({ member, index, reads: s.reads }))
+/** What the certifier reads of every role at once. */
+interface Installation {
+	readonly input: IsolationInput
+	readonly writers: Writers
+}
+
+/** What `read` is among the installation's roles (ReadSeal). */
+export const readSeal = (input: IsolationInput, read: ReadFact): ReadSeal =>
+	sealOf({ input, writers: new Writers(input) }, read)
+
+const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
+	if (read.own) {
+		return { kind: "own" }
+	}
+	const facts = at.input.relations.get(read.relation)
+	if (facts === undefined) {
+		return { kind: "unsealed", detail: "the installation states no fact of it" }
+	}
+	if (at.writers.unwritten(read.relation)) {
+		return { kind: "unwritten" }
+	}
+	const group = read.group
+	if (read.mode === "arbiter") {
+		return at.writers.insertOnly(read.relation)
+			? arbiterSeal(facts, group)
+			: {
+					kind: "unsealed",
+					detail:
+						"a role updates or deletes the relation, so an occupant its arbitration saw may be replaced"
+				}
+	}
+	if (group === undefined) {
+		return { kind: "unsealed", detail: "it reads rows of no one group" }
+	}
+	if (!at.writers.insertOnly(read.relation)) {
+		return { kind: "unsealed", detail: "a role updates or deletes the relation" }
+	}
+	if (facts.countedGroups.some((k) => sameKey(k, group))) {
+		return { kind: "counted", key: group }
+	}
+	const point = facts.keys.find((k) => k.every((f) => group.includes(f)))
+	return point === undefined
+		? {
+				kind: "unsealed",
+				detail: `its group by ${group.join(", ")} is neither a family's counted members nor a whole declared key`
+			}
+		: { kind: "point", key: point }
+}
+
+/** An arbitration's seal: the declared key its group binds whole, which the unique check decides, or unsealed. */
+const arbiterSeal = (facts: RelationFacts, group: ReadonlyArray<string> | undefined): ReadSeal => {
+	const key =
+		group === undefined ? undefined : facts.keys.find((k) => k.every((f) => group.includes(f)))
+	return key === undefined
+		? {
+				kind: "unsealed",
+				detail: "it arbitrates no whole declared key, which no unique check decides"
+			}
+		: { kind: "arbiter", key }
+}
+
+/** Whether a read's seal makes it an outside read: of rows another call can write. */
+const outside = (seal: ReadSeal): boolean =>
+	seal.kind !== "arbiter" && seal.kind !== "own" && seal.kind !== "unwritten"
+
+/** One read of a member, at its statement's place in the member's flight and its own in the statement's reads. */
+interface PlacedRead {
+	readonly statement: number
+	readonly index: number
+	readonly read: ReadFact
+	readonly seal: ReadSeal
+}
+
+/** Every read of a member, each placed and sealed. */
+const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> =>
+	member.statements.flatMap((s, statement) =>
+		s.reads.map((read, index) => ({ statement, index, read, seal: sealOf(at, read) }))
 	)
+
+/** The text that names one group a read reads: its relation, its fields and what they are bound to. */
+const groupOf = (r: ReadFact): string =>
+	`${r.relation}(${(r.group ?? []).join(",")})=${r.binding ?? ""}`
 
 /** The relations a role writes: those it holds a writer's privilege on and those its members' statements write. */
 const writtenBy = (role: RoleFacts): ReadonlySet<string> => {
@@ -104,96 +257,19 @@ const writtenBy = (role: RoleFacts): ReadonlySet<string> => {
 	return out
 }
 
-/** Whether two keys name the same fields. */
-const sameKey = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && a.every((f) => b.includes(f))
-
-/**
- * What the installation's roles state of each relation, read once: whether any role writes it, whether any updates or
- * deletes it, and, of each key, whether every insert into it makes that key fresh.
- */
-class Writers {
-	readonly #written = new Set<string>()
-	readonly #changed = new Set<string>()
-	readonly #inserts = new Map<string, Array<ReadonlyArray<ReadonlyArray<string>>>>()
-
-	constructor(input: IsolationInput) {
-		for (const role of input.roles) {
-			for (const [relation, privileges] of role.privileges) {
-				for (const p of privileges) {
-					if (writing.has(p)) {
-						this.#written.add(relation)
-					}
-					if (p === "UPDATE" || p === "DELETE") {
-						this.#changed.add(relation)
-					}
-				}
-			}
-			for (const member of role.members) {
-				for (const s of member.statements) {
-					for (const w of s.writes) {
-						this.#written.add(w.relation)
-						if (w.op === "insert") {
-							const fresh = this.#inserts.get(w.relation) ?? []
-							fresh.push(w.fresh)
-							this.#inserts.set(w.relation, fresh)
-						} else {
-							this.#changed.add(w.relation)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	/** Whether no role writes the relation: every snapshot holds the same rows of it. */
-	unwritten(relation: string): boolean {
-		return !this.#written.has(relation)
-	}
-
-	/** Whether no role updates or deletes the relation: a row of it, once committed, stays as it is. */
-	insertOnly(relation: string): boolean {
-		return !this.#changed.has(relation)
-	}
-
-	/** Whether every insert into the relation makes `key` fresh to its call. */
-	freshAlways(relation: string, key: ReadonlyArray<string>): boolean {
-		return (this.#inserts.get(relation) ?? []).every((fresh) => fresh.some((k) => sameKey(k, key)))
-	}
-}
-
-/** What makes `read` safe at READ COMMITTED among the installation's roles (ReadSeal). */
-export const readSeal = (input: IsolationInput, read: ReadFact): ReadSeal =>
-	sealOf({ input, writers: new Writers(input) }, read)
-
-const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
-	if (read.mode === "arbiter") {
-		return { kind: "arbiter" }
-	}
-	if (read.own) {
-		return { kind: "own" }
-	}
-	if (at.writers.unwritten(read.relation)) {
-		return { kind: "unwritten" }
-	}
-	const group = read.group
-	if (group === undefined) {
-		return { kind: "unsealed", detail: "it reads rows of no one group" }
-	}
-	if (!at.writers.insertOnly(read.relation)) {
-		return { kind: "unsealed", detail: "a role updates or deletes the relation" }
-	}
-	if (at.writers.freshAlways(read.relation, group)) {
-		return { kind: "fresh", key: group }
-	}
-	const counted = at.input.relations.get(read.relation)?.countedGroups ?? []
-	return counted.some((k) => sameKey(k, group))
-		? { kind: "counted", key: group }
-		: {
-				kind: "unsealed",
-				detail: `its group by ${group.join(", ")} is neither made fresh by every insert nor a family's counted members`
-			}
-}
+/** The relations a role's members read from outside, or, `unsealedOnly`, read from outside unsealed. */
+const readOutsideBy = (
+	at: Installation,
+	role: RoleFacts,
+	unsealedOnly: boolean
+): ReadonlySet<string> =>
+	new Set(
+		role.members.flatMap((m) =>
+			readsOf(at, m).flatMap((p) =>
+				outside(p.seal) && (!unsealedOnly || p.seal.kind === "unsealed") ? [p.read.relation] : []
+			)
+		)
+	)
 
 const reason = (
 	condition: IsolationCondition,
@@ -207,35 +283,87 @@ const reason = (
 	detail
 })
 
-/** What the certifier reads of every role at once. */
-interface Installation {
-	readonly input: IsolationInput
-	readonly writers: Writers
-}
+/** The relations a role holds a privilege on, writes, or reads other than its own call's rows. */
+const touchedBy = (role: RoleFacts): ReadonlySet<string> =>
+	new Set([
+		...role.privileges.keys(),
+		...role.members.flatMap((m) =>
+			m.statements.flatMap((s) => [
+				...s.writes.map((w) => w.relation),
+				...s.reads.flatMap((r) => (r.own ? [] : [r.relation]))
+			])
+		)
+	])
 
-/** Condition 1: every privilege the role holds is INSERT or SELECT. */
-const privilegeReasons = (role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	[...role.privileges].flatMap(([relation, privileges]) =>
+/** Every relation the role touches that the installation states no fact of. */
+const factReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
+	[...touchedBy(role)].flatMap((relation) =>
+		at.input.relations.has(relation)
+			? []
+			: [reason("facts", { relation }, "the installation states no fact of it")]
+	)
+
+/** The members condition: the role has a change member, whose facts the other conditions read. */
+const memberReasons = (role: RoleFacts): ReadonlyArray<IsolationReason> =>
+	role.members.length === 0
+		? [
+				reason(
+					"members",
+					{},
+					"it has no change member: it writes, if at all, by direct SQL alone, which no member's facts prove"
+				)
+			]
+		: []
+
+/** Condition 1: every privilege the role holds is INSERT or SELECT, and no role updates or deletes a relation it
+ * writes. */
+const privilegeReasons = (
+	at: Installation,
+	role: RoleFacts,
+	written: ReadonlySet<string>
+): ReadonlyArray<IsolationReason> => [
+	...[...role.privileges].flatMap(([relation, privileges]) =>
 		[...privileges].flatMap((p) =>
 			insertAndSelect.has(p) ? [] : [reason("privileges", { relation }, `holds ${p}`)]
 		)
+	),
+	...[...written].flatMap((relation) =>
+		at.writers.insertOnly(relation)
+			? []
+			: [
+					reason(
+						"privileges",
+						{ relation },
+						"it writes the relation, which a role updates or deletes, so it is not insert-only"
+					)
+				]
 	)
+]
 
-/** Condition 2's own half: every law over a relation the role writes is native, and no rule over a query reads it. */
+/** Condition 2's own half: no law over a relation the role writes is held by a deferred trigger. */
 const lawReasons = (
 	at: Installation,
 	written: ReadonlySet<string>
 ): ReadonlyArray<IsolationReason> =>
 	[...written].flatMap((relation): ReadonlyArray<IsolationReason> => {
-		const facts = at.input.relations.get(relation)
-		if (facts === undefined) {
-			return [reason("laws", { relation }, "the installation states no facts of it")]
-		}
-		return [
-			...(facts.nativeLaws ? [] : [reason("laws", { relation }, "a law over it is not native")]),
-			...(facts.ruleRead ? [reason("laws", { relation }, "a rule over a query reads it")] : [])
-		]
+		const laws = at.input.relations.get(relation)?.triggerLaws ?? []
+		return laws.length === 0
+			? []
+			: [reason("laws", { relation }, `laws ${laws.join(", ")} over it are held by triggers`)]
 	})
+
+/**
+ * How a read decides by absence or by count, for condition 3: negated, counted, or as an arbitration no unique check
+ * decides, which is an absence probe; none for a read only the presence of rows feeds, or one a unique check decides.
+ */
+const absentBy = (at: Installation, r: ReadFact): string | undefined => {
+	if (r.mode === "negated" || r.mode === "counted") {
+		return r.mode
+	}
+	return r.mode === "arbiter" && sealOf(at, r).kind === "unsealed"
+		? "as an arbitration of no whole declared key"
+		: undefined
+}
 
 /** Condition 3: no change member of any role reads the absence or a count of a relation the role writes. */
 const absenceReasons = (
@@ -243,139 +371,209 @@ const absenceReasons = (
 	written: ReadonlySet<string>
 ): ReadonlyArray<IsolationReason> =>
 	at.input.roles.flatMap((other) =>
-		placedOf(other).flatMap((p) =>
-			p.reads.flatMap((r) =>
-				(r.mode === "negated" || r.mode === "counted") && written.has(r.relation)
-					? [
-							reason(
-								"absence",
-								{ member: p.member.name, statement: p.index, relation: r.relation },
-								`${other.role} of ${other.login} reads it ${r.mode}`
-							)
-						]
-					: []
+		other.members.flatMap((m) =>
+			m.statements.flatMap((s, index) =>
+				s.reads.flatMap((r) => {
+					const how = written.has(r.relation) ? absentBy(at, r) : undefined
+					return how === undefined
+						? []
+						: [
+								reason(
+									"absence",
+									{ member: m.name, statement: index, relation: r.relation },
+									`${other.role} of ${other.login} reads it ${how}`
+								)
+							]
+				})
 			)
 		)
 	)
 
-/** Condition 4: a statement after the first reads only rows the call wrote or rows of an insert-only relation. */
-const statementReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	placedOf(role).flatMap((p) =>
-		p.index === 0
-			? []
-			: p.reads.flatMap((r) =>
-					r.mode === "arbiter" || r.own || at.writers.insertOnly(r.relation)
-						? []
-						: [
-								reason(
-									"statements",
-									{ member: p.member.name, statement: p.index, relation: r.relation },
-									"a later statement reads rows another call may update or delete"
-								)
-							]
-				)
-	)
+/** Condition 5a: an outside read that is no sealed group shares its statement with every other outside read. */
+const snapshotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
+	role.members.flatMap((m) => {
+		const reads = readsOf(at, m).filter((p) => outside(p.seal))
+		return reads.flatMap((p) =>
+			p.seal.kind !== "unsealed"
+				? []
+				: reads
+						.filter((q) => q.statement !== p.statement)
+						.map((q) =>
+							reason(
+								"snapshot",
+								{ member: m.name, statement: q.statement, relation: q.read.relation },
+								`it reads rows another call can write in another statement than the unsealed read of ${p.read.relation} in statement ${p.statement}, from another snapshot`
+							)
+						)
+		)
+	})
 
 /**
- * Condition 5: a read of rows the call did not write reads a relation no role writes, or one sealed group, and a read
- * the written rows are derived from finds them.
+ * Condition 5b: a member with an outside read and a write reads every outside group sealed and positively, and every
+ * row it writes reaches every outside group it reads: joined with each outside read of its statement, and, after a
+ * statement that read from outside, with a row its own call wrote; no write comes before a group read only later.
  */
-const sealedReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	placedOf(role).flatMap((p) =>
-		p.reads.flatMap((r) =>
-			sealReasons(sealOf(at, r), r, {
-				member: p.member.name,
-				statement: p.index,
-				relation: r.relation
-			})
-		)
-	)
-
-/** What a read's seal leaves of condition 5: nothing for a safe read, else why it is not. */
-const sealReasons = (
-	seal: ReadSeal,
-	read: ReadFact,
-	where: { readonly member: string; readonly statement: number; readonly relation: string }
-): ReadonlyArray<IsolationReason> => {
-	switch (seal.kind) {
-		case "arbiter":
-		case "own":
-		case "unwritten":
+const pivotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
+	role.members.flatMap((m) => {
+		const reads = readsOf(at, m)
+		const outsides = reads.filter((p) => outside(p.seal))
+		const writes = m.statements.flatMap((s, statement) => s.writes.map((w) => ({ statement, w })))
+		if (outsides.length === 0 || writes.length === 0) {
 			return []
-		case "unsealed":
-			return [reason("sealed", where, seal.detail)]
-		case "fresh":
-		case "counted":
-			return read.feeds === "write" && read.mode !== "positive"
-				? [reason("sealed", where, `the rows it writes depend on the group ${read.mode}`)]
-				: []
-	}
-}
+		}
+		const unsealed = outsides.flatMap((p) => {
+			const where = { member: m.name, statement: p.statement, relation: p.read.relation }
+			return p.seal.kind === "unsealed"
+				? [reason("pivot", where, p.seal.detail)]
+				: p.read.mode === "positive"
+					? []
+					: [reason("pivot", where, `it reads the group ${p.read.mode}`)]
+		})
+		const first = new Map<string, number>()
+		for (const p of outsides) {
+			const g = groupOf(p.read)
+			first.set(g, Math.min(first.get(g) ?? p.statement, p.statement))
+		}
+		const firstOutside = outsides.reduce(
+			(least, p) => Math.min(least, p.statement),
+			Number.POSITIVE_INFINITY
+		)
+		const unjoined = writes.flatMap(({ statement, w }) => {
+			const where = { member: m.name, statement, relation: w.relation }
+			const own = reads.some(
+				(p) =>
+					p.statement === statement &&
+					p.seal.kind === "own" &&
+					p.read.mode === "positive" &&
+					w.from.includes(p.index)
+			)
+			const missed = outsides.filter((p) => p.statement === statement && !w.from.includes(p.index))
+			const later = [...first].filter(([, firstAt]) => firstAt > statement).map(([g]) => g)
+			return [
+				...missed.map((p) =>
+					reason(
+						"pivot",
+						where,
+						`a row it writes is not joined with the read of ${p.read.relation} in its statement`
+					)
+				),
+				...(statement > firstOutside && !own
+					? [
+							reason(
+								"pivot",
+								where,
+								"a row it writes after a statement that read from outside is joined with no row its call wrote"
+							)
+						]
+					: []),
+				...later.map((g) =>
+					reason("pivot", where, `a row it writes comes before the group ${g}, read only later`)
+				)
+			]
+		})
+		return [...unsealed, ...unjoined]
+	})
 
 /** Every reason a role fails that no other role's verdict changes. */
 const ownReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> => {
 	const written = writtenBy(role)
 	return [
-		...privilegeReasons(role),
+		...factReasons(at, role),
+		...memberReasons(role),
+		...privilegeReasons(at, role, written),
 		...lawReasons(at, written),
 		...absenceReasons(at, written),
-		...statementReasons(at, role),
-		...sealedReasons(at, role)
+		...snapshotReasons(at, role),
+		...pivotReasons(at, role)
 	]
 }
 
-/** Condition 2's other half: no change member of a SERIALIZABLE role reads a relation the role writes. */
-const serializableReaders = (
+/**
+ * The reasons the roles that run SERIALIZABLE give a role: condition 2's other half, a change member of one reading a
+ * relation the role writes; and condition 5c, one writing a relation the role's members read unsealed from outside
+ * while it reads from outside itself or writes a relation a trigger-held law reads.
+ */
+const serializableReasons = (
+	at: Installation,
 	role: RoleFacts,
 	serializable: ReadonlyArray<RoleFacts>
 ): ReadonlyArray<IsolationReason> => {
 	const written = writtenBy(role)
-	return serializable.flatMap((other) =>
-		placedOf(other).flatMap((p) =>
-			p.reads.flatMap((r) =>
-				written.has(r.relation)
-					? [
-							reason(
-								"laws",
-								{ member: p.member.name, statement: p.index, relation: r.relation },
-								`${other.role} of ${other.login} reads it at SERIALIZABLE`
-							)
-						]
-					: []
+	const read = readOutsideBy(at, role, true)
+	return serializable.flatMap((other) => {
+		const readers = other.members.flatMap((m) =>
+			m.statements.flatMap((s, index) =>
+				s.reads.flatMap((r) =>
+					written.has(r.relation)
+						? [
+								reason(
+									"laws",
+									{ member: m.name, statement: index, relation: r.relation },
+									`${other.role} of ${other.login} reads it at SERIALIZABLE`
+								)
+							]
+						: []
+				)
 			)
 		)
-	)
+		const theirs = writtenBy(other)
+		const shared = [...theirs].filter((relation) => read.has(relation))
+		const pivots = [
+			...[...readOutsideBy(at, other, false)].map(
+				(relation) => `it reads ${relation} from outside at SERIALIZABLE`
+			),
+			...[...theirs].flatMap((relation) =>
+				(at.input.relations.get(relation)?.triggerLaws ?? []).length > 0
+					? [`a law over ${relation}, which it writes, is held by triggers`]
+					: []
+			)
+		]
+		return [
+			...readers,
+			...shared.flatMap((relation) =>
+				pivots.map((why) =>
+					reason("writers", { relation }, `${other.role} of ${other.login} writes it, and ${why}`)
+				)
+			)
+		]
+	})
 }
 
 /**
- * Each role's certificate: READ COMMITTED exactly when its change members meet every condition, its reads by roles
- * that run SERIALIZABLE judged against the final verdicts. The roles that meet every condition of their own start
- * READ COMMITTED; a role a SERIALIZABLE role's member reads the writes of runs SERIALIZABLE, which may make another so,
- * until none changes. Each step only removes roles, so the set it ends at is the greatest one every member of which
- * meets every condition against it. Roles keep the input's order.
+ * Each role's certificate: READ COMMITTED exactly when its change members meet every condition, the roles that run
+ * SERIALIZABLE judged against the final verdicts. The roles that meet every condition of their own start READ
+ * COMMITTED; a role a SERIALIZABLE role gives a reason runs SERIALIZABLE, which may give another one, until none
+ * changes. Each step only removes roles, so the set it ends at is the greatest one every member of which meets every
+ * condition against it. A role that runs SERIALIZABLE by others alone names every reason each other role that runs
+ * SERIALIZABLE at the end gives it, never one of its own making. Roles keep the input's order.
  */
 export const certify = (input: IsolationInput): ReadonlyArray<RoleIsolation> => {
 	const at: Installation = { input, writers: new Writers(input) }
-	const reasons = new Map<RoleFacts, ReadonlyArray<IsolationReason>>(
+	const own = new Map<RoleFacts, ReadonlyArray<IsolationReason>>(
 		input.roles.map((role) => [role, ownReasons(at, role)] as const)
 	)
+	const serializable = new Set(input.roles.filter((role) => (own.get(role) ?? []).length > 0))
 	let changed = true
 	while (changed) {
 		changed = false
-		const serializable = input.roles.filter((role) => (reasons.get(role) ?? []).length > 0)
+		const judges = [...serializable]
 		for (const role of input.roles) {
-			if ((reasons.get(role) ?? []).length > 0) {
-				continue
-			}
-			const read = serializableReaders(role, serializable)
-			if (read.length > 0) {
-				reasons.set(role, read)
+			if (!serializable.has(role) && serializableReasons(at, role, judges).length > 0) {
+				serializable.add(role)
 				changed = true
 			}
 		}
 	}
 	return input.roles.map((role): RoleIsolation => {
-		const failed = reasons.get(role) ?? []
+		const mine = own.get(role) ?? []
+		const failed =
+			mine.length > 0 || !serializable.has(role)
+				? mine
+				: serializableReasons(
+						at,
+						role,
+						[...serializable].filter((other) => other !== role)
+					)
 		return {
 			login: role.login,
 			role: role.role,

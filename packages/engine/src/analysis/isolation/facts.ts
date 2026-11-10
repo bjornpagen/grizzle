@@ -3,42 +3,47 @@
  * those who own it (each role's grant plan, the law model's discharge of each relation's laws, each compiled change
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
+import type { LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
- * One relation of the installation: whether every law over it is discharged natively (a CHECK, a primary key, a
- * UNIQUE, a foreign key or a roster domain), whether a rule over a query's trigger reads it, and its counted groups,
- * each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds their
- * count (a counted, ordered or fin family), a set the count law fixes once the owner is written.
+ * One relation of the installation: the laws the installation's law model still discharges by deferred constraint
+ * triggers that read it (laws/model/model.ts triggerLawsOver), none where every law over it is native (a key, a CHECK, a
+ * domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; and its counted
+ * groups, each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds
+ * their count (a counted, ordered or fin family), a set the count law fixes once the owner is written.
  */
 export interface RelationFacts {
-	readonly nativeLaws: boolean
-	readonly ruleRead: boolean
+	readonly triggerLaws: ReadonlyArray<LawId>
+	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
 }
 
 /**
- * One relation a statement writes and how. `fresh` lists the keys, each by its fields, whose values in every row the
- * statement writes are fresh to the call: made by a default the call evaluates on a row it inserts (a uuidv7() id), or
- * copied from such a value within the call.
+ * One relation a statement writes and how. `from` lists the statement's reads, by their places in its `reads`, every
+ * row it writes is positively joined with, so a read that finds nothing makes it write nothing.
  */
 export interface WriteFact {
 	readonly relation: string
 	readonly op: "insert" | "update" | "delete"
-	readonly fresh: ReadonlyArray<ReadonlyArray<string>>
+	readonly from: ReadonlyArray<number>
 }
 
 /**
  * One relation a statement reads and how:
  *
  * - `mode`: `positive` where the rows it finds feed the statement, `negated` where their absence does (an anti-join,
- *   NOT EXISTS, r.not), `counted` where their number or an aggregate over them does, and `arbiter` where it is
- *   grizzle's own key arbitration of the relation the statement writes (a key probe, EXISTS or NOT EXISTS at a key of
- *   it, or ON CONFLICT DO SELECT), which PostgreSQL's unique check decides whatever the call reads;
+ *   NOT EXISTS, r.not) or may (a value or a branch that reads both), `counted` where their number or an aggregate over
+ *   them does, and `arbiter` where it is the arbitration of a relation the statement writes (an EXISTS or NOT EXISTS
+ *   probe of it, an INSERT's ON CONFLICT, or a MERGE's NOT MATCHED), which PostgreSQL's unique check decides whatever
+ *   the call read when its group binds a whole declared key;
  * - `own`: whether the read can see only rows the call's own earlier statements wrote;
- * - `group`: the fields of a native key the read binds to one value that comes from the call (a parameter, a row the
- *   call wrote, or a group another such read found), or none where it reads the relation otherwise;
- * - `feeds`: whether rows the statement writes are derived from what it reads, or it only feeds what the call returns.
+ * - `group`: the fields the read binds to one value that comes from the call (a parameter, or a column of the call's
+ *   own rows), an ON CONFLICT arbitration's its conflict columns' fields, or none where it reads the relation otherwise;
+ * - `binding`: what the group's fields are bound to, as canonical text (a parameter's number, a column of the call's
+ *   own rows, or EXCLUDED's column for the row an ON CONFLICT proposes), so two reads of one relation by the same
+ *   fields and binding read one group, or none with no group.
  *
  * A read of a derived relation is the reads of the stored relations its definition reads, each in the mode it has
  * there composed with the outer one.
@@ -48,7 +53,7 @@ export interface ReadFact {
 	readonly mode: "positive" | "negated" | "counted" | "arbiter"
 	readonly own: boolean
 	readonly group: ReadonlyArray<string> | undefined
-	readonly feeds: "write" | "readBack"
+	readonly binding: string | undefined
 }
 
 /** One statement of a change member's flight: what it writes and what it reads. */
@@ -57,10 +62,10 @@ export interface StatementFacts {
 	readonly reads: ReadonlyArray<ReadFact>
 }
 
-/** One change member of a role, by its name, with its statements in flight order. */
+/** One change member of a role, by its name, with its statements in flight order: a change sends one at least. */
 export interface MemberFacts {
 	readonly name: string
-	readonly statements: ReadonlyArray<StatementFacts>
+	readonly statements: NonEmptyReadonlyArray<StatementFacts>
 }
 
 /**
@@ -74,7 +79,11 @@ export interface RoleFacts {
 	readonly members: ReadonlyArray<MemberFacts>
 }
 
-/** Every relation's facts by name, and every role of every login over the installation's base. */
+/**
+ * Every relation's facts by name, and every role of every login over the installation's base: built whole by
+ * isolationInput (input.ts) from the compiled installation and logins, so no relation a role reads or writes and no
+ * change member lacks its fact; a relation the certifier finds no fact of is a reason, never a pass.
+ */
 export interface IsolationInput {
 	readonly relations: ReadonlyMap<string, RelationFacts>
 	readonly roles: ReadonlyArray<RoleFacts>
