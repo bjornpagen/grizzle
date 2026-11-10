@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -27,7 +27,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -61,6 +60,30 @@ const shapeOf = (mutableB: boolean, mutableO: boolean) =>
 		...(mutableB ? [mutable(B)] : []),
 		...(mutableO ? [mutable(O)] : [])
 	])
+
+/**
+ * The full world's workload over a drawn shape: the stratum's insert of B with Q nested, T, O and P, each call's facts;
+ * and O's, B's, Q's and P's rows read back.
+ */
+const programsOf = (shape: ReturnType<typeof shapeOf>) => ({
+	write: ChangeSet.empty(shape).insert(B, []).insert(T, []).insert(O, []).insert(P, []),
+	owners: query(shape).rule((r) => {
+		const { id, k: at, n, tb } = v(O, "o")
+		return r.match(O, { id, k: at, n, tb }).find({ id, n })
+	}),
+	bRows: query(shape).rule((r) => {
+		const { id, n, m } = v(B, "b")
+		return r.match(B, { id, n, m }).find({ id, n, m })
+	}),
+	qRows: query(shape).rule((r) => {
+		const { b, at, v: value } = v(Q, "q")
+		return r.match(Q, { b, at, v: value }).find({ b, at, v: value })
+	}),
+	pRows: query(shape).rule((r) => {
+		const { id, o: owner } = v(P, "p")
+		return r.match(P, { id, o: owner }).find({ id })
+	})
+})
 
 /** A case: each B's count of T members and of the Q members nested in it, each T's count of O rows naming it, and each
  * O's count of P members. */
@@ -132,18 +155,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							},
 							(k, c) =>
 								Effect.gen(function* () {
+									const shape = shapeOf(k.mutableB, k.mutableO)
 									const o = yield* installed(
-										shapeOf(k.mutableB, k.mutableO),
+										shape,
 										{},
 										{
 											label: `order${k.mutableB ? "m" : "i"}${k.mutableO ? "m" : "i"}`,
 											extensions: [],
-											programs: {}
+											programs: programsOf(shape)
 										}
 									)
 									yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
 									yield* Effect.gen(function* () {
-										const db = yield* compiledOpen(o.server.roles.app, {})
+										const db = yield* Db.open(o.served.login.roles.app, {})
 										const bs = Arr.map(k.ts, (_, i) => ({
 											id: uuidOf(100 + i),
 											m: upTo(defined(k.qs[i], "a B's nested count"), (j) => ({
@@ -162,12 +186,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const ps = Arr.flatMap(k.ps, (n, i) =>
 											upTo(n, (j) => ({ id: uuidOf(500 + 10 * i + j), o: uuidOf(400 + i) }))
 										)
-										const outcome = yield* db.apply(
-											ChangeSet.empty(o.schema)
-												.insert(B, bs)
-												.insert(T, ts)
-												.insert(O, os)
-												.insert(P, ps),
+										const outcome = yield* db.workload.write.apply(
+											{ insert: { B: bs, T: ts, O: os, P: ps } },
 											{}
 										)
 										assert.equal(
@@ -175,23 +195,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											"accepted",
 											`the stratum is accepted: ${Formatter.format(outcome)}`
 										)
-										const ownersQuery = query(o.schema).rule((r) => {
-											const { id, k: at, n, tb } = v(O, "o")
-											return r.match(O, { id, k: at, n, tb }).find({ id, n })
-										})
 										const owners = yield* Effect.flatMap(
-											db.execute(ownersQuery, {}),
+											db.workload.owners.execute({}),
 											(r) => r.collect
 										)
 										for (const row of owners) {
 											const members = Arr.filter(ps, (p) => p.o === row.id).length
 											assert.equal(row.n, BigInt(members), "an owner's count is its members'")
 										}
-										const bQuery = query(o.schema).rule((r) => {
-											const { id, n, m } = v(B, "b")
-											return r.match(B, { id, n, m }).find({ id, n, m })
-										})
-										const bRows = yield* Effect.flatMap(db.execute(bQuery, {}), (r) => r.collect)
+										const bRows = yield* Effect.flatMap(
+											db.workload.bRows.execute({}),
+											(r) => r.collect
+										)
 										for (const row of bRows) {
 											const members = Arr.filter(ts, (t) => t.b === row.id).length
 											assert.equal(row.n, BigInt(members), "a B's count is its members'")
@@ -201,21 +216,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											).m.length
 											assert.equal(row.m, BigInt(nested), "a B's sequence is its nested members")
 										}
-										const qQuery = query(o.schema).rule((r) => {
-											const { b, at, v: value } = v(Q, "q")
-											return r.match(Q, { b, at, v: value }).find({ b, at, v: value })
-										})
-										const qRows = yield* Effect.flatMap(db.execute(qQuery, {}), (r) => r.collect)
+										const qRows = yield* Effect.flatMap(
+											db.workload.qRows.execute({}),
+											(r) => r.collect
+										)
 										assert.deepEqual(
 											sortedIds(Arr.map(qRows, (q) => q.v)),
 											sortedIds(Arr.flatMap(bs, (b) => Arr.map(b.m, (q) => q.v))),
 											"every nested member is stored"
 										)
-										const pQuery = query(o.schema).rule((r) => {
-											const { id, o: owner } = v(P, "p")
-											return r.match(P, { id, o: owner }).find({ id })
-										})
-										const pRows = yield* Effect.flatMap(db.execute(pQuery, {}), (r) => r.collect)
+										const pRows = yield* Effect.flatMap(
+											db.workload.pRows.execute({}),
+											(r) => r.collect
+										)
 										assert.deepEqual(
 											sortedIds(Arr.map(pRows, (p) => p.id)),
 											sortedIds(Arr.map(ps, (p) => p.id)),
@@ -235,7 +248,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 									}).pipe(
 										(body) =>
-											Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+											Effect.flatMap(Layer.build(o.served.layer), (context) =>
 												Effect.provideContext(body, context)
 											),
 										Effect.scoped
