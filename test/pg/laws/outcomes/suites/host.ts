@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, uuid } from "#compiler/public/fields.ts"
@@ -28,7 +28,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const tiers = ["bronze", "silver", "gold"] as const
 type TierHandle = (typeof tiers)[number]
@@ -68,6 +67,12 @@ const Account = relation.generated(
 const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
 const withinRate = check("WithinRate", Account, (x) => x.le(Compute.base(x.units), x.rate))
 const Accounts = schema("Accounts", { Tier, Rate, Account }, [positive, withinRate])
+
+/** The full role's workload: accounts inserted, and accounts put, each from its call's facts. */
+const programs = {
+	insertAccounts: ChangeSet.empty(Accounts).insert(Account, []),
+	putAccounts: ChangeSet.empty(Accounts).put(Account, [])
+} as const
 
 /** Every law a stated account can break, as an outcome names it. */
 const lawOf = {
@@ -238,15 +243,11 @@ export const hostWitnessSuite = (): void => {
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(
-							Accounts,
-							{},
-							{ label: "real", extensions: [], programs: {} }
-						)
+						const o = yield* installed(Accounts, {}, { label: "real", extensions: [], programs })
 						const names = namesOf(o.installed)
 						const group = installationGroup(names)
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									suite: "laws/witness/host",
@@ -318,10 +319,11 @@ export const hostWitnessSuite = (): void => {
 											code: a.code,
 											alias: a.alias
 										}))
-										const base = ChangeSet.empty(o.schema)
-										const change =
-											k.op === "insert" ? base.insert(Account, facts) : base.put(Account, facts)
-										const applied = yield* Effect.result(db.apply(change, {}))
+										const applied = yield* Effect.result(
+											k.op === "insert"
+												? db.workload.insertAccounts.apply({ insert: { Account: facts } }, {})
+												: db.workload.putAccounts.apply({ put: { Account: facts } }, {})
+										)
 										assert.ok(Result.isSuccess(applied), "the write is an outcome")
 										const outcome = applied.success
 										const broken = Arr.map(k.accounts, brokenBy)
@@ -394,7 +396,7 @@ export const hostWitnessSuite = (): void => {
 										}
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+						}).pipe(Effect.scoped, withLayer(o.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)
