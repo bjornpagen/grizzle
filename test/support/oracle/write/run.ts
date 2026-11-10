@@ -26,7 +26,6 @@ import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identit
 import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
@@ -340,37 +339,6 @@ export const programOf = (
 	t: WriteTarget,
 	changes: unknown
 ): Result.Result<CompiledEntry, CompileError> => compiledWrite(t.ctx, changes, t.ctx.claims)
-
-/**
- * How a compiled put is realized: the DELETE-then-insert pair, with why it is the pair, or a statement in place. What a
- * write suite counts as its features; never an expectation.
- */
-export type PutRealization =
-	| {
-			readonly target: "deleteThenInsert"
-			readonly reason: Extract<PutChoice, { readonly target: "deleteThenInsert" }>["reason"]
-	  }
-	| { readonly target: Exclude<PutChoice["target"], "deleteThenInsert"> }
-
-/** The realization of every put of a ChangeSet value, as `ctx`'s Db compiles it, or the compiler's refusal. */
-export const putRealizations = (
-	ctx: DbContext,
-	changes: unknown
-): Result.Result<ReadonlyArray<PutRealization>, CompileError> =>
-	Result.map(compiledWrite(ctx, changes, ctx.claims), (entry) =>
-		Arr.map(entry.compiled.choices, (c): PutRealization =>
-			c.target === "deleteThenInsert"
-				? { target: c.target, reason: c.reason }
-				: { target: c.target }
-		)
-	)
-
-/** db.apply of a ChangeSet value over `ctx`'s Db, with the value's own read-backs decoder (packages/grizzle/src/adapter/db/db.ts). */
-export const applyValue = (
-	ctx: DbContext,
-	changes: ChangeSetValue,
-	params: ParamMap
-): Effect.Effect<ApplyOutcome<unknown>, ApplyError> => apply(ctx, changes, changes.reads, params)
 
 /** A session that logs every flight it sends, and what the server answered, into `log`. */
 const loggedSession = (session: Session, log: Array<Flight>): Session => ({

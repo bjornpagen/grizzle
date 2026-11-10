@@ -54,7 +54,7 @@ export interface ServedRefusal {
  * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, and every
  * role of it with its programs, in the login's order.
  */
-interface CompiledServed {
+export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
@@ -118,32 +118,35 @@ export interface ServedEntry {
 	readonly text: string
 }
 
+/** The served file a login's compile projects (adapter/served/project.ts servedFileOf), with its canonical text. */
+export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: CompiledServed) {
+	const file = yield* Effect.fromResult(servedFileOf(compiled))
+	const text = yield* fromEngine(servedText(file))
+	return { login: compiled.login.name, file, text }
+}, Effect.mapError(atLogin))
+
 /**
  * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over the
- * installation's artifacts `artifacts` (compileServed).
+ * installation's artifacts `artifacts` (compileServed, then `servedEntryOf`).
  */
-export const servedEntry = Effect.fn("servedEntry")(function* (
+export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: SchemaArtifacts
-): Effect.fn.Return<ServedEntry, ServedRefusal> {
-	const compiled = yield* compileServed(login, snapshot, artifacts)
-	const file = yield* Effect.mapError(Effect.fromResult(servedFileOf(compiled)), atLogin)
-	const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
-	return { login: compiled.login.name, file, text }
-})
+): Effect.Effect<ServedEntry, ServedRefusal> =>
+	Effect.flatMap(compileServed(login, snapshot, artifacts), servedEntryOf)
 
 /**
- * The served file of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
+ * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains and its
- * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, then the file over
- * them (servedEntry): what a login over a level below its configured schema's compiles over in generate and check
- * (cli/generate.ts servedFiles), and an application's test's compile (adapter/public/compile.ts compileServed).
+ * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, then the login over
+ * them (compileServed): its roles, each with its workload's programs compiled, which a test reads beside the file they
+ * project (a change form's compiled entry, its put choices among it).
  */
-export const snapshotServedEntry = Effect.fn("snapshotServedEntry")(function* (
+export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
 	snapshot: unknown
-): Effect.fn.Return<ServedEntry, ServedRefusal> {
+): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
@@ -162,5 +165,16 @@ export const snapshotServedEntry = Effect.fn("snapshotServedEntry")(function* (
 		),
 		atLogin
 	)
-	return yield* servedEntry(login, snapshot, artifacts)
+	return yield* compileServed(login, snapshot, artifacts)
 })
+
+/**
+ * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`): what a login over a
+ * level below its configured schema's compiles over in generate and check (cli/generate.ts servedFiles), and an
+ * application's test's compile (adapter/public/compile.ts compileServed).
+ */
+export const snapshotServedEntry = (
+	login: ServedInput,
+	snapshot: unknown
+): Effect.Effect<ServedEntry, ServedRefusal> =>
+	Effect.flatMap(snapshotCompiled(login, snapshot), servedEntryOf)

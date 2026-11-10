@@ -7,11 +7,13 @@
  * SQLSTATE and the committed state; every abort is 40001, 40P01 or a TransientFailure reason the write's shape allows,
  * beside a concurrent operation; and every generated serial value lies past the explicit values earlier writes stored.
  *
- * A case installs the schedule schema, opens two grizzle writers and two direct sessions, and runs one
- * race: a lawful initial state and two or three sessions, each a grizzle writer's one or two ChangeSets (each its own
- * transaction, which the caller calls again after each TransientFailure until it answers, as an application does) or a
- * direct writer's one transaction of one or two statements. A race of few moves runs in every order (partial-order reduced); a larger one
- * under a drawn PCT schedule. Which deadlock victim PostgreSQL picks is nature's branch, judged like any run.
+ * A case installs the schedule schema, opens two grizzle writers on the served login and two direct sessions, and
+ * runs one race: a lawful initial state and two or three sessions, each a grizzle writer's one or two ChangeSets (each
+ * its own transaction, which the caller calls again after each TransientFailure until it answers, as an application
+ * does) or a direct writer's one transaction of one or two statements. A race's ChangeSets are compiled into a served
+ * file of the login before it runs, as generate compiles a workload, and each runs as its loaded member over its
+ * writer's Db. A race of few moves runs in every order (partial-order reduced); a larger one under a drawn PCT
+ * schedule. Which deadlock victim PostgreSQL picks is nature's branch, judged like any run.
  *
  * The races are drawn over small domains, so keys, candidate keys, serial values and spans meet, or planted from the
  * dictionary of shapes (PlantedRace): an insert in flight at the key, a deletion before a put of the
@@ -22,9 +24,10 @@
  * occupant (UnseenOccupant), a span put overlapping another key, and an update beside a put in place (each in-place
  * target).
  *
- * Features: each put target and pair reason the compiler chose (PutChoice), each answer, each
- * TransientFailure reason met, each direct SQLSTATE, waits, deadlocks, nature's branches, a write held between its
- * strata by a blocker, generated and explicit serials, and each planted shape.
+ * Features: each put target the served write runs (its statements' steps) and each pair reason the compile that
+ * served it chose (PutChoice), each answer, each TransientFailure reason met, each direct SQLSTATE, waits, deadlocks,
+ * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
+ * shape.
  */
 
 import { layer } from "@effect/vitest"
@@ -54,14 +57,17 @@ import {
 	Effect,
 	Formatter,
 	Option,
+	Order,
 	pipe,
 	Record as Rec,
 	Result,
 	type Scope,
 	String as Str
 } from "effect"
+import { memberOps } from "#adapter/db/handles.ts"
 import type { ApplyError, OpenError, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ServedRefusal } from "#adapter/served/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -69,11 +75,8 @@ import { queryOver as query, varsOver as v } from "#compiler/query/build/query.t
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import {
-	changeSetOver as ChangeSet,
-	type ChangeSetValue,
-	changeSetDesc
-} from "#compiler/write/changeset/value.ts"
+import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import type { PutChoice } from "#compiler/write/put/choose.ts"
 import {
 	columnsOf,
 	type DirectAnswer,
@@ -102,15 +105,15 @@ import {
 	Ref,
 	Room,
 	refItem,
+	type ServedChange,
+	servedChanges,
 	Ticket,
 	ticketLabel,
 	Zed
 } from "#test/schedules/write/support.ts"
 import { defined } from "#test/support/assert.ts"
-import { reportedLawId } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { applyValue, type PutRealization, putRealizations } from "#test/support/oracle/write/run.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -131,6 +134,7 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { type StepOutcome } from "#test/support/schedules/types.ts"
+import { appliedWith, type CallFacts } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -271,6 +275,53 @@ const opGen: Gen<GrizzleOp> = (source) => {
 			onSome: (blocker) => [members, blockerStratum(blocker)]
 		})
 	}
+}
+
+/**
+ * An array member's operation and relation, the key a served call gives its facts under (adapter/served/load.ts
+ * ChangeCall): an enumerated member's, or a generated addition's insert into Ticket; a query member has none.
+ */
+const arrayKey = (m: Member): string | undefined =>
+	m.kind === "enumerated"
+		? `${m.op} ${m.relation}`
+		: m.kind === "generated"
+			? "insert Ticket"
+			: undefined
+
+/**
+ * A ChangeSet as a served workload can hold it (`servable`): each later stratum's array members of an operation and
+ * relation an earlier stratum's already hold left out, and a stratum left empty with them; and what it left out
+ * (`repeats`), each operation and relation once per stratum that repeats it, in strata order, which generate refuses
+ * as `repeated` (write/program/served-members.ts servedMembers) and the types refuse at workload() (ArraysOnce). The
+ * members of one operation and relation in one stratum are one member of the ChangeSet, so they repeat nothing.
+ */
+const servingOf = (
+	op: GrizzleOp
+): { readonly servable: GrizzleOp; readonly repeats: ReadonlyArray<string> } => {
+	const held = new Set<string>()
+	const repeats: Array<string> = []
+	const strata: Array<ReadonlyArray<Member>> = []
+	for (const stratum of op.strata) {
+		const keys = Arr.dedupe(
+			Arr.flatMap(stratum, (m) => {
+				const key = arrayKey(m)
+				return key === undefined ? [] : [key]
+			})
+		)
+		const repeated = Arr.filter(keys, (key) => held.has(key))
+		appendAll(repeats, repeated)
+		const kept = Arr.filter(stratum, (m) => {
+			const key = arrayKey(m)
+			return key === undefined || !repeated.includes(key)
+		})
+		for (const key of keys) {
+			held.add(key)
+		}
+		if (kept.length > 0) {
+			strata.push(kept)
+		}
+	}
+	return { servable: { strata }, repeats }
 }
 
 /** The relations a direct DELETE draws its key from: every one but Ticket, whose serial a direct writer never deletes. */
@@ -592,14 +643,40 @@ const labelGenerated = (race: Race): Race => {
  */
 interface RaceCase {
 	readonly races: ReadonlyArray<Race>
+	/**
+	 * The ChangeSets of the case no served workload holds, each repeating an array member's operation and relation in
+	 * a later stratum: the planted one, a first stratum's insert into Zed beside a blocker's, and each the drawn race
+	 * drew, which its race runs as a served workload holds it (`servingOf`).
+	 */
+	readonly refused: ReadonlyArray<GrizzleOp>
 }
 
-const raceCaseGen: Gen<RaceCase> = (source) => ({
-	races: [
-		...Arr.map(plantedRaces, (name) => source.draw(plantedRaceGen(name))),
-		labelGenerated(source.draw(drawnRaceGen))
-	]
-})
+const raceCaseGen: Gen<RaceCase> = (source) => {
+	const drawn = labelGenerated(source.draw(drawnRaceGen))
+	const planted = ops(
+		[ins("Zed", [source.draw(element(blockers))])],
+		blockerStratum(source.draw(element(blockers)))
+	)
+	const repeating = Arr.flatMap(drawn.sessions, (session) =>
+		session.kind === "grizzle"
+			? Arr.filter(session.ops, (op) => servingOf(op).repeats.length > 0)
+			: []
+	)
+	return {
+		races: [
+			...Arr.map(plantedRaces, (name) => source.draw(plantedRaceGen(name))),
+			{
+				...drawn,
+				sessions: Arr.map(drawn.sessions, (session) =>
+					session.kind === "grizzle"
+						? { ...session, ops: Arr.map(session.ops, (op) => servingOf(op).servable) }
+						: session
+				)
+			}
+		],
+		refused: [planted, ...repeating]
+	}
+}
 
 const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
 
@@ -821,6 +898,78 @@ const changeSetOf = (
 	return { changes: Arr.reduce(rest, first, (a, b) => ChangeSet.sequence(a, b)), params }
 }
 
+/**
+ * A grizzle op's facts as its served call gives them (adapter/served/load.ts ChangeCall): each array member's records
+ * under its operation and its relation, a generated addition's labels under Ticket's insert.
+ */
+const factsOf = (op: GrizzleOp): CallFacts => {
+	const facts: Record<string, Record<string, Array<unknown>>> = {}
+	const add = (
+		kind: "insert" | "delete" | "put",
+		relation: Rel,
+		records: ReadonlyArray<unknown>
+	) => {
+		const byRelation = facts[kind] ?? {}
+		byRelation[relation] = [...(byRelation[relation] ?? []), ...records]
+		facts[kind] = byRelation
+	}
+	for (const m of op.strata.flat()) {
+		if (m.kind === "enumerated") {
+			add(
+				m.op,
+				m.relation,
+				Arr.map(m.facts, (f) => recordOf(m.relation, f))
+			)
+		} else if (m.kind === "generated") {
+			add(
+				"insert",
+				"Ticket",
+				Arr.map(m.labels, (label) => ({ label }))
+			)
+		}
+	}
+	return facts
+}
+
+/**
+ * The put targets a served write runs, as its statements' steps say them (runtime/write/steps.ts WriteStep): an
+ * upsert's ON CONFLICT DO UPDATE, an update in place's UPDATE ... FROM, a MERGE, and a DELETE of the occupants a put
+ * displaces, the pair's first half.
+ */
+const putTargetsOf = (change: ServedChange): ReadonlyArray<RaceFeature> =>
+	Arr.flatMap(
+		change.change.entry.program.flight.statements,
+		({ step }): ReadonlyArray<RaceFeature> => {
+			const writes =
+				step.kind === "write"
+					? [step]
+					: step.kind === "single"
+						? Arr.map(step.parts, (p) => p.step)
+						: []
+			return Arr.flatMap(writes, ({ result }): ReadonlyArray<RaceFeature> => {
+				switch (result.kind) {
+					case "upsert":
+						return ["put target onConflictDoUpdate"]
+					case "update":
+						return ["put target updateFrom"]
+					case "merge":
+						return ["put target merge"]
+					case "delete":
+						return result.mode === "displacing" ? ["put target deleteThenInsert"] : []
+					case "insert":
+					case "spanClassify":
+						return []
+				}
+			})
+		}
+	)
+
+/** Why a race's ChangeSets do not serve: a compile's refusal at its place, or the refusal of loading what it served. */
+const refusalText = (refused: ServedRefusal | CompileError | OpenError): string =>
+	"place" in refused
+		? `${Formatter.format(refused.place)}: ${Formatter.format(refused.error)}`
+		: refused.message
+
 const describeMember = (m: Member): string => {
 	switch (m.kind) {
 		case "enumerated":
@@ -873,8 +1022,8 @@ const describeRace = (race: Race, sql: ReturnType<typeof sqlOf>): string =>
 	)
 
 type RaceFeature =
-	| `put target ${PutRealization["target"]}`
-	| `pair reason ${Extract<PutRealization, { readonly target: "deleteThenInsert" }>["reason"]}`
+	| `put target ${PutChoice["target"]}`
+	| `pair reason ${Extract<PutChoice, { readonly target: "deleteThenInsert" }>["reason"]}`
 	| `grizzle ${GrizzleAnswer["kind"]}`
 	| `transient ${TransientTag}`
 	| `direct ${string}`
@@ -886,6 +1035,7 @@ type RaceFeature =
 	| "generated serial committed"
 	| "explicit serial committed"
 	| "a generated addition met an unseen occupant"
+	| "a repeat across strata refused"
 	| "every order"
 	| "pct"
 
@@ -914,6 +1064,7 @@ const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"generated serial committed",
 	"explicit serial committed",
 	"a generated addition met an unseen occupant",
+	"a repeat across strata refused",
 	"every order",
 	...Arr.map(plantedRaces, (name): RaceFeature => `planted ${name}`)
 ]
@@ -923,30 +1074,30 @@ class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: stri
 
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
-	described: ReadonlyMap<LawId, Law>,
+	reported: (law: Law) => LawId,
 	r: Result.Result<Retried<ApplyOutcome<unknown>>, Exclude<ApplyError, TransientFailure>>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
 		return { refused: [], answer: { kind: "failed", what: r.failure._tag } }
 	}
 	const value = r.success.answered
-	return { refused: r.success.refused, answer: grizzleAnswer(described, value) }
+	return { refused: r.success.refused, answer: grizzleAnswer(reported, value) }
 }
 
 /** A write's answer as the model judges it: a refusal names its one law, so a refusal naming several is a failure. */
 const grizzleAnswer = (
-	described: ReadonlyMap<LawId, Law>,
+	reported: (law: Law) => LawId,
 	value: ApplyOutcome<unknown>
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "invariant-rejected": {
 			const [law, ...more] = refusedLaws(value.refused)
 			return more.length === 0
-				? { kind: "invariant-rejected", law: reportedLawId(described, law) }
+				? { kind: "invariant-rejected", law: reported(law) }
 				: {
 						kind: "failed",
 						what: `a refusal naming ${Arr.length(refusedLaws(value.refused))} laws: ${Arr.join(
-							Arr.map(refusedLaws(value.refused), (l) => reportedLawId(described, l)),
+							Arr.map(refusedLaws(value.refused), reported),
 							", "
 						)}`
 					}
@@ -1021,8 +1172,10 @@ const runRace = (
 		const o = yield* open
 		const sql = sqlOf(o)
 		const laws = lawsOf(o)
-		const app = yield* o.rig.writer("app", openApp(o.rig))
-		const app2 = yield* o.rig.writer("app2", openApp(o.rig))
+		const app = yield* o.rig.servedWriter("app", openApp(o.rig), (db) => db.workload.noop.apply({}))
+		const app2 = yield* o.rig.servedWriter("app2", openApp(o.rig), (db) =>
+			db.workload.noop.apply({})
+		)
 		const directs = yield* openActors(s, {
 			d1: { kind: "raw", as: o.rig.direct },
 			d2: { kind: "raw", as: o.rig.direct }
@@ -1040,6 +1193,21 @@ const runRace = (
 					string,
 					{ readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer }
 				>()
+				/** Each grizzle write of the race, by session and step, and the ChangeSet its op is. */
+				const built = new Map(
+					Arr.flatMap(race.sessions, (session) =>
+						session.kind === "grizzle"
+							? Arr.map(session.ops, (op, i): readonly [string, ReturnType<typeof changeSetOf>] => [
+									`${session.actor}_${i}`,
+									changeSetOf(o, op)
+								])
+							: []
+					)
+				)
+				const served = yield* Effect.mapError(
+					servedChanges(o, Rec.fromEntries(Arr.map([...built], ([name, b]) => [name, b.changes]))),
+					(refused) => report(`the race's ChangeSets do not serve: ${refusalText(refused)}`)
+				)
 				const txns: Array<Txn> = []
 				for (const session of race.sessions) {
 					if (session.kind === "direct") {
@@ -1057,35 +1225,26 @@ const runRace = (
 					const ctx = writers[session.actor].ctx
 					const steps: Array<OpStep> = []
 					for (const [i, op] of session.ops.entries()) {
-						const built = changeSetOf(o, op)
-						const realizations = putRealizations(ctx, built.changes)
-						if (Result.isFailure(realizations)) {
-							return yield* report(
-								`${describeOp(op)} does not compile: ${realizations.failure.message}`
-							)
-						}
-						c.noteAll(
-							Arr.flatMap(realizations.success, (realization): ReadonlyArray<RaceFeature> =>
-								realization.target === "deleteThenInsert"
-									? [`put target ${realization.target}`, `pair reason ${realization.reason}`]
-									: [`put target ${realization.target}`]
-							)
-						)
+						const name = `${session.actor}_${i}`
+						const { params } = defined(built.get(name), `the ChangeSet of ${name}`)
+						const change = defined(served.changes.get(name), `the served change ${name}`)
+						c.noteAll([
+							...Arr.flatMap(
+								defined(served.choices.get(name), `the put choices of ${name}`),
+								(choice): ReadonlyArray<RaceFeature> =>
+									choice.target === "deleteThenInsert" ? [`pair reason ${choice.reason}`] : []
+							),
+							...putTargetsOf(change)
+						])
 						const key = `${session.actor}#${i}`
-						const sliced = ctx.programArtifacts({
-							kind: "changeSet",
-							changeSet: defined(changeSetDesc(built.changes), "a ChangeSet value")
-						})
-						if (!sliced.ok) {
-							return yield* report(`${describeOp(op)} does not compile: ${sliced.error.message}`)
-						}
-						const described = sliced.value.artifacts.described
 						steps.push({
 							label: describeOp(op),
 							outcome: Effect.map(
-								Effect.result(untilAnswered(applyValue(ctx, built.changes, built.params))),
+								Effect.result(
+									untilAnswered(appliedWith(memberOps(ctx, change.member), factsOf(op), params))
+								),
 								(r) => {
-									seen.set(key, answerOf(described, r))
+									seen.set(key, answerOf(o.names.reported, r))
 									return succeeded
 								}
 							),
@@ -1198,6 +1357,35 @@ const runRace = (
 				)
 				c.noteAll(reached)
 			})
+		for (const op of rc.refused) {
+			const expected = Arr.sort(servingOf(op).repeats, Order.String)
+			const served = yield* Effect.result(
+				servedChanges(o, { repeated: changeSetOf(o, op).changes })
+			)
+			const refused =
+				Result.isFailure(served) &&
+				"place" in served.failure &&
+				served.failure.error._tag === "UnservedMember"
+					? Arr.sort(
+							Arr.map(served.failure.error.reasons, (r) =>
+								r.kind === "repeated" ? `${r.op} ${r.relation}` : r.kind
+							),
+							Order.String
+						)
+					: undefined
+			if (refused === undefined || Arr.join(refused, "\n") !== Arr.join(expected, "\n")) {
+				return yield* new RaceFailed({
+					message: `${describeOp(op)} repeats ${Arr.join(expected, ", ")} across its strata, which generate refuses as repeated; it ${
+						refused === undefined
+							? Result.isSuccess(served)
+								? "served"
+								: `was refused otherwise: ${refusalText(served.failure)}`
+							: `was refused for ${Arr.join(refused, ", ")}`
+					}`
+				})
+			}
+			c.note("a repeat across strata refused")
+		}
 		for (const race of rc.races) {
 			yield* raceRun(race)
 		}

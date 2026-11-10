@@ -1,9 +1,15 @@
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
-import { type Array as Arr, type Context, Effect, type Scope } from "effect"
-import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, type Context, Effect, Option, type Scope } from "effect"
+import { openServed } from "#adapter/db/served.ts"
+import { fromEngine } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
+import { type ServedRefusal, servedEntryOf, snapshotCompiled } from "#adapter/served/compile.ts"
+import { type LoadedChange, type LoadedMember, loadServed } from "#adapter/served/load.ts"
+import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { ownBuilt, trustedJson } from "#compiler/plan/common.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import {
 	contained,
@@ -16,9 +22,15 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
+import { servedFile } from "#compiler/served/json.ts"
+import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import type { PutChoice } from "#compiler/write/put/choose.ts"
+import { defined } from "#test/support/assert.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openRig, type Rig } from "#test/support/schedules/rig.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -86,9 +98,9 @@ const statements = [
  * Shared setup for the grizzle write schedules.
  *
  * A small schema installs under a fresh schema name with two full roles, each writing every relation: `app`, which the
- * grizzle writers open through Db.open and a DbLayer of the login `server` exactly as an application does (the rig's
- * `writer`), and `direct`, which raw pinned sessions take on through the login `psql` to play the concurrent direct SQL
- * writer. Every table, column and law a schedule names comes from the installation (`names`).
+ * grizzle writers open through Db.open and a DbLayer of the served login `server` exactly as an application does (the
+ * rig's `servedWriter`), its workload's `noop`, the empty ChangeSet, a writer's first call, and `direct`, which raw
+ * pinned sessions take on through the login `psql` to play the concurrent direct SQL writer. Every table, column and law a schedule names comes from the installation (`names`).
  *
  * The relations, each the shape of a put target or a transient reason:
  * - Item: immutable (the pinned default), keyed by id: the insert protocol, and a put's DELETE-then-insert pair;
@@ -114,7 +126,9 @@ const renamedSched = (name: string) => {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app]),
+		server: login(base, "server", [app], {
+			workload: [workload(app, { noop: ChangeSet.empty(base) })]
+		}),
 		psql: login(base, "psql", [direct])
 	}
 }
@@ -135,10 +149,69 @@ export const open: Effect.Effect<
 	return { rig, names: namesOf(rig.installed) }
 })
 
-/** The rig's writer `open`: the role `app`'s Db over the writer's DbLayer. */
+/** The rig's served writer `open`: the role `app`'s Db over the writer's DbLayer of the served login. */
 export const openApp =
-	(rig: Rig<SchedWorlds>) =>
-	(
-		context: Context.Context<DbLayerOf<SchedWorlds["server"]>>
-	): Effect.Effect<OpenedDb<SchedWorlds["app"], unknown>, OpenError> =>
-		openDbContext(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+	(rig: Rig<SchedWorlds>) => (context: Context.Context<DbLayerOf<SchedWorlds["server"]>>) =>
+		openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context))
+
+/** A ChangeSet as the role `app` serves it: its member, whose operations a writer runs, and its loaded change. */
+export interface ServedChange {
+	readonly member: LoadedMember
+	readonly change: LoadedChange
+}
+
+/**
+ * ChangeSets of a race as the role `app` serves them: each one by its name (`ServedChange`), and the put choices its
+ * compile made for it (write/put/choose.ts PutChoice).
+ */
+export interface ServedChanges {
+	readonly changes: ReadonlyMap<string, ServedChange>
+	readonly choices: ReadonlyMap<string, ReadonlyArray<PutChoice>>
+}
+
+/** The one of `roles` that is the role `app`, by `nameOf`. */
+const appOf = <T>(roles: ReadonlyArray<T>, nameOf: (role: T) => string): T =>
+	defined(
+		Option.getOrUndefined(Arr.findFirst(roles, (r) => nameOf(r) === "app")),
+		"the role app of the served login"
+	)
+
+/**
+ * `programs` compiled into members of the role `app`'s workload of the login `server` under the snapshot the
+ * installation reached, as generate compiles them (adapter/served/compile.ts snapshotCompiled), its served file loaded
+ * as a layer loads it: each ChangeSet's loaded change, which a writer runs over its served Db's context, and its put
+ * choices, read from the compile that made the file. A ChangeSet the compile refuses is its ServedRefusal.
+ */
+export const servedChanges = (
+	o: Opened,
+	programs: Readonly<Record<string, ChangeSetValue>>
+): Effect.Effect<ServedChanges, ServedRefusal | CompileError | OpenError> =>
+	Effect.gen(function* () {
+		const built = defined(builtLogin(o.rig.worlds.server), "the login server, built by login(...)")
+		const base = yield* fromEngine(ownBuilt(built.base))
+		const owned = yield* fromEngine(ownLoginOver(built, base))
+		const compiled = yield* snapshotCompiled(
+			{ login: { ...built, workload: [workload(o.rig.worlds.app, programs)] }, owned },
+			snapshotValue(o.rig.installed.snapshot, o.rig.installed.installation)
+		)
+		const entry = yield* servedEntryOf(compiled)
+		const loaded = yield* Effect.fromResult(
+			loadServed(servedFile(trustedJson<unknown>(entry.text)), entry.login)
+		)
+		return {
+			changes: new Map(
+				Arr.flatMap(appOf(loaded.roles, (r) => r.name).members, (member) =>
+					member.kind === "change" && member.variants.kind === "change"
+						? [[member.name, { member, change: member.variants.change }] as const]
+						: []
+				)
+			),
+			choices: new Map(
+				Arr.flatMap(appOf(compiled.roles, (r) => r.role.name).workload, (form) =>
+					form.kind === "change" && form.variants.kind === "form"
+						? [[form.name, form.variants.form.entry.compiled.choices] as const]
+						: []
+				)
+			)
+		}
+	})
