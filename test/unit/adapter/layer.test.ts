@@ -32,7 +32,6 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ClaimRefused,
@@ -40,17 +39,16 @@ import {
 	DbConfigRefused,
 	TokenError
 } from "#adapter/errors/failures.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import type { CompiledDbConfigShape } from "#adapter/types/layer.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
+import type { DbConfigShape } from "#adapter/types/layer.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
+import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
-import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	processEnvironment,
 	processValue,
@@ -58,11 +56,10 @@ import {
 	type VariableValue,
 	variableGen
 } from "#test/support/process-env.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * DbLayer.make parses its DbConfig once, where it is given (packages/grizzle/src/adapter/pool/registry.ts, connection/config.ts), and a
+ * DbLayer.make parses its DbConfig once, where it is given (packages/grizzle/src/adapter/pool/served.ts, connection/config.ts), and a
  * config no connection can use fails the layer before any connection.
  *
  * Over drawn configs (tricky hosts, never a path, servernames, databases and passwords; a Redacted or an Effect
@@ -74,7 +71,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  * offers no TLS; a port outside 1 to 65535 or no integer; a timer's delay or a pool bound outside its range, or no
  * integer; an unknown
  * key at the top, in the transport or in the pool, the settings the connection no longer has among them; a transport
- * no verify-full connection can use; a login no login(...) built; a pool hook or a verify that is no function; no
+ * no verify-full connection can use; a login no served(...) built; a pool hook or a verify that is no function; no
  * verify for a login one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose
  * DbConfigRefused names the faulty setting and never quotes the password. The migration connection's role-specific
  * faults are test/unit/cli/connection.test.ts's: one parser reads both blocks.
@@ -145,26 +142,15 @@ const owned = query(Shelf).rule((r) => {
 const Claiming = login(Shelf, "claiming", [role(Shelf, "owner", { Owned: owned })])
 
 /**
- * Shelf's snapshot.json, as an import of it yields: what every config is given, of the logins' base and recording no
- * workload, as neither login owns one.
+ * Each login served as its type, over its real served file, compiled with no database
+ * (test/support/compiled-served.ts): what every config names, neither login owning a workload.
  */
-const shelfSnapshot = snapshotJson(
-	succeeded(
-		generate({
-			installation: installationOf(Shelf, atDeclaredName),
-			name: "shelf",
-			timestamp: "20261024000000",
-			previous: fromEmpty,
-			workload: noWorkload,
-			declared: noDeclarations
-		}),
-		"Shelf's first migration"
-	).snapshotFiles.snapshot
-)
+const PlainServed = served<typeof Plain>(compiledServedFile(Plain), "plain")
+const ClaimingServed = served<typeof Claiming>(compiledServedFile(Claiming), "claiming")
 
 /** A valid config: every rule parseConnection states holds, the password a Redacted or an Effect yielding one. */
 interface Drawn {
-	readonly config: CompiledDbConfigShape<typeof Plain>
+	readonly config: DbConfigShape<typeof Plain>
 	readonly password: string
 }
 
@@ -214,8 +200,7 @@ const drawnGen: Gen<Drawn> = (source) => {
 			database,
 			connectTimeoutMs: source.draw(delayGen),
 			pool: { max, min, idleTimeoutMs: source.draw(delayGen) },
-			login: Plain,
-			snapshot: shelfSnapshot,
+			login: PlainServed,
 			password: lazy ? Effect.succeed(Redacted.make(password)) : Redacted.make(password),
 			...(attachPool ? { attachPool: () => undefined } : {}),
 			...(verify ? { verify: () => Effect.succeed({}) } : {})
@@ -383,7 +368,7 @@ const faultGen: Gen<Fault> = oneOf<Fault>([
 	map(element<unknown>(["verify", 1, null, {}]), (value) =>
 		fault(setting("verify"), "top", { verify: value })
 	),
-	constant(fault(setting("verify"), "top", { login: Claiming, verify: undefined })),
+	constant(fault(setting("verify"), "top", { login: ClaimingServed, verify: undefined })),
 	map(element<unknown>(["attachDatabasePool", 1, null, {}]), (attachPool) =>
 		fault(setting("attachPool"), "top", { attachPool })
 	)
@@ -452,13 +437,13 @@ type EnvironmentFeature =
 	| "built beside a variable grizzle sets"
 
 /**
- * Db.open judges the token on the host and contacts nothing (adapter/db/open.ts): with a token, the layer's verify runs
- * on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage: "token"} whose
- * reason is a TokenError, the throw its cause; the payload it returns is decoded through the contexts the role reads,
- * Session's one uuid claim `sub` read from the payload's top level, and a payload that is no object, lacks the claim or
- * holds a value its field refuses is ClaimRefused naming the fault. A token whose claims decode opens a Db, though the
- * layer's endpoint, a memory one, ends every connection once TLS is up: whatever the token, the transport opens no
- * socket.
+ * Db.open judges the token on the host and contacts nothing (adapter/db/served.ts): with a token, the layer's verify
+ * runs on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage:
+ * "token"} whose reason is a TokenError, the throw its cause; the payload it returns is decoded through the contexts
+ * the role reads, Session's one uuid claim `sub` read from the payload's top level, and a payload that is no object,
+ * lacks the claim or holds a value its field refuses is ClaimRefused naming the fault. A token whose claims decode
+ * opens a Db, though the layer's endpoint, a memory one, ends every connection once TLS is up: whatever the token, the
+ * transport opens no socket.
  *
  * The oracle is the README's order of Db.open's stages (role, schema, token) and its table of their reasons, restated
  * over the drawn verify and payload.
@@ -656,14 +641,14 @@ describe("DbLayer.make", () => {
 					([d, f], k) =>
 						Effect.gen(function* () {
 							const names = nameText(f.names)
-							const valid = yield* built(compiledDbLayer(d.config))
+							const valid = yield* built(DbLayer.make(d.config))
 							assert.ok(
 								Exit.isSuccess(valid),
 								`a valid config is refused: ${Exit.isFailure(valid) ? Cause.pretty(valid.cause) : ""}`
 							)
 							k.note("valid built")
 							/** The config with the fault injected at its place, the rest of the config as drawn. */
-							const injected: CompiledDbConfigShape<typeof Plain> =
+							const injected: DbConfigShape<typeof Plain> =
 								f.place === "top"
 									? Object.assign({ ...d.config }, f.override)
 									: f.place === "transport"
@@ -679,7 +664,7 @@ describe("DbLayer.make", () => {
 													pool: Object.assign({ ...d.config.pool }, f.override)
 												}
 											)
-							const exit = yield* built(compiledDbLayer(injected))
+							const exit = yield* built(DbLayer.make(injected))
 							assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
 							const error = Cause.squash(exit.cause)
 							assert.ok(
@@ -734,10 +719,7 @@ describe("DbLayer.make", () => {
 					([d, e], k) =>
 						Effect.gen(function* () {
 							const exit = yield* Effect.scoped(
-								Effect.andThen(
-									processEnvironment(processValues(e)),
-									built(compiledDbLayer(d.config))
-								)
+								Effect.andThen(processEnvironment(processValues(e)), built(DbLayer.make(d.config)))
 							)
 							const options = e.variables.PGOPTIONS
 							if (e.variables.PGREPLICATION.kind !== "text") {
@@ -833,9 +815,9 @@ describe("DbLayer.make", () => {
 							const open = memoryEndpoint(closingMaterial, (secure) => {
 								secure.destroy()
 							})
-							const config: CompiledDbConfigShape<typeof Claiming> = {
+							const config: DbConfigShape<typeof Claiming> = {
 								...d.config,
-								login: Claiming,
+								login: ClaimingServed,
 								verify,
 								transport: memoryTransport(closingMaterial, () => {
 									opened++
@@ -843,8 +825,8 @@ describe("DbLayer.make", () => {
 								})
 							}
 							const exit = yield* Effect.exit(
-								compiledOpen(Claiming.roles.owner, { token: c.token }).pipe(
-									withLayer(compiledDbLayer(config)),
+								Db.open(ClaimingServed.roles.owner, { token: c.token }).pipe(
+									withLayer(DbLayer.make(config)),
 									Effect.scoped
 								)
 							)
