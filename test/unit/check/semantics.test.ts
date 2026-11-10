@@ -392,7 +392,7 @@ describe("the checker's parameter, member and bound rules", () => {
 	)
 
 	it.effect(
-		"hold a member's head to its relation's heading for its op, every column of its field's family, one heading and no attachment, refused at the member or the attachment",
+		"hold a member's head to its relation's heading for its op, every column entering its field at the field's own type, one heading and no attachment, refused at the member or the attachment",
 		(ctx) =>
 			searched(
 				ctx,
@@ -424,11 +424,49 @@ describe("the checker's parameter, member and bound rules", () => {
 								"a put or delete without its serial field",
 								"a parameter written as its field",
 								"a sum written into a field",
-								"two arms of one heading"
+								"two arms of one heading",
+								"a numeric of another typmod",
+								"a text of another pattern"
 							],
 							{ cases: 600, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "a sum over a bigint, a computed numeric, written into a numeric(10, 2) field: compatible typed the head by its carrier alone and admitted it, where PostgreSQL's length coercion raises 22003 past the field's precision",
+								sketch: {
+									schema: {
+										relations: [
+											{
+												name: "R0",
+												fields: [{ name: "id", kind: "num10" }],
+												key: ["id"],
+												serial: false
+											},
+											{
+												name: "R1",
+												fields: [{ name: "id", kind: "int8" }],
+												key: ["id"],
+												serial: false
+											}
+										]
+									},
+									target: 0,
+									op: "insert",
+									arms: [
+										{
+											source: 1,
+											writes: [{ field: "id", term: "sum" }],
+											extra: false,
+											tag: "none",
+											attached: false
+										}
+									],
+									attached: false
+								},
+								draws: "",
+								reaches: ["a column of another type", "insert", "a sum written into a field"]
+							}
+						],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,

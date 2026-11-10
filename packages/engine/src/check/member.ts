@@ -4,8 +4,14 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { compatible } from "#compiler/scalar/compute/types.ts"
+import {
+	contractOf,
+	isExactValue,
+	isNumericValue,
+	type ScalarType,
+	sameEnteredType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 
 /** The serial fields of a member's relation, in heading order: those an addition may leave to their sequence. */
 const serialOf = (relation: MemberRelation): ReadonlyArray<string> =>
@@ -62,13 +68,14 @@ const omitted = (
 }
 
 /**
- * The one way a member column of type `value` is written into a field of another type `field`: an exact value, which
- * no field stores, by Compute.cast under a guard that proves it fits; a value into or out of a contract by
- * Compute.cast; any other value by Compute.cast into the field's type.
+ * The one way a member column of type `value` is written into a field of another type `field`: an exact value or a
+ * computed numeric, a value's making which no field stores, by Compute.cast under a guard that proves it fits; a value
+ * into or out of a contract by Compute.cast; any other value, of another numeric typmod or span width among them, by
+ * Compute.cast into the field's type.
  */
 const writtenOnly = (value: ScalarType, field: ScalarType): string => {
-	if (value.carrier === "exactInteger" || value.carrier === "exactMoney") {
-		return "an exact value is written into a field only by Compute.cast under a guard that proves it fits"
+	if (isExactValue(value) || isNumericValue(value)) {
+		return "an exact value or a computed numeric is written into a field only by Compute.cast under a guard that proves it fits"
 	}
 	if (contractOf(value) !== undefined || contractOf(field) !== undefined) {
 		return "a value re-enters a contract only by Compute.cast"
@@ -83,9 +90,11 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
  * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
  * draws or accumulates, and for an insert those minus all of its serial fields, which the identity default fills:
- * an addition omits either all of its relation's serial fields or none. Each head column is
- * compatible with the field it is written into: the same contract, the same roster, the same carrier;
- * the refinement itself is validated by PostgreSQL where the value is written. Anything else is
+ * an addition omits either all of its relation's serial fields or none. Each head column enters the field it is
+ * written into at the field's own type (ir/scalar.ts sameEnteredType), as a generated field's term and a fold's
+ * accumulator do: the same carrier, contract, roster, numeric typmod, span endpoint and width, and vector dimensions,
+ * never an exact value or a computed numeric, which no field stores; a text's pattern and byte bound alone are the
+ * column's domain's, which PostgreSQL validates where the value is written. Anything else is
  * DescribedHeadingMismatch, located at the member. An attachment on the member's result is a field too,
  * one an Attach node's heading does not list: the checker refuses it where it is attached (checker.ts attach).
  *
@@ -133,7 +142,7 @@ export const checkMemberHeading = (
 	}
 	for (const c of expected) {
 		const d = delivered.find((x) => x.name === c.name)
-		if (d !== undefined && !compatible(d.type, c.type)) {
+		if (d !== undefined && !sameEnteredType(c.type, d.type)) {
 			fail(
 				"DescribedHeadingMismatch",
 				loc,

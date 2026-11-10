@@ -132,8 +132,10 @@ type MistypedFields<M, R> =
 
 /**
  * Whether a head's carrier X writes the field F: a JavaScript value, which takes its field's type and stands as a
- * fact of the relation (MemberCheck), or a term of F's identity and SQL type exactly, as the checker compares a member
- * column with its field (scalar/compute/types.ts compatible), whatever its values, facts and language.
+ * fact of the relation (MemberCheck), or a term of F's identity and SQL type exactly, whatever its values, facts and
+ * language: the part of the checker's comparison of a member column with its field (check/member.ts
+ * checkMemberHeading, ir/scalar.ts sameEnteredType) its type states. A numeric typmod, a computed numeric's bound and a
+ * span's width are runtime values, which the checker compares alone.
  */
 type WritesAt<X, F> =
 	IsRetyped<X> extends true

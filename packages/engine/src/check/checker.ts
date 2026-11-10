@@ -3472,9 +3472,9 @@ class RuleCheck {
 	}
 
 	/**
-	 * A parameter head term, emitted or written at its declared type, which a written member's column is compatible
-	 * with (member.ts checkMemberHeading) and is cast into where it is written; an import's parameter bound to a literal
-	 * is that literal at the type it states, else at the parameter's.
+	 * A parameter head term, emitted or written at its declared type, at which a written member's column enters its
+	 * field (member.ts checkMemberHeading); an import's parameter bound to a literal is that literal at the type it
+	 * states, else at the parameter's.
 	 */
 	#paramTerm(
 		param: ParamExpr,

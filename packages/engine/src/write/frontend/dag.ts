@@ -1,7 +1,5 @@
-import { compareText, Refusal } from "#compiler/core/canonical.ts"
-import { CompileError } from "#compiler/core/errors.ts"
+import { compareText } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	assembledDag,
@@ -37,17 +35,9 @@ import {
 	type SpecRefs,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	isRefined,
-	type ScalarType,
-	sameScalarType,
-	typeLabel
-} from "#compiler/ir/scalar.ts"
+import { isRefined, sameScalarType } from "#compiler/ir/scalar.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import { typeFitProof } from "#compiler/scalar/compute/lower.ts"
-import { castOf } from "#compiler/scalar/compute/registry.ts"
-import { widening, wideningOf } from "#compiler/scalar/compute/types.ts"
+import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 
 /** Queries' DAGs merged into one, each added in turn.
  *
@@ -112,8 +102,13 @@ export class GlueBuilder {
 		})
 	}
 
-	/** `arm` delivering exactly `heading`: the arm itself when it already does, otherwise a ProjectSet that casts each
-	 * column whose type differs into the heading's type. */
+	/**
+	 * `arm` delivering exactly `heading`: the arm itself when it already does, otherwise a ProjectSet that casts each
+	 * column whose type differs into the heading's type. A described member's column enters its field at the field's own
+	 * type (check/member.ts checkMemberHeading), so it differs only in a text's pattern and byte bound, the column
+	 * domain's own: a refined field's domain cast validates it where it is written, and the binary coercion delivers it as
+	 * the field's text of every value.
+	 */
 	conform(arm: RelNode, heading: Heading): RelNode {
 		const delivered = arm.heading
 		const differs = heading.some((c) => {
@@ -149,7 +144,14 @@ export class GlueBuilder {
 								}
 							]
 						}
-					: writtenCast(column, type, c.type, SourceLoc("described write", [c.name]))
+					: {
+							kind: "cast",
+							cast: binaryCoercion,
+							args: [column],
+							type: c.type,
+							nonNull: "strict",
+							volatility: "immutable"
+						}
 			)
 			return { name: c.name, expr: cast }
 		})
@@ -252,75 +254,4 @@ export const deltaSources = (start: RelNode): ReadonlyArray<NodeOf<"Delta">> => 
 		}
 	}
 	return [...out.entries()].toSorted(([a], [b]) => compareText(a, b)).map(([, d]) => d)
-}
-
-/**
- * A delivered value cast into the column a described write writes: the one widening (types.ts wideningOf), or a
- * narrowing whose fit the delivered type's bounds prove (an exact integer's digits);
- * else PartialOperation, since a narrowing is a read's evaluation, which is never refused on a value, not a value check
- * of the write.
- */
-const writtenCast = (
-	column: ScalarExpr,
-	from: ScalarType,
-	to: ScalarType,
-	loc: SourceLoc
-): ExprSpec => {
-	const how = wideningOf(from, to)
-	const widened = widening(from, to)
-	if (how !== undefined && widened !== undefined) {
-		return {
-			kind: "cast",
-			cast: widened,
-			args: [column],
-			type: to,
-			nonNull: "strict",
-			volatility: how.kind === "coercion" ? "immutable" : how.op.volatility
-		}
-	}
-	const op = castOf(baseOf(from).carrier, baseOf(to).carrier)
-	const refused = (): never => {
-		throw new Refusal(
-			CompileError.make({
-				_tag: "PartialOperation",
-				at: loc,
-				operation: `the written ${typeLabel(from)}, narrowed into ${typeLabel(to)}`,
-				precondition: "fits",
-				operand: "the written value",
-				guard: {
-					remedy: { kind: "within" },
-					text: "Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
-				}
-			})
-		)
-	}
-	if (op === undefined) {
-		return refused()
-	}
-	const proof = typeFitProof(
-		op.totality.kind === "requires" ? op.totality.preconditions : [{ kind: "fits" }],
-		from,
-		to
-	)
-	if (proof === undefined) {
-		return refused()
-	}
-	return op.partial
-		? {
-				kind: "cast",
-				cast: op.id,
-				args: [column],
-				type: to,
-				nonNull: "strict",
-				volatility: op.volatility,
-				proof
-			}
-		: {
-				kind: "cast",
-				cast: op.id,
-				args: [column],
-				type: to,
-				nonNull: "strict",
-				volatility: op.volatility
-			}
 }

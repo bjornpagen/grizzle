@@ -4837,20 +4837,6 @@ export const lowerReturned = <R extends Refs>(
 	})
 
 /**
- * The proof that every value of `from` fits `to` once cast, from `from`'s own bounds (an exact integer's digits, a
- * contract's atoms), where they prove it: what a described write's narrowing into its column rests on.
- */
-export const typeFitProof = (
-	preconditions: NonEmptyReadonlyArray<Precondition>,
-	from: ScalarType,
-	to: ScalarType
-): OperationProof | undefined => {
-	const b = boundsOfType(from)
-	const interval = b === undefined ? undefined : intervalPremise(0, b)
-	return interval === undefined ? undefined : intervalCastProof(preconditions, interval, to)
-}
-
-/**
  * The proof of a cast the lowering writes over a value it computed itself (CastHow computed), from that value's own
  * interval: the lowering writes one only where the interval proves it, so a value it does not prove is a defect.
  */

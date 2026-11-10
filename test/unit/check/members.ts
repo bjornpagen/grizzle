@@ -42,8 +42,9 @@ import {
 /**
  * ChangeSet members described by queries over a drawn schema, and the member rule restated as a model: an insert's and
  * a put's head delivers the fields a member writes, an insert's without the serial field it leaves to its sequence,
- * a delete's the relation's whole heading; each column compatible with its field; one heading; and no attachment,
- * which adds a field (DescribedHeadingMismatch, at the member, or at the attachment).
+ * a delete's the relation's whole heading; each column of its field's own type, a text's pattern the field's domain's
+ * alone; one heading; and no attachment, which adds a field (DescribedHeadingMismatch, at the member, or at the
+ * attachment).
  */
 
 export type Op = "insert" | "put" | "delete"
@@ -121,20 +122,97 @@ const sourceKind = (r: DrawnRelation, field: string): ColumnKind | undefined =>
 			? kindOf(r, field)
 			: undefined
 
+/** The type a head term delivers a field at: a kind a field declares, or a computed numeric, which none declares. */
+type Delivered = ColumnKind | "computed"
+
+/** The kinds a head sums: the integers and the numerics. */
+type Summed = "int4" | "int8" | "num10" | "num12"
+const summed: ReadonlyArray<Summed> = ["int4", "int8", "num10", "num12"]
+const isSummed = (kind: ColumnKind): kind is Summed => Arr.some(summed, (k) => k === kind)
+
 /**
- * The family a head term delivers a field at: the source variable's, the field's own for a literal or a parameter,
- * and for a sum of an integer an exact integer, which no field stores, and of a numeric a numeric.
+ * What a sum of each summed kind is (README's table): PostgreSQL's sum(integer), a bigint; sum(bigint) and sum(numeric),
+ * a computed numeric of the argument's digits widened by the rows.
  */
-const deliveredFamily = (r: DrawnRelation, w: Written, term: Term): Family | "exact" => {
+const sumOf: { readonly [K in Summed]: Delivered } = {
+	int4: "int8",
+	int8: "computed",
+	num10: "computed",
+	num12: "computed"
+}
+
+/** What a sum of the source's field of `kind` is, which writesGen draws over a summed kind alone. */
+const summedAs = (kind: ColumnKind): Delivered => {
+	if (!isSummed(kind)) {
+		throw new Error(`writesGen sums the summed kinds alone, not ${kind}`)
+	}
+	return sumOf[kind]
+}
+
+/**
+ * The type a head term delivers a field at: the source variable's kind, the field's own for a literal or a parameter,
+ * and a sum's summedAs.
+ */
+const deliveredType = (r: DrawnRelation, w: Written, term: Term): Delivered => {
+	const own = sourceKind(r, w.name) ?? w.kind
 	switch (term) {
 		case "var":
-			return familyOf(sourceKind(r, w.name) ?? w.kind)
+			return own
 		case "literal":
 		case "param":
-			return familyOf(w.kind)
+			return w.kind
 		case "sum":
-			return familyOf(sourceKind(r, w.name) ?? w.kind) === "numeric" ? "numeric" : "exact"
+			return summedAs(own)
 	}
+}
+
+/** The family a delivered type meets others in: a computed numeric a numeric's. */
+const familyOfDelivered = (d: Delivered): Family => (d === "computed" ? "numeric" : familyOf(d))
+
+/**
+ * The type a column of arms of one family delivers at, as a union types it (check/refinement combine): their one type
+ * where they agree; else the guarantees common to them, of numerics the computed numeric of both bounds' hull, and of
+ * texts the text of every value, the wildcard, the numeric and text families being the two of several kinds.
+ */
+const unionType = (types: Arr.NonEmptyReadonlyArray<Delivered>): Delivered => {
+	const [first, ...rest] = types
+	return Arr.every(rest, (t) => t === first)
+		? first
+		: familyOfDelivered(first) === "numeric"
+			? "computed"
+			: "prose"
+}
+
+/**
+ * The type a value enters a stored column at (ir/scalar.ts enteredType): a text's pattern is the column's domain's, so
+ * every text kind enters as one; every other kind, a computed numeric among them, as itself.
+ */
+const enteredAt = (d: Delivered): Delivered | "text" =>
+	d !== "computed" && familyOf(d) === "text" ? "text" : d
+
+/** The type each arm of the case that writes the target's field `w` delivers it at, in arm order. */
+const typesAt = (c: MemberCase, w: Written): ReadonlyArray<Delivered> =>
+	Arr.flatMap(c.arms, (arm) =>
+		Arr.map(
+			Arr.filter(arm.writes, (x) => x.field === w.name),
+			(x) => deliveredType(relationAt(c.schema, arm.source), w, x.term)
+		)
+	)
+
+/**
+ * The target's fields some arm delivers at another kind of the field's own family, a numeric of another typmod or a
+ * text of another pattern, by that family.
+ */
+const otherKindsOf = (c: MemberCase): ReadonlyArray<Family> => {
+	const target = relationAt(c.schema, c.target)
+	return Arr.flatMap(writtenOf(target), (w) =>
+		Arr.some(
+			typesAt(c, w),
+			(t) => t !== "computed" && t !== w.kind && familyOf(t) === familyOf(w.kind)
+		)
+			? [familyOf(w.kind)]
+			: []
+	)
 }
 
 const headKeys = (arm: MemberArm): ReadonlyArray<string> => [
@@ -146,7 +224,7 @@ const headKeys = (arm: MemberArm): ReadonlyArray<string> => [
 /**
  * The model: attachments are refused where the checker meets them, an arm's before the stage's; arms of two headings
  * need their tags to differ (MissingDiscriminant) and are then two headings; and the head is held to the relation's
- * heading for the op, every column of its field's family.
+ * heading for the op, every column, as the arms' union types it, entering its field at the field's own type.
  */
 export const memberVerdict = (c: MemberCase): MemberVerdict => {
 	const target = relationAt(c.schema, c.target)
@@ -160,21 +238,8 @@ export const memberVerdict = (c: MemberCase): MemberVerdict => {
 		return refused("DescribedHeadingMismatch", "an attachment on an arm", "arm attachment")
 	}
 	const written = writtenOf(target)
-	const familyAt = (arm: MemberArm, field: string): Family | "exact" | undefined => {
-		const w = Arr.findFirst(arm.writes, (x) => x.field === field)
-		const f = Arr.findFirst(written, (x) => x.name === field)
-		return w._tag === "Some" && f._tag === "Some"
-			? deliveredFamily(relationAt(c.schema, arm.source), f.value, w.value.term)
-			: undefined
-	}
 	for (const w of written) {
-		const families = new Set(
-			Arr.flatMap(c.arms, (arm) => {
-				const family = familyAt(arm, w.name)
-				return family === undefined ? [] : [family]
-			})
-		)
-		if (families.size > 1) {
+		if (new Set(Arr.map(typesAt(c, w), familyOfDelivered)).size > 1) {
 			return refused("MalformedDescription", "incompatible arms", "the union")
 		}
 	}
@@ -210,7 +275,14 @@ export const memberVerdict = (c: MemberCase): MemberVerdict => {
 	if (Arr.some(delivered, (d) => !Arr.some(expected, (w) => w.name === d))) {
 		return refused("DescribedHeadingMismatch", "an extra column", "member")
 	}
-	if (Arr.some(expected, (w) => familyAt(first, w.name) !== familyOf(w.kind))) {
+	const enters = (w: Written): boolean =>
+		Arr.match(typesAt(c, w), {
+			onEmpty: () => {
+				throw new Error(`the arms of one heading each write ${w.name}, which it expects`)
+			},
+			onNonEmpty: (types) => enteredAt(unionType(types)) === enteredAt(w.kind)
+		})
+	if (Arr.some(expected, (w) => !enters(w))) {
 		return refused("DescribedHeadingMismatch", "a column of another type", "member")
 	}
 	return {
@@ -305,9 +377,6 @@ export const memberDesc = (c: MemberCase): MemberDesc => ({
 	member: { kind: "query", query: memberQuery(c) }
 })
 
-/** The kinds a head sums: the integers and the numerics. */
-const summed: ReadonlyArray<ColumnKind> = ["int4", "int8", "num10", "num12"]
-
 /**
  * How a head writes a field of the target from a source: mostly the source's variable of the field's name where it
  * declares one, else a literal or a parameter, sometimes a sum, and sometimes nothing, the serial field often.
@@ -319,7 +388,7 @@ const writesGen =
 		const r = relationAt(s, source)
 		return Arr.flatMap(writtenOf(t), (w) => {
 			const own = sourceKind(r, w.name)
-			const summable = own !== undefined && Arr.contains(summed, own)
+			const summable = own !== undefined && isSummed(own)
 			const term = inner.draw(
 				weighted<Term | "none">([
 					[own === undefined ? 1 : 6, element([own === undefined ? "literal" : "var"] as const)],
@@ -432,12 +501,15 @@ export type MemberFeature =
 	| "a parameter written as its field"
 	| "a sum written into a field"
 	| "two arms of one heading"
+	| "a numeric of another typmod"
+	| "a text of another pattern"
 
 export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<MemberFeature> => {
 	const target = relationAt(c.schema, c.target)
 	const [first] = c.arms
 	const writesSerial = Arr.some(first.writes, (w) => w.field === serialField)
 	const sums = Arr.some(c.arms, (a) => Arr.some(a.writes, (w) => w.term === "sum"))
+	const others = otherKindsOf(c)
 	switch (v.kind) {
 		case "refused":
 			return [
@@ -448,6 +520,9 @@ export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<M
 					: []),
 				...(sums && v.rule === "a column of another type"
 					? ["a sum written into a field" as const]
+					: []),
+				...(Arr.contains(others, "numeric") && v.rule === "a column of another type"
+					? ["a numeric of another typmod" as const]
 					: [])
 			]
 		case "admitted":
@@ -463,7 +538,8 @@ export const memberFeatures = (c: MemberCase, v: MemberVerdict): ReadonlyArray<M
 					: []),
 				...(v.params.size > 0 ? ["a parameter written as its field" as const] : []),
 				...(sums ? ["a sum written into a field" as const] : []),
-				...(c.arms.length > 1 ? ["two arms of one heading" as const] : [])
+				...(c.arms.length > 1 ? ["two arms of one heading" as const] : []),
+				...(Arr.contains(others, "text") ? ["a text of another pattern" as const] : [])
 			]
 	}
 }

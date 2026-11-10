@@ -540,7 +540,8 @@ The command line's own refusals, by stage:
   `PartialOperation`, whose `guard` is the code to write. A contract's facts are exactly its `proves`: a fact its
   predicate implies but `proves` leaves out is refused, and the refusal names the declaration to add. Narrow an exact
   integer into an integer field with
-  `Compute.cast` under `Compute.within`.
+  `Compute.cast` under `Compute.within`, and a sum, a mean or numeric arithmetic into a `pg.numeric(p, s)` field the
+  same way: a ChangeSet member writes each field at its own type, a numeric of another precision or scale included.
 - Test text with `Compute.matches(x, pattern)`, `Compute.startsWith` and `Compute.endsWith`, never a regex in your
   code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Compute.pattern(source)`, made once
   as a module constant and admitted there (`const digits = Compute.pattern("^[0-9]+$")`), never a bare string; or a
