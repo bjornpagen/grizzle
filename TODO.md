@@ -12,14 +12,6 @@ post-beta swarm's fixes for the next release.
   every performance gate passing, both perfect on the exact commit; then the owner's go.
 - **Known red tests, real defects no served write of qti-pie or edullm reaches (the owner, 2026-11-09: fixed after the
   repin, the tests left red until then; neither served file holds a removals statement):**
-  - test/pg/write/swarm/families.test.ts, its kept case "a put of an owner whose v two owner axes carry, into an
-    ordered family's members' copies and on into a counted family's members' copies, which its sum fold steps": the
-    follow-up's put of the owner is invariant-rejected. The shape: R0 owns an ordered family of R1, whose members copy
-    R0's `v`; R1 owns a counted family of R2, whose members copy R1's copy and sum it; a put of R0 refills R2's fold
-    along both owner axes, the multi-hop way of 8df4c050 in the call's one flight. PostgreSQL refuses the removals
-    statement's refill with 23514 on R2's sum-fold CHECK (`__r_2_check_r_1_n_1_sum_fold`): the refilled row's family
-    columns are index 1, ‹n› 0, before 1, after 0, where the reference has 0, 1, 0, 5. The cause is in
-    write/family/removals.ts cascaded or its merge into the redraw, still to find; the fix is held by ONERTT-WRITE2.
   - test/pg/physical/serving.test.ts, "every request a generated workload plans is served, and every index it creates
     is needed", TEST_SEED=252072110, the rotating stream (seed 0xa1036de9), case 6: a B-tree range request is planned on
     a GiST index that reads three times its result. The shape: a relation with a GiST index on (a closed handle, a

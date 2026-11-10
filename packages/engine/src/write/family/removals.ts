@@ -954,7 +954,9 @@ const redraw = (
 	/** The members from each group's least changed slot at their final slots, every column as the edit leaves it. */
 	const ownerReads = new Map(
 		drawnColumns.flatMap((c) =>
-			c.rule.kind === "ownerCopy" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
+			c.rule.kind === "ownerCopy"
+				? [[columnKey(c.rule.to), { to: c.rule.to, from: columnKey(c.column) }] as const]
+				: []
 		)
 	)
 	const rows: ScanRows = {
@@ -1006,9 +1008,13 @@ const redraw = (
 			stored
 		])
 	}
-	/** An owner's column as the stratum leaves it: a refill's root's put field where the put names the owner, else the
-	 * stored one. */
-	const ownerColumn = (g: string, to: NativeColumn): Expr => {
+	/**
+	 * An owner's column `to` as the stratum leaves it, read for the member row `m` of the group `g`, which copies it into
+	 * `from`: a refill's root's put field where the put names the owner; else the member's copy as the edit leaves it, a
+	 * way's cascaded value where a refill carries the owner's change from further up its owner axes, and the stored copy,
+	 * the owner's stored column, otherwise.
+	 */
+	const ownerColumn = (m: string, g: string, to: NativeColumn, from: ColumnKey): Expr => {
 		const o = supply.relation(internal("redrawn owner"))
 		const atGroup = (alias: string, key: (field: string) => string): Expr =>
 			and(
@@ -1027,7 +1033,7 @@ const redraw = (
 		const facts = rootFacts.get(owner.name)
 		const put = facts?.columns.get(columnKey(to))
 		if (facts === undefined || put === undefined) {
-			return stored
+			return memberColumn(m, from)
 		}
 		const p = supply.relation(internal("redrawn owner put"))
 		return firstNonNull([
@@ -1081,8 +1087,11 @@ const redraw = (
 			rows.count
 		),
 		...keys.map((k) => targetAs(memberColumn(m, k), columnAt(rows, k))),
-		...[...ownerReads].map(([k, to]) =>
-			targetAs(ownerColumn(g, to), defined(rows.owner.get(k), "an owner column"))
+		...[...ownerReads].map(([k, owned]) =>
+			targetAs(
+				ownerColumn(m, g, owned.to, owned.from),
+				defined(rows.owner.get(k), "an owner column")
+			)
 		)
 	]
 	const m1 = supply.relation(internal("kept member"))
