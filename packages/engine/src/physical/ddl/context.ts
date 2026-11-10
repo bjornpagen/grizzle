@@ -224,8 +224,10 @@ export class InstallBuilder {
 	readonly levelNodes: NonEmptyReadonlyArray<Node<"setup">>
 	/** The refusal function every write statement that can refuse and every context source calls. */
 	readonly refusal: Node<"setup">
-	/** The guard function every table's isolation trigger calls. */
+	/** The guard function every guarded table's isolation trigger calls. */
 	readonly isolation: Node<"setup">
+	/** The relations whose tables take no isolation trigger (physical/ddl/isolation.ts readCommittedRelations). */
+	readonly readCommitted: ReadonlySet<string>
 	/** The snapshot guard every Db transaction and Db.open call behind the ledger's fence. */
 	readonly snapshotGuard: Node<"setup">
 	readonly #named: Array<Identity<IdentityKind>> = []
@@ -258,8 +260,10 @@ export class InstallBuilder {
 		readonly model: LawModel
 		readonly names: InstallNames
 		readonly settings: InstallSettings
+		readonly readCommitted: ReadonlySet<string>
 	}) {
 		this.owned = input.owned
+		this.readCommitted = input.readCommitted
 		this.checked = input.checked
 		this.model = input.model
 		this.names = input.names

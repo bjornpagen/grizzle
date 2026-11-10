@@ -1,4 +1,6 @@
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
 	enforcement,
@@ -102,7 +104,9 @@ const databaseDefaultIdent = (d: AlterDatabaseDefault): string => `databaseDefau
 
 /** The database defaults and the guard function, in Setup: neither names a type or a table.
  *
- * Every transaction runs at SERIALIZABLE. Three installed facts make it so, and every other module relies on it:
+ * Every transaction runs at SERIALIZABLE, but a write of a role that certification runs READ COMMITTED
+ * (core/isolation.ts), whose BEGIN states its level. Three installed facts make it so, and every other module relies on
+ * it:
  *
  * - the database default: default_transaction_isolation = serializable on the installation's database
  *   (`databaseDefaults`), so a session of any role that names no level runs
@@ -123,11 +127,12 @@ const databaseDefaultIdent = (d: AlterDatabaseDefault): string => `databaseDefau
  * - the guard trigger, one per table, the migrations ledger's included, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
  *   FOR EACH STATEMENT, so a session or role that sets a lower level is refused with 25000, naming the table, before
  *   the statement writes a row. Its name is one fixed name, which PostgreSQL scopes to its table, so a renamed table
- *   carries it unchanged.
+ *   carries it unchanged. A table every writer of which certification runs READ COMMITTED takes none
+ *   (`readCommittedRelations`): the installation holds no guard object for it, so no statement branches on a level.
  *
- * With every writer SERIALIZABLE, PostgreSQL's SSI orders every write and every law function's reads: a transaction
- * that would commit in no serial order with a concurrent one fails with 40001, a TransientFailure the caller may run
- * again. */
+ * With every writer of a guarded table SERIALIZABLE, PostgreSQL's SSI orders every write and every law function's reads
+ * there: a transaction that would commit in no serial order with a concurrent one fails with 40001, a TransientFailure
+ * the caller may run again. */
 export const addIsolation = (b: InstallBuilder): Node<"setup"> => {
 	for (const d of databaseDefaults) {
 		b.add(
@@ -171,13 +176,43 @@ export const isolationTrigger = (
 	]
 })
 
-/** The guard trigger of the table of `relation`, `table`, which addTables has just added. The ledger's,
- * the one table no relation declares, is the snapshot's. */
+/**
+ * The relations whose tables take no guard trigger, of `roles`, each role's level (Installation.certification) with the
+ * table privileges it holds by relation (physical/ddl/roles.ts grantedPrivileges): each relation some role writes,
+ * holding INSERT, UPDATE or DELETE on it, every such role READ COMMITTED and holding only INSERT and SELECT there. Its
+ * every writer is held by its grants to inserts, and certification proved that each runs correctly at READ COMMITTED.
+ * A relation no role writes keeps its guard, as does one a SERIALIZABLE role writes: certification is a claim the
+ * installation is handed, so a table is guarded unless every claim about it is.
+ */
+export const readCommittedRelations = (
+	roles: ReadonlyArray<{
+		readonly level: Isolation
+		readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
+	}>
+): ReadonlySet<string> => {
+	const relaxed = new Map<string, boolean>()
+	for (const role of roles) {
+		for (const [relation, held] of role.privileges) {
+			if (held.has("INSERT") || held.has("UPDATE") || held.has("DELETE")) {
+				const inserts = role.level === "readCommitted" && !held.has("UPDATE") && !held.has("DELETE")
+				relaxed.set(relation, (relaxed.get(relation) ?? true) && inserts)
+			}
+		}
+	}
+	return new Set([...relaxed].flatMap(([relation, r]) => (r ? [relation] : [])))
+}
+
+/** The guard trigger of the table of `relation`, `table`, which addTables has just added, unless certification runs its
+ * every writer READ COMMITTED (`readCommittedRelations`). The ledger's, the one table no relation declares, is the
+ * snapshot's. */
 export const addIsolationTrigger = (
 	b: InstallBuilder,
 	relation: string,
 	table: Node<"structure">
 ): void => {
+	if (b.readCommitted.has(relation)) {
+		return
+	}
 	b.add(
 		{
 			kind: "isolationTrigger",

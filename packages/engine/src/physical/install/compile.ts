@@ -9,6 +9,8 @@ import {
 	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -23,7 +25,8 @@ import {
 	addTextDomains,
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
-import { addWorlds, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
+import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
+import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
 import {
@@ -96,7 +99,29 @@ export interface Installation extends InstallPlan {
 	readonly deferred: {
 		readonly derivedRelations: ReadonlyArray<string>
 	}
+	/** Each role of each login with its certificate, in login then role order: the level its writes begin at, and what
+	 * each table's guard trigger is installed by (physical/ddl/isolation.ts readCommittedRelations). */
+	readonly certification: ReadonlyArray<CertifiedRole>
 }
+
+/** A role's certificate as an installation holds it: its login, its name, and its level, the one fact of a certificate
+ * (analysis/isolation/certify.ts RoleIsolation) the installation and its readers read. */
+export interface CertifiedRole {
+	readonly login: string
+	readonly role: string
+	readonly certificate: { readonly level: Isolation }
+}
+
+/** Every role of the plan's logins SERIALIZABLE, in login then role order: the certification an installation holds
+ * until it certifies its roles from their workloads, so every table keeps its guard. */
+const uncertified = (plan: InstallPlan): ReadonlyArray<CertifiedRole> =>
+	plan.logins.flatMap(({ login, roles }) =>
+		roles.map(({ checked }): CertifiedRole => ({
+			login: login.name,
+			role: checked.world.role.name,
+			certificate: { level: "serializable" }
+		}))
+	)
 
 /**
  * A schema identifier the installation may create: a plain lowercase identifier, at most maxIdentifierBytes, outside
@@ -251,12 +276,26 @@ export const installationOver = (
 		Result.flatMap(planInstallation(basis, settings, options.extensions), (plan) =>
 			catchRefusal((): Installation => {
 				const { owned, model, planned } = basis
+				const certification = uncertified(plan)
+				const levelOf = (login: string, role: string) =>
+					defined(
+						certification.find((c) => c.login === login && c.role === role),
+						`the certificate of role ${role} of login ${login}`
+					).certificate.level
 				const b = new InstallBuilder({
 					owned,
 					checked: plan.checked,
 					model,
 					names: plan.names,
-					settings
+					settings,
+					readCommitted: readCommittedRelations(
+						plan.logins.flatMap(({ login, roles }) =>
+							roles.map(({ checked }) => ({
+								level: levelOf(login.name, checked.world.role.name),
+								privileges: grantedPrivileges(model, checked)
+							}))
+						)
+					)
 				})
 				const rosters = addRosters(b)
 				addClosedRelations(b, planned)
@@ -329,7 +368,8 @@ export const installationOver = (
 					identities,
 					deferred: {
 						derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
-					}
+					},
+					certification
 				}
 			})
 		)

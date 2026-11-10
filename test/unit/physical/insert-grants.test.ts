@@ -37,6 +37,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -348,6 +349,45 @@ const compiled = (s: Shops, declared: ReadonlyArray<Declared>) => {
 	)
 }
 
+/** Whether `i` installs the guard trigger of `t`'s table. */
+const guarded = (i: Installation, t: Written | "Open"): boolean => {
+	const table = i.names.relation(t)
+	return Arr.some(
+		i.manifest.objects,
+		(o) =>
+			o.kind === "isolationTrigger" &&
+			Arr.some(
+				o.ddl,
+				(d) =>
+					d.kind === "createGuardTrigger" &&
+					d.table.schema === table.schema &&
+					d.table.name === table.name
+			)
+	)
+}
+
+/** The rule restated: whether `t`'s table takes no guard, some declared role writing it and each that does certified
+ * READ COMMITTED and holding only INSERT and SELECT there. */
+const relaxedByRule = (
+	declared: ReadonlyArray<Declared>,
+	mutability: Mutability,
+	levels: (r: RoleName) => Isolation,
+	t: Written | "Open"
+): boolean => {
+	const writers = Arr.filter(declared, (d) =>
+		Arr.some(rulePrivileges(d, mutability, t), (p) => p !== "SELECT")
+	)
+	return (
+		isNonEmpty(writers) &&
+		Arr.every(
+			writers,
+			(d) =>
+				levels(d.name) === "readCommitted" &&
+				Arr.every(rulePrivileges(d, mutability, t), (p) => p === "SELECT" || p === "INSERT")
+		)
+	)
+}
+
 /** A role's PostgreSQL name in the installation. */
 const roleIn = (i: Installation, r: RoleName): string =>
 	defined(
@@ -435,6 +475,9 @@ type InsertFeature =
 	| "a put refused"
 	| "a recount refused"
 	| "an insert program the control refuses"
+	| "a table without a guard"
+	| "a table no role writes keeps its guard"
+	| "a guarded table an insert role writes"
 
 const features: Arr.NonEmptyReadonlyArray<InsertFeature> = [
 	"a role stating write",
@@ -447,7 +490,9 @@ const features: Arr.NonEmptyReadonlyArray<InsertFeature> = [
 	"a deletion refused",
 	"a put refused",
 	"a recount refused",
-	"an insert program the control refuses"
+	"an insert program the control refuses",
+	"a table no role writes keeps its guard",
+	"a guarded table an insert role writes"
 ]
 
 /** The objects, edges, revokes, defaults and comments of an installation, the privileges objects of `excluded` and the
@@ -689,6 +734,38 @@ describe("roles that write by an insert list", () => {
 								comparable(ci, flipped),
 								"the installation is the control's but for each insert role's privileges"
 							)
+							assert.deepEqual(
+								Arr.map(i.certification, (r) => [r.login, r.role]),
+								Arr.map(declared, (d) => ["desk", d.name]),
+								"the installation certifies every role, in login then role order"
+							)
+							const levelOf = (r: RoleName): Isolation =>
+								defined(
+									Option.getOrUndefined(Arr.findFirst(i.certification, (x) => x.role === r)),
+									`the certificate of ${r}`
+								).certificate.level
+							for (const t of [...written, "Open"] as const) {
+								const relaxed = relaxedByRule(declared, w.mutability, levelOf, t)
+								assert.equal(
+									guarded(i, t),
+									!relaxed,
+									`${t}'s table takes a guard exactly when some writer of it is not certified READ COMMITTED to insert`
+								)
+								if (relaxed) {
+									c.note("a table without a guard")
+								} else if (t === "Open") {
+									c.note("a table no role writes keeps its guard")
+								} else if (
+									Arr.some(
+										declared,
+										(d) =>
+											d.stated === "insert" &&
+											Arr.some(rulePrivileges(d, w.mutability, t), (p) => p === "INSERT")
+									)
+								) {
+									c.note("a guarded table an insert role writes")
+								}
+							}
 							const programmed = Arr.findFirst(declared, (d) => d.name === w.program.role)
 							if (Option.isNone(programmed)) {
 								return

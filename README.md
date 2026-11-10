@@ -53,7 +53,8 @@ through views of its own, under row-level security where it writes only some row
 Every call is one SERIALIZABLE transaction, its statements pipelined into one round trip, or two when a write must
 first read stored values it builds on. There are no interactive transactions to hold open: a read that decides a write
 is a query inside the write. The first migration makes SERIALIZABLE the database's default, and a write below it on a
-grizzle table is refused, so psql and scripts get the same isolation. Every failure is typed: a broken rule is an
+grizzle table is refused, so psql and scripts get the same isolation, on every table but one whose every writer is
+certified to run READ COMMITTED and may only insert ([Transactions and concurrency](#transactions-and-concurrency)). Every failure is typed: a broken rule is an
 outcome that names the rule, and anything else is a tagged error. A `TransientFailure` changed nothing, and grizzle
 never retries: whether to run it again is your code's decision.
 
@@ -1179,7 +1180,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 
 | You write | PostgreSQL gets |
 | --- | --- |
-| `relation(...)` | a table, every column NOT NULL, with its primary key, and a statement trigger that refuses any write below SERIALIZABLE |
+| `relation(...)` | a table, every column NOT NULL, with its primary key, and a statement trigger that refuses any write below SERIALIZABLE, unless every writer of it is certified READ COMMITTED |
 | `str.regex(...)`, `contract(...)` | a domain whose CHECK every writer's value meets, one domain for each distinct definition |
 | `closed(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
@@ -2973,7 +2974,13 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 ## Transactions and concurrency
 
 - **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
-  it, psql included. A write below it on a grizzle table is refused with 25000.
+  it, psql included. A write below it on a grizzle table is refused with 25000, by the table's guard trigger.
+- **A table whose every writer is certified READ COMMITTED has no guard.** Such a table is one some role writes, and
+  every role that holds INSERT, UPDATE or DELETE on it is certified to run its writes READ COMMITTED and holds only
+  INSERT and SELECT there. The installation creates no guard trigger for it, so a write below SERIALIZABLE is admitted
+  there: a direct writer meets the grants of the role it writes as, which insert and read and nothing else, and the
+  table's laws, each a constraint PostgreSQL checks at every level. Every other table keeps its guard, and a table no
+  role writes keeps it too. A migration that changes whether a table qualifies drops or creates its guard.
 - **One call, one transaction, one round trip or two.** A call sends BEGIN, its statements and COMMIT in one pipelined flight.
   A write that must read stored values first (a family edit of a group already stored, or a refill of a value a change
   leaves stale) sends two flights in its one transaction: one batched read per family of the stored values the edit
@@ -3108,7 +3115,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, or of the advance function of a table the role does not write |
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
 | 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
-| 25000               | a write below SERIALIZABLE                                                                                                                                   |
+| 25000               | a write below SERIALIZABLE, on a table some writer of which is not certified READ COMMITTED                                                                    |
 | 23502               | a NULL in a column, such as one an INSERT leaves out that is neither serial nor generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at; each reported by its table and column alone |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |

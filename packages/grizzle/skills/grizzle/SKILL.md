@@ -400,7 +400,7 @@ A direct SQL writer, psql included, meets these refusals of its own, among the o
 
 | Refusal | Fix |
 | --- | --- |
-| 25000: a write to a grizzle table requires SERIALIZABLE | write at SERIALIZABLE: BEGIN ISOLATION LEVEL SERIALIZABLE; |
+| 25000: a write to a grizzle table requires SERIALIZABLE | write at SERIALIZABLE: BEGIN ISOLATION LEVEL SERIALIZABLE; (a table whose every writer is certified READ COMMITTED has no guard) |
 | 42501: permission denied, or a new row violating a row-security policy | SET ROLE to a role whose world holds the relation and the row |
 | 40001 or 40P01: a serialization failure or a deadlock | run the transaction again |
 
@@ -425,7 +425,10 @@ The command line's own refusals, by stage:
   `Db` transactions in flight; from then until the migration's last file commits, no `Db` call runs and no `Db` opens,
   so plan migrations as downtime.
 - Every transaction runs at SERIALIZABLE, a direct SQL writer's included. grizzle sets it as the database's default,
-  so psql sessions get it without asking, and a write below it on any grizzle table is refused with 25000.
+  so psql sessions get it without asking, and a write below it on a grizzle table is refused with 25000 by the table's
+  guard trigger. A table some role writes, every writer of which is certified READ COMMITTED and holds only INSERT and
+  SELECT on it, has no guard: a direct writer there meets its role's grants and the table's constraints alone. A
+  migration that changes whether a table qualifies drops or creates its guard.
 - Set `max_pred_locks_per_transaction = 2048` on the server (a server-start setting): under load PostgreSQL may
   report 53200, out of shared memory, with a HINT to raise it, and that failure is not retryable. Keep transactions
   short everywhere on the cluster: a committed write's locks are held until every older transaction ends, in any
