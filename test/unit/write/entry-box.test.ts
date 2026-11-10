@@ -5,11 +5,16 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
-import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/execute/offline.ts"
+import {
+	offlineCompile,
+	offlineServedBind,
+	parsedChange
+} from "#test/support/worlds/execute/offline.ts"
 import { plannedWrite, type WritingRole } from "#test/support/worlds/execute/session.ts"
 import { knownNonEmpty, pooled } from "#test/support/worlds/generate/domain.ts"
 import { compileRefused, opFault } from "#test/support/worlds/model/session/apply.ts"
@@ -226,8 +231,9 @@ const factKinds = (base: BaseSpec, w: Written): Arr.NonEmptyReadonlyArray<HostFa
 }
 
 /** Whether a refusal of a write's inputs before any SQL is an encoder's. */
-const atEncoder = (refusal: EncodingFailure | "ResourceBound" | CompileError): boolean =>
-	refusal !== "ResourceBound" && refusal._tag === "EncodingFailure"
+const atEncoder = (
+	refusal: EncodingFailure | "ResourceBound" | CompileError | UnservedMember
+): boolean => refusal !== "ResourceBound" && refusal._tag === "EncodingFailure"
 
 /** Every list of up to two of the facts, each pair once in either order. */
 const factLists = (
@@ -298,9 +304,12 @@ describe("the write front end over its small box", () => {
 													`the builder refuses an insert of facts: ${messageOf(write.failure)}`
 												)
 											)
-										: Effect.succeed(parsedChange(write.success.changes))
+										: Effect.succeed({
+												change: parsedChange(write.success.changes),
+												facts: write.success.facts
+											})
 								)
-							const change = yield* changeOf([])
+							const { change } = yield* changeOf([])
 							const compiled = offlineCompile(writer.value, change, new Set())
 							assert.ok(
 								!compileRefused(base, role, [[insert([])]], []),
@@ -332,8 +341,8 @@ describe("the write front end over its small box", () => {
 							}
 							for (const facts of factLists(factKinds(base, written))) {
 								const predicted = opFault(base, written, insert(facts))?.kind === "encoding"
-								const change = yield* changeOf(facts)
-								const bound = yield* offlineBind(compiled.value, change)
+								const call = yield* changeOf(facts)
+								const bound = offlineServedBind(compiled.value, call.change, call.facts)
 								const refusal = bound.ok ? undefined : bound.error
 								if (refusal !== undefined && !atEncoder(refusal)) {
 									return assert.fail(

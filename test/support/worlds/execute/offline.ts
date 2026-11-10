@@ -4,6 +4,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
+import { memberFactsOf } from "#compiler/runtime/write/members.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
@@ -74,6 +75,29 @@ export const withinMessage = (
 	}
 	return Engine.err(failure)
 }
+
+/**
+ * A compiled write's inputs bound as a served change member binds a call's before any SQL (adapter/served/load.ts
+ * changeCall, then adapter/apply/run.ts hostInputs): `facts`, the call's as a JavaScript caller passes them, read against the program's array members
+ * (write/program/served-members.ts servedMembers, runtime/write/members.ts memberFactsOf), then normalized and encoded
+ * for its slots (`withinMessage`). A ChangeSet no served member holds is its UnservedMember.
+ */
+export const offlineServedBind = (
+	program: CompiledWrite,
+	change: ParsedChangeSet,
+	facts: unknown
+): Engine.Result<BindResult, EncodingFailure | CompileError | UnservedMember> =>
+	Engine.flatMap(servedMembers(program.binding.members, change.values), (members) =>
+		Engine.flatMap(memberFactsOf(facts, members), (read) =>
+			withinMessage(
+				bindWrite(runnableWrite(program, program.frontend.codes), {
+					members: read,
+					params: {},
+					transport: inForce(bindFrame)
+				})
+			)
+		)
+	)
 
 /**
  * A compiled write's inputs bound as db.apply binds them before any SQL: the ChangeSet's facts collected, normalized
