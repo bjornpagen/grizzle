@@ -61,7 +61,7 @@ import {
 } from "#compiler/ir/products.ts"
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
-import { compileLaws } from "#compiler/laws/model/model.ts"
+import { statedTheory } from "#compiler/laws/model/model.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
@@ -468,8 +468,10 @@ interface TargetInput {
 /**
  * The installation's levels as the snapshot records them (SnapshotLevel), root first: each level's name, schema and
  * fingerprint, and the laws its theory states that the theory of the level below it does not, each described as an
- * outcome names it. A lower level's theory is its law model's, compiled from the level as it is owned alone; the top's
- * is the installation's own.
+ * outcome names it. A lower level's theory is the one its checked schema states, the level owned alone; the top's is
+ * the installation's own. A lower level's law model is not compiled: the installation's, of every slice under planned
+ * cycles, specialized every law of the schema, each lower level's included, and a lower level's law specializes alone
+ * as it does there, so the level alone refuses nothing the installation's did not.
  */
 const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 	const owned = installation.owned
@@ -482,10 +484,8 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			i === top || desc === undefined
 				? installation.laws.theory
 				: unwrapCompiled(
-						Result.flatMap(own(desc), (alone) =>
-							compileLaws(alone, everySlice(alone), { kind: "planned" })
-						)
-					).theory
+						Result.flatMap(own(desc), (alone) => statedTheory(alone, everySlice(alone)))
+					)
 		const laws: Array<DescribedLaw> = []
 		for (const law of theory.laws) {
 			if (!stated.has(law.id)) {
