@@ -16,7 +16,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { textArrayParam } from "#compiler/codec/recordset.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -29,7 +29,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -58,6 +57,37 @@ const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: uuid, body: Body }, ["id"])
 const Response = relation("Response", { id: uuid, value: Body }, ["id"])
 const Texts = schema("TextArrays", { Note, Response }, [mutable(Note), mutable(Response)])
+
+/**
+ * The full world's workload: Note's insert, put and delete, each from its call's facts; Response's insert from the
+ * relation parameter `responses`; and the reads of every Note, of the relation parameter `rows`, and of every Response.
+ */
+const programs = {
+	insertNote: ChangeSet.empty(Texts).insert(Note, []),
+	putNote: ChangeSet.empty(Texts).put(Note, []),
+	deleteNote: ChangeSet.empty(Texts).delete(Note, []),
+	answer: ChangeSet.empty(Texts).insert(
+		Response,
+		query(Texts).rule((r) => {
+			const given = r.relation("responses", { id: Response.fields.id, value: Body })
+			const row = v(given, "given")
+			return r.match(given, row).find(row)
+		})
+	),
+	notes: query(Texts).rule((r) => {
+		const { id, body } = v(Note, "note")
+		return r.match(Note, { id, body }).find({ id, body })
+	}),
+	echoed: query(Texts).rule((r) => {
+		const rows = r.relation("rows", { body: Body })
+		const row = v(rows, "row")
+		return r.match(rows, row).find(row)
+	}),
+	recorded: query(Texts).rule((r) => {
+		const { id, value } = v(Response, "response")
+		return r.match(Response, { id, value }).find({ id, value })
+	})
+}
 
 /** One scalar of a text: a character a literal array quotes or escapes, or a scalar of any plane but NUL. */
 const scalar: Gen<string> = weighted([
@@ -174,40 +204,17 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(
-						Texts,
-						{},
-						{ label: "textarrays", extensions: [], programs: {} }
-					)
+					const o = yield* installed(Texts, {}, { label: "textarrays", extensions: [], programs })
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(o.server.roles.app, {})
-						const empty = ChangeSet.empty(o.schema)
-						const notes = query(o.schema).rule((r) => {
-							const { id, body } = v(Note, "note")
-							return r.match(Note, { id, body }).find({ id, body })
-						})
-						const echoed = query(o.schema).rule((r) => {
-							const rows = r.relation("rows", { body: Body })
-							const row = v(rows, "row")
-							return r.match(rows, row).find(row)
-						})
+						const db = yield* Db.open(o.served.login.roles.app, {})
 						const bodies = Effect.map(
-							Effect.flatMap(db.execute(notes, {}), (r) => r.collect),
+							Effect.flatMap(db.workload.notes.execute({}), (r) => r.collect),
 							(rows) => sorted(Arr.map(rows, (row) => row.body))
 						)
-						const answered = query(o.schema).rule((r) => {
-							const given = r.relation("responses", { id: Response.fields.id, value: Body })
-							const row = v(given, "given")
-							return r.match(given, row).find(row)
-						})
-						const recorded = query(o.schema).rule((r) => {
-							const { id, value } = v(Response, "response")
-							return r.match(Response, { id, value }).find({ id, value })
-						})
 						const values = Effect.map(
-							Effect.flatMap(db.execute(recorded, {}), (r) => r.collect),
+							Effect.flatMap(db.workload.recorded.execute({}), (r) => r.collect),
 							(rows) => sorted(Arr.map(rows, (row) => row.value))
 						)
 						return yield* explore(
@@ -270,13 +277,16 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 												)
 										)
 									const rows = Arr.map(texts, (body, i) => ({ id: uuidOf(i + 1), body }))
-									const inserted = yield* db.apply(empty.insert(Note, rows), {})
+									const inserted = yield* db.workload.insertNote.apply(
+										{ insert: { Note: rows } },
+										{}
+									)
 									assert.equal(inserted.kind, "accepted", "the insert is accepted")
 									const afterInsert = yield* bodies
 									const insertedLiteral = yield* literal(texts)
 									assert.deepEqual(afterInsert, insertedLiteral, "the inserted texts read back")
 									const put = Arr.map(rows, (row) => ({ id: row.id, body: reversed(row.body) }))
-									const putOutcome = yield* db.apply(empty.put(Note, put), {})
+									const putOutcome = yield* db.workload.putNote.apply({ put: { Note: put } }, {})
 									assert.ok(
 										putOutcome.kind === "accepted" || putOutcome.kind === "no-change",
 										`the put is lawful, not ${putOutcome.kind}`
@@ -286,7 +296,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 									assert.deepEqual(afterPut, putLiteral, "the put texts read back")
 									const deleted = Arr.filter(put, (_, i) => i % 2 === 1)
 									const kept = Arr.filter(put, (_, i) => i % 2 === 0)
-									const deletedOutcome = yield* db.apply(empty.delete(Note, deleted), {})
+									const deletedOutcome = yield* db.workload.deleteNote.apply(
+										{ delete: { Note: deleted } },
+										{}
+									)
 									assert.ok(
 										deletedOutcome.kind === "accepted" || deletedOutcome.kind === "no-change",
 										`the delete is lawful, not ${deletedOutcome.kind}`
@@ -298,8 +311,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										keptLiteral,
 										"the delete removes exactly the facts it names"
 									)
+									const echoRows = Arr.map(texts, (body) => ({ body }))
 									const echoes = yield* Effect.flatMap(
-										db.execute(echoed, { rows: Arr.map(texts, (body) => ({ body })) }),
+										db.workload.echoed.execute({ rows: echoRows }),
 										(r) => r.collect
 									)
 									const echoedLiteral = yield* literal(Arr.dedupe(texts))
@@ -309,9 +323,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										"a relation parameter's texts read back"
 									)
 									const responses = Arr.map(texts, (value, i) => ({ id: uuidOf(i + 1), value }))
-									const answeredOutcome = yield* db.apply(empty.insert(Response, answered), {
-										responses
-									})
+									const answeredOutcome = yield* db.workload.answer.apply({ responses })
 									assert.equal(
 										answeredOutcome.kind,
 										"accepted",
@@ -352,7 +364,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 						)
 					}).pipe(
 						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+							Effect.flatMap(Layer.build(o.served.layer), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped
