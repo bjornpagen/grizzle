@@ -16,10 +16,11 @@ import {
 	Record as Rec,
 	Result
 } from "effect"
-import { openDbContext } from "#adapter/db/open.ts"
-import { ReadFailure } from "#adapter/errors/execution.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
+import { OpenError, type ReadError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
-import { CompileError } from "#compiler/core/errors.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
@@ -45,7 +46,7 @@ import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -104,11 +105,9 @@ import {
 } from "#test/support/null/language.ts"
 import { owning } from "#test/support/policy.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { dbRuntime } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc1: a differential search over
@@ -583,6 +582,20 @@ const lawName = (law: Law): string => {
  * Holds a write's outcome to the laws it breaks: accepted where it breaks none, and otherwise refused naming exactly
  * those laws, every one the row breaks, never a defect.
  */
+/** A change member of array members, applied with the call's facts. */
+const appliedFacts = (change: ServedOps<unknown>, facts: unknown) => {
+	assertVariant(change, "kind", "facts", "a write's change member takes its call's facts")
+	return change.ops.apply(facts, {})
+}
+
+/**
+ * What the head's member read: refused where the served file is compiled, its head reading a closed relation, or its
+ * rows or the read's failure.
+ */
+type Head =
+	| { readonly kind: "refused"; readonly refusal: ServedRefusal | OpenError }
+	| { readonly kind: "read"; readonly rows: Result.Result<ReadonlyArray<unknown>, ReadError> }
+
 const verdict = (
 	applied: Result.Result<ApplyOutcome<unknown>, unknown>,
 	broken: ReadonlyArray<string>,
@@ -740,168 +753,187 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(nc)}`
-		const delivered = yield* Effect.gen(function* () {
-			const { ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
-			const run = dbRuntime(dbCtx)
-			/** One write of `facts` into `relation`, held to the laws it breaks (verdict). */
-			const judge = (
-				relation: unknown,
-				facts: ReadonlyArray<unknown>,
-				op: "insert" | "put" | "delete",
-				broken: ReadonlyArray<string>,
-				at: string
-			) =>
-				Effect.map(
-					Effect.result(run.methods.apply(changeSetOver.empty(o.schema)[op](relation, facts), {})),
-					(applied) => verdict(applied, broken, at)
-				)
-			for (const [id, item] of itemRows) {
-				const broken = Arr.flatMap([0, 1, 2] as const, (j) =>
-					truthAt(id, j) === true ? [] : [`Checked.Holds${j}`]
-				)
-				yield* judge(built.Checked, [itemFact(c, item, id)], "insert", broken, where("Checked", id))
-				const truths = Arr.map([0, 1, 2] as const, (j) => truthAt(id, j))
-				if (truths.includes(null) && broken.length > 0) {
-					notes.note("a check refuses a row it leaves unknown")
-				}
-				if (truths.includes(null) && truths.includes(false)) {
-					notes.note("a refusal names an unknown check and a false one together")
-				}
-				if (
-					Arr.some(
-						[0, 1, 2] as const,
-						(j) => truthAt(id, j) === true && meetsNull(w, item, nc.checks[j])
+		const delivered = yield* withServedDb(o.installed, o.server.roles.app, {}, ({ serve }) =>
+			Effect.gen(function* () {
+				/** Every write of the case, a change member of the relation and the op it writes, its facts each call's own. */
+				const writes = yield* serve({
+					insertChecked: changeSetOver.empty(o.schema).insert(built.Checked, []),
+					insertContained: changeSetOver.empty(o.schema).insert(built.Contained, []),
+					insertKeyed: changeSetOver.empty(o.schema).insert(built.Keyed, []),
+					insertG0: changeSetOver.empty(o.schema).insert(built.gens[0], []),
+					insertG1: changeSetOver.empty(o.schema).insert(built.gens[1], []),
+					insertG2: changeSetOver.empty(o.schema).insert(built.gens[2], []),
+					insertOwner: changeSetOver.empty(o.schema).insert(built.Owner, []),
+					putMember: changeSetOver.empty(o.schema).put(built.Member, []),
+					deleteMember: changeSetOver.empty(o.schema).delete(built.Member, []),
+					insertRows: changeSetOver.empty(o.schema).insert(built.Rows, [])
+				})
+				/** One write of `facts` into the relation `relation` by `op`, held to the laws it breaks (verdict). */
+				const judge = (
+					relation: string,
+					facts: ReadonlyArray<unknown>,
+					op: "insert" | "put" | "delete",
+					broken: ReadonlyArray<string>,
+					at: string
+				) =>
+					Effect.map(
+						Effect.result(
+							appliedFacts(member(writes, `${op}${relation}`), { [op]: { [relation]: facts } })
+						),
+						(applied) => verdict(applied, broken, at)
 					)
-				) {
-					notes.note("a check holds of a row through a NULL")
-				}
-			}
-			for (const [id, item] of itemRows) {
-				const t = truthAt(id, 3)
-				const inside = w.allowed[item.kind]?.includes(item.flag) === true
-				yield* judge(
-					built.Contained,
-					[itemFact(c, item, id)],
-					"insert",
-					t === true && !inside ? ["Contained contained"] : [],
-					where("Contained", id)
-				)
-				if (t === null && !inside) {
-					notes.note("a containment spares a row its selection leaves unknown outside its target")
-				}
-			}
-			const selected: Array<number> = []
-			const unknown: Array<number> = []
-			for (const [id, item] of keyedIds) {
-				const t = truthAt(id, 4)
-				const taken = selected.includes(item.n)
-				yield* judge(
-					built.Keyed,
-					[itemFact(c, item, id)],
-					"insert",
-					t === true && taken ? ["Keyed key"] : [],
-					where("Keyed", id)
-				)
-				if (t === true && !taken) {
-					selected.push(item.n)
-				}
-				if (t === null) {
-					unknown.push(item.n)
-				}
-			}
-			if (Arr.some(unknown, (n) => selected.includes(n))) {
-				notes.note("a key holds apart only its selection: an unknown row shares a selected value")
-			}
-			for (const g of [0, 1, 2] as const) {
-				const relation = built.gens[g]
 				for (const [id, item] of itemRows) {
-					const value = answer(id, 5 + g)
-					const holds = truthAt(id, 8 + g)
+					const broken = Arr.flatMap([0, 1, 2] as const, (j) =>
+						truthAt(id, j) === true ? [] : [`Checked.Holds${j}`]
+					)
+					yield* judge("Checked", [itemFact(c, item, id)], "insert", broken, where("Checked", id))
+					const truths = Arr.map([0, 1, 2] as const, (j) => truthAt(id, j))
+					if (truths.includes(null) && broken.length > 0) {
+						notes.note("a check refuses a row it leaves unknown")
+					}
+					if (truths.includes(null) && truths.includes(false)) {
+						notes.note("a refusal names an unknown check and a false one together")
+					}
+					if (
+						Arr.some(
+							[0, 1, 2] as const,
+							(j) => truthAt(id, j) === true && meetsNull(w, item, nc.checks[j])
+						)
+					) {
+						notes.note("a check holds of a row through a NULL")
+					}
+				}
+				for (const [id, item] of itemRows) {
+					const t = truthAt(id, 3)
+					const inside = w.allowed[item.kind]?.includes(item.flag) === true
 					yield* judge(
-						relation,
+						"Contained",
 						[itemFact(c, item, id)],
 						"insert",
-						value === null ? [`G${g}.g`] : holds === true ? [] : [`G${g}.GenHolds${g}`],
-						where(`G${g}`, id)
+						t === true && !inside ? ["Contained contained"] : [],
+						where("Contained", id)
 					)
-					if (value === null) {
-						notes.note("a NULL generated field is refused by its NOT NULL")
-						if (holds !== true) {
-							notes.note("a NULL generated field is named alone beside a check its row breaks")
+					if (t === null && !inside) {
+						notes.note("a containment spares a row its selection leaves unknown outside its target")
+					}
+				}
+				const selected: Array<number> = []
+				const unknown: Array<number> = []
+				for (const [id, item] of keyedIds) {
+					const t = truthAt(id, 4)
+					const taken = selected.includes(item.n)
+					yield* judge(
+						"Keyed",
+						[itemFact(c, item, id)],
+						"insert",
+						t === true && taken ? ["Keyed key"] : [],
+						where("Keyed", id)
+					)
+					if (t === true && !taken) {
+						selected.push(item.n)
+					}
+					if (t === null) {
+						unknown.push(item.n)
+					}
+				}
+				if (Arr.some(unknown, (n) => selected.includes(n))) {
+					notes.note("a key holds apart only its selection: an unknown row shares a selected value")
+				}
+				for (const g of [0, 1, 2] as const) {
+					for (const [id, item] of itemRows) {
+						const value = answer(id, 5 + g)
+						const holds = truthAt(id, 8 + g)
+						yield* judge(
+							`G${g}`,
+							[itemFact(c, item, id)],
+							"insert",
+							value === null ? [`G${g}.g`] : holds === true ? [] : [`G${g}.GenHolds${g}`],
+							where(`G${g}`, id)
+						)
+						if (value === null) {
+							notes.note("a NULL generated field is refused by its NOT NULL")
+							if (holds !== true) {
+								notes.note("a NULL generated field is named alone beside a check its row breaks")
+							}
 						}
 					}
 				}
-			}
-			const memberFact = (item: Item, id: number, owner: number) => ({
-				...itemFact(c, item, id),
-				owner
-			})
-			yield* judge(
-				built.Owner,
-				[{ id: 0, members: Arr.map(nc.items, (item, id) => itemFact(c, item, id)) }],
-				"insert",
-				[],
-				where("Owner", 0)
-			)
-			yield* judge(built.Owner, [{ id: 1, members: [] }], "insert", [], where("Owner", 1))
-			for (const [i, item] of nc.items.entries()) {
-				yield* judge(
-					built.Member,
-					[memberFact(item, 100 + i, 1)],
-					"put",
-					[],
-					where("Member", 100 + i)
-				)
-			}
-			yield* judge(built.Member, [memberFact(nc.items[0], 0, 0)], "delete", [], where("Member", 0))
-			if (Arr.some(itemRows, ([id, item]) => item.n !== 0 && truthAt(id, 11) === null)) {
-				notes.note("a fold skips a member its selection leaves unknown")
-			}
-			yield* judge(
-				built.Rows,
-				Arr.map(itemRows, ([id, item]) => itemFact(c, item, id)),
-				"insert",
-				[],
-				where("Rows", 0)
-			)
-			const rule = (find: (r: RuleValue, x: Readonly<Record<string, unknown>>) => unknown) =>
-				queryOver(o.schema).rule((r: RuleValue) => {
-					const x = varsOver(built.Rows, "row")
-					return find(r, x)
+				const memberFact = (item: Item, id: number, owner: number) => ({
+					...itemFact(c, item, id),
+					owner
 				})
-			const collect = (q: unknown) =>
-				Effect.flatMap(run.reader.execute(q, {}), (result) => result.collect)
-			const filtered = yield* collect(
-				rule((r, x) =>
-					r
-						.match(built.Rows, x)
-						.where(buildPred(c, x, nc.filter))
-						.find({ id: x["id"] })
+				yield* judge(
+					"Owner",
+					[{ id: 0, members: Arr.map(nc.items, (item, id) => itemFact(c, item, id)) }],
+					"insert",
+					[],
+					where("Owner", 0)
 				)
-			)
-			const grouped = yield* collect(
-				rule((r, x) =>
-					r
-						.match(built.Rows, x)
-						.where(buildPred(c, x, nc.aggregate))
-						.find({ kind: x["kind"], total: r.sum(x["n"]), count: r.count() })
+				yield* judge("Owner", [{ id: 1, members: [] }], "insert", [], where("Owner", 1))
+				for (const [i, item] of nc.items.entries()) {
+					yield* judge(
+						"Member",
+						[memberFact(item, 100 + i, 1)],
+						"put",
+						[],
+						where("Member", 100 + i)
+					)
+				}
+				yield* judge("Member", [memberFact(nc.items[0], 0, 0)], "delete", [], where("Member", 0))
+				if (Arr.some(itemRows, ([id, item]) => item.n !== 0 && truthAt(id, 11) === null)) {
+					notes.note("a fold skips a member its selection leaves unknown")
+				}
+				yield* judge(
+					"Rows",
+					Arr.map(itemRows, ([id, item]) => itemFact(c, item, id)),
+					"insert",
+					[],
+					where("Rows", 0)
 				)
-			)
-			const whole = yield* collect(
-				rule((r, x) =>
-					r
-						.match(built.Rows, x)
-						.where(buildPred(c, x, nc.aggregate))
-						.find({ total: r.sum(x["n"]) })
+				const rule = (find: (r: RuleValue, x: Readonly<Record<string, unknown>>) => unknown) =>
+					queryOver(o.schema).rule((r: RuleValue) => {
+						const x = varsOver(built.Rows, "row")
+						return find(r, x)
+					})
+				const reads = yield* serve({
+					filtered: rule((r, x) =>
+						r
+							.match(built.Rows, x)
+							.where(buildPred(c, x, nc.filter))
+							.find({ id: x["id"] })
+					),
+					grouped: rule((r, x) =>
+						r
+							.match(built.Rows, x)
+							.where(buildPred(c, x, nc.aggregate))
+							.find({ kind: x["kind"], total: r.sum(x["n"]), count: r.count() })
+					),
+					whole: rule((r, x) =>
+						r
+							.match(built.Rows, x)
+							.where(buildPred(c, x, nc.aggregate))
+							.find({ total: r.sum(x["n"]) })
+					)
+				})
+				const collect = (served: ReadonlyMap<string, ServedOps<unknown>>, name: string) =>
+					Effect.flatMap(member(served, name).ops.execute({}), (result) => result.collect)
+				const filtered = yield* collect(reads, "filtered")
+				const grouped = yield* collect(reads, "grouped")
+				const whole = yield* collect(reads, "whole")
+				/** The head's member, which the compile of the served file refuses where its head reads a closed relation. */
+				const headServed = yield* Effect.result(
+					serve({
+						head: rule((r, x) =>
+							r.match(built.Rows, x).find({ id: x["id"], g: buildTerm(c, x, nc.head) })
+						)
+					})
 				)
-			)
-			const head = yield* Effect.result(
-				collect(
-					rule((r, x) => r.match(built.Rows, x).find({ id: x["id"], g: buildTerm(c, x, nc.head) }))
-				)
-			)
-			return { filtered, grouped, whole, head }
-		}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+				const head: Head = Result.isFailure(headServed)
+					? { kind: "refused", refusal: headServed.failure }
+					: { kind: "read", rows: yield* Effect.result(collect(headServed.success, "head")) }
+				return { filtered, grouped, whole, head }
+			})
+		)
 		const field = (row: unknown, name: "id" | "g" | "kind" | "total" | "count"): unknown =>
 			Predicate.hasProperty(row, name) ? row[name] : undefined
 		const filterTrue = Arr.filter(itemRows, ([id]) => truthAt(id, 12) === true)
@@ -949,23 +981,25 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 		}
 		const headSort = sortOf(nc.head)
 		if (readsClosed(nc.head)) {
-			const refusal = Result.isFailure(delivered.head) ? delivered.head.failure : undefined
+			const head = delivered.head
 			assert.ok(
-				refusal instanceof ReadFailure &&
-					refusal.reason instanceof CompileError &&
-					refusal.reason.reason._tag === "UnsupportedOperation",
-				`a head that reads a closed relation is refused at compile, not ${Formatter.format(delivered.head)}: ${Formatter.format(nc)}`
+				head.kind === "refused" &&
+					!(head.refusal instanceof OpenError) &&
+					isCompileError(head.refusal.error) &&
+					head.refusal.error.reason._tag === "UnsupportedOperation",
+				`a head that reads a closed relation is refused where its member is compiled, not ${Formatter.format(head)}: ${Formatter.format(nc)}`
 			)
 			notes.note("a head refuses a closed read")
 		} else {
-			if (!Result.isSuccess(delivered.head)) {
+			const head = delivered.head
+			if (head.kind !== "read" || !Result.isSuccess(head.rows)) {
 				return assert.fail(
-					`a head that reads no closed relation delivers, not ${Formatter.format(delivered.head.failure)}: ${Formatter.format(nc)}`
+					`a head that reads no closed relation delivers, not ${Formatter.format(head)}: ${Formatter.format(nc)}`
 				)
 			}
 			const rows = Arr.sort(
 				Arr.map(
-					delivered.head.success,
+					head.rows.success,
 					(row) => [Number(field(row, "id")), fromDelivered(headSort, field(row, "g"))] as const
 				),
 				Order.mapInput(Order.Number, ([id]: readonly [number, Val | null]) => id)
