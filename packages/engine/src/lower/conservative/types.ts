@@ -114,11 +114,23 @@ export const conservativeInput = (query: Pick<LogicalQuery, "dag">): Conservativ
  * allocation, whose name is the column the input's rows deliver it under and whose type is its base type, the
  * element type of its array.
  */
-export interface RelationColumn {
-	readonly name: string
-	readonly type: ScalarType
+export interface RelationColumn extends SlotColumn {
 	readonly definition: ColumnDefinition
 }
+
+/** A relation input's column as its placeholder's encoder reads it: the column its arrays travel as, and its type. */
+export interface SlotColumn {
+	readonly name: string
+	readonly type: ScalarType
+}
+
+/**
+ * A placeholder as a served file holds it: each column of a relation input a SlotColumn, all its encoder reads
+ * (runtime/lower/slots.ts), its definition left to the compile that allocated it.
+ */
+export type ServedSlot<S> = S extends { readonly columns: ReadonlyArray<RelationColumn> }
+	? Omit<S, "columns"> & { readonly columns: ReadonlyArray<SlotColumn> }
+	: S
 
 /** A declared scalar parameter's placeholder, cast to `sqlType`: the base type for a comparison, the domain for a write or an emitted refined value. */
 export interface ScalarParamSlot extends ValuePlaceholder {

@@ -10,7 +10,7 @@
  */
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl, WriteSlot } from "#compiler/ir/products.ts"
-import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { ServedSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import { writeSlotOf } from "#compiler/runtime/lower/slots.ts"
@@ -33,7 +33,7 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
  * `params[n - 1]`. */
 export interface ServedWriteForm {
 	readonly sql: EmittedText
-	readonly params: ReadonlyArray<WriteParamSlot>
+	readonly params: ReadonlyArray<ServedSlot<WriteParamSlot>>
 }
 
 /**

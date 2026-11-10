@@ -19,7 +19,8 @@ import type {
 	MemberParamSlot,
 	PageParamSlot,
 	PageStatementSlot,
-	RelationColumn,
+	ServedSlot,
+	SlotColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
@@ -28,7 +29,7 @@ import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
  * `label`. */
 const placeholderSpec = (
 	label: string,
-	columns: ReadonlyArray<RelationColumn>,
+	columns: ReadonlyArray<SlotColumn>,
 	codes: Codebook
 ): RelationSpec => ({
 	relation: label,
@@ -47,7 +48,9 @@ export const partIndex = (part: ArrayPart): number => (part.kind === "column" ? 
  */
 export const declaredSlotOf =
 	(codes: Codebook, patterns: PatternReads) =>
-	(slot: DeclaredParamSlot): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
+	(
+		slot: ServedSlot<DeclaredParamSlot>
+	): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
 		switch (slot.kind) {
 			case "scalar":
 				return {
@@ -70,7 +73,7 @@ export const declaredSlotOf =
  * already, so it writes the array at its part of their rows in its column order and refuses no same-key pair.
  */
 const memberSlotOf = (
-	slot: MemberParamSlot,
+	slot: ServedSlot<MemberParamSlot>,
 	codes: Codebook
 ): Extract<ParamSlot, { readonly kind: "member" }> => ({
 	kind: "member",
@@ -92,7 +95,7 @@ const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "p
  * slot's, with its encoder, or a column of a stratum's nested rows, which the binding encodes. */
 export const writeSlotOf =
 	(codes: Codebook, patterns: PatternReads) =>
-	(slot: WriteParamSlot): WriteSlot => {
+	(slot: ServedSlot<WriteParamSlot>): WriteSlot => {
 		switch (slot.kind) {
 			case "member":
 				return memberSlotOf(slot, codes)

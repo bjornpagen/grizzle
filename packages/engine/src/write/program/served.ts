@@ -12,7 +12,12 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type FamilyId, familyKey } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type {
+	RelationColumn,
+	ServedSlot,
+	SlotColumn,
+	WriteParamSlot
+} from "#compiler/lower/conservative/types.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import {
 	type FlightWrite,
@@ -28,11 +33,28 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 
+/** A relation input's column as its encoder reads it: its name and type. */
+const slotColumn = (column: RelationColumn): SlotColumn =>
+	Object.freeze({ name: column.name, type: column.type })
+
+/** A placeholder as a served file holds it (ServedSlot): each column of a relation input its name and type. */
+const servedWriteSlot = (slot: WriteParamSlot): ServedSlot<WriteParamSlot> => {
+	switch (slot.kind) {
+		case "scalar":
+			return slot
+		case "relation":
+		case "member":
+		case "nestedRows":
+			return Object.freeze({ ...slot, columns: Object.freeze(slot.columns.map(slotColumn)) })
+	}
+}
+
 /** A form's data: its text and placeholders. */
 const servedWriteForm = (form: {
 	readonly sql: EmittedText
 	readonly params: ReadonlyArray<WriteParamSlot>
-}): ServedWriteForm => Object.freeze({ sql: form.sql, params: form.params })
+}): ServedWriteForm =>
+	Object.freeze({ sql: form.sql, params: Object.freeze(form.params.map(servedWriteSlot)) })
 
 /** A statement's forms as data: one, or the choices that pick between its own form and its whole-relation one. */
 const servedForms = (forms: ArtifactForms): StatementForms<ServedWriteChoice, ServedWriteForm> =>
