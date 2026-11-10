@@ -31,7 +31,8 @@ export {
 	flightMaxBytes,
 	type Limit,
 	maxStringLength,
-	messageMaxBytes
+	messageMaxBytes,
+	regexMaxRepeat
 } from "#compiler/core/limits.ts"
 export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"

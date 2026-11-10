@@ -1622,10 +1622,11 @@ PostgreSQL's other spellings are the same fields.
 - **Patterns.** Text always carries one, with flags `"u"` (the default) or `"su"`. The syntax is JavaScript's under
   `u`, cut to what PostgreSQL matches the same way: characters and escapes, classes and ranges, `\d`, `\w` and their
   complements, `.`, groups, `|`, `^` and `$` for the start and end of the whole text, and greedy `?`, `*`, `+` and
-  `{m,n}`, each bound at most 255. Refused: lookahead and lookbehind, `\p{…}` and `\P{…}`, `\s` and `\S`, `\b` and
-  `\B`, backreferences, named groups, inline modifiers, lazy quantifiers, NUL, a lone surrogate, and a pattern no
-  text matches, such as `a^b` or `[]`. TypeScript accepts these; the first relation, contract or `Compute.pattern`
-  built over the pattern refuses it with `UnsupportedOperation`, naming the construct and its position.
+  `{m,n}`, each bound at most 255 (`regexMaxRepeat`). Refused: lookahead and lookbehind, `\p{…}` and `\P{…}`, `\s`
+  and `\S`, `\b` and `\B`, backreferences, named groups, inline modifiers, lazy quantifiers, NUL, a lone surrogate,
+  and a pattern no text matches, such as `a^b` or `[]`. TypeScript accepts these; the first relation, contract or
+  `Compute.pattern` built over the pattern refuses it with `UnsupportedOperation`, naming the construct and its
+  position.
 - **`str.bytes(n, pattern)`** is the pattern's text of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647. Its host
   type is the pattern's, so an unbounded text of the pattern needs no cast. Its domain checks
   `octet_length(VALUE) <= n` before the pattern, so the regex engine never reads a longer value, and refuses either
@@ -3264,7 +3265,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Sizes
 
-`messageMaxBytes`, `maxStringLength`, `bytesMaxLength` and `flightMaxBytes` are exported as `Limit` values, whose `.value` is the number.
+`messageMaxBytes`, `maxStringLength`, `bytesMaxLength`, `flightMaxBytes` and `regexMaxRepeat` are exported as `Limit` values, whose `.value` is the number.
 
 - **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone: one copy of each value, made as the call is sent, after its member is measured from its values' lengths. A nested write's rows of one relation are no statement's bound: where their arrays would make the statement that writes them longer than one Bind message, the call creates a temporary table in the same flight, fills it with consecutive chunks of the rows, each as long as one Bind message carries, and runs the statement once over it, so what it writes and what its laws judge are one statement's. The temporary table drops at the transaction's end.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
