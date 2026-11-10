@@ -41,7 +41,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -61,16 +61,15 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** The uuid of the `n`th key of a kind: stores 0x0, items 0xa0 and shelves 0xb0. */
 const uuidAt = (base: number, n: number): Uuid =>
@@ -555,157 +554,171 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							]),
 							(rows) => String(rows[0]?.[0])
 						)
-					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(b.login.roles.stocker, {})
-						const managerDb = yield* compiledOpen(b.login.roles.manager, {})
-						return yield* explore(
-							{
-								suite: "physical/family-grants/apply",
-								draw: drawnCase(applyGen),
-								literal: Formatter.format,
-								oracle: {
-									kind: "specification",
-									name: "the families model: each store's count is its Items', its stock their quantities' sum"
-								},
-								coverage: required<ApplyFeature>(
-									[
-										"an append",
-										"a put of a quantity",
-										"a deletion",
-										"items of two stores",
-										"a north store's label put through NorthStores",
-										"a south store's label refused through NorthStores"
-									],
-									{ cases: 32, sense: notesOnly }
-								),
-								kept: [],
-								runs: 16,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 8,
-								caseHang
-							},
-							(a, c) =>
-								Effect.gen(function* () {
-									yield* owner.query(
-										`TRUNCATE ${store}, ${names.table(b.Item)}, ${names.table(b.Shelf)}, ${names.table(b.Slot)}`,
-										[]
-									)
-									for (const s of a.stores) {
-										yield* owner.query(
-											`INSERT INTO ${store} (${sc("id")}, ${sc("region")}, ${sc("label")}, ${sc("items")}, ${sc("stock")}) VALUES ($1::uuid, $2, $3, 0, 0)`,
-											[s.id, s.region, s.label]
-										)
-									}
-									const items = new Map<Uuid, ItemFact>()
-									for (const [at, w] of a.writes.entries()) {
-										const held = Arr.fromIterable(items.values())
-										switch (w.kind) {
-											case "insert": {
-												const into = Arr.getUnsafe(a.stores, w.store)
-												const fact: ItemFact = {
-													id: uuidAt(0xa0, at + 1),
-													store: into.id,
-													region: into.region,
-													qty: BigInt(w.qty)
-												}
-												yield* db.apply(
-													ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, [fact]),
-													{}
-												)
-												items.set(fact.id, fact)
-												c.note("an append")
-												break
-											}
-											case "put": {
-												const target = heldAt(held, w.item)
-												if (Option.isNone(target)) {
-													break
-												}
-												const fact: ItemFact = { ...target.value, qty: BigInt(w.qty) }
-												yield* db.apply(
-													ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, [fact]),
-													{}
-												)
-												items.set(fact.id, fact)
-												c.note("a put of a quantity")
-												break
-											}
-											case "delete": {
-												const target = heldAt(held, w.item)
-												if (Option.isNone(target)) {
-													break
-												}
-												yield* db.apply(
-													ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [
-														target.value
-													]),
-													{}
-												)
-												items.delete(target.value.id)
-												c.note("a deletion")
-												break
-											}
-											case "label": {
-												const target = Arr.getUnsafe(a.stores, w.store)
-												const was = yield* labelOf(target.id)
-												const outcome = yield* managerDb.apply(
-													ChangeSet.empty(b.manager).put(b.manager.relations.NorthStores, [
-														{ id: target.id, label: w.label }
-													]),
-													{}
-												)
-												const now = yield* labelOf(target.id)
-												const what = `manager's put of ${Formatter.format(w)}`
-												if (target.region === "north") {
-													assert.deepEqual(
-														[outcome.kind, now],
-														[was === w.label ? "no-change" : "accepted", w.label],
-														what
-													)
-													c.note("a north store's label put through NorthStores")
-												} else {
-													const laws: ReadonlyArray<string> =
-														outcome.kind === "invariant-rejected"
-															? Arr.map(refusedLaws(outcome.refused), (l) => l.kind)
-															: []
-													assert.deepEqual(
-														[outcome.kind, ...laws],
-														["invariant-rejected", "primaryKey"],
-														what
-													)
-													assert.equal(now, was, what)
-													c.note("a south store's label refused through NorthStores")
-												}
-												break
-											}
-										}
-										const expected = Arr.map(
-											Arr.sort(
-												Arr.map(a.stores, (s) => s.id),
-												Order.String
-											),
-											(id) => {
-												const mine = Arr.filter(
-													Arr.fromIterable(items.values()),
-													(i) => i.store === id
-												)
-												return [
-													id,
-													String(mine.length),
-													String(Arr.reduce(mine, 0n, (sum, i) => sum + i.qty))
-												]
-											}
-										)
-										const after = yield* counts
-										assert.deepEqual(after, expected, `after ${Formatter.format(w)}`)
-									}
-									if (new Set(Arr.map(Arr.fromIterable(items.values()), (i) => i.store)).size > 1) {
-										c.note("items of two stores")
-									}
+					return yield* withServedDb(m, b.login.roles.stocker, {}, ({ serve: serveStocker }) =>
+						withServedDb(m, b.login.roles.manager, {}, ({ serve: serveManager }) =>
+							Effect.gen(function* () {
+								/** The stocker's appends, puts and deletes of Item, and the manager's puts of NorthStores, each a call's facts. */
+								const stocker = yield* serveStocker({
+									append: ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, []),
+									put: ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, []),
+									remove: ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [])
 								})
+								const manager = yield* serveManager({
+									label: ChangeSet.empty(b.manager).put(b.manager.relations.NorthStores, [])
+								})
+								/** A change member's apply with the call's facts, its ChangeSet's array members. */
+								const applied = (
+									served: ReadonlyMap<string, ServedOps<unknown>>,
+									name: string,
+									facts: unknown
+								) => {
+									const change = member(served, name)
+									assertVariant(
+										change,
+										"kind",
+										"facts",
+										`the member ${name} takes its call's facts`
+									)
+									return change.ops.apply(facts, {})
+								}
+								return yield* explore(
+									{
+										suite: "physical/family-grants/apply",
+										draw: drawnCase(applyGen),
+										literal: Formatter.format,
+										oracle: {
+											kind: "specification",
+											name: "the families model: each store's count is its Items', its stock their quantities' sum"
+										},
+										coverage: required<ApplyFeature>(
+											[
+												"an append",
+												"a put of a quantity",
+												"a deletion",
+												"items of two stores",
+												"a north store's label put through NorthStores",
+												"a south store's label refused through NorthStores"
+											],
+											{ cases: 32, sense: notesOnly }
+										),
+										kept: [],
+										runs: 16,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 8,
+										caseHang
+									},
+									(a, c) =>
+										Effect.gen(function* () {
+											yield* owner.query(
+												`TRUNCATE ${store}, ${names.table(b.Item)}, ${names.table(b.Shelf)}, ${names.table(b.Slot)}`,
+												[]
+											)
+											for (const s of a.stores) {
+												yield* owner.query(
+													`INSERT INTO ${store} (${sc("id")}, ${sc("region")}, ${sc("label")}, ${sc("items")}, ${sc("stock")}) VALUES ($1::uuid, $2, $3, 0, 0)`,
+													[s.id, s.region, s.label]
+												)
+											}
+											const items = new Map<Uuid, ItemFact>()
+											for (const [at, w] of a.writes.entries()) {
+												const held = Arr.fromIterable(items.values())
+												switch (w.kind) {
+													case "insert": {
+														const into = Arr.getUnsafe(a.stores, w.store)
+														const fact: ItemFact = {
+															id: uuidAt(0xa0, at + 1),
+															store: into.id,
+															region: into.region,
+															qty: BigInt(w.qty)
+														}
+														yield* applied(stocker, "append", { insert: { Item: [fact] } })
+														items.set(fact.id, fact)
+														c.note("an append")
+														break
+													}
+													case "put": {
+														const target = heldAt(held, w.item)
+														if (Option.isNone(target)) {
+															break
+														}
+														const fact: ItemFact = { ...target.value, qty: BigInt(w.qty) }
+														yield* applied(stocker, "put", { put: { Item: [fact] } })
+														items.set(fact.id, fact)
+														c.note("a put of a quantity")
+														break
+													}
+													case "delete": {
+														const target = heldAt(held, w.item)
+														if (Option.isNone(target)) {
+															break
+														}
+														yield* applied(stocker, "remove", { delete: { Item: [target.value] } })
+														items.delete(target.value.id)
+														c.note("a deletion")
+														break
+													}
+													case "label": {
+														const target = Arr.getUnsafe(a.stores, w.store)
+														const was = yield* labelOf(target.id)
+														const outcome = yield* applied(manager, "label", {
+															put: { NorthStores: [{ id: target.id, label: w.label }] }
+														})
+														const now = yield* labelOf(target.id)
+														const what = `manager's put of ${Formatter.format(w)}`
+														if (target.region === "north") {
+															assert.deepEqual(
+																[outcome.kind, now],
+																[was === w.label ? "no-change" : "accepted", w.label],
+																what
+															)
+															c.note("a north store's label put through NorthStores")
+														} else {
+															const laws: ReadonlyArray<string> =
+																outcome.kind === "invariant-rejected"
+																	? Arr.map(refusedLaws(outcome.refused), (l) => l.kind)
+																	: []
+															assert.deepEqual(
+																[outcome.kind, ...laws],
+																["invariant-rejected", "primaryKey"],
+																what
+															)
+															assert.equal(now, was, what)
+															c.note("a south store's label refused through NorthStores")
+														}
+														break
+													}
+												}
+												const expected = Arr.map(
+													Arr.sort(
+														Arr.map(a.stores, (s) => s.id),
+														Order.String
+													),
+													(id) => {
+														const mine = Arr.filter(
+															Arr.fromIterable(items.values()),
+															(i) => i.store === id
+														)
+														return [
+															id,
+															String(mine.length),
+															String(Arr.reduce(mine, 0n, (sum, i) => sum + i.qty))
+														]
+													}
+												)
+												const after = yield* counts
+												assert.deepEqual(after, expected, `after ${Formatter.format(w)}`)
+											}
+											if (
+												new Set(Arr.map(Arr.fromIterable(items.values()), (i) => i.store)).size > 1
+											) {
+												c.note("items of two stores")
+											}
+										})
+								)
+							})
 						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(m, b.login)))
+					)
 				}).pipe(Effect.scoped)
 			)
 	)
