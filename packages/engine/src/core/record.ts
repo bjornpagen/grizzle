@@ -32,3 +32,18 @@ export const isPlainRecord = (value: unknown): value is Readonly<Record<string, 
 	const proto: unknown = Object.getPrototypeOf(value)
 	return proto === Object.prototype || proto === null
 }
+
+/**
+ * `value` frozen throughout, stopping at what is frozen already: a value built over parts frozen when they were built,
+ * such as a node's inputs and expressions or a decoded Description's parts, is walked in its own new containers only.
+ */
+export const deepFreeze = <A>(value: A): A => {
+	if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+		Object.freeze(value)
+		const children: ReadonlyArray<unknown> = Object.values(value)
+		for (const child of children) {
+			deepFreeze(child)
+		}
+	}
+	return value
+}

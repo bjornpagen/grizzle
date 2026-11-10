@@ -20,6 +20,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
@@ -1280,17 +1281,20 @@ export const queryParamNames = (q: QueryDesc): ReadonlySet<string> => {
 }
 
 /**
- * The query with each of its own parameter uses whose name `rename` maps spelled by its image (mapQueryParams): an
+ * The query with each of its own parameter uses whose name `rename` maps spelled by its image (mapQueryParams), frozen
+ * throughout as a decoded Description is: the walk builds only containers around the query's decoded parts. An
  * imported query keeps its own parameters, and only the terms of its bind map are renamed. ChangeSet.bind uses it to
  * move a bound name out of the ChangeSet's namespace.
  */
 export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
 	rename.size === 0
 		? q
-		: mapQueryParams(q, {
-				param: (name) => ({ name: rename.get(name) ?? name }),
-				imported: () => spelledAsIs
-			})
+		: deepFreeze(
+				mapQueryParams(q, {
+					param: (name) => ({ name: rename.get(name) ?? name }),
+					imported: () => spelledAsIs
+				})
+			)
 
 /** A declared name: a nonempty string of storable text (core/text.ts), as every builder takes one. */
 const name = S.refine(S.nonEmptyString, isValidText, "a nonempty storable string")

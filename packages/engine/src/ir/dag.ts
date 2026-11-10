@@ -14,6 +14,7 @@ import {
 	VarId
 } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	builtExpr,
@@ -73,21 +74,6 @@ const noIds: ReadonlyArray<never> = Object.freeze([])
 /** `value`, frozen in place, at its own type. */
 const freeze = <A>(value: A): A => {
 	Object.freeze(value)
-	return value
-}
-
-/**
- * `value` frozen throughout, stopping at what is frozen already: a node's inputs and its expressions are frozen when
- * they are built, so freezing a new node walks only its own fields, never the DAG below it.
- */
-const deepFreeze = <A>(value: A): A => {
-	if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
-		Object.freeze(value)
-		const children: ReadonlyArray<unknown> = Object.values(value)
-		for (const child of children) {
-			deepFreeze(child)
-		}
-	}
 	return value
 }
 
