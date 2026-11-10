@@ -21,6 +21,7 @@ import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type {
@@ -295,7 +296,7 @@ const normalizedOf = (changes: ChangeSetValue) =>
 	Effect.gen(function* () {
 		const frontend = compiled(Small, changes)
 		const binding = decideBinding(frontend)
-		const prepared = prepareBinding(binding, frontend.codes)
+		const prepared = prepareBinding(binding, frontend.codes, new CompilePatterns())
 		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,

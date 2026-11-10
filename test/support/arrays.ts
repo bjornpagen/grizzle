@@ -4,13 +4,14 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { RelationParamEncoder } from "#compiler/ir/products.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 /**
  * The arrays encoder of one relation parameter's input (ir/products.ts RelationParamEncoder): its normal facts as a
  * relation parameter's (codec/recordset.ts parameterNormalizer), written as its arrays (arrayTexts).
  */
 export const arraysEncoder = (spec: RelationSpec): RelationParamEncoder => {
-	const normalize = parameterNormalizer(spec)
+	const normalize = parameterNormalizer(spec, new CompilePatterns())
 	const fields = Arr.map(spec.columns, (c) => c.field)
 	return (facts) =>
 		Result.flatMap(normalize(facts), (normalized) =>

@@ -48,7 +48,7 @@ import {
 	valueMember
 } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import type {
@@ -628,9 +628,8 @@ interface Judge {
 	readonly member: (value: CarrierValue, type: ScalarType) => boolean | undefined
 }
 
-/** The judge of a write's stated rows by what its witness data's evaluation reads, every pattern parsed here once. */
-const judgeOf = (evaluation: Evaluation, codes: Codebook): Judge => {
-	const patterns = ProgramPatterns.of(evaluation.patterns)
+/** The judge of a write's stated rows by what its witness data's evaluation reads, its patterns read from `patterns`. */
+const judgeOf = (evaluation: Evaluation, codes: Codebook, patterns: PatternReads): Judge => {
 	const closed = closedLeaf(evaluation.closed)
 	const evaluate = (relation: WitnessTable, expr: ExprTable, row: JudgedRow): Evaluated => {
 		/**
@@ -680,7 +679,8 @@ const judgeOf = (evaluation: Evaluation, codes: Codebook): Judge => {
 export const prepareWitness = (
 	data: WitnessData,
 	groups: ReadonlyArray<GroupData>,
-	codes: Codebook
+	codes: Codebook,
+	patterns: PatternReads
 ): Witnessing => {
 	const slots = new Map<
 		ParamId,
@@ -696,7 +696,7 @@ export const prepareWitness = (
 	return Object.freeze({
 		data,
 		codes,
-		judge: judgeOf(data.evaluation, codes),
+		judge: judgeOf(data.evaluation, codes, patterns),
 		tables: new Map(data.tables.map((t) => [t.name, t] as const)),
 		groups,
 		slots

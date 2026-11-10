@@ -54,6 +54,7 @@ import { statementSpec } from "#compiler/lower/template.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
@@ -526,7 +527,7 @@ const fullResult = (
 ): Effect.Effect<Full, SqlError> =>
 	Effect.gen(function* () {
 		const specs = Arr.map(statements, (s) => {
-			const spec = statementSpec(s, declaredSlotOf(codes))
+			const spec = statementSpec(s, declaredSlotOf(codes, new CompilePatterns()))
 			if (!spec.ok) {
 				throw new Error(spec.error.message)
 			}
@@ -735,7 +736,7 @@ const pager =
 			const variant = request.variant
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
-					executionInputs(paramCodecs(runtime.params, codes), params),
+					executionInputs(paramCodecs(runtime.params, codes, new CompilePatterns()), params),
 					(reason) => new ReadFailure({ reason })
 				)
 			)

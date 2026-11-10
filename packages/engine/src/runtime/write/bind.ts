@@ -345,7 +345,7 @@ export const bindWrite = (
 	inputs: BindInputs
 ): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
 	const flight = runnable.flight
-	const { binding, prepared, codes } = flight
+	const { binding, prepared, codes, patterns } = flight
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
 	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
@@ -356,12 +356,15 @@ export const bindWrite = (
 	for (const decl of flight.params) {
 		const value = paramValue(decl.name)
 		if (decl.kind === "relation") {
-			const normalize = parameterNormalizer({
-				relation: decl.name,
-				slot: { kind: "slot", name: decl.name },
-				columns: positionalColumns(decl.heading),
-				codes
-			})
+			const normalize = parameterNormalizer(
+				{
+					relation: decl.name,
+					slot: { kind: "slot", name: decl.name },
+					columns: positionalColumns(decl.heading),
+					codes
+				},
+				patterns
+			)
 			if (!isIterable(value)) {
 				return Result.err(encodeFailure("factShape", slotPlace(decl.name)))
 			}
@@ -373,7 +376,7 @@ export const bindWrite = (
 			relationInputs.set(decl.id, normal.value)
 			continue
 		}
-		const text = paramEncoder(decl.type, decl.name, codes)(value)
+		const text = paramEncoder(decl.type, decl.name, codes, patterns)(value)
 		if (!text.ok) {
 			return Result.err(text.error)
 		}

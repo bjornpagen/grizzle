@@ -21,6 +21,7 @@ import type {
 	ParamDecl,
 	ParamMap,
 	ParamValue,
+	PatternReads,
 	Row,
 	SchemaFingerprint
 } from "#compiler/plan/common.ts"
@@ -32,6 +33,7 @@ import {
 	memberFactsOf,
 	recordsReader,
 	rosterCodebook,
+	ServedPatterns,
 	servedRunnable,
 	SourceLoc
 } from "#compiler/plan/runtime.ts"
@@ -190,16 +192,17 @@ const servedReads = (
 /** Where get refuses a read of a query not proved at most one row per parameter binding. */
 const getLoc = SourceLoc("reader.get", [])
 
-/** A read, loaded under the codes `codes` and the bind context `bind`. */
+/** A read, loaded under the codes `codes`, the bind context `bind` and the file's pattern table `patterns`. */
 const loadRead = (
 	read: ServedRead,
 	codes: Codebook,
-	bind: BindContext
+	bind: BindContext,
+	patterns: PatternReads
 ): Result.Result<LoadedRead, CompileError> => {
 	const program = readProgram(read.source, read.spine, codes)
 	return Result.map(boundReader(read, program.layouts, bind), (reader) => ({
 		params: read.params,
-		codecs: paramCodecs(read.params, codes),
+		codecs: paramCodecs(read.params, codes, patterns),
 		program,
 		read: reader,
 		get: read.getEligible ? Result.void : Result.fail(getRefusal(getLoc))
@@ -233,14 +236,15 @@ const loadChange = (
 	change: ServedChange,
 	witness: WriteEntry["witness"],
 	codes: Codebook,
-	bind: BindContext
+	bind: BindContext,
+	patterns: PatternReads
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
 	const entry: WriteEntry = {
-		program: servedRunnable(loadWrite(program, codes)),
+		program: servedRunnable(loadWrite(program, codes, patterns)),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
-		codecs: paramCodecs(program.params, codes),
+		codecs: paramCodecs(program.params, codes, patterns),
 		bind
 	}
 	return Result.map(servedReads(entry, change.decoder), (reads) => ({
@@ -255,18 +259,19 @@ const loadVariants = (
 	variants: ServedVariants,
 	witness: WriteEntry["witness"],
 	codes: Codebook,
-	bind: BindContext
+	bind: BindContext,
+	patterns: PatternReads
 ): Result.Result<LoadedVariants, CompileError> => {
 	switch (variants.kind) {
 		case "change":
 			return Result.map(
-				loadChange(variants.change, witness, codes, bind),
+				loadChange(variants.change, witness, codes, bind, patterns),
 				(change): LoadedVariants => ({ kind: "change", change })
 			)
 		case "split":
 			return Result.gen(function* () {
-				const holding = yield* loadVariants(variants.holding, witness, codes, bind)
-				const lacking = yield* loadVariants(variants.lacking, witness, codes, bind)
+				const holding = yield* loadVariants(variants.holding, witness, codes, bind, patterns)
+				const lacking = yield* loadVariants(variants.lacking, witness, codes, bind, patterns)
 				return { kind: "split", context: variants.context, holding, lacking }
 			})
 	}
@@ -277,17 +282,18 @@ const loadMember = (
 	member: ServedMember,
 	witness: WriteEntry["witness"],
 	codes: Codebook,
-	bind: BindContext
+	bind: BindContext,
+	patterns: PatternReads
 ): Result.Result<LoadedMember, CompileError> => {
 	switch (member.kind) {
 		case "read":
-			return Result.map(loadRead(member.read, codes, bind), (read): LoadedMember => ({
+			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
 				name: member.name,
 				kind: "read",
 				read
 			}))
 		case "key":
-			return Result.map(loadRead(member.read, codes, bind), (read): LoadedMember => ({
+			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
 				name: member.name,
 				kind: "key",
 				fields: member.fields,
@@ -295,13 +301,13 @@ const loadMember = (
 			}))
 		case "paged":
 			return Result.gen(function* () {
-				const read = yield* loadRead(member.read, codes, bind)
+				const read = yield* loadRead(member.read, codes, bind, patterns)
 				const page = yield* loadPage(member.page, member.read, codes, bind)
 				return { name: member.name, kind: "paged", read, page }
 			})
 		case "change":
 			return Result.map(
-				loadVariants(member.variants, witness, codes, bind),
+				loadVariants(member.variants, witness, codes, bind, patterns),
 				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
 			)
 		case "refresh":
@@ -314,13 +320,14 @@ const loadRole = (
 	role: ServedRoleForm,
 	file: ServedFile,
 	codes: Codebook,
-	bind: BindContext
+	bind: BindContext,
+	patterns: PatternReads
 ): Result.Result<LoadedRole, CompileError> =>
 	Result.gen(function* () {
 		const witness = servedWitness(role.refusals, file.above, codes)
 		const members: Array<LoadedMember> = []
 		for (const member of role.members) {
-			members.push(yield* loadMember(member, witness, codes, bind))
+			members.push(yield* loadMember(member, witness, codes, bind, patterns))
 		}
 		return {
 			name: role.name,
@@ -349,11 +356,12 @@ export const loadServed = (file: ServedFile, name: string): Result.Result<Loaded
 		}
 		const codes = rosterCodebook([...file.rosters])
 		const bind: BindContext = { options: rowOptions, names: codeNames(codes) }
+		const patterns = ServedPatterns.of(file.matchers)
 		const roles: Array<LoadedRole> = []
 		for (const role of file.roles) {
 			roles.push(
 				yield* Result.mapError(
-					loadRole(role, file, codes, bind),
+					loadRole(role, file, codes, bind, patterns),
 					(reason) => new OpenError({ reason })
 				)
 			)

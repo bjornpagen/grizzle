@@ -10,7 +10,7 @@ import {
 	intersectionDfa,
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
+import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 

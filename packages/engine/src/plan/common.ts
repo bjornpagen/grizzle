@@ -195,3 +195,4 @@ export type {
 	WithinRoleContexts,
 	WriteListOf
 } from "#compiler/types/schema/world.ts"
+export { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"

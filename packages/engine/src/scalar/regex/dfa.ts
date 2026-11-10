@@ -11,7 +11,7 @@ import {
 	size,
 	utf8Width
 } from "#compiler/scalar/regex/charset.ts"
-import { closure, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { closure, type Nfa } from "#compiler/scalar/regex/match.ts"
 import { type CharPartition, partitionOf } from "#compiler/scalar/regex/partition.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 

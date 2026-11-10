@@ -27,6 +27,7 @@ import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
+import type { ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
 import type {
 	ServedReadBack,
 	ServedRoots,
@@ -70,6 +71,11 @@ export interface ServedFile {
 	 * readers and classifier are rebuilt under, so the file is all a layer reads.
 	 */
 	readonly rosters: ReadonlyMap<DeclaredName, RosterCodes>
+	/**
+	 * Every pattern the login's types read, each with its automaton as generate built it (scalar/regex/matcher.ts
+	 * ServedMatcher): what a layer judges every refined value by, so it parses no pattern.
+	 */
+	readonly matchers: ReadonlyArray<ServedMatcher>
 	/** What the login's refusals may name of the levels above its base, which a refusal names by its level. */
 	readonly above: ServedAbove
 	/** The login's roles, in the login's declared order. */

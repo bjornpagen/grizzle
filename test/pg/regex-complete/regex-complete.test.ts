@@ -41,6 +41,7 @@ import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -380,7 +381,10 @@ const bindRefusal = (
 	template: OracleTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
-	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
+	const bound = executionInputs(
+		paramCodecs(template.params, contentCodes, new CompilePatterns()),
+		params
+	)
 	return bound._tag === "Success" ? undefined : bound.failure.reason._tag
 }
 

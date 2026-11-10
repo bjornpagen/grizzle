@@ -34,6 +34,7 @@ import { hostArguments } from "#compiler/query/build/host.ts"
 import { publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
@@ -233,7 +234,7 @@ export const compileQuery = (
 			if (forms.kind === "one") {
 				return { statement: { ...s, forms }, spec }
 			}
-			const large = statementSpec(forms.large, declaredSlotOf(codes))
+			const large = statementSpec(forms.large, declaredSlotOf(codes, new CompilePatterns()))
 			if (!large.ok) {
 				throw new Refusal(large.error)
 			}

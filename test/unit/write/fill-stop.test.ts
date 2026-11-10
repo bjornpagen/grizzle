@@ -33,6 +33,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
@@ -276,7 +277,8 @@ const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Out
 		kind: "invariant-rejected",
 		law: weightLaw,
 		witness: hostJudgement(
-			prepareBinding(path.program.binding, path.program.frontend.codes).witness,
+			prepareBinding(path.program.binding, path.program.frontend.codes, new CompilePatterns())
+				.witness,
 			stated,
 			{ kind: "write", stratum: path.stratum, relations: [member.name] },
 			{ kind: "generated", table: member.ident, column: w.column }

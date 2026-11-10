@@ -61,6 +61,7 @@ export { interpretRows, keyWitness, witnessDecoder } from "#compiler/runtime/wri
 export { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
 export { inForce } from "#compiler/runtime/write/transport.ts"
 export { hostJudgement, statementRelations } from "#compiler/runtime/write/witness.ts"
+export { ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 export { sameBytes } from "#compiler/scalar/values/bytes.ts"
 export { compareValues } from "#compiler/scalar/values/identity.ts"
 export { servedFile } from "#compiler/served/json.ts"

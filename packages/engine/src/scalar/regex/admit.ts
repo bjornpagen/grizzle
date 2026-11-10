@@ -10,8 +10,9 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import {
 	parsePattern,
 	type RegexDiagnostic,

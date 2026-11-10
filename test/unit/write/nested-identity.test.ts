@@ -21,6 +21,7 @@ import {
 	type MemberFacts
 } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
@@ -181,7 +182,7 @@ const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, lengt
 		nestedRows(
 			nesting,
 			{
-				fill: prepareBinding(program.binding, program.frontend.codes).fill,
+				fill: prepareBinding(program.binding, program.frontend.codes, new CompilePatterns()).fill,
 				codes: program.frontend.codes
 			},
 			member,

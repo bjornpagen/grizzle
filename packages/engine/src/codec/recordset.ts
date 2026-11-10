@@ -33,6 +33,7 @@ import type {
 	NormalFacts
 } from "#compiler/ir/products.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -637,13 +638,15 @@ export const memberArray = (
  * admission holds bytes values in is its own and holds none (scalar/values/bytes.ts DigestBook). A ChangeSet
  * member's facts are no parameter: one outside its column's domain is refused by the domain's law (relationNormalizer).
  */
-export const parameterNormalizer = (spec: RelationSpec): ParameterNormalizer =>
-	parameterNormalizerOf(buildSpec(spec))
+export const parameterNormalizer = (
+	spec: RelationSpec,
+	patterns: PatternReads
+): ParameterNormalizer => parameterNormalizerOf(buildSpec(spec), patterns)
 
-const parameterNormalizerOf = (built: BuiltSpec): ParameterNormalizer => {
+const parameterNormalizerOf = (built: BuiltSpec, patterns: PatternReads): ParameterNormalizer => {
 	const normalize = normalizerOf(built)
 	const refined = built.columns.flatMap((c) => {
-		const member = refinedMember(c.codec.type)
+		const member = refinedMember(c.codec.type, patterns)
 		return member === undefined ? [] : [{ field: c.field, member }]
 	})
 	return (facts) => {

@@ -28,6 +28,7 @@ import { compileLaws } from "#compiler/laws/model/model.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { closedLeaf, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
@@ -260,7 +261,12 @@ describe("an admitted pattern", () => {
 								const generated =
 									writing.kind === "generated" ? writing.expr : assert.fail("m is generated")
 								const encoders = Arr.map(fields, (_, i) =>
-									paramEncoder(fieldOf(`t${i}`).type, `t${i}`, codes)
+									paramEncoder(
+										fieldOf(`t${i}`).type,
+										`t${i}`,
+										codes,
+										ProgramPatterns.of(typePatterns(fieldOf(`t${i}`).type))
+									)
 								)
 								return { relation, fields, generated, encoders }
 							})

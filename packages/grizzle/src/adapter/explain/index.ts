@@ -26,6 +26,7 @@ import {
 	isChangeSetValue
 } from "#compiler/plan/change.ts"
 import {
+	CompilePatterns,
 	type EmittedText,
 	Engine,
 	explainOf,
@@ -155,7 +156,10 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	}
 	const template = compiled.value.compiled.template
 	const values = yield* hostParams(template.params, params)
-	const ready = executionInputs(paramCodecs(template.params, ctx.artifacts.names.codes), values)
+	const ready = executionInputs(
+		paramCodecs(template.params, ctx.artifacts.names.codes, new CompilePatterns()),
+		values
+	)
 	if (Result.isFailure(ready)) {
 		return yield* new ReadFailure({ reason: ready.failure })
 	}

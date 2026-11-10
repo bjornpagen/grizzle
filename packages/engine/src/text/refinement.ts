@@ -32,7 +32,7 @@ import {
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
 import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
+import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"

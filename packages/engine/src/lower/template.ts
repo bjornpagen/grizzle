@@ -26,6 +26,7 @@ import {
 	statementOutput,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
@@ -209,12 +210,13 @@ export const specifiedStatements = <S extends FusedStatement>(
 	StatementRoots<{ readonly statement: S; readonly spec: StatementSpec }>,
 	CompileError
 > =>
-	catchRefusal(() =>
-		mapTree(roots, (statement) => {
-			const spec = statementSpec(statement, declaredSlotOf(codes))
+	catchRefusal(() => {
+		const slotOf = declaredSlotOf(codes, new CompilePatterns())
+		return mapTree(roots, (statement) => {
+			const spec = statementSpec(statement, slotOf)
 			if (!spec.ok) {
 				throw new Refusal(spec.error)
 			}
 			return { statement, spec: spec.value }
 		})
-	)
+	})

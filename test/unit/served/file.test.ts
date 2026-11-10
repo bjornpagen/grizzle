@@ -54,8 +54,9 @@ import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { servedPage, servedRead, servedSession } from "#compiler/program/served.ts"
 import { servedDifference } from "#compiler/served/difference.ts"
-import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
+import type { ServedFile, ServedMember, ServedRoleForm } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
+import { servedMatchers } from "#compiler/served/matchers.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -126,18 +127,8 @@ const without = (json: unknown, path: ReadonlyArray<string | number>): unknown =
 const fileOf = (
 	members: ReadonlyArray<ServedMember>,
 	rosters: ServedFile["rosters"]
-): ServedFile => ({
-	login: "app",
-	fingerprint: SchemaFingerprint(Str.repeat(64)("0")),
-	base: "base",
-	level: 0,
-	role: "app_login",
-	schema: "base",
-	prologue: { fence: trusted("SELECT 1"), enter: trusted("SELECT 2") },
-	session: servedSession,
-	rosters,
-	above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
-	roles: [
+): ServedFile => {
+	const roles: ReadonlyArray<ServedRoleForm> = [
 		{
 			name: "reader",
 			installed: "base__reader",
@@ -157,7 +148,21 @@ const fileOf = (
 			members
 		}
 	]
-})
+	return {
+		login: "app",
+		fingerprint: SchemaFingerprint(Str.repeat(64)("0")),
+		base: "base",
+		level: 0,
+		role: "app_login",
+		schema: "base",
+		prologue: { fence: trusted("SELECT 1"), enter: trusted("SELECT 2") },
+		session: servedSession,
+		rosters,
+		matchers: servedMatchers(roles),
+		above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
+		roles
+	}
+}
 
 const ok = <A, E extends { readonly message: string }>(
 	r: Result.Result<A, E>,

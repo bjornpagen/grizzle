@@ -24,7 +24,8 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { buildNfa, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"

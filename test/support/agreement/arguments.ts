@@ -6,6 +6,7 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { Agree, Cell } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
@@ -192,7 +193,9 @@ const admits = (query: () => unknown, argument: unknown): boolean => {
 	)
 	return (
 		Result.isSuccess(given) &&
-		Result.isSuccess(executionInputs(paramCodecs(declared, emptyCodebook), given.success))
+		Result.isSuccess(
+			executionInputs(paramCodecs(declared, emptyCodebook, new CompilePatterns()), given.success)
+		)
 	)
 }
 

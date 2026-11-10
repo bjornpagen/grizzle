@@ -21,6 +21,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
 import {
@@ -2455,7 +2456,7 @@ const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: Chan
 				throw new Error(`the law model holds no relation ${m.relation}, which a member writes`)
 			}
 			return Arr.some(relation.relation.heading, (f) => {
-				const member = refinedMember(f.type)
+				const member = refinedMember(f.type, new CompilePatterns())
 				return (
 					member !== undefined &&
 					Arr.some(m.facts, (fact) =>

@@ -52,6 +52,7 @@ import { servedSession } from "#compiler/program/served.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { type ServedSpine, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
@@ -564,7 +565,10 @@ export const deliver = Effect.fn("deliver")(
 	): Effect.fn.Return<Delivered, DeliveryFailed | ReadError | FlightFailure> {
 		const start = performance.now()
 		const codes = compiled.artifacts.names.codes
-		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params, codes), values)
+		const inputs = executionInputs(
+			paramCodecs(compiled.compiled.template.params, codes, new CompilePatterns()),
+			values
+		)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}

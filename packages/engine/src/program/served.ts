@@ -25,6 +25,7 @@ import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { traverseTree } from "#compiler/runtime/lower/tree.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type {
 	ServedPage,
 	ServedPageProbe,
@@ -71,7 +72,10 @@ const pageSpec = <F extends PageFill>(
 	statement: FusedStatement<PageStatementSlot<F>>,
 	codes: Codebook
 ): Result.Result<ServedSpec, CompileError> =>
-	Result.map(statementSpec(statement, pageStatementSlotOf(codes)), servedSpec)
+	Result.map(
+		statementSpec(statement, pageStatementSlotOf(codes, new CompilePatterns())),
+		servedSpec
+	)
 
 /** A page statement as the runtime runs it: its spec, and its large form's, emitted under the codes `codes`. */
 const servedPageStatement = <F extends PageFill>(

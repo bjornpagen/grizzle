@@ -21,13 +21,14 @@ import {
 } from "#compiler/plan/change.ts"
 import {
 	bindGroups,
+	type Codebook,
 	CompileError,
+	CompilePatterns,
 	Engine,
 	levelSchema,
 	malformedDescription,
-	parseSchemaInput,
-	type Codebook,
 	type ParamDecl,
+	parseSchemaInput,
 	prose,
 	type QueryDesc,
 	type RowDecoder,
@@ -93,7 +94,11 @@ export const compileArtifacts = (
 				servedSpine(compiled.desc),
 				role.artifacts.names.codes
 			),
-			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
+			codecs: paramCodecs(
+				compiled.template.params,
+				role.artifacts.names.codes,
+				new CompilePatterns()
+			)
 		})
 	)
 
@@ -261,7 +266,11 @@ export const compiledPageTemplate = (
 				(runtime): CompiledPage => ({
 					compiled,
 					runtime,
-					codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
+					codecs: paramCodecs(
+						compiled.template.params,
+						role.artifacts.names.codes,
+						new CompilePatterns()
+					)
 				})
 			)
 	)
@@ -334,7 +343,7 @@ const writeEntry = (
 					names: artifacts.names,
 					witness,
 					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), artifacts.names.codes),
-					codecs: paramCodecs(program.params, artifacts.names.codes),
+					codecs: paramCodecs(program.params, artifacts.names.codes, new CompilePatterns()),
 					bind: role.bind,
 					change
 				})

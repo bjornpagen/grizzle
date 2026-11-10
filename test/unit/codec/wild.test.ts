@@ -51,6 +51,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
@@ -435,7 +436,12 @@ describe("the encoders", () => {
 									"live",
 									`${target.label}: a Live value was refused (${encoded.error})`
 								)
-								const slotted = paramEncoder(target.type, "slot", kindCodes)(value)
+								const slotted = paramEncoder(
+									target.type,
+									"slot",
+									kindCodes,
+									new CompilePatterns()
+								)(value)
 								assert.ok(
 									!slotted.ok,
 									`${target.label}: the slot's encoder admitted what the codec refused`
@@ -489,7 +495,8 @@ describe("the encoders", () => {
 						const encoded = paramEncoder(
 							target.type,
 							"slot",
-							kindCodes
+							kindCodes,
+							new CompilePatterns()
 						)(target.type.carrier === "text" ? `${text}\u0000` : text)
 						if (encoded.ok) {
 							return

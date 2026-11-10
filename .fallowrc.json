@@ -478,6 +478,7 @@
 					"physical",
 					"query",
 					"runtime",
+					"scalar",
 					"schema",
 					"served",
 					"sql",

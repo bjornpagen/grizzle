@@ -22,6 +22,7 @@ import {
 	type ServedWriteChoice,
 	type ServedWriteForm
 } from "#compiler/runtime/write/flight.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { ArtifactForms } from "#compiler/write/program/artifact.ts"
@@ -146,4 +147,4 @@ export const servedWrite = (
 
 /** A write compiled in process as an application runs it: projected and loaded, as a served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
-	loadWrite(projectWrite(compiled), codes)
+	loadWrite(projectWrite(compiled), codes, new CompilePatterns())

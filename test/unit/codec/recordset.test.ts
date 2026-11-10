@@ -32,6 +32,7 @@ import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -243,7 +244,7 @@ describe("relation normalization", () => {
 					slot: { kind: "slot", name: "slots" },
 					codes: kindCodes
 				}
-				const normalize = parameterNormalizer(spec)
+				const normalize = parameterNormalizer(spec, new CompilePatterns())
 				yield* searched(
 					ctx,
 					explore(
@@ -449,7 +450,7 @@ describe("relation normalization", () => {
 					codes: kindCodes
 				}
 				const encode = arraysEncoder(spec)
-				const normalize = parameterNormalizer(spec)
+				const normalize = parameterNormalizer(spec, new CompilePatterns())
 				const spellings: Arr.NonEmptyReadonlyArray<string> = [
 					"1",
 					"1.0",

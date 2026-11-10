@@ -27,7 +27,8 @@ import {
  */
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
+import { matches } from "#compiler/scalar/regex/match.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
 

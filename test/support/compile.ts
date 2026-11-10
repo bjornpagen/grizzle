@@ -58,6 +58,7 @@ import {
 } from "#compiler/program/workload/compile.ts"
 import type { Chunks } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type Owned,
 	type OwnedLogin,
@@ -469,12 +470,15 @@ export const paramValues = (
 		if (!isIterable(value)) {
 			throw new Error(`encode ${param}: a relation parameter's input is an iterable of facts`)
 		}
-		const normal = parameterNormalizer({
-			relation: decl.name,
-			slot: { kind: "slot", name: decl.name },
-			columns: positionalColumns(decl.heading),
-			codes: declared.codes
-		})(value)
+		const normal = parameterNormalizer(
+			{
+				relation: decl.name,
+				slot: { kind: "slot", name: decl.name },
+				columns: positionalColumns(decl.heading),
+				codes: declared.codes
+			},
+			new CompilePatterns()
+		)(value)
 		if (!normal.ok) {
 			throw new Error(`encode ${param}: ${normal.error.message}`)
 		}

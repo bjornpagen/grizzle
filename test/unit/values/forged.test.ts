@@ -27,6 +27,7 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { admitValue, canonicalText } from "#compiler/scalar/values/identity.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -109,7 +110,10 @@ describe("a forged carrier instance", () => {
 								c.note("a batch holding one value twice")
 							}
 							const normal = succeeded(
-								parameterNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
+								parameterNormalizer(
+									relation,
+									new CompilePatterns()
+								)(Arr.map(admitted, (a) => ({ v: a.input })))
 							)
 							assert.equal(normal.count, distinct.size, "one fact per PostgreSQL value")
 							assert.deepEqual<ReadonlySet<string>>(

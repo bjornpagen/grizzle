@@ -1,7 +1,7 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { octetsOf, type PatternSource, type RegexRef } from "#compiler/ir/scalar.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 
 /** The flags every Compute.matches pattern is read under: str.regex's default. */

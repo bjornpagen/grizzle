@@ -26,6 +26,7 @@ import {
 } from "#compiler/runtime/write/outcome.ts"
 import type { Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /** A form of a write statement as an execution sends it: its text, and what fills each placeholder, $n by
@@ -85,29 +86,35 @@ export interface FlightStatement {
 
 /**
  * A ServedWrite loaded under the installation's codes: its declared parameters, its binding and the binding's closures
- * (binding.ts prepareBinding), the codes its values are admitted and encoded under, its statements with their encoders,
- * and what reads its rows.
+ * (binding.ts prepareBinding), the codes its values are admitted and encoded under and the patterns its refined values
+ * are judged by, its statements with their encoders, and what reads its rows.
  */
 export interface FlightWrite {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly binding: Binding
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook
+	readonly patterns: PatternReads
 	readonly statements: ReadonlyArray<FlightStatement>
 	readonly outcome: OutcomeContext
 }
 
 /** A served write as an application runs it under the installation's codes: its binding's closures, each placeholder
  * with its encoder (lower/template.ts writeSlotOf), each written relation with its facts' identity. */
-export const loadWrite = (served: ServedWrite, codes: Codebook): FlightWrite => {
-	const slotOf = writeSlotOf(codes)
+export const loadWrite = (
+	served: ServedWrite,
+	codes: Codebook,
+	patterns: PatternReads
+): FlightWrite => {
+	const slotOf = writeSlotOf(codes, patterns)
 	const loaded = (form: ServedWriteForm): FlightForm =>
 		Object.freeze({ sql: form.sql, paramSlots: Object.freeze(form.params.map(slotOf)) })
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,
-		prepared: prepareBinding(served.binding, codes),
+		prepared: prepareBinding(served.binding, codes, patterns),
 		codes,
+		patterns,
 		statements: Object.freeze(
 			served.statements.map((s, index): FlightStatement =>
 				Object.freeze({

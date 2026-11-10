@@ -17,7 +17,12 @@ import {
 	servedSession,
 	writesOf
 } from "#compiler/plan/common.ts"
-import { servedMembers, servedRosters, type UnservedMember } from "#compiler/plan/migration.ts"
+import {
+	servedMatchers,
+	servedMembers,
+	servedRosters,
+	type UnservedMember
+} from "#compiler/plan/migration.ts"
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,
@@ -217,6 +222,7 @@ export const servedFileOf = (
 					([name, codec]) => [name, codec.codes] as const
 				)
 			),
+			matchers: servedMatchers(roles),
 			above: lawsAbove(snapshot),
 			roles
 		}

@@ -44,6 +44,7 @@ import {
 import { type NestedRow, rowOfValues } from "#compiler/runtime/write/nesting.ts"
 import { type NormalizedSlot, refilledSlot } from "#compiler/runtime/write/normalize.ts"
 import type { Execution } from "#compiler/runtime/write/staged.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { compose, relationDepths, type RelationPlanAt } from "#compiler/write/family/compose.ts"
 import { decodeChain, decodeRead } from "#compiler/write/family/decode.ts"
 import {
@@ -109,7 +110,7 @@ import { flightOf, servedWrite } from "#compiler/write/program/served.ts"
 export const runnableWrite = (compiled: CompiledWrite, codes: Codebook): RunnableWrite => {
 	const served = servedWrite(compiled)
 	return served.ok
-		? servedRunnable(loadWrite(served.value, codes))
+		? servedRunnable(loadWrite(served.value, codes, new CompilePatterns()))
 		: Object.freeze({ flight: flightOf(compiled, codes), flights: legacyFlights(compiled) })
 }
 

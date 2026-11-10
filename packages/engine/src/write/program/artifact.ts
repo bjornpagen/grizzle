@@ -33,6 +33,7 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
@@ -225,7 +226,8 @@ export const specifiedRun = (
 	spec: StatementSpec<DeclaredParamSlot>,
 	codes: Codebook
 ): SpecifiedStatement => {
-	const encoded = Object.freeze({ ...spec, paramSlots: spec.paramSlots.map(declaredSlotOf(codes)) })
+	const slotOf = declaredSlotOf(codes, new CompilePatterns())
+	const encoded = Object.freeze({ ...spec, paramSlots: spec.paramSlots.map(slotOf) })
 	const forms = run.forms
 	if (forms.kind === "one") {
 		return Object.freeze({ statement: { ...run, forms }, spec: encoded })
@@ -241,7 +243,7 @@ export const specifiedRun = (
 					spec: Object.freeze({
 						...encoded,
 						sql: large.sent.sql,
-						paramSlots: large.sent.params.map(declaredSlotOf(codes))
+						paramSlots: large.sent.params.map(slotOf)
 					})
 				}
 			}

@@ -19,6 +19,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
 
 /**
@@ -90,7 +91,10 @@ export const deliverPage = Effect.fn("deliverPage")(
 		values: HostParams,
 		call: PageCall
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
-		const inputs = executionInputs(paramCodecs(pages.params, pages.codes), values)
+		const inputs = executionInputs(
+			paramCodecs(pages.params, pages.codes, new CompilePatterns()),
+			values
+		)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}

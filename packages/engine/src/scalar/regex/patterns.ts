@@ -8,8 +8,9 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
+import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
 import { matchFlags, memberOf, type ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
-import { buildNfa, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 
 /** An admitted pattern parsed: its live node, which a translation's image reads, and its automaton. */

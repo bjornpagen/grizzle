@@ -31,7 +31,7 @@ import {
 	type WitnessData,
 	type Witnessing
 } from "#compiler/runtime/write/witness.ts"
-import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
 /**
@@ -170,18 +170,19 @@ export interface PreparedBinding {
 
 /**
  * The closures of a binding (`PreparedBinding`), built once: where the write compiles, and where a served login loads
- * it, each from the binding's data and the installation's codes alone, every pattern parsed here and none per row.
+ * it, each from the binding's data, the installation's codes and its table of the patterns its types read, `patterns`,
+ * so none is parsed per row.
  */
-export const prepareBinding = (binding: Binding, codes: Codebook): PreparedBinding => {
-	const evaluate = hostEvaluator(
-		codes,
-		closedLeaf(binding.evaluation.closed),
-		ProgramPatterns.of(binding.evaluation.patterns)
-	)
+export const prepareBinding = (
+	binding: Binding,
+	codes: Codebook,
+	patterns: PatternReads
+): PreparedBinding => {
+	const evaluate = hostEvaluator(codes, closedLeaf(binding.evaluation.closed), patterns)
 	return Object.freeze({
 		evaluate,
 		fill: filler(binding.fill, codes, evaluate),
 		groups: binding.groups.map((g) => bindGroup(g, codes)),
-		witness: prepareWitness(binding.witness, binding.groups, codes)
+		witness: prepareWitness(binding.witness, binding.groups, codes, patterns)
 	})
 }
