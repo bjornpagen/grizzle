@@ -446,8 +446,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 				})
 			})
 		)
-	const info = (name: string) =>
-		defined(frontend.schema.relations.get(name), `the family relation ${name}`)
+	const info = (name: string) => defined(stored.get(name), `the family relation ${name}`)
 	const familyOf = (id: FamilyId): Family =>
 		defined(
 			all.find((f) => familyKey(f.id) === familyKey(id)),
