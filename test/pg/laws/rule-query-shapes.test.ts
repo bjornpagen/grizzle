@@ -1,6 +1,6 @@
 /**
  * The downstream shapes of rules over queries on PostgreSQL 19rc1, kept beside the search of rule-query.test.ts: each
- * exhausted over a box of states, every state written whole by grizzle's db.apply into empty tables.
+ * exhausted over a box of states, every state written whole by a served ChangeSet of grizzle's into empty tables.
  *
  * - **A join as a rule's side**, a typed href: ResourceHref ⋈ ResourceTyped on node is TypedHref, a live derived
  *   relation in place of a stored copy kept in step by containments both ways. A check over it (an item's href is
@@ -22,21 +22,21 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** A resource type's code: an item's, or a web content's. */
 const ITEM = 1
@@ -406,22 +406,23 @@ const rowsOf = (sketch: Sketch): Rows => {
 	}
 }
 
-/** The ChangeSet inserting every row of a state. */
-const insertAll = (value: ReturnType<typeof shapes>, rows: Rows) =>
-	ChangeSet.empty(value)
-		.insert(ResourceHref, rows.ResourceHref)
-		.insert(ResourceTyped, rows.ResourceTyped)
-		.insert(Entry, rows.Entry)
-		.insert(LomObject, rows.LomObject)
-		.insert(LomTitle, rows.LomTitle)
-		.insert(RecordObject, rows.RecordObject)
-		.insert(ObjectTitle, rows.ObjectTitle)
-		.insert(VariableRef, rows.VariableRef)
-		.insert(Expression, rows.Expression)
-		.insert(HeldType, rows.HeldType)
-		.insert(Item, rows.Item)
-		.insert(ItemKey, rows.ItemKey)
-		.insert(Flag, rows.Flag)
+/** The full role's workload: the ChangeSet inserting every row of a state, each relation's from its call's facts. */
+const programsOf = (value: ReturnType<typeof shapes>) => ({
+	insertAll: ChangeSet.empty(value)
+		.insert(ResourceHref, [])
+		.insert(ResourceTyped, [])
+		.insert(Entry, [])
+		.insert(LomObject, [])
+		.insert(LomTitle, [])
+		.insert(RecordObject, [])
+		.insert(ObjectTitle, [])
+		.insert(VariableRef, [])
+		.insert(Expression, [])
+		.insert(HeldType, [])
+		.insert(Item, [])
+		.insert(ItemKey, [])
+		.insert(Flag, [])
+})
 
 type Shape = Sketch["shape"]
 type Feature =
@@ -449,10 +450,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							extensions: []
 						})
 						const value = shapes(done.schema)
-						const world = fullWorld(value, {})
+						const world = fullWorld(value, programsOf(value))
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_shapes")
-						const context = yield* Layer.build(loginLayer(done, world.server))
-						const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(
+						const served = yield* servedFixture(done, world.server)
+						const context = yield* Layer.build(served.layer)
+						const db = yield* Db.open(served.login.roles.app, {}).pipe(
 							Effect.provideContext(context)
 						)
 						return yield* exhaust(
@@ -482,8 +484,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(sketch, c) =>
 								Effect.gen(function* () {
 									yield* cleared(seat, RELATIONS)
-									const changes = insertAll(value, rowsOf(sketch))
-									const outcome = yield* apply(dbc, changes, changes.reads, {})
+									const rows = rowsOf(sketch)
+									const outcome = yield* db.workload.insertAll.apply({ insert: rows }, {})
 									const breaks = brokenOf(sketch)
 									if (outcome.kind === "accepted" || outcome.kind === "no-change") {
 										if (breaks.length > 0) {
