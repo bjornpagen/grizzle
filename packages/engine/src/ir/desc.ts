@@ -11,6 +11,7 @@ import {
 	toJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	concatNonEmpty,
@@ -2167,9 +2168,42 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 /** What a role states over its base: the role's own parts, which a role's Description holds beside the base. */
 type RoleParts = Omit<RoleDesc, "base">
 
-/** A role's own parts as a decode of the whole role reads them, its base passed over. */
-const rolePartsShape: S.Shape<RoleParts> = S.located(
-	S.structWith({ name, relations: roleRelations, write: roleWrite, refresh: roleRefresh }, loc)
+/**
+ * A role's own parts as its builder holds them: its caller's name, entries, written and refreshed relations and
+ * location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
+ * queryDescOf).
+ */
+export interface RoleInput {
+	readonly name: string
+	readonly relations: ReadonlyArray<RoleEntryDesc>
+	readonly write: ReadonlyArray<string>
+	readonly refresh: ReadonlyArray<string>
+	readonly loc: SourceLoc
+}
+
+/** A role entry as a decode of its role reads what its caller wrote of it: its kind, its name and its location. */
+type RoleEntryPart = Located & { readonly kind: RoleEntryDesc["kind"]; readonly name: string }
+
+const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged("kind", {
+	whole: S.located(S.structWith({ name }, loc)),
+	world: S.located(S.structWith({ name }, loc))
+})
+
+/**
+ * What a decode of a whole role reads of the parts its caller wrote, each at its place in the role: its name, its
+ * entries' kinds, names and locations, its written and refreshed relations and its location; a query entry's query is
+ * no part of it, and is decoded where it was taken.
+ */
+const roleWrittenShape = S.located(
+	S.structWith(
+		{
+			name,
+			relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
+			write: roleWrite,
+			refresh: roleRefresh
+		},
+		loc
+	)
 )
 
 const loginDescShape: S.Shape<LoginDesc> = S.located(
@@ -2400,15 +2434,33 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 	})
 
 /**
- * A role's Description over its base, decoded already: the role's own parts, which its caller wrote, decoded as a
- * decode of the whole role decodes them.
+ * A role's Description over its base, decoded already, from its own parts: what its caller wrote of them decoded as a
+ * decode of the whole role decodes it there (roleWrittenShape), each query entry's query as its builder decoded it,
+ * frozen with the rest.
  */
 export const decodeRoleOver = (
 	base: SchemaDesc,
-	role: unknown
+	role: RoleInput
 ): Result.Result<RoleDesc, CompileError> =>
-	Result.map(S.decodeWith(rolePartsShape, role, subjects.role), (parts) =>
-		roleDescOver(base, parts)
+	Result.map(
+		S.decodeWith(
+			roleWrittenShape,
+			{
+				...role,
+				relations: role.relations.map((e) => ({ kind: e.kind, name: e.name, loc: e.loc }))
+			},
+			subjects.role
+		),
+		(written) => {
+			const [first, ...rest] = role.relations
+			return roleDescOver(base, {
+				name: written.name,
+				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
+				write: written.write,
+				refresh: written.refresh,
+				loc: written.loc
+			})
+		}
 	)
 
 /** A login's Description over its base and its roles, each already decoded, under distinct names. */
