@@ -73,7 +73,6 @@ const program = succeeded(
 		names,
 		reads: names,
 		claims: { kind: "every" },
-		isolation: "serializable",
 		world: { kind: "reality" },
 		laws: artifacts.laws,
 		derived: artifacts.derived
@@ -120,10 +119,8 @@ const keyedCarriers = (artifact: WriteArtifact): Arr.NonEmptyReadonlyArray<Keyed
 const carriers = {
 	optimized: keyedCarriers(program.artifact),
 	conservative: keyedCarriers(
-		succeeded(
-			conservativeWrite(program, { names, reads: names, isolation: "serializable" }),
-			"the conservative realization"
-		).artifact
+		succeeded(conservativeWrite(program, { names, reads: names }), "the conservative realization")
+			.artifact
 	)
 } as const
 

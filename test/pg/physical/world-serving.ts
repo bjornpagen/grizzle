@@ -1189,7 +1189,6 @@ const precheck = (
 				names: artifacts.names,
 				reads: artifacts.reads,
 				claims: { kind: "facts", present: new Set(Arr.map(base.contexts, (c) => c.name)) },
-				isolation: "serializable",
 				world: { kind: "role", names: world.names },
 				laws: artifacts.laws,
 				derived: artifacts.derived

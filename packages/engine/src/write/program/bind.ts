@@ -108,7 +108,7 @@ import { flightOf, servedWrite } from "#compiler/write/program/served.ts"
  * RunnableWrite): its served form loaded, every statement in its one flight, or, where it has none, its projection
  * loaded, its flights the planner's over the compiled write (`legacyFlights`). */
 export const runnableWrite = (compiled: CompiledWrite, codes: Codebook): RunnableWrite => {
-	const served = servedWrite(compiled)
+	const served = servedWrite(compiled, "serializable")
 	return served.ok
 		? servedRunnable(
 				loadWrite(served.value, codes, closedTableOf(compiled.frontend), new CompilePatterns())

@@ -151,7 +151,6 @@ const compile = (value: unknown) =>
 		names,
 		reads: names,
 		claims: { kind: "facts", present: new Set<string>() },
-		isolation: "serializable",
 		world: { kind: "reality" },
 		laws: artifacts.laws,
 		derived: artifacts.derived

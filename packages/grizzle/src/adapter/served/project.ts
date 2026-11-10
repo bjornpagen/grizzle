@@ -76,7 +76,7 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 			const { entry, decoder } = variants.form
 			const compiled = entry.compiled
 			return Result.gen(function* () {
-				const program = yield* toResult(servedWrite(compiled))
+				const program = yield* toResult(servedWrite(compiled, "serializable"))
 				const members = yield* toResult(
 					servedMembers(compiled.binding.members, entry.change.values)
 				)

@@ -332,8 +332,7 @@ const writeEntry = (
 							world:
 								world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
 							laws: artifacts.laws,
-							derived: artifacts.derived,
-							isolation: "serializable"
+							derived: artifacts.derived
 						}
 					)
 				),

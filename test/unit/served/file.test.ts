@@ -441,7 +441,7 @@ const changeTrip = (
 		}
 		const program = compiled.value
 		const parsed = parsedOf(changes)
-		const write = servedWrite(program)
+		const write = servedWrite(program, "serializable")
 		const members = servedMembers(program.binding.members, parsed.values)
 		if (!write.ok || !members.ok) {
 			return

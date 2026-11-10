@@ -4,7 +4,6 @@ import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -181,11 +180,6 @@ export interface CompileWriteOptions {
 	/** The schema's law model and its base's derived analysis (`SchemaArtifacts.laws`, `.derived`). */
 	readonly laws: LawModel
 	readonly derived: DerivedAnalysis
-	/**
-	 * The isolation level the write's role begins its changes at (core/isolation.ts), which decides what an occupant at
-	 * a unique object besides an insert's arbiter is (uniqueAbortsOf).
-	 */
-	readonly isolation: Isolation
 }
 
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
@@ -226,17 +220,14 @@ type AbortKind =
 	| { readonly kind: "other" }
 
 /** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a generated addition's at every
- * unique object that reads a drawn field, a stored value the sequence had not passed; a MERGE insert at the primary
+ * unique object, which its probe leaves only an occupant its snapshot did not see at an object that reads no field it
+ * draws, and at one that reads a drawn field a stored value the sequence had not passed; a MERGE insert at the primary
  * key its put targets, or at a unique object besides it, which compares every field of that key (`uniqueBesideKey`),
- * so it is the same concurrent commit; and, under SERIALIZABLE, a generated addition's at every other unique object and
- * a probed insert's at every unique object besides its arbiter, where after the probe only an occupant its snapshot did
- * not see raises. Under READ COMMITTED, which generate certifies only where no other call's rows change this call's
- * output, the serial order with that call first refuses at the same object, so such an occupant is no abort: the
- * violation is the object's law, as the classifier reads it. */
+ * so it is the same concurrent commit; and a probed insert's, at every unique object besides its arbiter, which after
+ * the probe only an occupant its snapshot did not see raises. */
 export const uniqueAbortsOf = (
 	relation: WrittenRelation,
-	kind: AbortKind,
-	isolation: Isolation
+	kind: AbortKind
 ): ReadonlyArray<UniqueAbort> => {
 	const aborts = (
 		objects: ReadonlyArray<UniqueObject>,
@@ -248,17 +239,15 @@ export const uniqueAbortsOf = (
 		case "other":
 			return []
 		case "probed":
-			return isolation === "serializable" ? aborts(others, "UnseenOccupant") : []
+			return aborts(others, "UnseenOccupant")
 		case "merge":
 			return aborts([arbiter, ...others], "PutTargetConflict")
 		case "generated":
-			return [arbiter, ...others].flatMap((u): ReadonlyArray<UniqueAbort> =>
-				readsDrawn(u, kind.serial.drawn)
-					? [{ constraint: u.name, relation: relation.name, reason: "GeneratedSerialUnique" }]
-					: isolation === "serializable"
-						? [{ constraint: u.name, relation: relation.name, reason: "UnseenOccupant" }]
-						: []
-			)
+			return [arbiter, ...others].map((u): UniqueAbort => ({
+				constraint: u.name,
+				relation: relation.name,
+				reason: readsDrawn(u, kind.serial.drawn) ? "GeneratedSerialUnique" : "UnseenOccupant"
+			}))
 	}
 }
 
@@ -1001,7 +990,7 @@ const optimizedPlacement = (
 		relation: step.relation.name,
 		result: filled.result,
 		skipWhenEmpty: filled.skipWhenEmpty,
-		uniqueAborts: uniqueAbortsOf(step.relation, abortsOf(step), options.isolation)
+		uniqueAborts: uniqueAbortsOf(step.relation, abortsOf(step))
 	})
 	/** What a planned write reads and writes after which actions, for the dependency tracker. */
 	const writeAccess = (

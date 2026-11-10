@@ -159,7 +159,7 @@ const property = (case_: BindingCase, note: (s: BindingSituation) => void): Effe
 			sent(wideWrite.flight, bindWrite(wideWrite, inputs)),
 			"the write binds by its slice as by the whole fill order"
 		)
-		if (servedWrite(program).ok) {
+		if (servedWrite(program, "serializable").ok) {
 			assert.deepEqual(
 				sent(write.flight, bindWrite(write, inputs)),
 				sent(
