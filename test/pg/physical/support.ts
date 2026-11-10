@@ -3,7 +3,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { decodeDesc } from "#compiler/ir/desc.ts"
+import { admitLoginRoles } from "#compiler/ir/desc.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -64,7 +64,7 @@ export const fixtureWorlds = (desc: SchemaDesc): FixtureWorlds => {
 	return {
 		login: accepted(
 			Result.flatMap(
-				decodeDesc("login", { name: "server", base, roles: [writer, reader], loc }),
+				admitLoginRoles(base, { name: "server", roles: [writer, reader], loc }),
 				ownLogin
 			)
 		),
