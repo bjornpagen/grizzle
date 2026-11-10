@@ -9,7 +9,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { refreshReport } from "#adapter/refresh/index.ts"
+import { runRefresh } from "#adapter/refresh/run.ts"
 import { summarize } from "#bench/cold/stats.ts"
 import { explain, planNodes } from "#bench/harness/explain.ts"
 import {
@@ -44,6 +44,8 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { refresh } from "#compiler/public/workload.ts"
+import { member } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -60,8 +62,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * The fixture is the refresh suite's shape (test/pg/derived/refresh/refresh.test.ts): Sitting and Fee at level 0;
  * level 1 StudentWeekly (sittings and passes per student and week) and TopFee (each student's largest fee, an
  * unconstrained numeric whose equal values may differ in spelling); level 2 WeekBusy, which reads StudentWeekly. The
- * refresher role refreshes through the Db's own refresh (db.refresh, reporting the statements it ran), one level
- * per call. Rows written are the view rows whose tuple (ctid, xmin) the refresh replaced. The refresh statement the
+ * refresher role refreshes through refresh members of its Db's served workload, one per level, each reporting the
+ * statements its transaction ran (adapter/refresh/run.ts runRefresh, as the member's handle runs it), one level per
+ * call. Rows written are the view rows whose tuple (ctid, xmin) the refresh replaced. The refresh statement the
  * runtime issued is also replayed on a direct session of the refresher role inside a measured SERIALIZABLE
  * transaction, for its own backend's WAL, beside one owner's REFRESH ... CONCURRENTLY of a hand-written materialized
  * view of the same definition with its unique index, whose rows the generated view must equal.
@@ -179,18 +182,27 @@ export default defineGate({
 			})
 			yield* settle(fx)
 			const view = (rel: string) => fx.table(rel)
-			const { ctx: context } = yield* openDb(fx, R.refreshers.roles.refresher)
-			/** db.refresh of `relations`, reporting the statements its one transaction ran. */
-			const refreshed = (relations: Arr.NonEmptyReadonlyArray<{ readonly name: string }>) =>
-				refreshReport(context, relations)
+			const { ctx: context, load } = yield* openDb(fx, R.refreshers.roles.refresher)
 			const level1 = [R.StudentWeekly, R.TopFee] as const
 			const level2 = [R.WeekBusy] as const
+			/** Each level's refresh, a refresh member of the refresher's served workload. */
+			const levels = yield* Effect.orDie(load({ level1: refresh(level1), level2: refresh(level2) }))
+			/**
+			 * The refresh member `name`'s one transaction, reporting the statements it ran (adapter/refresh/run.ts
+			 * runRefresh), as its served handle runs it.
+			 */
+			const refreshed = (name: "level1" | "level2") => {
+				const loaded = member(levels, name)
+				return loaded.kind === "refresh"
+					? runRefresh(context, loaded.refresh)
+					: Effect.die(new GateSetupError({ what: `${name} is no refresh member` }))
+			}
 
 			/** The lifetime: the first refresh of each level, one level per call, then a later one. */
-			const level1First = yield* timed(refreshed(level1))
-			const level2First = yield* timed(refreshed(level2))
-			const level1Again = yield* timed(refreshed(level1))
-			const level2Again = yield* timed(refreshed(level2))
+			const level1First = yield* timed(refreshed("level1"))
+			const level2First = yield* timed(refreshed("level2"))
+			const level1Again = yield* timed(refreshed("level1"))
+			const level2Again = yield* timed(refreshed("level2"))
 			const calls = [
 				{ call: "level 1, first", relations: level1, run: level1First },
 				{ call: "level 2, first", relations: level2, run: level2First },
@@ -254,7 +266,7 @@ export default defineGate({
 					WeekBusy: yield* rewrittenOf("WeekBusy")
 				}
 			})
-			const refreshAll = Effect.andThen(refreshed(level1), refreshed(level2))
+			const refreshAll = Effect.andThen(refreshed("level1"), refreshed("level2"))
 			yield* takeSnapshot
 			const unchanged = yield* timed(refreshAll)
 			const unchangedRows = yield* rewritten

@@ -123,7 +123,7 @@ export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
  * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, the cluster's connection
  * with the login's password (test/support/pg.ts clusterConnection), the test pool, and testVerify.
  */
-export const loginLayerIn = <L extends AnyLogin>(
+const loginLayerIn = <L extends AnyLogin>(
 	database: string,
 	installed: Installed,
 	account: L

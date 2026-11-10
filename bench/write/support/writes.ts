@@ -3,18 +3,21 @@ import {
 	Duration,
 	Effect,
 	Fiber,
-	Layer,
+	Option,
 	Record as Rec,
 	Result,
 	type Scope
 } from "effect"
-import { writeProgramOf, runApplication } from "#adapter/apply/index.ts"
-import type { DbContext } from "#adapter/db/context.ts"
-import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
-import { toResult } from "#adapter/engine.ts"
-import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberOps, variantOf } from "#adapter/db/handles.ts"
+import { fromEngine, toResult } from "#adapter/engine.ts"
+import { type ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
-import type { CompiledEntry } from "#adapter/served/forms.ts"
+import { boundReads, type CompiledEntry, compiledWrite } from "#adapter/served/forms.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
+import { artifactsOver, builtLogin, loginRoles, ownLoginOver } from "#adapter/served/login.ts"
+import type { RoleContext } from "#adapter/served/role.ts"
 import {
 	type Answer,
 	controlText,
@@ -22,6 +25,7 @@ import {
 	type Session,
 	type SessionPool
 } from "#adapter/wire/session.ts"
+import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import { explain, type MalformedPlan } from "#bench/harness/explain.ts"
 import type { Attempted } from "#bench/harness/load.ts"
@@ -38,18 +42,33 @@ import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
+import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import { everySlice, planBasis, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/world.ts"
-import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
+import type { AnyLogin, AnyLoginRole } from "#compiler/types/schema/world.ts"
+import {
+	isChangeSetValue,
+	type ParsedChangeSet,
+	parseChangeSet
+} from "#compiler/write/changeset/value.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
+import type { Installed } from "#test/support/install-migrate.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import {
+	appliedWith,
+	type CallFacts,
+	member,
+	openServedDb,
+	type ServedDb
+} from "#test/support/served-db.ts"
+import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -57,7 +76,7 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
 import { paramText } from "#test/support/wire.ts"
-import { fullWorld, loginLayerIn, tokenOf } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
@@ -71,10 +90,11 @@ const round = (x: number): number => Math.round(x * 1000) / 1000
  * is then rebuilt under that name, and its worlds over the rebuilt value, so a Db opened on one of its roles logs in as
  * the installed login and takes on the installed role. Two kinds of writer measure the same laws:
  *
- * - grizzle writers: a Db opened through its own DbLayer, as an application opens one, applying ChangeSets
- *   with db.apply or a compiled ChangeSet's apply. `observedChange` runs a compiled ChangeSet through the runtime's own
- *   application (packages/grizzle/src/adapter/apply runApplication: its SERIALIZABLE transaction, its flights and its classification,
- *   unchanged),
+ * - grizzle writers: a Db opened through its login's own served layer, as an application opens one, applying
+ *   ChangeSets as members of a served workload. `observedChange` compiles a ChangeSet into a member of the Db's role's
+ *   workload by the one compile `grizzle generate` commits, and runs each call of it through the runtime's own
+ *   application of a served member (adapter/db/handles.ts memberOps: its SERIALIZABLE transaction, its flights and its
+ *   classification, unchanged),
  *   one attempt per call, over the Db's session pool with every session it leases observed on the wire, so the
  *   attempt's failure is known by the statement (or COMMIT) that raised it, with its SQLSTATE and constraint. That is how a
  *   transient failure is attributed beyond its SQLSTATE (both 40001), and how a load retries and tallies a grizzle
@@ -87,11 +107,12 @@ const round = (x: number): number => Math.round(x * 1000) / 1000
  * Every session and DbLayer reaches PostgreSQL directly: no function here takes a port.
  *
  * A statement of a compiled program is named by its step (packages/engine/src/write/program/artifact.ts WriteStep), never by
- * its SQL text, and its form is read from its audited AST. A law is named by its declaration (S-NAMES, namesOf):
- * nothing here re-derives a production name. The catalog readings here are the observed side a gate's mechanism checks
- * compare with the installation: the functions, triggers and indexes it holds, and the table scans and row changes a
- * transaction made so far (pg_stat_xact_user_tables, which counts the scans a foreign key's RI check runs in the same
- * backend).
+ * its SQL text, and its form is read from its audited AST, both read off the program as the served compile compiles it
+ * for the Db's role (adapter/served/forms.ts compiledWrite, over the role adapter/served/login.ts loginRoles gives). A
+ * law is named by its declaration (S-NAMES, namesOf): nothing here re-derives a production name. The catalog readings
+ * here are the observed side a gate's mechanism checks compare with the installation: the functions, triggers and
+ * indexes it holds, and the table scans and row changes a transaction made so far (pg_stat_xact_user_tables, which
+ * counts the scans a foreign key's RI check runs in the same backend).
  *
  * The rows of a catalog or statistics query come as the row type its SQL casts them to. The one row a query returns:
  * none or several is a defect of the gate's setup.
@@ -125,26 +146,100 @@ export const installWrites = <S extends Parameters<typeof fullWorld>[0]>(
 > => installFixture(schema, options.programs, label, options.logins)
 
 /**
- * A Db of `role` and the context it reads, a role over the gate's schema rebuilt under the installed name reached
- * through the rebuilt login that holds it, opened through a DbLayer of that login, built in the scope, on the
- * substrate's route: an instance of the application, with its own session pool. The Db is typed by no particular role: a gate applies through observedChange,
- * or a Db's own members over values of the rebuilt schema. A token is given, of no claims, so a role reading no context
- * opens as one reading one does: its Db holds no context fact either way.
+ * A served Db of a role over the gate's schema rebuilt under the installed name (test/support/served-db.ts
+ * ServedDb): its context, and `load` and `serve`, which compile programs into members of its role's workload; with that
+ * role as the one served compile reads it (servedRoleOf), which a program's compiled form is read through.
+ */
+export interface OpenedDb extends ServedDb {
+	readonly role: RoleContext
+}
+
+/**
+ * `role` as the one compile `grizzle generate` commits reads it (adapter/served/compile.ts snapshotServedEntry): its
+ * login's base owned, the snapshot `installed` reached read over the base's level as that compile reads it, the
+ * installation's artifacts planned from what the snapshot records over every relation, and the login's roles compiled
+ * over them (adapter/served/login.ts loginRoles), its own workload left out: a gate compiles its programs one at a time
+ * (observedChange). A role of no login login(...) built, or of none the login holds, is a defect of the gate's setup.
+ */
+const servedRoleOf = (
+	installed: Installed,
+	role: AnyLoginRole
+): Effect.Effect<RoleContext, CompileError | GateSetupError> =>
+	Effect.gen(function* () {
+		const login = builtLogin(role.login)
+		if (login === undefined) {
+			return yield* new GateSetupError({ what: "openDb: a role of no login login(...) built" })
+		}
+		const base = yield* fromEngine(ownBuilt(login.base))
+		const owned = yield* fromEngine(ownLoginOver(login, base))
+		const snapshot = yield* fromEngine(
+			servedSnapshot(
+				snapshotValue(installed.snapshot, installed.installation),
+				levelChain(login.base.desc).length - 1
+			)
+		)
+		const slice = everySlice(owned.base)
+		const artifacts = yield* fromEngine(
+			Engine.flatMap(
+				planBasis(
+					owned.base,
+					snapshot.codes,
+					slice,
+					snapshot.derived.closed,
+					snapshot.derived.textDomains,
+					{ kind: "recorded", cycles: snapshot.derived.fkCycles }
+				),
+				artifactsOver
+			)
+		)
+		const roles = yield* Effect.mapError(
+			loginRoles(
+				{ ...login, workload: [] },
+				owned,
+				{ slice, artifacts, over: () => Engine.ok(artifacts) },
+				lawsAbove(snapshot)
+			),
+			(refused) => refused.error
+		)
+		const found = Option.getOrUndefined(Arr.findFirst(roles, (r) => r.role.name === role.role.name))
+		if (found === undefined) {
+			return yield* new GateSetupError({
+				what: `openDb: the login holds no role ${role.role.name}`
+			})
+		}
+		return found
+	})
+
+/** Whether a refusal of opening a served Db is the compile's of the login's own served file, a defect of the setup. */
+const isServedRefusal = (error: ServedRefusal | OpenError): error is ServedRefusal =>
+	!(error instanceof OpenError)
+
+/**
+ * A Db of `role`, a role over the gate's schema rebuilt under the installed name reached through the rebuilt login that
+ * holds it, opened through a served layer of that login of its own, built in the scope (test/support/served-db.ts
+ * openServedDb): an instance of the application, with its own session pool. The Db is typed by no particular role: a
+ * gate applies through observedChange, or through members of its own the Db serves. It is opened with a token of no
+ * claims, so a role reading no context opens as one reading one does: its Db holds no context fact either way. A login
+ * whose own served file, or whose role, does not compile is a defect of the gate's setup.
  */
 export const openDb = Effect.fn("openDb")(function* <F>(
 	fixture: Fixture<F>,
 	role: AnyLoginRole
-): Effect.fn.Return<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> {
-	const s = yield* Substrate
-	const context = yield* Layer.build(loginLayerIn(s.database, fixture.installed, role.login))
-	return yield* openDbContext(role, { token: tokenOf({}) }).pipe(Effect.provideContext(context))
+): Effect.fn.Return<OpenedDb, OpenError, Scope.Scope> {
+	const db = yield* Effect.catchIf(
+		openServedDb(fixture.installed, role, {}),
+		isServedRefusal,
+		(refusal) => Effect.die(refusal)
+	)
+	const served = yield* Effect.orDie(servedRoleOf(fixture.installed, role))
+	return { ...db, role: served }
 })
 
 /** A Db of the full world of `value`, the gate's schema rebuilt under the installed name (openDb). */
 export const openFull = <F>(
 	fixture: Fixture<F>,
 	value: Parameters<typeof fullWorld>[0]
-): Effect.Effect<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope> =>
+): Effect.Effect<OpenedDb, OpenError, Scope.Scope> =>
 	openDb(fixture, fullWorld(value, {}).server.roles.app)
 
 /**
@@ -495,8 +590,14 @@ export interface ObservedApply {
 	readonly failure: FirstFailure
 }
 
-interface ObservedChange {
+export interface ObservedChange {
+	/** One attempt with `params`, its call giving the facts the ChangeSet value holds (callFactsOf). */
 	readonly apply: (params: ParamMap) => Effect.Effect<ObservedApply, ApplyError>
+	/** One attempt with `params`, its call giving `facts` under its array members' ops and relations instead. */
+	readonly applyWith: (
+		facts: CallFacts,
+		params: ParamMap
+	) => Effect.Effect<ObservedApply, ApplyError>
 	/** The program's statements, in position order. */
 	readonly statements: ReadonlyArray<ObservedStatement>
 }
@@ -766,80 +867,157 @@ const attemptedOf = (
 }
 
 /**
- * A ChangeSet value compiled for observed application on the Db `opened` (see the head of this file). `labelOf` turns
- * an attempt's failure into the gate's retry label, and `beforeCommit` probes the attempt's transaction just before its
- * COMMIT, or not. A refused query whose text is no statement of the program is a defect of the observation.
+ * The facts a call of the served member of `change` gives: under each of its array members' op and relation, the facts
+ * the value holds for that member, as the application that built it gives them. Its array members' facts are each
+ * call's (adapter/served/load.ts ChangeCall), so a call that gives these runs the ChangeSet the value states.
+ */
+const callFactsOf = (change: ParsedChangeSet): CallFacts => {
+	const facts: Record<string, Record<string, ReadonlyArray<unknown>>> = {}
+	for (const stratum of change.desc.strata) {
+		for (const m of stratum.members) {
+			if (m.member.kind !== "array") {
+				continue
+			}
+			const input = change.inputs.get(m.member.slot)
+			if (input?.kind !== "array") {
+				throw new GateSetupError({
+					what: `observedChange: the array member ${m.member.slot} holds no facts`
+				})
+			}
+			const byRelation = facts[m.op] ?? {}
+			byRelation[m.relation] = input.facts
+			facts[m.op] = byRelation
+		}
+	}
+	return facts
+}
+
+/**
+ * How an observed ChangeSet is applied: as the role's served workload serves it, or by the conservative realization of
+ * its program the write oracle builds (conservativeChange), every stratum's statements in sequence.
+ */
+type Realization = "served" | "conservative"
+
+/**
+ * A ChangeSet value compiled into a member of the Db `opened`'s role's workload for observed application (see the head
+ * of this file). `labelOf` turns an attempt's failure into the gate's retry label, and `beforeCommit` probes the
+ * attempt's transaction just before its COMMIT, or not. Its statements are read off its program as the served compile
+ * compiles it for the role, read-backs included; a refused query whose text is no statement of the program is a defect
+ * of the observation, as is a ChangeSet that does not compile.
  */
 export const observedChange = (
-	opened: { readonly ctx: DbContext },
+	opened: OpenedDb,
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit
-): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(opened.ctx, changes, labelOf, beforeCommit, (entry) => Result.succeed(entry))
+): Effect.Effect<ObservedChange> =>
+	observedArtifact(opened, changes, labelOf, beforeCommit, "served")
 
 /**
  * The same, applying the program's conservative realization, every stratum's statements in sequence, which the write
  * oracle compares the optimized artifact against.
  */
 export const observedConservative = (
-	opened: { readonly ctx: DbContext },
+	opened: OpenedDb,
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string
-): Result.Result<ObservedChange, CompileError | Error> =>
-	observedArtifact(opened.ctx, changes, labelOf, { kind: "none" }, (entry) =>
-		toResult(conservativeChange(entry, opened.ctx))
-	)
+): Effect.Effect<ObservedChange> =>
+	observedArtifact(opened, changes, labelOf, { kind: "none" }, "conservative")
+
+/**
+ * The served member `loaded` with its program replaced by `entry`, the conservative realization of the program it
+ * serves, its read-backs bound by the ChangeSet's own reads decoder `decoder`, each call read as the served member
+ * reads it (adapter/served/load.ts ChangeCall), for the claims of the Db `ctx`.
+ */
+const realized = (
+	ctx: ServedDbContext,
+	loaded: Extract<LoadedMember, { readonly kind: "change" }>,
+	entry: CompiledEntry,
+	decoder: RowDecoder<unknown>
+): Result.Result<LoadedMember, CompileError> =>
+	Result.map(boundReads(entry, decoder), (reads) => ({
+		name: loaded.name,
+		kind: "change",
+		variants: {
+			kind: "change",
+			change: { entry, reads, call: variantOf(ctx, loaded.variants).call }
+		}
+	}))
 
 const observedArtifact = (
-	context: DbContext,
+	opened: OpenedDb,
 	changes: unknown,
 	labelOf: (f: AttemptFailure) => string,
 	beforeCommit: BeforeCommit,
-	realization: (entry: CompiledEntry) => Result.Result<CompiledEntry, CompileError>
-): Result.Result<ObservedChange, CompileError | GateSetupError> => {
-	if (!isChangeSetValue(changes)) {
-		return Result.fail(new GateSetupError({ what: "observedChange: not a ChangeSet value" }))
-	}
-	const decoder = changes.reads
-	const entry = Result.flatMap(writeProgramOf(context, changes), realization)
-	if (Result.isFailure(entry)) {
-		return Result.fail(entry.failure)
-	}
-	const statements = Arr.map(entry.success.compiled.artifact.statements, observedStatement)
-	const attribute = attributor(statements)
-	return Result.succeed({
-		statements,
-		apply: (params) =>
-			Effect.suspend(() => {
-				const log: Array<Noted> = []
-				const observed = {
-					...context,
-					pool: observedPool(context.pool, attribute, log, beforeCommit)
-				}
-				const finish = (value: ObservedValue): Effect.Effect<ObservedApply> => {
-					const first = log[0]
-					if (first?.kind === "unattributed") {
-						return Effect.die(
-							new GateSetupError({
-								what: `observedChange: the server refused a query the program does not hold: ${first.sql}`
-							})
-						)
+	realization: Realization
+): Effect.Effect<ObservedChange> =>
+	Effect.orDie(
+		Effect.gen(function* () {
+			const parsed = parseChangeSet(changes)
+			if (!isChangeSetValue(changes) || parsed === undefined) {
+				return yield* new GateSetupError({ what: "observedChange: not a ChangeSet value" })
+			}
+			const compiled = yield* Effect.fromResult(
+				compiledWrite(opened.role, changes, opened.ctx.claims)
+			)
+			const entry =
+				realization === "served"
+					? compiled
+					: yield* Effect.fromResult(toResult(conservativeChange(compiled, opened.role)))
+			const members = yield* opened.load({ change: changes })
+			const loaded = member(members, "change")
+			if (loaded.kind !== "change") {
+				return yield* new GateSetupError({
+					what: "observedChange: a ChangeSet served as no change"
+				})
+			}
+			const running =
+				realization === "served"
+					? loaded
+					: yield* Effect.fromResult(realized(opened.ctx, loaded, entry, changes.reads))
+			const statements = Arr.map(entry.compiled.artifact.statements, observedStatement)
+			const attribute = attributor(statements)
+			const applyWith = (facts: CallFacts, params: ParamMap) =>
+				Effect.suspend(() => {
+					const log: Array<Noted> = []
+					const observed: ServedDbContext = {
+						...opened.ctx,
+						pool: observedPool(opened.ctx.pool, attribute, log, beforeCommit)
 					}
-					const failure: FirstFailure =
-						first === undefined ? { kind: "none" } : { kind: "refused", failure: first.failure }
-					return Effect.succeed({ value, failure, attempted: attemptedOf(value, failure, labelOf) })
-				}
-				return runApplication(observed, entry.success, params, decoder).pipe(
-					Effect.map((value): ObservedValue => observedOutcome(value)),
-					Effect.catchTag("TransientFailure", (error) =>
-						Effect.succeed<ObservedValue>({ kind: "transient", reason: error.reason })
-					),
-					Effect.flatMap(finish)
-				)
-			})
-	})
-}
+					const finish = (value: ObservedValue): Effect.Effect<ObservedApply> => {
+						const first = log[0]
+						if (first?.kind === "unattributed") {
+							return Effect.die(
+								new GateSetupError({
+									what: `observedChange: the server refused a query the program does not hold: ${first.sql}`
+								})
+							)
+						}
+						const failure: FirstFailure =
+							first === undefined ? { kind: "none" } : { kind: "refused", failure: first.failure }
+						return Effect.succeed({
+							value,
+							failure,
+							attempted: attemptedOf(value, failure, labelOf)
+						})
+					}
+					return appliedWith(memberOps(observed, running), facts, params).pipe(
+						Effect.map((value): ObservedValue => observedOutcome(value)),
+						Effect.catchTag("TransientFailure", (error) =>
+							Effect.succeed<ObservedValue>({ kind: "transient", reason: error.reason })
+						),
+						Effect.flatMap(finish)
+					)
+				})
+			const own = callFactsOf(parsed)
+			const observedChange: ObservedChange = {
+				statements,
+				apply: (params) => applyWith(own, params),
+				applyWith
+			}
+			return observedChange
+		})
+	)
 
 /**
  * The functions every installation has whatever it declares: the refusal function a write statement raises through

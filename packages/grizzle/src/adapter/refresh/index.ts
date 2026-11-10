@@ -28,7 +28,7 @@ import { refreshTargets } from "#adapter/refresh/targets.ts"
  *
  * The refresh of `relations` on the opened database, reporting its statements (for tests and diagnostics).
  */
-export const refreshReport = (
+const refreshReport = (
 	ctx: DbContext,
 	relations: Arr.NonEmptyReadonlyArray<unknown>
 ): Effect.Effect<RefreshReport, ApplyError> =>

@@ -1,5 +1,4 @@
-import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
-import type { OpenedDb } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Option, type Scope } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
@@ -19,6 +18,7 @@ import {
 	type ObservedApply,
 	observedChange,
 	observedConservative,
+	type OpenedDb,
 	type ObservedStatement,
 	type ObservedValue,
 	loginRoleOf,
@@ -43,7 +43,6 @@ import {
 	type Statement,
 	schema
 } from "#compiler/public/schema.ts"
-import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -281,7 +280,7 @@ export default defineGate({
 			 */
 			const measure = <E>(
 				login: string,
-				open: Effect.Effect<OpenedDb<AnyRole, unknown>, E, Substrate | Scope.Scope>,
+				open: Effect.Effect<OpenedDb, E, Substrate | Scope.Scope>,
 				changes: unknown
 			) =>
 				Effect.gen(function* () {
@@ -290,18 +289,15 @@ export default defineGate({
 					const run = yield* Effect.scoped(
 						Effect.gen(function* () {
 							const db = yield* open
-							const change = observedChange(db, changes, attemptLabel, { kind: "none" })
-							if (Result.isFailure(change)) {
-								return yield* Effect.die(change.failure)
-							}
+							const change = yield* observedChange(db, changes, attemptLabel, { kind: "none" })
 							const timed = yield* timedSamples(
 								options.samples,
-								(i) => change.success.apply({ id: BigInt(i + 1), amount: 5n }),
+								(i) => change.apply({ id: BigInt(i + 1), amount: 5n }),
 								1
 							)
 							const live = yield* backendsOf(login)
 							const backends = Arr.difference(live, others)
-							return { timed, statements: change.success.statements, backends }
+							return { timed, statements: change.statements, backends }
 						})
 					)
 					yield* exited(run.backends)
@@ -320,7 +316,7 @@ export default defineGate({
 			/** Two concurrent appliers whose described members overlap: every applier credits the same account. */
 			const overlap = <F, E>(
 				fx: Fixture<F>,
-				open: () => Effect.Effect<OpenedDb<AnyRole, unknown>, E, Substrate | Scope.Scope>,
+				open: () => Effect.Effect<OpenedDb, E, Substrate | Scope.Scope>,
 				changes: unknown
 			) =>
 				Effect.scoped(
@@ -333,11 +329,8 @@ export default defineGate({
 							dbs,
 							(d) =>
 								Effect.gen(function* () {
-									const change = observedChange(d, changes, attemptLabel, { kind: "none" })
-									if (Result.isFailure(change)) {
-										return yield* Effect.die(change.failure)
-									}
-									const apply = change.success.apply
+									const change = yield* observedChange(d, changes, attemptLabel, { kind: "none" })
+									const apply = change.apply
 									const out: Array<{ readonly last: ObservedApply; readonly retries: number }> = []
 									for (let i = 0; i < options.credits; i++) {
 										const credited = yield* retried(
@@ -399,21 +392,17 @@ export default defineGate({
 				const run = yield* Effect.scoped(
 					Effect.gen(function* () {
 						const db = yield* openFull(imm, Simm)
-						const change =
-							realization === "single"
-								? observedChange(db, post(Simm), attemptLabel, { kind: "none" })
-								: observedConservative(db, post(Simm), attemptLabel)
-						if (Result.isFailure(change)) {
-							return yield* Effect.die(change.failure)
-						}
+						const change = yield* realization === "single"
+							? observedChange(db, post(Simm), attemptLabel, { kind: "none" })
+							: observedConservative(db, post(Simm), attemptLabel)
 						const timed = yield* timedSamples(
 							options.samples,
-							(i) => change.success.apply({ account: BigInt(first + i + 1) }),
+							(i) => change.apply({ account: BigInt(first + i + 1) }),
 							1
 						)
 						const live = yield* backendsOf(login)
 						const backends = Arr.difference(live, others)
-						return { timed, statements: change.success.statements, backends }
+						return { timed, statements: change.statements, backends }
 					})
 				)
 				yield* exited(run.backends)
@@ -483,15 +472,11 @@ export default defineGate({
 					dbs,
 					(d) =>
 						Effect.gen(function* () {
-							const change =
-								realization === "single"
-									? observedChange(d, post(Simm), attemptLabel, { kind: "none" })
-									: observedConservative(d, post(Simm), attemptLabel)
-							if (Result.isFailure(change)) {
-								return yield* Effect.die(change.failure)
-							}
+							const change = yield* realization === "single"
+								? observedChange(d, post(Simm), attemptLabel, { kind: "none" })
+								: observedConservative(d, post(Simm), attemptLabel)
 							const done = yield* retried(
-								() => change.success.apply({ account: BigInt(account) }),
+								() => change.apply({ account: BigInt(account) }),
 								(o) => o.attempted.transient,
 								options.retry
 							)
@@ -537,7 +522,7 @@ export default defineGate({
 					gates: ["R35"],
 					conditions: {
 						workload:
-							"db.apply of a described put crediting one account, with a read-back of its new row",
+							"a served member's apply of a described put crediting one account, with a read-back of its new row",
 						schemaState: loadedByOwner,
 						dataDistribution: `${options.accounts} accounts`,
 						parameters: { amount: 5 },
@@ -615,7 +600,7 @@ export default defineGate({
 					gates: ["R35"],
 					conditions: {
 						workload:
-							"db.apply of a described post: an insert of Entry and a deletion of Pending, read back",
+							"a served member's apply of a described post: an insert of Entry and a deletion of Pending, read back",
 						schemaState: loadedByOwner,
 						dataDistribution: `${options.accounts} accounts of ${options.pendingPerAccount} pending amounts`,
 						parameters: { account: "a fresh account per sample" },

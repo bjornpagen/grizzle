@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Result } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import {
 	type CaseRecord,
@@ -131,15 +131,15 @@ export default defineGate({
 					const run = yield* Effect.scoped(
 						Effect.gen(function* () {
 							const db = yield* openFull(fx, S.value)
-							const change = observedChange(db, family(S, owner, length, variant), attemptLabel, {
-								kind: "none"
-							})
-							if (Result.isFailure(change)) {
-								return yield* Effect.die(change.failure)
-							}
-							const applied = yield* timed(change.success.apply({}))
+							const change = yield* observedChange(
+								db,
+								family(S, owner, length, variant),
+								attemptLabel,
+								{ kind: "none" }
+							)
+							const applied = yield* timed(change.apply({}))
 							return {
-								statements: change.success.statements,
+								statements: change.statements,
 								applied: applied.value,
 								ms: applied.ms
 							}

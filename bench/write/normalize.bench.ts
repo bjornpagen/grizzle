@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Result, Stream } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type CaseRecord,
 	defineGate,
@@ -34,15 +34,16 @@ import { refusedLaws } from "#test/support/refused.ts"
  *
  * "Two facts with one key and different payloads in one member are refused with the key law, never with
  * PostgreSQL's error; a fact repeated in a member counts once; an elision fires only with its evidence".
- * Unnormalized input reaches the arbiter insert as a Stream member or a described member: a Stream member is collected
- * and normalized on the host, and a described member is normalized in its statement, `SELECT DISTINCT` and the
- * same-key check with its marker column, before the INSERT proposes a row. The statement's form is read off its
- * audited AST (kernel shapeOf).
+ * Unnormalized input reaches the arbiter insert as an array member's facts, which each call of a served member gives,
+ * or a described member: an array member's facts are normalized on the host, and a described member is normalized in
+ * its statement, `SELECT DISTINCT` and the same-key check with its marker column, before the INSERT proposes a row.
+ * The statement's form is read off its audited AST (kernel shapeOf). A served workload holds no Stream member, so the
+ * host's normalization is met through an array member's call.
  *
  * Measured on a described member over a relation parameter folded onto one key (two facts, one key, different
  * payloads; and two equal facts), a described member projecting a stored relation's key (the evidence that elides both
- * steps), and a Stream member with a repeated fact; and the cost of a described insert of N facts with and without that
- * evidence.
+ * steps), and an array member whose call repeats a fact; and the cost of a described insert of N facts with and
+ * without that evidence, each member compiled once before its samples.
  */
 const Item = relation("Item", { id: pg.bigint, v: pg.integer }, ["id"])
 const Src = relation("Src", { id: pg.bigint, v: pg.integer }, ["id"])
@@ -73,11 +74,11 @@ const outcomeText = (o: ObservedApply): string =>
 export default defineGate({
 	name: "write-normalize",
 	gates: ["R34"],
-	title: "Normalizing described and Stream members before the arbiter insert",
+	title: "Normalizing described and array members before the arbiter insert",
 	scope:
 		"A described member folded onto one key, with equal and with different payloads; a described member over a " +
-		"stored key, which elides the checks; a Stream member with a repeat; described inserts of N facts with and " +
-		"without key evidence.",
+		"stored key, which elides the checks; an array member whose call repeats a fact; described inserts of N facts " +
+		"with and without key evidence.",
 	phases: ["operationMs"],
 	options: {
 		full: { batch: 20000, samples: 9 },
@@ -99,22 +100,20 @@ export default defineGate({
 			})
 			yield* settle(fx)
 			const db = yield* openFull(fx, S)
-			const applying = (changes: unknown, params: ParamMap) => {
-				const change = observedChange(db, changes, attemptLabel, { kind: "none" })
-				return Result.isFailure(change) ? Effect.die(change.failure) : change.success.apply(params)
-			}
+			/** `changes` compiled into a member of the Db's workload, as the gate observes it. */
+			const observed = (changes: unknown) =>
+				observedChange(db, changes, attemptLabel, { kind: "none" })
+			const applying = (changes: unknown, params: ParamMap) =>
+				Effect.flatMap(observed(changes), (change) => change.apply(params))
 			/** The one insert statement of Item a ChangeSet compiles to. */
-			const itemInsertOf = (changes: unknown): ObservedStatement => {
-				const change = observedChange(db, changes, attemptLabel, { kind: "none" })
-				if (Result.isFailure(change)) {
-					throw change.failure
-				}
-				return theStatement(
-					change.success.statements,
-					"the insert of Item",
-					(l) => l.kind === "write" && l.relation === Item.name && l.result.kind === "insert"
+			const itemInsertOf = (changes: unknown): Effect.Effect<ObservedStatement> =>
+				Effect.map(observed(changes), (change) =>
+					theStatement(
+						change.statements,
+						"the insert of Item",
+						(l) => l.kind === "write" && l.relation === Item.name && l.result.kind === "insert"
+					)
 				)
-			}
 			/** Every row of the relation parameter moved onto the key `key`. */
 			const folded = ChangeSet.empty(S).insert(
 				Item,
@@ -158,38 +157,42 @@ export default defineGate({
 				],
 				key: 2n
 			})
-			const streamed = yield* applying(
-				ChangeSet.empty(S).insert(
-					Item,
-					Stream.fromIterable([
-						{ id: 3n, v: 1 },
-						{ id: 3n, v: 1 },
-						{ id: 4n, v: 1 }
-					])
-				),
+			const items = yield* observed(ChangeSet.empty(S).insert(Item, []))
+			const arrayed = yield* items.applyWith(
+				{
+					insert: {
+						Item: [
+							{ id: 3n, v: 1 },
+							{ id: 3n, v: 1 },
+							{ id: 4n, v: 1 }
+						]
+					}
+				},
 				{}
 			)
-			const foldedInsert = itemInsertOf(folded)
-			const srcInsert = itemInsertOf(fromSrc)
+			const foldedInsert = yield* itemInsertOf(folded)
+			const srcInsert = yield* itemInsertOf(fromSrc)
 			const foldedShape = shapeOf(foldedInsert.ast)
 			const srcShape = shapeOf(srcInsert.ast)
 			/** Past the keys the cases above inserted. */
 			let next = 1000
+			const evidenced = yield* observed(fromSrc)
 			const withEvidence = yield* timedSamples(
 				options.samples,
 				() => {
 					const from = next
 					next += options.batch
-					return applying(fromSrc, { from: BigInt(from), to: BigInt(from + options.batch) })
+					return evidenced.apply({ from: BigInt(from), to: BigInt(from + options.batch) })
 				},
 				0
 			)
+			const unevidenced = yield* observed(fromIds)
 			const withoutEvidence = yield* timedSamples(
 				options.samples,
 				() => {
 					const from = 10000000 + next
 					next += options.batch
-					return applying(fromIds, {
+					return unevidenced.apply({
 						rows: Arr.map(indices(options.batch), (i) => ({ n: BigInt(from + i), v: 1 }))
 					})
 				},
@@ -202,11 +205,11 @@ export default defineGate({
 			const sameKeyWire = sameKey.failure
 			const cases: Array<CaseRecord<"R34">> = [
 				{
-					name: "same-key and repeated facts in a described and a Stream member",
+					name: "same-key and repeated facts in a described and an array member",
 					gates: ["R34"],
 					conditions: {
 						workload:
-							"db.apply of a described insert folding two relation-parameter rows onto one key, and of a Stream member with a repeat",
+							"a served member's apply of a described insert folding two relation-parameter rows onto one key, and of an array member whose call repeats a fact",
 						schemaState: loadedByOwner,
 						dataDistribution: "Item empty at those keys",
 						parameters: {},
@@ -222,7 +225,7 @@ export default defineGate({
 					measures: {
 						sameKey: outcomeText(sameKey),
 						repeated: `${repeated.value.kind} added ${addedOf(repeated)}`,
-						streamed: `${streamed.value.kind} added ${addedOf(streamed)}`,
+						arrayed: `${arrayed.value.kind} added ${addedOf(arrayed)}`,
 						foldedStatement: foldedInsert.sql,
 						storedKeyStatement: srcInsert.sql
 					}
@@ -232,7 +235,7 @@ export default defineGate({
 					gates: ["R34"],
 					conditions: {
 						workload:
-							"db.apply of a described insert projecting Src's key over a range, and of the same facts through a relation parameter",
+							"a served member's apply of a described insert projecting Src's key over a range, and of the same facts through a relation parameter",
 						schemaState: loadedByOwner,
 						dataDistribution: `Src holds ${options.batch * (options.samples + 2)} facts`,
 						parameters: { batch: options.batch },
@@ -285,9 +288,9 @@ export default defineGate({
 						`${repeated.value.kind} added ${addedOf(repeated)}`
 					),
 					equivalence(
-						"a fact repeated in a Stream member counts once",
-						addedOf(streamed) === 2n,
-						`${streamed.value.kind} added ${addedOf(streamed)}`
+						"a fact repeated in an array member's call counts once",
+						addedOf(arrayed) === 2n,
+						`${arrayed.value.kind} added ${addedOf(arrayed)}`
 					),
 					equivalence(
 						"with and without evidence every batch is accepted",

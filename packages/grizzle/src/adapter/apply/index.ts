@@ -17,12 +17,7 @@ import {
 import { HandleReleased } from "#adapter/errors/failures.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { whileLive } from "#adapter/reader/reader.ts"
-import {
-	boundReads,
-	compileChangeForm,
-	type CompiledEntry,
-	compiledWrite
-} from "#adapter/served/forms.ts"
+import { boundReads, compileChangeForm, compiledWrite } from "#adapter/served/forms.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
@@ -199,9 +194,3 @@ export const compileChange = <R>(
 		)
 		return changeHandle(ctx, form, () => state.live)
 	})
-
-/** The program a compiled ChangeSet handle runs, for inspection; CompileError when the value is no ChangeSet. */
-export const writeProgramOf = (
-	ctx: DbContext,
-	changes: unknown
-): Result.Result<CompiledEntry, CompileError> => compiledWrite(ctx, changes, ctx.claims)

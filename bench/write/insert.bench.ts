@@ -1,5 +1,4 @@
-import { Array as Arr, Deferred, Effect, Fiber, Formatter, Result } from "effect"
-import type { OpenedDb } from "#adapter/db/open.ts"
+import { Array as Arr, Deferred, Effect, Fiber, Formatter } from "effect"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import {
 	type CaseRecord,
@@ -25,6 +24,7 @@ import {
 	observedChange,
 	type ObservedStatement,
 	oneRow,
+	type OpenedDb,
 	openFull,
 	owner,
 	plainStatement,
@@ -41,7 +41,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { key, mutable, on, relation as defineRelation, schema } from "#compiler/public/schema.ts"
 import type { Insert } from "#compiler/sql/ast.ts"
-import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -52,8 +51,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The gate states the protocol's statement forms: "an identical insert is settled by one INSERT … ON CONFLICT DO SELECT
  * statement; exact repeats return no row". This file reads each form off the compiled program's audited AST (the DO
  * SELECT of an immutable or a `mutable` relation, without a locking clause and ordered by the key, and DO NOTHING of a
- * pure set), and runs the protocol with a grizzle writer (a Db opened through its own DbLayer,
- * applying ChangeSets) beside a direct SQL writer that takes on the same role through its login:
+ * pure set), and runs the protocol with a grizzle writer (a Db opened through its login's served layer, applying
+ * ChangeSets as members of its served workload) beside a direct SQL writer that takes on the same role through its
+ * login:
  * - an identical insert in flight waits, then after its commit meets 40001, a TransientFailure, and the caller's second
  *   call is a repeat, an enumerated insert and a described one alike, since every write runs SERIALIZABLE, and after
  *   its abort is inserted; a committed different payload is a conflict with the key law; exact repeats are
@@ -128,14 +128,15 @@ interface InFlight {
 	readonly second: Second
 }
 
+/** `changes` compiled into a member of `d`'s workload and applied once with `params`, giving the facts it holds. */
 const applyOn = (
-	d: OpenedDb<AnyRole, unknown>,
+	d: OpenedDb,
 	changes: unknown,
 	params: Readonly<Record<string, bigint | number>>
-) => {
-	const change = observedChange(d, changes, attemptLabel, { kind: "none" })
-	return Result.isFailure(change) ? Effect.die(change.failure) : change.success.apply(params)
-}
+) =>
+	Effect.flatMap(observedChange(d, changes, attemptLabel, { kind: "none" }), (change) =>
+		change.apply(params)
+	)
 
 /** The protocol's statements: each relation's one insert statement, and the one INSERT its AST runs. */
 const insertStatement = (statements: ReadonlyArray<ObservedStatement>, relation: string) =>
@@ -230,13 +231,11 @@ export default defineGate({
 			const db = yield* openFull(fx, S)
 			const direct = yield* rawSession(fx, fx.world.app, "m15c insert direct")
 			const directPid = yield* direct.pid
-			const statementsOf = (changes: unknown): ReadonlyArray<ObservedStatement> => {
-				const change = observedChange(db, changes, attemptLabel, { kind: "none" })
-				if (Result.isFailure(change)) {
-					throw change.failure
-				}
-				return change.success.statements
-			}
+			const statementsOf = (changes: unknown): Effect.Effect<ReadonlyArray<ObservedStatement>> =>
+				Effect.map(
+					observedChange(db, changes, attemptLabel, { kind: "none" }),
+					(change) => change.statements
+				)
 			const itemInsert = (id: bigint, v: number) => ChangeSet.empty(S).insert(Item, [{ id, v }])
 			const described = ChangeSet.empty(S).insert(
 				Item,
@@ -288,32 +287,43 @@ export default defineGate({
 			const first = yield* applyOn(db, itemInsert(5n, 1), {})
 			const repeat = yield* applyOn(db, itemInsert(5n, 1), {})
 
-			/** Overlapping concurrent additions: every writer adds the same keys of a round, each in its own order. */
-			const dbs = yield* Effect.forEach(
+			/**
+			 * Overlapping concurrent additions: every writer adds the same keys of a round, each in its own order. Each
+			 * writer's Db serves the insert of Item and of Coded, compiled once, each call giving its round's facts.
+			 */
+			const writers = yield* Effect.forEach(
 				Arr.map(indices(options.writers), (i) => i),
-				() => openFull(fx, S)
+				() =>
+					Effect.flatMap(openFull(fx, S), (d) =>
+						Effect.all({
+							Item: observedChange(d, ChangeSet.empty(S).insert(Item, []), attemptLabel, {
+								kind: "none"
+							}),
+							Coded: observedChange(d, ChangeSet.empty(S).insert(Coded, []), attemptLabel, {
+								kind: "none"
+							})
+						})
+					)
 			)
 			const overlap = (relation: "Item" | "Coded") =>
 				runLoad(
-					dbs,
-					(d, w, round) => {
+					writers,
+					(writer, w, round) => {
 						const base = 1000000 * (relation === "Item" ? 1 : 2) + round * options.keys
 						const order = shuffled(options.keys, w * 7919 + round)
-						const changes =
+						const facts =
 							relation === "Item"
-								? ChangeSet.empty(S).insert(
-										Item,
-										Arr.map(order, (k) => ({ id: BigInt(base + k), v: 1 }))
-									)
-								: ChangeSet.empty(S).insert(
-										Coded,
-										Arr.map(order, (k) => ({
-											id: BigInt(base + k),
-											code: BigInt(base + options.keys - k)
-										}))
-									)
+								? Arr.map(order, (k) => ({ id: BigInt(base + k), v: 1 }))
+								: Arr.map(order, (k) => ({
+										id: BigInt(base + k),
+										code: BigInt(base + options.keys - k)
+									}))
 						return withRetries(
-							() => Effect.map(applyOn(d, changes, {}), (o) => o.attempted),
+							() =>
+								Effect.map(
+									writer[relation].applyWith({ insert: { [relation]: facts } }, {}),
+									(o) => o.attempted
+								),
 							options.retry
 						)
 					},
@@ -329,9 +339,11 @@ export default defineGate({
 			const codedRows = Number(codedRowsText)
 			const codedCodes = Number(codedCodesText)
 
-			const itemStatements = statementsOf(itemInsert(9n, 1))
-			const noteStatements = statementsOf(ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }]))
-			const tagStatements = statementsOf(ChangeSet.empty(S).insert(Tag, [{ id: 9n }]))
+			const itemStatements = yield* statementsOf(itemInsert(9n, 1))
+			const noteStatements = yield* statementsOf(
+				ChangeSet.empty(S).insert(Note, [{ id: 9n, v: 1 }])
+			)
+			const tagStatements = yield* statementsOf(ChangeSet.empty(S).insert(Tag, [{ id: 9n }]))
 			const itemStatement = insertStatement(itemStatements, Item.name)
 			const noteStatement = insertStatement(noteStatements, Note.name)
 			const tagStatement = insertStatement(tagStatements, Tag.name)
@@ -343,28 +355,37 @@ export default defineGate({
 			const tagConflict = tagAst.onConflict
 			const tagLabel = tagStatement.label
 
-			/** Cost: N new facts, N exact repeats, N conflicts, through the Db and hand-written. */
+			/**
+			 * Cost: N new facts, N exact repeats, N conflicts, through the Db and hand-written. The Db's insert of Item is
+			 * compiled once, before the samples, each call giving its batch's facts.
+			 */
 			let next = 10000000
 			const facts = (from: number, v: number) =>
 				Arr.map(indices(options.batch), (i) => ({ id: BigInt(from + i), v }))
+			const itemBatches = yield* observedChange(
+				db,
+				ChangeSet.empty(S).insert(Item, []),
+				attemptLabel,
+				{ kind: "none" }
+			)
 			const newFacts = yield* timedSamples(
 				options.samples,
 				() => {
 					const from = next
 					next += options.batch
-					return applyOn(db, ChangeSet.empty(S).insert(Item, facts(from, 1)), {})
+					return itemBatches.applyWith({ insert: { Item: facts(from, 1) } }, {})
 				},
 				1
 			)
 			const repeatFrom = next - options.batch
 			const repeats = yield* timedSamples(
 				options.samples,
-				() => applyOn(db, ChangeSet.empty(S).insert(Item, facts(repeatFrom, 1)), {}),
+				() => itemBatches.applyWith({ insert: { Item: facts(repeatFrom, 1) } }, {}),
 				0
 			)
 			const conflicts = yield* timedSamples(
 				options.samples,
-				() => applyOn(db, ChangeSet.empty(S).insert(Item, facts(repeatFrom, 2)), {}),
+				() => itemBatches.applyWith({ insert: { Item: facts(repeatFrom, 2) } }, {}),
 				0
 			)
 			/** The batch as the arrays the protocol reads, one per column, as grizzle sends an input. */
@@ -473,7 +494,7 @@ export default defineGate({
 					gates: ["R33"],
 					conditions: {
 						workload:
-							"db.apply of an enumerated insert of new facts, of the same facts again, and of them with another payload; the hand-written protocol and ON CONFLICT DO NOTHING on new facts",
+							"a served insert member's apply of new facts, of the same facts again, and of them with another payload, each call's facts; the hand-written protocol and ON CONFLICT DO NOTHING on new facts",
 						schemaState: loadedByOwner,
 						dataDistribution: "Item keyed by id",
 						parameters: { batch: options.batch },

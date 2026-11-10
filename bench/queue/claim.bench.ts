@@ -10,7 +10,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import type { OpenedDb } from "#adapter/db/open.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { summarize, type Summary } from "#bench/cold/stats.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
@@ -71,6 +70,7 @@ import {
 	type ObservedStatement,
 	type ObservedValue,
 	oneRow,
+	type OpenedDb,
 	openDb,
 	owner,
 	ownerTransaction,
@@ -85,9 +85,9 @@ import { appendAll, indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { appliedWith, member } from "#test/support/served-db.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
 import { connectionsPerLease } from "#test/support/substrate/shared.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -113,7 +113,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * (holderCount below), at both scales. The reference's 256 holders at a width of 16 are what a record is read
  * against, not a load this machine reproduces.
  *
- * Each holder operation is a claim through the runtime's own application (db.compile's program, observed per
+ * Each holder operation is a claim through the runtime's own application (the claim's served member, observed per
  * statement: bench/write/support/writes.ts observedChange) and, when it leased an item, the settlement of that lease.
  * grizzle makes one attempt per call, and the holder retries a TransientFailure on its own side, as an application does
  * (bench/harness/load.ts retried). A retry's reason is the TransientFailure's (SerializationFailure for 40001, Deadlock
@@ -476,7 +476,7 @@ export default defineGate({
 			 * compiled on it, and the claim program's statements, which every holder's program holds alike.
 			 */
 			const holdersOf = (
-				open: () => Effect.Effect<OpenedDb<AnyRole, unknown>, OpenError, Substrate | Scope.Scope>,
+				open: () => Effect.Effect<OpenedDb, OpenError, Substrate | Scope.Scope>,
 				claim: unknown,
 				settlement: unknown
 			) =>
@@ -486,19 +486,13 @@ export default defineGate({
 						() =>
 							Effect.gen(function* () {
 								const d = yield* open()
-								const c = observedChange(d, claim, claimLabel, { kind: "none" })
-								const st = observedChange(d, settlement, claimLabel, { kind: "none" })
-								if (Result.isFailure(c)) {
-									return yield* Effect.die(c.failure)
-								}
-								if (Result.isFailure(st)) {
-									return yield* Effect.die(st.failure)
-								}
+								const c = yield* observedChange(d, claim, claimLabel, { kind: "none" })
+								const st = yield* observedChange(d, settlement, claimLabel, { kind: "none" })
 								const holder: Holder = {
-									claim: (p) => c.success.apply(p),
-									settle: (key, epoch) => st.success.apply({ key, epoch, outcome: "succeeded" })
+									claim: (p) => c.apply(p),
+									settle: (key, epoch) => st.apply({ key, epoch, outcome: "succeeded" })
 								}
-								return { holder, statements: c.success.statements }
+								return { holder, statements: c.statements }
 							})
 					)
 					const [first] = built
@@ -709,8 +703,17 @@ export default defineGate({
 					const fresh = yield* measureRun(worker, holders, "fresh", { kind: "none" }, true)
 					const fixed = yield* measureRun(worker, holders, "fixed", { kind: "none" }, false)
 
-					/** Large enqueues beside the claimers: one enqueuer applies batches of new items until the claimers finish. */
+					/**
+					 * Large enqueues beside the claimers: one enqueuer applies batches of new items until the claimers finish,
+					 * through the enqueue its Db serves, whose array members take each batch's items.
+					 */
 					const enqueuer = yield* openDb(fx, worlds.enqueuers.roles.enqueuer)
+					const enqueues = yield* Effect.orDie(
+						enqueuer.serve({
+							enqueue: ChangeSet.empty(Q).insert(QueueWork, []).insert(Wanted, [])
+						})
+					)
+					const enqueue = member(enqueues, "enqueue")
 					const enqueueMs: Array<number> = []
 					let nextItem = options.pending + options.dead + 1
 					const enqueueBatch = Effect.gen(function* () {
@@ -723,29 +726,30 @@ export default defineGate({
 						)
 						const digests = trusted<ReadonlyArray<TextRow>>(rows)
 						const facts = Arr.map(digests, ([key], i) => ({ key: Digest(key), i }))
-						const change = ChangeSet.empty(Q)
-							.insert(
-								QueueWork,
-								Arr.map(facts, (f) => ({
+						const items = {
+							insert: {
+								[QueueWork.name]: Arr.map(facts, (f) => ({
 									key: f.key,
 									kind: "render" as const,
 									slot: Slot(0),
 									standing: "wanted" as const,
 									epoch: 0n,
 									enqueued: Instant(BigInt(from + f.i))
+								})),
+								[Wanted.name]: Arr.map(facts, (f) => ({
+									key: f.key,
+									due: Instant(0n),
+									attempts: 0
 								}))
-							)
-							.insert(
-								Wanted,
-								Arr.map(facts, (f) => ({ key: f.key, due: Instant(0n), attempts: 0 }))
-							)
+							}
+						}
 						const t = performance.now()
 						/**
 						 * Beside the claimers an enqueue can meet one of their commits: a TransientFailure, which the enqueuer retries as
 						 * a patient application does, by the gate's enqueueRetry policy. An enqueue whose every attempt failed is
 						 * tallied as `transient`.
 						 */
-						const outcome = yield* enqueuer.db.apply(change, {}).pipe(
+						const outcome = yield* appliedWith(enqueue, items, {}).pipe(
 							Effect.retry({
 								times: options.enqueueRetry.times,
 								schedule: backoffOf(options.enqueueRetry),
@@ -783,19 +787,17 @@ export default defineGate({
 					 * executions, plan_cache_mode auto); then every lease is settled.
 					 */
 					const probeDb = yield* openDb(fx, worlds.workers.roles.worker)
-					const plainClaim = observedChange(probeDb, claimOf(Q), claimLabel, { kind: "none" })
-					const probeSettle = observedChange(probeDb, settleOf(Q), claimLabel, { kind: "none" })
-					if (Result.isFailure(plainClaim)) {
-						return yield* Effect.die(plainClaim.failure)
-					}
-					if (Result.isFailure(probeSettle)) {
-						return yield* Effect.die(probeSettle.failure)
-					}
+					const plainClaim = yield* observedChange(probeDb, claimOf(Q), claimLabel, {
+						kind: "none"
+					})
+					const probeSettle = yield* observedChange(probeDb, settleOf(Q), claimLabel, {
+						kind: "none"
+					})
 					/**
 					 * The claim's statements, which the probed claim's program holds alike: a carrier's creation and the ANALYZE of
 					 * carriers have no plan to explain.
 					 */
-					const explained = Arr.flatMap(plainClaim.success.statements, (statement, i) =>
+					const explained = Arr.flatMap(plainClaim.statements, (statement, i) =>
 						(statement.label.kind === "carrier" && statement.label.step === "create") ||
 						statement.label.kind === "analyze"
 							? []
@@ -859,10 +861,7 @@ export default defineGate({
 								}
 							})
 					}
-					const probedClaim = observedChange(probeDb, claimOf(Q), claimLabel, probe)
-					if (Result.isFailure(probedClaim)) {
-						return yield* Effect.die(probedClaim.failure)
-					}
+					const probedClaim = yield* observedChange(probeDb, claimOf(Q), claimLabel, probe)
 					const live = Math.max(1, Math.floor(seats / 2))
 					const claimParams = (w: number) => ({
 						kind: lane.kind,
@@ -875,13 +874,13 @@ export default defineGate({
 					})
 					const held: Array<{ readonly key: string; readonly epoch: bigint }> = []
 					for (let i = 0; i < live; i++) {
-						const claimed = yield* plainClaim.success.apply(claimParams(i))
+						const claimed = yield* plainClaim.apply(claimParams(i))
 						appendAll(held, leasedRows(claimed))
 					}
-					const probed = yield* probedClaim.success.apply(claimParams(live))
+					const probed = yield* probedClaim.apply(claimParams(live))
 					appendAll(held, leasedRows(probed))
 					for (const h of held) {
-						yield* probeSettle.success.apply({ key: h.key, epoch: h.epoch, outcome: "succeeded" })
+						yield* probeSettle.apply({ key: h.key, epoch: h.epoch, outcome: "succeeded" })
 					}
 					const rows = yield* observer.values(
 						"SELECT pg_catalog.current_setting('max_pred_locks_per_transaction'), pg_catalog.current_setting('max_pred_locks_per_relation'), pg_catalog.current_setting('max_pred_locks_per_page')",
@@ -897,7 +896,7 @@ export default defineGate({
 						plans: footprint.plans,
 						reads: footprint.reads,
 						settings: Arr.join(lockSettings, " / "),
-						settleStatements: probeSettle.success.statements
+						settleStatements: probeSettle.statements
 					}
 
 					/**
