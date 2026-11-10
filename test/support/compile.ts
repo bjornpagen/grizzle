@@ -302,6 +302,7 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	names: artifacts.names,
 	reads: artifacts.names,
 	claims: { kind: "every" },
+	isolation: "serializable",
 	world: { kind: "reality" },
 	laws: artifacts.laws,
 	derived: artifacts.derived

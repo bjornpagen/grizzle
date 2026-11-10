@@ -473,6 +473,7 @@ const guards = (spec: FillSpec, note: (situation: FillSituation) => void): void 
 						names: roleArtifacts.names,
 						reads: roleArtifacts.reads,
 						claims: { kind: "facts", present: new Set<string>() },
+						isolation: "serializable",
 						world: { kind: "role", names: world.names },
 						laws: roleArtifacts.laws,
 						derived: roleArtifacts.derived

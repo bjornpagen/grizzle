@@ -6,6 +6,7 @@ import type { PageRuntime } from "#adapter/page/template.ts"
 import { type CompiledEntry, compiledPageRuntime } from "#adapter/served/forms.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -169,7 +170,11 @@ export const conservativeChange = (
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>
 			Result.map(
-				conservativeWrite(entry.compiled, { names: entry.names, reads: artifacts.reads }),
+				conservativeWrite(entry.compiled, {
+					names: entry.names,
+					reads: artifacts.reads,
+					isolation: "serializable"
+				}),
 				(program) => ({
 					...entry,
 					program: runnableWrite(program, entry.names.codes),
@@ -218,7 +223,8 @@ export const conservativePage = (
 const conservativeArtifact = (
 	write: ConservativeWrite,
 	codes: Codebook,
-	placements: ReadonlyArray<FamilyPlacement>
+	placements: ReadonlyArray<FamilyPlacement>,
+	isolation: Isolation
 ): WriteArtifact => {
 	const b = newBuilder(codes)
 	const after = (): ReadonlyArray<number> =>
@@ -273,7 +279,8 @@ const conservativeArtifact = (
 								...skip,
 								uniqueAborts: uniqueAbortsOf(
 									relation,
-									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
+									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial),
+									isolation
 								)
 							},
 					previous
@@ -307,7 +314,7 @@ const conservativeArtifact = (
  */
 export const conservativeWrite = (
 	program: CompiledWrite,
-	options: Pick<CompileWriteOptions, "names" | "reads">
+	options: Pick<CompileWriteOptions, "names" | "reads" | "isolation">
 ): Result.Result<CompiledWrite, CompileError> =>
 	Result.flatMap(
 		realizeConservative(program.frontend, {
@@ -317,7 +324,12 @@ export const conservativeWrite = (
 		}),
 		(write) =>
 			catchRefusal((): CompiledWrite => {
-				const artifact = conservativeArtifact(write, options.names.codes, program.placements)
+				const artifact = conservativeArtifact(
+					write,
+					options.names.codes,
+					program.placements,
+					options.isolation
+				)
 				return {
 					...program,
 					optimized: artifact.specs,

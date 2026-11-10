@@ -280,7 +280,8 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 								claims: { kind: "every" },
 								world: { kind: "reality" },
 								laws: artifacts.laws,
-								derived: artifacts.derived
+								derived: artifacts.derived,
+								isolation: "serializable"
 							}
 						)
 					)

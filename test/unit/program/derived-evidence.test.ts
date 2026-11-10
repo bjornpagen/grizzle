@@ -181,6 +181,7 @@ describe("a query over a derived relation", () => {
 										names: artifacts.names,
 										reads: artifacts.reads,
 										claims: { kind: "every" },
+										isolation: "serializable",
 										world: { kind: "reality" },
 										laws: artifacts.laws,
 										derived: artifacts.derived

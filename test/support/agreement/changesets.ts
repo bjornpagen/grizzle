@@ -2408,6 +2408,7 @@ const roleWorldOf = (name: RoleName) => {
 			names: artifacts.value.names,
 			reads: artifacts.value.reads,
 			claims: { kind: "every" } as const,
+			isolation: "serializable" as const,
 			world: { kind: "role", names: world.names } as const,
 			laws: artifacts.value.laws,
 			derived: artifacts.value.derived

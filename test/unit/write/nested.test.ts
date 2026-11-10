@@ -92,6 +92,7 @@ const compiled = (value: unknown): CompiledWrite =>
 			names,
 			reads: names,
 			claims: { kind: "every" },
+			isolation: "serializable",
 			world: { kind: "reality" },
 			laws: artifacts.laws,
 			derived: artifacts.derived

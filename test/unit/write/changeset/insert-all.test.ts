@@ -222,6 +222,7 @@ const roleWorld = (() => {
 			names: artifacts.names,
 			reads: artifacts.reads,
 			claims: { kind: "every" } as const,
+			isolation: "serializable" as const,
 			world: { kind: "role", names: world.names } as const,
 			laws: artifacts.laws,
 			derived: artifacts.derived
