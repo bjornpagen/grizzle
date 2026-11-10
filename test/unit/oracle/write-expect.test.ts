@@ -49,7 +49,7 @@ import { factsSketchGen, keyOf, resolveFacts } from "#test/support/oracle/write/
 import { judgeWrite, plantedCase } from "#test/support/oracle/write/harness.ts"
 import type { GroupState, WriteOutcome, OutcomeWitness } from "#test/support/oracle/write/run.ts"
 import {
-	buildSchema,
+	buildWSchema,
 	columnOf,
 	lawNames,
 	relationIn,
@@ -70,7 +70,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  */
 const writeLawNames = (schema: WSchema): WriteLawNames => {
 	const declared = "Wo"
-	const value = buildSchema(schema, declared).value
+	const value = buildWSchema(schema, declared).value
 	const plan = succeeded(
 		planRealInstall(value, {
 			installation: identity.schema(parsedSchemaName(declared)),

@@ -663,7 +663,7 @@ export type WWorld = ReturnType<typeof worldOf>
  * The public schema value of a generated schema, built by the real constructors. `relations` are
  * the relation values by name, which ChangeSet members name.
  */
-export interface BuiltSchema {
+export interface WBuiltSchema {
 	readonly value: WSchemaValue
 	readonly relations: Readonly<Record<string, WRelationValue>>
 	/**
@@ -675,7 +675,7 @@ export interface BuiltSchema {
 	readonly worldOf: (value: WSchemaValue) => WWorld
 }
 
-export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
+export const buildWSchema = (w: WSchema, name: string): WBuiltSchema => {
 	const roster = rosterOf()
 	const relations: Record<string, WRelationValue> = {}
 	const statements: Array<Statement> = []

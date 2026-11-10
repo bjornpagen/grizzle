@@ -123,7 +123,7 @@ interface WRead {
  * How the ChangeSet's parameters reach its statements: passed to the call, or closed by ChangeSet.bind with each
  * relation parameter as its array or as a Stream of its facts.
  */
-export type Binding = "passed" | "bound" | "bound as streams"
+export type WBinding = "passed" | "bound" | "bound as streams"
 
 /** Which entry point applies the ChangeSet. */
 export type Entry = "apply" | "compile"
@@ -185,7 +185,7 @@ export interface WChangeSet {
 	readonly reads: ReadonlyArray<WRead>
 	/** Scalar parameters by name, and relation parameters as arrays of facts. */
 	readonly params: ParamMap
-	readonly binding: Binding
+	readonly binding: WBinding
 	readonly entry: Entry
 }
 
@@ -1347,7 +1347,7 @@ export const resolveChangeSet =
 		for (const r of weightOf(swarm, "reads") > 0 ? sketch.reads : []) {
 			addRead(r)
 		}
-		const binding: Binding = kept("bind")
+		const binding: WBinding = kept("bind")
 			? kept("streams")
 				? "bound as streams"
 				: "bound"

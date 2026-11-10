@@ -41,8 +41,8 @@ import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import type { Collisions } from "#test/support/oracle/write/expect.ts"
 import type { WFacts } from "#test/support/oracle/write/facts.ts"
 import {
-	type BuiltSchema,
-	buildSchema,
+	type WBuiltSchema,
+	buildWSchema,
 	lawNames,
 	serialColumns,
 	type WGroup,
@@ -101,7 +101,7 @@ export type Statistics = "analyzed" | "none"
 
 export interface WriteTarget {
 	readonly schema: WSchema
-	readonly built: BuiltSchema
+	readonly built: WBuiltSchema
 	readonly installed: Installed
 	readonly laws: WriteLawNames
 	readonly statistics: Statistics
@@ -162,7 +162,7 @@ export const openTarget = (
 ): Effect.Effect<WriteTarget, TargetError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const built = buildSchema(schema, "Wo")
+		const built = buildWSchema(schema, "Wo")
 		const done = yield* install(built.value, {
 			ambient,
 			label: "real",

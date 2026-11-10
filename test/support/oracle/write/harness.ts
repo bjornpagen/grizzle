@@ -41,7 +41,7 @@ import {
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import {
-	type Binding,
+	type WBinding,
 	buildChangeSet,
 	type ChangeSetSketch,
 	changeSetSketchGen,
@@ -235,7 +235,7 @@ export type WriteOracleFeature =
 	| `strata:${number}`
 	| `${MemberOp} ${WSourceKind}`
 	| `read ${ReadSource}`
-	| `parameters ${Binding}`
+	| `parameters ${WBinding}`
 	| `through ${Entry}`
 	| `put target ${PutChoice["target"]}`
 	| `outcome ${AppliedOutcome["kind"]}`
