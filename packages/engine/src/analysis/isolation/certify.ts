@@ -433,14 +433,75 @@ const writtenBy = (at: Installation, role: RoleFacts): ReadonlySet<string> => {
 	return out
 }
 
-/** The relations a role's members read from outside, by a statement or a foreign key check, sealed or not. */
-const readOutsideBy = (at: Installation, role: RoleFacts): ReadonlySet<string> =>
-	new Set(
-		role.members.flatMap((m) => [
-			...readsOf(at, m).flatMap((p) => (outside(p.seal) ? [p.read.relation] : [])),
-			...checksOf(at, m).flatMap((c) => (outside(c.seal) ? [c.relation] : []))
-		])
-	)
+/**
+ * One member as the conditions read it, built once: its reads placed and sealed, its outside ones, and its foreign key
+ * checks.
+ */
+interface MemberView {
+	readonly member: MemberFacts
+	readonly reads: ReadonlyArray<PlacedRead>
+	readonly outsides: ReadonlyArray<PlacedRead>
+	readonly checks: ReadonlyArray<Check>
+}
+
+/** A site a role's member reads a relation at, by a statement's read or a foreign key check. */
+interface ReadSite {
+	readonly member: string
+	readonly statement: number
+	readonly by: "statement" | "check"
+}
+
+/**
+ * One role as the conditions read it, built once: its members' views, the relations it writes, those it reads from
+ * outside, by a statement or a check, sealed or not, and every relation it reads with the sites it reads it at.
+ */
+interface RoleView {
+	readonly role: RoleFacts
+	readonly members: ReadonlyArray<MemberView>
+	readonly written: ReadonlySet<string>
+	readonly outside: ReadonlySet<string>
+	readonly sites: ReadonlyMap<string, ReadonlyArray<ReadSite>>
+}
+
+const memberView = (at: Installation, member: MemberFacts): MemberView => {
+	const reads = readsOf(at, member)
+	return {
+		member,
+		reads,
+		outsides: reads.filter((p) => outside(p.seal)),
+		checks: checksOf(at, member)
+	}
+}
+
+const roleView = (at: Installation, role: RoleFacts): RoleView => {
+	const members = role.members.map((m) => memberView(at, m))
+	const sites = new Map<string, Array<ReadSite>>()
+	const site = (relation: string, s: ReadSite): void => {
+		const held = sites.get(relation) ?? []
+		held.push(s)
+		sites.set(relation, held)
+	}
+	for (const v of members) {
+		for (const p of v.reads) {
+			site(p.read.relation, { member: v.member.name, statement: p.statement, by: "statement" })
+		}
+		for (const c of v.checks) {
+			site(c.relation, { member: v.member.name, statement: c.statement, by: "check" })
+		}
+	}
+	return {
+		role,
+		members,
+		written: writtenBy(at, role),
+		outside: new Set(
+			members.flatMap((v) => [
+				...v.outsides.map((p) => p.read.relation),
+				...v.checks.flatMap((c) => (outside(c.seal) ? [c.relation] : []))
+			])
+		),
+		sites
+	}
+}
 
 const reason = (
 	condition: IsolationCondition,
@@ -454,22 +515,19 @@ const reason = (
 	detail
 })
 
-/** The relations a role holds a privilege on, writes, checks, or reads other than its own call's rows. */
-const touchedBy = (at: Installation, role: RoleFacts): ReadonlySet<string> =>
-	new Set([
-		...role.privileges.keys(),
-		...role.members.flatMap((m) => [
-			...m.statements.flatMap((s) => [
-				...s.writes.map((w) => w.relation),
-				...s.reads.flatMap((r) => (r.own ? [] : [r.relation]))
-			]),
-			...checksOf(at, m).map((c) => c.relation)
+/** Every relation the role touches, by a privilege, a write, a check or a read of other than its own call's rows, that
+ * the installation states no fact of. */
+const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason> =>
+	[
+		...new Set([
+			...view.role.privileges.keys(),
+			...view.written,
+			...view.members.flatMap((v) => [
+				...v.reads.flatMap((p) => (p.read.own ? [] : [p.read.relation])),
+				...v.checks.map((c) => c.relation)
+			])
 		])
-	])
-
-/** Every relation the role touches that the installation states no fact of. */
-const factReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	[...touchedBy(at, role)].flatMap((relation) =>
+	].flatMap((relation) =>
 		at.input.relations.has(relation)
 			? []
 			: [reason("facts", { relation }, "the installation states no fact of it")]
@@ -524,109 +582,102 @@ const lawReasons = (
 			: [reason("laws", { relation }, `laws ${laws.join(", ")} over it are held by triggers`)]
 	})
 
+/** A site some role's member reads a relation's absence or count at, for condition 3, with how. */
+interface AbsenceSite {
+	readonly reader: RoleFacts
+	readonly member: string
+	readonly statement: number
+	readonly how: string
+}
+
 /**
- * How a read decides by absence or by count, for condition 3: negated, counted, or as an arbitration no unique check
- * decides, which is an absence probe; none for a read only the presence of rows feeds, or one a unique check decides.
+ * Every relation some member of some role reads by absence or by count, with each site: a read negated, counted, or an
+ * arbitration no unique check decides, which is an absence probe; or the check of the rows that reference a row the
+ * member updates or deletes.
  */
-const absentBy = (at: Installation, r: ReadFact): string | undefined => {
-	if (r.mode === "negated" || r.mode === "counted") {
-		return r.mode
+const absenceSites = (
+	views: ReadonlyArray<RoleView>
+): ReadonlyMap<string, ReadonlyArray<AbsenceSite>> => {
+	const out = new Map<string, Array<AbsenceSite>>()
+	const add = (relation: string, s: AbsenceSite): void => {
+		const held = out.get(relation) ?? []
+		held.push(s)
+		out.set(relation, held)
 	}
-	return r.mode === "arbiter" && sealOf(at, r).kind === "unsealed"
-		? "as an arbitration of no whole declared key"
-		: undefined
+	for (const view of views) {
+		for (const v of view.members) {
+			const at = { reader: view.role, member: v.member.name }
+			for (const p of v.reads) {
+				if (p.read.mode === "negated" || p.read.mode === "counted") {
+					add(p.read.relation, { ...at, statement: p.statement, how: `reads it ${p.read.mode}` })
+				} else if (p.read.mode === "arbiter" && p.seal.kind === "unsealed") {
+					add(p.read.relation, {
+						...at,
+						statement: p.statement,
+						how: "reads it as an arbitration of no whole declared key"
+					})
+				}
+			}
+			for (const c of v.checks) {
+				if (c.side === "referenced") {
+					add(c.relation, {
+						...at,
+						statement: c.statement,
+						how: "checks the absence of its rows that reference a row it updates or deletes"
+					})
+				}
+			}
+		}
+	}
+	return out
 }
 
 /** Condition 3: no change member of any role reads the absence or a count of a relation the role writes. */
 const absenceReasons = (
-	at: Installation,
-	written: ReadonlySet<string>
+	view: RoleView,
+	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
 ): ReadonlyArray<IsolationReason> =>
-	at.input.roles.flatMap((other) =>
-		other.members.flatMap((m) => [
-			...m.statements.flatMap((s, index) =>
-				s.reads.flatMap((r) => {
-					const how = written.has(r.relation) ? absentBy(at, r) : undefined
-					return how === undefined
-						? []
-						: [
-								reason(
-									"absence",
-									{ member: m.name, statement: index, relation: r.relation },
-									`${other.role} of ${other.login} reads it ${how}`
-								)
-							]
-				})
-			),
-			...checksOf(at, m).flatMap((c) =>
-				c.side === "referenced" && written.has(c.relation)
-					? [
-							reason(
-								"absence",
-								{ member: m.name, statement: c.statement, relation: c.relation },
-								`${other.role} of ${other.login} checks the absence of its rows that reference a row it updates or deletes`
-							)
-						]
-					: []
+	[...view.written].flatMap((relation) =>
+		(absent.get(relation) ?? []).map((s) =>
+			reason(
+				"absence",
+				{ member: s.member, statement: s.statement, relation },
+				`${s.reader.role} of ${s.reader.login} ${s.how}`
 			)
-		])
+		)
 	)
 
 /**
  * Condition 5a: an outside read that is no sealed group shares its statement with every other outside read, and no
  * outside foreign key check, which reads at a later snapshot, stands beside it; an unsealed check stands beside no other
- * outside read.
+ * outside read. One reason per unsealed read or check that has another snapshot beside it.
  */
-const snapshotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	role.members.flatMap((m) => {
-		const reads = readsOf(at, m).filter((p) => outside(p.seal))
-		const checks = checksOf(at, m).filter((c) => outside(c.seal))
-		const beside = (unsealed: string): ReadonlyArray<IsolationReason> =>
-			checks.map((c) =>
-				reason(
-					"snapshot",
-					{ member: m.name, statement: c.statement, relation: c.relation },
-					`its foreign key check of ${c.relation} reads at a later snapshot than ${unsealed}`
-				)
-			)
+const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
+	view.members.flatMap((v) => {
+		const checks = v.checks.filter((c) => outside(c.seal))
+		const statements = new Set(v.outsides.map((p) => p.statement))
 		return [
-			...reads.flatMap((p) =>
-				p.seal.kind !== "unsealed"
-					? []
-					: [
-							...reads
-								.filter((q) => q.statement !== p.statement)
-								.map((q) =>
-									reason(
-										"snapshot",
-										{ member: m.name, statement: q.statement, relation: q.read.relation },
-										`it reads rows another call can write in another statement than the unsealed read of ${p.read.relation} in statement ${p.statement}, from another snapshot`
-									)
-								),
-							...beside(`the unsealed read of ${p.read.relation} in statement ${p.statement}`)
+			...v.outsides.flatMap((p) =>
+				p.seal.kind === "unsealed" && (statements.size > 1 || checks.length > 0)
+					? [
+							reason(
+								"snapshot",
+								{ member: v.member.name, statement: p.statement, relation: p.read.relation },
+								`it reads ${p.read.relation} unsealed while the member reads rows another call can write at another snapshot too: ${p.seal.detail}`
+							)
 						]
+					: []
 			),
-			...checks.flatMap((c, i) =>
-				c.seal.kind !== "unsealed"
-					? []
-					: [
-							...reads.map((q) =>
-								reason(
-									"snapshot",
-									{ member: m.name, statement: q.statement, relation: q.read.relation },
-									`it reads rows another call can write at another snapshot than the unsealed foreign key check of ${c.relation}`
-								)
-							),
-							...checks
-								.filter((_, j) => j !== i)
-								.map((q) =>
-									reason(
-										"snapshot",
-										{ member: m.name, statement: q.statement, relation: q.relation },
-										`its foreign key check of ${q.relation} reads at another snapshot than the unsealed check of ${c.relation}`
-									)
-								)
+			...checks.flatMap((c) =>
+				c.seal.kind === "unsealed" && (v.outsides.length > 0 || checks.length > 1)
+					? [
+							reason(
+								"snapshot",
+								{ member: v.member.name, statement: c.statement, relation: c.relation },
+								`its foreign key check of ${c.relation} is unsealed and reads at another snapshot than the member's other outside reads: ${c.seal.detail}`
+							)
 						]
+					: []
 			)
 		]
 	})
@@ -634,63 +685,74 @@ const snapshotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<Isola
 /**
  * Condition 5b: a member with an outside read and a write reads every outside group sealed and positively, and every
  * row it writes reaches every outside group it reads: joined with each outside read of its statement, and, after a
- * statement that read from outside, with a row its own call wrote; no write comes before a group read only later.
+ * statement that read from outside, with a row its own call wrote; no write comes before a group read only later. Each
+ * of its foreign key checks is sealed. One reason per read, check or write that fails.
  */
-const pivotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	role.members.flatMap((m) => {
-		const reads = readsOf(at, m)
-		const outsides = reads.filter((p) => outside(p.seal))
-		const writes = m.statements.flatMap((s, statement) => s.writes.map((w) => ({ statement, w })))
-		const checks = checksOf(at, m).flatMap((c) =>
+const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
+	view.members.flatMap((v) => {
+		const name = v.member.name
+		const checks = v.checks.flatMap((c) =>
 			c.seal.kind === "unsealed"
 				? [
 						reason(
 							"pivot",
-							{ member: m.name, statement: c.statement, relation: c.relation },
+							{ member: name, statement: c.statement, relation: c.relation },
 							`its foreign key check: ${c.seal.detail}`
 						)
 					]
 				: []
 		)
-		if (outsides.length === 0 || writes.length === 0) {
+		const writes = v.member.statements.flatMap((s, statement) =>
+			s.writes.map((w) => ({ statement, w }))
+		)
+		if (v.outsides.length === 0 || writes.length === 0) {
 			return checks
 		}
-		const unsealed = outsides.flatMap((p) => {
-			const where = { member: m.name, statement: p.statement, relation: p.read.relation }
-			return p.seal.kind === "unsealed"
-				? [reason("pivot", where, p.seal.detail)]
-				: p.read.mode === "positive"
-					? []
-					: [reason("pivot", where, `it reads the group ${p.read.mode}`)]
+		const unsealed = v.outsides.flatMap((p) => {
+			const where = { member: name, statement: p.statement, relation: p.read.relation }
+			if (p.seal.kind === "unsealed") {
+				return [reason("pivot", where, p.seal.detail)]
+			}
+			return p.read.mode === "positive"
+				? []
+				: [reason("pivot", where, `it reads the group ${p.read.mode}`)]
 		})
 		const first = new Map<string, number>()
-		for (const p of outsides) {
+		for (const p of v.outsides) {
 			const g = groupOf(p.read)
 			first.set(g, Math.min(first.get(g) ?? p.statement, p.statement))
 		}
-		const firstOutside = outsides.reduce(
+		const lastFirst = [...first.values()].reduce(
+			(most, at) => Math.max(most, at),
+			Number.NEGATIVE_INFINITY
+		)
+		const firstOutside = v.outsides.reduce(
 			(least, p) => Math.min(least, p.statement),
 			Number.POSITIVE_INFINITY
 		)
 		const unjoined = writes.flatMap(({ statement, w }) => {
-			const where = { member: m.name, statement, relation: w.relation }
-			const own = reads.some(
+			const where = { member: name, statement, relation: w.relation }
+			const from = new Set(w.from)
+			const [missed, ...more] = v.outsides.filter(
+				(p) => p.statement === statement && !from.has(p.index)
+			)
+			const own = v.reads.some(
 				(p) =>
 					p.statement === statement &&
 					p.seal.kind === "own" &&
 					p.read.mode === "positive" &&
-					w.from.includes(p.index)
+					from.has(p.index)
 			)
-			const missed = outsides.filter((p) => p.statement === statement && !w.from.includes(p.index))
-			const later = [...first].filter(([, firstAt]) => firstAt > statement).map(([g]) => g)
 			return [
-				...missed.map((p) =>
-					reason(
-						"pivot",
-						where,
-						`a row it writes is not joined with the read of ${p.read.relation} in its statement`
-					)
-				),
+				...(missed === undefined
+					? []
+					: [
+							reason(
+								"pivot",
+								where,
+								`a row it writes is not joined with the read of ${missed.read.relation} in its statement, nor with ${more.length} more outside read(s) there`
+							)
+						]),
 				...(statement > firstOutside && !own
 					? [
 							reason(
@@ -700,90 +762,89 @@ const pivotReasons = (at: Installation, role: RoleFacts): ReadonlyArray<Isolatio
 							)
 						]
 					: []),
-				...later.map((g) =>
-					reason("pivot", where, `a row it writes comes before the group ${g}, read only later`)
-				)
+				...(lastFirst > statement
+					? [
+							reason(
+								"pivot",
+								where,
+								"a row it writes comes before a group the member reads only later"
+							)
+						]
+					: [])
 			]
 		})
 		return [...checks, ...unsealed, ...unjoined]
 	})
 
 /** Every reason a role fails that no other role's verdict changes. */
-const ownReasons = (at: Installation, role: RoleFacts): ReadonlyArray<IsolationReason> => {
-	const written = writtenBy(at, role)
-	return [
-		...factReasons(at, role),
-		...memberReasons(role),
-		...privilegeReasons(at, role, written),
-		...lawReasons(at, written),
-		...absenceReasons(at, written),
-		...snapshotReasons(at, role),
-		...pivotReasons(at, role)
-	]
+const ownReasons = (
+	at: Installation,
+	view: RoleView,
+	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
+): ReadonlyArray<IsolationReason> => [
+	...factReasons(at, view),
+	...memberReasons(view.role),
+	...privilegeReasons(at, view.role, view.written),
+	...lawReasons(at, view.written),
+	...absenceReasons(view, absent),
+	...snapshotReasons(view),
+	...pivotReasons(view)
+]
+
+/** Why a role that runs SERIALIZABLE may be the pivot of a cycle: a relation it reads from outside, or a trigger-held
+ * law over one it writes; none where it is neither. */
+const pivotCause = (at: Installation, view: RoleView): string | undefined => {
+	const [read] = view.outside
+	if (read !== undefined) {
+		return `it reads ${read} from outside at SERIALIZABLE`
+	}
+	const [held] = [...view.written].filter(
+		(relation) => (at.input.relations.get(relation)?.triggerLaws ?? []).length > 0
+	)
+	return held === undefined ? undefined : `a law over ${held}, which it writes, is held by triggers`
 }
 
 /**
  * The reasons the roles that run SERIALIZABLE give a role: condition 2's other half, a change member of one reading a
- * relation the role writes, by a statement or a foreign key check; and condition 5c, one writing a relation the role's
- * members read from outside, sealed or not, while it reads from outside itself or writes a relation a trigger-held law
- * reads.
+ * relation the role writes, by a statement or a foreign key check, one per site; and condition 5c, one writing a
+ * relation the role's members read from outside, sealed or not, while it reads from outside itself or writes a relation
+ * a trigger-held law reads, one per such relation.
  */
 const serializableReasons = (
 	at: Installation,
-	role: RoleFacts,
-	serializable: ReadonlyArray<RoleFacts>
-): ReadonlyArray<IsolationReason> => {
-	const written = writtenBy(at, role)
-	const read = readOutsideBy(at, role)
-	return serializable.flatMap((other) => {
-		const readers = other.members.flatMap((m) => [
-			...m.statements.flatMap((s, index) =>
-				s.reads.flatMap((r) =>
-					written.has(r.relation)
-						? [
-								reason(
-									"laws",
-									{ member: m.name, statement: index, relation: r.relation },
-									`${other.role} of ${other.login} reads it at SERIALIZABLE`
-								)
-							]
-						: []
-				)
-			),
-			...checksOf(at, m).flatMap((c) =>
-				written.has(c.relation)
-					? [
-							reason(
-								"laws",
-								{ member: m.name, statement: c.statement, relation: c.relation },
-								`${other.role} of ${other.login} reads it by a foreign key check at SERIALIZABLE`
-							)
-						]
-					: []
-			)
-		])
-		const theirs = writtenBy(at, other)
-		const shared = [...theirs].filter((relation) => read.has(relation))
-		const pivots = [
-			...[...readOutsideBy(at, other)].map(
-				(relation) => `it reads ${relation} from outside at SERIALIZABLE`
-			),
-			...[...theirs].flatMap((relation) =>
-				(at.input.relations.get(relation)?.triggerLaws ?? []).length > 0
-					? [`a law over ${relation}, which it writes, is held by triggers`]
-					: []
-			)
-		]
-		return [
-			...readers,
-			...shared.flatMap((relation) =>
-				pivots.map((why) =>
-					reason("writers", { relation }, `${other.role} of ${other.login} writes it, and ${why}`)
+	view: RoleView,
+	judges: ReadonlyArray<RoleView>
+): ReadonlyArray<IsolationReason> =>
+	judges.flatMap((other) => {
+		const readers = [...view.written].flatMap((relation) =>
+			(other.sites.get(relation) ?? []).map((s) =>
+				reason(
+					"laws",
+					{ member: s.member, statement: s.statement, relation },
+					s.by === "statement"
+						? `${other.role.role} of ${other.role.login} reads it at SERIALIZABLE`
+						: `${other.role.role} of ${other.role.login} reads it by a foreign key check at SERIALIZABLE`
 				)
 			)
-		]
+		)
+		const pivot = pivotCause(at, other)
+		return pivot === undefined
+			? readers
+			: [
+					...readers,
+					...[...other.written].flatMap((relation) =>
+						view.outside.has(relation)
+							? [
+									reason(
+										"writers",
+										{ relation },
+										`${other.role.role} of ${other.role.login} writes it, and ${pivot}`
+									)
+								]
+							: []
+					)
+				]
 	})
-}
 
 /**
  * Each role's certificate: READ COMMITTED exactly when its change members meet every condition, the roles that run
@@ -791,38 +852,41 @@ const serializableReasons = (
  * COMMITTED; a role a SERIALIZABLE role gives a reason runs SERIALIZABLE, which may give another one, until none
  * changes. Each step only removes roles, so the set it ends at is the greatest one every member of which meets every
  * condition against it. A role that runs SERIALIZABLE by others alone names every reason each other role that runs
- * SERIALIZABLE at the end gives it, never one of its own making. Roles keep the input's order.
+ * SERIALIZABLE at the end gives it, never one of its own making. Each role and member is read once into its view, and a
+ * reason names one site, never a pair of them. Roles keep the input's order.
  */
 export const certify = (input: IsolationInput): ReadonlyArray<RoleIsolation> => {
 	const at = installationOf(input)
-	const own = new Map<RoleFacts, ReadonlyArray<IsolationReason>>(
-		input.roles.map((role) => [role, ownReasons(at, role)] as const)
+	const views = input.roles.map((role) => roleView(at, role))
+	const absent = absenceSites(views)
+	const own = new Map<RoleView, ReadonlyArray<IsolationReason>>(
+		views.map((view) => [view, ownReasons(at, view, absent)] as const)
 	)
-	const serializable = new Set(input.roles.filter((role) => (own.get(role) ?? []).length > 0))
+	const serializable = new Set(views.filter((view) => (own.get(view) ?? []).length > 0))
 	let changed = true
 	while (changed) {
 		changed = false
 		const judges = [...serializable]
-		for (const role of input.roles) {
-			if (!serializable.has(role) && serializableReasons(at, role, judges).length > 0) {
-				serializable.add(role)
+		for (const view of views) {
+			if (!serializable.has(view) && serializableReasons(at, view, judges).length > 0) {
+				serializable.add(view)
 				changed = true
 			}
 		}
 	}
-	return input.roles.map((role): RoleIsolation => {
-		const mine = own.get(role) ?? []
+	return views.map((view): RoleIsolation => {
+		const mine = own.get(view) ?? []
 		const failed =
-			mine.length > 0 || !serializable.has(role)
+			mine.length > 0 || !serializable.has(view)
 				? mine
 				: serializableReasons(
 						at,
-						role,
-						[...serializable].filter((other) => other !== role)
+						view,
+						[...serializable].filter((other) => other !== view)
 					)
 		return {
-			login: role.login,
-			role: role.role,
+			login: view.role.login,
+			role: view.role.role,
 			certificate: isNonEmpty(failed)
 				? { level: "serializable", reasons: failed }
 				: { level: "readCommitted" }
