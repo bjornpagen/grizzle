@@ -31,13 +31,7 @@ import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { claimRefusalsOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
-import {
-	actionGen,
-	type Way,
-	wayGen,
-	waysOf,
-	withOpener
-} from "#test/support/worlds/generate/action.ts"
+import { actionGen, offeredOf, withOpener } from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import {
 	defaultScope,
@@ -621,19 +615,6 @@ const readsAfterDelete = (
 		Arr.flatMap(step(next, a), (c) => notedOf(next, a, c.observation))
 	)
 }
-
-/**
- * What the move after a direct statement reaches, read of the statement's outcome: its transaction's COMMIT
- * (commitAfter) and, after a delete, the reads of its transaction (readsAfterDelete).
- */
-const afterWrite = (
-	state: ModelState,
-	action: Action,
-	outcome: Allowed
-): ReadonlyArray<WorldFeature> => [
-	...commitAfter(state, action, outcome),
-	...readsAfterDelete(state, action, outcome)
-]
 
 /**
  * What the move after one statement of the transaction an action begins reaches, read of the BEGIN's outcome: the
@@ -1255,14 +1236,12 @@ export const steeredOnce = (weights: Weights, c: Pick<Case<WorldFeature>, "steer
 
 /**
  * A state an inductive case builds past its planned Db sessions, one action before what it reaches: its first move, an
- * action of `kind` the box offers in the planned state that `worth` admits, read of its outcome through `read` for
- * what the case's one action reaches once the moves after it (`after`) are made; and those moves, each aimed on every
- * draw at what the first move was aimed at. What a lead reaches is its look-ahead's to decide, never a list of features.
+ * action of `kind` the box offers in the planned state, drawn evenly among them, and the moves after it (`after`), each
+ * aimed on every draw at the required features still pending (`targets`). A lead looks past none of its moves: what
+ * the case reaches from the state it builds is its one action's aim to decide, never a list of features.
  */
 interface InductiveLead {
 	readonly kind: "direct-begin" | "open-db" | "apply"
-	readonly worth: Aiming["worth"]
-	readonly read: Aiming["read"]
 	readonly after: (
 		weights: Weights,
 		targets: Arr.NonEmptyReadonlyArray<string>
@@ -1271,33 +1250,26 @@ interface InductiveLead {
 
 /**
  * The inductive suite's leads, each a state one action before what it reaches:
- * - a transaction begun, one statement or its end from what it reaches (afterBegin): the role it took on and the claims
- *   it set, none, some or malformed, decide which facts lie inside, outside and hidden from its world and which world
- *   function it may call;
- * - a transaction one statement in, aimed so that its COMMIT or, after a delete, a read of it reaches a feature
- *   (afterWrite): a law checked at COMMIT that the statement broke, or a fact the transaction deleted, gone from what it
- *   reads;
- * - a Db the planned state holds, one apply in, a read or refresh through it from what it reaches (callsAfterApply): a
- *   derived relation that shows a fact the apply deleted, or drops it;
+ * - a transaction begun, one statement or its end from what it reaches: the role it took on and the claims it set,
+ *   none, some or malformed, decide which facts lie inside, outside and hidden from its world and which world function
+ *   it may call;
+ * - a transaction one statement in, the statement aimed so that its COMMIT reaches a feature (commitAfter, the one
+ *   move past it the aim steps): a law checked at COMMIT that the statement broke; or, past a delete, a read of the
+ *   transaction showing the fact gone from what it reads, which the case's one action aims at;
+ * - a Db the planned state holds, one apply in, a read or refresh through it from what it reaches: a derived relation
+ *   that shows a fact the apply deleted, or drops it;
  * - a Db opened, one read or apply from what it reaches: the role it opens as and the claims its token carries decide
  *   which facts lie inside, outside and hidden from each entry it reads or writes, and an apply waits on a direct
  *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs.
  */
 const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
-	{ kind: "direct-begin", worth: everyBegin, read: afterBegin, after: () => [] },
+	{ kind: "direct-begin", after: () => [] },
 	{
 		kind: "direct-begin",
-		worth: everyBegin,
-		read: afterAStatementOf(afterWrite),
-		after: (weights, targets) => [aimedStatement(weights, targets, afterWrite)]
+		after: (weights, targets) => [aimedStatement(weights, targets, commitAfter)]
 	},
-	{ kind: "apply", worth: everyActionWorth, read: callsAfterApply, after: () => [] },
-	{
-		kind: "open-db",
-		worth: everyActionWorth,
-		read: afterOpen(["read", "apply"], noted),
-		after: () => []
-	}
+	{ kind: "apply", after: () => [] },
+	{ kind: "open-db", after: () => [] }
 ]
 
 /** A move of a lead past a planned state: the action its first move took there, or a draw under its weights. */
@@ -1316,58 +1288,37 @@ export const moveAction = (draw: CaseDraw, state: ModelState, move: LeadMove): A
 }
 
 /**
- * What a led inductive case does past its planned Db sessions: its lead's moves, and the features its one action then
- * aims at.
- */
-export interface Led {
-	readonly moves: ReadonlyArray<LeadMove>
-	readonly aims: ReadonlyArray<Reached<string>>
-}
-
-/**
- * The lead of a led inductive case in its planned state, drawn from its tape evenly among the leads: the required
- * features it aims at are those still pending where the case steers, every one where it may not, and its look-ahead
- * from the planned state finds those its moves reach (waysOf). Its first move is one of those ways (wayGen), its later
- * moves are steered toward what is pending (steered), and its one action aims at the features its first move was found
- * to reach. A lead whose look-ahead reaches none takes no move, and the case aims its one action at `required`, so a
- * case runs at most one look-ahead past its planned state.
+ * The moves of a led inductive case past its planned state, while a required feature is pending where the case steers
+ * and always where it may not: a lead drawn from its tape evenly among the leads, its first move drawn evenly among the
+ * actions of its kind the box offers in the planned state (offeredOf), and its later moves steered toward what is
+ * pending (steered). None where nothing is pending or the box offers the lead's kind nothing. The case's one action
+ * aims at the required features as every case's does, so no draw of a case steps more than the box of the state it is
+ * drawn in, each candidate once and its COMMIT after it at most (commitAfter): no box is listed past another's move.
  */
 export const leadOf = (
 	required: ReadonlyArray<Reached<WorldFeature>>,
 	weights: Weights,
 	state: ModelState,
 	c: Pick<Case<WorldFeature>, "steering" | "draw">
-): Led => {
+): ReadonlyArray<LeadMove> => {
 	const pending = pendingOf(c.steering, required)
-	const unled: Led = { moves: [], aims: required }
 	const [first, ...rest] = requiredFeatures(required, (f) =>
 		Option.match(pending, { onNone: () => true, onSome: (isPending) => isPending(f) })
 	)
 	if (first === undefined) {
-		return unled
+		return []
 	}
 	const lead = c.draw(element(inductiveLeads))
-	const [way, ...ways] = waysOf(state, [lead.kind], weights.roles, {
-		features: [first, ...rest],
-		read: lead.read,
-		worth: lead.worth,
-		scope: aimScope
-	})
-	if (way === undefined) {
-		return unled
-	}
-	const reaching: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Way>> = [way, ...ways]
-	const targets = Arr.map(reaching, (w) => Arr.headNonEmpty(w).feature)
-	return {
-		moves: [
-			{ kind: "taken", action: c.draw(wayGen(reaching)) },
-			...Arr.map(lead.after(weights, targets), (w): LeadMove => ({
+	return Arr.match(offeredOf(state, [lead.kind], weights.roles, aimScope), {
+		onEmpty: (): ReadonlyArray<LeadMove> => [],
+		onNonEmpty: (moves) => [
+			{ kind: "taken", action: c.draw(element(moves)) },
+			...Arr.map(lead.after(weights, [first, ...rest]), (w): LeadMove => ({
 				kind: "drawn",
 				weights: steered(w, pending, nothingReached)
 			}))
-		],
-		aims: targets
-	}
+		]
+	})
 }
 
 /** What a suite sees of one action its program performed: the state it ran in, its answer and the state after it. */

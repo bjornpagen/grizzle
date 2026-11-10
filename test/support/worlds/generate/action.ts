@@ -115,6 +115,7 @@ import type {
 	PreparedRead,
 	RoleRef,
 	RoleSpec,
+	SmallScope,
 	SnapshotRef,
 	Token,
 	HostValue,
@@ -1150,33 +1151,47 @@ const focusedOn = (roles: RoleFocus, a: Action): boolean =>
 	roles.kind === "every" ||
 	roles.roles.includes(a.role.role)
 
+/**
+ * Every action the box of a scope offers in a state within a run's kinds, an own role opened only within its focus, in
+ * the order of the vocabulary (enumerateKind): the candidates of an aimed draw and of a lead's first move alike.
+ */
+export const offeredOf = (
+	state: ModelState,
+	kinds: Weights["kinds"],
+	roles: RoleFocus,
+	scope: SmallScope
+): ReadonlyArray<Action> => {
+	const offered: ReadonlyArray<ActionKind> = Arr.filter(actionKinds, (k) => Arr.contains(kinds, k))
+	return Arr.filter(
+		Arr.flatMap(offered, (k) => enumerateKind(state, k, scope)),
+		(a) => focusedOn(roles, a)
+	)
+}
+
 /** An action the box offers and a feature aimed at that it reaches as the model predicts it. */
-export interface Way {
+interface Way {
 	readonly feature: string
 	readonly action: Action
 }
 
 /**
  * The ways an aim takes in a state, grouped by the feature each reaches: every action the box of the aim's scope offers
- * there (within the run's kinds, an own role opened only within its focus, and those the aim finds worth a step), each
- * stepped once (reachedBy), with each feature aimed at that it reaches. A required feature one step away is never
- * missed for want of a sample, and nothing derived from the state outlives the call.
+ * there (offeredOf) that the aim finds worth a step, each stepped once (reachedBy), with each feature aimed at that it
+ * reaches. A required feature one step away is never missed for want of a sample, and nothing derived from the state
+ * outlives the call.
  */
-export const waysOf = (
+const waysOf = (
 	state: ModelState,
 	kinds: Weights["kinds"],
 	roles: RoleFocus,
 	aiming: Aiming
 ): ReadonlyArray<Arr.NonEmptyReadonlyArray<Way>> => {
 	const aimed: ReadonlySet<string> = new Set<string>(aiming.features)
-	const aimedKinds: ReadonlyArray<ActionKind> = Arr.filter(actionKinds, (k) =>
-		Arr.contains(kinds, k)
+	const worth: ReadonlyArray<Action> = Arr.filter(
+		offeredOf(state, kinds, roles, aiming.scope),
+		(a) => aiming.worth(a, state)
 	)
-	const offered = Arr.filter(
-		Arr.flatMap(aimedKinds, (k) => enumerateKind(state, k, aiming.scope)),
-		(a) => focusedOn(roles, a) && aiming.worth(a, state)
-	)
-	const reaching = Arr.flatMap(offered, (a) =>
+	const reaching = Arr.flatMap(worth, (a) =>
 		Arr.flatMap([...reachedBy(aiming.read, state, a)], (f): ReadonlyArray<Way> =>
 			aimed.has(f) ? [{ feature: f, action: a }] : []
 		)
@@ -1185,7 +1200,7 @@ export const waysOf = (
 }
 
 /** One of the ways an aim takes: a feature among those it reaches, evenly, then an action reaching it, evenly. */
-export const wayGen =
+const wayGen =
 	(ways: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Way>>): Gen<Action> =>
 	(source) =>
 		source.draw(element(source.draw(element(ways)))).action

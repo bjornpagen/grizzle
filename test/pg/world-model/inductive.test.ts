@@ -26,7 +26,7 @@ import {
 	docsAtBoundRealities,
 	docsInstalls,
 	drawAction,
-	type Led,
+	type LeadMove,
 	leadOf,
 	moveAction,
 	stage,
@@ -89,8 +89,8 @@ const cases = 64
 /**
  * What the population must reach: the whole worlds feature map. A case performs one action, so most of the map is
  * reached by the steered phase, which aims each case's one action at what no case has reached yet, for up to ten times
- * the cases; a led case's lead first builds a state from which a feature the planned states rarely offer is that one
- * action away.
+ * the cases; a led case's lead first builds a state the planned states rarely hold (a transaction begun or one
+ * statement in, a Db one apply in or just opened), from which its one action aims at what it offers.
  */
 const situations = requiredWorldFeatures
 
@@ -545,12 +545,10 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 										)
 								)
 								reachedPlan(planned, ic.plan)
-								const led: Led =
-									ic.plan.after.kind === "led"
-										? leadOf(situations, ic.weights, planned, c)
-										: { moves: [], aims: situations }
+								const moves: ReadonlyArray<LeadMove> =
+									ic.plan.after.kind === "led" ? leadOf(situations, ic.weights, planned, c) : []
 								const reached = yield* Effect.reduce(
-									led.moves,
+									moves,
 									(): ModelState => planned,
 									(state, move, index) =>
 										Effect.map(
@@ -567,9 +565,9 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								const action = drawAction(
 									c.draw,
 									reached,
-									steeredOnce({ ...ic.weights, aims: aimsAt(led.aims, notedOf) }, c)
+									steeredOnce({ ...ic.weights, aims: aimsAt(situations, notedOf) }, c)
 								)
-								yield* runStep(world, reached, action, setup.length + led.moves.length, c)
+								yield* runStep(world, reached, action, setup.length + moves.length, c)
 							})
 						)
 				)
