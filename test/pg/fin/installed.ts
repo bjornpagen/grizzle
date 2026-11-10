@@ -113,7 +113,7 @@ FROM pg_catalog.pg_constraint c
 JOIN pg_catalog.pg_class r ON r.oid = c.conrelid
 JOIN pg_catalog.pg_namespace s ON s.oid = r.relnamespace
 LEFT JOIN pg_catalog.pg_class t ON t.oid = c.confrelid
-WHERE s.nspname = $1 AND c.contype IN ('p', 'u', 'c', 'f')
+WHERE s.nspname = ANY($1::text[]) AND c.contype IN ('p', 'u', 'c', 'f')
 UNION ALL
 SELECT x.relname::text, r.relname::text, 'u', false, ' ',
 	(SELECT string_agg(a.attname::text, E'\\x1f' ORDER BY k.o) FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(n, o)
@@ -122,7 +122,7 @@ FROM pg_catalog.pg_index i
 JOIN pg_catalog.pg_class x ON x.oid = i.indexrelid
 JOIN pg_catalog.pg_class r ON r.oid = i.indrelid
 JOIN pg_catalog.pg_namespace s ON s.oid = r.relnamespace
-WHERE s.nspname = $1 AND i.indisunique
+WHERE s.nspname = ANY($1::text[]) AND i.indisunique
 	AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.conindid = i.indexrelid)`
 
 const kindOf = (contype: string): ConstraintKind => {
@@ -174,7 +174,10 @@ export const seatOf = (
 		return yield* seatOfInstalled(installed, relations, label)
 	})
 
-/** The seat of an installation already made: its owner session and its catalog, read now. */
+/**
+ * The seat of an installation already made: its owner session, and the catalog of every PostgreSQL schema `relations`
+ * live in, a level's own beside the root's, read now.
+ */
 export const seatOfInstalled = (
 	installed: Installed,
 	relations: Arr.NonEmptyReadonlyArray<string>,
@@ -208,7 +211,9 @@ export const seatOfInstalled = (
 		}
 		const roleOf = (relation: string, column: string): string =>
 			rolesByColumn.get(relation)?.get(column) ?? `?${column}`
-		const rows = yield* substrate.admin.queryValues(catalogSql, [installed.schema])
+		const rows = yield* substrate.admin.queryValues(catalogSql, [
+			Arr.dedupe(Arr.map(relations, (r) => installed.names.relation(r).schema))
+		])
 		const constraints = Arr.flatMap(rows, (row): ReadonlyArray<Catalogued> => {
 			const [name, table, contype, deferrable, updtype, columns, target, targetColumns] = row
 			const relation = declaredOf.get(String(table))
