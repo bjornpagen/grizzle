@@ -29,15 +29,18 @@
  *   and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
  *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), the
  *   field-less column dropped, sorted; its binding is their texts in that order. An ON CONFLICT's group is its conflict
- *   columns', each bound to EXCLUDED's.
+ *   columns', each bound to EXCLUDED's. A table read through a derived table that only renames its columns (each named
+ *   as the table's, each the rotation's other) is keyed so by the conditions of the core that reads it, through the
+ *   renaming, the derived table an outside table's value; one that also takes a LIMIT is keyed by none of them, read as
+ *   its own query's, the derived table the call's own rows, so its own equalities equate it with no other table.
  * - A query CTE is read where a source names it, with that source's polarity, count and writes; a writing CTE runs once.
  * - A write's `from` is the positive reads that feed it: its source's, an UPDATE's and a DELETE's target and FROM, a
  *   MERGE's source and every target read; a DO UPDATE writes its table twice from them.
  * Reads are compared as multisets, the arbitrations after every other read, and writes by the reads their `from` names.
  *
  * Planted in a scratch copy of the extractor, each of these fails the search: NOT EXISTS read as positive, an
- * aggregate's scan read as positive, a probe of the written relation read as negated, and a table no relation names
- * dropped instead of named.
+ * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names
+ * dropped instead of named, and a projection's renaming dropped.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -182,8 +185,28 @@ interface Equality {
 	readonly inJoin: boolean
 }
 
+/**
+ * How a core reads a table: directly; through a derived table that only renames its columns, its i-th column the
+ * table's ROTATED[i] (`plain`), which the extractor keys by the reading core's conditions through the renaming; or
+ * through one that also takes a LIMIT (`limited`), which no outside condition keys.
+ */
+type TableForm = "direct" | "plain" | "limited"
+
+/** The table's column each of a projection's columns, named as COLUMNS, is: a rotation, so every name moves. */
+const ROTATED: Readonly<Record<Column, Column>> = {
+	c_id: "c_a",
+	c_a: "c_b",
+	c_b: "c_hidden",
+	c_hidden: "c_id"
+}
+
 type Source =
-	| { readonly kind: "table"; readonly rel: Rel; readonly equalities: ReadonlyArray<Equality> }
+	| {
+			readonly kind: "table"
+			readonly rel: Rel
+			readonly form: TableForm
+			readonly equalities: ReadonlyArray<Equality>
+	  }
 	| { readonly kind: "own"; readonly own: OwnKind; readonly at: number }
 	| { readonly kind: "derived"; readonly query: QuerySpec }
 
@@ -360,15 +383,26 @@ const coreGen =
 				case "table": {
 					const self = Arr.filter(Arr.take(shapes, at), (k) => k === "table").length
 					const columns = Arr.dedupe(s.draw(array(element(COLUMNS), { min: 0, max: 3 })))
+					const form = s.draw(
+						weighted<TableForm>([
+							[4, () => "direct"],
+							[2, () => "plain"],
+							[1, () => "limited"]
+						])
+					)
 					return {
 						kind: "table",
 						rel: s.draw(element(RELS)),
-						equalities: Arr.map(columns, (column) => ({
-							column,
-							other: s.draw(otherGen(owns, tables, self)),
-							flipped: s.draw(boolean),
-							inJoin: s.draw(boolean)
-						}))
+						form,
+						equalities: Arr.map(columns, (column) => {
+							const other = s.draw(otherGen(owns, tables, self))
+							return {
+								column,
+								other: form === "limited" && other.kind === "table" ? { kind: "literal" } : other,
+								flipped: s.draw(boolean),
+								inJoin: s.draw(boolean)
+							}
+						})
 					}
 				}
 				case "own":
@@ -573,6 +607,7 @@ type PlacedSource =
 			readonly kind: "table"
 			readonly alias: string
 			readonly rel: Rel
+			readonly form: TableForm
 			readonly equalities: ReadonlyArray<Equality>
 	  }
 	| { readonly kind: "carrier"; readonly alias: string; readonly carrier: number }
@@ -596,7 +631,7 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 		const alias = `${path}s${i}`
 		switch (s.kind) {
 			case "table":
-				return { kind: "table", alias, rel: s.rel, equalities: s.equalities }
+				return { kind: "table", alias, rel: s.rel, form: s.form, equalities: s.equalities }
 			case "derived":
 				return { kind: "derived", alias, query: s.query }
 			case "own":
@@ -626,6 +661,7 @@ type ResolvedOther =
 	| { readonly kind: "param"; readonly slot: number }
 	| { readonly kind: "own"; readonly alias: string }
 	| { readonly kind: "table"; readonly alias: string }
+	| { readonly kind: "limited"; readonly alias: string }
 	| { readonly kind: "literal" }
 	| { readonly kind: "cast"; readonly slot: number }
 
@@ -659,6 +695,7 @@ const otherExpr = (o: ResolvedOther): Expr => {
 		case "own":
 			return col(o.alias, OWN_COLUMN)
 		case "table":
+		case "limited":
 			return col(o.alias, "c_b")
 		case "literal":
 			return lit.int(3, types.integer)
@@ -668,8 +705,20 @@ const otherExpr = (o: ResolvedOther): Expr => {
 }
 
 /** The text a binding names a resolved other side by, none for one that binds nothing. */
-const bindingText = (o: ResolvedOther): string | undefined =>
-	o.kind === "param" ? `$${o.slot}` : o.kind === "own" ? `${o.alias}.${OWN_COLUMN}` : undefined
+const bindingText = (o: ResolvedOther): string | undefined => {
+	switch (o.kind) {
+		case "param":
+			return `$${o.slot}`
+		case "own":
+			return `${o.alias}.${OWN_COLUMN}`
+		case "limited":
+			return `${o.alias}.c_b`
+		case "table":
+		case "literal":
+		case "cast":
+			return undefined
+	}
+}
 
 /** The first column a core's first source delivers: a table's c_a, any other's v. */
 const firstColumn = (sources: Arr.NonEmptyReadonlyArray<PlacedSource>): Expr => {
@@ -677,11 +726,29 @@ const firstColumn = (sources: Arr.NonEmptyReadonlyArray<PlacedSource>): Expr => 
 	return col(first.alias, first.kind === "table" ? "c_a" : OWN_COLUMN)
 }
 
+/** A derived table's query over a table: every column of it, in the rotation's order, and a LIMIT where limited. */
+const projectionOf = (
+	rel: Rel,
+	inner: string,
+	form: Exclude<TableForm, "direct">
+): OperandSelect => {
+	const q = operandSelect(
+		core(
+			Arr.map(COLUMNS, (c) => targetAs(col(inner, ROTATED[c]), c)),
+			[{ kind: "table", table: TABLES[rel], alias: inner }],
+			undefined
+		)
+	)
+	return form === "plain" ? q : { ...q, limit: lit.int(1, types.integer) }
+}
+
 /** The FROM source of a placed source. */
 const fromSource = (p: PlacedSource, scope: ReadonlyArray<string>, env: Env): FromSource => {
 	switch (p.kind) {
 		case "table":
-			return { kind: "table", table: TABLES[p.rel], alias: p.alias }
+			return p.form === "direct"
+				? { kind: "table", table: TABLES[p.rel], alias: p.alias }
+				: derived(projectionOf(p.rel, `${p.alias}t`, p.form), p.alias, COLUMNS, false)
 		case "carrier":
 			return { kind: "table", table: carrierName(p.carrier), alias: p.alias }
 		case "cte":
@@ -1129,6 +1196,8 @@ type Shape =
 	| "a DO UPDATE"
 	| "a target bound by its WHERE"
 	| "a statement no member sends"
+	| "a projection keyed by the conditions of the core that reads it"
+	| "a projection outside conditions do not key"
 
 /** A column of a table read with what its conditions equate it with. */
 interface Bound {
@@ -1262,20 +1331,42 @@ class Expect {
 		const tables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s.alias] : []))
 		const within = [...place.scope, ...owns]
 		const beneath: Place = { ...here, probe: false }
+		const limited = new Set(
+			Arr.flatMap(sources, (s) => (s.kind === "table" && s.form === "limited" ? [s.alias] : []))
+		)
+		const resolve = (o: Other): ResolvedOther => {
+			const r = resolveOther(o, owns, tables, place.scope)
+			return r.kind === "table" && limited.has(r.alias) ? { kind: "limited", alias: r.alias } : r
+		}
 		this.aggregateShapes(c.aggregate)
 		for (const s of sources) {
 			switch (s.kind) {
 				case "table":
+					if (s.form === "limited") {
+						if (s.equalities.length > 0) {
+							this.shapes.add("a projection outside conditions do not key")
+						}
+						this.table(s.rel, { ...beneath, scope: place.scope }, [])
+						break
+					}
 					this.table(
 						s.rel,
 						here,
 						Arr.map(s.equalities, (e) => ({
-							column: e.column,
-							other: resolveOther(e.other, owns, tables, place.scope)
+							column: s.form === "plain" ? ROTATED[e.column] : e.column,
+							other: resolve(e.other)
 						}))
 					)
 					for (const e of s.equalities) {
-						const o = resolveOther(e.other, owns, tables, place.scope)
+						const o = resolve(e.other)
+						if (
+							s.form === "plain" &&
+							FIELDS.has(ROTATED[e.column]) &&
+							s.rel !== "X" &&
+							bindingText(o) !== undefined
+						) {
+							this.shapes.add("a projection keyed by the conditions of the core that reads it")
+						}
 						if (o.kind === "param" && FIELDS.has(e.column) && s.rel !== "X") {
 							this.shapes.add("a group bound by a placeholder")
 						}
@@ -1639,7 +1730,9 @@ describe("a change member's facts", () => {
 								"an ON CONFLICT arbiter over its conflict columns",
 								"a DO UPDATE",
 								"a target bound by its WHERE",
-								"a statement no member sends"
+								"a statement no member sends",
+								"a projection keyed by the conditions of the core that reads it",
+								"a projection outside conditions do not key"
 							],
 							{ cases: 500, sense: notesOnly }
 						),

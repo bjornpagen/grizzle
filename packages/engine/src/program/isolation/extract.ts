@@ -143,6 +143,7 @@ type Found =
 			readonly context: Context
 			readonly conditions: ReadonlyArray<Expr>
 			readonly feeds: ReadonlyArray<number>
+			readonly columns: ReadonlyMap<string, string> | undefined
 	  }
 	| { readonly kind: "opaque"; readonly relation: string }
 
@@ -263,7 +264,79 @@ const sourcesOf = (
 			: [{ source: item, on: undefined }]
 	)
 
-/** What a source's alias names: a stored table's values, or the call's own, of one row or many. */
+/** A relation's table read whole by a derived table that only renames its columns: the table, and for each of the
+ * derived table's columns the table's column it is. */
+interface Projection {
+	readonly table: TableName
+	readonly columns: ReadonlyMap<string, string>
+}
+
+/** A projection as the source of another: its table, and the table's column each of its columns is. */
+const underOf = (
+	p: Projection | undefined
+):
+	| { readonly table: TableName; readonly column: (column: string) => string | undefined }
+	| undefined => (p === undefined ? undefined : { table: p.table, column: (c) => p.columns.get(c) })
+
+/**
+ * The relation a derived table reads whole, its columns renamed, through any number of such: a core of one source, a
+ * table or another such derived table, every target a column of it, under no WITH, condition, grouping, HAVING,
+ * DISTINCT, ORDER BY, LIMIT or OFFSET, so its rows are the source's rows, each column one of the source's. None for any
+ * other derived table, whose reads its own walk keys by its own conditions alone.
+ */
+const projectionOf = (source: FromSource): Projection | undefined => {
+	if (source.kind !== "derived") {
+		return undefined
+	}
+	const q = source.query
+	const body = q.body
+	if (
+		q.with !== undefined ||
+		q.orderBy.length > 0 ||
+		q.limit !== undefined ||
+		q.offset !== undefined ||
+		body.kind !== "core" ||
+		body.where !== undefined ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined ||
+		body.distinct !== false
+	) {
+		return undefined
+	}
+	const [item, ...rest] = body.from
+	if (item === undefined || rest.length > 0 || item.kind === "joins") {
+		return undefined
+	}
+	const under =
+		item.kind === "table"
+			? { table: item.table, column: (column: string): string | undefined => column }
+			: underOf(projectionOf(item))
+	if (under === undefined) {
+		return undefined
+	}
+	const names = source.columns.length > 0 ? source.columns : body.targets.map((t) => t.alias)
+	if (names.length !== body.targets.length) {
+		return undefined
+	}
+	const columns = new Map<string, string>()
+	for (const [i, t] of body.targets.entries()) {
+		const name = names[i]
+		const base =
+			t.expr.kind === "column" && t.expr.table === item.alias
+				? under.column(t.expr.column)
+				: undefined
+		if (name === undefined || base === undefined) {
+			return undefined
+		}
+		columns.set(name, base)
+	}
+	return { table: under.table, columns }
+}
+
+/**
+ * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
+ * or the call's own, of one row or many.
+ */
 const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] => {
 	switch (source.kind) {
 		case "table":
@@ -272,8 +345,14 @@ const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] 
 			return [source.alias ?? source.name, "many"]
 		case "context":
 			return [source.alias, "one"]
+		case "derived": {
+			const projection = projectionOf(source)
+			return [
+				source.alias,
+				projection === undefined || typeof projection.table === "string" ? "many" : "table"
+			]
+		}
 		case "enclosing":
-		case "derived":
 		case "function":
 		case "arrays":
 		case "values":
@@ -528,7 +607,8 @@ class Walk {
 							? { ...here, polarity: flipped(here.polarity), probe: true }
 							: here,
 					conditions: targetConditions(w, on),
-					feeds: this.#feeds()
+					feeds: this.#feeds(),
+					columns: undefined
 				})
 			}
 			for (const e of on) {
@@ -648,16 +728,31 @@ class Walk {
 					alias: source.alias,
 					context: here,
 					conditions,
-					feeds: this.#feeds()
+					feeds: this.#feeds(),
+					columns: undefined
 				})
 				return
 			case "cte":
 			case "enclosing":
 				this.#cteRead(source.name, beneath)
 				return
-			case "derived":
-				this.query(source.query, source.lateral ? beneath : { ...beneath, scope: enclosing })
+			case "derived": {
+				const projection = projectionOf(source)
+				if (projection === undefined) {
+					this.query(source.query, source.lateral ? beneath : { ...beneath, scope: enclosing })
+				} else {
+					this.found.push({
+						kind: "table",
+						table: projection.table,
+						alias: source.alias,
+						context: here,
+						conditions,
+						feeds: this.#feeds(),
+						columns: projection.columns
+					})
+				}
 				return
+			}
 			case "function":
 				this.expr(source.call, source.lateral ? beneath : { ...beneath, scope: enclosing })
 				return
@@ -742,29 +837,33 @@ const ownRowsOf = (scope: Scope, table: string): Group["rows"] | undefined => {
 }
 
 /**
- * The columns of a table source its core's conditions bind, each by its first equality, in the conditions' order:
+ * The columns of a table source its core's conditions bind, through a projection's renaming (`columns`, none for a
+ * table read directly), each by its first equality, in the conditions' order:
  * with a parameter, one value, or with a column of a source the scope names the call's own, one value or one per row.
  * Each comes with the text of what it is bound to.
  */
 const bindingsOf = (
 	alias: string,
 	conditions: ReadonlyArray<Expr>,
-	scope: Scope
+	scope: Scope,
+	columns: ReadonlyMap<string, string> | undefined
 ): ReadonlyArray<Bound> => {
 	const side = (mine: Expr, other: Expr): ReadonlyArray<Bound> => {
 		if (mine.kind !== "column" || mine.table !== alias) {
 			return []
 		}
+		const column = columns === undefined ? mine.column : columns.get(mine.column)
+		if (column === undefined) {
+			return []
+		}
 		if (other.kind === "param") {
-			return [{ column: mine.column, by: `$${other.slot.number}`, rows: "one" }]
+			return [{ column, by: `$${other.slot.number}`, rows: "one" }]
 		}
 		if (other.kind !== "column" || other.table === undefined) {
 			return []
 		}
 		const rows = ownRowsOf(scope, other.table)
-		return rows === undefined
-			? []
-			: [{ column: mine.column, by: `${other.table}.${other.column}`, rows }]
+		return rows === undefined ? [] : [{ column, by: `${other.table}.${other.column}`, rows }]
 	}
 	const out = new Map<string, Bound>()
 	for (const e of conditions) {
@@ -826,7 +925,9 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 					relation: rel,
 					mode: modeOf(f.context, f.context.probe && written.has(rel)),
 					own: false,
-					group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.context.scope)))
+					group: boundGroup(
+						fields(rel, bindingsOf(f.alias, f.conditions, f.context.scope, f.columns))
+					)
 				},
 				feeds: f.feeds
 			}
@@ -878,6 +979,9 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
  *   the enclosing cores' included, that is the call's own: one value for the call where each is a parameter or the
  *   session's context's, else one group per own row. An ON CONFLICT's is its conflict columns', each bound to
  *   EXCLUDED's, one per proposed row.
+ * - A derived table that only renames a relation's columns (projectionOf) reads that relation where it stands, keyed by
+ *   the conditions of the core that reads it, through the renaming; any other derived table's reads are keyed by its own
+ *   conditions alone, so an outside condition keys none of them.
  * - A write's rows are fed by the positive reads beneath it: an INSERT's source, an UPDATE's or a DELETE's target and
  *   FROM, a MERGE's source and target, and the query CTEs any of them read.
  */
