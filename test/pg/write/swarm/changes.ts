@@ -140,17 +140,26 @@ interface Built {
 const factsOf = (facts: ReadonlyArray<Fact>): Member["rows"] => ({ kind: "facts", facts })
 
 /**
- * Whether only an array member writes `op` of the relation named `relation`, the served compile refusing it from a
- * query as UnsupportedOperation: any write of a family's member, whose family values grizzle draws from the call's rows
- * on the host, and an insert of a sequence's or a tree's owner, whose members it writes nested in order under it.
+ * Whether only an array member writes `m`, a member of the stratum `stratum`, the served compile refusing it from a
+ * query: any write of a family's member, whose family values grizzle draws from the call's rows on the host, and an
+ * insert of a sequence's or a tree's owner, whose members it writes nested in order under it (UnsupportedOperation);
+ * and an insert or a put of a counted family's owner in a stratum that inserts or puts a member of that family, an
+ * inserted owner holding its final count and ends in its own row, which grizzle fills only from the facts the
+ * ChangeSet states (QueriedOwnerAppend, write/frontend/compile.ts refuseQueriedOwnerAppend).
  */
-const arrayOnly = (spec: SwarmSpec, op: Member["op"], relation: string): boolean =>
-	Arr.some(
-		spec.fill.families,
-		(f) =>
-			relationName(f.member) === relation ||
-			(op === "insert" && f.kind !== "counted" && relationName(f.owner) === relation)
-	)
+const arrayOnly = (spec: SwarmSpec, m: Member, stratum: ReadonlyArray<Member>): boolean =>
+	Arr.some(spec.fill.families, (f) => {
+		const owner = relationName(f.owner)
+		const member = relationName(f.member)
+		return (
+			member === m.relation.name ||
+			(m.op === "insert" && f.kind !== "counted" && owner === m.relation.name) ||
+			(m.op !== "delete" &&
+				f.kind === "counted" &&
+				owner === m.relation.name &&
+				Arr.some(stratum, (s) => s.op !== "delete" && s.relation.name === member))
+		)
+	})
 
 /**
  * Strata of members as one served ChangeSet over `value`, the strata in sequence, with its call's facts and parameters
@@ -170,8 +179,11 @@ const servedOf = (
 ): Built => {
 	const arrays = new Map<Member["op"], Map<string, Array<Fact>>>()
 	const given: Array<readonly [string, ReadonlyArray<Fact>]> = []
-	/** The member's rows as its ChangeSet holds them, or none where its facts join its array member's. */
-	const sourceOf = (m: Member): ReadonlyArray<MemberInput> => {
+	/**
+	 * The rows of `m`, a member of the stratum `stratum`, as its ChangeSet holds them, or none where its facts join its
+	 * array member's.
+	 */
+	const sourceOf = (m: Member, stratum: ReadonlyArray<Member>): ReadonlyArray<MemberInput> => {
 		if (m.rows.kind === "query") {
 			return [m.rows.query]
 		}
@@ -183,7 +195,7 @@ const servedOf = (
 			byRelation.set(m.relation.name, [...facts])
 			return [[]]
 		}
-		if (arrayOnly(spec, m.op, m.relation.name)) {
+		if (arrayOnly(spec, m, stratum)) {
 			for (const fact of facts) {
 				held.push(fact)
 			}
@@ -210,7 +222,7 @@ const servedOf = (
 	}
 	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
 		Arr.reduce(members, ChangeSet.empty(value), (cs, m) =>
-			Arr.reduce(sourceOf(m), cs, (out, source) => {
+			Arr.reduce(sourceOf(m, members), cs, (out, source) => {
 				switch (m.op) {
 					case "insert":
 						return out.insert(m.relation, source)
