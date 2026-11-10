@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -21,9 +21,8 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
-/** Inserts into a family owner's primary key through db.apply, as a property against a host model of the key.
+/** Inserts into a family owner's primary key through served ChangeSets, as a property against a host model of the key.
  *
  * An owner's row carries its family's count and its fold's end, which grizzle draws, so its insert proposes only the
  * requested facts no stored row holds the key of: PostgreSQL judges a proposed row by every CHECK before the arbiter
@@ -54,6 +53,24 @@ const Owners = schema("OwnerKeys", { Owner, Member }, [
 	fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
 	check("Balanced", Owner, (o) => o.eq(o.end, o.cap))
 ])
+
+/**
+ * The full world's workload: the stored state's load, owners and members inserted from each call's facts; the
+ * requested owners' insert, enumerated from each call's facts; and the same insert described over the relation
+ * parameter `items`.
+ */
+const programs = {
+	load: ChangeSet.empty(Owners).insert(Owner, []).insert(Member, []),
+	insertEnumerated: ChangeSet.empty(Owners).insert(Owner, []),
+	insertDescribed: ChangeSet.empty(Owners).insert(
+		Owner,
+		query(Owners).rule((r) => {
+			const given = r.relation("items", { id: Owner.fields.id, cap: Owner.fields.cap })
+			const { id, cap } = v(Owner, "owner")
+			return r.match(given, { id, cap }).find({ id, cap })
+		})
+	)
+}
 
 /** A stored owner as the model holds it: its key, its payload, which its members sum to, and their step values. */
 interface StoredOwner {
@@ -213,11 +230,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(
-							Owners,
-							{},
-							{ label: "ownerkey", extensions: [], programs: {} }
-						)
+						const o = yield* installed(Owners, {}, { label: "ownerkey", extensions: [], programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						const ownerRow = (owner: StoredOwner) => ({
@@ -232,13 +245,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								Arr.map(owner.members, (x, i) => ({ member: at * 2 + i, g: owner.id, x }))
 							)
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
-							const empty = ChangeSet.empty(o.schema)
-							const items = query(o.schema).rule((r) => {
-								const given = r.relation("items", { id: Owner.fields.id, cap: Owner.fields.cap })
-								const { id, cap } = v(Owner, "owner")
-								return r.match(given, { id, cap }).find({ id, cap })
-							})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },
@@ -271,13 +278,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const members = membersOf(stored)
 										yield* replaceRows(s.admin, installationGroup(names), [])
 										if (stored.length > 0) {
-											const loaded = yield* db.apply(
-												empty
-													.insert(
-														Owner,
-														Arr.map(stored, (owner) => ({ id: owner.id, cap: owner.cap }))
-													)
-													.insert(Member, members),
+											const loaded = yield* db.workload.load.apply(
+												{
+													insert: {
+														Owner: Arr.map(stored, (owner) => ({ id: owner.id, cap: owner.cap })),
+														Member: members
+													}
+												},
 												{}
 											)
 											assert.equal(loaded.kind, "accepted", "the stored state loads")
@@ -285,8 +292,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const facts = Arr.map(requested, (f) => ({ id: f.id, cap: f.cap }))
 										const outcome =
 											c.form === "enumerated"
-												? yield* db.apply(empty.insert(Owner, facts), {})
-												: yield* db.apply(empty.insert(Owner, items), { items: facts })
+												? yield* db.workload.insertEnumerated.apply(
+														{ insert: { Owner: facts } },
+														{}
+													)
+												: yield* db.workload.insertDescribed.apply({ items: facts })
 										const want = expected(c.form, stored, requested)
 										cx.note(`insert ${c.form}`)
 										const storedMembers = yield* tableState(o.installed, Member)
@@ -374,7 +384,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+								Effect.flatMap(Layer.build(o.served.layer), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped
