@@ -252,21 +252,7 @@ const rosterShape: S.Shape<Roster> = S.plain({
 	}
 })
 
-const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
-	S.structStated(
-		{ carrier: S.literalsShape(carriers), caps: capabilitySetShape },
-		{
-			typmod: typmodShape,
-			contract: contractShape,
-			text: textInfoShape,
-			roster: rosterShape,
-			span: spanShape,
-			digits: S.nonNegativeInteger,
-			bound: numericBoundShape
-		},
-		{}
-	)
-)
+const wireShape: S.Shape<WireScalarType> = S.ref("a scalar type", () => wireBody)
 
 /** The structure, then the carrier's rules, the first broken rule named in the refusal. */
 export const scalarTypeShape: S.Shape<ScalarType> = S.plain({
@@ -279,13 +265,28 @@ export const scalarTypeShape: S.Shape<ScalarType> = S.plain({
 
 const contractShape: S.Shape<WireContract> = S.structStated(
 	{ name: declaredNameShape, base: scalarTypeShape, facts: factListShape },
-	{ predicate: S.lazy("an expression table", () => exprTableShape) },
+	{ predicate: S.ref("an expression table", () => exprTableShape) },
 	{}
 )
 
 const spanShape: S.Shape<WireSpan> = S.structStated(
 	{ endpoint: scalarTypeShape },
 	{ width: S.bigint },
+	{}
+)
+
+/** The decoder wireShape refers to (S.ref). */
+const wireBody: S.Shape<WireScalarType> = S.structStated(
+	{ carrier: S.literalsShape(carriers), caps: capabilitySetShape },
+	{
+		typmod: typmodShape,
+		contract: contractShape,
+		text: textInfoShape,
+		roster: rosterShape,
+		span: spanShape,
+		digits: S.nonNegativeInteger,
+		bound: numericBoundShape
+	},
 	{}
 )
 
@@ -586,9 +587,9 @@ const depsShape: S.Shape<ExprDeps> = S.struct({
 
 /**
  * scalar.ts and this module import each other (a contract predicate is an ExprTable), so the scalar shape is read
- * lazily, at decode time, never during module evaluation.
+ * at each decode (S.ref), never while the modules are evaluated.
  */
-const lazyScalarType = S.lazy("a scalar type", () => scalarTypeShape)
+const scalarTypeRef = S.ref("a scalar type", () => scalarTypeShape)
 
 /** A range overload decodes to its interned instance. */
 const opIdShape: S.Shape<OpId> = S.unionShape(
@@ -655,7 +656,7 @@ const common = <A, N>(args: S.Shape<A>, nonNull: S.Shape<N>) =>
 	({
 		id: exprIdShape,
 		args,
-		type: lazyScalarType,
+		type: scalarTypeRef,
 		nonNull,
 		volatility: S.literalsShape(["immutable", "stable"]),
 		deps: depsShape

@@ -1689,45 +1689,45 @@ const premiseShape: S.Shape<Premise> = S.tagged("kind", {
 
 const evidenceContextShape: S.Shape<EvidenceContext> = S.literalsShape(evidenceContexts)
 
-const implicationShape: S.Shape<Implication> = S.lazy("an implication", () =>
-	S.struct({ node: nodeIdShape, from: keySetShape, steps: S.array(dependencyShape) })
-)
+const implicationShape: S.Shape<Implication> = S.ref("an implication", () => implicationBody)
 
 /** The shape of two union arms told apart on a column (ir/keys.ts Separation). */
-const separationShape: S.Shape<Separation> = S.lazy("a separation", () =>
-	S.struct({
-		arms: S.pairShape(S.nonNegativeInteger),
-		column: S.nonEmptyString,
-		fixed: S.pairShape(implicationShape)
-	})
-)
+const separationShape: S.Shape<Separation> = S.ref("a separation", () => separationBody)
+
+/** The decoder separationShape refers to (S.ref). */
+const separationBody: S.Shape<Separation> = S.struct({
+	arms: S.pairShape(S.nonNegativeInteger),
+	column: S.nonEmptyString,
+	fixed: S.pairShape(implicationShape)
+})
 
 /** The shape of a key proof, as a node's metadata records it (rel.ts NodeMeta). */
-const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
-	S.struct({
-		node: nodeIdShape,
-		key: keySetShape,
-		premises: S.array(premiseShape),
-		context: evidenceContextShape,
-		members: S.array(
-			S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
-		),
-		factors: S.array(
-			S.struct({
-				key: S.nonEmptyUniqueStrings("a factor's key columns"),
-				alternatives: S.array(S.struct({ columns: keySetShape, determines: implicationShape }))
-			})
-		),
-		basis: S.tagged("kind", {
-			rows: S.struct({ implication: implicationShape }),
-			union: S.struct({
-				arms: S.nonEmptyArray(keyProofShape),
-				separations: S.array(separationShape)
-			}),
-			within: S.struct({ implication: implicationShape, inner: keyProofShape })
+const keyProofShape: S.Shape<KeyProof> = S.ref("a key proof", () => keyProofBody)
+
+/** The decoder keyProofShape refers to (S.ref). */
+const keyProofBody: S.Shape<KeyProof> = S.struct({
+	node: nodeIdShape,
+	key: keySetShape,
+	premises: S.array(premiseShape),
+	context: evidenceContextShape,
+	members: S.array(
+		S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
+	),
+	factors: S.array(
+		S.struct({
+			key: S.nonEmptyUniqueStrings("a factor's key columns"),
+			alternatives: S.array(S.struct({ columns: keySetShape, determines: implicationShape }))
 		})
+	),
+	basis: S.tagged("kind", {
+		rows: S.struct({ implication: implicationShape }),
+		union: S.struct({
+			arms: S.nonEmptyArray(keyProofShape),
+			separations: S.array(separationShape)
+		}),
+		within: S.struct({ implication: implicationShape, inner: keyProofShape })
 	})
-)
+})
 
 /** The shape of a view's key, as the checker stamps it on a Base over the view (rel.ts ViewBase). */
 const viewKeyShape: S.Shape<ViewKey> = S.struct({
@@ -1806,6 +1806,13 @@ const dependencyShape: S.Shape<Dependency> = S.struct({
 	from: keySetShape,
 	to: keySetShape,
 	rule: ruleShape
+})
+
+/** The decoder implicationShape refers to (S.ref). */
+const implicationBody: S.Shape<Implication> = S.struct({
+	node: nodeIdShape,
+	from: keySetShape,
+	steps: S.array(dependencyShape)
 })
 
 const nodeMetaShape: S.Shape<NodeMeta> = S.struct({

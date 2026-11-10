@@ -779,15 +779,20 @@ describe("shapes", () => {
 
 /** A chain of links to an end: a recursive tagged union, each link a container of its own. */
 type Chain = { readonly kind: "end" } | { readonly kind: "link"; readonly next: Chain }
-const chainShape: S.Shape<Chain> = S.lazy("a chain", () =>
-	S.tagged("kind", { end: S.struct({}), link: S.struct({ next: chainShape }) })
-)
+const chainShape: S.Shape<Chain> = S.ref("a chain", () => chainBody)
+
+/** The decoder chainShape refers to (S.ref). */
+const chainBody: S.Shape<Chain> = S.tagged("kind", {
+	end: S.struct({}),
+	link: S.struct({ next: chainShape })
+})
 
 /** Arrays inside arrays around an integer: a recursive union whose first alternative refuses every array. */
 type Nested = number | ReadonlyArray<Nested>
-const nestedShape: S.Shape<Nested> = S.lazy("a nested array", () =>
-	S.unionShape(S.integer, S.array(nestedShape))
-)
+const nestedShape: S.Shape<Nested> = S.ref("a nested array", () => nestedBody)
+
+/** The decoder nestedShape refers to (S.ref). */
+const nestedBody: S.Shape<Nested> = S.unionShape(S.integer, S.array(nestedShape))
 
 /** The two recursive shapes, read through the shape of any value. */
 type Form = "chain" | "nested array"

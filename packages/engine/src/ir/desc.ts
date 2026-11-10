@@ -1335,75 +1335,18 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
  * each descriptor's once, and every description that holds the descriptor's, a closed relation's fields, a context's, a
  * parameter's type, reads it without proving it again.
  */
-const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
-	S.recognized(
-		S.tagged("kind", {
-			pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
-			numeric: S.refine(
-				S.struct({ precision: S.integer, scale: S.integer }),
-				(f) =>
-					f.precision >= 1 &&
-					f.precision <= numericMaxPrecision.value &&
-					f.scale >= numericMinScale.value &&
-					f.scale <= numericMaxScale.value,
-				`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
-			),
-			uuid: S.struct({}),
-			bytes: S.struct({}),
-			text: S.refine(
-				S.structStated(
-					{ patterns: patternsShape, language: textLanguageShape },
-					{ bytes: S.nonNegativeInteger },
-					{}
-				),
-				(t) => t.bytes === languageOctets(t.language),
-				"a text's byte bound, the one its language enforces"
-			),
-			contract: S.structStated(
-				{
-					name,
-					base: fieldDescShape,
-					facts: S.refine(
-						S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
-						factsSorted,
-						"a contract's facts sorted, each once"
-					)
-				},
-				{ predicate: exprDescShape },
-				{}
-			),
-			span: S.structStated(
-				{ endpoint: fieldDescShape },
-				{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
-				{}
-			),
-			closedId: S.struct({ roster: name }),
-			bits: S.struct({ roster: name }),
-			vector: S.struct({
-				dimensions: S.refine(
-					S.positiveInteger,
-					(n) => n <= vectorMaxDimensions.value,
-					`1..${vectorMaxDimensions.value} dimensions`
-				)
-			})
-		})
-	)
-)
+const fieldDescShape: S.Shape<FieldDesc> = S.ref("a field descriptor", () => fieldDescBody)
 
-const bindingsDescShape: S.Shape<BindingsDesc> = S.lazy("bindings", () =>
-	S.recordShape(exprDescShape, S.nonEmptyString)
-)
+const bindingsDescShape: S.Shape<BindingsDesc> = S.ref("bindings", () => bindingsDescBody)
 
-const bindMapDescShape: S.Shape<BindMapDesc> = S.lazy("a bind map", () =>
-	S.recordShape(bindTermDescShape, S.nonEmptyString)
-)
+const bindMapDescShape: S.Shape<BindMapDesc> = S.ref("a bind map", () => bindMapDescBody)
 
 /**
  * A compute decodes by the function it names, so a scale on a function other than round and trunc is refused at its
  * own path.
  */
 const computeArgs = {
-	args: S.nonEmptyArray(S.lazy("an expression", (): S.Shape<ExprDesc> => exprDescShape))
+	args: S.nonEmptyArray(S.ref("an expression", (): S.Shape<ExprDesc> => exprDescShape))
 } as const
 const unscaledCompute = S.struct(computeArgs)
 const scaledCompute = S.structStated(computeArgs, { scale: S.integer }, {})
@@ -1468,22 +1411,22 @@ const exprCases = {
 	field: S.struct({ field: name }),
 	value: S.struct({}),
 	parent: S.struct({ column: name }),
-	param: S.struct({ name, type: S.lazy("a field descriptor", () => fieldDescShape) }),
+	param: S.struct({ name, type: S.ref("a field descriptor", () => fieldDescShape) }),
 	literal: S.structStated(
 		{ value: literalDescShape },
-		{ type: S.lazy("a field descriptor", () => fieldDescShape) },
+		{ type: S.ref("a field descriptor", () => fieldDescShape) },
 		{}
 	),
 	compute: S.tagged("fn", computeCases),
 	cast: S.struct({
-		to: S.lazy("a field descriptor", () => fieldDescShape),
-		arg: S.lazy("an expression", () => exprDescShape)
+		to: S.ref("a field descriptor", () => fieldDescShape),
+		arg: S.ref("an expression", () => exprDescShape)
 	}),
-	base: S.struct({ arg: S.lazy("an expression", () => exprDescShape) }),
+	base: S.struct({ arg: S.ref("an expression", () => exprDescShape) }),
 	cond: S.struct({
-		pred: S.lazy("an expression", () => exprDescShape),
-		onTrue: S.lazy("an expression", () => exprDescShape),
-		onFalse: S.lazy("an expression", () => exprDescShape)
+		pred: S.ref("an expression", () => exprDescShape),
+		onTrue: S.ref("an expression", () => exprDescShape),
+		onFalse: S.ref("an expression", () => exprDescShape)
 	}),
 	when: S.struct({
 		guard: S.tagged("kind", {
@@ -1494,56 +1437,56 @@ const exprCases = {
 			within: S.struct({ low: literalDescShape, high: literalDescShape }),
 			matches: S.struct({ pattern: S.string })
 		}),
-		subject: S.lazy("an expression", () => exprDescShape),
-		proved: S.lazy("an expression", () => exprDescShape),
-		otherwise: S.lazy("an expression", () => exprDescShape)
+		subject: S.ref("an expression", () => exprDescShape),
+		proved: S.ref("an expression", () => exprDescShape),
+		otherwise: S.ref("an expression", () => exprDescShape)
 	}),
 	compare: S.struct({
 		op: S.literalsShape(compareOps),
-		left: S.lazy("an expression", () => exprDescShape),
-		right: S.lazy("an expression", () => exprDescShape)
+		left: S.ref("an expression", () => exprDescShape),
+		right: S.ref("an expression", () => exprDescShape)
 	}),
 	between: S.struct({
-		arg: S.lazy("an expression", () => exprDescShape),
-		low: S.lazy("an expression", () => exprDescShape),
-		high: S.lazy("an expression", () => exprDescShape)
+		arg: S.ref("an expression", () => exprDescShape),
+		low: S.ref("an expression", () => exprDescShape),
+		high: S.ref("an expression", () => exprDescShape)
 	}),
 	in: S.struct({
-		arg: S.lazy("an expression", () => exprDescShape),
+		arg: S.ref("an expression", () => exprDescShape),
 		values: S.array(literalDescShape)
 	}),
-	and: S.struct({ args: S.array(S.lazy("an expression", () => exprDescShape)) }),
-	or: S.struct({ args: S.array(S.lazy("an expression", () => exprDescShape)) }),
-	not: S.struct({ arg: S.lazy("an expression", () => exprDescShape) }),
+	and: S.struct({ args: S.array(S.ref("an expression", () => exprDescShape)) }),
+	or: S.struct({ args: S.array(S.ref("an expression", () => exprDescShape)) }),
+	not: S.struct({ arg: S.ref("an expression", () => exprDescShape) }),
 	allen: S.struct({
-		left: S.lazy("an expression", () => exprDescShape),
+		left: S.ref("an expression", () => exprDescShape),
 		mask: S.refine(
 			S.integer,
 			(m) => m >= 1 && m <= allenMaskMax,
 			`an Allen mask in 1..${allenMaskMax}`
 		),
-		right: S.lazy("an expression", () => exprDescShape)
+		right: S.ref("an expression", () => exprDescShape)
 	}),
 	pointIn: S.struct({
-		point: S.lazy("an expression", () => exprDescShape),
-		span: S.lazy("an expression", () => exprDescShape)
+		point: S.ref("an expression", () => exprDescShape),
+		span: S.ref("an expression", () => exprDescShape)
 	}),
 	absent: S.struct({
-		source: S.lazy("a source", () => sourceDescShape),
+		source: S.ref("a source", () => sourceDescShape),
 		bindings: bindingsDescShape
 	}),
 	closedAt: S.struct({
 		relation: name,
 		field: name,
-		args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape))
+		args: S.nonEmptyArray(S.ref("an expression", () => exprDescShape))
 	}),
 	closedRow: S.struct({
 		relation: name,
-		args: S.array(S.lazy("an expression", () => exprDescShape))
+		args: S.array(S.ref("an expression", () => exprDescShape))
 	}),
 	closedHas: S.struct({
 		relation: name,
-		args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape))
+		args: S.nonEmptyArray(S.ref("an expression", () => exprDescShape))
 	})
 } as const
 
@@ -1571,8 +1514,12 @@ const unitWhenEmpty = (e: ReadExpr): ExprDesc => {
 	return isNonEmpty(args) ? { kind: e.kind, args } : connectiveUnit(e.kind)
 }
 
-const exprDescShape: S.Shape<ExprDesc> = S.lazy("an expression", () =>
-	S.normalized<ReadExpr, ExprDesc>(S.tagged("kind", exprCases), unitWhenEmpty)
+const exprDescShape: S.Shape<ExprDesc> = S.ref("an expression", () => exprDescBody)
+
+/** The decoder exprDescShape refers to (S.ref). */
+const exprDescBody: S.Shape<ExprDesc> = S.normalized<ReadExpr, ExprDesc>(
+	S.tagged("kind", exprCases),
+	unitWhenEmpty
 )
 
 /** A bind map's binding as the decoder reads it: a read expression, or a relation parameter by name. */
@@ -1582,6 +1529,66 @@ const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTer
 	S.tagged("kind", { ...exprCases, relationParam: S.struct({ name }) }),
 	(b) => (b.kind === "relationParam" ? b : unitWhenEmpty(b))
 )
+
+/** The decoder fieldDescShape refers to (S.ref). */
+const fieldDescBody: S.Shape<FieldDesc> = S.recognized(
+	S.tagged("kind", {
+		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
+		numeric: S.refine(
+			S.struct({ precision: S.integer, scale: S.integer }),
+			(f) =>
+				f.precision >= 1 &&
+				f.precision <= numericMaxPrecision.value &&
+				f.scale >= numericMinScale.value &&
+				f.scale <= numericMaxScale.value,
+			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
+		),
+		uuid: S.struct({}),
+		bytes: S.struct({}),
+		text: S.refine(
+			S.structStated(
+				{ patterns: patternsShape, language: textLanguageShape },
+				{ bytes: S.nonNegativeInteger },
+				{}
+			),
+			(t) => t.bytes === languageOctets(t.language),
+			"a text's byte bound, the one its language enforces"
+		),
+		contract: S.structStated(
+			{
+				name,
+				base: fieldDescShape,
+				facts: S.refine(
+					S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
+					factsSorted,
+					"a contract's facts sorted, each once"
+				)
+			},
+			{ predicate: exprDescShape },
+			{}
+		),
+		span: S.structStated(
+			{ endpoint: fieldDescShape },
+			{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
+			{}
+		),
+		closedId: S.struct({ roster: name }),
+		bits: S.struct({ roster: name }),
+		vector: S.struct({
+			dimensions: S.refine(
+				S.positiveInteger,
+				(n) => n <= vectorMaxDimensions.value,
+				`1..${vectorMaxDimensions.value} dimensions`
+			)
+		})
+	})
+)
+
+/** The decoder bindingsDescShape refers to (S.ref). */
+const bindingsDescBody: S.Shape<BindingsDesc> = S.recordShape(exprDescShape, S.nonEmptyString)
+
+/** The decoder bindMapDescShape refers to (S.ref). */
+const bindMapDescBody: S.Shape<BindMapDesc> = S.recordShape(bindTermDescShape, S.nonEmptyString)
 
 const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTermDesc>(
 	S.tagged("kind", {
@@ -1616,33 +1623,34 @@ const contextDescShape: S.Shape<ContextDesc> = S.structStated(
 	{}
 )
 
-const sourceDescShape: S.Shape<SourceDesc> = S.lazy("a source", () =>
-	S.tagged("kind", {
-		relation: S.struct({ name }),
-		/** An import that binds nothing has the empty binding, however it was spelled. */
-		query: S.normalized(
-			S.structWith(
-				{ query: S.lazy("a query description", () => unorderedQueryShape) },
-				{ bind: bindMapDescShape }
-			),
-			(q) => ({ query: q.query, bind: q.bind ?? {} })
+const sourceDescShape: S.Shape<SourceDesc> = S.ref("a source", () => sourceDescBody)
+
+/** The decoder sourceDescShape refers to (S.ref). */
+const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
+	relation: S.struct({ name }),
+	/** An import that binds nothing has the empty binding, however it was spelled. */
+	query: S.normalized(
+		S.structWith(
+			{ query: S.ref("a query description", () => unorderedQueryShape) },
+			{ bind: bindMapDescShape }
 		),
-		param: S.struct({
-			name,
-			heading: S.refine(
-				fieldMapShape,
-				(f) => Object.keys(f).length > 0,
-				"a relation parameter of at least one field"
-			)
-		}),
-		paramOf: S.struct({ name, relation: name }),
-		interior: S.struct({ id: name }),
-		self: S.struct({}),
-		delta: S.struct({ side: S.literalsShape(["added", "removed"]), relation: name }),
-		context: S.struct({ context: S.lazy("a context description", () => contextDescShape) }),
-		row: S.struct({ heading: fieldMapShape })
-	})
-)
+		(q) => ({ query: q.query, bind: q.bind ?? {} })
+	),
+	param: S.struct({
+		name,
+		heading: S.refine(
+			fieldMapShape,
+			(f) => Object.keys(f).length > 0,
+			"a relation parameter of at least one field"
+		)
+	}),
+	paramOf: S.struct({ name, relation: name }),
+	interior: S.struct({ id: name }),
+	self: S.struct({}),
+	delta: S.struct({ side: S.literalsShape(["added", "removed"]), relation: name }),
+	context: S.struct({ context: S.ref("a context description", () => contextDescShape) }),
+	row: S.struct({ heading: fieldMapShape })
+})
 
 const varDescShape: S.Shape<VarDesc> = S.located(
 	S.structStated({ id: name }, { origin: S.struct({ relation: name, field: name }) }, loc)
@@ -1653,27 +1661,28 @@ const matchDescShape: S.Shape<MatchDesc> = S.located(
 )
 
 const attachDescShape: S.Shape<AttachDesc> = S.located(
-	S.structWith({ name, child: S.lazy("a query description", () => queryDescShape) }, loc)
+	S.structWith({ name, child: S.ref("a query description", () => queryDescShape) }, loc)
 )
 
-const ruleDescShape: S.Shape<RuleDesc> = S.lazy("a rule", () =>
-	S.recognized(
-		S.located(
-			S.structWith(
-				{
-					vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
-					matches: S.array(matchDescShape),
-					where: S.array(exprDescShape),
-					head: S.recordShape(headTermDescShape, S.nonEmptyString),
-					interiors: S.uniqueArray(
-						S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
-						(i) => i.id,
-						"interior ids"
-					),
-					attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
-				},
-				loc
-			)
+const ruleDescShape: S.Shape<RuleDesc> = S.ref("a rule", () => ruleDescBody)
+
+/** The decoder ruleDescShape refers to (S.ref). */
+const ruleDescBody: S.Shape<RuleDesc> = S.recognized(
+	S.located(
+		S.structWith(
+			{
+				vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
+				matches: S.array(matchDescShape),
+				where: S.array(exprDescShape),
+				head: S.recordShape(headTermDescShape, S.nonEmptyString),
+				interiors: S.uniqueArray(
+					S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
+					(i) => i.id,
+					"interior ids"
+				),
+				attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
+			},
+			loc
 		)
 	)
 )
@@ -1709,53 +1718,55 @@ const notOrdered = <A extends { readonly input: QueryStageDesc }>(
 		`${what} applied to a Query, not an Ordered`
 	)
 
-const stageInput = S.lazy("a query stage", () => queryStageShape)
+const stageInput = S.ref("a query stage", () => queryStageShape)
 const arms = S.nonEmptyArray(ruleDescShape)
 
-const queryStageShape: S.Shape<QueryStageDesc> = S.lazy("a query stage", () =>
-	S.recognized(
-		S.tagged("kind", {
-			rules: S.located(S.structWith({ arms }, loc)),
-			recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
-			union: S.refine(
-				notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
-				(u) => u.input.kind !== "rules",
-				"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
+const queryStageShape: S.Shape<QueryStageDesc> = S.ref("a query stage", () => queryStageBody)
+
+/** The decoder queryStageShape refers to (S.ref). */
+const queryStageBody: S.Shape<QueryStageDesc> = S.recognized(
+	S.tagged("kind", {
+		rules: S.located(S.structWith({ arms }, loc)),
+		recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
+		union: S.refine(
+			notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
+			(u) => u.input.kind !== "rules",
+			"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
+		),
+		attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
+		named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
+		order: notOrdered(
+			S.located(
+				S.structWith(
+					{
+						input: stageInput,
+						order: S.refine(
+							S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
+							(o) => o.length > 0,
+							"a nonempty order"
+						)
+					},
+					loc
+				)
 			),
-			attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
-			named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
-			order: notOrdered(
-				S.located(
-					S.structWith(
-						{
-							input: stageInput,
-							order: S.refine(
-								S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
-								(o) => o.length > 0,
-								"a nonempty order"
-							)
-						},
-						loc
-					)
-				),
-				"orderBy"
-			),
-			take: S.refine(
-				S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
-				(t) => t.input.kind === "order",
-				"take applied to an Ordered, the result of orderBy"
-			),
-			approx: notOrdered(
-				S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
-				"approximateNearest"
-			)
-		})
-	)
+			"orderBy"
+		),
+		take: S.refine(
+			S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
+			(t) => t.input.kind === "order",
+			"take applied to an Ordered, the result of orderBy"
+		),
+		approx: notOrdered(
+			S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
+			"approximateNearest"
+		)
+	})
 )
 
-const queryDescShape: S.Shape<QueryDesc> = S.lazy("a query description", () =>
-	S.recognized(S.struct({ stage: queryStageShape }))
-)
+const queryDescShape: S.Shape<QueryDesc> = S.ref("a query description", () => queryDescBody)
+
+/** The decoder queryDescShape refers to (S.ref). */
+const queryDescBody: S.Shape<QueryDesc> = S.recognized(S.struct({ stage: queryStageShape }))
 
 /** A query that is a Query, not an Ordered: a match source, a ChangeSet member, a derived definition. */
 const unorderedQueryShape: S.Shape<QueryDesc> = S.refine(
@@ -2081,31 +2092,36 @@ const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 	}
 })
 
-const schemaDescShape: S.Shape<SchemaDesc> = S.lazy("a schema description", () =>
-	S.located(
-		S.structStated(
-			{
-				name,
-				relations: S.uniqueArray(schemaRelationShape, (r) => r.name, "relation names"),
-				statements: S.array(statementDescShape)
-			},
-			{ extends: schemaDescShape },
-			loc
-		)
+const schemaDescShape: S.Shape<SchemaDesc> = S.ref("a schema description", () => schemaDescBody)
+
+/** The decoder schemaDescShape refers to (S.ref). */
+const schemaDescBody: S.Shape<SchemaDesc> = S.located(
+	S.structStated(
+		{
+			name,
+			relations: S.uniqueArray(schemaRelationShape, (r) => r.name, "relation names"),
+			statements: S.array(statementDescShape)
+		},
+		{ extends: schemaDescShape },
+		loc
 	)
 )
 
-const unadmittedSchemaShape: S.Shape<UnadmittedSchemaDesc> = S.lazy("a schema description", () =>
-	S.located(
-		S.structStated(
-			{
-				name,
-				relations: S.uniqueArray(relationDescShape, (r) => r.name, "relation names"),
-				statements: S.array(statementDescShape)
-			},
-			{ extends: unadmittedSchemaShape },
-			loc
-		)
+const unadmittedSchemaShape: S.Shape<UnadmittedSchemaDesc> = S.ref(
+	"a schema description",
+	() => unadmittedSchemaBody
+)
+
+/** The decoder unadmittedSchemaShape refers to (S.ref). */
+const unadmittedSchemaBody: S.Shape<UnadmittedSchemaDesc> = S.located(
+	S.structStated(
+		{
+			name,
+			relations: S.uniqueArray(relationDescShape, (r) => r.name, "relation names"),
+			statements: S.array(statementDescShape)
+		},
+		{ extends: unadmittedSchemaShape },
+		loc
 	)
 )
 

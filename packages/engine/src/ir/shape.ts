@@ -138,7 +138,7 @@ interface Task {
 
 /**
  * A decode in progress: a generator that returns its answer. A shape reads its parts by delegating to their steps
- * (yield*), and a recursive shape (lazy) yields its part's step to the driver as a Task instead, so the call stack grows
+ * (yield*), and a reference to a shape (ref) yields its part's step to the driver as a Task instead, so the call stack grows
  * with the nesting of the shapes' own definitions and never with the value's.
  */
 type Step<A> = Generator<Task, A, void>
@@ -165,7 +165,7 @@ class Deferred<A> implements Task {
 	}
 }
 
-/** `step`, run by the driver on its own stack, its answer handed back once it ends: how lazy reads its shape's part. */
+/** `step`, run by the driver on its own stack, its answer handed back once it ends: how ref reads its shape's part. */
 function* deferred<A>(step: Step<A>): Step<A> {
 	const task = new Deferred(step)
 	yield task
@@ -1267,19 +1267,18 @@ export const located = <A extends object>(
 }
 
 /**
- * Recursion: the shape is looked up when first used, and each value it reads is decoded on the driver's stack
- * (deferred), so a value nested through it to any depth never deepens the call stack.
+ * A reference to a shape declared later in its module, or in a module this one imports in a cycle, which is how a
+ * recursive shape names itself: `shape` names that declaration, and is read at each parse, never while the modules
+ * are evaluated. Each value it reads is decoded on the driver's stack (deferred), so a value nested through it to any
+ * depth never deepens the call stack.
  */
-export const lazy = <A>(expected: string, thunk: () => Shape<A>): Shape<A> => {
-	let cached: Shape<A> | undefined
-	return plain({
+export const ref = <A>(expected: string, shape: () => Shape<A>): Shape<A> =>
+	plain({
 		expected,
 		parse: function* (value, path) {
-			cached ??= thunk()
-			return yield* deferred(cached.parse(value, path))
+			return yield* deferred(shape().parse(value, path))
 		}
 	})
-}
 
 /**
  * A value implementing the canonical protocol with the given tag, parsed from its payload into the carrier `parse`
