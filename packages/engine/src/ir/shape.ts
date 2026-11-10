@@ -315,16 +315,12 @@ function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {
 }
 
 /**
- * Runs `shape` over `value` at the root of `path`, as a Result. The path's subject names what is being decoded in the
- * error location ("query description at arms[0].head.total").
+ * Runs the decode `step` makes over `path`, as a Result. The path's subject names what is being decoded in the error
+ * location ("query description at arms[0].head.total").
  */
-const decodeOn = <A>(
-	shape: Shape<A>,
-	value: unknown,
-	path: DecodePath
-): Result.Result<A, CompileError> => {
+const decodeOn = <A>(step: () => Step<A>, path: DecodePath): Result.Result<A, CompileError> => {
 	try {
-		return Result.ok(drive(shape.parse(value, path)))
+		return Result.ok(drive(step()))
 	} catch (caught) {
 		if (caught === unwinding) {
 			const refused = path.taken()
@@ -345,7 +341,30 @@ export const decodeWith = <A>(
 	shape: Shape<A>,
 	value: unknown,
 	what: string
-): Result.Result<A, CompileError> => decodeOn(shape, value, new DecodePath(what))
+): Result.Result<A, CompileError> => {
+	const path = new DecodePath(what)
+	return decodeOn(() => shape.parse(value, path), path)
+}
+
+/**
+ * `value` decoded by `shape` as the part at `keys` of a value decoded under the subject `what` (decodeWith): its
+ * refusal is the one a decode of that whole value gives there, at the same location, and a node it leaves unlocated is
+ * located at its place in that value. A builder decodes a caller's part this way where it places it in a Description
+ * it builds from parts already decoded.
+ */
+export const decodeAt = <A>(
+	shape: Shape<A>,
+	value: unknown,
+	what: string,
+	keys: Path
+): Result.Result<A, CompileError> => {
+	const path = new DecodePath(what)
+	const stepAt = (from: number): Step<A> => {
+		const key = keys[from]
+		return key === undefined ? shape.parse(value, path) : path.at(key, stepAt(from + 1))
+	}
+	return decodeOn(() => stepAt(0), path)
+}
 
 /**
  * The decoded form of `value`, a value of the decoded type that this package's own code built: what decodeWith gives
@@ -355,7 +374,7 @@ export const decodeWith = <A>(
  */
 export const conformWith = <A>(shape: Shape<A>, value: A, what: string): A => {
 	const path = new DecodePath(what)
-	const decoded = decodeOn(shape, value, path)
+	const decoded = decodeOn(() => shape.parse(value, path), path)
 	if (!decoded.ok) {
 		throw defect(`a value this package built has its shape: ${decoded.error.message}`)
 	}

@@ -1,9 +1,9 @@
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import { deepFreeze, hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type WorkloadDesc, decodeDesc, type ProgramDesc } from "#compiler/ir/desc.ts"
+import { declaredNameAt, type ProgramDesc, type WorkloadDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import {
 	levelSchema,
@@ -298,7 +298,10 @@ export const workload = <S, P extends object>(
 	}
 	/** A role's workload is its base's: its programs plan the base's indexes. */
 	const base = built.kind === "role" ? built.desc.base.name : built.desc.name
-	const desc = orThrow(decodeDesc("workload", { schema: base, programs: descs }))
+	for (const name of Object.keys(descs)) {
+		orThrow(declaredNameAt("workload", ["programs", name], name))
+	}
+	const desc: WorkloadDesc = deepFreeze({ schema: base, programs: descs })
 	const value: Workload<S, P> = Object.freeze({ schema, programs: Object.freeze(named) })
 	states.set(value, { schema: built, desc, programs: entries })
 	return value

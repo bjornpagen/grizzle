@@ -2479,6 +2479,17 @@ export const decodeDesc = <K extends DescKind>(
 	value: unknown
 ): Result.Result<DescOf<K>, CompileError> => S.decodeWith(descShapes[kind], value, subjects[kind])
 
+/**
+ * A caller's declared name decoded as the part at `keys` of a Description of kind `kind` (S.decodeAt): the refusal a
+ * decode of the whole Description gives it there, for a builder that places the name in a Description it builds from
+ * parts already decoded.
+ */
+export const declaredNameAt = (
+	kind: DescKind,
+	keys: S.Path,
+	value: unknown
+): Result.Result<string, CompileError> => S.decodeAt(name, value, subjects[kind], keys)
+
 /** The JSON form, source locations included: what crosses a process boundary. */
 export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
 	toJson(desc, everyProperty)
