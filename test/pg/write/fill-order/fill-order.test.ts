@@ -5,9 +5,8 @@ import { constant, filter, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { memberOps } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
@@ -17,6 +16,7 @@ import {
 	type FillSpec,
 	type FollowUp,
 	fillSpecGen,
+	type FollowUpMember,
 	followUpGen,
 	followUpMembers,
 	followUpRows,
@@ -40,15 +40,16 @@ import {
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
+import { appliedWith, type CallFacts, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A drawn schema of families and copies that `grizzle generate` accepts installs through its first migration, and the
  * first insert of a drawn instance of it, one ChangeSet writing every relation a caller writes (a sequence's members
  * nested under their owners, a tree's nodes to any depth, a counted family's members by their group keys), is accepted
- * through db.apply and stores exactly the rows the reference writer fills (test/support/families/fill.ts
+ * through a served member and stores exactly the rows the reference writer fills (test/support/families/fill.ts
  * `writtenRows`): every field of every row, each count, index, interval, fold end and copy, a counted family's among
  * them, whatever its owner's standing, a top relation's row, a tree's node or a sequence's member, and whatever its
  * member's: a counted member may itself be an ordered family's member, a tree's node or a sequence's owner, its row
@@ -814,17 +815,87 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 							})
 							const value = built.rename(done.schema)
 							const world = fullWorld(value, {})
+							const relationAtName = (r: number) => defined(built.relations[relationName(r)])
 							const facts = instanceFacts(spec, rows)
-							const changes = Arr.reduce(insertedRelations(spec), ChangeSet.empty(value), (cs, r) =>
-								cs.insert(defined(built.relations[relationName(r)]), facts.get(r) ?? [])
+							/** The first insert: every relation a caller writes, each its own array member. */
+							const first = Arr.reduce(insertedRelations(spec), ChangeSet.empty(value), (cs, r) =>
+								cs.insert(relationAtName(r), [])
 							)
+							const firstFacts: CallFacts = {
+								insert: Rec.fromEntries(
+									Arr.map(
+										insertedRelations(spec),
+										(r): readonly [string, ReadonlyArray<unknown>] => [
+											relationName(r),
+											facts.get(r) ?? []
+										]
+									)
+								)
+							}
+							/**
+							 * The follow-up, its members, and its served ChangeSet's array members: one per op and relation, at the
+							 * first of its members, whose facts are every such member's in order, as its stratum's union holds them.
+							 */
+							const followed = Option.map(followUp, (f) => {
+								const all = followUpMembers(spec, rows, f)
+								return {
+									followUp: f,
+									members: all,
+									slots: Arr.dedupeWith(all, (a, b) => a.op === b.op && a.relation === b.relation)
+								}
+							})
+							const programs = Option.match(followed, {
+								onNone: () => ({ first }),
+								onSome: ({ slots }) => ({
+									first,
+									next: Arr.reduce(slots, ChangeSet.empty(value), (cs, m) => {
+										const relation = relationAtName(m.relation)
+										switch (m.op) {
+											case "insert":
+												return cs.insert(relation, [])
+											case "put":
+												return cs.put(relation, [])
+											case "delete":
+												return cs.delete(relation, [])
+										}
+									})
+								})
+							})
+							/** The follow-up's call facts: under each op, each relation's facts. */
+							const nextFacts = (
+								all: ReadonlyArray<FollowUpMember>,
+								held: ReadonlyArray<FollowUpMember>
+							): CallFacts =>
+								Rec.fromEntries(
+									Arr.map(
+										Arr.dedupe(Arr.map(held, (s) => s.op)),
+										(op): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
+											op,
+											Rec.fromEntries(
+												Arr.map(
+													Arr.filter(held, (s) => s.op === op),
+													(s): readonly [string, ReadonlyArray<unknown>] => [
+														relationName(s.relation),
+														Arr.flatMap(
+															Arr.filter(all, (x) => x.op === op && x.relation === s.relation),
+															(x: FollowUpMember) => x.facts
+														)
+													]
+												)
+											)
+										]
+									)
+								)
 							yield* Effect.gen(function* () {
-								const { ctx: opened } = yield* openDbContext(world.server.roles.app, {})
-								const flight = yield* oneFlight(opened, done.as(world.server))
-								const ctx = flight.context
+								const db = yield* openServedDb(done, world.server.roles.app, {})
+								const flight = yield* oneFlight(db.ctx, done.as(world.server))
+								const loaded = yield* db.load(programs)
+								/** A member applied on the tapped context with its call's facts. */
+								const applied = (name: string, callFacts: CallFacts) =>
+									appliedWith(memberOps(flight.context, member(loaded, name)), callFacts, {})
 								const outcome = yield* flight.judged(
 									"the instance's first insert",
-									apply(ctx, changes, changes.reads, {})
+									applied("first", firstFacts)
 								)
 								assert.equal(
 									outcome.kind,
@@ -848,31 +919,20 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									})
 								yield* stores(rows, "the first insert")
 								c.noteAll(shapesOf(spec))
-								if (Option.isNone(followUp)) {
+								if (Option.isNone(followed)) {
 									return
 								}
-								const members = followUpMembers(spec, rows, followUp.value)
-								const next = Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
-									const relation = defined(built.relations[relationName(m.relation)])
-									switch (m.op) {
-										case "insert":
-											return cs.insert(relation, m.facts)
-										case "put":
-											return cs.put(relation, m.facts)
-										case "delete":
-											return cs.delete(relation, m.facts)
-									}
-								})
+								const { followUp: f, members, slots } = followed.value
 								const second = yield* flight.judged(
 									"the follow-up",
-									apply(ctx, next, next.reads, {})
+									applied("next", nextFacts(members, slots))
 								)
 								assert.equal(
 									second.kind,
 									"accepted",
 									`the follow-up ${Formatter.format(members)} of ${Formatter.format(spec)}`
 								)
-								const after = followUpRows(rows, followUp.value)
+								const after = followUpRows(rows, f)
 								yield* stores(after, "the follow-up")
 								c.note("a follow-up written over the stored instance")
 								const verdict = writesVerdict(
@@ -902,19 +962,12 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									c.note("a follow-up that re-places an immutable owner of counted members")
 								}
 								if (
-									Option.isSome(followUp.value.put) &&
-									(Arr.isReadonlyArrayNonEmpty(followUp.value.inserted) ||
-										Option.isSome(followUp.value.appended))
+									Option.isSome(f.put) &&
+									(Arr.isReadonlyArrayNonEmpty(f.inserted) || Option.isSome(f.appended))
 								) {
 									c.note("an owner put in place beside an append to its family")
 								}
-							}).pipe(
-								(body) =>
-									Effect.flatMap(Layer.build(loginLayer(done, world.server)), (context) =>
-										Effect.provideContext(body, context)
-									),
-								Effect.scoped
-							)
+							}).pipe(Effect.scoped)
 						}).pipe(Effect.scoped)
 				)
 			)
