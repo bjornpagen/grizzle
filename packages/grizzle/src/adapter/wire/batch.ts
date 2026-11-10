@@ -13,7 +13,14 @@ import * as Result from "effect/Result"
  * Flights, a hot path: every statement of every Db call is planned, written and answered here, so the per-statement
  * work is native loops with no Option, tuple or closure per statement, and Effect stays at the flight's boundary.
  */
-import { defect, sqlstates, textParam } from "#compiler/plan/runtime.ts"
+import {
+	defect,
+	type Prepared,
+	sqlstates,
+	type StatementName,
+	statementNameBytes,
+	textParam
+} from "#compiler/plan/runtime.ts"
 
 import {
 	type ReadError,
@@ -65,13 +72,45 @@ export type MigrationText = string & Brand.Brand<"MigrationText">
 export type SentText = EmittedText | MigrationText
 
 /**
- * One statement of a flight, run as PostgreSQL's unnamed statement, parsed, bound and executed in its execution: its
- * SQL and its parameters, each a text or a binary value, in placeholder order.
+ * One statement of a flight and its parameters, each a text or a binary value, in placeholder order: a statement of a
+ * served login's programs, its prologue's two among them (PreparedStatement), or SQL grizzle sends beside them
+ * (OneShotStatement). Each is sent one way only, by its kind, never by a choice of its sender's.
  */
-export interface BatchStatement {
+export type BatchStatement = PreparedStatement | OneShotStatement
+
+/**
+ * A served statement: its text runs as its named prepared statement (core/prepared.ts), which pg parses on the
+ * session's first use of its name and binds on every use after, so PostgreSQL parses and plans it once per session.
+ * Its text is named where generate serves it, so nothing names it per call.
+ */
+export interface PreparedStatement {
+	readonly _tag: "prepared"
+	readonly text: Prepared<EmittedText>
+	readonly params: ReadonlyArray<Param>
+}
+
+/**
+ * SQL grizzle sends beside the served programs, admission's, a migration's, the ledger's, a catalog read and an
+ * EXPLAIN: PostgreSQL's unnamed statement, parsed, planned, bound and executed in its own execution. It has no name,
+ * so no session keeps it.
+ */
+export interface OneShotStatement {
+	readonly _tag: "oneShot"
 	readonly sql: SentText
 	readonly params: ReadonlyArray<Param>
 }
+
+/** The served statement of `text` over `params`. */
+export const preparedStatement = (
+	text: Prepared<EmittedText>,
+	params: ReadonlyArray<Param>
+): PreparedStatement => ({ _tag: "prepared", text, params })
+
+/** The one-shot statement of `sql` over `params`. */
+export const oneShotStatement = (
+	sql: SentText,
+	params: ReadonlyArray<Param>
+): OneShotStatement => ({ _tag: "oneShot", sql, params })
 
 /**
  * What one statement of a flight returned: its command tag, and its rows, every cell the text the server sent
@@ -122,14 +161,17 @@ export interface Prologue {
 	readonly role: string
 	readonly claims: string
 	readonly snapshot: SchemaFingerprint
-	readonly fence: BatchStatement
-	readonly enter: BatchStatement
+	readonly fence: PreparedStatement
+	readonly enter: PreparedStatement
 }
 
-/** The prologue's two statements' texts, its schema's ledger statements (deploy/ledger/ledger.ts fence and enter). */
+/**
+ * The prologue's two statements' texts, its schema's ledger statements (deploy/ledger/ledger.ts fence and enter), each
+ * named where generate serves its login: every Db transaction sends both.
+ */
 export interface PrologueStatements {
-	readonly fence: EmittedText
-	readonly enter: EmittedText
+	readonly fence: Prepared<EmittedText>
+	readonly enter: Prepared<EmittedText>
 }
 
 /** The prologue of a Db of `role` with `claims`, admitted at `snapshot`, from its pool's prologue statements. */
@@ -142,11 +184,12 @@ export const prologueOf = (
 	role,
 	claims,
 	snapshot,
-	fence: { sql: statements.fence, params: [] },
-	enter: {
-		sql: statements.enter,
-		params: [textParam(snapshot), textParam(role), textParam(claims)]
-	}
+	fence: preparedStatement(statements.fence, []),
+	enter: preparedStatement(statements.enter, [
+		textParam(snapshot),
+		textParam(role),
+		textParam(claims)
+	])
 })
 
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
@@ -208,19 +251,12 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
 	}
 }
 
-/** A statement of a flight as planned: its query in the pipeline. */
+/** A statement of a flight as planned: its query in the pipeline, the statement itself. */
 interface Planned {
-	readonly query: Extract<WireQuery, { readonly _tag: "statement" }>
+	readonly query: BatchStatement
 }
 
-/** A statement as the pipeline's query. */
-const queryOf = (statement: BatchStatement): Planned["query"] => ({
-	_tag: "statement",
-	sql: statement.sql,
-	params: statement.params
-})
-
-const plannedOf = (statement: BatchStatement): Planned => ({ query: queryOf(statement) })
+const plannedOf = (statement: BatchStatement): Planned => ({ query: statement })
 
 /** Plans each of `statements`. */
 const planAll = (statements: ReadonlyArray<BatchStatement>): ReadonlyArray<Planned> =>
@@ -341,7 +377,7 @@ const planOf = <P, F>(
 		const planned: PlannedStatement = {
 			kind: "statement",
 			at: framed.length,
-			query: queryOf(statement)
+			query: statement
 		}
 		framed.push(planned)
 		steps.push(planned)
@@ -900,8 +936,14 @@ const runEntered = <P, F>(
  *   CommitRefused nor CommitLost (`AloneFailure`).
  * - A flight ends when every query has been answered and the ReadyForQuery after the last one has been read, so a
  *   session is never handed on with an answer still to come.
- * - Statements. Every statement runs as PostgreSQL's unnamed statement, parsed, bound and executed in its own
- *   execution: no session keeps a statement between flights.
+ * - Statements. A served statement runs as its named prepared statement (PreparedStatement): pg sends its Parse,
+ *   inside the flight's one write, right before its Bind, only where its connection has not parsed the name yet, and
+ *   pg's own record of each connection's names (parsedStatements, set at ParseComplete, and submittedNamedStatements,
+ *   dropped with an ErrorResponse to the query that sent its Parse) decides it, so a new or recycled connection parses
+ *   each name again on its first use and nothing outlives its connection. A name used twice in one flight is parsed
+ *   once; where that Parse is refused, the transaction failed there already (decide reads the first refusal). grizzle
+ *   never closes a name: the server keeps every name pg holds parsed. Every other statement (OneShotStatement) runs
+ *   as PostgreSQL's unnamed statement, parsed, bound and executed in its own execution.
  * - State. A refused BEGIN, an answer that does not fit and an interruption retire the session, and a lost connection
  *   ends it (session.ts SessionState): either way it is never reused. A refused statement or COMMIT does not, nor does
  *   a transaction's or a lone statement's unreadable answer: the session stays open and idle, unless the connection
@@ -1041,14 +1083,16 @@ const bindParamFields = { format: 2, length: 4 } as const
 
 /**
  * The bytes of a Bind message beside its parameters' texts, as the engine's family planner measures its statements by
- * (write/family/order.ts inForce, BindFrame): `statement`, its fields of fixed size (bindFields), the unnamed
- * statement's name being empty; `parameter`, each parameter's fields of fixed size (bindParamFields). A Bind message
- * bindLength measures is never longer than the frame and its texts.
+ * (write/family/order.ts inForce, BindFrame): `statement`, its fields of fixed size (bindFields) and a served
+ * statement's name (core/prepared.ts statementNameBytes), since every statement the planner cuts is one;
+ * `parameter`, each parameter's fields of fixed size (bindParamFields). A Bind message bindLength measures is never
+ * longer than the frame and its texts.
  */
 export const bindFrame: BindFrame = {
 	statement:
 		bindFields.length +
 		bindFields.portalEnd +
+		statementNameBytes +
 		bindFields.nameEnd +
 		bindFields.formats +
 		bindFields.params +
@@ -1058,24 +1102,29 @@ export const bindFrame: BindFrame = {
 }
 
 /**
+ * The bytes of the name `statement` runs under, as its Parse and Bind carry it: a served statement's, ASCII, and none
+ * for PostgreSQL's unnamed statement.
+ */
+const nameBytes = (statement: BatchStatement): number =>
+	statement._tag === "prepared" ? statement.text.name.length : 0
+
+/**
  * The length the Bind message of one execution of `statement` declares, its Int32 length word included and its type
  * byte not, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts `bind`): its fields of fixed size (bindFields), the
- * unnamed statement's empty name, and each parameter's fields of fixed size (bindParamFields) and bytes: a text's UTF-8
- * bytes, a binary value's own.
+ * name of the statement it binds (nameBytes), and each parameter's fields of fixed size (bindParamFields) and bytes: a
+ * text's UTF-8 bytes, a binary value's own.
  */
-export const bindLength = (statement: BatchStatement): number => bindLengthOf(statement.params)
-
-/** The length a Bind message of `params` declares (bindLength). */
-const bindLengthOf = (params: ReadonlyArray<Param>): number => {
+export const bindLength = (statement: BatchStatement): number => {
 	let length =
 		bindFields.length +
 		bindFields.portalEnd +
+		nameBytes(statement) +
 		bindFields.nameEnd +
 		bindFields.formats +
 		bindFields.params +
 		bindFields.results +
 		bindFields.result
-	for (const param of params) {
+	for (const param of statement.params) {
 		length +=
 			bindParamFields.format +
 			bindParamFields.length +
@@ -1108,26 +1157,34 @@ const portalBytes =
 	(messageHead + messageFields.end + messageFields.rowLimit) +
 	messageHead
 
+/** The text a statement's Parse carries. */
+const parsedText = (statement: BatchStatement): string =>
+	statement._tag === "prepared" ? statement.text.sql : statement.sql
+
 /**
- * The length a Parse of `sql` as the unnamed statement, with no parameter types, declares: its length word, its empty
- * name and its text each ended by a NUL, and its count of parameter types, its type byte not.
+ * The length the Parse of `statement`, with no parameter types, declares: its length word, the name it runs under
+ * (nameBytes) and its text each ended by a NUL, and its count of parameter types, its type byte not.
  */
-export const parseLength = (sql: string): number =>
+export const parseLength = (statement: BatchStatement): number =>
 	messageFields.length +
+	nameBytes(statement) +
 	messageFields.end +
-	Buffer.byteLength(sql, "utf8") +
+	Buffer.byteLength(parsedText(statement), "utf8") +
 	messageFields.end +
 	messageFields.typeCount
 
 /** A statement's Bind, then its Describe, Execute and Sync. */
-const executionBytes = (params: ReadonlyArray<Param>): number =>
-	messageFields.type + bindLengthOf(params) + portalBytes
+const executionBytes = (statement: BatchStatement): number =>
+	messageFields.type + bindLength(statement) + portalBytes
 
 /**
  * The bytes of a flight as pg writes it in its one corked write (session.ts send), or its refusal: every query of
  * `pipeline`, a control's simple Query, or a statement's Parse, then its Bind, Describe, Execute and Sync. A Parse longer than `messageLimit`, the longest message the session's server reads, as its length word counts
  * it, is refused as InputTooLarge (parse): PostgreSQL ends the connection at it instead of answering, so the bound is
- * on the message, its statement's text with its name and fields, never on the text alone.
+ * on the message, its statement's text with its name and fields, never on the text alone. A served statement's Parse
+ * is counted at the first statement of the flight under its name, where pg sends it on a new connection: the count is
+ * the flight's bytes on a new connection, the most it writes on any, since a connection that parsed the name already
+ * sends none, so whether a flight is refused never depends on the connection it was given.
  */
 const accountFlight = (
 	pipeline: ReadonlyArray<WireQuery>,
@@ -1135,13 +1192,20 @@ const accountFlight = (
 	controls: ControlTexts
 ): Result.Result<number, InputTooLarge> => {
 	let bytes = 0
+	const named = new Set<StatementName>()
 	for (const query of pipeline) {
 		if (query._tag === "control") {
 			bytes += textMessageBytes(controlText(controls, query.control))
 			continue
 		}
-		bytes += executionBytes(query.params)
-		const parse = parseLength(query.sql)
+		bytes += executionBytes(query)
+		if (query._tag === "prepared") {
+			if (named.has(query.text.name)) {
+				continue
+			}
+			named.add(query.text.name)
+		}
+		const parse = parseLength(query)
 		if (parse > messageLimit) {
 			return Result.fail(
 				new InputTooLarge({ bound: { kind: "parse", bytes: parse, limit: messageLimit } })

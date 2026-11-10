@@ -38,6 +38,7 @@ export {
 } from "#compiler/core/limits.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { builtMark } from "#compiler/core/phantom.ts"
+export { type Prepared, type StatementName, statementNameBytes } from "#compiler/core/prepared.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
 export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"

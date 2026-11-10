@@ -293,11 +293,14 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 									yield* pinned.query("BEGIN", [])
 									for (const st of statements.slice(0, at)) {
 										if (st.step.kind === "carrier" || st.step.kind === "analyze") {
-											yield* pinned.query(st.form.sql, paramValues(st.form, hostParams, declared))
+											yield* pinned.query(
+												st.form.text.sql,
+												paramValues(st.form, hostParams, declared)
+											)
 										}
 									}
 									const rows = yield* pinned.queryValues(
-										`EXPLAIN (FORMAT JSON) ${deletion.form.sql}`,
+										`EXPLAIN (FORMAT JSON) ${deletion.form.text.sql}`,
 										paramValues(deletion.form, hostParams, declared)
 									)
 									yield* pinned.query("ROLLBACK", [])

@@ -9,7 +9,14 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Connection } from "pg"
-import { bindLength, bindOverrun, type BatchStatement } from "#adapter/wire/batch.ts"
+import {
+	type BatchStatement,
+	bindLength,
+	bindOverrun,
+	oneShotStatement,
+	preparedStatement
+} from "#adapter/wire/batch.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -37,7 +44,13 @@ const pgBind = (statement: BatchStatement): Buffer => {
 		}
 	})
 	const connection = new Connection({ stream: () => wire })
-	connection.bind({ values: [...textsOfParams(statement.params)] }, false)
+	connection.bind(
+		{
+			statement: statement._tag === "prepared" ? statement.text.name : "",
+			values: [...textsOfParams(statement.params)]
+		},
+		false
+	)
 	return Buffer.concat(written)
 }
 
@@ -50,11 +63,14 @@ const text = string(
 	{ min: 0, max: 40 }
 )
 
-/** A statement of a flight, run unnamed, with its parameters' texts. */
-const statementGen: Gen<BatchStatement> = (source) => ({
-	sql: testSql("SELECT $1::text"),
-	params: Arr.map(source.draw(array(text, { min: 0, max: 6 })), paramText)
-})
+/** A statement of a flight with its parameters' texts: a served one, bound by its name, or a one-shot one, unnamed. */
+const statementGen: Gen<BatchStatement> = (source) => {
+	const params = Arr.map(source.draw(array(text, { min: 0, max: 6 })), paramText)
+	const sql = testSql("SELECT $1::text")
+	return source.draw(element(["prepared", "oneShot"] as const)) === "prepared"
+		? preparedStatement(prepared(sql), params)
+		: oneShotStatement(sql, params)
+}
 
 /**
  * Where the limit falls: one byte short of a drawn statement's message, exactly at it, or a drawn distance past it, so

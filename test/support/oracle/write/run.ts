@@ -344,7 +344,7 @@ const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 	send: (pipeline, onAnswer, onEnd, onCut) => {
 		const last = pipeline[pipeline.length - 1]
 		const ends = last?._tag === "control" && last.control.kind === "end" ? last.control.end : "kept"
-		const statements = Arr.filter(pipeline, (q) => q._tag === "statement").length
+		const statements = Arr.filter(pipeline, (q) => q._tag !== "control").length
 		let refused = false
 		let committed = false
 		session.send(

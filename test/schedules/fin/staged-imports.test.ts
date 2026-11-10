@@ -32,6 +32,7 @@ import { servedSessions } from "#adapter/pool/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
@@ -171,7 +172,7 @@ const unanalyzed: Staging = (member) => {
 								...st,
 								staged:
 									st.staged.kind === "carriers"
-										? { ...st.staged, analyze: testSql("SELECT") }
+										? { ...st.staged, analyze: prepared(testSql("SELECT")) }
 										: st.staged
 							}))
 						}

@@ -67,8 +67,9 @@ export interface CarrierColumn extends HeadingColumn {
  *     PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE) ON COMMIT DROP
  *
  * Carriers are named `__carrier_<k>`, k the carrier's ordinal among its program's carriers from 1, and their columns
- * c1 to cn. A carrier drops at its transaction's COMMIT and every statement runs as PostgreSQL's unnamed statement,
- * which no session keeps, so a name tells apart only the carriers of one program (sql/naming.ts CarrierName). A column
+ * c1 to cn. A carrier drops at its transaction's COMMIT, so a name tells apart only the carriers of one program
+ * (sql/naming.ts CarrierName): a session keeps each served statement over a carrier under its own name
+ * (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call creates. A column
  * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
  * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's

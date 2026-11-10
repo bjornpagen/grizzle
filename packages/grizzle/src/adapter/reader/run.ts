@@ -6,7 +6,6 @@ import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.t
 import {
 	answerOf,
 	type ExecutionInputs,
-	type EmittedStatement,
 	encodeForm,
 	type HostParams,
 	formFor,
@@ -21,7 +20,7 @@ import {
 	type SentRuns,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
-import type { Flight } from "#adapter/wire/batch.ts"
+import type { Flight, PreparedStatement } from "#adapter/wire/batch.ts"
 import type { Carrier, Cell, Codebook, Layout, ParamId, Row } from "#compiler/plan/common.ts"
 import type {
 	CarrierHost,
@@ -461,10 +460,10 @@ const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
 export const programStatements = (
 	program: ReadProgram,
 	inputs: ExecutionInputs
-): Effect.Effect<ReadonlyArray<EmittedStatement>, InputTooLarge> =>
+): Effect.Effect<ReadonlyArray<PreparedStatement>, InputTooLarge> =>
 	Effect.gen(function* () {
 		const exceeds = readExceeds(inputs)
-		const statements: Array<EmittedStatement> = []
+		const statements: Array<PreparedStatement> = []
 		for (const record of program.records) {
 			if (record.arrival.kind === "fed") {
 				continue

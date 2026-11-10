@@ -21,7 +21,15 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
-import { type BatchStatement, runFramedTwice, writeFrame } from "#adapter/wire/batch.ts"
+import {
+	type OneShotStatement,
+	oneShotStatement,
+	type PreparedStatement,
+	preparedStatement,
+	runFramedTwice,
+	writeFrame
+} from "#adapter/wire/batch.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
@@ -31,6 +39,7 @@ import {
 	immediateDelivery,
 	refusedAnswer,
 	scriptedSession,
+	sentSql,
 	texts
 } from "#test/support/flight/scripted.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -56,7 +65,11 @@ interface TwoFlights {
 const readSql = (at: number): string => `select ${at} as read`
 const writeSql = (at: number): string => `select ${at} as write`
 
-const statement = (sql: string): BatchStatement => ({ sql: testSql(sql), params: [] })
+/** A read of the first flight, one-shot as a write's family reads are (apply/run.ts runWrite). */
+const read = (sql: string): OneShotStatement => oneShotStatement(testSql(sql), [])
+
+/** A write of the second flight, a served write's statement, its text named. */
+const write = (sql: string): PreparedStatement => preparedStatement(prepared(testSql(sql)), [])
 
 /** Every fault a case of these counts can carry: none, a read or a write refused, the making, COMMIT. */
 const faultOf = (reads: number, writes: number): Gen<Fault> =>
@@ -155,13 +168,15 @@ describe("a write that reads before it writes", () => {
 							{
 								...answeringScript,
 								statement: (query) =>
-									query.sql === refused ? refusedAnswer("23514") : answeringScript.statement(query),
+									sentSql(query) === refused
+										? refusedAnswer("23514")
+										: answeringScript.statement(query),
 								commit: () => (c.fault.kind === "commit" ? serialization : undefined)
 							},
 							immediateDelivery
 						)
-						const reads = Arr.map(Arr.range(0, c.reads - 1), (at) => statement(readSql(at)))
-						const writes = Array.from({ length: c.writes }, (_, at) => statement(writeSql(at)))
+						const reads = Arr.map(Arr.range(0, c.reads - 1), (at) => read(readSql(at)))
+						const writes = Array.from({ length: c.writes }, (_, at) => write(writeSql(at)))
 						let made = false
 						const ran = yield* Effect.result(
 							runFramedTwice(
@@ -194,7 +209,7 @@ describe("a write that reads before it writes", () => {
 						)
 						const allTexts: ReadonlyArray<string> = [
 							...Arr.map(reads, (r) => r.sql),
-							...Arr.map(writes, (w) => w.sql)
+							...Arr.map(writes, (w) => w.text.sql)
 						]
 						const committed: ReadonlyArray<string> = Arr.filter(session.committed(), (sql) =>
 							allTexts.includes(sql)
@@ -211,7 +226,7 @@ describe("a write that reads before it writes", () => {
 								)
 								assert.deepEqual(
 									texts(second),
-									[...Arr.map(writes, (w) => w.sql), "COMMIT"],
+									[...Arr.map(writes, (w) => w.text.sql), "COMMIT"],
 									"the second flight is the writes and COMMIT"
 								)
 								assert.deepEqual(committed, allTexts, "every statement of both flights commits")

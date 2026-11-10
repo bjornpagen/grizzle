@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect"
 import { Pool, type PoolClient } from "pg"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
+import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { runAlone } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -73,7 +74,7 @@ export const probePool = (pool: SessionPool): Effect.Effect<Probe> =>
 				yield* Effect.yieldNow
 				status = client.getTransactionStatus()
 			}
-			const read = yield* Effect.result(runAlone(session, { sql: testSql(pooledSql), params: [] }))
+			const read = yield* Effect.result(runAlone(session, oneShotStatement(testSql(pooledSql), [])))
 			if (status === "E") {
 				return Result.isFailure(read) &&
 					read.failure._tag === "BatchRefused" &&

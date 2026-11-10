@@ -59,9 +59,10 @@ export const carrierPrefix = "__carrier_"
 /**
  * __carrier_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE TEMPORARY
  * TABLE and ANALYZE take. Only carrierName spells one. The ordinal is the carrier's place among its program's carriers,
- * from 1: a carrier drops at its transaction's COMMIT, and every statement runs as PostgreSQL's unnamed statement, which
- * no session keeps, so a name tells apart only the carriers of one program. A safe integer's decimal digits after the
- * prefix are within PostgreSQL's identifier.
+ * from 1: a carrier drops at its transaction's COMMIT, so a name tells apart only the carriers of one program: a session
+ * keeps each served statement over a carrier under its own name (core/prepared.ts), and PostgreSQL plans it again over
+ * the carrier its next call creates. A safe integer's decimal digits after the prefix are within PostgreSQL's
+ * identifier.
  */
 export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol

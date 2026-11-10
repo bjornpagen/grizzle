@@ -500,13 +500,15 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 			runtime.flights++
 			appendAll(
 				recorded,
-				Arr.filterMap(pipeline, (query) =>
-					query._tag === "statement" &&
-					query.sql !== prologue.fence.sql &&
-					query.sql !== prologue.enter.sql
-						? Result.succeed({ sql: query.sql, params: textsOfParams(query.params) })
+				Arr.filterMap(pipeline, (query) => {
+					if (query._tag !== "prepared") {
+						return Result.failVoid
+					}
+					const sql = query.text.sql
+					return sql !== prologue.fence.text.sql && sql !== prologue.enter.text.sql
+						? Result.succeed({ sql, params: textsOfParams(query.params) })
 						: Result.failVoid
-				)
+				})
 			)
 			session.send(pipeline, onAnswer, onEnd, onCut)
 		}

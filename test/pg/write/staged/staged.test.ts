@@ -81,6 +81,7 @@ import {
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { sentSql } from "#test/support/flight/scripted.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -456,11 +457,11 @@ const searchOn = <A, E, R>(
 										sketch,
 										staging
 									)
-						const texts = Arr.flatMap(sent, (q) => (q._tag === "statement" ? [q.sql] : []))
+						const texts = Arr.flatMap(sent, (q) => (q._tag === "control" ? [] : [sentSql(q)]))
 						const carriers = Arr.flatMap(statements, (st) =>
 							st.staged.kind === "carriers" ? st.staged.carriers : []
 						)
-						const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create))
+						const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create.sql))
 						const temporary = Arr.some(texts, (t) => Str.startsWith("CREATE TEMPORARY TABLE")(t))
 						const own = Arr.some(
 							statements,
@@ -523,7 +524,7 @@ const searchOn = <A, E, R>(
 							c.note("inline under the planted bound")
 							return
 						}
-						if (Arr.some(created, (k) => Arr.filter(texts, (t) => t === k.fill).length > 1)) {
+						if (Arr.some(created, (k) => Arr.filter(texts, (t) => t === k.fill.sql).length > 1)) {
 							c.note("staged in several fills")
 						}
 						if (Result.isSuccess(staged) && staged.success.kind === "accepted") {

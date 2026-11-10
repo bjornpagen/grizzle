@@ -1213,11 +1213,11 @@ const precheck = (
 		)
 		const judged: Statement = {
 			label,
-			sql: bound.form(statement).sql,
+			sql: bound.form(statement).text.sql,
 			params: succeeded(bound.values(statement)),
 			before: Arr.map(before, (st) =>
 				st.step.kind === "carrier" || st.step.kind === "analyze"
-					? ([bound.form(st).sql, succeeded(bound.values(st))] as const)
+					? ([bound.form(st).text.sql, succeeded(bound.values(st))] as const)
 					: assert.fail(`${label}: a ${st.step.kind} statement before the check`)
 			),
 			as: { kind: "role", role: cx.installed.world(entry.role).role }

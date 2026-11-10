@@ -24,7 +24,13 @@ import {
 } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
-import type { BatchOutcome, BatchStatement, Flight, Uncommitting } from "#adapter/wire/batch.ts"
+import {
+	type BatchOutcome,
+	type BatchStatement,
+	type Flight,
+	oneShotStatement,
+	type Uncommitting
+} from "#adapter/wire/batch.ts"
 import { type CatalogQuery, catalogRow, catalogRows, outcomeRows } from "#adapter/wire/statement.ts"
 import {
 	type AstHooks,
@@ -837,7 +843,7 @@ const membershipFacts = (d: MembershipDifference, what: string): ReadonlyArray<D
 	}
 }
 
-const command = (sql: EmittedText): BatchStatement => ({ sql, params: [] })
+const command = (sql: EmittedText): BatchStatement => oneShotStatement(sql, [])
 
 /** A catalog statement's place in a flight: its rows read back from the flight's outcomes, at the position it was sent
  * at, captured when it was sent (Sending), so no reader counts positions. */
@@ -879,7 +885,7 @@ const sending = (): Sending => {
 			return { from, count: texts.length }
 		},
 		query: (query, params) => {
-			const at = sent({ sql: query.sql, params })
+			const at = sent(oneShotStatement(query.sql, params))
 			return {
 				rows: (outcomes) => catalogRows(query, outcomeRows(outcomes, at)),
 				row: (outcomes) => catalogRow(query, outcomeRows(outcomes, at))

@@ -43,7 +43,12 @@ import type {
 	PgSocket
 } from "#adapter/types/driver.ts"
 import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
-import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
+import type {
+	BatchOutcome,
+	OneShotStatement,
+	PreparedStatement,
+	Transaction
+} from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
 import type { EmittedText, Isolation, OutputRows, Param } from "#compiler/plan/common.ts"
@@ -55,8 +60,8 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *
  * This module is grizzle's only contact with pg, whose types expose `any` (rows, values, pool callbacks): every value
  * pg hands back is narrowed here, by its class (the driver's DatabaseError), by a type argument that pins rows to
- * unknown cells, or by a checked read of a field its types leave out (BackendKeyData, the parsed-statement map), so
- * batch.ts sees only grizzle's types.
+ * unknown cells, or by a checked read of a field its types leave out (BackendKeyData), so batch.ts sees only
+ * grizzle's types.
  *
  * - Transport. Every connection, a session's and a CancelRequest's, is a socket the transport opens (Transport.open),
  *   connected to its host and port, then an SSLRequest, then verify-full TLS over it: the certificate must chain to the
@@ -87,8 +92,11 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *   sent, and parameters are bound as untyped text. grizzle's own SQL never delivers NULL (absence is zero rows), so a
  *   result with a NULL cell is an unreadable answer: the statement ran, and its rows are none grizzle reads. Every row
  *   past this module is texts only.
- * - Statements. Every statement runs as PostgreSQL's unnamed statement, parsed, bound and executed in its own
- *   execution, so a session holds no statement between flights.
+ * - Statements. A served statement (batch.ts PreparedStatement) is sent under its name, which pg parses on the
+ *   connection's first use of it and binds on every use after, by pg's own record of the names each connection parsed,
+ *   which starts empty with every connection: a session holds the served statements it ran, and nothing else of a
+ *   flight. Every other statement (batch.ts OneShotStatement) runs as PostgreSQL's unnamed statement, parsed, bound and
+ *   executed in its own execution.
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
  *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
  *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup, within the connect
@@ -175,15 +183,12 @@ export const controlText = (controls: ControlTexts, control: TxControl): Emitted
 			: controls.rollback
 
 /**
- * One query of a pipeline: a statement, on the extended protocol with its own Sync, or a transaction control, a simple
- * Query message.
+ * One query of a pipeline: a statement, on the extended protocol with its own Sync, served under its name or one-shot
+ * as the unnamed statement (batch.ts BatchStatement), or a transaction control, a simple Query message.
  */
 export type WireQuery =
-	| {
-			readonly _tag: "statement"
-			readonly sql: SentText
-			readonly params: ReadonlyArray<Param>
-	  }
+	| PreparedStatement
+	| OneShotStatement
 	| { readonly _tag: "control"; readonly control: TxControl }
 
 /**
@@ -591,14 +596,27 @@ export interface Session {
 }
 
 /**
- * A statement on the extended protocol, as the unnamed statement. pg sends a query without parameters or a name as a
- * simple Query message, which accepts several statements in one text, unless its `queryMode` is "extended", which pg's
- * types leave out. pg refuses a query before its bytes go out only for what this never builds: no text, or parameters
- * that are no array or that its value mapper throws on (every parameter is a string, or a Uint8Array it sends in
- * binary, a view of the same bytes). So a pipeline is written whole: no statement is skipped while the ones after it,
- * COMMIT included, are sent.
+ * A served statement on the extended protocol, under its name: pg sends its Parse only where the connection has not
+ * parsed the name yet (pg 8.23 query.js prepare, hasBeenParsed), then its Bind of the name. pg refuses a query before
+ * its bytes go out only for what this never builds: no text, parameters that are no array or that its value mapper
+ * throws on (every parameter is a string, or a Uint8Array it sends in binary, a view of the same bytes), or a name the
+ * connection parsed for another text, which only a SHA-256 collision gives (core/prepared.ts). So a pipeline is
+ * written whole: no statement is skipped while the ones after it, COMMIT included, are sent.
  */
-const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }>) => ({
+const preparedQuery = (query: PreparedStatement) => ({
+	name: query.text.name,
+	text: query.text.sql,
+	values: query.params.slice(),
+	rowMode: "array" as const
+})
+
+/**
+ * A one-shot statement on the extended protocol, as the unnamed statement. pg sends a query without parameters or a
+ * name as a simple Query message, which accepts several statements in one text, unless its `queryMode` is "extended",
+ * which pg's types leave out. pg refuses it before its bytes go out only for what preparedQuery's statements never
+ * hold either.
+ */
+const oneShotQuery = (query: OneShotStatement) => ({
 	text: query.sql,
 	values: query.params.slice(),
 	rowMode: "array" as const,
@@ -664,13 +682,19 @@ const makeSession = (
 					answered += 1
 					settle()
 				}
-				if (query._tag === "control") {
-					client.query<Array<unknown>, Array<string>>(
-						controlQuery(controlText(spec.controls, query.control)),
-						answer
-					)
-				} else {
-					client.query<Array<unknown>, Array<Param>>(statementQuery(query), answer)
+				switch (query._tag) {
+					case "control":
+						client.query<Array<unknown>, Array<string>>(
+							controlQuery(controlText(spec.controls, query.control)),
+							answer
+						)
+						break
+					case "prepared":
+						client.query<Array<unknown>, Array<Param>>(preparedQuery(query), answer)
+						break
+					case "oneShot":
+						client.query<Array<unknown>, Array<Param>>(oneShotQuery(query), answer)
+						break
 				}
 			}
 			connection.stream.write(flightEnd(), (error) => {

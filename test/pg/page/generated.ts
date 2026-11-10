@@ -64,6 +64,7 @@ import { assert, refusalLoc } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
+import { sentSql } from "#test/support/flight/scripted.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
@@ -703,7 +704,7 @@ const flightOn =
 	<A>(flight: Flight<A, UnreadableAnswer>): Effect.Effect<A, ReadError> =>
 		Effect.flatMap(
 			Effect.forEach(flight.statements, (statement) =>
-				Effect.mapBoth(session.queryValues(statement.sql, statement.params), {
+				Effect.mapBoth(session.queryValues(sentSql(statement), statement.params), {
 					onFailure: readFailureOf,
 					onSuccess: (rows): BatchOutcome => ({
 						command: "SELECT",

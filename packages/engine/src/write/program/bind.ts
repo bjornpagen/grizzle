@@ -880,7 +880,7 @@ export const legacyFlights =
 					if (!arrays.ok) {
 						return arrays
 					}
-					out.push({ sql: sent.sql, params: arrays.value, part: "statement" })
+					out.push({ text: sent.text, params: arrays.value, part: "statement" })
 				}
 				return Result.ok(out)
 			}

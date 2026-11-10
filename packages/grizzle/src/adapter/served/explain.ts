@@ -18,6 +18,8 @@ import type { Plan } from "#adapter/types/db.ts"
 import {
 	type BatchOutcome,
 	type BatchStatement,
+	oneShotStatement,
+	preparedStatement,
 	runFramed,
 	runFramedTwice,
 	type Transaction
@@ -47,7 +49,7 @@ interface Explained {
 }
 
 const planned = (sql: EmittedText, params: ReadonlyArray<Param>): Explained => ({
-	statement: { sql: explainOf(sql), params },
+	statement: oneShotStatement(explainOf(sql), params),
 	planned: true,
 	part: "statement"
 })
@@ -149,7 +151,7 @@ const explainRead = Effect.fn("explainRead")(function* (
 		(reason) => new ReadFailure({ reason })
 	)
 	return yield* plansOf(ctx, readFrame, () =>
-		Result.succeed(Arr.map(statements, (s) => planned(s.sql, s.params)))
+		Result.succeed(Arr.map(statements, (s) => planned(s.text.sql, s.params)))
 	)
 })
 
@@ -218,7 +220,7 @@ const explainChange = Effect.fn("explainChange")(function* (
 		Effect.forEach(change.reads.runs.runs, (run) => programStatements(run.program, inputs)),
 		(reason) => new ReadFailure({ reason })
 	)
-	const backs = Arr.map(Arr.flatten(readBacks), (s) => planned(s.sql, s.params))
+	const backs = Arr.map(Arr.flatten(readBacks), (s) => planned(s.text.sql, s.params))
 	const skip = inputs.bound.skip
 	const explainedOf = (
 		chunks: Chunks,
@@ -238,11 +240,11 @@ const explainChange = Effect.fn("explainChange")(function* (
 				statements.push(
 					execution.part === "create" || execution.part === "analyze"
 						? {
-								statement: { sql: execution.sql, params: execution.params },
+								statement: preparedStatement(execution.text, execution.params),
 								planned: false,
 								part: execution.part
 							}
-						: planned(execution.sql, execution.params)
+						: planned(execution.text.sql, execution.params)
 				)
 			}
 		}
@@ -254,7 +256,7 @@ const explainChange = Effect.fn("explainChange")(function* (
 	}
 	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
 		planned(r.sql, r.params),
-		{ statement: { sql: r.sql, params: r.params }, planned: false, part: "statement" }
+		{ statement: oneShotStatement(r.sql, r.params), planned: false, part: "statement" }
 	])
 	return yield* plansAfter(ctx, changeFrame, reads, (session, outcomes) => {
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))

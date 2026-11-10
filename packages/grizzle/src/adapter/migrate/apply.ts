@@ -62,7 +62,12 @@ import {
 	type MigrationSession,
 	openMigrationSession
 } from "#adapter/migrate/session.ts"
-import { type ApartAnswer, sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
+import {
+	type ApartAnswer,
+	type BatchStatement,
+	oneShotStatement,
+	sentAnswer
+} from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import { C } from "#compiler/plan/catalog.ts"
@@ -248,7 +253,7 @@ const refusalOf = (
 		? Effect.succeed(error)
 		: Effect.map(
 				Effect.result(
-					Effect.flatMap(session.apart([{ sql: lockTableRead.sql, params: [] }]), (answers) =>
+					Effect.flatMap(session.apart([oneShotStatement(lockTableRead.sql, [])]), (answers) =>
 						Effect.fromResult(apartRow(lockTableRead, sentAnswer(answers, 0)))
 					)
 				),
@@ -311,8 +316,8 @@ const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
 	const schema = checked.parsed.schema
 	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
 	const reads: { readonly [R in SchemaRead]: BatchStatement } = {
-		owner: { sql: schemaOwner.sql, params: [textParam(schema)] },
-		lock: { sql: checked.lock.take.sql, params: [] },
+		owner: oneShotStatement(schemaOwner.sql, [textParam(schema)]),
+		lock: oneShotStatement(checked.lock.take.sql, []),
 		ledgerExists,
 		ledgerRows
 	}
@@ -345,7 +350,7 @@ const lockTaken = (lock: ApplyLock, answer: ApartAnswer): boolean => {
 const releaseOf = (checked: ReadonlyArray<Checked>, answers: ReadonlyArray<ApartAnswer>) =>
 	Arr.flatMap(checked, (c, i) =>
 		lockTaken(c.lock, readAnswer(answers, answersFrom(i), "lock"))
-			? [{ sql: c.lock.release, params: [] }]
+			? [oneShotStatement(c.lock.release, [])]
 			: []
 	)
 
@@ -400,7 +405,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 			Effect.tap(
 				restore(
 					session.apart([
-						{ sql: sessionRead.sql, params: [] },
+						oneShotStatement(sessionRead.sql, []),
 						...Arr.flatMap(checked, (c) => schemaReads(c))
 					])
 				),
@@ -504,8 +509,8 @@ const runFile = (
 				: new FileCommitLost({ schema, at })
 		)
 	const record = [
-		{ sql: statements.recordFolder.text, params: folderParams(folder) },
-		{ sql: statements.recordFile.text, params: fileParams(folder, file) }
+		oneShotStatement(statements.recordFolder.text, folderParams(folder)),
+		oneShotStatement(statements.recordFile.text, fileParams(folder, file))
 	]
 	/**
 	 * The file's transaction: the ledger's lock, its statements, if it runs them inside it, then its rows. A refusal
@@ -516,7 +521,7 @@ const runFile = (
 		Effect.catch(
 			session.transaction([
 				...fence,
-				...Arr.map(file.statements.slice(0, count), (sql) => ({ sql, params: [] })),
+				...Arr.map(file.statements.slice(0, count), (sql) => oneShotStatement(sql, [])),
 				...record
 			]),
 			(failure: BatchFailure | InputTooLarge) => {
@@ -558,7 +563,7 @@ const runFile = (
 				file.statements,
 				(sql, index) =>
 					Effect.flatMap(
-						Effect.mapError(session.apart([{ sql, params: [] }]), statementFailed(index)),
+						Effect.mapError(session.apart([oneShotStatement(sql, [])]), statementFailed(index)),
 						(answers) =>
 							Effect.mapError(Effect.fromResult(sentAnswer(answers, 0)), statementFailed(index))
 					),
@@ -586,7 +591,7 @@ const fenceOf = (
 		case "absent":
 			return []
 		case "present":
-			return [{ sql: statements.exclusive.text, params: [] }]
+			return [oneShotStatement(statements.exclusive.text, [])]
 	}
 }
 
@@ -611,7 +616,7 @@ const recordFolderRow = (
 	return Effect.mapError(
 		session.transaction([
 			...fence,
-			{ sql: statements.recordFolder.text, params: folderParams(folder) }
+			oneShotStatement(statements.recordFolder.text, folderParams(folder))
 		]),
 		(failure: BatchFailure | InputTooLarge) => {
 			switch (failure._tag) {

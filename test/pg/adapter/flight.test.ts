@@ -6,7 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Order } from "effect"
-import type { BatchStatement } from "#adapter/wire/batch.ts"
+import { oneShotStatement } from "#adapter/wire/batch.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { until } from "#test/pg/adapter/support.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
@@ -93,39 +94,27 @@ const writing = (c: FlightCase): ReadonlySet<string> =>
 	)
 
 /** The SQL of each planned statement over the fixture's tables. */
-const statementsOver =
+const sqlOver =
 	(schema: string, c: FlightCase) =>
-	(planned: Planned): BatchStatement => {
+	(planned: Planned): EmittedText => {
 		const table = `${schema}."t"`
 		const writes = writing(c).has(planned.label)
 		const label = planned.label
 		switch (planned.kind) {
 			case "rows":
-				return {
-					sql: testSql(
-						writes
-							? `INSERT INTO ${table} ("label", "ref") VALUES ('${label}', 1) RETURNING "label"`
-							: `SELECT '${label}'::text AS "label"`
-					),
-					params: []
-				}
+				return testSql(
+					writes
+						? `INSERT INTO ${table} ("label", "ref") VALUES ('${label}', 1) RETURNING "label"`
+						: `SELECT '${label}'::text AS "label"`
+				)
 			case "doomed":
-				return {
-					sql: testSql(
-						`INSERT INTO ${table} ("label", "ref") VALUES ('${label}', -1) RETURNING "label"`
-					),
-					params: []
-				}
+				return testSql(
+					`INSERT INTO ${table} ("label", "ref") VALUES ('${label}', -1) RETURNING "label"`
+				)
 			case "refused":
-				return {
-					sql: testSql(`SELECT ${schema}."refuse"('${planned.sqlstate}') AS "${label}"`),
-					params: []
-				}
+				return testSql(`SELECT ${schema}."refuse"('${planned.sqlstate}') AS "${label}"`)
 			case "hold":
-				return {
-					sql: testSql(`SELECT '${label}'::text AS "label" FROM pg_catalog.pg_sleep(60)`),
-					params: []
-				}
+				return testSql(`SELECT '${label}'::text AS "label" FROM pg_catalog.pg_sleep(60)`)
 			case "nullCell":
 			case "late":
 			case "stuck":
@@ -218,7 +207,7 @@ const flightSuite = Effect.gen(function* () {
 	const onServer = (c: FlightCase, k: number | undefined) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const statementOf = statementsOver(schema, c)
+				const sqlOf = sqlOver(schema, c)
 				yield* s.admin.query(`TRUNCATE ${table}`, [])
 				const tapped = yield* tappedSession({
 					cluster: s.cluster,
@@ -227,16 +216,16 @@ const flightSuite = Effect.gen(function* () {
 					password: s.owner.password
 				})
 				const session = tapped.session
-				const backend = yield* runAlone(session, {
-					sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
-					params: []
-				})
+				const backend = yield* runAlone(
+					session,
+					oneShotStatement(testSql("SELECT pg_catalog.pg_backend_pid()::text"), [])
+				)
 				const pid = Number(backend.rows[0]?.[0])
 				const mark = tapped.mark()
 				if (k !== undefined) {
 					tapped.gate.hold(k, { kind: "type", type: "Z" })
 				}
-				const fiber = yield* Effect.forkChild(callOf(session, c.call, statementOf, prologue))
+				const fiber = yield* Effect.forkChild(callOf(session, c.call, sqlOf, prologue))
 				if (k !== undefined) {
 					const held = yield* Effect.raceFirst(
 						Effect.as(tapped.gate.holding, true),
@@ -297,8 +286,8 @@ const flightSuite = Effect.gen(function* () {
 	 */
 	const compare = (c: FlightCase, k: number | undefined, cx: Case<FlightFeature>) =>
 		Effect.gen(function* () {
-			const statementOf = statementsOver(schema, c)
-			const bySql = plannedBySql(c, statementOf)
+			const sqlOf = sqlOver(schema, c)
+			const bySql = plannedBySql(c, sqlOf)
 			const writes = writing(c)
 			const races: Array<{
 				readonly run: ScriptedRun
@@ -306,7 +295,7 @@ const flightSuite = Effect.gen(function* () {
 				readonly scripted: Observation
 			}> = []
 			for (let afterCancel = 0; ; afterCancel++) {
-				const run = runScripted(c, { interruptAfter: k, afterCancel }, statementOf)
+				const run = runScripted(c, { interruptAfter: k, afterCancel }, sqlOf)
 				const observations = observationsOf(c, run, (sql) => bySql.get(sql)?.label ?? sql)
 				if (observations === undefined) {
 					return { blocked: true, at: undefined }

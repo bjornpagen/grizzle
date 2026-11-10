@@ -386,7 +386,7 @@ const callStatements = (
 				return yield* Effect.fail(valuesFailure(executions.error))
 			}
 			for (const execution of executions.value) {
-				const sent = yield* inlined(execution.sql, execution.params)
+				const sent = yield* inlined(execution.text.sql, execution.params)
 				statements.push(sent)
 			}
 		}

@@ -35,6 +35,8 @@ import {
 	type ApartFailure,
 	type BatchStatement,
 	type FlightFailure,
+	oneShotStatement,
+	preparedStatement,
 	runAlongside,
 	runApart,
 	runFramed,
@@ -45,6 +47,7 @@ import {
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { connectSession, controlText, type Session } from "#adapter/wire/session.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -387,11 +390,13 @@ const caseGen: Gen<FlightCase> = (source) => ({
 	distance: source.draw(int(1, 64))
 })
 
-/** A statement of the case as its flight sends it. */
-const statementOfSpec = (spec: StatementSpec): BatchStatement => ({
-	sql: testSql(textOf(spec.pad)),
-	params: spec.params
-})
+/** A statement of the case as a login's own flight sends it, one-shot. */
+const statementOfSpec = (spec: StatementSpec): BatchStatement =>
+	oneShotStatement(testSql(textOf(spec.pad)), spec.params)
+
+/** A statement of the case as a Db call's flight sends it, a served one: its text named, parsed once per flight. */
+const servedOfSpec = (spec: StatementSpec): BatchStatement =>
+	preparedStatement(prepared(testSql(textOf(spec.pad))), spec.params)
 
 const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
 
@@ -403,7 +408,6 @@ const callOf = (
 	c: FlightCase,
 	session: Session
 ): Effect.Effect<void, FlightFailure | ApartFailure> => {
-	const second = Arr.map(c.second, statementOfSpec)
 	switch (c.runner) {
 		case "apart":
 			return Effect.asVoid(runApart(session, Arr.map(c.first, statementOfSpec)))
@@ -411,7 +415,12 @@ const callOf = (
 			return Effect.asVoid(runTransaction(session, Arr.map(c.first, statementOfSpec), write))
 		case "alongside":
 			return Effect.flatMap(
-				runAlongside(session, Arr.map(c.first, statementOfSpec), second, readOnly),
+				runAlongside(
+					session,
+					Arr.map(c.first, statementOfSpec),
+					Arr.map(c.second, statementOfSpec),
+					readOnly
+				),
 				(both) => Effect.asVoid(Effect.fromResult(both.framed))
 			)
 		case "framed":
@@ -419,7 +428,7 @@ const callOf = (
 				runFramed(
 					session,
 					writeFrame(flightPrologue, "serializable"),
-					Arr.map(c.first, statementOfSpec)
+					Arr.map(c.first, servedOfSpec)
 				)
 			)
 		case "framedTwice":
@@ -428,7 +437,7 @@ const callOf = (
 					session,
 					writeFrame(flightPrologue, "serializable"),
 					Arr.map(c.first, statementOfSpec),
-					() => Effect.succeed(second)
+					() => Effect.succeed(Arr.map(c.second, servedOfSpec))
 				)
 			)
 	}

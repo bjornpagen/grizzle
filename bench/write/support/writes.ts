@@ -18,6 +18,7 @@ import { boundReads, type CompiledEntry, compiledWrite } from "#adapter/served/f
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { artifactsOver, builtLogin, loginRoles, ownLoginOver } from "#adapter/served/login.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
+import { oneShotStatement } from "#adapter/wire/batch.ts"
 import {
 	type Answer,
 	controlText,
@@ -626,6 +627,18 @@ export type BeforeCommit =
 			readonly run: (session: ProbeSession) => Effect.Effect<void, ProbeFailure>
 	  }
 
+/** The text a query of `session`'s pipeline sends: a control's, a served statement's named text, or a one-shot's own. */
+const textOf = (session: Session, query: WireQuery): string => {
+	switch (query._tag) {
+		case "control":
+			return controlText(session.controls, query.control)
+		case "prepared":
+			return query.text.sql
+		case "oneShot":
+			return query.sql
+	}
+}
+
 /**
  * One statement inside the session's open transaction, as a probe sends it: a pipeline of that one unnamed statement,
  * written straight to the session.
@@ -635,7 +648,7 @@ const probeSession = (session: Session): ProbeSession => ({
 		Effect.callback<ReadonlyArray<ReadonlyArray<unknown>>, ProbeFailure>((resume) => {
 			let answer: Answer | undefined
 			session.send(
-				[{ _tag: "statement", sql: testSql(sql), params: Arr.map(params, paramText) }],
+				[oneShotStatement(testSql(sql), Arr.map(params, paramText))],
 				(...[, answered]) => {
 					answer = answered
 				},
@@ -688,7 +701,7 @@ const attributor = (
 				? { kind: "label", label: { kind: "commit" } }
 				: { kind: "unattributed" }
 		}
-		const found = bySql.get(query.sql)
+		const found = bySql.get(query._tag === "prepared" ? query.text.sql : query.sql)
 		if (found === undefined) {
 			return { kind: "unattributed" }
 		}
@@ -730,7 +743,7 @@ const observedSession = (
 					}
 				: {
 						kind: "unattributed",
-						sql: query._tag === "control" ? controlText(session.controls, query.control) : query.sql
+						sql: textOf(session, query)
 					}
 		)
 	}

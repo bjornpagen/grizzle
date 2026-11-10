@@ -1,6 +1,7 @@
 import { type Gen, int, subarray } from "@grizzle/testing/gen"
 import { Array as Arr, Context, Effect, Option, Order, pipe, String as Str } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
+import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -310,7 +311,7 @@ const plannedSession = (session: Session, statement: EmittedText): Session => ({
 			return
 		}
 		session.send(
-			[begin, { _tag: "statement", sql: statement, params: [] }, ...rest],
+			[begin, oneShotStatement(statement, []), ...rest],
 			(index, answer) => {
 				if (index !== 1) {
 					onAnswer(index === 0 ? 0 : index - 1, answer)

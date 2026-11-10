@@ -13,7 +13,7 @@ import { LockTableExhausted, type MigrateError } from "#adapter/migrate/errors.t
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
-import type { BatchStatement } from "#adapter/wire/batch.ts"
+import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -23,6 +23,7 @@ import { emitCatalog } from "#compiler/plan/common.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
+import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
@@ -96,16 +97,16 @@ const outOfLocks = new ServerError({
 })
 
 /** A statement the server refuses: a read of a relation no schema holds. */
-const refused: BatchStatement = {
-	sql: emitCatalog(
+const refused: BatchStatement = oneShotStatement(
+	emitCatalog(
 		C.query(
 			[C.text("refused")],
 			[C.fromObject({ schema: "pg_catalog", name: "grizzle_absent_relation" }, "z").item],
 			undefined
 		)
 	),
-	params: []
-}
+	[]
+)
 
 /** `statements` with the one at `index` the refused one. */
 const replaced = (
@@ -266,7 +267,7 @@ layer(Substrate.layer)("a migration that runs out of the server's lock table", (
 									/** The case's statement among a file transaction's, at the place its text names. */
 									const pick = (statements: ReadonlyArray<BatchStatement>): number => {
 										const index = indexAmong(x, statements.length)
-										const sql = defined(statements[index], "the refused statement").sql
+										const sql = sentSql(defined(statements[index], "the refused statement"))
 										place =
 											sql === ledgerStatements.exclusive.text
 												? "the ledger's lock"

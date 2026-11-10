@@ -15,6 +15,8 @@ import {
 	type BatchOutcome,
 	type BatchStatement,
 	bindFrame,
+	oneShotStatement,
+	preparedStatement,
 	runFramed,
 	runFramedTwice,
 	type Transaction
@@ -55,7 +57,7 @@ interface Explained {
 }
 
 const planned = (sql: EmittedText, params: ReadonlyArray<Param>): Explained => ({
-	statement: { sql: explainOf(sql), params },
+	statement: oneShotStatement(explainOf(sql), params),
 	planned: true,
 	part: "statement"
 })
@@ -181,7 +183,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 		if (Result.isFailure(execution)) {
 			return yield* new ReadFailure({ reason: execution.failure })
 		}
-		statements.push(planned(execution.success.sql, execution.success.params))
+		statements.push(planned(execution.success.text.sql, execution.success.params))
 	}
 	return yield* plansOf(ctx, queryFrame, statements)
 })
@@ -225,11 +227,11 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 				statements.push(
 					execution.part === "create" || execution.part === "analyze"
 						? {
-								statement: { sql: execution.sql, params: execution.params },
+								statement: preparedStatement(execution.text, execution.params),
 								planned: false,
 								part: execution.part
 							}
-						: planned(execution.sql, execution.params)
+						: planned(execution.text.sql, execution.params)
 				)
 			}
 		}
@@ -246,7 +248,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	 */
 	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
 		planned(r.sql, r.params),
-		{ statement: { sql: r.sql, params: r.params }, planned: false, part: "statement" }
+		{ statement: oneShotStatement(r.sql, r.params), planned: false, part: "statement" }
 	])
 	return yield* plansAfter(ctx, changeSetFrame, reads, (outcomes) => {
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))

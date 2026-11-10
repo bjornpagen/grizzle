@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Scope } from "effect"
-import { type BatchStatement, runTransaction } from "#adapter/wire/batch.ts"
+import { type BatchStatement, oneShotStatement, runTransaction } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import {
 	backendPidOf,
@@ -104,11 +104,10 @@ const lockKey = "7366231908012114001"
 /** The long statement of a case, which runs until a CancelRequest stops it. */
 const longStatement = (statement: LongStatement): BatchStatement =>
 	statement === "sleep"
-		? { sql: testSql("SELECT pg_catalog.pg_sleep(600)::text"), params: [] }
-		: {
-				sql: testSql("SELECT pg_catalog.pg_advisory_lock($1::int8)::text"),
-				params: [paramText(lockKey)]
-			}
+		? oneShotStatement(testSql("SELECT pg_catalog.pg_sleep(600)::text"), [])
+		: oneShotStatement(testSql("SELECT pg_catalog.pg_advisory_lock($1::int8)::text"), [
+				paramText(lockKey)
+			])
 
 /** Runs `statement` on `session` in the form drawn: alone, or in a read-only transaction that ends with COMMIT. */
 const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>

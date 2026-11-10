@@ -13,6 +13,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { assert } from "#test/support/assert.ts"
+import { sentSql } from "#test/support/flight/scripted.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 
@@ -297,7 +298,7 @@ export const countingExecutor = (
 				for (const statement of flight.statements) {
 					counts.statements++
 					counts.sent.push({
-						sql: statement.sql,
+						sql: sentSql(statement),
 						params: statement.params
 					})
 				}

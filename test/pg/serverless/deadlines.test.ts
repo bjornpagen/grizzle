@@ -6,7 +6,7 @@ import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Clock, Effect, Formatter, Option } from "effect"
-import { runTransaction, type Transaction } from "#adapter/wire/batch.ts"
+import { oneShotStatement, runTransaction, type Transaction } from "#adapter/wire/batch.ts"
 import { defaultPool, poolFor, roleDefaults, substrateLogin } from "#test/pg/adapter/support.ts"
 import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -117,11 +117,10 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 											const [settings, pid] = yield* runTransaction(
 												session,
 												[
-													{
-														sql: testSql(settingsQuery),
-														params: [paramText(`{${Arr.join(deadlineSettings, ",")}}`)]
-													},
-													{ sql: testSql(backendPid), params: [] }
+													oneShotStatement(testSql(settingsQuery), [
+														paramText(`{${Arr.join(deadlineSettings, ",")}}`)
+													]),
+													oneShotStatement(testSql(backendPid), [])
 												],
 												{ access, isolation: "serializable", end: "COMMIT" }
 											)

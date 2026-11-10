@@ -4,7 +4,7 @@ import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
-import type { BatchStatement } from "#adapter/wire/batch.ts"
+import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -220,10 +220,10 @@ export const runFolders = (
 				})
 			)
 			const pid = yield* Effect.orDie(
-				runAlone(connection, {
-					sql: testSql("SELECT pg_catalog.pg_backend_pid()::text"),
-					params: []
-				})
+				runAlone(
+					connection,
+					oneShotStatement(testSql("SELECT pg_catalog.pg_backend_pid()::text"), [])
+				)
 			)
 			const session =
 				end.kind === "runner" ? migrationSession(connection) : killedAt(connection, end.at)

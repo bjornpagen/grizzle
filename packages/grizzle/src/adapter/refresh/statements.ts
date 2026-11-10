@@ -13,6 +13,7 @@ import {
 	type NonEmptyReadonlyArray,
 	type ObjectName,
 	type ParamText,
+	prepared,
 	sqlstates,
 	types
 } from "#compiler/plan/common.ts"
@@ -236,7 +237,8 @@ interface SchemaTargets {
  * A refresh call of `targets`, already in refresh order, served with every text it sends (served/forms.ts
  * ServedRefresh): each target's plain and CONCURRENTLY refresh statements, the populated reading once per PostgreSQL
  * schema of the targets' views, in their first target's order, with its parameters and its targets by place, and the
- * refresh block over every target. generate prints them once; a running layer prints nothing.
+ * refresh block over every target, the two it sends named (core/prepared.ts). generate prints and names them once; a
+ * running layer prints nothing.
  */
 export const refreshPlan = (targets: NonEmptyReadonlyArray<ServedRefreshTarget>): ServedRefresh => {
 	const [first, ...rest] = targets
@@ -259,7 +261,7 @@ export const refreshPlan = (targets: NonEmptyReadonlyArray<ServedRefreshTarget>)
 			plain: refreshSql(t.view, false),
 			concurrently: refreshSql(t.view, true)
 		})),
-		populated: populatedSql,
+		populated: prepared(populatedSql),
 		schemas: mapNonEmpty(groups, (g) => ({
 			params: populatedParams(
 				g.schema,
@@ -267,6 +269,6 @@ export const refreshPlan = (targets: NonEmptyReadonlyArray<ServedRefreshTarget>)
 			),
 			targets: g.targets
 		})),
-		block: refreshBlock(mapNonEmpty(targets, (t) => t.view))
+		block: prepared(refreshBlock(mapNonEmpty(targets, (t) => t.view)))
 	}
 }

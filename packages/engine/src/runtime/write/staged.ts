@@ -8,6 +8,7 @@ import { literalAlone } from "#compiler/codec/recordset.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -44,6 +45,24 @@ export type Staged =
 			readonly kept: ReadonlyArray<number>
 	  }
 
+/** A staged carrier as a served write holds it: its creation and its fill each named (core/prepared.ts). */
+export interface PreparedCarrier {
+	readonly create: Prepared<EmittedText>
+	readonly fill: Prepared<EmittedText>
+	readonly columns: NonEmptyReadonlyArray<number>
+}
+
+/** A statement's staged form as a served write holds it (Staged): every text of it named. */
+export type PreparedStaged =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "carriers"
+			readonly carriers: NonEmptyReadonlyArray<PreparedCarrier>
+			readonly analyze: Prepared<EmittedText>
+			readonly sql: Prepared<EmittedText>
+			readonly kept: ReadonlyArray<number>
+	  }
+
 /**
  * What one execution of an artifact statement does: `create`, a CREATE TEMPORARY TABLE, a carrier step's of the
  * program's own or a staged carrier's, the one kind a role without TEMPORARY on the database is refused; `fill`, a
@@ -52,9 +71,9 @@ export type Staged =
  */
 export type ExecutionPart = "statement" | "create" | "fill" | "analyze"
 
-/** One execution of an artifact statement: its text, its placeholders' values and what it is. */
+/** One execution of an artifact statement: its prepared text, its placeholders' values and what it is. */
 export interface Execution {
-	readonly sql: EmittedText
+	readonly text: Prepared<EmittedText>
 	readonly params: ReadonlyArray<Param>
 	readonly part: ExecutionPart
 }
@@ -237,8 +256,8 @@ export interface NestedPlaceholder {
  * position, none for a placeholder of any other value; the placeholders of one source share its cells.
  */
 export interface StagedStatement {
-	readonly sql: EmittedText
-	readonly staged: Staged
+	readonly text: Prepared<EmittedText>
+	readonly staged: PreparedStaged
 	readonly nested: ReadonlyArray<NestedPlaceholder | undefined>
 }
 
@@ -279,7 +298,7 @@ export const executionsOf = (
 			}
 			params.push(array.value)
 		}
-		return Result.ok([{ sql: statement.sql, params, part }])
+		return Result.ok([{ text: statement.text, params, part }])
 	}
 	const staged = statement.staged
 	if (staged.kind === "none") {
@@ -307,7 +326,7 @@ export const executionsOf = (
 		)
 		const [{ cells }] = slots
 		const parts = mapNonEmpty(slots, (slot) => slot.part)
-		out.push({ sql: carrier.create, params: [], part: "create" })
+		out.push({ text: carrier.create, params: [], part: "create" })
 		const chunks = chunksOf(cells, parts, transport)
 		if (!chunks.ok) {
 			return chunks
@@ -322,12 +341,12 @@ export const executionsOf = (
 				}
 				params.push(array.value)
 			}
-			out.push({ sql: carrier.fill, params, part: "fill" })
+			out.push({ text: carrier.fill, params, part: "fill" })
 		}
 	}
-	out.push({ sql: staged.analyze, params: [], part: "analyze" })
+	out.push({ text: staged.analyze, params: [], part: "analyze" })
 	out.push({
-		sql: staged.sql,
+		text: staged.sql,
 		params: staged.kept.map((position) =>
 			defined(values.get(position), "the value of a placeholder the staged statement keeps")
 		),

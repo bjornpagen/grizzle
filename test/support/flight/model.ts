@@ -8,7 +8,9 @@ import {
 	type FenceStep,
 	type FlightFailure,
 	type Frame,
+	oneShotStatement,
 	type Prologue,
+	preparedStatement,
 	prologueOf,
 	readFrame,
 	runAlongside,
@@ -21,6 +23,7 @@ import { textsOfParams } from "#test/support/wire.ts"
 
 import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import {
 	type LedgerStatements,
 	ledgerStatements,
@@ -33,11 +36,11 @@ import {
 	snapshotGuardDdl,
 	snapshotGuardName
 } from "#compiler/physical/ddl/ledger.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { Delivered, Rows } from "#test/support/flight/scripted.ts"
+import { type Delivered, type Rows, sentSql } from "#test/support/flight/scripted.ts"
 
 /** What a statement does on the server (scripted.ts): its label is its identity in the case. */
 export type Planned =
@@ -125,7 +128,12 @@ export const ledgerPrologue = (
 	claims: string,
 	snapshot: SchemaFingerprint
 ): Prologue =>
-	prologueOf({ fence: ledger.fence.text, enter: ledger.enter.text }, role, claims, snapshot)
+	prologueOf(
+		{ fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
+		role,
+		claims,
+		snapshot
+	)
 
 /** The prologue of a framed call over the fence `fenceSql` installs in `schema`. */
 export const prologueIn = (schema: string): Prologue => {
@@ -170,6 +178,9 @@ export type StepAnswer = "answered" | PrologueFault
 
 export const stepAnswer = (answer: PrologueAnswer, step: FenceStep): StepAnswer =>
 	answer.kind === "fault" && answer.step === step ? answer.fault : "answered"
+
+/** The SQL text a case sends for each of its planned statements. */
+export type SqlOf = (planned: Planned) => EmittedText
 
 export type Call =
 	| {
@@ -247,11 +258,7 @@ export type Framed =
 	| { readonly kind: "prologue"; readonly params: ReadonlyArray<string> }
 
 /** One query of a flight in `frame` as framingOf states it. */
-const framedSlot = (
-	frame: Transaction,
-	slot: Slot,
-	statementOf: (planned: Planned) => BatchStatement
-): Framed => {
+const framedSlot = (frame: Transaction, slot: Slot, sqlOf: SqlOf): Framed => {
 	switch (slot.role) {
 		case "begin":
 			return { kind: "text", text: beginText(frame) }
@@ -266,16 +273,13 @@ const framedSlot = (
 			return { kind: "text", text: frame.end }
 		case "alone":
 		case "statement":
-			return { kind: "text", text: statementOf(slot.planned).sql }
+			return { kind: "text", text: sqlOf(slot.planned) }
 	}
 }
 
-export const framingOf = (
-	call: Call,
-	statementOf: (planned: Planned) => BatchStatement
-): ReadonlyArray<ReadonlyArray<Framed>> => {
+export const framingOf = (call: Call, sqlOf: SqlOf): ReadonlyArray<ReadonlyArray<Framed>> => {
 	const frame = frames[call.frame]
-	return [Arr.map(layoutOf(call), (slot) => framedSlot(frame, slot, statementOf))]
+	return [Arr.map(layoutOf(call), (slot) => framedSlot(frame, slot, sqlOf))]
 }
 
 /**
@@ -283,14 +287,15 @@ export const framingOf = (
  * SQL none of the call's statements has, by their parameters.
  */
 export const framedOf =
-	(call: Call, statementOf: (planned: Planned) => BatchStatement): ((query: WireQuery) => Framed) =>
+	(call: Call, sqlOf: SqlOf): ((query: WireQuery) => Framed) =>
 	(query: WireQuery): Framed => {
 		if (query._tag === "control") {
 			return { kind: "text", text: controlText(servedSession, query.control) }
 		}
-		const known = Arr.some(plannedOf(call), (planned) => statementOf(planned).sql === query.sql)
+		const sql = sentSql(query)
+		const known = Arr.some(plannedOf(call), (planned) => sqlOf(planned) === sql)
 		return known
-			? { kind: "text", text: query.sql }
+			? { kind: "text", text: sql }
 			: { kind: "prologue", params: textsOfParams(query.params) }
 	}
 
@@ -379,16 +384,22 @@ const alongsideValue = (ran: Alongside): Value => ({
 		: { kind: "failure", failure: failureData(ran.framed.failure) }
 })
 
-/** The call on `session`, a framed one behind `prologue`, its value and failure as plain data. */
+/**
+ * The call on `session`, a framed one behind `prologue`, its value and failure as plain data. A framed call is a Db's,
+ * whose statements a served login sends named; statements alongside a transaction are admission's, sent one-shot.
+ */
 export const callOf = (
 	session: Session,
 	call: Call,
-	statementOf: (planned: Planned) => BatchStatement,
+	sqlOf: SqlOf,
 	prologue: Prologue
 ): Effect.Effect<Value, Failure> => {
 	const frame = frameOf(call.frame, prologue)
+	const served = (planned: Planned): BatchStatement =>
+		preparedStatement(prepared(sqlOf(planned)), [])
+	const oneShot = (planned: Planned): BatchStatement => oneShotStatement(sqlOf(planned), [])
 	if (call.kind === "framed") {
-		return Effect.mapBoth(runFramed(session, frame, Arr.map(call.statements, statementOf)), {
+		return Effect.mapBoth(runFramed(session, frame, Arr.map(call.statements, served)), {
 			onSuccess: (outcomes): Value => ({ kind: "outcomes", rows: outcomeRows(outcomes) }),
 			onFailure: failureData
 		})
@@ -396,8 +407,8 @@ export const callOf = (
 	return Effect.mapBoth(
 		runAlongside(
 			session,
-			Arr.map(call.alone, statementOf),
-			Arr.map(call.statements, statementOf),
+			Arr.map(call.alone, oneShot),
+			Arr.map(call.statements, oneShot),
 			alongsideTransactions[call.frame]
 		),
 		{

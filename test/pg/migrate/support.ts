@@ -28,7 +28,7 @@ import {
 	type MigrationSession,
 	openMigrationSession
 } from "#adapter/migrate/session.ts"
-import { sentAnswer } from "#adapter/wire/batch.ts"
+import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -130,7 +130,7 @@ export const statementRows = (
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, StatementFailure> =>
 	Effect.flatMap(
-		session.apart([{ sql: testSql(sql), params: Arr.map(params, paramText) }]),
+		session.apart([oneShotStatement(testSql(sql), Arr.map(params, paramText))]),
 		(answers) => Effect.fromResult(Result.map(sentAnswer(answers, 0), (outcome) => outcome.rows))
 	)
 

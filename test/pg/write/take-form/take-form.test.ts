@@ -220,7 +220,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													const pinned = yield* s.admin.pin
 													yield* pinned.query("BEGIN", [])
 													const explained = yield* pinned.queryValues(
-														explainStatementWith(sent.sql, {
+														explainStatementWith(sent.text.sql, {
 															serialize: { kind: "off" },
 															wal: false
 														}),
@@ -228,7 +228,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													)
 													yield* pinned.query("ROLLBACK", [])
 													yield* pinned.query("BEGIN", [])
-													const rows = yield* pinned.queryValues(sent.sql, texts)
+													const rows = yield* pinned.queryValues(sent.text.sql, texts)
 													yield* pinned.query("ROLLBACK", [])
 													return {
 														plan: succeeded(parsePlan(explained[0]?.[0]), "one plan").plan,
@@ -259,7 +259,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													false,
 													"explainMember plans the LATERAL form for few parents"
 												)
-												assert.equal(sent.sql, insert.form.sql, "few parents send the LATERAL form")
+												assert.equal(
+													sent.text,
+													insert.form.text,
+													"few parents send the LATERAL form"
+												)
 												assert.deepEqual(
 													Arr.filter(scans, (n) => n.nodeType === "Seq Scan"),
 													[],
@@ -272,8 +276,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												c.note("the LATERAL form for few parents")
 											} else {
 												assert.equal(
-													sent.sql,
-													forms.large.sql,
+													sent.text,
+													forms.large.text,
 													"many parents send the whole-relation form"
 												)
 												assert.equal(

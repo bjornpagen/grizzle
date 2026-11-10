@@ -38,6 +38,7 @@ import {
 	loginRoleName,
 	malformedDescription,
 	ownServed,
+	prepared,
 	queryUses,
 	type RoleDesc,
 	servedSession,
@@ -249,7 +250,10 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 		bounds: config.pool,
 		attachPool: config.attachPool
 	})
-	const prologue: PrologueStatements = { fence: ledger.fence.text, enter: ledger.enter.text }
+	const prologue: PrologueStatements = {
+		fence: prepared(ledger.fence.text),
+		enter: prepared(ledger.enter.text)
+	}
 	return {
 		login: config.login.desc,
 		loginRole,

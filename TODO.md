@@ -21,12 +21,11 @@ post-beta swarm's fixes for the next release.
 - **A migration's refusal names its law through the final target's map only:** adapter/migrate's law mapping
   (GENERATE) looks an intermediate folder's constraint up in the final target snapshot's constraintToLaw, since migrate
   holds no intermediate snapshot; a constraint the final map lacks names no law and shows PostgreSQL's own report.
-- **Every served statement is planned again on every call (CHUNK, 2026-11-10):** adapter/wire/session.ts
-  statementQuery sends served statements unnamed, so PostgreSQL parses and plans each on every call. On CHUNK's named
-  replica a 16 KB plan read spent 12.2 ms planning against 4.4 ms executing (EXPLAIN (ANALYZE, BUFFERS), 20
-  connections; ~/.cache/grizzle-release/CHUNK/load-N/explain-plan-counted-*.txt). Named statements would plan once per
-  connection, but PostgreSQL switches a named statement to a generic plan after five executions, which can lose a
-  skewed parameter's selectivity. The owner's call; measure both on the 1,000-children run before choosing.
+- **startSitting plans every call (REACH, 2026-11-10):** every served statement is a named prepared statement, but
+  startSitting's carrier is a temporary table each call creates again, so its fill's and its insert's cached plans are
+  invalidated by every call: 1.05 ms of planning per call on its custom plans and on its generic ones alike (CHUNK's
+  replica, the app login as the learner, plan_cache_mode at its default). The fix belongs in the statement (no carrier,
+  or one that outlives the call), never in un-preparing it.
 - **Qti content is not provably sealed per import:** pantry mints node ids on the host (pantry/src/import/write.ts
   crypto.randomUUID), so the certifier cannot see that one importWrite call writes a test's content whole. edullm's
   learner writes read no Qti (the rotation is the app's computation, checked by native FKs), so the goal does not need
@@ -285,6 +284,12 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   pages, and catches that plant.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
   Reconcile them, then copy the library into edullm with the shared lint standard.
+- **The testing library's shrinker (REACH, 2026-11-10):** packages/testing/src/shrink.ts:73 `swapped` throws
+  RangeError offset out of bounds while shrinking test/unit/adapter/flight-bound.test.ts's counterexample (found under
+  P-01's Parse-every-statement plant), so no counterexample is reported. The plant: in
+  packages/grizzle/src/adapter/wire/batch.ts accountFlight, drop the `named.has(query.text.name)` check and its
+  `continue`, so every served statement's Parse is counted, then run `pnpm -s test
+  test/unit/adapter/flight-bound.test.ts`; the property fails, as it should, and its shrink throws.
 - **The swarm core's shared-field column (ONERTT-WRITE2, 2026-11-09):** the core test/support/families/fill.ts gives
   each family a group column of its own, so the families swarm never draws pantry's importWrite shape: a family
   member's group field that a containment also reads, at every field of its target, which makes that containment's

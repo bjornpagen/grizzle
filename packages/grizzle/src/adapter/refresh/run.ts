@@ -12,7 +12,12 @@ import {
 } from "#adapter/errors/execution.ts"
 import { ConcurrentRefresh, type ServerError } from "#adapter/errors/failures.ts"
 import { concurrentRefreshPosition, populatedViews } from "#adapter/refresh/detail.ts"
-import { type BatchStatement, type FlightFailure, runFramed } from "#adapter/wire/batch.ts"
+import {
+	type BatchStatement,
+	type FlightFailure,
+	preparedStatement,
+	runFramed
+} from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { EmittedText } from "#compiler/plan/common.ts"
 import { sqlstates } from "#compiler/plan/runtime.ts"
@@ -135,8 +140,8 @@ const refreshFlight = (
 	refresh: ServedRefresh
 ): Effect.Effect<ReadonlyArray<RefreshStatement>, FlightFailure> => {
 	const statements: Array<BatchStatement> = [
-		...Arr.map(refresh.schemas, (schema) => ({ sql: refresh.populated, params: schema.params })),
-		{ sql: refresh.block, params: [] }
+		...Arr.map(refresh.schemas, (schema) => preparedStatement(refresh.populated, schema.params)),
+		preparedStatement(refresh.block, [])
 	]
 	return Effect.map(runFramed(session, dbRefreshFrame(ctx), statements), (outcomes) => {
 		/** The places of the targets whose view its schema's catalog statement read populated. */

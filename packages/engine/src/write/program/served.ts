@@ -9,6 +9,7 @@
 import { maxOf } from "#compiler/core/array.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type FamilyId, familyKey } from "#compiler/ir/law.ts"
@@ -28,6 +29,7 @@ import {
 	type ServedWriteChoice,
 	type ServedWriteForm
 } from "#compiler/runtime/write/flight.ts"
+import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { UnservedMember, UnservedReason } from "#compiler/served/unserved.ts"
@@ -52,12 +54,33 @@ const servedWriteSlot = (slot: WriteParamSlot): ServedSlot<WriteParamSlot> => {
 	}
 }
 
-/** A form's data: its text and placeholders. */
+/** A statement's staged form with each of its texts named, where generate serves its write. */
+const preparedStaged = (staged: Staged): PreparedStaged =>
+	staged.kind === "none"
+		? staged
+		: Object.freeze({
+				kind: "carriers",
+				carriers: mapNonEmpty(staged.carriers, (carrier) =>
+					Object.freeze({
+						create: prepared(carrier.create),
+						fill: prepared(carrier.fill),
+						columns: carrier.columns
+					})
+				),
+				analyze: prepared(staged.analyze),
+				sql: prepared(staged.sql),
+				kept: staged.kept
+			})
+
+/** A form's data: its text, named here (core/prepared.ts), and its placeholders. */
 const servedWriteForm = (form: {
 	readonly sql: EmittedText
 	readonly params: ReadonlyArray<WriteParamSlot>
 }): ServedWriteForm =>
-	Object.freeze({ sql: form.sql, params: Object.freeze(form.params.map(servedWriteSlot)) })
+	Object.freeze({
+		text: prepared(form.sql),
+		params: Object.freeze(form.params.map(servedWriteSlot))
+	})
 
 /** A statement's forms as data: one, or the choices that pick between its own form and its whole-relation one. */
 const servedForms = (forms: ArtifactForms): StatementForms<ServedWriteChoice, ServedWriteForm> =>
@@ -127,7 +150,7 @@ export const projectWrite = (compiled: CompiledWrite, isolation: Isolation): Ser
 								step: servedStep(step, isolation),
 								form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
 								forms: servedForms(s.forms),
-								staged: s.staged
+								staged: preparedStaged(s.staged)
 							})
 						]
 			})

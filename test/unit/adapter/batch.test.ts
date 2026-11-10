@@ -11,10 +11,13 @@ import {
 	type BatchStatement,
 	type Flight,
 	joinFlights,
+	preparedStatement,
 	runFramed,
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { indices } from "#compiler/core/array.ts"
+import { prepared } from "#compiler/core/prepared.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import { assert } from "#test/support/assert.ts"
 import { type CaseSpace, caseGen, smallCases } from "#test/support/flight/cases.ts"
 import type { Timing } from "#test/support/flight/drive.ts"
@@ -36,7 +39,8 @@ import {
 	answeringScript,
 	firstCells,
 	immediateDelivery,
-	scriptedSession
+	scriptedSession,
+	sentSql
 } from "#test/support/flight/scripted.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -59,10 +63,11 @@ import { testSql } from "#test/support/sql.ts"
  *
  * Also here: joined flights hand each part its own outcomes.
  */
-const statement = (sql: string): BatchStatement => ({ sql: testSql(sql), params: [] })
+/** A call's statement, a served one as a Db call sends it: its label's text, named. */
+const statement = (sql: string): BatchStatement => preparedStatement(prepared(testSql(sql)), [])
 
 /** Each statement's SQL is its label. */
-const statementOf = (planned: Planned): BatchStatement => statement(planned.label)
+const sqlOf = (planned: Planned): EmittedText => testSql(planned.label)
 
 /**
  * The features of the exhaustive population: how calls end, where interruptions land, and the interruptions that meet
@@ -138,7 +143,7 @@ interface Ran {
  * does, and the fence's refusal is StaleSnapshot.
  */
 const runOnce = (c: FlightCase, timing: Timing, k: Case<FlightFeature>): Ran | undefined => {
-	const run = runScripted(c, timing, statementOf)
+	const run = runScripted(c, timing, sqlOf)
 	const observations = observationsOf(c, run, (sql) => sql)
 	if (observations === undefined) {
 		return undefined
@@ -150,11 +155,11 @@ const runOnce = (c: FlightCase, timing: Timing, k: Case<FlightFeature>): Ran | u
 		)
 	}
 	const session = run.session
-	const framed = framedOf(c.call, statementOf)
+	const framed = framedOf(c.call, sqlOf)
 	const sent: ReadonlyArray<ReadonlyArray<Framed>> = Arr.map(session.flights(), (flight) =>
 		Arr.map(flight.pipeline, framed)
 	)
-	assert.deepEqual(sent, framingOf(c.call, statementOf), "the flight's texts")
+	assert.deepEqual(sent, framingOf(c.call, sqlOf), "the flight's texts")
 	assert.equal(session.open(), false, "the server holds no transaction open")
 	assert.equal(session.deliverable(), false, "every answer was read")
 	const observation = observations.run
@@ -334,7 +339,7 @@ describe("joined flights", () => {
 								Arr.map(indices(width), (i) => `p${p}.${i}`)
 							)
 							assert.deepEqual<ReadonlyArray<string>>(
-								Arr.map(joined.statements, (s) => s.sql),
+								Arr.map(joined.statements, sentSql),
 								expected.flat()
 							)
 							const values = yield* Effect.flatMap(

@@ -8,6 +8,7 @@
  * data by the constructors the compile path runs it through too. Every application loads its write so, a write compiled
  * in process as much as a served one, so what the file holds is exactly what an application reads.
  */
+import type { Prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl, WriteSlot } from "#compiler/ir/products.ts"
 import type { ServedSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
@@ -25,15 +26,15 @@ import {
 	type WrittenHeading,
 	writtenOutcome
 } from "#compiler/runtime/write/outcome.ts"
-import type { Staged } from "#compiler/runtime/write/staged.ts"
+import type { PreparedStaged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
-/** A form of a write statement as an execution sends it: its text, and what fills each placeholder, $n by
- * `params[n - 1]`. */
+/** A form of a write statement as an execution sends it: its text with its name (core/prepared.ts), and what fills
+ * each placeholder, $n by `params[n - 1]`. */
 export interface ServedWriteForm {
-	readonly sql: EmittedText
+	readonly text: Prepared<EmittedText>
 	readonly params: ReadonlyArray<ServedSlot<WriteParamSlot>>
 }
 
@@ -54,8 +55,8 @@ export interface ServedStatement {
 	readonly step: OwnStep
 	readonly form: ServedWriteForm
 	readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
-	/** How its nested rows travel past one Bind message (staged.ts Staged). */
-	readonly staged: Staged
+	/** How its nested rows travel past one Bind message (staged.ts PreparedStaged). */
+	readonly staged: PreparedStaged
 }
 
 /**
@@ -70,9 +71,9 @@ export interface ServedWrite {
 	readonly written: ReadonlyArray<WrittenHeading>
 }
 
-/** A form of a statement as an application sends it: its text and the encoder of each placeholder. */
+/** A form of a statement as an application sends it: its named text and the encoder of each placeholder. */
 export interface FlightForm {
-	readonly sql: EmittedText
+	readonly text: Prepared<EmittedText>
 	readonly paramSlots: ReadonlyArray<WriteSlot>
 }
 
@@ -82,7 +83,7 @@ export interface FlightStatement {
 	readonly step: OwnStep
 	readonly form: FlightForm
 	readonly forms: StatementForms<ServedWriteChoice, FlightForm>
-	readonly staged: Staged
+	readonly staged: PreparedStaged
 }
 
 /**
@@ -111,7 +112,7 @@ export const loadWrite = (
 ): FlightWrite => {
 	const slotOf = writeSlotOf(codes, patterns)
 	const loaded = (form: ServedWriteForm): FlightForm =>
-		Object.freeze({ sql: form.sql, paramSlots: Object.freeze(form.params.map(slotOf)) })
+		Object.freeze({ text: form.text, paramSlots: Object.freeze(form.params.map(slotOf)) })
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,

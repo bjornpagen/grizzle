@@ -10,7 +10,7 @@ import {
 } from "#adapter/migrate/errors.ts"
 import type { ParsedFile, ParsedFolder } from "#adapter/migrate/input.ts"
 import { apartRow } from "#adapter/migrate/session.ts"
-import type { ApartAnswer, BatchStatement } from "#adapter/wire/batch.ts"
+import { type ApartAnswer, type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import {
@@ -116,8 +116,8 @@ type LedgerReads = readonly [exists: BatchStatement, rows: BatchStatement]
 
 /** The two statements that read a schema's ledger, apart (see the header). */
 export const ledgerReads = (schema: string, statements: LedgerStatements): LedgerReads => [
-	{ sql: ledgerExists.sql, params: [textParam(schema), textParam(ledgerTableName)] },
-	{ sql: statements.rows.text, params: [] }
+	oneShotStatement(ledgerExists.sql, [textParam(schema), textParam(ledgerTableName)]),
+	oneShotStatement(statements.rows.text, [])
 ]
 
 /** The ledger as its two reads found it: whether its table exists, and its state, the empty snapshot's when absent. */

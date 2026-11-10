@@ -1100,7 +1100,11 @@ const takesOf = (
 			}
 			return Arr.flatMap(entry.program.flight.statements, (st): ReadonlyArray<TakeForm> =>
 				st.forms.kind === "chosen"
-					? [ready.bound.form(st).sql === st.forms.large.sql ? "whole-relation" : "LATERAL"]
+					? [
+							ready.bound.form(st).text.sql === st.forms.large.text.sql
+								? "whole-relation"
+								: "LATERAL"
+						]
 					: []
 			)
 		}

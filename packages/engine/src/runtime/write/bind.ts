@@ -749,7 +749,7 @@ export const bindWrite = (
 			return { part: slot.part, cells }
 		})
 		const executions = executionsOf(
-			{ sql: sent.sql, staged: statement.staged, nested },
+			{ text: sent.text, staged: statement.staged, nested },
 			partOf(statement.step),
 			(position) =>
 				encodeSlot(

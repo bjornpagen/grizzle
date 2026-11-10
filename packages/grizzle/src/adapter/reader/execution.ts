@@ -4,13 +4,12 @@ import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { carried } from "#adapter/reader/analysis.ts"
 import type { RelationInputs } from "#adapter/reader/relations.ts"
-import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
+import { type PreparedStatement, preparedStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import type {
 	AssembledRows,
 	AttachmentLayout,
 	Cell,
 	Codebook,
-	EmittedText,
 	Layout,
 	OutputRows,
 	ParamId,
@@ -202,16 +201,11 @@ export const readBinding = (
 	}
 }
 
-/** A statement of a flight the engine printed: its text and its parameters' texts, in placeholder order. */
-export interface EmittedStatement extends BatchStatement {
-	readonly sql: EmittedText
-}
-
 /** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
 export const executionOf = <Slot, E>(
 	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
-): Result.Result<EmittedStatement, E> => {
+): Result.Result<PreparedStatement, E> => {
 	const encoded: Array<Param> = []
 	for (const slot of form.slots) {
 		const bound = bind(slot)
@@ -220,14 +214,14 @@ export const executionOf = <Slot, E>(
 		}
 		encoded.push(bound.success)
 	}
-	return Result.succeed({ sql: form.spec.sql, params: encoded })
+	return Result.succeed(preparedStatement(form.spec.text, encoded))
 }
 
 /** One execution of `form`, its parameters encoded. */
 export const encodeForm = <Slot, E>(
 	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
-): Effect.Effect<EmittedStatement, E> =>
+): Effect.Effect<PreparedStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 
 /** A flight's answers to the statements it sent, in the order it sent them, as PostgreSQL sent them. */

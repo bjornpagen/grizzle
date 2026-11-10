@@ -1,5 +1,5 @@
 import { Array as Arr } from "effect"
-import type { BatchStatement, FenceStep } from "#adapter/wire/batch.ts"
+import type { FenceStep } from "#adapter/wire/batch.ts"
 import { type Driven, drive, type Timing } from "#test/support/flight/drive.ts"
 import {
 	beginRefusal,
@@ -16,6 +16,7 @@ import {
 	type Planned,
 	plannedOf,
 	prologueRefusal,
+	type SqlOf,
 	type StepAnswer,
 	stepAnswer,
 	type Value
@@ -25,6 +26,7 @@ import {
 	refusedAnswer,
 	rows,
 	type ScriptedSession,
+	sentSql,
 	type StatementAnswer,
 	scriptedSession
 } from "#test/support/flight/scripted.ts"
@@ -54,11 +56,8 @@ const answerOf = (planned: Planned): StatementAnswer => {
 }
 
 /** The planned statement of each SQL text the case sends. */
-export const plannedBySql = (
-	c: FlightCase,
-	statementOf: (planned: Planned) => BatchStatement
-): ReadonlyMap<string, Planned> =>
-	new Map(Arr.map(plannedOf(c.call), (planned) => [statementOf(planned).sql, planned]))
+export const plannedBySql = (c: FlightCase, sqlOf: SqlOf): ReadonlyMap<string, Planned> =>
+	new Map(Arr.map(plannedOf(c.call), (planned) => [sqlOf(planned), planned]))
 
 /**
  * What a prologue step answers on the scripted server, the lock or the guard's statement: the lock no row, the guard's
@@ -85,27 +84,24 @@ const prologueAnswerOf = (step: FenceStep, answer: StepAnswer): StatementAnswer 
  * statements, whose SQL none of the case's has, as the case's prologue answer says; past a cancelled statement, the
  * server runs `afterCancel` queries before a destroyed connection's end reaches it.
  */
-const sessionOf = (
-	c: FlightCase,
-	statementOf: (planned: Planned) => BatchStatement,
-	afterCancel: number
-): ScriptedSession => {
-	const bySql = plannedBySql(c, statementOf)
+const sessionOf = (c: FlightCase, sqlOf: SqlOf, afterCancel: number): ScriptedSession => {
+	const bySql = plannedBySql(c, sqlOf)
 	const call = c.call
 	return scriptedSession(
 		{
 			statement: (query) => {
-				const planned = bySql.get(query.sql)
+				const sql = sentSql(query)
+				const planned = bySql.get(sql)
 				if (planned !== undefined) {
 					return answerOf(planned)
 				}
-				if (call.kind === "framed" && query.sql === flightPrologue.fence.sql) {
+				if (call.kind === "framed" && sql === flightPrologue.fence.text.sql) {
 					return prologueAnswerOf("lock", stepAnswer(call.prologue, "lock"))
 				}
-				if (call.kind === "framed" && query.sql === flightPrologue.enter.sql) {
+				if (call.kind === "framed" && sql === flightPrologue.enter.text.sql) {
 					return prologueAnswerOf("guard", stepAnswer(call.prologue, "guard"))
 				}
-				throw new Error(`the case sends no statement ${query.sql}`)
+				throw new Error(`the case sends no statement ${sql}`)
 			},
 			begin: () =>
 				c.begin === "refused"
@@ -125,15 +121,11 @@ export interface ScriptedRun {
 /**
  * One run of a flight case on a scripted session (scripted.ts), driven at a timing (drive.ts), and what it observed.
  */
-export const runScripted = (
-	c: FlightCase,
-	timing: Timing,
-	statementOf: (planned: Planned) => BatchStatement
-): ScriptedRun => {
-	const session = sessionOf(c, statementOf, timing.afterCancel)
+export const runScripted = (c: FlightCase, timing: Timing, sqlOf: SqlOf): ScriptedRun => {
+	const session = sessionOf(c, sqlOf, timing.afterCancel)
 	return {
 		session,
-		driven: drive(session, callOf(session, c.call, statementOf, flightPrologue), timing)
+		driven: drive(session, callOf(session, c.call, sqlOf, flightPrologue), timing)
 	}
 }
 
@@ -167,7 +159,7 @@ export const observationsOf = (
 			Arr.map(
 				Arr.filter(
 					session.committed(),
-					(sql) => sql !== flightPrologue.fence.sql && sql !== flightPrologue.enter.sql
+					(sql) => sql !== flightPrologue.fence.text.sql && sql !== flightPrologue.enter.text.sql
 				),
 				labelOf
 			),

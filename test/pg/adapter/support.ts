@@ -2,7 +2,7 @@ import { Array as Arr, Effect, type Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
-import type { ApartFailure } from "#adapter/wire/batch.ts"
+import { type ApartFailure, oneShotStatement } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { servedSession } from "#compiler/program/served.ts"
@@ -139,7 +139,7 @@ export const rowsOn = (
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, ApartFailure | BatchRefused> =>
 	Effect.map(
-		runAlone(session, { sql: testSql(sql), params: Arr.map(params, paramText) }),
+		runAlone(session, oneShotStatement(testSql(sql), Arr.map(params, paramText))),
 		(outcome) => outcome.rows
 	)
 

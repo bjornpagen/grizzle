@@ -1,7 +1,7 @@
 import { Array as Arr, Effect } from "effect"
 import { Pool } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
-import type { BatchOutcome } from "#adapter/wire/batch.ts"
+import type { BatchOutcome, BatchStatement } from "#adapter/wire/batch.ts"
 import {
 	type Answer,
 	controlText,
@@ -43,11 +43,13 @@ export const refusedAnswer = (sqlstate: string): StatementAnswer => ({
 	error: serverError({ ...nothingReported, sqlstate })
 })
 
-export type StatementQuery = Extract<WireQuery, { readonly _tag: "statement" }>
+/** The SQL text a statement of a flight sends: a served statement's named text, or a one-shot statement's own. */
+export const sentSql = (query: BatchStatement): string =>
+	query._tag === "prepared" ? query.text.sql : query.sql
 
 export interface Script {
 	/** The answer of a statement that runs. */
-	readonly statement: (query: StatementQuery) => StatementAnswer
+	readonly statement: (query: BatchStatement) => StatementAnswer
 	/** A refusal of BEGIN, which the server gives only for an isolation it cannot give, or none. */
 	readonly begin: () => ServerError | undefined
 	/**
@@ -77,7 +79,7 @@ export interface ScriptedOptions {
  * scenario spreads it and overrides what it scripts.
  */
 export const answeringScript: Script = {
-	statement: (query) => rows([[query.sql]]),
+	statement: (query) => rows([[sentSql(query)]]),
 	begin: () => undefined,
 	commit: () => undefined
 }
@@ -303,7 +305,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		return { _tag: "answer", answer: completed("ROLLBACK") }
 	}
 
-	const statement = (query: StatementQuery): Made => {
+	const statement = (query: BatchStatement): Made => {
 		const answer = statementAnswer(query)
 		if (tx === "aborted") {
 			return answer._tag === "lose"
@@ -312,17 +314,17 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		}
 		switch (answer._tag) {
 			case "rows":
-				ran(query.sql)
+				ran(sentSql(query))
 				return { _tag: "answer", answer: result("SELECT", answer.rows) }
 			case "doomed":
 				if (tx !== "open") {
 					return { _tag: "answer", answer: refusal(deferredViolation) }
 				}
 				doomed = true
-				ran(query.sql)
+				ran(sentSql(query))
 				return { _tag: "answer", answer: result("SELECT", answer.rows) }
 			case "nullCell":
-				ran(query.sql)
+				ran(sentSql(query))
 				return { _tag: "answer", answer: { _tag: "unreadable", command: "SELECT" } }
 			case "refused":
 				if (tx === "open") {
@@ -500,11 +502,11 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		flight.waiting = undefined
 		flight.next = waiting.index + 1
 		const answer =
-			waiting.waiting === "late" && query?._tag === "statement"
-				? result("SELECT", [[query.sql]])
+			waiting.waiting === "late" && query !== undefined && query._tag !== "control"
+				? result("SELECT", [[sentSql(query)]])
 				: refusal(cancelled)
-		if (answer._tag === "result" && query?._tag === "statement") {
-			ran(query.sql)
+		if (answer._tag === "result" && query !== undefined && query._tag !== "control") {
+			ran(sentSql(query))
 		} else if (tx === "open") {
 			tx = "aborted"
 		}
@@ -572,7 +574,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 /** The SQL of each query of a flight, BEGIN, COMMIT and ROLLBACK among them. */
 export const texts = (flight: SentFlight | undefined): ReadonlyArray<string> =>
 	Arr.map(flight?.pipeline ?? [], (q) =>
-		q._tag === "control" ? controlText(servedSession, q.control) : q.sql
+		q._tag === "control" ? controlText(servedSession, q.control) : sentSql(q)
 	)
 
 /** The rows of every outcome, as their first cells. */

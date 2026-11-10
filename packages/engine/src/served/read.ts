@@ -1,4 +1,5 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Delivered, Heading } from "#compiler/ir/rel.ts"
 import type { DeclaredParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import type { Arrival } from "#compiler/lower/shapes/index.ts"
@@ -12,7 +13,8 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
  * A compiled read as the runtime runs it: its statements in their tree, each with the text it sends, and its delivered
  * spine, data alone, which a served file carries and a read, a page and a write's read-back are rebuilt from. Every
  * projection here copies, member by member, exactly what the runtime reads of a compiled structure, its AST, IR nodes
- * and encoders left behind; a compiled structure is assignable to its served type, so the compile path serves it too.
+ * and encoders left behind, and names each statement's text (core/prepared.ts); a compiled structure is assignable to
+ * its served type over the spec it emitted (EmittedSpec), so the compile path serves it too.
  *
  * What the runtime reads of an attachment, the Attach node of the compiled program it holds no more: its name, the
  * child columns its correlation equates with the parent's, and the delivery the analysis judged.
@@ -30,16 +32,28 @@ export interface ServedFused {
 	readonly attach: ServedAttach
 }
 
-/** What the runtime reads of a statement's spec: the text it sends, and the heading of its output columns. */
+/**
+ * What the runtime reads of a statement's spec: the text it sends with the name it is prepared under
+ * (core/prepared.ts), and the heading of its output columns.
+ */
 export interface ServedSpec {
+	readonly text: Prepared<EmittedText>
+	readonly heading: Heading
+}
+
+/** A statement's spec as the compiler emits it: its text, not yet named, and its output heading. */
+export interface EmittedSpec {
 	readonly sql: EmittedText
 	readonly heading: Heading
 }
 
-/** A statement's form as an execution sends it: its placeholders in number order, and the spec emitted from it. */
-export interface ServedForm<Slot> {
+/**
+ * A statement's form as an execution sends it: its placeholders in number order, and the spec emitted from it, a
+ * served one's by default.
+ */
+export interface ServedForm<Slot, Spec = ServedSpec> {
 	readonly statement: { readonly params: ReadonlyArray<Slot> }
-	readonly spec: ServedSpec
+	readonly spec: Spec
 }
 
 /** A per-execution choice of a statement's form: an input above its threshold sends the large form. */
@@ -53,19 +67,19 @@ export interface ServedChoice<Source extends ChoiceInput> {
  * its parent key), the heading of the relation it delivers, its fused attachments, its placeholders, its forms and
  * how the runtime has its rows.
  */
-export interface ServedRunStatement<Slot, Source extends ChoiceInput> {
+export interface ServedRunStatement<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
 	readonly role: StatementRole
 	readonly heading: Heading
 	readonly fused: ReadonlyArray<ServedFused>
 	readonly params: ReadonlyArray<Slot>
-	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot>>
+	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot, Spec>>
 	readonly arrival: Arrival
 }
 
-/** A statement with the spec emitted from it. */
-export interface ServedSpecified<Slot, Source extends ChoiceInput> {
-	readonly statement: ServedRunStatement<Slot, Source>
-	readonly spec: ServedSpec
+/** A statement with the spec emitted from it, a served one's by default. */
+export interface ServedSpecified<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
+	readonly statement: ServedRunStatement<Slot, Source, Spec>
+	readonly spec: Spec
 }
 
 /** A statement of a program and the attachment statements stitched onto its rows, in emission order. */
@@ -83,12 +97,19 @@ export interface ServedAttached<S> extends ServedTree<S> {
 export type ServedRoots<S> = NonEmptyReadonlyArray<ServedTree<S>>
 
 /** A read statement: every placeholder a declared parameter's, every choice a relation parameter's count. */
-export type ServedReadStatement = ServedSpecified<DeclaredParamSlot, RelationInput>
+export type ServedReadStatement<Spec = ServedSpec> = ServedSpecified<
+	DeclaredParamSlot,
+	RelationInput,
+	Spec
+>
 
-/** A read's artifact as the runtime runs it: its statements in their tree, and how their rows are delivered. */
-export interface ServedSource {
+/**
+ * A read's artifact as the runtime runs it: its statements in their tree, and how their rows are delivered; over the
+ * specs the compiler emitted (EmittedSpec), the compiled artifact servedSource serves.
+ */
+export interface ServedSource<Spec = ServedSpec> {
 	readonly delivery: ProgramDelivery
-	readonly roots: ServedRoots<ServedReadStatement>
+	readonly roots: ServedRoots<ServedReadStatement<Spec>>
 }
 
 /**
@@ -149,9 +170,9 @@ const servedRole = (role: StatementRole): StatementRole => {
 	}
 }
 
-/** A statement's spec as the runtime reads it: the text it sends and its output heading. */
-export const servedSpec = (spec: ServedSpec): ServedSpec => ({
-	sql: spec.sql,
+/** A statement's spec as the runtime reads it: the text it sends, named here (core/prepared.ts), and its output heading. */
+export const servedSpec = (spec: EmittedSpec): ServedSpec => ({
+	text: prepared(spec.sql),
 	heading: servedHeading(spec.heading)
 })
 
@@ -175,7 +196,7 @@ export const servedRunStatement = <Slot, Source extends ChoiceInput>(
 
 /** A statement with its spec, each form served. */
 const servedSpecified = <Slot, Source extends ChoiceInput>(
-	specified: ServedSpecified<Slot, Source>
+	specified: ServedSpecified<Slot, Source, EmittedSpec>
 ): ServedSpecified<Slot, Source> => {
 	const { statement } = specified
 	const forms: StatementForms<ServedChoice<Source>, ServedForm<Slot>> = statement.forms.kind ===
@@ -205,7 +226,7 @@ export const servedTree = <A, B>(
 })
 
 /** A read's artifact as the runtime runs it (ServedSource): a template's `run`, or a read-back's, served. */
-export const servedSource = (run: ServedSource): ServedSource => ({
+export const servedSource = (run: ServedSource<EmittedSpec>): ServedSource => ({
 	delivery: run.delivery,
 	roots: mapNonEmpty(run.roots, (tree) => servedTree(tree, servedSpecified))
 })

@@ -67,6 +67,7 @@ import {
 	type StatementAnswer,
 	scriptedPool,
 	scriptedSession,
+	sentSql,
 	texts
 } from "#test/support/flight/scripted.ts"
 import { atDeclaredName, installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
@@ -805,9 +806,9 @@ const refusalOf = (fault: Extract<RefreshFault, { readonly kind: "refused" }>) =
 
 /** Which statement of the flight a query is, by its text. */
 const whereOf = (sql: string): Exclude<Where, "COMMIT"> =>
-	sql === asRefresher.fence.sql
+	sql === asRefresher.fence.text.sql
 		? "the fence"
-		: sql === asRefresher.enter.sql
+		: sql === asRefresher.enter.text.sql
 			? "the role's entry"
 			: sql === populatedSql
 				? "the populated read"
@@ -823,7 +824,7 @@ const sessionOf = (c: EndingCase, populatedViews: ReadonlyArray<string>) => {
 		{
 			...answeringScript,
 			statement: (query): StatementAnswer => {
-				const where = whereOf(query.sql)
+				const where = whereOf(sentSql(query))
 				if (lands(where)) {
 					switch (fault.kind) {
 						case "refused":
@@ -946,8 +947,8 @@ describe("how a refresh ends", () => {
 								assert.deepEqual(rest, [], "one flight")
 								assert.deepEqual(texts(only), [
 									"BEGIN ISOLATION LEVEL SERIALIZABLE",
-									asRefresher.fence.sql,
-									asRefresher.enter.sql,
+									asRefresher.fence.text.sql,
+									asRefresher.enter.text.sql,
 									...Arr.map(
 										Arr.dedupe(Arr.map(targets, (t) => t.view.schema)),
 										() => populatedSql

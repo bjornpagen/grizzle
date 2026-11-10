@@ -11,6 +11,7 @@ import type {
 } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
@@ -90,10 +91,13 @@ export interface ServedFile {
 	readonly roles: ReadonlyArray<ServedRoleForm>
 }
 
-/** The prologue texts of the installation's ledger (deploy/ledger/ledger.ts LedgerStatements fence and enter). */
+/**
+ * The prologue texts of the installation's ledger (deploy/ledger/ledger.ts LedgerStatements fence and enter), each
+ * named (core/prepared.ts): every Db transaction sends both.
+ */
 export interface ServedPrologue {
-	readonly fence: EmittedText
-	readonly enter: EmittedText
+	readonly fence: Prepared<EmittedText>
+	readonly enter: Prepared<EmittedText>
 }
 
 /**
@@ -184,18 +188,19 @@ export interface ServedRefreshTarget {
  * call's report names; the catalog statement that reads which views of one PostgreSQL schema PostgreSQL holds
  * populated, run once per schema the targets' views live in, in their first target's order, with that schema's
  * parameters and its targets, each by its place in refresh order and its view's name; and the DO block that refreshes every target, each plain or CONCURRENTLY
- * as PostgreSQL holds it populated, in one statement.
+ * as PostgreSQL holds it populated, in one statement. The catalog statement and the block are sent, each named
+ * (core/prepared.ts); a target's two statements are only reported.
  */
 export interface ServedRefresh {
 	readonly targets: NonEmptyReadonlyArray<
 		ServedRefreshTarget & { readonly plain: EmittedText; readonly concurrently: EmittedText }
 	>
-	readonly populated: EmittedText
+	readonly populated: Prepared<EmittedText>
 	readonly schemas: NonEmptyReadonlyArray<{
 		readonly params: ReadonlyArray<ParamText>
 		readonly targets: NonEmptyReadonlyArray<{ readonly place: number; readonly view: string }>
 	}>
-	readonly block: EmittedText
+	readonly block: Prepared<EmittedText>
 }
 
 /**

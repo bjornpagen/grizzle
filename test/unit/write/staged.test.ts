@@ -23,13 +23,14 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
+import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -56,14 +57,28 @@ import { paramText } from "#test/support/wire.ts"
 /** How a nested column's array is written: a text column's binary text[], a bytes column's bytea[], a literal's. */
 type Kind = "text" | "bytes" | "literal"
 
+/**
+ * A case's bound on one Bind message: drawn, or exactly the Bind message of one fill carrying every row, which the
+ * inline statement passes by its kept value, and never under the least bound a drawn one has (leastLimit).
+ */
+type Limit = { readonly kind: "drawn"; readonly bytes: number } | { readonly kind: "one fill" }
+
 /** A case: the nested columns, each row's cell lengths, the text's characters, the kept value and the bound. */
 interface Sketch {
 	readonly kinds: ReadonlyArray<Kind>
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 	readonly character: string
 	readonly kept: number
-	readonly limit: number
+	readonly limit: Limit
 }
+
+/** The least bound a case draws: a Bind message of four parameters and the longest kept value fits it. */
+const leastLimit = bindFrame.statement + 4 * bindFrame.parameter + 40
+
+const limitGen: Gen<Limit> = weighted<Limit>([
+	[7, (source) => ({ kind: "drawn", bytes: source.draw(int(leastLimit, 1_600)) })],
+	[1, constant({ kind: "one fill" })]
+])
 
 const kindGen: Gen<Kind> = element(["text", "bytes", "literal"] as const)
 
@@ -74,7 +89,7 @@ const sketchGen: Gen<Sketch> = (source) => {
 		rows: source.draw(array((s) => Arr.map(kinds, () => s.draw(int(0, 120))), { min: 0, max: 12 })),
 		character: source.draw(element(["a", "é", "€", "𝄞", '"', ",", "\\"] as const)),
 		kept: source.draw(int(0, 40)),
-		limit: source.draw(int(bindFrame.statement + 4 * bindFrame.parameter + 40, 1_600))
+		limit: source.draw(limitGen)
 	}
 }
 
@@ -108,6 +123,15 @@ const cellOf = (kind: Kind, character: string, length: number): MemberCell => {
 	}
 }
 
+/** The texts of the statement the cases stage, each named as a served write's are. */
+const stagedTexts = {
+	inline: prepared(testSql("inline")),
+	create: prepared(testSql("create")),
+	fill: prepared(testSql("fill")),
+	analyze: prepared(testSql("analyze")),
+	staged: prepared(testSql("staged"))
+}
+
 /** The case's nested rows, its statement, its kept value and its transport. */
 const resolved = (sketch: Sketch) => {
 	const cells: NestedCells = {
@@ -127,25 +151,35 @@ const resolved = (sketch: Sketch) => {
 	const columns = Arr.map(sketch.kinds, (_, part) => part)
 	const [firstColumn, ...restColumns] = columns
 	const statement: StagedStatement = {
-		sql: testSql("inline"),
+		text: stagedTexts.inline,
 		staged: {
 			kind: "carriers",
 			carriers: [
 				{
-					create: testSql("create"),
-					fill: testSql("fill"),
+					create: stagedTexts.create,
+					fill: stagedTexts.fill,
 					columns: [defined(firstColumn, "a nested column"), ...restColumns]
 				}
 			],
-			analyze: testSql("analyze"),
-			sql: testSql("staged"),
+			analyze: stagedTexts.analyze,
+			sql: stagedTexts.staged,
 			kept: [width]
 		},
 		nested
 	}
 	const value = paramText(Str.repeat(sketch.kept)("k"))
 	const transport: Transport = {
-		messageBytes: sketch.limit,
+		messageBytes:
+			sketch.limit.kind === "drawn"
+				? sketch.limit.bytes
+				: Math.max(
+						leastLimit,
+						bindOf(
+							Arr.map(cells.types, (_, part) =>
+								succeeded(nestedColumn(cells, part, cells.rows), "a column encodes")
+							)
+						)
+					),
 		literalUnits: maxStringLength.value,
 		frame: bindFrame
 	}
@@ -173,9 +207,9 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 	const all = r.cells.rows
 	const inline = [...written(r, all), r.value]
 	if (bindOf(inline) <= r.transport.messageBytes) {
-		return Result.ok([{ sql: testSql("inline"), params: inline, part: "statement" }])
+		return Result.ok([{ text: stagedTexts.inline, params: inline, part: "statement" }])
 	}
-	const out: Array<Execution> = [{ sql: testSql("create"), params: [], part: "create" }]
+	const out: Array<Execution> = [{ text: stagedTexts.create, params: [], part: "create" }]
 	let from = 0
 	while (from < all.length) {
 		const alone = bindOf(written(r, all.slice(from, from + 1)))
@@ -194,14 +228,14 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 			to += 1
 		}
 		out.push({
-			sql: testSql("fill"),
+			text: stagedTexts.fill,
 			params: written(r, all.slice(from, to)),
 			part: "fill"
 		})
 		from = to
 	}
-	out.push({ sql: testSql("analyze"), params: [], part: "analyze" })
-	out.push({ sql: testSql("staged"), params: [r.value], part: "statement" })
+	out.push({ text: stagedTexts.analyze, params: [], part: "analyze" })
+	out.push({ text: stagedTexts.staged, params: [r.value], part: "statement" })
 	return Result.ok(out)
 }
 
@@ -265,7 +299,7 @@ const pastTheBound: Sketch = {
 	],
 	character: "a",
 	kept: 0,
-	limit: 400
+	limit: { kind: "drawn", bytes: 400 }
 }
 
 describe("nested rows past one Bind message", () => {

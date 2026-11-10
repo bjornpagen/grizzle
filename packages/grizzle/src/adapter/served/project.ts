@@ -21,6 +21,7 @@ import {
 	levelChain,
 	type LoginDesc,
 	loginRoleName,
+	prepared,
 	raisableOf,
 	servedSession,
 	writesOf
@@ -300,7 +301,7 @@ export const servedFileOf = (
 			level: levelChain(login.base).length - 1,
 			role,
 			schema,
-			prologue: { fence: ledger.fence.text, enter: ledger.enter.text },
+			prologue: { fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
 			session: servedSession,
 			rosters: new Map(
 				Arr.map(

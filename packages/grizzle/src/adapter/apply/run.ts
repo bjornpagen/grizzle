@@ -36,6 +36,8 @@ import {
 	type FlightFailure,
 	type Frame,
 	joinFlights,
+	oneShotStatement,
+	preparedStatement,
 	runFramed,
 	runFramedTwice
 } from "#adapter/wire/batch.ts"
@@ -438,7 +440,7 @@ const writeStatements = (
 		}
 		for (const [chunk, execution] of executions.value.entries()) {
 			sent.push({ kind: "statement", statement: s, chunk, part: execution.part })
-			statements.push({ sql: execution.sql, params: execution.params })
+			statements.push(preparedStatement(execution.text, execution.params))
 		}
 	}
 	return Result.succeed({ sent, statements })
@@ -508,7 +510,7 @@ export const runWrite = <R>(
 				runFramedTwice(
 					session,
 					frame,
-					Arr.map(flights.reads, (r): BatchStatement => ({ sql: r.sql, params: r.params })),
+					Arr.map(flights.reads, (r) => oneShotStatement(r.sql, r.params)),
 					(outcomes) => {
 						sent = read
 						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))
