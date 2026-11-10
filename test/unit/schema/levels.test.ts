@@ -27,8 +27,9 @@ import { caseHang } from "#test/support/limits.ts"
 /**
  * What a level may state about the levels below it, against the rule restated as the oracle: a process over a lower
  * level holds none of the code above it, so a level reaches a lower ordinary relation only as one side of a containment
- * between stored relations whose sides are fields with no selection and no span, into a key the target relation
- * declares (a deferred foreign key PostgreSQL judges at COMMIT), and never by a key, a check, `mutable` or a family.
+ * between stored relations whose sides are fields with no span, into a side holding a key the target relation declares
+ * and selected by constants alone (a deferred foreign key PostgreSQL judges at COMMIT; test/unit/laws/lowered-rules
+ * draws the superkeys and constants), and never by a key, a check, `mutable` or a family.
  *
  * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
  * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field

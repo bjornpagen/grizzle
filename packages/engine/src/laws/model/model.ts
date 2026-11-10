@@ -89,7 +89,8 @@ import {
 	type PlannedSpanKey,
 	type PrimaryKeyPlan,
 	primaryKeyPlan,
-	Recognizer
+	Recognizer,
+	type RuleDischarge
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
@@ -1019,14 +1020,20 @@ class Specializer {
 	/** Every law by its id, a primary key's included: what a constraint's every law is described by. */
 	readonly #laws: ReadonlyMap<LawId, TheoryLaw>
 
-	constructor(theory: Theory, checked: CheckedSchema, slice: Slice, cycles: CycleSource) {
+	constructor(
+		theory: Theory,
+		checked: CheckedSchema,
+		slice: Slice,
+		cycles: CycleSource,
+		discharge: RuleDischarge
+	) {
 		this.theory = theory
 		this.checked = checked
 		this.owned = checked.owned
 		this.writes = slice.writes
 		this.planned = plannedLaws(theory.laws, slice, cycles)
 		this.cycles = cycles
-		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations)
+		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations, discharge)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([
 			...theory.laws.map((l) => [l.id, l] as const),
@@ -1934,9 +1941,10 @@ const specialize = (
 	theory: Theory,
 	checked: CheckedSchema,
 	slice: Slice,
-	cycles: CycleSource
+	cycles: CycleSource,
+	discharge: RuleDischarge
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked, slice, cycles).run())
+	catchRefusal(() => new Specializer(theory, checked, slice, cycles, discharge).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
@@ -1970,7 +1978,10 @@ const specialize = (
  *   a law states one CHECK per table, the conjunction of every row condition it states there. A native object that
  *   discharges several laws is one object listing them all; its violation reports the first, a key law's when one
  *   plans it, since key laws are merged first, and a family axis's former's.
- * - Rules over queries: a rule one of whose sides reads a derived relation is discharged by triggers, never by a native
+ * - Rules over queries: a containment into a key-shaped conjunction of stored relations (analysis/theory/laws.ts
+ *   RuleLowering) is discharged by one deferred foreign key per match of its target's definition, each planned as the
+ *   containment into a select() side it is (plan.ts #scalarContainment), and listed in the constraint map under the
+ *   rule's law. Any other rule one of whose sides reads a derived relation is discharged by triggers, never by a native
  *   object: one deferred constraint trigger per ordinary relation it reads, all under one name, a check's own and any
  *   other rule's minted from its law (identity.lawTrigger), each running a function of its own
  *   (identity.lawFunction), and each listed in the constraint map under its table, so a violation it raises names the
@@ -1995,9 +2006,48 @@ export const compileLaws = (
 	owned: Owned,
 	slice: Slice,
 	cycles: CycleSource
+): Result.Result<LawModel, CompileError> => dischargedLaws(owned, slice, cycles, "native")
+
+/**
+ * The law model of an owned schema for `slice` as the law oracle's conservative installation holds it
+ * (physical/install/compile.ts conservativeInstallation): compileLaws's, its cycles planned from every law, with every
+ * rule over a query discharged by its triggers, a rule that lowers to foreign keys among them, so its laws are the same
+ * laws under the same identities.
+ */
+export const conservativeLaws = (
+	owned: Owned,
+	slice: Slice
+): Result.Result<LawModel, CompileError> =>
+	dischargedLaws(owned, slice, { kind: "planned" }, "triggers")
+
+/** The law model of `owned` for `slice` under `cycles`, its rules over queries that lower to foreign keys discharged
+ * as `discharge` says. */
+const dischargedLaws = (
+	owned: Owned,
+	slice: Slice,
+	cycles: CycleSource,
+	discharge: RuleDischarge
 ): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned, slice), (checked) =>
-		Result.flatMap(buildTheory(checked), (theory) => specialize(theory, checked, slice, cycles))
+		Result.flatMap(buildTheory(checked), (theory) =>
+			specialize(theory, checked, slice, cycles, discharge)
+		)
+	)
+
+/**
+ * Every law the model still discharges by deferred constraint triggers, once rules that lower to foreign keys are
+ * lowered, whose trigger fires on `relation` or whose query reads it: on either side, by a match or a negation, at any
+ * depth of the derived relations it reads (analysis/theory/query.ts ruleReads), so a superset only of the laws a write
+ * of `relation` or a read of it by a trigger can involve. Empty exactly when every law over `relation` is native, a key,
+ * a CHECK, a domain or a foreign key, a lowered rule's among them, and no remaining trigger reads it. A model holds the
+ * rules its slice's writes can fire (`compileLaws`), so a reader that asks about every writer, the isolation
+ * certifier's, asks the installation's model, whose slice writes every ordinary relation.
+ */
+export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArray<LawId> =>
+	model.rules.flatMap((r) =>
+		r.law.reads.includes(relation) || r.tables.some((t) => t.relation.name === relation)
+			? [r.law.id]
+			: []
 	)
 
 /**

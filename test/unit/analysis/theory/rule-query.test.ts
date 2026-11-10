@@ -36,7 +36,7 @@
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts, and its laws'
  * violation queries are written as generate writes them, each rule's checked there (laws/model/violations.ts
  * theoryViolations). Beside it, each name a
- * table holds a constraint or a rule's trigger under names one law, since PostgreSQL reports a violation by its table
+ * table holds a constraint or a rule's trigger under reports one law, since PostgreSQL reports a violation by its table
  * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
  * its law's.
  */
@@ -48,7 +48,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ConstraintLaw, ConstraintLawOf } from "#compiler/laws/model/model.ts"
+import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
@@ -262,21 +262,17 @@ type TextReached = `a ${Exclude<Pattern, "same">} ${"ref" | "note"}` | "into" | 
 
 /**
  * The names a table holds of two laws: PostgreSQL reports a violation by its table and constraint name alone, so a name
- * under one table names one law, a table constraint's or a rule's trigger's.
+ * under one table reports one law, a table constraint's or a rule's trigger's. One object discharging several laws, a
+ * superkey's UNIQUE that a key and a lowered rule's foreign key both rest on, reports its first (laws/model/model.ts
+ * constraintLawMap); two objects under one name clash where they report two.
  */
 const clashesOf = (constraints: ReadonlyArray<ConstraintLaw>): ReadonlyArray<string> =>
 	Arr.flatMap([...Map.groupBy(constraints, (x) => `${x.owner} ${x.name}`)], ([at, named]) =>
-		Arr.dedupeWith(
-			Arr.flatMap(named, (x) => describedOf(x.laws)),
-			sameLaw
-		).length > 1
-			? [at]
-			: []
+		Arr.dedupeWith(Arr.map(named, reportedOf), sameLaw).length > 1 ? [at] : []
 	)
 
-/** The laws a constraint or trigger discharges, as an outcome names them. */
-const describedOf = (laws: ReadonlyArray<ConstraintLawOf>): ReadonlyArray<Law> =>
-	Arr.map(laws, (l) => l.described)
+/** The law a constraint or trigger reports, its first, as an outcome names it. */
+const reportedOf = (constraint: ConstraintLaw): Law => constraint.laws[0].described
 
 /**
  * How a derived relation's two arms deliver its head literal: one in both, or one each, the union's discriminant. Both

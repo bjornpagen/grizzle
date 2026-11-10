@@ -35,7 +35,9 @@
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
  * of it; derived relations of them at the level above, and over those at a third, each live or materialized; up to two
  * relations at the level
- * above, containing into a relation below or into a derived relation of one (a rule over a query); one or two roles,
+ * above, containing into a relation below or into a derived relation of one (a rule over a query, lowered to a foreign
+ * key where the derived relation reads its rows by a constant, its triggers kept where by another condition); one or
+ * two roles,
  * each holding every relation whole beside world entries over relations below; and one to three programs, each a query
  * or a ChangeSet with read-backs.
  */
@@ -357,8 +359,42 @@ const idsOf = (source: Source, selected: boolean): QueryDesc =>
 
 const named = (name: string): Source => ({ kind: "relation", name })
 
-/** The definition of D_i: the ids of root relation i's live rows. */
-const derivedDefinition = (i: number): QueryDesc => idsOf(named(rootName(i)), true)
+/**
+ * The ids of root relation `relation`'s rows whose `on` is not false: its live rows, read by a condition no foreign key
+ * states, so a rule into a relation so defined keeps its triggers (analysis/theory/laws.ts RuleLowering).
+ */
+const notFalseIdsOf = (relation: string): QueryDesc =>
+	decodedQuery({
+		kind: "rules",
+		arms: [
+			{
+				vars: [
+					{ id: "id", origin: { relation, field: "id" } },
+					{ id: "on", origin: { relation, field: "on" } }
+				],
+				matches: [
+					{
+						source: { kind: "relation", name: relation },
+						bindings: { id: { kind: "var", var: "id" }, on: { kind: "var", var: "on" } }
+					}
+				],
+				where: [
+					{ kind: "compare", op: "ne", left: { kind: "var", var: "on" }, right: literal(false) }
+				],
+				head: { id: { kind: "var", var: "id" } },
+				interiors: [],
+				attach: []
+			}
+		]
+	})
+
+/**
+ * The definition of D_i: the ids of root relation i's live rows, read by its `on` bound to true where i is even, so a
+ * rule into D_i lowers to a foreign key, and by its `on` not false where i is odd, so a rule into D_i keeps its
+ * triggers.
+ */
+const derivedDefinition = (i: number): QueryDesc =>
+	i % 2 === 0 ? idsOf(named(rootName(i)), true) : notFalseIdsOf(rootName(i))
 
 /** How a query reads a derived relation: a materialized one by its name, a live one through `definition`. */
 const derivedSource = (c: SliceCase, name: string, definition: QueryDesc): Source =>
@@ -841,6 +877,7 @@ type SliceFeature =
 	| "evidence of a containment reading a relation outside the names"
 	| "a selection key on a named relation outside the writes"
 	| "a rule reading the writes"
+	| "a lowered rule reading the writes"
 	| "a contract's domain used outside the names"
 	| "a ChangeSet compiled over the slice"
 	| "a query compiled over the slice"
@@ -858,6 +895,7 @@ const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"evidence of a containment reading a relation outside the names",
 	"a selection key on a named relation outside the writes",
 	"a rule reading the writes",
+	"a lowered rule reading the writes",
 	"a contract's domain used outside the names",
 	"a ChangeSet compiled over the slice",
 	"a query compiled over the slice",
@@ -1476,6 +1514,17 @@ describe("a compile's law model", () => {
 						}
 						if (model.rules.length > 0) {
 							k.note("a rule reading the writes")
+						}
+						if (
+							Arr.some(
+								model.theory.laws,
+								(l) =>
+									l.detail.kind === "rule" &&
+									l.detail.lowering.kind === "foreignKeys" &&
+									Arr.some(l.reads, (r) => writes.has(r))
+							)
+						) {
+							k.note("a lowered rule reading the writes")
 						}
 						if (
 							Arr.some(whole.natives, (n) => n.object.kind === "Domain") &&

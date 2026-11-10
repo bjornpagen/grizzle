@@ -1,5 +1,6 @@
 import { familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
 import {
+	fieldDatum,
 	fixedSelection,
 	type ResolvedConjunct,
 	type ResolvedSelection,
@@ -51,12 +52,10 @@ import {
 	type BtreeEntryBytes,
 	btreeEntry,
 	type DatumBound,
-	datumBound,
 	type EntryColumn,
 	type GistEntryBytes,
 	gistEntry,
-	indexMaxKeys,
-	setDatumBound
+	indexMaxKeys
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -162,13 +161,7 @@ const plannedField = (c: PlannedColumn): LawField => {
  * hold: it is counted at its roster's handles, the fewest codes the roster can have, so the count refuses only an entry
  * certainly past the bound.
  */
-const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
-	const field = plannedField(c)
-	const base = baseOf(field.type)
-	return base.carrier === "bits"
-		? setDatumBound(base.roster.handles.length)
-		: datumBound(field.desc)
-}
+const plannedDatum = (c: PlannedColumn): DatumBound | undefined => fieldDatum(plannedField(c))
 
 /** A planned column as a refusal names it: a field by its name, a law column by what it holds. */
 const plannedText = (c: PlannedColumn): string =>
@@ -392,6 +385,13 @@ export interface CheckPredicate {
  * - `immediate`, `deferred`: as its family axis fixes it.
  */
 export type ForeignKeyDeferral = "rule" | "cycle" | "immediate" | "deferred"
+
+/**
+ * How the law model discharges a rule over a query that lowers to foreign keys (analysis/theory/laws.ts RuleLowering):
+ * by its foreign keys, as every installation and every login's runtime does, or by its deferred constraint triggers, as
+ * the law oracle's conservative installation keeps it (physical/install/compile.ts conservativeInstallation).
+ */
+export type RuleDischarge = "native" | "triggers"
 
 /** A native object as planned: the frozen NativeObject kinds, with a law column still symbolic, a foreign key's deferral
  * still to decide, and a generated CHECK still to lower. */
@@ -1107,11 +1107,14 @@ export class Recognizer {
 	readonly #refill: RefillDeferral
 	/** Each closed relation's sides the containments into it read (closedSidesOf), each built once. */
 	readonly #closedSides: ClosedSides
+	/** How a rule over a query that lowers to foreign keys is discharged (model.ts RuleDischarge). */
+	readonly #discharge: RuleDischarge
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
 		families: ReadonlyArray<Family>,
-		relations: Readonly<Record<string, TheoryRelation>>
+		relations: Readonly<Record<string, TheoryRelation>>,
+		discharge: RuleDischarge
 	) {
 		const keys = new Map<string, Array<ResolvedSide>>()
 		const familyLaws = new Map<string, TheoryLaw>()
@@ -1156,6 +1159,7 @@ export class Recognizer {
 		this.#cascaded = cascaded
 		this.#refill = refillDeferral(families)
 		this.#closedSides = closedSidesOf(laws)
+		this.#discharge = discharge
 	}
 
 	/**
@@ -1208,9 +1212,16 @@ export class Recognizer {
 			case "containment":
 				return this.#containment(law, d, loc, done)
 			case "rule":
-				return law.reads.some((r) => this.#relations[r]?.kind === "relation")
-					? { law, natives: [], discharge: "trigger" }
-					: migrationPlan(law)
+				if (!law.reads.some((r) => this.#relations[r]?.kind === "relation")) {
+					return migrationPlan(law)
+				}
+				return d.lowering.kind === "foreignKeys" && this.#discharge === "native"
+					? done(
+							d.lowering.parts.flatMap((p) =>
+								this.#scalarContainment(p.from, p.to, "deferred", loc)
+							)
+						)
+					: { law, natives: [], discharge: "trigger" }
 			case "family":
 			case "tree":
 				return done(this.#familyNatives(this.#familyPlan(d.family.id, loc), law.id))
@@ -1343,7 +1354,7 @@ export class Recognizer {
 			case "span":
 				return done(this.#coverage(d, d.pairing, loc))
 			case "scalar":
-				return done(this.#scalarContainment(d.from, d.to, loc))
+				return done(this.#scalarContainment(d.from, d.to, "rule", loc))
 		}
 	}
 
@@ -1423,10 +1434,13 @@ export class Recognizer {
 	 * the UNIQUE over the target's columns it references, the law columns either side reads, and the index over the
 	 * source's columns. A fixed target (`#fixedTarget`) is referenced at its fixed fields too, which the source meets by
 	 * constant law columns and by its own columns listed again, so the index over its columns alone serves every probe.
+	 * Its deferral is the schema-wide rule's for a stated containment, and deferred for a part of a lowered rule over a
+	 * query, which its triggers judged at COMMIT.
 	 */
 	#scalarContainment(
 		from: ResolvedSide,
 		to: ResolvedSide,
+		deferral: "rule" | "deferred",
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
@@ -1447,7 +1461,7 @@ export class Recognizer {
 				target: toRel,
 				targetColumns: reference.targetColumns,
 				onUpdate: "noAction",
-				deferral: "rule",
+				deferral,
 				laws: undefined
 			},
 			{

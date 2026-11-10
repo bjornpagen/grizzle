@@ -24,6 +24,7 @@ import {
 	membersSelection,
 	Namings,
 	type Ride,
+	type RidingPair,
 	riddenFamily,
 	ridesOf,
 	slotsText,
@@ -115,6 +116,14 @@ import type {
 	SidePair,
 	SideScope
 } from "#compiler/schema/own.ts"
+import {
+	btreeEntry,
+	type DatumBound,
+	datumBound,
+	type EntryColumn,
+	indexMaxKeys,
+	setDatumBound
+} from "#compiler/schema/representability.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"
 
 /** A row check as its statement states it: its relation, its name and predicate, and its constraint identifier, which
@@ -135,6 +144,31 @@ interface StatedCheck {
 interface StatedRule {
 	readonly kind: "rule"
 	readonly rule: QueryRule
+}
+
+/**
+ * One foreign key a containment rule over a query lowers to: the source side over the terms one match of its target's
+ * definition holds, contained in that match's relation over the fields the match binds them at, selected by the
+ * constants the match fixes, as a hand-written containment into a select() side is (laws/model/plan.ts #fixedTarget).
+ */
+interface LoweredPart {
+	readonly from: ResolvedSide
+	readonly to: ResolvedSide
+}
+
+/**
+ * How a rule over a query is discharged at every COMMIT: by its deferred constraint triggers (query.ts), or, for a
+ * containment into a key-shaped conjunction of stored relations, by one deferred foreign key per match of its target's
+ * definition (`Normalizer.#lowering`), which the conjunction of the parts' containments is.
+ */
+type RuleLowering =
+	| { readonly kind: "triggers" }
+	| { readonly kind: "foreignKeys"; readonly parts: NonEmptyReadonlyArray<LoweredPart> }
+
+/** A rule over a query as its detail is written: as stated, with how it is discharged. Its identity reads the rule
+ * alone, so a rule is one law whichever way it is discharged. */
+interface WrittenRule extends StatedRule {
+	readonly lowering: RuleLowering
 }
 
 /**
@@ -194,7 +228,7 @@ export type LawDetail =
 	  }
 	| { readonly kind: "family"; readonly family: Family }
 	| { readonly kind: "tree"; readonly family: TreeFamily }
-	| (StatedRule & {
+	| (WrittenRule & {
 			/** Its violation query as normalization wrote it (query.ts violationQuery), which the violation queries'
 			 * writer checks against the checked schema and reads (laws/model/violations.ts). */
 			readonly violation: QueryDesc
@@ -374,13 +408,14 @@ interface LawDraft {
 /**
  * How a law's detail is written as the theory carries it (theory.ts buildTheory): a family's and a tree's resolved once
  * the theory resolves its families, any other law's as stated; or, for a rule over a query, with its violation query, a
- * description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits and carries checked.
+ * description the checker reads (analysis/theory/query.ts violationQuery), which the theory admits and carries checked,
+ * and how it is discharged (`RuleLowering`).
  * No law's violation query is written here (laws/model/violations.ts), and no predicate is lowered: law specialization
  * lowers what it serves or installs.
  */
 type LawWriting =
 	| { readonly kind: "built"; readonly detail: () => LawDetail }
-	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: StatedRule }
+	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: WrittenRule }
 
 /** A draft whose detail is as stated: every law but a family and a tree. */
 interface StatedDraft {
@@ -1169,6 +1204,7 @@ export class Normalizer {
 				if (this.env.definition(s.side.relation) !== undefined) {
 					this.#queryRule(
 						{ kind: "key", side: this.#ruleSide(s.side, s.side.terms, "side.", loc) },
+						byTriggers,
 						"key",
 						{ statement: index, kind: "key" },
 						sources,
@@ -1211,6 +1247,7 @@ export class Normalizer {
 								arms: derivedSideArms(arms, heading, everyFact, loc)
 							}
 						},
+						byTriggers,
 						"check",
 						{ statement: index, kind: "check" },
 						sources,
@@ -1325,7 +1362,8 @@ export class Normalizer {
 		}
 	}
 
-	/** A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms. */
+	/** A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms, discharged
+	 * by foreign keys where its target lowers to them (`#lowering`). */
 	#queryContainment(
 		left: SideScope,
 		right: SideScope,
@@ -1334,6 +1372,12 @@ export class Normalizer {
 		sources: ReadonlyArray<StatementSource>,
 		loc: SourceLoc
 	): void {
+		const to = this.#ruleSide(
+			right,
+			mapNonEmpty(pairs, (p) => p.right),
+			"to.",
+			loc
+		)
 		this.#queryRule(
 			{
 				kind: "contained",
@@ -1343,13 +1387,9 @@ export class Normalizer {
 					"from.",
 					loc
 				),
-				to: this.#ruleSide(
-					right,
-					mapNonEmpty(pairs, (p) => p.right),
-					"to.",
-					loc
-				)
+				to
 			},
+			this.#lowering(left, pairs, to, loc),
 			"contained",
 			{ statement: index, kind: "contained" },
 			sources,
@@ -1357,20 +1397,149 @@ export class Normalizer {
 		)
 	}
 
-	/** A rule over a query, kept with its violation query as a description the checker reads. */
+	/**
+	 * How a containment of `left`'s side over `pairs` into `to`, a side of a derived relation, is discharged
+	 * (`RuleLowering`). It lowers to one deferred foreign key per match of the definition (`LoweredPart`) when its source
+	 * is an ordinary stored relation at a level no relation the definition matches is above, no pair reads a span field,
+	 * and its target's definition, read live (query.ts liveArms), is:
+	 *
+	 * 1. one arm, negating nothing, every match of an ordinary stored relation;
+	 * 2. every term of the side a variable a match binds, no two terms one variable;
+	 * 3. every condition `variable = literal`, besides a field a match binds to a literal, fixing a field no term reads;
+	 * 4. every variable no term reads bound once, by one match, so the matches meet at the side's terms alone;
+	 * 5. every match binding a variable a term reads;
+	 * 6. no match binding one term's variable at two fields;
+	 * 7. each match's fields at the terms and at the constants holding a declared scalar key of its relation, and, where
+	 *    they are no declared key's exactly, a UNIQUE over them whose B-tree entry is proved (`entryHolds`).
+	 *
+	 * The definition's facts are then the tuples each match holds at its terms, the existential fields of one match
+	 * apart from every other's, so a source tuple is a fact exactly when each match holds it: the conjunction of one
+	 * containment per match into its relation selected by its constants, each keyed by condition 7, so its witness is
+	 * unique and the foreign key's check on a deleted or updated target row is the rule's. Any other target keeps its
+	 * triggers.
+	 */
+	#lowering(
+		left: SideScope,
+		pairs: NonEmptyReadonlyArray<SidePair>,
+		to: RuleSide,
+		loc: SourceLoc
+	): RuleLowering {
+		const source = this.env.relations.get(left.relation)
+		const [arm, ...more] = to.arms
+		if (
+			source?.kind !== "relation" ||
+			this.env.definition(left.relation) !== undefined ||
+			more.length > 0 ||
+			arm.negated.length > 0
+		) {
+			return byTriggers
+		}
+		const headVars = arm.terms.flatMap((t) => (t.kind === "var" ? [t.var] : []))
+		if (headVars.length !== arm.terms.length || new Set(headVars).size !== headVars.length) {
+			return byTriggers
+		}
+		const constants = new Map<string, ExprDesc>()
+		for (const w of arm.where) {
+			const fixed = variableFixing(w)
+			if (fixed === undefined || constants.has(fixed.var) || headVars.includes(fixed.var)) {
+				return byTriggers
+			}
+			constants.set(fixed.var, fixed.literal)
+		}
+		const existentials = new Map<string, number>()
+		for (const m of arm.matches) {
+			for (const e of Object.values(m.bindings)) {
+				if (e.kind === "var" && !headVars.includes(e.var) && !constants.has(e.var)) {
+					existentials.set(e.var, (existentials.get(e.var) ?? 0) + 1)
+				} else if (e.kind !== "var" && e.kind !== "literal") {
+					return byTriggers
+				}
+			}
+		}
+		if ([...existentials.values()].some((n) => n > 1)) {
+			return byTriggers
+		}
+		const held = new Set<string>()
+		const parts: Array<LoweredPart> = []
+		for (const m of arm.matches) {
+			const target = this.env.relations.get(m.relation)
+			if (target?.kind !== "relation" || target.level > source.level) {
+				return byTriggers
+			}
+			const fields = Object.entries(m.bindings)
+			const at = headVars.flatMap((v, pair) =>
+				fields.flatMap(([field, e]) =>
+					e.kind === "var" && e.var === v ? [{ field, pair, v }] : []
+				)
+			)
+			const fixed = fields.flatMap(([field, e]) => {
+				const literal = e.kind === "var" ? constants.get(e.var) : e
+				return literal === undefined ? [] : [{ field, literal }]
+			})
+			const [first, ...rest] = at
+			if (
+				first === undefined ||
+				new Set(at.map((a) => a.pair)).size !== at.length ||
+				!keyedWithin(
+					target,
+					at.map((a) => a.field),
+					fixed.map((f) => f.field)
+				)
+			) {
+				return byTriggers
+			}
+			for (const a of at) {
+				held.add(a.v)
+			}
+			const part: LoweredPart = {
+				from: this.#sides.side(
+					left,
+					mapNonEmpty([first, ...rest], (a) => pairAt(pairs, a.pair).left),
+					loc
+				),
+				to: this.#sides.side(
+					scopeOver(
+						m.relation,
+						fixed.map((f) => fieldIs(f.field, f.literal))
+					),
+					mapNonEmpty([first, ...rest], (a): TermDesc => ({ kind: "field", field: a.field })),
+					loc
+				)
+			}
+			if (
+				[...part.from.terms, ...part.to.terms].some((t) => isSpanField(t.column)) ||
+				ridesOf(this.#families.values(), part.from, part.to, partPairs(part)) !== undefined
+			) {
+				return byTriggers
+			}
+			parts.push(part)
+		}
+		const [one, ...others] = parts
+		return one !== undefined && headVars.every((v) => held.has(v))
+			? { kind: "foreignKeys", parts: [one, ...others] }
+			: byTriggers
+	}
+
+	/** A rule over a query, kept with its violation query as a description the checker reads, discharged as `lowering`
+	 * says. */
 	#queryRule(
 		rule: QueryRule,
+		lowering: RuleLowering,
 		shape: LawShape,
 		source: LawSource,
 		sources: ReadonlyArray<StatementSource>,
 		loc: SourceLoc
 	): void {
-		const detail: StatedRule = { kind: "rule", rule }
+		const stated: StatedRule = { kind: "rule", rule }
 		this.#keep(
 			{
-				identity: { shape, source, reads: ruleReads(rule), detail },
+				identity: { shape, source, reads: ruleReads(rule), detail: stated },
 				sources,
-				write: { kind: "query", violation: violationQuery(rule, loc), detail }
+				write: {
+					kind: "query",
+					violation: violationQuery(rule, loc),
+					detail: { ...stated, lowering }
+				}
 			},
 			loc,
 			(kept) => this.#laws.push(kept)
@@ -1927,6 +2096,97 @@ const ridingPins = (f: FamilyShape, ride: Ride): ReadonlyArray<Pin> => {
 						]
 					: []
 			})
+}
+
+/** A rule over a query its triggers discharge (`RuleLowering`). */
+const byTriggers: RuleLowering = { kind: "triggers" }
+
+/** The variable a condition of an arm fixes and the literal it fixes it to: a variable compared equal with a literal on
+ * either side. */
+const variableFixing = (
+	e: ExprDesc
+): { readonly var: string; readonly literal: ExprDesc } | undefined => {
+	if (e.kind !== "compare" || e.op !== "eq") {
+		return undefined
+	}
+	if (e.left.kind === "var" && e.right.kind === "literal") {
+		return { var: e.left.var, literal: e.right }
+	}
+	if (e.left.kind === "literal" && e.right.kind === "var") {
+		return { var: e.right.var, literal: e.left }
+	}
+	return undefined
+}
+
+/** `field = literal`, a conjunct of a side's selection a selector reads (`fieldEquality`). */
+const fieldIs = (field: string, literal: ExprDesc): ExprDesc => ({
+	kind: "compare",
+	op: "eq",
+	left: { kind: "field", field },
+	right: literal
+})
+
+/** The statement's pair at `at`, which a lowered part's term names. */
+const pairAt = (pairs: NonEmptyReadonlyArray<SidePair>, at: number): SidePair =>
+	defined(pairs[at], "a lowered part's term names a pair of its statement")
+
+/** A lowered part's pairs, term by term, as the riding rule reads them (families.ts ridesOf). */
+const partPairs = (part: LoweredPart): NonEmptyReadonlyArray<RidingPair> =>
+	mapNonEmpty(part.from.terms, (from, i) => ({
+		from,
+		to: defined(part.to.terms[i], "a lowered part's sides are of one width")
+	}))
+
+/**
+ * The most bytes a field's datum takes in an index entry (schema/representability.ts datumBound): a set's at its
+ * roster's handles, the fewest codes the roster can have, and none for text of no bound. What the law model's planned
+ * entries read (laws/model/plan.ts plannedDatum), and what a lowered rule's UNIQUE is proved by (`entryHolds`).
+ */
+export const fieldDatum = (field: LawField): DatumBound | undefined => {
+	const base = baseOf(field.type)
+	return base.carrier === "bits"
+		? setDatumBound(base.roster.handles.length)
+		: datumBound(field.desc)
+}
+
+/** Whether a UNIQUE over `fields`, in order, each NOT NULL, has a proved B-tree entry: at most INDEX_MAX_KEYS columns,
+ * each of a bounded datum, the whole within BTMaxItemSize (laws/model/plan.ts plannedEntry). */
+const entryHolds = (fields: ReadonlyArray<LawField>): boolean => {
+	const entry: Array<EntryColumn> = []
+	for (const f of fields) {
+		const datum = fieldDatum(f)
+		if (datum === undefined) {
+			return false
+		}
+		entry.push({ name: f.name, datum, nullable: false })
+	}
+	return fields.length <= indexMaxKeys.value && btreeEntry(entry).ok
+}
+
+/**
+ * Whether one match of a lowered rule references `target` at fields it holds apart: `at`, the fields its terms are
+ * bound at, and `fixed`, the fields its constants fix, contain a declared scalar key of the relation, and their UNIQUE,
+ * its columns in the order a fixed target references them (laws/model/plan.ts #fixedTarget), is that key's own or a
+ * generated one whose entry holds.
+ */
+const keyedWithin = (
+	target: RelationInfo,
+	at: ReadonlyArray<string>,
+	fixed: ReadonlyArray<string>
+): boolean => {
+	const fieldsOf = (names: ReadonlyArray<string>): ReadonlyArray<LawField> =>
+		names.flatMap((name) => target.fields.filter((f) => f.name === name))
+	const atFields = fieldsOf(at)
+	const fixedFields = fieldsOf(fixed).toSorted((a, b) => a.position - b.position)
+	const fields = [...atFields, ...fixedFields]
+	const keys = [target.primaryFields, ...target.keyFields].filter((k) => !k.some(isSpanField))
+	const sameSet = (k: ReadonlyArray<LawField>): boolean =>
+		k.length === fields.length && k.every((f) => fields.includes(f))
+	return (
+		fields.length === at.length + fixed.length &&
+		keys.some((k) => k.every((f) => fields.includes(f))) &&
+		(keys.some(sameSet) || entryHolds(fields))
+	)
 }
 
 /** The field a predicate fixes and the literal it fixes it to: a field compared equal with a literal on either side. */

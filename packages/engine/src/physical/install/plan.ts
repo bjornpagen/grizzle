@@ -23,6 +23,7 @@ import {
 	type ConstraintLawOf,
 	type CycleSource,
 	compileLaws,
+	conservativeLaws,
 	constraintLawMap,
 	type DomainUse,
 	type LawModel
@@ -110,24 +111,41 @@ export const installBasis = (
 	slice: Slice
 ): Result.Result<InstallBasis, CompileError> =>
 	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>
-		catchRefusal((): InstallBasis => {
-			const planned = planClosed(
-				owned,
-				Object.values(model.theory.relations).filter(
-					(r): r is ClosedTheoryRelation => r.kind === "closed"
-				),
-				codes
-			)
-			return {
-				owned,
-				model,
-				codes,
-				closed: closedNames(planned),
-				textDomains: storedTextDomains(owned, model.theory),
-				planned
-			}
-		})
+		basisOver(owned, codes, model)
 	)
+
+/** The basis of the law oracle's conservative installation of `owned` (install/compile.ts conservativeInstallation):
+ * installBasis's, over the law model that discharges every rule over a query by its triggers (conservativeLaws). */
+export const conservativeBasis = (
+	owned: Owned,
+	codes: Codebook,
+	slice: Slice
+): Result.Result<InstallBasis, CompileError> =>
+	Result.flatMap(conservativeLaws(owned, slice), (model) => basisOver(owned, codes, model))
+
+/** The basis of the installations of `owned` under `codes` over its law model `model`. */
+const basisOver = (
+	owned: Owned,
+	codes: Codebook,
+	model: LawModel
+): Result.Result<InstallBasis, CompileError> =>
+	catchRefusal((): InstallBasis => {
+		const planned = planClosed(
+			owned,
+			Object.values(model.theory.relations).filter(
+				(r): r is ClosedTheoryRelation => r.kind === "closed"
+			),
+			codes
+		)
+		return {
+			owned,
+			model,
+			codes,
+			closed: closedNames(planned),
+			textDomains: storedTextDomains(owned, model.theory),
+			planned
+		}
+	})
 
 /** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice` under `cycles`,
  * each closed relation's constants named as `closed` records them and its text domains as `textDomains` does: a Db's,

@@ -36,6 +36,7 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import {
 	freshPlanSettings,
 	type InstallBasis,
+	conservativeBasis,
 	installBasis,
 	type InstallPlan,
 	planInstallation
@@ -144,6 +145,21 @@ export const compileInstallation = (
 	options: InstallOptions
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
+		installationOver(basis, options)
+	)
+
+/**
+ * The law oracle's conservative installation of `owned`: compileInstallation's under `options`, over the law model that
+ * discharges every rule over a query by its deferred constraint triggers (laws/model/model.ts conservativeLaws), a rule
+ * that lowers to foreign keys among them, as the write oracle's conservative realization keeps every boundary the
+ * optimized artifact elides. Its laws are the installation's laws under the same identities, so a write each
+ * installation refuses names one law through its own constraint map. No generate, snapshot or served artifact reads it.
+ */
+export const conservativeInstallation = (
+	owned: Owned,
+	options: InstallOptions
+): Result.Result<Installation, CompileError> =>
+	Result.flatMap(conservativeBasis(owned, options.codes, everySlice(owned)), (basis) =>
 		installationOver(basis, options)
 	)
 
