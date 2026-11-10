@@ -2,12 +2,16 @@
  * The ChangeSets of the family swarm search (test/pg/write/swarm/families.test.ts), built over an installed schema from
  * a case's steps (oracle.ts Step): the facts of an instance's rows, top facts with their sequences nested, a stored
  * row's caller facts, a follow-up's members, plain writes, a query's insert and a put from a query, each stratum a
- * ChangeSet of its own and the strata in sequence.
+ * ChangeSet of its own and the strata in sequence. Each ChangeSet is served as an application writes it: the first
+ * member of an op and relation is its array member, its facts the call's under that op and relation, and every further
+ * one a query member over a relation parameter of its own, its rows the call's parameter, but where only an array
+ * writes it, a family's member or a sequence's owner inserted, whose further facts join its array member's.
  */
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { bits, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { HeadShape } from "#compiler/types/query/terms.ts"
 import {
 	changeSetOver as ChangeSet,
@@ -114,13 +118,123 @@ const callerFact = (spec: SwarmSpec, row: InstanceRow): Fact => ({
 interface Member {
 	readonly relation: BuiltRelation
 	readonly op: "insert" | "put" | "delete"
-	readonly rows: MemberInput
+	readonly rows:
+		| { readonly kind: "facts"; readonly facts: ReadonlyArray<Fact> }
+		| {
+				readonly kind: "query"
+				readonly query: MemberInput
+		  }
 }
 
-/** A ChangeSet and its parameters. */
+/** A call's facts: under each op of the ChangeSet's array members, each one's facts under its relation's name. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+
+/** A ChangeSet as a served call applies it: the ChangeSet, its call's facts and its parameters. */
 interface Built {
 	readonly changes: ChangeSetValue
+	readonly facts: CallFacts
 	readonly params: ParamMap
+}
+
+/** Facts of a member as a ChangeSet states them. */
+const factsOf = (facts: ReadonlyArray<Fact>): Member["rows"] => ({ kind: "facts", facts })
+
+/**
+ * Whether only an array member writes `op` of the relation named `relation`, the served compile refusing it from a
+ * query as UnsupportedOperation: any write of a family's member, whose family values grizzle draws from the call's rows
+ * on the host, and an insert of a sequence's or a tree's owner, whose members it writes nested in order under it.
+ */
+const arrayOnly = (spec: SwarmSpec, op: Member["op"], relation: string): boolean =>
+	Arr.some(
+		spec.fill.families,
+		(f) =>
+			relationName(f.member) === relation ||
+			(op === "insert" && f.kind !== "counted" && relationName(f.owner) === relation)
+	)
+
+/**
+ * Strata of members as one served ChangeSet over `value`, the strata in sequence, with its call's facts and parameters
+ * beside `params`. The first member of an op and relation is its array member, its facts the call's under that op and
+ * relation. Every further one is a query member over a relation parameter of its own, `rows<k>` in order, whose rows
+ * the call gives as that parameter, each of the relation's fields its facts state: so a relation written from several
+ * sources in one stratum, or in several strata, is written as an application writes it, a served call supplying one
+ * array per op and relation. A further member of an op and relation only an array writes (arrayOnly) adds its facts to
+ * that op and relation's array member, which holds them as its stratum's union does: every family write sits in the
+ * middle stratum, so the array member is always in the further member's own.
+ */
+const servedOf = (
+	spec: SwarmSpec,
+	value: ReturnType<BuiltSwarm["rename"]>,
+	strata: ReadonlyArray<ReadonlyArray<Member>>,
+	params: ParamMap
+): Built => {
+	const arrays = new Map<Member["op"], Map<string, Array<Fact>>>()
+	const given: Array<readonly [string, ReadonlyArray<Fact>]> = []
+	/** The member's rows as its ChangeSet holds them, or none where its facts join its array member's. */
+	const sourceOf = (m: Member): ReadonlyArray<MemberInput> => {
+		if (m.rows.kind === "query") {
+			return [m.rows.query]
+		}
+		const facts = m.rows.facts
+		const byRelation = arrays.get(m.op) ?? new Map<string, Array<Fact>>()
+		arrays.set(m.op, byRelation)
+		const held = byRelation.get(m.relation.name)
+		if (held === undefined) {
+			byRelation.set(m.relation.name, [...facts])
+			return [[]]
+		}
+		if (arrayOnly(spec, m.op, m.relation.name)) {
+			for (const fact of facts) {
+				held.push(fact)
+			}
+			return []
+		}
+		const name = `rows${String(given.length)}`
+		given.push([name, facts])
+		const fields: Readonly<Record<string, FieldBase>> = Rec.fromEntries(
+			Arr.map(
+				Arr.dedupe(Arr.flatMap(facts, (f) => Rec.keys(f))),
+				(field): readonly [string, FieldBase] => [
+					field,
+					defined(m.relation.fields[field], `the field ${field} of ${m.relation.name}`)
+				]
+			)
+		)
+		return [
+			query(value).rule((r) => {
+				const rows = r.relation(name, fields)
+				const row = v(rows, "row")
+				return r.match(rows, row).find(row)
+			})
+		]
+	}
+	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
+		Arr.reduce(members, ChangeSet.empty(value), (cs, m) =>
+			Arr.reduce(sourceOf(m), cs, (out, source) => {
+				switch (m.op) {
+					case "insert":
+						return out.insert(m.relation, source)
+					case "put":
+						return out.put(m.relation, source)
+					case "delete":
+						return out.delete(m.relation, source)
+				}
+			})
+		)
+	const [first, ...rest] = Arr.map(strata, stratumOf)
+	const changes = Arr.reduce(rest, first ?? ChangeSet.empty(value), (a, b) =>
+		ChangeSet.sequence(a, b)
+	)
+	const facts: CallFacts = Rec.fromEntries(
+		Arr.map(
+			[...arrays],
+			([op, byRelation]): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
+				op,
+				Rec.fromEntries([...byRelation])
+			]
+		)
+	)
+	return { changes, facts, params: { ...params, ...Rec.fromEntries(given) } }
 }
 
 /**
@@ -146,9 +260,9 @@ export const changeSetOf = (
 		facts: ReadonlyArray<Fact>
 	): ReadonlyArray<Member> => {
 		const members: ReadonlyArray<Member> = shape.split
-			? Arr.map(facts, (f): Member => ({ relation, op, rows: [f] }))
+			? Arr.map(facts, (f): Member => ({ relation, op, rows: factsOf([f]) }))
 			: Arr.isReadonlyArrayNonEmpty(facts)
-				? [{ relation, op, rows: facts }]
+				? [{ relation, op, rows: factsOf(facts) }]
 				: []
 		return shape.repeat ? [...members, ...members] : members
 	}
@@ -166,12 +280,15 @@ export const changeSetOf = (
 			{
 				relation: relationOf(plainName(q.plain)),
 				op: "insert",
-				rows: query(value).rule((r) => {
-					const x = defined(v(read, "row")["v"], "the v of the relation a query reads")
-					const bound: Readonly<Record<string, typeof x>> = { v: x }
-					const head: HeadShape = { x }
-					return r.match(read, bound).find(head)
-				})
+				rows: {
+					kind: "query",
+					query: query(value).rule((r) => {
+						const x = defined(v(read, "row")["v"], "the v of the relation a query reads")
+						const bound: Readonly<Record<string, typeof x>> = { v: x }
+						const head: HeadShape = { x }
+						return r.match(read, bound).find(head)
+					})
+				}
 			}
 		]
 	}
@@ -194,7 +311,7 @@ export const changeSetOf = (
 						)
 						return Arr.isReadonlyArrayNonEmpty(list)
 							? spread(relation, "insert", [...list, ...conflicting])
-							: [{ relation, op: "insert", rows: [] }]
+							: [{ relation, op: "insert", rows: factsOf([]) }]
 					}),
 					params: {}
 				}
@@ -223,17 +340,20 @@ export const changeSetOf = (
 						{
 							relation: target,
 							op: "put",
-							rows: masked
-								? query(value).rule((r) => {
-										const rows = r.relation("rows", { id: uuid, v: pg.bigint, b: bits(Mask) })
-										const row = v(rows, "row")
-										return r.match(rows, row).find(row)
-									})
-								: query(value).rule((r) => {
-										const rows = r.relation("rows", { id: uuid, v: pg.bigint })
-										const row = v(rows, "row")
-										return r.match(rows, row).find(row)
-									})
+							rows: {
+								kind: "query",
+								query: masked
+									? query(value).rule((r) => {
+											const rows = r.relation("rows", { id: uuid, v: pg.bigint, b: bits(Mask) })
+											const row = v(rows, "row")
+											return r.match(rows, row).find(row)
+										})
+									: query(value).rule((r) => {
+											const rows = r.relation("rows", { id: uuid, v: pg.bigint })
+											const row = v(rows, "row")
+											return r.match(rows, row).find(row)
+										})
+							}
 						}
 					],
 					params: {
@@ -255,7 +375,7 @@ export const changeSetOf = (
 										{
 											relation: relationOf(relationName(r)),
 											op: "delete" as const,
-											rows: Arr.map(own, (x) => callerFact(spec, x))
+											rows: factsOf(Arr.map(own, (x) => callerFact(spec, x)))
 										}
 									]
 								: []
@@ -268,17 +388,6 @@ export const changeSetOf = (
 				}
 		}
 	})()
-	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-		Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
-			switch (m.op) {
-				case "insert":
-					return cs.insert(m.relation, m.rows)
-				case "put":
-					return cs.put(m.relation, m.rows)
-				case "delete":
-					return cs.delete(m.relation, m.rows)
-			}
-		})
 	const strata = Arr.filter(
 		[
 			[...plainAt("before"), ...queryAt("before")],
@@ -287,11 +396,7 @@ export const changeSetOf = (
 		],
 		Arr.isReadonlyArrayNonEmpty
 	)
-	const [first, ...rest] = Arr.map(strata, stratumOf)
-	return {
-		changes: Arr.reduce(rest, first ?? ChangeSet.empty(value), (a, b) => ChangeSet.sequence(a, b)),
-		params: family.params
-	}
+	return servedOf(spec, value, strata, family.params)
 }
 
 /** The relations a step puts, in any of its strata: its follow-up's puts, its plain puts and a put from a query. */

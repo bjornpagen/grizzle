@@ -6,10 +6,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { memberOps } from "#adapter/db/handles.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
 import type { FamilyName, StaleCause } from "#compiler/core/causes.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
 import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
@@ -43,9 +44,10 @@ import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A differential search over grizzle's family writer and its write schedule at the scale and in the shapes a
@@ -56,8 +58,10 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * twice), deletes, moves, recounts, owner column changes, a query's insert, a put from a query and a delete of
  * everything, at up to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
  *
- * Every ChangeSet runs through db.apply on PostgreSQL, from the state the accepted ones before it leave, and is judged
- * by the oracle (oracle.ts), which never consults grizzle's writer:
+ * Every ChangeSet is served as an application writes it (changes.ts): the first member of an op and relation an array
+ * member and every further one a query member over a relation parameter of its own. It is compiled as the one member of
+ * a served workload of its own and applied on PostgreSQL with its call's facts and parameters, from the state the
+ * accepted ones before it leave, and is judged by the oracle (oracle.ts), which never consults grizzle's writer:
  * - a lawful write is accepted (no-change where nothing changes), and every relation then stores exactly the reference
  *   writer's rows (test/support/families/fill.ts writtenRows) and the plain rows the ChangeSet leaves;
  * - an unlawful one is invariant-rejected naming only laws its rows break, by the law model's judgement
@@ -65,7 +69,7 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  *   at one key the key's, a member naming no owner its family's; each statement's law is the one the naming door
  *   names for it (test/support/kernel/naming.ts lawOf), so a refusal by a family, tree, fold, key, check or
  *   containment names exactly the law of its statement;
- * - a refusal when it compiles is justified by the oracle's own statement: StaleDerivedRead where the reference finds
+ * - a refusal when it compiles, the served compile's, is justified by the oracle's own statement: StaleDerivedRead where the reference finds
  *   a refill of an immutable relation's rows or a put from a query leaving a value stale (fill.ts writesVerdict), and
  *   UnorderableStratum where every order of its cycle is one the stratum's writes require (oracle.ts justified).
  *
@@ -1673,25 +1677,26 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							const host = hostSchema(spec, built, laws)
 							const world = fullWorld(value, {})
 							yield* Effect.gen(function* () {
-								const { ctx: opened } = yield* openDbContext(world.server.roles.app, {})
-								const flight = yield* oneFlight(opened, done.as(world.server))
+								const db = yield* openServedDb(done, world.server.roles.app, {})
+								const flight = yield* oneFlight(db.ctx, done.as(world.server))
 								let state = nothingStored
 								for (const [i, step] of steps.entries()) {
 									const label = `step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`
 									const expected = expectStep(spec, built, laws, host, state, step)
-									const { changes, params } = changeSetOf(spec, built, value, state, step)
-									const applied = yield* Effect.result(
-										flight.judged(label, apply(flight.context, changes, changes.reads, params))
-									)
-									if (Result.isFailure(applied)) {
-										const failure = applied.failure
-										if (
-											failure._tag !== "ExecutionFailure" ||
-											failure.reason._tag !== "CompileError"
-										) {
-											return assert.fail(`${label} failed with ${failure._tag}: ${failure.message}`)
+									const { changes, facts, params } = changeSetOf(spec, built, value, state, step)
+									const loaded = yield* Effect.result(db.load({ step: changes }))
+									if (Result.isFailure(loaded)) {
+										const refused = loaded.failure
+										if (refused instanceof OpenError) {
+											return assert.fail(`${label} failed with ${refused._tag}: ${refused.message}`)
 										}
-										const reason = failure.reason.reason
+										const error = refused.error
+										if (!isCompileError(error)) {
+											return assert.fail(
+												`${label}: no served call can supply it: ${Formatter.format(error)}`
+											)
+										}
+										const reason = error.reason
 										if (reason._tag === "UnorderableStratum") {
 											const cycle = reason.cycle
 											for (const [k, at] of cycle.entries()) {
@@ -1723,14 +1728,23 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 														expected.origins,
 														(w) => w.relation === reason.member && w.op === reason.op
 													),
-													`${label}: the refusal names a ${reason.op} of ${reason.member} as the write that leaves a value stale, none of the writes whose path first reaches a refill (${Formatter.format(expected.origins)}): ${failure.reason.message}`
+													`${label}: the refusal names a ${reason.op} of ${reason.member} as the write that leaves a value stale, none of the writes whose path first reaches a refill (${Formatter.format(expected.origins)}): ${error.message}`
 												)
 												c.note(causeNote(cause))
 												return
 											}
 										}
 										return assert.fail(
-											`${label}: refused when it compiles, ${failure.reason.message}, where the oracle expects ${expected.kind}`
+											`${label}: refused when it compiles, ${error.message}, where the oracle expects ${expected.kind}`
+										)
+									}
+									const served = memberOps(flight.context, member(loaded.success, "step"))
+									const applied = yield* Effect.result(
+										flight.judged(label, appliedWith(served, facts, params))
+									)
+									if (Result.isFailure(applied)) {
+										return assert.fail(
+											`${label} failed with ${applied.failure._tag}: ${applied.failure.message}`
 										)
 									}
 									const outcome = applied.success
@@ -1776,13 +1790,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 										}
 									}
 								}
-							}).pipe(
-								(body) =>
-									Effect.flatMap(Layer.build(loginLayer(done, world.server)), (scope) =>
-										Effect.provideContext(body, scope)
-									),
-								Effect.scoped
-							)
+							}).pipe(Effect.scoped)
 						}).pipe(Effect.scoped)
 				)
 			)
