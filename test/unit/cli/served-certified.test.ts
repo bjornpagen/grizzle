@@ -11,6 +11,8 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
+import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, wholeEntriesOf } from "#compiler/public/schema.ts"
@@ -41,9 +43,10 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  * The box: the ChangeSet agreement's Work (test/support/agreement/changeset-schema.ts) configured alone, one login
  * over it whose writer holds every relation of Work whole and writes a drawn nonempty set of them, under `insert` or
  * `write`, and runs an insert of each relation of a drawn nonempty subset of them, every member supplied by the call;
- * beside it a reader of Work that writes nothing. The relations written cover every kind of field and law Work holds:
- * a closed id, a set and texts (Tag), a serial (Ticket), a contract (Budget), a plain relation (Task), an immutable
- * family owner (Order, Pool) and a tree (Node).
+ * beside it a reader of Work that writes nothing; and beside that login, as a drawn direct writer, none or a login whose
+ * one role has no change member and inserts, or writes, a drawn nonempty set of the same relations, as psql does. The
+ * relations written cover every kind of field and law Work holds: a closed id, a set and texts (Tag), a serial
+ * (Ticket), a contract (Budget), a plain relation (Task), an immutable family owner (Order, Pool) and a tree (Node).
  *
  * Properties, over the draft's own plan as generate and check compile it (draftSchema, then servedFiles):
  *
@@ -52,6 +55,10 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  *   compiled write of a whole entry reaches is one the certifier reads facts of.
  * - Levels: each role's level in its served file is its certificate's, and so is its level in the installation.
  * - A role with no change member is SERIALIZABLE.
+ * - Guards: every relation a READ COMMITTED role holds INSERT on has no guard trigger in the installation
+ *   (physical/ddl/isolation.ts readCommittedRelations), so none of its writes is refused below SERIALIZABLE: a role
+ *   writing a relation a SERIALIZABLE role writes too is SERIALIZABLE. Kept: an inserter of Tag beside a direct
+ *   inserter of Tag, which certified READ COMMITTED while Tag kept its guard.
  */
 
 type Mode = "insert" | "write"
@@ -83,10 +90,23 @@ const written: Arr.NonEmptyReadonlyArray<Written> = [
 	{ name: "Node", relation: Node, writes: ["Node"] }
 ]
 
+/** The relation of the menu of `name`. */
+const named = (name: string): Written =>
+	defined(
+		Option.getOrUndefined(Arr.findFirst(written, (w) => w.name === name)),
+		`the written relation ${name}`
+	)
+
+/** A direct writer: none, or a role with no change member that inserts, or writes, `writes`. */
+type Direct =
+	| { readonly kind: "none" }
+	| { readonly kind: Mode; readonly writes: Arr.NonEmptyReadonlyArray<Written> }
+
 interface Case {
 	readonly mode: Mode
 	readonly writes: Arr.NonEmptyReadonlyArray<Written>
 	readonly inserts: Arr.NonEmptyReadonlyArray<Written>
+	readonly direct: Direct
 }
 
 /** A nonempty subset of `values`: one drawn, and any others beside it, in the order `values` holds them. */
@@ -101,7 +121,17 @@ const nonEmptySubset =
 const caseGen: Gen<Case> = (source) => {
 	const mode = source.draw(element<Mode>(["insert", "write"]))
 	const writes = source.draw(nonEmptySubset(written))
-	return { mode, writes, inserts: source.draw(nonEmptySubset(writes)) }
+	const inserts = source.draw(nonEmptySubset(writes))
+	const direct = source.draw(element<Direct["kind"]>(["none", "insert", "write"]))
+	return {
+		mode,
+		writes,
+		inserts,
+		direct:
+			direct === "none"
+				? { kind: "none" }
+				: { kind: direct, writes: source.draw(nonEmptySubset(written)) }
+	}
 }
 
 type Feature =
@@ -110,6 +140,7 @@ type Feature =
 	| "a role certified READ COMMITTED"
 	| "a role certified SERIALIZABLE for its own statements"
 	| "a role with no change member"
+	| "a direct writer of a relation the writer writes"
 
 const file = `${repoRoot}app/grizzle.config.ts`
 
@@ -123,12 +154,18 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 					{
 						suite: "unit/cli/served-certified",
 						draw: drawn(caseGen),
-						literal: (c) =>
-							Formatter.format({
-								mode: c.mode,
-								writes: Arr.map(c.writes, (w) => w.name),
-								inserts: Arr.map(c.inserts, (w) => w.name)
-							}),
+						literal: (c) => {
+							const list = (ws: ReadonlyArray<Written>) =>
+								`[${Arr.join(
+									Arr.map(ws, (w) => `named(${Formatter.format(w.name)})`),
+									", "
+								)}]`
+							const direct =
+								c.direct.kind === "none"
+									? `{ kind: "none" }`
+									: `{ kind: ${Formatter.format(c.direct.kind)}, writes: ${list(c.direct.writes)} }`
+							return `{ mode: ${Formatter.format(c.mode)}, writes: ${list(c.writes)}, inserts: ${list(c.inserts)}, direct: ${direct} }`
+						},
 						oracle: {
 							kind: "second-implementation",
 							name: "the certificates the plan holds, against the names grizzle installs and the levels the served files and the installation record"
@@ -139,11 +176,29 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 								"a write role",
 								"a role certified READ COMMITTED",
 								"a role certified SERIALIZABLE for its own statements",
-								"a role with no change member"
+								"a role with no change member",
+								"a direct writer of a relation the writer writes"
 							],
 							{ cases: 24, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "an inserter of Tag beside a direct inserter of Tag, certified READ COMMITTED while Tag kept its guard",
+								sketch: {
+									mode: "insert",
+									writes: [named("Tag")],
+									inserts: [named("Tag")],
+									direct: { kind: "insert", writes: [named("Tag")] }
+								},
+								draws: "",
+								reaches: [
+									"an insert role",
+									"a direct writer of a relation the writer writes",
+									"a role certified SERIALIZABLE for its own statements",
+									"a role with no change member"
+								]
+							}
+						],
 						runs: 24,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -170,10 +225,32 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 							const app = login(Work, "app", [writer, reader], {
 								workload: [workload(writer, programs)]
 							})
+							const direct = c.direct
+							const psql =
+								direct.kind === "none"
+									? []
+									: [
+											login(Work, "psql", [
+												role(
+													Work,
+													"direct",
+													wholeEntriesOf(Work),
+													direct.kind === "insert"
+														? { insert: Arr.flatMap(direct.writes, (w) => w.writes) }
+														: { write: Arr.flatMap(direct.writes, (w) => w.writes) }
+												)
+											])
+										]
+							if (
+								direct.kind !== "none" &&
+								Arr.some(direct.writes, (d) => Arr.some(c.writes, (w) => w.name === d.name))
+							) {
+								notes.note("a direct writer of a relation the writer writes")
+							}
 							const config = yield* resolveConfig(
 								defineConfig({
 									schemas: [Work],
-									logins: [app],
+									logins: [app, ...psql],
 									migrations: "migrations",
 									connection: () => offlineOwner
 								}),
@@ -190,8 +267,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 							const served = draft.served
 							assert.ok(served.kind === "logins", "a schema with a login plans its logins")
 							const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
-							const entry = defined(entries[0], "the login's served file")
-							const servedJson = servedFile(trustedJson<unknown>(entry.text))
+							const installation = draft.installation
+							const guarded = new Set(
+								Arr.flatMap(installation.manifest.objects, (o) =>
+									o.kind === "isolationTrigger" ? [o.ident] : []
+								)
+							)
 							for (const certified of served.certification) {
 								const reasons =
 									certified.certificate.level === "serializable"
@@ -212,8 +293,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 								} else {
 									notes.note("a role certified SERIALIZABLE for its own statements")
 								}
+								const entry = defined(
+									Arr.findFirst(entries, (e) => e.login === certified.login).pipe(
+										Option.getOrUndefined
+									),
+									`the served file of login ${certified.login}`
+								)
 								const servedRole = Option.getOrUndefined(
-									Arr.findFirst(servedJson.roles, (r) => r.name === certified.role)
+									Arr.findFirst(
+										servedFile(trustedJson<unknown>(entry.text)).roles,
+										(r) => r.name === certified.role
+									)
 								)
 								assert.equal(
 									defined(servedRole, `the served role ${certified.role}`).isolation,
@@ -232,11 +322,38 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 									certified.certificate.level,
 									`role ${certified.role}: the installation holds its certificate's level`
 								)
+								if (certified.certificate.level === "readCommitted") {
+									const checked = defined(
+										Arr.findFirst(
+											Arr.flatMap(installation.logins, (l) =>
+												l.login.name === certified.login ? l.roles : []
+											),
+											(r) => r.checked.world.role.name === certified.role
+										).pipe(Option.getOrUndefined),
+										`the installed role ${certified.role}`
+									)
+									for (const [relation, held] of grantedPrivileges(
+										installation.laws,
+										checked.checked
+									)) {
+										if (held.has("INSERT")) {
+											assert.ok(
+												!guarded.has(
+													isolationTrigger(
+														installation.names.schema,
+														installation.names.relation(relation)
+													).ident
+												),
+												`role ${certified.role} runs READ COMMITTED and ${relation}, which it inserts, has no guard`
+											)
+										}
+									}
+								}
 							}
 							assert.equal(
 								served.certification.length,
-								2,
-								"a certificate for each role of the login"
+								c.direct.kind === "none" ? 2 : 3,
+								"a certificate for each role of each login"
 							)
 						})
 				)
