@@ -1,9 +1,12 @@
 import type {
 	IsolationInput,
 	MemberFacts,
+	ProbeFact,
 	ReadFact,
 	RelationFacts,
-	RoleFacts
+	RoleFacts,
+	RowSource,
+	StatementFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -33,7 +36,7 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
  *   unsealed check stands beside no other outside read;
  * - `pivot`: a member with an outside read and a write is a pivot, each write of which another call may read. Each of
  *   its outside reads is a sealed group read positively, and each row it writes reaches every one of them: joined
- *   with each outside read of its own statement, and, after a statement that read from outside, with a row its own
+ *   with each group its own statement reads from outside, and, after a statement that read from outside, with a row its own
  *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
  *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
  *   foreign key checks is sealed: a sealed check finds its row, immutable, or refuses the call whole;
@@ -102,6 +105,10 @@ export interface RoleIsolation {
  *   owner holding their count, a set the count law fixes, all of it or none;
  * - `point`: an outside read binding every field of a declared key of an insert-only relation, so one row at most,
  *   which no later call changes;
+ * - `arbitrated`: a point read of an insert-only relation at exactly the group the call's own earlier statement
+ *   arbitrated in it, by its parameters: once that statement inserted the row or met it as an exact repeat, DO SELECT
+ *   waiting for its writer's commit, the row at the key is the call's own or committed and never changes, so the read
+ *   sees exactly it and misses no write;
  * - `unsealed`: any other outside read, with why; a read of one group per own row of the call among them, which
  *   another call's rows may split, some seen and some missed. An arbitration is no such read: the unique check decides
  *   each row it proposes on its own.
@@ -112,6 +119,7 @@ export type ReadSeal =
 	| { readonly kind: "unwritten" }
 	| { readonly kind: "counted"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "point"; readonly key: ReadonlyArray<string> }
+	| { readonly kind: "arbitrated"; readonly key: ReadonlyArray<string> }
 	| { readonly kind: "unsealed"; readonly detail: string }
 
 /** The privileges a writer holds; a role holding none of them on a relation only reads it. */
@@ -297,7 +305,10 @@ const arbiterSeal = (facts: RelationFacts, group: ReadonlyArray<string> | undefi
 
 /** Whether a read's seal makes it an outside read: of rows another call can write. */
 const outside = (seal: ReadSeal): boolean =>
-	seal.kind !== "arbiter" && seal.kind !== "own" && seal.kind !== "unwritten"
+	seal.kind !== "arbiter" &&
+	seal.kind !== "own" &&
+	seal.kind !== "unwritten" &&
+	seal.kind !== "arbitrated"
 
 /** One read of a member, at its statement's place in the member's flight and its own in the statement's reads. */
 interface PlacedRead {
@@ -305,13 +316,197 @@ interface PlacedRead {
 	readonly index: number
 	readonly read: ReadFact
 	readonly seal: ReadSeal
+	readonly mode: ReadFact["mode"]
 }
 
-/** Every read of a member, each placed and sealed. */
-const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> =>
-	member.statements.flatMap((s, statement) =>
-		s.reads.map((read, index) => ({ statement, index, read, seal: sealOf(at, read) }))
+/**
+ * The proof every row of a probe's core comes through a positive read of a group beneath the probes the probe chains,
+ * along the core's row sources (StatementFacts.cores): the read itself, by its place in its statement's reads; a
+ * derived table's or a CTE's core, by its number, with its own proof; or a UNION's, one proof per arm in arm order,
+ * each row of it one arm's.
+ */
+type RowPath =
+	| { readonly kind: "read"; readonly read: number }
+	| { readonly kind: "core"; readonly core: number; readonly path: RowPath }
+	| { readonly kind: "union"; readonly arms: NonEmptyReadonlyArray<RowPath> }
+
+/** The proof of the first of `sources` whose every row comes through reads `fits` admits; none where no source has one. */
+const pathOf = (
+	s: StatementFacts,
+	sources: ReadonlyArray<RowSource>,
+	fits: (r: ReadFact) => boolean
+): RowPath | undefined => {
+	for (const source of sources) {
+		const path = sourcePath(s, source, fits)
+		if (path !== undefined) {
+			return path
+		}
+	}
+	return undefined
+}
+
+/** One row source's proof: its read where `fits` admits it, its core's proof, or one proof for each of its arms. */
+const sourcePath = (
+	s: StatementFacts,
+	source: RowSource,
+	fits: (r: ReadFact) => boolean
+): RowPath | undefined => {
+	switch (source.kind) {
+		case "read": {
+			const r = s.reads[source.read]
+			return r !== undefined && fits(r) ? source : undefined
+		}
+		case "core": {
+			const sources = s.cores[source.core]
+			const path = sources === undefined ? undefined : pathOf(s, sources, fits)
+			return path === undefined ? undefined : { kind: "core", core: source.core, path }
+		}
+		case "union": {
+			const arms = source.arms.flatMap((arm) => {
+				const path = pathOf(s, arm, fits)
+				return path === undefined ? [] : [path]
+			})
+			return arms.length === source.arms.length && isNonEmpty(arms)
+				? { kind: "union", arms }
+				: undefined
+		}
+	}
+}
+
+/**
+ * The row path from a probe's core to positive reads of group `g` beneath the probes it chains, none where the probe
+ * stands in no core or no such path is.
+ */
+const rowPathOf = (s: StatementFacts, probe: ProbeFact, g: string): RowPath | undefined => {
+	const sources = probe.core === undefined ? undefined : s.cores[probe.core]
+	return sources === undefined
+		? undefined
+		: pathOf(
+				s,
+				sources,
+				(r) =>
+					r.probes.length === probe.chain.length &&
+					r.probes.every((step, i) => probe.chain[i] === step) &&
+					r.base === "positive" &&
+					groupOf(r) === g
+			)
+}
+
+/**
+ * Why one outside read beneath a probe leaves the probe a function of positive reads: the statement's positive read of
+ * its sealed group beneath no probe (`positive`), the read of that group in the `from` of each write the probe gates
+ * (`joins`), and the row path from the probe's core to positive reads of it beneath the probe's own probes alone
+ * (`path`).
+ */
+interface Neutral {
+	readonly positive: number
+	readonly joins: ReadonlyArray<number>
+	readonly path: RowPath
+}
+
+/** The proof an outside read of sealed group `g` beneath `probe` leaves it neutral, none where a part of it is missing. */
+const neutralBy = (s: StatementFacts, probe: ProbeFact, g: string): Neutral | undefined => {
+	const positive = s.reads.findIndex(
+		(r) => r.probes.length === 0 && r.mode === "positive" && groupOf(r) === g
 	)
+	const joins = probe.gates.flatMap((k) => {
+		const at = s.writes[k]?.from.find((i) => {
+			const r = s.reads[i]
+			return r !== undefined && groupOf(r) === g
+		})
+		return at === undefined ? [] : [at]
+	})
+	const path = rowPathOf(s, probe, g)
+	return positive < 0 || joins.length < probe.gates.length || path === undefined
+		? undefined
+		: { positive, joins, path }
+}
+
+/**
+ * The probes of a statement that are a function of positive reads, by their places, each with its proof, one Neutral
+ * per non-own outside read beneath it: each such read is of a sealed group the statement also reads positively, beneath
+ * no probe, every write the probe gates is joined with that group, and every row of the core whose rows the probe
+ * filters or counts comes through a positive read of it beneath no further probe (rowPathOf), a UNION's through one in
+ * each arm, so every row the probe touches passes through the group. NEGATION's fallback: a rule's NOT EXISTS in another
+ * arm of the same write's UNION, or beside a UNION one of whose arms, a recursive CTE's base or its recursion's own rows
+ * among them, never reads the group, gates rows the group never reaches; and an ungrouped count, which yields a row
+ * over no input, is judged by the core its value lands in. A sealed
+ * group is read whole or not at all at the statement's one snapshot, and a miss empties every write the probe gates, so
+ * the probe's result reaches no write the positive read does not; a refusal it raises needs the group present. Any
+ * other probe keeps the mode it composes, so a negation of a sealed point no positive read gates is still an absence
+ * read.
+ */
+const neutralOf = (
+	s: StatementFacts,
+	placed: ReadonlyArray<{ readonly read: ReadFact; readonly seal: ReadSeal }>
+): ReadonlyMap<number, ReadonlyArray<Neutral>> => {
+	const neutral = new Map<number, ReadonlyArray<Neutral>>()
+	for (const [id, probe] of s.probes.entries()) {
+		const proofs: Array<Neutral> = []
+		const holds = placed.every(({ read, seal }) => {
+			if (!read.probes.includes(id) || !outside(seal)) {
+				return true
+			}
+			const proof = seal.kind === "unsealed" ? undefined : neutralBy(s, probe, groupOf(read))
+			if (proof !== undefined) {
+				proofs.push(proof)
+			}
+			return proof !== undefined
+		})
+		if (holds) {
+			neutral.set(id, proofs)
+		}
+	}
+	return neutral
+}
+
+/**
+ * Every read of a member, each placed, sealed, and with its mode: its base mode where every probe above it is neutral
+ * (neutralOf), else the mode it composes. A point read at a group an earlier statement of the member arbitrated is
+ * arbitrated, whatever its mode, since the row there is fixed, where that statement and every one before it read only the call's own rows and arbitrations, so the
+ * row it proposes at the group is the call's whatever the installation holds: an insert an outside read gates may
+ * propose nothing, and the later read then meets another call's row (NEGATION's claimStart, the publication case).
+ */
+const readsOf = (at: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> => {
+	const arbitrated = new Map<string, number>()
+	for (const [statement, s] of member.statements.entries()) {
+		const seals = s.reads.map((read) => ({ read, seal: sealOf(at, read) }))
+		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
+			break
+		}
+		for (const { read, seal } of seals) {
+			const g = groupOf(read)
+			if (
+				read.mode === "arbiter" &&
+				seal.kind === "arbiter" &&
+				read.group?.rows === "one" &&
+				!arbitrated.has(g)
+			) {
+				arbitrated.set(g, statement)
+			}
+		}
+	}
+	return member.statements.flatMap((s, statement) => {
+		const placed = s.reads.map((read, index) => {
+			const seal = sealOf(at, read)
+			const by = arbitrated.get(groupOf(read))
+			return {
+				index,
+				read,
+				seal:
+					seal.kind === "point" && by !== undefined && by < statement
+						? { kind: "arbitrated" as const, key: seal.key }
+						: seal
+			}
+		})
+		const neutral = neutralOf(s, placed)
+		return placed.map((p): PlacedRead => ({
+			...p,
+			statement,
+			mode: p.read.probes.every((id) => neutral.has(id)) ? p.read.base : p.read.mode
+		}))
+	})
+}
 
 /** The text that names one group a read reads: its relation, its fields and what they are bound to. */
 const groupOf = (r: ReadFact): string =>
@@ -611,9 +806,9 @@ const absenceSites = (
 		for (const v of view.members) {
 			const at = { reader: view.role, member: v.member.name }
 			for (const p of v.reads) {
-				if (p.read.mode === "negated" || p.read.mode === "counted") {
-					add(p.read.relation, { ...at, statement: p.statement, how: `reads it ${p.read.mode}` })
-				} else if (p.read.mode === "arbiter" && p.seal.kind === "unsealed") {
+				if (p.mode === "negated" || p.mode === "counted") {
+					add(p.read.relation, { ...at, statement: p.statement, how: `reads it ${p.mode}` })
+				} else if (p.mode === "arbiter" && p.seal.kind === "unsealed") {
 					add(p.read.relation, {
 						...at,
 						statement: p.statement,
@@ -716,9 +911,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 			if (p.seal.kind === "unsealed") {
 				return [reason("pivot", where, p.seal.detail)]
 			}
-			return p.read.mode === "positive"
-				? []
-				: [reason("pivot", where, `it reads the group ${p.read.mode}`)]
+			return p.mode === "positive" ? [] : [reason("pivot", where, `it reads the group ${p.mode}`)]
 		})
 		const first = new Map<string, number>()
 		for (const p of v.outsides) {
@@ -736,14 +929,19 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 		const unjoined = writes.flatMap(({ statement, w }) => {
 			const where = { member: name, statement, relation: w.relation }
 			const from = new Set(w.from)
+			const joined = new Set(
+				v.reads.flatMap((p) =>
+					p.statement === statement && from.has(p.index) ? [groupOf(p.read)] : []
+				)
+			)
 			const [missed, ...more] = v.outsides.filter(
-				(p) => p.statement === statement && !from.has(p.index)
+				(p) => p.statement === statement && !joined.has(groupOf(p.read))
 			)
 			const own = v.reads.some(
 				(p) =>
 					p.statement === statement &&
 					p.seal.kind === "own" &&
-					p.read.mode === "positive" &&
+					p.mode === "positive" &&
 					from.has(p.index)
 			)
 			return [

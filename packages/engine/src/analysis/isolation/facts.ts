@@ -54,7 +54,9 @@ export interface WriteFact {
  *   probe of it, an INSERT's ON CONFLICT, or a MERGE's NOT MATCHED), which PostgreSQL's unique check decides whatever
  *   the call read when its group binds a whole declared key;
  * - `own`: whether the read can see only rows the call's own earlier statements wrote;
- * - `group`: the group it binds (Group), or none where it reads the relation otherwise.
+ * - `group`: the group it binds (Group), or none where it reads the relation otherwise;
+ * - `probes`: the probes it stands beneath, outermost first, by their places in its statement's `probes`;
+ * - `base`: its mode were every one of those probes a function of positive reads, which `mode` composes them over.
  *
  * A read of a derived relation is the reads of the stored relations its definition reads, each in the mode it has
  * there composed with the outer one.
@@ -62,17 +64,37 @@ export interface WriteFact {
 export interface ReadFact {
 	readonly relation: string
 	readonly mode: "positive" | "negated" | "counted" | "arbiter"
+	readonly base: "positive" | "negated" | "counted" | "arbiter"
+	readonly probes: ReadonlyArray<number>
 	readonly own: boolean
 	readonly group: Group | undefined
 }
 
 /**
+ * A place in a statement where its reads stop reaching it by their presence alone: a negation (NOT, NOT EXISTS, NOT
+ * IN, an EXCEPT's later arm, a MERGE's NOT MATCHED), a predicate in a value or a branch, or a count (a core that counts,
+ * a scalar or ARRAY subquery). `gates` lists the statement's writes, by their places in its `writes`, whose source the
+ * probe stands in, none for one the statement's result alone reads, as a refusal arm. `core` is the core whose rows the
+ * probe filters or counts, the one it stands in, or a grouped core of its own, which yields no row from no input; none
+ * where it stands in no core. `chain` is the probes a read on that core's rows stands beneath: the core's own, and a
+ * grouped core's probe with them.
+ */
+export interface ProbeFact {
+	readonly gates: ReadonlyArray<number>
+	readonly core: number | undefined
+	readonly chain: ReadonlyArray<number>
+}
+
+/**
  * The fields a read binds to values that come from the call, an ON CONFLICT arbitration's its conflict columns';
- * `binding`, what they are bound to, as canonical text (a parameter's number, a column of the call's own rows, or
- * EXCLUDED's column for the row an ON CONFLICT proposes), so two reads of one relation by the same fields and binding
- * read one group; and `rows`, how many groups that is: `one` where every field is bound to a parameter or to the
- * session's context, a value the call holds once, and `many` where one is bound to a column of the call's own rows,
- * one group per row, which another call's rows may split, some seen and some missed.
+ * `binding`, what they are bound to, as canonical text: a parameter by the declared parameter it carries (`:name`), or
+ * by its number (`$n`) where it carries none, so two placeholders of one parameter, in one statement or two, bind one
+ * value; a column of the call's own rows; or, for the row an ON CONFLICT proposes, the parameter each conflict column's
+ * value carries, through the insert's source and the call's own cores it reads, else EXCLUDED's column. Two reads of
+ * one relation by the same fields and binding read one group. `rows` is how many groups that is: `one` where every
+ * field is bound to a parameter or to the session's context, a value the call holds once, and `many` where one is bound
+ * to a column of the call's own rows, one group per row, which another call's rows may split, some seen and some
+ * missed.
  */
 export interface Group {
 	readonly fields: ReadonlyArray<string>
@@ -80,10 +102,31 @@ export interface Group {
 	readonly rows: "one" | "many"
 }
 
-/** One statement of a change member's flight: what it writes and what it reads. */
+/**
+ * One source every row of a statement's core comes through, the core's FROM sources joined inner or crosswise: a table
+ * read, by its place in the statement's `reads`; a derived table's or a CTE's one core, by its number in `cores`; or a
+ * UNION's, UNION ALL's among them, by its arms, each its own row sources, every row of the UNION one arm's.
+ */
+export type RowSource =
+	| { readonly kind: "read"; readonly read: number }
+	| { readonly kind: "core"; readonly core: number }
+	| {
+			readonly kind: "union"
+			readonly arms: NonEmptyReadonlyArray<ReadonlyArray<RowSource>>
+	  }
+
+/**
+ * One statement of a change member's flight: what it writes, what it reads, the probes among its reads, and each of its
+ * cores' row sources by its number, a core's before those of the derived tables, CTEs and subqueries it holds. A source
+ * no allowed step reaches is no row source: a LATERAL one, a function's rows, VALUES, a relation input's arrays, a
+ * context's fact, the call's own rows of a data-modifying or a recursive CTE, an INTERSECT, an EXCEPT, and every source
+ * of a core aggregating with no GROUP BY, which yields a row over no input.
+ */
 export interface StatementFacts {
 	readonly writes: ReadonlyArray<WriteFact>
 	readonly reads: ReadonlyArray<ReadFact>
+	readonly probes: ReadonlyArray<ProbeFact>
+	readonly cores: ReadonlyArray<ReadonlyArray<RowSource>>
 }
 
 /** One change member of a role, by its name, with its statements in flight order: a change sends one at least. */

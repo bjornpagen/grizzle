@@ -2,10 +2,11 @@ import { certify, type RoleIsolation } from "#compiler/analysis/isolation/certif
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
+import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { checkedRole, grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import { isolationInput, type RoleSource } from "#compiler/program/isolation/input.ts"
@@ -17,8 +18,19 @@ import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
 /** The forms one statement may be sent in: its own, and its whole-relation form where an execution may choose it. */
-const sentForms = (statement: ArtifactStatement): ReadonlyArray<SqlStatement> =>
-	statement.forms.kind === "chosen" ? [statement.ast, statement.forms.large.ast] : [statement.ast]
+const sentForms = (statement: ArtifactStatement): ReadonlyArray<SentStatement> =>
+	statement.forms.kind === "chosen"
+		? [
+				{ ast: statement.ast, slots: statement.spec.paramSlots },
+				{ ast: statement.forms.large.ast, slots: statement.forms.large.params }
+			]
+		: [{ ast: statement.ast, slots: statement.spec.paramSlots }]
+
+/** One form of a statement a flight may send: its AST, and what fills each of its placeholders, $n the slot n - 1. */
+interface SentStatement {
+	readonly ast: SqlStatement
+	readonly slots: ReadonlyArray<WriteParamSlot>
+}
 
 /**
  * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts): its write
@@ -27,10 +39,14 @@ const sentForms = (statement: ArtifactStatement): ReadonlyArray<SqlStatement> =>
  * place of its arrays and reads the stored relations its inline form reads (write/program/staged.ts), so its inline
  * form stands for it.
  */
-const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SqlStatement> => [
+const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) => r.statements.flatMap(sentForms))
 ]
+
+/** The declared parameter a placeholder's slot carries when it is a scalar's, none for any other slot or no slot. */
+const scalarParam = (slot: WriteParamSlot | undefined): string | undefined =>
+	slot?.kind === "scalar" ? slot.param : undefined
 
 /** Every compiled write of a ChangeSet's variants, holding before lacking. */
 const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite> =>
@@ -166,8 +182,17 @@ export const certification = (
 				grantedPrivileges,
 				memberFacts: (name, variants, names) =>
 					variantWrites(variants).flatMap((write): ReadonlyArray<MemberFacts> => {
-						const statements = flightStatements(write)
-						return isNonEmpty(statements) ? [memberFacts(name, statements, names)] : []
+						const sent = flightStatements(write)
+						return isNonEmpty(sent)
+							? [
+									memberFacts(
+										name,
+										mapNonEmpty(sent, (s) => s.ast),
+										names,
+										(statement, n) => scalarParam(sent[statement]?.slots[n - 1])
+									)
+								]
+							: []
 					})
 			})
 		)

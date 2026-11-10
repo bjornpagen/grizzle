@@ -1,7 +1,9 @@
 import type {
 	Group,
 	MemberFacts,
+	ProbeFact,
 	ReadFact,
+	RowSource,
 	StatementFacts,
 	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
@@ -61,6 +63,12 @@ type Polarity = "positive" | "negated" | "both"
  */
 type Scope = ReadonlyMap<string, "table" | Group["rows"]>
 
+/** A condition with the names it sees, which a condition pushed into a derived table keeps from where it stands. */
+interface Scoped {
+	readonly expr: Expr
+	readonly scope: Scope
+}
+
 /** A column a read's conditions bind, with what it is bound to and how many values that takes for the call. */
 interface Bound {
 	readonly column: string
@@ -76,6 +84,7 @@ type CteRef =
 	| {
 			readonly kind: "query"
 			readonly query: OperandSelect
+			readonly columns: ReadonlyArray<string>
 			readonly scope: Scope
 			readonly ctes: Ctes
 	  }
@@ -88,7 +97,8 @@ const ownRows: CteRef = { kind: "own" }
 /**
  * Where an expression or a source stands: the polarity its reads reach the statement with, whether a count or an
  * aggregate stands over them, whether it is a source of the core an EXISTS probes, whether an expression is a
- * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), and the names and CTEs it sees.
+ * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), the names and CTEs it sees, the probes
+ * it stands beneath, and the innermost core it stands in, none outside every core.
  */
 interface Context {
 	readonly polarity: Polarity
@@ -97,6 +107,8 @@ interface Context {
 	readonly condition: boolean
 	readonly scope: Scope
 	readonly ctes: Ctes
+	readonly probes: ReadonlyArray<number>
+	readonly core: number | undefined
 }
 
 const top: Context = {
@@ -105,7 +117,9 @@ const top: Context = {
 	probe: false,
 	condition: false,
 	scope: new Map(),
-	ctes: new Map()
+	ctes: new Map(),
+	probes: [],
+	core: undefined
 }
 
 const flipped = (p: Polarity): Polarity => {
@@ -141,16 +155,21 @@ type Found =
 			readonly table: TableName
 			readonly alias: string
 			readonly context: Context
-			readonly conditions: ReadonlyArray<Expr>
+			readonly conditions: ReadonlyArray<Scoped>
 			readonly feeds: ReadonlyArray<number>
 			readonly columns: ReadonlyMap<string, string> | undefined
 	  }
-	| { readonly kind: "opaque"; readonly relation: string }
+	| {
+			readonly kind: "opaque"
+			readonly relation: string
+			readonly probes: ReadonlyArray<number>
+	  }
 
 /** An INSERT's ON CONFLICT arbitration of the table it writes: its conflict columns, none for a constraint's. */
 interface Arbitration {
 	readonly table: ObjectName
 	readonly columns: ReadonlyArray<string> | undefined
+	readonly values: ReadonlyMap<string, string>
 }
 
 /** The parts of one core the walk reads. */
@@ -160,6 +179,7 @@ interface CoreParts {
 	readonly having: Expr | undefined
 	readonly values: ReadonlyArray<Expr>
 	readonly grouped: boolean
+	readonly groups: boolean
 }
 
 /** The conjuncts of a condition: an AND's arguments, flattened, or the condition itself. */
@@ -334,6 +354,58 @@ const projectionOf = (source: FromSource): Projection | undefined => {
 }
 
 /**
+ * Whether a derived table's query keeps every row of its one core as one row of its own: no WITH, grouping, HAVING,
+ * DISTINCT, LIMIT or OFFSET, and no call over many rows, so a condition over its rows is a condition over its source's.
+ */
+const rowPreserving = (q: OperandSelect): boolean => {
+	const body = q.body
+	return (
+		q.with === undefined &&
+		q.limit === undefined &&
+		q.offset === undefined &&
+		body.kind === "core" &&
+		body.groupBy.length === 0 &&
+		body.having === undefined &&
+		body.distinct === false &&
+		![...body.targets.map((t) => t.expr), ...conjunctsOf(body.where)].some(holdsRows)
+	)
+}
+
+/**
+ * The equalities of the core a derived table stands in that bind its columns, carried into its core: each column that
+ * is a column of the core's sources named as that column, the other side seeing the names it saw. None where the
+ * derived table keeps no row as its own (rowPreserving), so a group binds through it only where it filters its rows.
+ */
+const pushedInto = (
+	source: Extract<FromSource, { readonly kind: "derived" }>,
+	conditions: ReadonlyArray<Scoped>
+): ReadonlyArray<Scoped> => {
+	const body = source.query.body
+	if (!rowPreserving(source.query) || body.kind !== "core") {
+		return []
+	}
+	const names = source.columns.length > 0 ? source.columns : body.targets.map((t) => t.alias)
+	const lineage = (e: Expr): Expr | undefined => {
+		if (e.kind !== "column" || e.table !== source.alias) {
+			return undefined
+		}
+		const target = body.targets[names.indexOf(e.column)]
+		return target?.expr.kind === "column" ? target.expr : undefined
+	}
+	return conditions.flatMap(({ expr, scope }): ReadonlyArray<Scoped> => {
+		if (expr.kind !== "binary" || expr.op !== "=") {
+			return []
+		}
+		const left = lineage(expr.left)
+		const right = lineage(expr.right)
+		if (left !== undefined && right === undefined) {
+			return [{ expr: { ...expr, left }, scope }]
+		}
+		return right !== undefined && left === undefined ? [{ expr: { ...expr, right }, scope }] : []
+	})
+}
+
+/**
  * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
  * or the call's own, of one row or many.
  */
@@ -358,6 +430,96 @@ const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] 
 		case "values":
 			return [source.alias, "many"]
 	}
+}
+
+/** A parameter's canonical name: the declared parameter it carries, else its number. */
+const paramName = (n: number, paramOf: (n: number) => string | undefined): string => {
+	const named = paramOf(n)
+	return named === undefined ? `$${n}` : `:${named}`
+}
+
+/** The query and column names a source of the call's own rows reads, a derived table's or a query CTE's; none else. */
+const definedOf = (
+	source: FromSource,
+	ctes: Ctes
+):
+	| { readonly query: OperandSelect; readonly columns: ReadonlyArray<string>; readonly ctes: Ctes }
+	| undefined => {
+	if (source.kind === "derived") {
+		return { query: source.query, columns: source.columns, ctes }
+	}
+	if (source.kind !== "cte" && source.kind !== "enclosing") {
+		return undefined
+	}
+	const ref = ctes.get(source.name)
+	return ref?.kind === "query"
+		? { query: ref.query, columns: ref.columns, ctes: ref.ctes }
+		: undefined
+}
+
+/**
+ * The parameter an expression's value carries for the call, by its canonical name, through casts and the targets of
+ * the call's own cores it reads, a derived table's or a query CTE's of one core: none where it reaches anything else,
+ * a stored table's column, a relation input's or a computed value.
+ */
+const valueOf = (
+	e: Expr,
+	from: ReadonlyArray<FromItem>,
+	ctes: Ctes,
+	paramOf: (n: number) => string | undefined
+): string | undefined => {
+	if (e.kind === "cast" || e.kind === "collate") {
+		return valueOf(e.expr, from, ctes, paramOf)
+	}
+	if (e.kind === "param") {
+		return paramName(e.slot.number, paramOf)
+	}
+	if (e.kind !== "column" || e.table === undefined) {
+		return undefined
+	}
+	const alias = e.table
+	const source = sourcesOf(from)
+		.map((s) => s.source)
+		.find((s) => nameOf(s)[0] === alias)
+	const defined = source === undefined ? undefined : definedOf(source, ctes)
+	const body = defined?.query.body
+	if (defined === undefined || body?.kind !== "core" || defined.query.with !== undefined) {
+		return undefined
+	}
+	const names = defined.columns.length > 0 ? defined.columns : body.targets.map((t) => t.alias)
+	const target = body.targets[names.indexOf(e.column)]
+	return target === undefined ? undefined : valueOf(target.expr, body.from, defined.ctes, paramOf)
+}
+
+/** The parameter each column an INSERT writes carries, where its source, one core or one VALUES row, gives one. */
+const insertValues = (
+	s: Insert,
+	ctes: Ctes,
+	paramOf: (n: number) => string | undefined
+): ReadonlyMap<string, string> => {
+	const out = new Map<string, string>()
+	const row = (
+		i: number
+	): { readonly expr: Expr; readonly from: ReadonlyArray<FromItem> } | undefined => {
+		if (s.source.kind === "values") {
+			const [only, ...rest] = s.source.rows
+			const expr = rest.length === 0 ? only[i] : undefined
+			return expr === undefined ? undefined : { expr, from: [] }
+		}
+		const q = s.source.query
+		const target = q.with === undefined && q.body.kind === "core" ? q.body.targets[i] : undefined
+		return target === undefined || q.body.kind !== "core"
+			? undefined
+			: { expr: target.expr, from: q.body.from }
+	}
+	for (const [i, column] of s.columns.entries()) {
+		const at = row(i)
+		const value = at === undefined ? undefined : valueOf(at.expr, at.from, ctes, paramOf)
+		if (value !== undefined) {
+			out.set(column, value)
+		}
+	}
+	return out
 }
 
 /** The write a MERGE's WHEN clause makes, none for DO NOTHING. */
@@ -408,13 +570,17 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
  */
 class Walk {
 	readonly found: Array<Found> = []
+	readonly probes: Array<ProbeFact> = []
+	readonly cores: Array<ReadonlyArray<RowSource>> = []
 	readonly writes: Array<{ readonly table: ObjectName; readonly op: WriteFact["op"] }> = []
 	readonly arbitrations: Array<Arbitration> = []
 	readonly #names: ExtractNames
+	readonly #paramOf: (n: number) => string | undefined
 	readonly #feeding: Array<ReadonlyArray<number>> = []
 
-	constructor(names: ExtractNames) {
+	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined) {
 		this.#names = names
+		this.#paramOf = paramOf
 	}
 
 	statement(s: SqlStatement): void {
@@ -437,12 +603,39 @@ class Walk {
 			return
 		}
 		this.#opaque(
-			s.kind === "refresh" ? `?refresh:${s.view.schema}.${s.view.name}` : `?statement:${s.kind}`
+			s.kind === "refresh" ? `?refresh:${s.view.schema}.${s.view.name}` : `?statement:${s.kind}`,
+			top
 		)
 	}
 
-	#opaque(relation: string): void {
-		this.found.push({ kind: "opaque", relation })
+	#opaque(relation: string, c: Context): void {
+		this.found.push({ kind: "opaque", relation, probes: c.probes })
+	}
+
+	/**
+	 * The context `next`, entered from `c`: where it flips the polarity or starts a count, it opens a probe of its own,
+	 * gating the writes its place feeds, beneath every probe `c` stands beneath.
+	 */
+	#entering(c: Context, next: Context): Context {
+		return this.#opening(c, next, undefined)
+	}
+
+	/**
+	 * `#entering`, the probe judged by `own`'s rows where a grouped core opens it: a group no row reaches yields no row of
+	 * it. Any other probe is judged by the rows of the core it stands in, where its value lands, as an ungrouped count
+	 * yields a row over no input; one that stands in no core is never neutral.
+	 */
+	#opening(c: Context, next: Context, own: number | undefined): Context {
+		if (next.polarity === c.polarity && (c.counted || !next.counted)) {
+			return next
+		}
+		const id = this.probes.length
+		this.probes.push(
+			own === undefined
+				? { gates: this.#feeds(), core: c.core, chain: c.probes }
+				: { gates: this.#feeds(), core: own, chain: [...c.probes, id] }
+		)
+		return { ...next, probes: [...c.probes, id] }
 	}
 
 	#modifying(body: CteBody, c: Context): void {
@@ -474,7 +667,7 @@ class Walk {
 			ctes.set(
 				cte.name,
 				cte.query.kind === "select"
-					? { kind: "query", query: cte.query, scope: c.scope, ctes }
+					? { kind: "query", query: cte.query, columns: cte.columns, scope: c.scope, ctes }
 					: ownRows
 			)
 		}
@@ -533,7 +726,8 @@ class Walk {
 		if (conflict !== undefined && typeof s.table !== "string") {
 			this.arbitrations.push({
 				table: s.table,
-				columns: conflict.kind === "columns" ? conflict.columns : undefined
+				columns: conflict.kind === "columns" ? conflict.columns : undefined,
+				values: insertValues(s, inner.ctes, this.#paramOf)
 			})
 		}
 		for (const t of s.returning) {
@@ -550,9 +744,11 @@ class Walk {
 					where: s.where,
 					having: undefined,
 					values: [...s.set.map((a) => a.value), ...s.returning.map((t) => t.expr)],
-					grouped: false
+					grouped: false,
+					groups: false
 				},
-				inner
+				inner,
+				[]
 			)
 		)
 	}
@@ -566,9 +762,11 @@ class Walk {
 					where: s.where,
 					having: undefined,
 					values: s.returning.map((t) => t.expr),
-					grouped: false
+					grouped: false,
+					groups: false
 				},
-				inner
+				inner,
+				[]
 			)
 		)
 	}
@@ -595,7 +793,12 @@ class Walk {
 		const bySource = s.whens.some((w) => w.match === "NOT MATCHED BY SOURCE")
 		this.#feedingWrites(at, () => {
 			for (const { source } of using) {
-				this.#source(source, bySource ? { ...here, polarity: "both" } : here, on, inner.scope)
+				this.#source(
+					source,
+					bySource ? this.#entering(here, { ...here, polarity: "both" }) : here,
+					on.map((expr) => ({ expr, scope })),
+					inner.scope
+				)
 			}
 			for (const w of s.whens) {
 				this.found.push({
@@ -604,9 +807,9 @@ class Walk {
 					alias: s.alias,
 					context:
 						w.match === "NOT MATCHED"
-							? { ...here, polarity: flipped(here.polarity), probe: true }
+							? this.#entering(here, { ...here, polarity: flipped(here.polarity), probe: true })
 							: here,
-					conditions: targetConditions(w, on),
+					conditions: targetConditions(w, on).map((expr) => ({ expr, scope })),
 					feeds: this.#feeds(),
 					columns: undefined
 				})
@@ -633,19 +836,36 @@ class Walk {
 	}
 
 	query(q: OperandSelect, c: Context): void {
+		this.#query(q, c, [])
+	}
+
+	/**
+	 * A query, its one core keying its reads by `pushed` too, conditions of the core it is a derived table of: the
+	 * sources every row of it comes through (StatementFacts.cores).
+	 */
+	#query(q: OperandSelect, c: Context, pushed: ReadonlyArray<Scoped>): ReadonlyArray<RowSource> {
 		const inner = this.#with(q.with, c)
-		this.#body(q.body, inner, orderExprs(q.orderBy))
+		const rows = this.#body(q.body, inner, orderExprs(q.orderBy), pushed)
 		for (const e of [q.limit, q.offset]) {
 			if (e !== undefined) {
 				this.expr(e, valued(inner))
 			}
 		}
+		return rows
 	}
 
-	/** A query's body, with its query's ORDER BY: a core's own expressions, or values over a set operation's rows. */
-	#body(body: OperandBody, c: Context, order: ReadonlyArray<Expr>): void {
+	/**
+	 * A query's body, with its query's ORDER BY: a core's own expressions, or values over a set operation's rows; the
+	 * sources every row of it comes through, its core or its set operation's.
+	 */
+	#body(
+		body: OperandBody,
+		c: Context,
+		order: ReadonlyArray<Expr>,
+		pushed: ReadonlyArray<Scoped>
+	): ReadonlyArray<RowSource> {
 		if (body.kind === "core") {
-			this.#core(
+			const core = this.#core(
 				{
 					from: body.from,
 					where: body.where,
@@ -656,143 +876,174 @@ class Walk {
 						...(typeof body.distinct === "boolean" ? [] : body.distinct.on),
 						...order
 					],
-					grouped: body.groupBy.length > 0 || body.having !== undefined
+					grouped: body.groupBy.length > 0 || body.having !== undefined,
+					groups: body.groupBy.length > 0
 				},
-				c
+				c,
+				pushed
 			)
-			return
+			return [{ kind: "core", core }]
 		}
-		if (body.kind === "setOp") {
-			this.#setOp(body, c)
-		} else {
-			this.query(body, c)
-		}
+		const rows = body.kind === "setOp" ? this.#setOp(body, c) : this.#query(body, c, [])
 		for (const e of order) {
 			this.expr(e, valued(c))
 		}
-	}
-
-	/** A set operation's arms: an EXCEPT's later arms remove rows, so their reads reach it by their absence. */
-	#setOp(op: SetOperation, c: Context): void {
-		for (const [i, arm] of op.arms.entries()) {
-			const armContext: Context =
-				op.op === "EXCEPT" && i > 0 ? { ...c, polarity: flipped(c.polarity) } : c
-			if (arm.kind === "core") {
-				this.#body(arm, armContext, [])
-			} else {
-				this.query(arm, armContext)
-			}
-		}
+		return rows
 	}
 
 	/**
-	 * One core in its place: a core that groups, has a HAVING, or computes over many rows in its own expressions
-	 * counts, and every read beneath it is counted. Its sources see the scope it is in, a LATERAL one its own sources'
-	 * names too; its expressions see both.
+	 * A set operation's arms: an EXCEPT's later arms remove rows, so their reads reach it by their absence. A UNION's
+	 * rows come through its arms, each row one arm's; an INTERSECT's and an EXCEPT's through none of them.
 	 */
-	#core(parts: CoreParts, c: Context): void {
+	#setOp(op: SetOperation, c: Context): ReadonlyArray<RowSource> {
+		const arms = mapNonEmpty(op.arms, (arm, i) => {
+			const armContext: Context =
+				op.op === "EXCEPT" && i > 0 ? this.#entering(c, { ...c, polarity: flipped(c.polarity) }) : c
+			return arm.kind === "core"
+				? this.#body(arm, armContext, [], [])
+				: this.#query(arm, armContext, [])
+		})
+		return op.op === "UNION" || op.op === "UNION ALL" ? [{ kind: "union", arms }] : []
+	}
+
+	/**
+	 * One core in its place, by the number it is given: a core that groups, has a HAVING, or computes over many rows in
+	 * its own expressions counts, and every read beneath it is counted. Its sources see the scope it is in, a LATERAL one
+	 * its own sources' names too; its expressions see both. Every row of it comes through each of its FROM sources,
+	 * joined inner or crosswise, unless it aggregates with no GROUP BY, which yields a row over no input: then through
+	 * none.
+	 */
+	#core(parts: CoreParts, c: Context, pushed: ReadonlyArray<Scoped>): number {
 		const sources = sourcesOf(parts.from)
 		const conditions = [...conjunctsOf(parts.where), ...sources.flatMap((s) => conjunctsOf(s.on))]
-		const counted =
-			c.counted ||
+		const aggregates =
 			parts.grouped ||
 			[...conditions, ...conjunctsOf(parts.having), ...parts.values].some(holdsRows)
-		const here: Context = {
-			...c,
-			counted,
-			scope: new Map([...c.scope, ...sources.map(({ source }) => nameOf(source))])
-		}
-		for (const { source } of sources) {
-			this.#source(source, here, conditions, c.scope)
-		}
+		const core = this.cores.length
+		this.cores.push([])
+		const here = this.#opening(
+			c,
+			{
+				...c,
+				counted: c.counted || aggregates,
+				scope: new Map([...c.scope, ...sources.map(({ source }) => nameOf(source))]),
+				core
+			},
+			parts.groups ? core : undefined
+		)
+		const keying = [...conditions.map((expr) => ({ expr, scope: here.scope })), ...pushed]
+		const rows = sources.flatMap(({ source }) => this.#source(source, here, keying, c.scope))
+		this.cores[core] = parts.groups || !aggregates ? rows : []
 		for (const e of [...conditions, ...conjunctsOf(parts.having)]) {
 			this.expr(e, { ...here, probe: false, condition: true })
 		}
 		for (const e of parts.values) {
 			this.expr(e, valued(here))
 		}
+		return core
 	}
 
+	/**
+	 * A FROM source of a core: the sources every row of it comes through, a table's read, a CTE's or a derived table's
+	 * rows; none for a LATERAL one, whose rows are computed per row of the sources before it, nor for a function's rows,
+	 * VALUES, a relation input's arrays or a context's fact.
+	 */
 	#source(
 		source: FromSource,
 		here: Context,
-		conditions: ReadonlyArray<Expr>,
+		conditions: ReadonlyArray<Scoped>,
 		enclosing: Scope
-	): void {
+	): ReadonlyArray<RowSource> {
 		const beneath: Context = { ...here, probe: false }
 		switch (source.kind) {
 			case "table":
-				this.found.push({
-					kind: "table",
-					table: source.table,
-					alias: source.alias,
-					context: here,
-					conditions,
-					feeds: this.#feeds(),
-					columns: undefined
-				})
-				return
-			case "cte":
-			case "enclosing":
-				this.#cteRead(source.name, beneath)
-				return
-			case "derived": {
-				const projection = projectionOf(source)
-				if (projection === undefined) {
-					this.query(source.query, source.lateral ? beneath : { ...beneath, scope: enclosing })
-				} else {
-					this.found.push({
+				return [
+					this.#table({
 						kind: "table",
-						table: projection.table,
+						table: source.table,
 						alias: source.alias,
 						context: here,
 						conditions,
 						feeds: this.#feeds(),
-						columns: projection.columns
+						columns: undefined
 					})
-				}
-				return
+				]
+			case "cte":
+			case "enclosing":
+				return this.#cteRead(source.name, beneath)
+			case "derived": {
+				const projection = projectionOf(source)
+				const rows =
+					projection === undefined
+						? this.#query(
+								source.query,
+								source.lateral ? beneath : { ...beneath, scope: enclosing },
+								pushedInto(source, conditions)
+							)
+						: [
+								this.#table({
+									kind: "table",
+									table: projection.table,
+									alias: source.alias,
+									context: here,
+									conditions,
+									feeds: this.#feeds(),
+									columns: projection.columns
+								})
+							]
+				return source.lateral ? [] : rows
 			}
 			case "function":
 				this.expr(source.call, source.lateral ? beneath : { ...beneath, scope: enclosing })
-				return
+				return []
 			case "values":
 				for (const e of source.rows.flat()) {
 					this.expr(e, valued({ ...beneath, scope: enclosing }))
 				}
-				return
+				return []
 			case "arrays":
 			case "context":
-				return
+				return []
 		}
 	}
 
-	#cteRead(name: string, c: Context): void {
+	/** A table read found, as the row source it is: its place among the reads. */
+	#table(found: Found): RowSource {
+		this.found.push(found)
+		return { kind: "read", read: this.found.length - 1 }
+	}
+
+	/** A CTE read where a source names it: its query's row sources, none for the call's own rows. */
+	#cteRead(name: string, c: Context): ReadonlyArray<RowSource> {
 		const ref = c.ctes.get(name)
 		if (ref === undefined) {
 			throw defect(`a source names the CTE ${name}, which no WITH around it defines`)
 		}
-		if (ref.kind === "query") {
-			this.query(ref.query, {
-				...c,
-				scope: ref.scope,
-				ctes: new Map([...ref.ctes, [name, ownRows]])
-			})
-		}
+		return ref.kind === "query"
+			? this.#query(
+					ref.query,
+					{
+						...c,
+						scope: ref.scope,
+						ctes: new Map([...ref.ctes, [name, ownRows]])
+					},
+					[]
+				)
+			: []
 	}
 
 	expr(e: Expr, c: Context): void {
 		if (e.kind === "exists") {
-			this.query(e.query, { ...c, probe: true, polarity: predicate(c, e.not) })
+			this.query(e.query, this.#entering(c, { ...c, probe: true, polarity: predicate(c, e.not) }))
 		}
 		if (e.kind === "inQuery") {
-			this.query(e.query, { ...c, probe: false, polarity: predicate(c, e.not) })
+			this.query(e.query, this.#entering(c, { ...c, probe: false, polarity: predicate(c, e.not) }))
 		}
 		if (e.kind === "subquery" || e.kind === "array") {
-			this.query(e.query, { ...c, probe: false, counted: true })
+			this.query(e.query, this.#entering(c, { ...c, probe: false, counted: true }))
 		}
 		if (e.kind === "call" && e.fn.kind === "qualified" && !this.#names.readsNoTable(e.fn)) {
-			this.#opaque(`?function:${e.fn.schema}.${e.fn.name}`)
+			this.#opaque(`?function:${e.fn.schema}.${e.fn.name}`, c)
 		}
 		const next = this.#operandContext(e, c)
 		for (const operand of operandsOf(e)) {
@@ -802,7 +1053,7 @@ class Walk {
 
 	#operandContext(e: Expr, c: Context): Context {
 		if (e.kind === "not") {
-			return { ...c, polarity: flipped(c.polarity) }
+			return this.#entering(c, { ...c, polarity: flipped(c.polarity) })
 		}
 		return e.kind === "and" || e.kind === "or" || e.kind === "isTrue" ? c : valued(c)
 	}
@@ -840,15 +1091,16 @@ const ownRowsOf = (scope: Scope, table: string): Group["rows"] | undefined => {
  * The columns of a table source its core's conditions bind, through a projection's renaming (`columns`, none for a
  * table read directly), each by its first equality, in the conditions' order:
  * with a parameter, one value, or with a column of a source the scope names the call's own, one value or one per row.
- * Each comes with the text of what it is bound to.
+ * Each comes with the text of what it is bound to: a parameter by the declared parameter it carries (`:name`), so two
+ * placeholders of one parameter bind one value, or by its number where it carries none.
  */
 const bindingsOf = (
 	alias: string,
-	conditions: ReadonlyArray<Expr>,
-	scope: Scope,
-	columns: ReadonlyMap<string, string> | undefined
+	conditions: ReadonlyArray<Scoped>,
+	columns: ReadonlyMap<string, string> | undefined,
+	paramOf: (n: number) => string | undefined
 ): ReadonlyArray<Bound> => {
-	const side = (mine: Expr, other: Expr): ReadonlyArray<Bound> => {
+	const side = (mine: Expr, other: Expr, scope: Scope): ReadonlyArray<Bound> => {
 		if (mine.kind !== "column" || mine.table !== alias) {
 			return []
 		}
@@ -857,7 +1109,7 @@ const bindingsOf = (
 			return []
 		}
 		if (other.kind === "param") {
-			return [{ column, by: `$${other.slot.number}`, rows: "one" }]
+			return [{ column, by: paramName(other.slot.number, paramOf), rows: "one" }]
 		}
 		if (other.kind !== "column" || other.table === undefined) {
 			return []
@@ -866,9 +1118,9 @@ const bindingsOf = (
 		return rows === undefined ? [] : [{ column, by: `${other.table}.${other.column}`, rows }]
 	}
 	const out = new Map<string, Bound>()
-	for (const e of conditions) {
+	for (const { expr: e, scope } of conditions) {
 		if (e.kind === "binary" && e.op === "=") {
-			for (const b of [...side(e.left, e.right), ...side(e.right, e.left)]) {
+			for (const b of [...side(e.left, e.right, scope), ...side(e.right, e.left, scope)]) {
 				if (!out.has(b.column)) {
 					out.set(b.column, b)
 				}
@@ -877,6 +1129,9 @@ const bindingsOf = (
 	}
 	return [...out.values()]
 }
+
+/** A read's base mode: its mode were every probe above it a function of positive reads, an arbitration or positive. */
+const baseOf = (arbiter: boolean): ReadFact["mode"] => (arbiter ? "arbiter" : "positive")
 
 /** A read's mode: an arbitration, a probe of a table its statement writes; else by its polarity and its count. */
 const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
@@ -890,8 +1145,12 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 }
 
 /** One statement's facts (analysis/isolation/facts.ts StatementFacts). */
-const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts => {
-	const walk = new Walk(names)
+const statementFacts = (
+	s: SqlStatement,
+	names: ExtractNames,
+	paramOf: (n: number) => string | undefined
+): StatementFacts => {
+	const walk = new Walk(names, paramOf)
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${t.schema}.${t.name}`
 	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
@@ -904,7 +1163,14 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 		(f): { readonly read: ReadFact; readonly feeds: ReadonlyArray<number> } => {
 			if (f.kind === "opaque") {
 				return {
-					read: { relation: f.relation, mode: "negated", own: false, group: undefined },
+					read: {
+						relation: f.relation,
+						mode: "negated",
+						base: "negated",
+						probes: f.probes,
+						own: false,
+						group: undefined
+					},
 					feeds: []
 				}
 			}
@@ -913,6 +1179,8 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 					read: {
 						relation: `carrier:${f.table}`,
 						mode: modeOf(f.context, false),
+						base: baseOf(false),
+						probes: f.context.probes,
 						own: true,
 						group: undefined
 					},
@@ -920,14 +1188,15 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 				}
 			}
 			const rel = relation(f.table)
+			const arbiter = f.context.probe && written.has(rel)
 			return {
 				read: {
 					relation: rel,
-					mode: modeOf(f.context, f.context.probe && written.has(rel)),
+					mode: modeOf(f.context, arbiter),
+					base: baseOf(arbiter),
+					probes: f.context.probes,
 					own: false,
-					group: boundGroup(
-						fields(rel, bindingsOf(f.alias, f.conditions, f.context.scope, f.columns))
-					)
+					group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.columns, paramOf)))
 				},
 				feeds: f.feeds
 			}
@@ -938,15 +1207,18 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 		return {
 			relation: rel,
 			mode: "arbiter",
+			base: "arbiter",
+			probes: [],
 			own: false,
 			group: boundGroup(
 				fields(
 					rel,
-					(a.columns ?? []).map((column): Bound => ({
-						column,
-						by: `excluded.${column}`,
-						rows: "many"
-					}))
+					(a.columns ?? []).map((column): Bound => {
+						const value = a.values.get(column)
+						return value === undefined
+							? { column, by: `excluded.${column}`, rows: "many" }
+							: { column, by: value, rows: "one" }
+					})
 				)
 			)
 		}
@@ -959,7 +1231,9 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 				r.read.mode === "positive" && r.feeds.includes(i) ? [index] : []
 			)
 		})),
-		reads: [...reads.map((r) => r.read), ...arbitrations]
+		reads: [...reads.map((r) => r.read), ...arbitrations],
+		probes: walk.probes,
+		cores: walk.cores
 	}
 }
 
@@ -980,16 +1254,26 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
  *   session's context's, else one group per own row. An ON CONFLICT's is its conflict columns', each bound to
  *   EXCLUDED's, one per proposed row.
  * - A derived table that only renames a relation's columns (projectionOf) reads that relation where it stands, keyed by
- *   the conditions of the core that reads it, through the renaming; any other derived table's reads are keyed by its own
- *   conditions alone, so an outside condition keys none of them.
+ *   the conditions of the core that reads it, through the renaming. A derived table that keeps each row of its one core
+ *   as one of its own (rowPreserving) carries each equality over its columns into that core (pushedInto), level by level,
+ *   so a group binds through every such layer; any other derived table's reads are keyed by its own conditions alone.
+ * - A parameter binds by the declared parameter it carries, `:name`, where the caller's `params` names it, else by its
+ *   number; an ON CONFLICT's conflict columns bind by the parameters their proposed values carry, where they carry one.
+ * - Every flip of polarity and every count opens a probe, gating the writes its place feeds; each read lists the probes
+ *   it stands beneath and its base mode, the certifier's to judge (analysis/isolation/certify.ts neutralOf).
+ * - Each core's row sources are the sources every row of it comes through: each FROM source, joined inner or
+ *   crosswise, a table's read, a derived table's or a CTE's query by its one core or by a UNION's arms; none past a
+ *   LATERAL source, an INTERSECT, an EXCEPT, the call's own rows of a data-modifying or a recursive CTE, or a core
+ *   aggregating with no GROUP BY. A row source is reached by these steps alone, so no other row path can be stated.
  * - A write's rows are fed by the positive reads beneath it: an INSERT's source, an UPDATE's or a DELETE's target and
  *   FROM, a MERGE's source and target, and the query CTEs any of them read.
  */
 export const memberFacts = (
 	name: string,
 	statements: NonEmptyReadonlyArray<SqlStatement>,
-	names: ExtractNames
+	names: ExtractNames,
+	params: (statement: number, n: number) => string | undefined
 ): MemberFacts => ({
 	name,
-	statements: mapNonEmpty(statements, (s) => statementFacts(s, names))
+	statements: mapNonEmpty(statements, (s, i) => statementFacts(s, names, (n) => params(i, n)))
 })

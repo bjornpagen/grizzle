@@ -29,8 +29,13 @@
  * member certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a
  * relation another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group
  * per own row sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a
- * cascading update left out of the writers; a relation with no fact read as having no foreign key; and a relation a
- * SERIALIZABLE role writes too written READ COMMITTED.
+ * cascading update left out of the writers; a relation with no fact read as having no foreign key (the
+ * droppedReference shape); a relation a SERIALIZABLE role writes too written READ COMMITTED; an unsealed read beneath a
+ * neutral probe; a probe neutral with no positive read of its group, with a gated write no read of it joins (the
+ * unjoinedGate shape), or with no row path from its core (the fallbacks), one through a read beneath other probes (the
+ * chainedPath shape), of another group or no positive one (the arbiterPath shape), through one UNION arm alone (the
+ * unions at another key, another relation or the recursion's own rows), through no UNION or no core at all; and the
+ * arbitrated read without its clean prefix.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -48,7 +53,7 @@ import {
 	type RoleIsolation,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
-import type { IsolationInput, RoleFacts } from "#compiler/analysis/isolation/facts.ts"
+import type { IsolationInput, RoleFacts, RowSource } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -71,11 +76,24 @@ interface ReadSketch {
 	readonly group: number | undefined
 	readonly binding: number
 	readonly rows: "one" | "many"
+	/** The probes of its statement it stands beneath, by place; its mode composes them over its base. */
+	readonly probes: ReadonlyArray<number>
 }
 
+/** A probe of a statement: the writes it gates, the core whose rows it filters, if any, and the probes a read on them
+ * stands beneath. */
+interface ProbeSketch {
+	readonly gates: ReadonlyArray<number>
+	readonly core: number | undefined
+	readonly chain: ReadonlyArray<number>
+}
+
+/** A statement: its writes, its reads, its probes, and each of its cores' row sources by number (StatementFacts.cores). */
 interface StatementSketch {
 	readonly writes: ReadonlyArray<WriteSketch>
 	readonly reads: ReadonlyArray<ReadSketch>
+	readonly probes: ReadonlyArray<ProbeSketch>
+	readonly cores: ReadonlyArray<ReadonlyArray<RowSource>>
 }
 
 interface RoleSketch {
@@ -142,7 +160,22 @@ type Shape =
 	| "lateWriter"
 	| "cascadedWriter"
 	| "sharedWriter"
+	| "protocolSealed"
+	| "protocolUnsealed"
+	| "absentGate"
+	| "arbitratedRead"
+	| "arbitratedGated"
+	| "fallbackUnion"
+	| "fallbackCount"
+	| "unjoinedGate"
+	| "chainedPath"
+	| "unionSealed"
+	| "unionOtherKey"
+	| "unionOtherRelation"
+	| "unionRecursion"
+	| "arbiterPath"
 	| "triggered"
+	| "droppedReference"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
 interface Case {
@@ -159,16 +192,37 @@ const privilegeGen: Gen<TablePrivilege> = weighted<TablePrivilege>([
 	[1, () => "DELETE"]
 ])
 
-const readGen: Gen<ReadSketch> = (s) => ({
+/** A read of a statement of `probes` probes: a negated or counted one beneath some of them, or none. */
+const readGenOf =
+	(probes: number): Gen<ReadSketch> =>
+	(s) => {
+		const mode = s.draw(
+			weighted<ReadSketch["mode"]>([
+				[6, () => "positive"],
+				[1, () => "negated"],
+				[1, () => "counted"],
+				[1, () => "arbiter"]
+			])
+		)
+		return {
+			...s.draw(readBodyGen),
+			mode,
+			probes:
+				mode === "negated" || mode === "counted"
+					? s.draw(
+							subset(
+								upTo(probes, (i) => i),
+								{ min: 0, max: probes }
+							)
+						)
+					: []
+		}
+	}
+
+const readGen: Gen<ReadSketch> = readGenOf(0)
+
+const readBodyGen: Gen<Omit<ReadSketch, "mode" | "probes">> = (s) => ({
 	relation: s.draw(relationGen),
-	mode: s.draw(
-		weighted<ReadSketch["mode"]>([
-			[6, () => "positive"],
-			[1, () => "negated"],
-			[1, () => "counted"],
-			[1, () => "arbiter"]
-		])
-	),
 	own: s.draw(
 		weighted<boolean>([
 			[1, () => true],
@@ -211,9 +265,84 @@ const writeGen =
 		)
 	})
 
+/** The cores a drawn statement holds, core 0 its outermost. */
+const CORES = 3
+
+/**
+ * The row sources of a statement's core `core` of `reads` reads: some of them, a later core, and, `depth` above none,
+ * a UNION of two arms drawn alike, so every core refers to later ones alone.
+ */
+const sourcesGen =
+	(reads: number, core: number, depth: number): Gen<ReadonlyArray<RowSource>> =>
+	(s) => [
+		...Arr.map(
+			s.draw(
+				subset(
+					upTo(reads, (i) => i),
+					{ min: 0, max: reads }
+				)
+			),
+			(read): RowSource => ({ kind: "read", read })
+		),
+		...(core + 1 < CORES
+			? s.draw(
+					weighted<ReadonlyArray<RowSource>>([
+						[2, () => []],
+						[1, (t) => [{ kind: "core", core: t.draw(int(core + 1, CORES - 1)) }]]
+					])
+				)
+			: []),
+		...(depth > 0
+			? s.draw(
+					weighted<ReadonlyArray<RowSource>>([
+						[3, () => []],
+						[
+							1,
+							(t) => [
+								{
+									kind: "union",
+									arms: [
+										t.draw(sourcesGen(reads, core, depth - 1)),
+										t.draw(sourcesGen(reads, core, depth - 1))
+									]
+								}
+							]
+						]
+					])
+				)
+			: [])
+	]
+
 const statementGen: Gen<StatementSketch> = (s) => {
-	const reads = s.draw(array(readGen, { min: 0, max: 2 }))
-	return { reads, writes: s.draw(array(writeGen(reads.length), { min: 0, max: 2 })) }
+	const probeCount = s.draw(int(0, 2))
+	const reads = s.draw(array(readGenOf(probeCount), { min: 0, max: 2 }))
+	const writes = s.draw(array(writeGen(reads.length), { min: 0, max: 2 }))
+	return {
+		reads,
+		writes,
+		cores: upTo(CORES, (core) => s.draw(sourcesGen(reads.length, core, 1))),
+		probes: upTo(probeCount, (id) => ({
+			gates: s.draw(
+				subset(
+					upTo(writes.length, (i) => i),
+					{ min: 0, max: writes.length }
+				)
+			),
+			core: s.draw(
+				weighted<number | undefined>([
+					[3, () => 0],
+					[1, () => 1],
+					[1, () => undefined]
+				])
+			),
+			chain: s.draw(
+				weighted<ReadonlyArray<number>>([
+					[3, () => []],
+					[1, () => [id]]
+				])
+			)
+		}))
+	}
 }
 
 const roleGen: Gen<RoleSketch> = (s) => ({
@@ -290,7 +419,15 @@ const readOf = (
 	relation: number,
 	mode: ReadSketch["mode"],
 	group: number | undefined
-): ReadSketch => ({ relation, mode, own: false, group, binding: 0, rows: "one" })
+): ReadSketch => ({
+	relation,
+	mode,
+	own: false,
+	group,
+	binding: 0,
+	rows: "one",
+	probes: []
+})
 
 /** Every privilege a role writing and reading every relation as INSERT and SELECT holds. */
 const insertSelectAll: RoleSketch["privileges"] = Arr.flatMap([0, 1, 2, 3], (relation) => [
@@ -306,8 +443,13 @@ const copiersOf = (group: number | undefined): Sketch => ({
 		privileges: insertSelectAll,
 		members: [
 			[
-				{ writes: [insertOf(i, [])], reads: [] },
-				{ writes: [insertOf(2 + i, [0])], reads: [readOf(1 - i, "positive", group)] }
+				{ writes: [insertOf(i, [])], reads: [], probes: [], cores: [] },
+				{
+					writes: [insertOf(2 + i, [0])],
+					reads: [readOf(1 - i, "positive", group)],
+					probes: [],
+					cores: []
+				}
 			]
 		]
 	}))
@@ -326,12 +468,14 @@ const absentThenInsert: Sketch = {
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "SELECT" }
 			],
-			members: [[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }]]
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)], probes: [], cores: [] }]
+			]
 		},
 		{
 			login: 0,
 			privileges: [{ relation: 1, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(1, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{
 			login: 1,
@@ -344,7 +488,9 @@ const absentThenInsert: Sketch = {
 				[
 					{
 						writes: [insertOf(2, [0, 1])],
-						reads: [readOf(0, "positive", 0), readOf(1, "positive", 0)]
+						reads: [readOf(0, "positive", 0), readOf(1, "positive", 0)],
+						probes: [],
+						cores: []
 					}
 				]
 			]
@@ -369,17 +515,19 @@ const chainGen: Gen<Sketch> = (s) => {
 			{
 				login: s.draw(int(0, 1)),
 				privileges: [{ relation: c, privilege: "UPDATE" }],
-				members: [[{ writes: [], reads: [readOf(a, "positive", 0)] }]]
+				members: [[{ writes: [], reads: [readOf(a, "positive", 0)], probes: [], cores: [] }]]
 			},
 			{
 				login: s.draw(int(0, 1)),
 				privileges: [{ relation: a, privilege: "INSERT" }],
-				members: [[{ writes: [insertOf(a, [0])], reads: [readOf(b, "positive", 0)] }]]
+				members: [
+					[{ writes: [insertOf(a, [0])], reads: [readOf(b, "positive", 0)], probes: [], cores: [] }]
+				]
 			},
 			{
 				login: s.draw(int(0, 1)),
 				privileges: [{ relation: b, privilege: "INSERT" }],
-				members: [[{ writes: [insertOf(b, [])], reads: [] }]]
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
 			}
 		]
 	}
@@ -411,7 +559,9 @@ const sealsGen: Gen<Sketch> = (s) => {
 					[
 						{
 							writes: [insertOf(b, []), insertOf(c, [])],
-							reads: []
+							reads: [],
+							probes: [],
+							cores: []
 						}
 					]
 				]
@@ -423,7 +573,9 @@ const sealsGen: Gen<Sketch> = (s) => {
 					[
 						{
 							writes: [insertOf(a, [0, 1])],
-							reads: [readOf(b, "positive", 2), readOf(c, "positive", 0), readOf(a, "arbiter", 2)]
+							reads: [readOf(b, "positive", 2), readOf(c, "positive", 0), readOf(a, "arbiter", 2)],
+							probes: [],
+							cores: []
 						}
 					]
 				]
@@ -448,14 +600,23 @@ const pivotWriterGen: Gen<Sketch> = (s) => {
 					{ relation: c, privilege: "UPDATE" },
 					{ relation: b, privilege: "INSERT" }
 				],
-				members: [[{ writes: [insertOf(b, [])], reads: [readOf(a, "positive", undefined)] }]]
+				members: [
+					[
+						{
+							writes: [insertOf(b, [])],
+							reads: [readOf(a, "positive", undefined)],
+							probes: [],
+							cores: []
+						}
+					]
+				]
 			},
 			{
 				login: s.draw(int(0, 1)),
 				privileges: [{ relation: a, privilege: "INSERT" }],
 				members: [
-					[{ writes: [], reads: [readOf(b, "positive", undefined)] }],
-					[{ writes: [insertOf(a, [])], reads: [] }]
+					[{ writes: [], reads: [readOf(b, "positive", undefined)], probes: [], cores: [] }],
+					[{ writes: [insertOf(a, [])], reads: [], probes: [], cores: [] }]
 				]
 			}
 		]
@@ -477,7 +638,7 @@ const triggeredGen: Gen<Case> = (s) => {
 				{
 					login: s.draw(int(0, 1)),
 					privileges: [{ relation: x, privilege: "INSERT" }],
-					members: [[{ writes: [insertOf(x, [])], reads: [] }]]
+					members: [[{ writes: [insertOf(x, [])], reads: [], probes: [], cores: [] }]]
 				}
 			]
 		},
@@ -501,14 +662,16 @@ const laggingReader: Sketch = {
 				{ relation: 1, privilege: "INSERT" }
 			],
 			members: [
-				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
-				[{ writes: [insertOf(1, [])], reads: [] }]
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)], probes: [], cores: [] }],
+				[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]
 			]
 		},
 		{
 			login: 1,
 			privileges: [{ relation: 2, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(2, [0])], reads: [readOf(0, "positive", 0)] }]]
+			members: [
+				[{ writes: [insertOf(2, [0])], reads: [readOf(0, "positive", 0)], probes: [], cores: [] }]
+			]
 		}
 	]
 }
@@ -527,15 +690,22 @@ const listReader: Sketch = {
 				{ relation: 1, privilege: "INSERT" }
 			],
 			members: [
-				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
-				[{ writes: [insertOf(1, []), insertOf(0, [])], reads: [] }]
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)], probes: [], cores: [] }],
+				[{ writes: [insertOf(1, []), insertOf(0, [])], reads: [], probes: [], cores: [] }]
 			]
 		},
 		{
 			login: 1,
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
-				[{ writes: [insertOf(2, [0])], reads: [{ ...readOf(0, "positive", 0), rows: "many" }] }]
+				[
+					{
+						writes: [insertOf(2, [0])],
+						reads: [{ ...readOf(0, "positive", 0), rows: "many" }],
+						probes: [],
+						cores: []
+					}
+				]
 			]
 		}
 	]
@@ -560,14 +730,14 @@ const refusedCopy: Sketch = {
 				{ relation: 1, privilege: "INSERT" }
 			],
 			members: [
-				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
-				[{ writes: [insertOf(1, [])], reads: [] }]
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)], probes: [], cores: [] }],
+				[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]
 			]
 		},
 		{
 			login: 1,
 			privileges: [{ relation: 2, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(2, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]]
 		}
 	]
 }
@@ -589,18 +759,27 @@ const deferredCopy: Sketch = {
 			login: 0,
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
-				[{ writes: [insertOf(2, [0])], reads: [{ ...readOf(0, "positive", 0), rows: "many" }] }]
+				[
+					{
+						writes: [insertOf(2, [0])],
+						reads: [{ ...readOf(0, "positive", 0), rows: "many" }],
+						probes: [],
+						cores: []
+					}
+				]
 			]
 		},
 		{
 			login: 0,
 			privileges: [{ relation: 0, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{
 			login: 1,
 			privileges: [{ relation: 1, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(1, [0])], reads: [readOf(0, "positive", 0)] }]]
+			members: [
+				[{ writes: [insertOf(1, [0])], reads: [readOf(0, "positive", 0)], probes: [], cores: [] }]
+			]
 		}
 	]
 }
@@ -617,15 +796,15 @@ const lateWriter: Sketch = {
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
-					{ writes: [], reads: [readOf(0, "positive", 0)] },
-					{ writes: [insertOf(1, [])], reads: [] }
+					{ writes: [], reads: [readOf(0, "positive", 0)], probes: [], cores: [] },
+					{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }
 				]
 			]
 		},
 		{
 			login: 1,
 			privileges: [{ relation: 0, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
 	]
 }
@@ -646,7 +825,7 @@ const cascadedWriter: Sketch = {
 		{
 			login: 1,
 			privileges: [{ relation: 1, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(1, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 		}
 	]
 }
@@ -661,11 +840,329 @@ const sharedWriter: Sketch = {
 		{
 			login: 0,
 			privileges: [{ relation: 0, privilege: "INSERT" }],
-			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{ login: 1, privileges: [{ relation: 0, privilege: "INSERT" }], members: [] }
 	]
 }
+
+/**
+ * The insert protocol over a sealed point: r0 reads A at its key positively, the read joined with its insert into B, and
+ * again beneath a probe gating that insert, as the refusal arm and the duplicate check read the proposed rows; r1
+ * inserts into A. The probe is a function of the positive read, so it reads no absence and both run READ COMMITTED.
+ */
+const protocolSealedOf = (rows: ReadSketch["rows"]): Sketch => ({
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(1, [0])],
+						reads: [
+							{ ...readOf(0, "positive", 0), rows },
+							{ ...readOf(0, "negated", 0), rows, probes: [0] }
+						],
+						probes: [{ gates: [0], core: 0, chain: [] }],
+						cores: [[{ kind: "read", read: 0 }], [{ kind: "read", read: 1 }]]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+})
+
+/**
+ * Write skew at a sealed point: r0 inserts into B where A's point is absent, a probe no positive read of A gates; r1
+ * inserts into A. The probe is an absence read, so r1 runs SERIALIZABLE by absence, and r0 by its pivot.
+ */
+const absentGate: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(1, [])],
+						reads: [{ ...readOf(0, "negated", 0), probes: [0] }],
+						probes: [{ gates: [0], core: 0, chain: [] }],
+						cores: [[], [{ kind: "read", read: 0 }]]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+}
+
+/**
+ * NEGATION's fallback and its count twin: r0 inserts into B from a UNION of two rules. The first arm joins A at its key,
+ * so B's write reads A positively; the second, in its own core, inserts a default where A's point is absent, or the
+ * count of A's point, a value an ungrouped count yields over no row. Its probe gates the same write, but the core whose
+ * rows it touches never reads A, so it is no function of the positive read: r1, inserting into A, runs SERIALIZABLE by
+ * absence, and r0 by its pivot.
+ */
+const fallbackOf = (mode: "negated" | "counted"): Sketch => ({
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(1, [0])],
+						reads: [readOf(0, "positive", 0), { ...readOf(0, mode, 0), probes: [0] }],
+						probes: [{ gates: [0], core: 1, chain: [] }],
+						cores: [
+							[{ kind: "read", read: 0 }],
+							[],
+							mode === "counted" ? [] : [{ kind: "read", read: 1 }]
+						]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+})
+
+/**
+ * The insert protocol over a UNION: r0 inserts into B from a UNION of two arms, the first reading A at its key, where a
+ * NOT EXISTS over the UNION's rows reads A's point again; r1 inserts into A. Where the second arm reads A's point too
+ * (`same`), every row of the UNION comes through it, so the probe is a function of the positive reads and both run READ
+ * COMMITTED. Where it reads A at another key (`key`), a relation no role writes (`relation`), or only its recursion's
+ * own rows (`recursion`), as a recursive CTE's recursive arm does, the second arm's rows never pass through A's point,
+ * so the NOT EXISTS is an absence read: r1 runs SERIALIZABLE by absence, and r0 by its pivot.
+ */
+const unionOf = (arm: "same" | "key" | "relation" | "recursion"): Sketch => {
+	const other: ReadonlyArray<ReadSketch> =
+		arm === "recursion"
+			? []
+			: [
+					arm === "relation"
+						? readOf(2, "positive", 0)
+						: { ...readOf(0, "positive", 0), binding: arm === "key" ? 1 : 0 }
+				]
+	const probed = 1 + other.length
+	return {
+		relations: [clean([0]), clean([]), clean([0]), clean([])],
+		roles: [
+			{
+				login: 0,
+				privileges: [{ relation: 1, privilege: "INSERT" }],
+				members: [
+					[
+						{
+							writes: [
+								insertOf(
+									1,
+									upTo(probed, (i) => i)
+								)
+							],
+							reads: [
+								readOf(0, "positive", 0),
+								...other,
+								{ ...readOf(0, "negated", 0), probes: [0] }
+							],
+							probes: [{ gates: [0], core: 0, chain: [] }],
+							cores: [
+								[
+									{
+										kind: "union",
+										arms: [[{ kind: "core", core: 1 }], [{ kind: "core", core: 2 }]]
+									}
+								],
+								[{ kind: "read", read: 0 }],
+								Arr.map(other, (_, i): RowSource => ({ kind: "read", read: 1 + i })),
+								[{ kind: "read", read: probed }]
+							]
+						}
+					]
+				]
+			},
+			{
+				login: 1,
+				privileges: [{ relation: 0, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
+/**
+ * A row path through an arbitration: r0 inserts into B joined with A's point, read in a core of its own, where core 0's
+ * NOT EXISTS reads A's point, and core 0's only source is an arbitration of A's point, which no positive read is. The
+ * NOT EXISTS is no function of a positive read: r1, inserting into A, runs SERIALIZABLE by absence, and r0 by its pivot.
+ */
+const arbiterPath: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(1, [0])],
+						reads: [
+							readOf(0, "positive", 0),
+							{ ...readOf(0, "negated", 0), probes: [0] },
+							readOf(0, "arbiter", 0)
+						],
+						probes: [{ gates: [0], core: 0, chain: [] }],
+						cores: [
+							[{ kind: "read", read: 2 }],
+							[{ kind: "read", read: 1 }],
+							[{ kind: "read", read: 0 }]
+						]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+}
+
+/**
+ * A gate no write joins: r0's statement inserts into B from a grouped count of A's point, the probe of that count judged
+ * by its own rows, and into C from a positive read of A's point that feeds C alone, as a data-modifying CTE's source
+ * reads it. Every row of the count's core comes through A's point, but no read of A joins B, the write the probe gates,
+ * so the probe is no function of the positive read: r1, inserting into A, runs SERIALIZABLE by absence, and r0 by its
+ * pivot.
+ */
+const unjoinedGate: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 1, privilege: "INSERT" },
+				{ relation: 2, privilege: "INSERT" }
+			],
+			members: [
+				[
+					{
+						writes: [insertOf(1, []), insertOf(2, [0])],
+						reads: [readOf(0, "positive", 0), { ...readOf(0, "counted", 0), probes: [0] }],
+						probes: [{ gates: [0], core: 0, chain: [0] }],
+						cores: [[{ kind: "read", read: 1 }], [{ kind: "read", read: 0 }]]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+}
+
+/**
+ * A row path beneath another probe: r0 inserts into B joined with A's point read in a core of its own, where core 0's
+ * NOT EXISTS reads A's point, and core 0 reads A's point only through a grouped derived table, beneath that table's own
+ * probe. Every row of core 0 comes through that read, but not beneath the probes the NOT EXISTS stands beneath, so the
+ * NOT EXISTS is no function of the positive read: r1, inserting into A, runs SERIALIZABLE by absence, and r0 by its
+ * pivot.
+ */
+const chainedPath: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(1, [0])],
+						reads: [
+							readOf(0, "positive", 0),
+							{ ...readOf(0, "negated", 0), probes: [0] },
+							{ ...readOf(0, "counted", 0), probes: [1] }
+						],
+						probes: [
+							{ gates: [0], core: 0, chain: [] },
+							{ gates: [0], core: 3, chain: [1] }
+						],
+						cores: [
+							[{ kind: "core", core: 3 }],
+							[{ kind: "read", read: 1 }],
+							[{ kind: "read", read: 0 }],
+							[{ kind: "read", read: 2 }]
+						]
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+}
+
+/**
+ * r0's first statement inserts into A arbitrated at A's key by its parameters, reading nothing else, and its second
+ * reads A back at that key and a row of its own and inserts into B from both: the read is arbitrated, so no group comes
+ * later than a write. Gated, the first statement also reads C at its key, so it may propose no row of A, and the
+ * read-back is a point read again, a group read only later (NEGATION's claimStart).
+ */
+const arbitratedOf = (gated: boolean): Sketch => ({
+	relations: [clean([0]), clean([]), clean([0]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 1, privilege: "INSERT" }
+			],
+			members: [
+				[
+					{
+						writes: [insertOf(0, gated ? [1] : [])],
+						reads: [readOf(0, "arbiter", 0), ...(gated ? [readOf(2, "positive", 0)] : [])],
+						probes: [],
+						cores: []
+					},
+					{
+						writes: [insertOf(1, [0, 1])],
+						reads: [readOf(0, "positive", 0), { ...readOf(3, "positive", undefined), own: true }],
+						probes: [],
+						cores: []
+					}
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]]
+		}
+	]
+})
 
 const extensionGen =
 	(sketch: Sketch): Gen<Extension> =>
@@ -708,7 +1205,20 @@ const extensionGen =
 		)
 	}
 
-const shapeSketch = (s: Source, shape: Exclude<Shape, "triggered">): Sketch => {
+/**
+ * The deferred copy with Copy's fact dropped: its foreign key into Parent is then unknown, so r0's write of it may
+ * check any relation, Parent among them, and r2, which r0's check of Parent held SERIALIZABLE, stays so.
+ */
+const droppedReference: Case = {
+	sketch: deferredCopy,
+	shape: "droppedReference",
+	extension: { kind: "dropFact", relation: 2 }
+}
+
+const shapeSketch = (
+	s: Source,
+	shape: Exclude<Shape, "triggered" | "droppedReference">
+): Sketch => {
 	switch (shape) {
 		case "copiers":
 			return copiersOf(undefined)
@@ -736,6 +1246,34 @@ const shapeSketch = (s: Source, shape: Exclude<Shape, "triggered">): Sketch => {
 			return cascadedWriter
 		case "sharedWriter":
 			return sharedWriter
+		case "protocolSealed":
+			return protocolSealedOf("one")
+		case "protocolUnsealed":
+			return protocolSealedOf("many")
+		case "absentGate":
+			return absentGate
+		case "arbitratedRead":
+			return arbitratedOf(false)
+		case "arbitratedGated":
+			return arbitratedOf(true)
+		case "fallbackUnion":
+			return fallbackOf("negated")
+		case "fallbackCount":
+			return fallbackOf("counted")
+		case "unjoinedGate":
+			return unjoinedGate
+		case "chainedPath":
+			return chainedPath
+		case "unionSealed":
+			return unionOf("same")
+		case "unionOtherKey":
+			return unionOf("key")
+		case "unionOtherRelation":
+			return unionOf("relation")
+		case "unionRecursion":
+			return unionOf("recursion")
+		case "arbiterPath":
+			return arbiterPath
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -758,9 +1296,27 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "lateWriter"],
 			[1, () => "cascadedWriter"],
 			[1, () => "sharedWriter"],
-			[1, () => "triggered"]
+			[1, () => "protocolSealed"],
+			[1, () => "protocolUnsealed"],
+			[1, () => "absentGate"],
+			[1, () => "arbitratedRead"],
+			[1, () => "arbitratedGated"],
+			[1, () => "fallbackUnion"],
+			[1, () => "fallbackCount"],
+			[1, () => "unjoinedGate"],
+			[1, () => "chainedPath"],
+			[1, () => "unionSealed"],
+			[1, () => "unionOtherKey"],
+			[1, () => "unionOtherRelation"],
+			[1, () => "unionRecursion"],
+			[1, () => "arbiterPath"],
+			[1, () => "triggered"],
+			[1, () => "droppedReference"]
 		])
 	)
+	if (shape === "droppedReference") {
+		return droppedReference
+	}
 	if (shape === "triggered") {
 		return s.draw(triggeredGen)
 	}
@@ -769,12 +1325,22 @@ const caseGen: Gen<Case> = (s) => {
 }
 
 const relationName = (i: number): string => `R${i}`
+
+/** A read's mode were every probe above it neutral: an arbitration's, positive beneath a probe, else its own. */
+const baseOf = (r: ReadSketch): ReadSketch["mode"] => {
+	if (r.probes.length === 0 || r.mode === "arbiter") {
+		return r.mode
+	}
+	return "positive"
+}
 const keyOf = (i: number): ReadonlyArray<string> => Arr.getUnsafe(KEYS, i)
 const lawId = (i: number) => wild.lawId(`law_${i}`)
 
 const readFact = (r: ReadSketch) => ({
 	relation: relationName(r.relation),
 	mode: r.mode,
+	base: baseOf(r),
+	probes: r.probes,
 	own: r.own,
 	group:
 		r.group === undefined
@@ -821,7 +1387,9 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 										op: w.op,
 										from: w.from
 									})),
-									reads: Arr.map(st.reads, readFact)
+									reads: Arr.map(st.reads, readFact),
+									probes: st.probes,
+									cores: st.cores
 								}))
 							}
 						]
@@ -857,10 +1425,10 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 			return withRole(sketch, e.role, (r) => ({
 				...r,
 				members: Arr.match(r.members, {
-					onEmpty: () => [[{ writes: [], reads: [e.read] }]],
+					onEmpty: () => [[{ writes: [], reads: [e.read], probes: [], cores: [] }]],
 					onNonEmpty: ([first, ...rest]) => [
 						Arr.match(first, {
-							onEmpty: () => [{ writes: [], reads: [e.read] }],
+							onEmpty: () => [{ writes: [], reads: [e.read], probes: [], cores: [] }],
 							onNonEmpty: ([head, ...tail]) => [
 								{ ...head, reads: [...head.reads, e.read] },
 								...tail
@@ -885,7 +1453,10 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 		case "insert":
 			return withRole(sketch, e.role, (r) => ({
 				...r,
-				members: [...r.members, [{ writes: [insertOf(e.relation, [])], reads: [] }]]
+				members: [
+					...r.members,
+					[{ writes: [insertOf(e.relation, [])], reads: [], probes: [], cores: [] }]
+				]
 			}))
 		case "triggerLaw":
 			return withRelation(sketch, e.relation, (r) => ({ ...r, triggerLaws: true }))
@@ -934,7 +1505,7 @@ const afterOf = (c: Case): IsolationInput => {
 const writesOfRole = (role: RoleSketch) =>
 	Arr.flatMap(role.members, (statements) => Arr.flatMap(statements, (st) => st.writes))
 
-type OracleSeal = "arbiter" | "own" | "unwritten" | "sealed" | "unsealed"
+type OracleSeal = "arbiter" | "own" | "unwritten" | "arbitrated" | "sealed" | "unsealed"
 
 /** A foreign key check a statement's write makes, restated: the relation it reads, which side, and its seal. */
 interface OracleCheck {
@@ -1009,6 +1580,11 @@ const oracle = (sketch: Sketch) => {
 		}
 		return facts.counted.includes(group) || keyed ? "sealed" : "unsealed"
 	}
+	/** Whether a read's seal is a point's: sealed, by a whole key, not as a counted group. */
+	const isPoint = (read: ReadSketch): boolean =>
+		sealOfRead(read) === "sealed" &&
+		read.group !== undefined &&
+		!Arr.getUnsafe(relations, read.relation).counted.includes(read.group)
 	const checksOf = (statements: ReadonlyArray<StatementSketch>): ReadonlyArray<OracleCheck> =>
 		Arr.flatMap(statements, (st, at) =>
 			Arr.flatMap(st.writes, (w) => [
@@ -1040,13 +1616,104 @@ const oracle = (sketch: Sketch) => {
 			])
 		)
 	const isOutside = (seal: OracleSeal) => seal === "sealed" || seal === "unsealed"
+	/**
+	 * Whether every row of a core with row sources `sources` comes through reads `fits` admits: through some source, a
+	 * read `fits` admits, a core whose own rows do, or a UNION each of whose arms does.
+	 */
+	const passes = (
+		st: StatementSketch,
+		sources: ReadonlyArray<RowSource>,
+		fits: (r: ReadSketch) => boolean
+	): boolean =>
+		Arr.some(sources, (source) => {
+			switch (source.kind) {
+				case "read":
+					return fits(Arr.getUnsafe(st.reads, source.read))
+				case "core":
+					return passes(st, Arr.getUnsafe(st.cores, source.core), fits)
+				case "union":
+					return Arr.every(source.arms, (arm) => passes(st, arm, fits))
+			}
+		})
 	const groupName = (r: ReadSketch) =>
 		`${r.relation}/${r.group ?? "-"}/${r.group === undefined ? "-" : r.binding}`
+	/**
+	 * A member's reads, each with its seal, an arbitrated one among them where an earlier statement of a prefix reading
+	 * only own rows and arbitrations arbitrated its group, and its mode, its base where every probe above it is neutral.
+	 */
+	const placedOf = (statements: ReadonlyArray<StatementSketch>) => {
+		const arbitrated = new Map<string, number>()
+		for (const [at, st] of statements.entries()) {
+			if (
+				Arr.some(st.reads, (r) => {
+					const seal = sealOfRead(r)
+					return seal !== "own" && seal !== "arbiter"
+				})
+			) {
+				break
+			}
+			for (const r of st.reads) {
+				if (
+					r.mode === "arbiter" &&
+					sealOfRead(r) === "arbiter" &&
+					r.group !== undefined &&
+					r.rows === "one" &&
+					!arbitrated.has(groupName(r))
+				) {
+					arbitrated.set(groupName(r), at)
+				}
+			}
+		}
+		return Arr.map(statements, (st, at) => {
+			const sealed = Arr.map(st.reads, (read, index) => {
+				const by = arbitrated.get(groupName(read))
+				const seal: OracleSeal =
+					isPoint(read) && by !== undefined && by < at ? "arbitrated" : sealOfRead(read)
+				return { at, index, read, seal }
+			})
+			const neutral = (probe: number): boolean =>
+				Arr.every(sealed, ({ read, seal }) => {
+					if (!read.probes.includes(probe) || !isOutside(seal)) {
+						return true
+					}
+					const g = groupName(read)
+					const p = Arr.getUnsafe(st.probes, probe)
+					const core = p.core
+					return (
+						seal !== "unsealed" &&
+						Arr.some(
+							st.reads,
+							(r) => r.probes.length === 0 && r.mode === "positive" && groupName(r) === g
+						) &&
+						Arr.every(
+							st.writes,
+							(w, k) =>
+								!p.gates.includes(k) ||
+								Arr.some(st.reads, (r, i) => w.from.includes(i) && groupName(r) === g)
+						) &&
+						core !== undefined &&
+						passes(
+							st,
+							Arr.getUnsafe(st.cores, core),
+							(r) =>
+								Arr.join(Arr.map(r.probes, String), ",") ===
+									Arr.join(Arr.map(p.chain, String), ",") &&
+								baseOf(r) === "positive" &&
+								groupName(r) === g
+						)
+					)
+				})
+			return Arr.map(sealed, (p) => ({
+				...p,
+				mode: Arr.every(p.read.probes, neutral) ? baseOf(p.read) : p.read.mode
+			}))
+		})
+	}
 	const outsideReads = (role: RoleSketch): ReadonlySet<number> =>
 		new Set(
 			Arr.flatMap(role.members, (statements) => [
-				...Arr.flatMap(statements, (st) =>
-					Arr.flatMap(st.reads, (r) => (isOutside(sealOfRead(r)) ? [r.relation] : []))
+				...Arr.flatMap(placedOf(statements), (placed) =>
+					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
 				),
 				...Arr.flatMap(checksOf(statements), (c) => (isOutside(c.seal) ? [c.relation] : []))
 			])
@@ -1071,14 +1738,14 @@ const oracle = (sketch: Sketch) => {
 					Arr.some(
 						r.members,
 						(statements) =>
-							Arr.some(statements, (st) =>
+							Arr.some(placedOf(statements), (placed) =>
 								Arr.some(
-									st.reads,
-									(read) =>
-										read.relation === relation &&
-										(read.mode === "negated" ||
-											read.mode === "counted" ||
-											(read.mode === "arbiter" && sealOfRead(read) === "unsealed"))
+									placed,
+									(p) =>
+										p.read.relation === relation &&
+										(p.mode === "negated" ||
+											p.mode === "counted" ||
+											(p.mode === "arbiter" && p.seal === "unsealed"))
 								)
 							) ||
 							Arr.some(
@@ -1092,12 +1759,8 @@ const oracle = (sketch: Sketch) => {
 			}
 		}
 		for (const statements of role.members) {
-			const outs = Arr.flatMap(statements, (st, at) =>
-				Arr.flatMap(st.reads, (read, index) => {
-					const seal = sealOfRead(read)
-					return isOutside(seal) ? [{ at, index, read, seal }] : []
-				})
-			)
+			const placed = placedOf(statements)
+			const outs = Arr.flatMap(placed, (ps) => Arr.filter(ps, (p) => isOutside(p.seal)))
 			const checks = Arr.filter(checksOf(statements), (c) => isOutside(c.seal))
 			if (
 				Arr.some(
@@ -1118,7 +1781,7 @@ const oracle = (sketch: Sketch) => {
 			}
 			const writes = Arr.flatMap(statements, (st, at) => Arr.map(st.writes, (w) => ({ at, w })))
 			if (outs.length > 0 && writes.length > 0) {
-				if (Arr.some(outs, (o) => o.seal === "unsealed" || o.read.mode !== "positive")) {
+				if (Arr.some(outs, (o) => o.seal === "unsealed" || o.mode !== "positive")) {
 					failed.add("pivot")
 				}
 				const firstOut = Arr.reduce(outs, Number.POSITIVE_INFINITY, (least, o) =>
@@ -1130,13 +1793,15 @@ const oracle = (sketch: Sketch) => {
 					firstAt.set(name, Math.min(firstAt.get(name) ?? o.at, o.at))
 				}
 				for (const { at, w } of writes) {
-					const st = Arr.getUnsafe(statements, at)
+					const ps = Arr.getUnsafe(placed, at)
 					const joinedOwn = Arr.some(
-						st.reads,
-						(read, index) =>
-							sealOfRead(read) === "own" && read.mode === "positive" && w.from.includes(index)
+						ps,
+						(p) => p.seal === "own" && p.mode === "positive" && w.from.includes(p.index)
 					)
-					if (Arr.some(outs, (o) => o.at === at && !w.from.includes(o.index))) {
+					const joined = new Set(
+						Arr.flatMap(ps, (p) => (w.from.includes(p.index) ? [groupName(p.read)] : []))
+					)
+					if (Arr.some(outs, (o) => o.at === at && !joined.has(groupName(o.read)))) {
 						failed.add("pivot")
 					}
 					if (at > firstOut && !joinedOwn) {
@@ -1230,6 +1895,13 @@ const conditions: ReadonlyArray<IsolationCondition> = [
 /** Every condition a reason names, `facts` included, which no drawn installation fails. */
 const everyCondition: ReadonlyArray<IsolationCondition> = ["facts", ...conditions]
 
+/**
+ * The fixed shapes, each a required feature by its name. Their number sets the coverage budget, measured under the
+ * search's label, which fixes the floor and steered streams whatever the run seed: with 300 runs and 200 steered cases
+ * the stream never drew the absentGate among 20 of them; with 500 runs and 400 steered cases it drew it at case 118 and
+ * every one by case 200; the two fallbacks added, it drew it at case 4 and all 22 by case 124; and, the unjoined gate,
+ * the chained path, the four unions and the arbitration path added, draws it at case 20 and all 29 by case 254.
+ */
 const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"copiers",
 	"pointCopiers",
@@ -1244,7 +1916,22 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"lateWriter",
 	"cascadedWriter",
 	"sharedWriter",
-	"triggered"
+	"protocolSealed",
+	"protocolUnsealed",
+	"absentGate",
+	"arbitratedRead",
+	"arbitratedGated",
+	"fallbackUnion",
+	"fallbackCount",
+	"unjoinedGate",
+	"chainedPath",
+	"unionSealed",
+	"unionOtherKey",
+	"unionOtherRelation",
+	"unionRecursion",
+	"arbiterPath",
+	"triggered",
+	"droppedReference"
 ]
 
 const levelsOf = (verdicts: ReadonlyArray<RoleIsolation>) =>
@@ -1261,6 +1948,7 @@ const sealFeature = (seal: ReadSeal): IsolationFeature | undefined => {
 		case "arbiter":
 			return "an arbitration a unique check decides"
 		case "own":
+		case "arbitrated":
 		case "unsealed":
 			return undefined
 	}
@@ -1285,12 +1973,28 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "deferredCopy":
 		case "lateWriter":
 		case "sharedWriter":
+		case "arbitratedGated":
 			return [0]
+		case "protocolUnsealed":
+		case "absentGate":
+		case "fallbackUnion":
+		case "fallbackCount":
+		case "unjoinedGate":
+		case "chainedPath":
+		case "unionOtherKey":
+		case "unionOtherRelation":
+		case "unionRecursion":
+		case "arbiterPath":
+			return [0, 1]
 		case "cascadedWriter":
 			return [1]
 		case "drawn":
 		case "seals":
+		case "protocolSealed":
+		case "unionSealed":
+		case "arbitratedRead":
 		case "triggered":
+		case "droppedReference":
 			return []
 	}
 }
@@ -1329,10 +2033,10 @@ describe("the isolation certifier", () => {
 								"a fact dropped beside a READ COMMITTED role",
 								"a dropped fact a SERIALIZABLE role's level rests on alone"
 							],
-							{ cases: 200, sense: notesOnly }
+							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
-						runs: 300,
+						runs: 500,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,

@@ -36,11 +36,22 @@
  * - A query CTE is read where a source names it, with that source's polarity, count and writes; a writing CTE runs once.
  * - A write's `from` is the positive reads that feed it: its source's, an UPDATE's and a DELETE's target and FROM, a
  *   MERGE's source and every target read; a DO UPDATE writes its table twice from them.
- * Reads are compared as multisets, the arbitrations after every other read, and writes by the reads their `from` names.
+ * - Every flip of polarity and every count opens a probe gating the writes its place feeds, judged by a grouped core's
+ *   own rows where that core opens it, else by the core it stands in. A core's row sources are its sources in FROM
+ *   order, an UPDATE's or a DELETE's target first: a table's read, a renaming projection's read, a LIMIT's or a stacked
+ *   projection's core, a derived table's or a CTE's query by its one core or a UNION's arms; none for an INTERSECT, an
+ *   EXCEPT or another source, and none at all for a core counting with no GROUP BY.
+ * Reads are compared as multisets, the arbitrations after every other read, writes by the reads their `from` names,
+ * and probes by the writes they gate and their core's row sources, each read marked where it stands beneath other
+ * probes than the probe's chain.
  *
  * Planted in a scratch copy of the extractor, each of these fails the search: NOT EXISTS read as positive, an
  * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names
- * dropped instead of named, and a projection's renaming dropped.
+ * dropped instead of named, a projection's renaming dropped, a derived table's conditions stopped at one level,
+ * placeholders' declared names dropped, an ON CONFLICT's parameters dropped, probes never opened, every counting
+ * core's probe judged by its own rows, grouped or not, a UNION passing no rows, a UNION through one arm alone, an
+ * INTERSECT or an EXCEPT as a UNION, an ungrouped aggregate's sources as its row sources, an expression's subquery as a
+ * row source of the core it stands in, and a derived table's or a CTE's rows as no row source.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -57,8 +68,8 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import type { ReadFact } from "#compiler/analysis/isolation/facts.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import type { ReadFact, RowSource } from "#compiler/analysis/isolation/facts.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import type {
 	Cte,
@@ -187,10 +198,12 @@ interface Equality {
 
 /**
  * How a core reads a table: directly; through a derived table that only renames its columns, its i-th column the
- * table's ROTATED[i] (`plain`), which the extractor keys by the reading core's conditions through the renaming; or
- * through one that also takes a LIMIT (`limited`), which no outside condition keys.
+ * table's ROTATED[i] (`plain`), which the extractor keys by the reading core's conditions through the renaming;
+ * through one that also takes a LIMIT (`limited`), which no outside condition keys; or through a derived table that
+ * renames such a projection's columns again under a WHERE equating some with placeholders (`stacked`), keyed by its own
+ * conditions and, carried into it, the reading core's.
  */
-type TableForm = "direct" | "plain" | "limited"
+type TableForm = "direct" | "plain" | "limited" | "stacked"
 
 /** The table's column each of a projection's columns, named as COLUMNS, is: a rotation, so every name moves. */
 const ROTATED: Readonly<Record<Column, Column>> = {
@@ -206,6 +219,8 @@ type Source =
 			readonly rel: Rel
 			readonly form: TableForm
 			readonly equalities: ReadonlyArray<Equality>
+			/** A stacked form's WHERE: each of its columns equated with a placeholder. */
+			readonly inner: ReadonlyArray<{ readonly column: Column; readonly slot: number }>
 	  }
 	| { readonly kind: "own"; readonly own: OwnKind; readonly at: number }
 	| { readonly kind: "derived"; readonly query: QuerySpec }
@@ -297,6 +312,8 @@ type Dml =
 			readonly kind: "insert"
 			readonly target: TargetSpec
 			readonly source: QuerySpec | undefined
+			/** With no source query, whether its one VALUES row states every column by a placeholder, $1 to $3, or c_id by 1. */
+			readonly params: boolean
 			readonly conflict: Conflict
 	  }
 	| {
@@ -387,18 +404,30 @@ const coreGen =
 						weighted<TableForm>([
 							[4, () => "direct"],
 							[2, () => "plain"],
-							[1, () => "limited"]
+							[1, () => "limited"],
+							[2, () => "stacked"]
 						])
 					)
+					const inner =
+						form === "stacked"
+							? Arr.map(
+									Arr.dedupe(s.draw(array(element(COLUMNS), { min: 1, max: 2 }))),
+									(column) => ({ column, slot: s.draw(int(1, 3)) })
+								)
+							: []
 					return {
 						kind: "table",
 						rel: s.draw(element(RELS)),
 						form,
+						inner,
 						equalities: Arr.map(columns, (column) => {
 							const other = s.draw(otherGen(owns, tables, self))
 							return {
 								column,
-								other: form === "limited" && other.kind === "table" ? { kind: "literal" } : other,
+								other:
+									(form === "limited" || form === "stacked") && other.kind === "table"
+										? { kind: "literal" }
+										: other,
 								flipped: s.draw(boolean),
 								inJoin: s.draw(boolean)
 							}
@@ -527,9 +556,10 @@ const dmlGen: Gen<Dml> = weighted<Dml>([
 			source: s.draw(
 				weighted<QuerySpec | undefined>([
 					[5, (t) => t.draw(queryGen(2))],
-					[1, () => undefined]
+					[2, () => undefined]
 				])
 			),
+			params: s.draw(boolean),
 			conflict: s.draw(conflictGen)
 		})
 	],
@@ -609,6 +639,7 @@ type PlacedSource =
 			readonly rel: Rel
 			readonly form: TableForm
 			readonly equalities: ReadonlyArray<Equality>
+			readonly inner: ReadonlyArray<{ readonly column: Column; readonly slot: number }>
 	  }
 	| { readonly kind: "carrier"; readonly alias: string; readonly carrier: number }
 	| {
@@ -631,7 +662,14 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 		const alias = `${path}s${i}`
 		switch (s.kind) {
 			case "table":
-				return { kind: "table", alias, rel: s.rel, form: s.form, equalities: s.equalities }
+				return {
+					kind: "table",
+					alias,
+					rel: s.rel,
+					form: s.form,
+					equalities: s.equalities,
+					inner: s.inner
+				}
 			case "derived":
 				return { kind: "derived", alias, query: s.query }
 			case "own":
@@ -705,10 +743,22 @@ const otherExpr = (o: ResolvedOther): Expr => {
 }
 
 /** The text a binding names a resolved other side by, none for one that binds nothing. */
+/** The declared parameters the drawn placeholders carry: $1 and $3 one, $2 another, every other none. */
+const PARAM_NAMES: ReadonlyMap<number, string> = new Map([
+	[1, "a"],
+	[2, "b"],
+	[3, "a"]
+])
+
+const paramText = (slot: number): string => {
+	const named = PARAM_NAMES.get(slot)
+	return named === undefined ? `$${slot}` : `:${named}`
+}
+
 const bindingText = (o: ResolvedOther): string | undefined => {
 	switch (o.kind) {
 		case "param":
-			return `$${o.slot}`
+			return paramText(o.slot)
 		case "own":
 			return `${o.alias}.${OWN_COLUMN}`
 		case "limited":
@@ -742,13 +792,38 @@ const projectionOf = (
 	return form === "plain" ? q : { ...q, limit: lit.int(1, types.integer) }
 }
 
+/** A stacked form's query: a projection of the table renamed again, under its WHERE's equalities. */
+const stackedOf = (
+	rel: Rel,
+	alias: string,
+	inner: ReadonlyArray<{ readonly column: Column; readonly slot: number }>
+): OperandSelect => {
+	const middle = `${alias}m`
+	const [first, ...rest] = Arr.map(inner, (e) =>
+		eq(col(middle, e.column), param(e.slot, types.integer))
+	)
+	return operandSelect(
+		core(
+			Arr.map(COLUMNS, (c) => targetAs(col(middle, ROTATED[c]), c)),
+			[derived(projectionOf(rel, `${alias}t`, "plain"), middle, COLUMNS, false)],
+			first === undefined ? undefined : and([first, ...rest])
+		)
+	)
+}
+
 /** The FROM source of a placed source. */
 const fromSource = (p: PlacedSource, scope: ReadonlyArray<string>, env: Env): FromSource => {
 	switch (p.kind) {
 		case "table":
-			return p.form === "direct"
-				? { kind: "table", table: TABLES[p.rel], alias: p.alias }
-				: derived(projectionOf(p.rel, `${p.alias}t`, p.form), p.alias, COLUMNS, false)
+			switch (p.form) {
+				case "direct":
+					return { kind: "table", table: TABLES[p.rel], alias: p.alias }
+				case "plain":
+				case "limited":
+					return derived(projectionOf(p.rel, `${p.alias}t`, p.form), p.alias, COLUMNS, false)
+				case "stacked":
+					return derived(stackedOf(p.rel, p.alias, p.inner), p.alias, COLUMNS, false)
+			}
 		case "carrier":
 			return { kind: "table", table: carrierName(p.carrier), alias: p.alias }
 		case "cte":
@@ -1039,7 +1114,17 @@ const buildDml = (
 								},
 				returning: [],
 				...(d.source === undefined
-					? { columns: ["c_id"], source: { kind: "values", rows: [[one]] } }
+					? d.params
+						? {
+								columns: COLUMNS,
+								source: {
+									kind: "values",
+									rows: [
+										[param(1, types.integer), param(2, types.integer), param(3, types.integer), one]
+									]
+								}
+							}
+						: { columns: ["c_id"], source: { kind: "values", rows: [[one]] } }
 					: {
 							columns: ["c_id"],
 							source: { kind: "query", query: buildSelect(d.source, `${path}i`, [], env) }
@@ -1153,16 +1238,26 @@ const expectedOf = (r: ReadFact): Expected => ({
 })
 
 /** Where a read stands: its polarity, whether a count stands over it, whether it is a probe's, the writes its rows
- * feed, and the own sources' aliases it sees. */
+ * feed, the own sources' aliases it sees, the probes above it, and the innermost core it stands in. */
 interface Place {
 	readonly polarity: Polarity
 	readonly counted: boolean
 	readonly probe: boolean
 	readonly feeds: ReadonlyArray<number>
 	readonly scope: ReadonlyArray<string>
+	readonly probes: ReadonlyArray<number>
+	readonly core: number | undefined
 }
 
-const topPlace: Place = { polarity: "positive", counted: false, probe: false, feeds: [], scope: [] }
+const topPlace: Place = {
+	polarity: "positive",
+	counted: false,
+	probe: false,
+	feeds: [],
+	scope: [],
+	probes: [],
+	core: undefined
+}
 
 const flip = (p: Polarity): Polarity =>
 	p === "positive" ? "negated" : p === "negated" ? "positive" : "both"
@@ -1198,6 +1293,14 @@ type Shape =
 	| "a statement no member sends"
 	| "a projection keyed by the conditions of the core that reads it"
 	| "a projection outside conditions do not key"
+	| "an ON CONFLICT bound by the parameters its row carries"
+	| "a group keyed through two derived tables"
+	| "a grouped count judged by its own rows"
+	| "an ungrouped count judged by the core its value lands in"
+	| "a probed core reading a one-core derived table or CTE"
+	| "a probed core reading a UNION"
+	| "a probed core reading an INTERSECT or an EXCEPT"
+	| "a probed core reading an aggregate with no GROUP BY"
 
 /** A column of a table read with what its conditions equate it with. */
 interface Bound {
@@ -1207,6 +1310,15 @@ interface Bound {
 
 /** Whether an aggregate makes its core count: every kind but none, a window call's among them. */
 const counts = (a: Aggregate): boolean => a.kind !== "none"
+
+/**
+ * A row source of a core as the oracle states it (StatementFacts.cores): a read by its key and the probes above it, a
+ * core by its number, or a UNION's arms.
+ */
+type Rows =
+	| { readonly kind: "read"; readonly key: string; readonly probes: ReadonlyArray<number> }
+	| { readonly kind: "core"; readonly core: number }
+	| { readonly kind: "union"; readonly arms: ReadonlyArray<ReadonlyArray<Rows>> }
 
 /** One statement's expected facts, built by restating the contract over its spec. */
 class Expect {
@@ -1218,9 +1330,37 @@ class Expect {
 	}> = []
 	readonly shapes = new Set<Shape>()
 	readonly written: ReadonlySet<string>
+	/** Each read's key with its base mode and the count of probes above it, and each probe's gated writes. */
+	readonly based: Array<string> = []
+	readonly probes: Array<{
+		readonly gates: ReadonlyArray<number>
+		readonly core: number | undefined
+		readonly chain: ReadonlyArray<number>
+	}> = []
+	/** Each core's row sources, by number, as the comparison renders them. */
+	readonly cores: Array<ReadonlyArray<Rows>> = []
 
 	constructor(written: ReadonlySet<string>) {
 		this.written = written
+	}
+
+	/** The place `next`, entered from `place`: where it flips the polarity or starts a count, a probe of its own. */
+	enter(place: Place, next: Place): Place {
+		return this.opening(place, next, undefined)
+	}
+
+	/** `enter`, a grouped core's probe judged by that core's own rows (`own`), any other by the core it stands in. */
+	opening(place: Place, next: Place, own: number | undefined): Place {
+		if (next.polarity === place.polarity && (place.counted || !next.counted)) {
+			return next
+		}
+		const id = this.probes.length
+		this.probes.push(
+			own === undefined
+				? { gates: place.feeds, core: place.core, chain: place.probes }
+				: { gates: place.feeds, core: own, chain: [...place.probes, id] }
+		)
+		return { ...next, probes: [...place.probes, id] }
 	}
 
 	mode(place: Place, relation: string, probeable: boolean): Mode {
@@ -1233,8 +1373,16 @@ class Expect {
 		return place.counted ? "counted" : "positive"
 	}
 
-	read(fact: Expected, feeds: ReadonlyArray<number>, place: Place): void {
+	read(fact: Expected, feeds: ReadonlyArray<number>, place: Place): Rows {
 		this.reads.push({ ...fact, feeds })
+		const base: Mode = Arr.some(["?function:", "?refresh:", "?statement:"], (prefix) =>
+			Str.startsWith(prefix)(fact.relation)
+		)
+			? "negated"
+			: fact.mode === "arbiter"
+				? "arbiter"
+				: "positive"
+		this.based.push(`${readKey(fact)}|${base}|${place.probes.length}`)
 		this.shapes.add(
 			fact.mode === "positive"
 				? "a positive read"
@@ -1247,14 +1395,19 @@ class Expect {
 		if (place.polarity === "both") {
 			this.shapes.add("a read either way")
 		}
+		return { kind: "read", key: readKey(fact), probes: place.probes }
 	}
 
 	/** A table read under its conditions' bindings: each field bound by a placeholder or an own column, sorted. */
-	table(rel: Rel, place: Place, bound: ReadonlyArray<Bound>): void {
+	table(rel: Rel, place: Place, all: ReadonlyArray<Bound>): Rows {
 		const relation = relationOf(rel)
 		if (rel === "X") {
 			this.shapes.add("a read no relation names")
 		}
+		const bound = Arr.dedupeWith(
+			Arr.filter(all, (b) => bindingText(b.other) !== undefined),
+			(a: Bound, b: Bound) => a.column === b.column
+		)
 		const fields = Arr.flatMap(bound, (b) => {
 			const text = bindingText(b.other)
 			const field = FIELDS.get(b.column)
@@ -1268,7 +1421,7 @@ class Expect {
 			fields,
 			Order.mapInput(Order.String, (b: { readonly field: string }) => b.field)
 		)
-		this.read(
+		return this.read(
 			{
 				relation,
 				mode: this.mode(place, relation, true),
@@ -1314,25 +1467,73 @@ class Expect {
 		return [this.writes.length - 1]
 	}
 
-	query(q: QuerySpec, path: string, place: Place, env: Env): void {
-		Arr.forEach(q.cores, (c, k) => {
-			const arm = q.op === "EXCEPT" && k > 0 ? { ...place, polarity: flip(place.polarity) } : place
+	/** A core of `sources` the walk allocates, as a row source: a derived table's that only reads a table. */
+	wrapped(sources: ReadonlyArray<Rows>): Rows {
+		this.cores.push(sources)
+		return { kind: "core", core: this.cores.length - 1 }
+	}
+
+	/**
+	 * A query in its place, with the sources every row of it comes through: its one core, or a UNION's arms, each one
+	 * core; none for an INTERSECT or an EXCEPT.
+	 */
+	query(q: QuerySpec, path: string, place: Place, env: Env): ReadonlyArray<Rows> {
+		const arms = Arr.map(q.cores, (c, k): ReadonlyArray<Rows> => {
+			const arm =
+				q.op === "EXCEPT" && k > 0
+					? this.enter(place, { ...place, polarity: flip(place.polarity) })
+					: place
 			if (q.op === "EXCEPT" && k > 0) {
 				this.shapes.add("an EXCEPT arm")
 			}
-			this.core(c, `${path}c${k}`, arm, env)
+			return [{ kind: "core", core: this.core(c, `${path}c${k}`, arm, env, () => []) }]
 		})
+		const [only, ...more] = arms
+		if (!Arr.isReadonlyArrayNonEmpty(more)) {
+			return only
+		}
+		return q.op === "UNION" ? [{ kind: "union", arms }] : []
 	}
 
-	core(c: CoreSpec, path: string, place: Place, env: Env): void {
-		const here: Place = { ...place, counted: place.counted || counts(c.aggregate) }
+	/**
+	 * A core in its place, by its number: every row of it comes through each of its sources, its target's first, unless
+	 * it counts with no GROUP BY, which yields a row over no input.
+	 */
+	core(
+		c: CoreSpec,
+		path: string,
+		place: Place,
+		env: Env,
+		target: (here: Place) => ReadonlyArray<Rows>
+	): number {
+		const id = this.cores.length
+		this.cores.push([])
+		const here: Place = this.opening(
+			place,
+			{
+				...place,
+				counted: place.counted || counts(c.aggregate),
+				core: id
+			},
+			c.aggregate.kind === "groupBy" ? id : undefined
+		)
+		if (!place.counted && counts(c.aggregate)) {
+			this.shapes.add(
+				c.aggregate.kind === "groupBy"
+					? "a grouped count judged by its own rows"
+					: "an ungrouped count judged by the core its value lands in"
+			)
+		}
+		const rows: Array<Rows> = [...target(here)]
 		const sources = placed(c, path, env)
 		const owns = ownAliases(sources)
 		const tables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s.alias] : []))
 		const within = [...place.scope, ...owns]
 		const beneath: Place = { ...here, probe: false }
 		const limited = new Set(
-			Arr.flatMap(sources, (s) => (s.kind === "table" && s.form === "limited" ? [s.alias] : []))
+			Arr.flatMap(sources, (s) =>
+				s.kind === "table" && (s.form === "limited" || s.form === "stacked") ? [s.alias] : []
+			)
 		)
 		const resolve = (o: Other): ResolvedOther => {
 			const r = resolveOther(o, owns, tables, place.scope)
@@ -1342,20 +1543,48 @@ class Expect {
 		for (const s of sources) {
 			switch (s.kind) {
 				case "table":
+					if (s.form === "stacked") {
+						const outer = Arr.map(s.equalities, (e) => ({
+							column: ROTATED[ROTATED[e.column]],
+							other: resolve(e.other)
+						}))
+						if (
+							Arr.some(
+								outer,
+								(b) => FIELDS.has(b.column) && s.rel !== "X" && bindingText(b.other) !== undefined
+							)
+						) {
+							this.shapes.add("a group keyed through two derived tables")
+						}
+						rows.push(
+							this.wrapped([
+								this.table(s.rel, { ...beneath, scope: place.scope }, [
+									...Arr.map(s.inner, (e) => ({
+										column: ROTATED[e.column],
+										other: { kind: "param" as const, slot: e.slot }
+									})),
+									...outer
+								])
+							])
+						)
+						break
+					}
 					if (s.form === "limited") {
 						if (s.equalities.length > 0) {
 							this.shapes.add("a projection outside conditions do not key")
 						}
-						this.table(s.rel, { ...beneath, scope: place.scope }, [])
+						rows.push(this.wrapped([this.table(s.rel, { ...beneath, scope: place.scope }, [])]))
 						break
 					}
-					this.table(
-						s.rel,
-						here,
-						Arr.map(s.equalities, (e) => ({
-							column: s.form === "plain" ? ROTATED[e.column] : e.column,
-							other: resolve(e.other)
-						}))
+					rows.push(
+						this.table(
+							s.rel,
+							here,
+							Arr.map(s.equalities, (e) => ({
+								column: s.form === "plain" ? ROTATED[e.column] : e.column,
+								other: resolve(e.other)
+							}))
+						)
 					)
 					for (const e of s.equalities) {
 						const o = resolve(e.other)
@@ -1382,26 +1611,37 @@ class Expect {
 				case "carrier": {
 					this.shapes.add("a carrier read")
 					const relation = `carrier:${carrierName(s.carrier)}`
-					this.read(
-						{
-							relation,
-							mode: this.mode(here, relation, false),
-							own: true,
-							group: undefined,
-							binding: undefined,
-							rows: undefined
-						},
-						here.feeds,
-						here
+					rows.push(
+						this.read(
+							{
+								relation,
+								mode: this.mode(here, relation, false),
+								own: true,
+								group: undefined,
+								binding: undefined,
+								rows: undefined
+							},
+							here.feeds,
+							here
+						)
 					)
 					break
 				}
 				case "cte":
 					this.shapes.add("a CTE read where it is named")
-					this.query(s.query, s.path, { ...beneath, scope: [] }, [])
+					for (const r of this.query(s.query, s.path, { ...beneath, scope: [] }, [])) {
+						rows.push(r)
+					}
 					break
 				case "derived":
-					this.query(s.query, `${s.alias}q`, { ...beneath, scope: place.scope }, env)
+					for (const r of this.query(
+						s.query,
+						`${s.alias}q`,
+						{ ...beneath, scope: place.scope },
+						env
+					)) {
+						rows.push(r)
+					}
 					break
 				case "plain":
 					break
@@ -1418,12 +1658,40 @@ class Expect {
 				break
 			case "subquery":
 			case "array":
-				this.query(p.query, `${path}p`, { ...value, counted: true }, env)
+				this.query(p.query, `${path}p`, this.enter(value, { ...value, counted: true }), env)
 				break
 			case "exists":
-				this.query(p.query, `${path}p`, { ...value, probe: true, polarity: "both" }, env)
+				this.query(
+					p.query,
+					`${path}p`,
+					this.enter(value, { ...value, probe: true, polarity: "both" }),
+					env
+				)
 				break
 		}
+		this.cores[id] = c.aggregate.kind === "groupBy" || !counts(c.aggregate) ? rows : []
+		if (Arr.some(this.probes, (probe) => probe.core === id)) {
+			for (const s of sources) {
+				const q = s.kind === "cte" || s.kind === "derived" ? s.query : undefined
+				const [only, ...more] = q?.cores ?? []
+				if (q !== undefined && Arr.isReadonlyArrayNonEmpty(more)) {
+					this.shapes.add(
+						q.op === "UNION"
+							? "a probed core reading a UNION"
+							: "a probed core reading an INTERSECT or an EXCEPT"
+					)
+				} else if (
+					only !== undefined &&
+					only.aggregate.kind !== "groupBy" &&
+					counts(only.aggregate)
+				) {
+					this.shapes.add("a probed core reading an aggregate with no GROUP BY")
+				} else if (only !== undefined) {
+					this.shapes.add("a probed core reading a one-core derived table or CTE")
+				}
+			}
+		}
+		return id
 	}
 
 	aggregateShapes(a: Aggregate): void {
@@ -1457,7 +1725,11 @@ class Expect {
 				this.query(
 					f.query,
 					`${path}q`,
-					{ ...place, probe: true, polarity: f.not ? flip(place.polarity) : place.polarity },
+					this.enter(place, {
+						...place,
+						probe: true,
+						polarity: f.not ? flip(place.polarity) : place.polarity
+					}),
 					env
 				)
 				return
@@ -1465,7 +1737,11 @@ class Expect {
 				this.query(
 					f.query,
 					`${path}q`,
-					{ ...place, probe: false, polarity: f.not ? flip(place.polarity) : place.polarity },
+					this.enter(place, {
+						...place,
+						probe: false,
+						polarity: f.not ? flip(place.polarity) : place.polarity
+					}),
 					env
 				)
 				return
@@ -1473,7 +1749,12 @@ class Expect {
 				if (place.polarity === "negated") {
 					this.shapes.add("NOT flipped back")
 				}
-				this.filter(f.inner, `${path}n`, { ...place, polarity: flip(place.polarity) }, env)
+				this.filter(
+					f.inner,
+					`${path}n`,
+					this.enter(place, { ...place, polarity: flip(place.polarity) }),
+					env
+				)
 				return
 			case "call":
 				if (!f.readsNoTable) {
@@ -1503,13 +1784,22 @@ class Expect {
 				}
 				if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
 					const rel = d.target.rel
+					const stated = d.source === undefined && d.params
 					const fields =
 						conflict.kind === "columns" && rel !== "X"
 							? Arr.flatMap(conflict.columns, (column) => {
 									const field = FIELDS.get(column)
-									return field === undefined ? [] : [{ field, text: `excluded.${column}` }]
+									const slot = Arr.findFirstIndex(COLUMNS, (c) => c === column)
+									const text =
+										stated && Option.isSome(slot) && slot.value < 3
+											? paramText(slot.value + 1)
+											: `excluded.${column}`
+									return field === undefined ? [] : [{ field, text }]
 								})
 							: []
+					if (stated && Arr.isReadonlyArrayNonEmpty(fields)) {
+						this.shapes.add("an ON CONFLICT bound by the parameters its row carries")
+					}
 					if (Arr.isReadonlyArrayNonEmpty(fields)) {
 						this.shapes.add("an ON CONFLICT arbiter over its conflict columns")
 					}
@@ -1530,7 +1820,7 @@ class Expect {
 									","
 								)
 							: undefined,
-						rows: Arr.isReadonlyArrayNonEmpty(sorted) ? "many" : undefined
+						rows: Arr.isReadonlyArrayNonEmpty(sorted) ? (stated ? "one" : "many") : undefined
 					})
 				}
 				return
@@ -1540,36 +1830,43 @@ class Expect {
 				const target: TargetSpec = d.kind === "update" ? { kind: "table", rel: d.rel } : d.target
 				const at = this.write(target.kind === "table" ? relationOf(target.rel) : undefined, d.kind)
 				const place: Place = { ...topPlace, feeds: at }
-				if (target.kind === "table") {
-					if (d.keyed !== undefined && FIELDS.has(d.keyed) && target.rel !== "X") {
-						this.shapes.add("a target bound by its WHERE")
-					}
-					this.table(
-						target.rel,
-						place,
-						d.keyed === undefined ? [] : [{ column: d.keyed, other: { kind: "param", slot: 8 } }]
-					)
-				} else {
-					this.shapes.add("a carrier read")
-					const relation = `carrier:${carrierName(9)}`
-					this.read(
-						{
-							relation,
-							mode: "positive",
-							own: true,
-							group: undefined,
-							binding: undefined,
-							rows: undefined
-						},
-						at,
-						place
-					)
-				}
 				this.core(
 					d.kind === "update" ? d.from : d.using,
 					`${path}${d.kind === "update" ? "u" : "d"}`,
 					place,
-					env
+					env,
+					(here) => {
+						if (target.kind === "table") {
+							if (d.keyed !== undefined && FIELDS.has(d.keyed) && target.rel !== "X") {
+								this.shapes.add("a target bound by its WHERE")
+							}
+							return [
+								this.table(
+									target.rel,
+									here,
+									d.keyed === undefined
+										? []
+										: [{ column: d.keyed, other: { kind: "param", slot: 8 } }]
+								)
+							]
+						}
+						this.shapes.add("a carrier read")
+						const relation = `carrier:${carrierName(9)}`
+						return [
+							this.read(
+								{
+									relation,
+									mode: "positive",
+									own: true,
+									group: undefined,
+									binding: undefined,
+									rows: undefined
+								},
+								at,
+								here
+							)
+						]
+					}
 				)
 				return
 			}
@@ -1583,7 +1880,12 @@ class Expect {
 				)
 				const bySource = Arr.some(d.whens, (w) => w.match === "NOT MATCHED BY SOURCE")
 				const place: Place = { ...topPlace, feeds: at }
-				this.query(d.using, `${path}m`, bySource ? { ...place, polarity: "both" } : place, env)
+				this.query(
+					d.using,
+					`${path}m`,
+					bySource ? this.enter(place, { ...place, polarity: "both" }) : place,
+					env
+				)
 				const on: Bound = { column: "c_id", other: { kind: "own", alias: "m" } }
 				const conditioned: Bound = { column: "c_a", other: { kind: "param", slot: 7 } }
 				for (const w of d.whens) {
@@ -1592,7 +1894,9 @@ class Expect {
 						if (this.written.has(relation)) {
 							this.shapes.add("a MERGE's NOT MATCHED arbiter")
 						}
-						this.table(d.rel, { ...place, polarity: "negated", probe: true }, [on])
+						this.table(d.rel, this.enter(place, { ...place, polarity: "negated", probe: true }), [
+							on
+						])
 					} else {
 						this.table(d.rel, place, w.match === "MATCHED" ? [on, ...condition] : condition)
 					}
@@ -1687,6 +1991,60 @@ const sortedKeys = (reads: ReadonlyArray<Expected>): ReadonlyArray<string> =>
 const writeKey = (relation: string, op: string, from: ReadonlyArray<Expected>): string =>
 	`${relation}|${op}|${Arr.join(sortedKeys(from), ";")}`
 
+/** The extractor's row sources as the oracle states them, each read by its key and the probes above it. */
+const gotRows = (
+	reads: ReadonlyArray<ReadFact>,
+	sources: ReadonlyArray<RowSource>
+): ReadonlyArray<Rows> =>
+	Arr.map(sources, (r): Rows => {
+		switch (r.kind) {
+			case "read": {
+				const read = Arr.getUnsafe(reads, r.read)
+				return { kind: "read", key: readKey(expectedOf(read)), probes: read.probes }
+			}
+			case "core":
+				return r
+			case "union":
+				return { kind: "union", arms: Arr.map(r.arms, (arm) => gotRows(reads, arm)) }
+		}
+	})
+
+/**
+ * Row sources as the comparison reads them, every core inlined: each read by its key, marked `~` where it stands
+ * beneath other probes than `chain`, the probes of the core a probe judges.
+ */
+const renderedRows = (
+	cores: ReadonlyArray<ReadonlyArray<Rows>>,
+	sources: ReadonlyArray<Rows>,
+	chain: ReadonlyArray<number>
+): string =>
+	`[${Arr.join(
+		Arr.map(sources, (r) => {
+			switch (r.kind) {
+				case "read":
+					return Arr.join(Arr.map(r.probes, String), ",") === Arr.join(Arr.map(chain, String), ",")
+						? r.key
+						: `~${r.key}`
+				case "core":
+					return `core${renderedRows(cores, Arr.getUnsafe(cores, r.core), chain)}`
+				case "union":
+					return `union(${Arr.join(
+						Arr.map(r.arms, (arm) => renderedRows(cores, arm, chain)),
+						" | "
+					)})`
+			}
+		}),
+		", "
+	)}]`
+
+/** A probe's core's row sources as the comparison reads them, or that it stands in no core. */
+const probeRows = (
+	cores: ReadonlyArray<ReadonlyArray<Rows>>,
+	core: number | undefined,
+	chain: ReadonlyArray<number>
+): string =>
+	core === undefined ? "no core" : renderedRows(cores, Arr.getUnsafe(cores, core), chain)
+
 describe("a change member's facts", () => {
 	it.effect(
 		"name every read by its mode, its own, its group and its binding, and every write by the positive reads that feed it, as the contract restated over the drawn statements says",
@@ -1732,7 +2090,15 @@ describe("a change member's facts", () => {
 								"a target bound by its WHERE",
 								"a statement no member sends",
 								"a projection keyed by the conditions of the core that reads it",
-								"a projection outside conditions do not key"
+								"a projection outside conditions do not key",
+								"an ON CONFLICT bound by the parameters its row carries",
+								"a group keyed through two derived tables",
+								"a grouped count judged by its own rows",
+								"an ungrouped count judged by the core its value lands in",
+								"a probed core reading a one-core derived table or CTE",
+								"a probed core reading a UNION",
+								"a probed core reading an INTERSECT or an EXCEPT",
+								"a probed core reading an aggregate with no GROUP BY"
 							],
 							{ cases: 500, sense: notesOnly }
 						),
@@ -1745,7 +2111,12 @@ describe("a change member's facts", () => {
 					},
 					(c, k) =>
 						Effect.sync(() => {
-							const facts = memberFacts("member", Arr.map(c.statements, buildStatement), NAMES)
+							const facts = memberFacts(
+								"member",
+								Arr.map(c.statements, buildStatement),
+								NAMES,
+								(_, n) => PARAM_NAMES.get(n)
+							)
 							assert.equal(facts.name, "member", "the member's name")
 							assert.equal(
 								facts.statements.length,
@@ -1767,6 +2138,53 @@ describe("a change member's facts", () => {
 									sortedKeys(Arr.map(Arr.takeRight(got.reads, x.tail.length), expectedOf)),
 									sortedKeys(x.tail),
 									`statement ${i}'s ON CONFLICT arbitrations follow every other read`
+								)
+								assert.deepEqual(
+									Arr.sort(
+										Arr.map(
+											got.reads,
+											(r) => `${readKey(expectedOf(r))}|${r.base}|${r.probes.length}`
+										),
+										Order.String
+									),
+									Arr.sort(
+										[...x.based, ...Arr.map(x.tail, (r) => `${readKey(r)}|arbiter|0`)],
+										Order.String
+									),
+									`statement ${i}'s reads' base modes and the probes above them`
+								)
+								const gateKey = (
+									gates: ReadonlyArray<number>,
+									writes: ReadonlyArray<{ readonly relation: string; readonly op: string }>
+								): string =>
+									Arr.join(
+										Arr.sort(
+											Arr.map(gates, (g) => {
+												const w = Arr.getUnsafe(writes, g)
+												return `${w.relation}|${w.op}`
+											}),
+											Order.String
+										),
+										","
+									)
+								const gotCores = Arr.map(got.cores, (sources) => gotRows(got.reads, sources))
+								assert.deepEqual(
+									Arr.sort(
+										Arr.map(
+											got.probes,
+											(p) =>
+												`${gateKey(p.gates, got.writes)}|${probeRows(gotCores, p.core, p.chain)}`
+										),
+										Order.String
+									),
+									Arr.sort(
+										Arr.map(
+											x.probes,
+											(p) => `${gateKey(p.gates, x.writes)}|${probeRows(x.cores, p.core, p.chain)}`
+										),
+										Order.String
+									),
+									`statement ${i}'s probes, each by the writes it gates and the row sources of its core`
 								)
 								const gotWrites = Arr.map(got.writes, (w) =>
 									writeKey(

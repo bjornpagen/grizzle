@@ -203,13 +203,20 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 	const arbiter: ReadFact = {
 		relation: into,
 		mode: "arbiter",
+		base: "arbiter",
+		probes: [],
 		own: false,
 		group: { fields: ["k"], binding: "excluded.k", rows: "one" }
 	}
 	const read = statement.read
 	switch (read.kind) {
 		case "put":
-			return { writes: [{ relation: into, op: "insert", from: [] }], reads: [arbiter] }
+			return {
+				writes: [{ relation: into, op: "insert", from: [] }],
+				reads: [arbiter],
+				probes: [],
+				cores: []
+			}
 		case "point":
 		case "all":
 		case "absent":
@@ -220,10 +227,14 @@ const statementFacts = (statement: DrawnStatement): StatementFacts => {
 					{
 						relation: relationName(read.from),
 						mode: read.kind === "absent" ? "negated" : "positive",
+						base: read.kind === "absent" ? "negated" : "positive",
+						probes: [],
 						own: false,
 						group: read.kind === "all" ? undefined : { fields: ["k"], binding: "$k", rows: "one" }
 					}
-				]
+				],
+				probes: [],
+				cores: []
 			}
 	}
 }

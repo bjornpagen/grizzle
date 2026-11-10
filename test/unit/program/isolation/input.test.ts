@@ -186,7 +186,7 @@ const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<str
 }
 
 /** A statement that writes and reads nothing: the builder hands the extractor's facts on without reading them. */
-const nothing: StatementFacts = { writes: [], reads: [] }
+const nothing: StatementFacts = { writes: [], reads: [], probes: [], cores: [] }
 
 const run = (c: Case, note: (feature: Feature) => void) =>
 	Effect.sync(() => {
