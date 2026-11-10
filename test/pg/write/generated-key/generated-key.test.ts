@@ -33,7 +33,8 @@ import {
  *
  * Each case stores a lawful state, then applies one stratum of up to three writes: inserts, puts and deletes of MapKey
  * and Tag from an array or a query over a relation parameter, inserts of Use, and inserts of new mappings with their
- * entries nested. Texts are drawn from three values, both signs and two paddings, so writes meet stored rows and each
+ * entries nested. The stratum is the one member of a served workload of its own, its array writes of one op and one
+ * relation one array member whose call's facts are their rows. Texts are drawn from three values, both signs and two paddings, so writes meet stored rows and each
  * other at every key.
  *
  * The oracle is the law model (test/support/laws/model.ts): the add-wins transition of the stratum over the stored
@@ -56,7 +57,7 @@ import {
  * term than its column's (write/insert/unique.ts `buildProbe`) fails the search, at a stored clash it misses or a clash
  * it invents.
  */
-import { openDbContext } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -101,11 +102,10 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { applyRuntime } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
 const KeyText = str.bytes(4, str.regex("^-?0*[0-9]$", "u"))
@@ -167,6 +167,42 @@ const Keys = schema("Keys", { MapKey, Use, Tag, Mapping, Entry }, [
 	mutable(Tag)
 ])
 
+/**
+ * The full world's workload: the stored state's insert, MapKey, Use, Tag and new mappings from each call's facts; and
+ * each relation's rows as grizzle reads them, generated and drawn fields included.
+ */
+const programs = {
+	seed: ChangeSet.empty(Keys)
+		.insert(MapKey, [])
+		.insert(Use, [])
+		.insert(Tag, [])
+		.insert(Mapping, []),
+	mapKeys: query(Keys).rule((r) => {
+		const { mapping, text, value, negative } = v(MapKey, "k")
+		return r
+			.match(MapKey, { mapping, text, value, negative })
+			.find({ mapping, text, value, negative })
+	}),
+	uses: query(Keys).rule((r) => {
+		const { id, mapping, value, negative } = v(Use, "u")
+		return r.match(Use, { id, mapping, value, negative }).find({ id, mapping, value, negative })
+	}),
+	tags: query(Keys).rule((r) => {
+		const { id, text, value } = v(Tag, "t")
+		return r.match(Tag, { id, text, value }).find({ id, text, value })
+	}),
+	mappings: query(Keys).rule((r) => {
+		const { id, n } = v(Mapping, "m")
+		return r.match(Mapping, { id, n }).find({ id, n })
+	}),
+	entries: query(Keys).rule((r) => {
+		const { mapping, at, text, value, negative } = v(Entry, "e")
+		return r
+			.match(Entry, { mapping, at, text, value, negative })
+			.find({ mapping, at, text, value, negative })
+	})
+}
+
 /** The texts a case draws: three values, both signs and two paddings, so two texts often spell one typed key. */
 type KeyTextValue = `${"" | "-"}${"" | "0"}${"0" | "1" | "2"}`
 
@@ -222,6 +258,24 @@ interface Case {
 	readonly stored: Stored
 	readonly writes: Arr.NonEmptyReadonlyArray<Write>
 }
+
+/** A query write as a member of its stratum: its ChangeSet and the parameter its query binds. */
+interface QueryWritten {
+	readonly kind: "query"
+	readonly changes: unknown
+	readonly params: ParamMap
+}
+
+/** An array write as a member of its stratum: its op, its relation, its ChangeSet's array member and its rows. */
+interface ArrayWritten {
+	readonly kind: "array"
+	readonly op: Edit
+	readonly relation: Write["relation"]
+	readonly changes: unknown
+	readonly rows: ReadonlyArray<unknown>
+}
+
+type Written = QueryWritten | ArrayWritten
 
 /** The integer a key's text spells, as the model reads it, apart from grizzle. */
 const valueOf = (text: KeyTextValue): number => Number(BigInt(text))
@@ -940,7 +994,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const o = yield* installed(Keys, {}, { label: "genkey", extensions: [], programs: {} })
+					const o = yield* installed(Keys, {}, { label: "genkey", extensions: [], programs })
 					const names = namesOf(o.installed)
 					const group = installationGroup(names)
 					const laws: KeysLaws = {
@@ -955,341 +1009,378 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 						entryKey: names.lawOf(entryKey)
 					}
 					const host = hostOf(laws)
-					return yield* Effect.gen(function* () {
-						const { db, ctx: dbCtx } = yield* openDbContext(o.server.roles.app, {})
-						const S = o.schema
-						/** Each relation's rows as grizzle reads them, generated and drawn fields included. */
-						const reads = {
-							MapKey: query(S).rule((r) => {
-								const { mapping, text, value, negative } = v(MapKey, "k")
-								return r
-									.match(MapKey, { mapping, text, value, negative })
-									.find({ mapping, text, value, negative })
-							}),
-							Use: query(S).rule((r) => {
-								const { id, mapping, value, negative } = v(Use, "u")
-								return r
-									.match(Use, { id, mapping, value, negative })
-									.find({ id, mapping, value, negative })
-							}),
-							Tag: query(S).rule((r) => {
-								const { id, text, value } = v(Tag, "t")
-								return r.match(Tag, { id, text, value }).find({ id, text, value })
-							}),
-							Mapping: query(S).rule((r) => {
-								const { id, n } = v(Mapping, "m")
-								return r.match(Mapping, { id, n }).find({ id, n })
-							}),
-							Entry: query(S).rule((r) => {
-								const { mapping, at, text, value, negative } = v(Entry, "e")
-								return r
-									.match(Entry, { mapping, at, text, value, negative })
-									.find({ mapping, at, text, value, negative })
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ serve }) =>
+						Effect.gen(function* () {
+							const db = yield* Db.open(o.served.login.roles.app, {})
+							const S = o.schema
+							const texts = (row: ReadonlyArray<unknown>): ReadonlyArray<string> =>
+								Arr.map(row, (x) => String(x))
+							const readState = Effect.gen(function* () {
+								const mapKeys = yield* Effect.flatMap(
+									db.workload.mapKeys.execute({}),
+									(r) => r.collect
+								)
+								const uses = yield* Effect.flatMap(db.workload.uses.execute({}), (r) => r.collect)
+								const tags = yield* Effect.flatMap(db.workload.tags.execute({}), (r) => r.collect)
+								const mappings = yield* Effect.flatMap(
+									db.workload.mappings.execute({}),
+									(r) => r.collect
+								)
+								const entryRows = yield* Effect.flatMap(
+									db.workload.entries.execute({}),
+									(r) => r.collect
+								)
+								const rows: ReadRows = Arr.map(
+									[
+										Arr.map(mapKeys, (k) => texts([k.mapping, k.text, k.value, k.negative])),
+										Arr.map(uses, (u) => texts([u.id, u.mapping, u.value, u.negative])),
+										Arr.map(tags, (t) => texts([t.id, t.text, t.value])),
+										Arr.map(mappings, (m) => texts([m.id, m.n])),
+										Arr.map(entryRows, (e) => texts([e.mapping, e.at, e.text, e.value, e.negative]))
+									],
+									(relationRows) => Arr.sort(relationRows, Arr.makeOrder(Order.String))
+								)
+								return rows
 							})
-						}
-						const texts = (row: ReadonlyArray<unknown>): ReadonlyArray<string> =>
-							Arr.map(row, (x) => String(x))
-						const readState = Effect.gen(function* () {
-							const mapKeys = yield* Effect.flatMap(db.execute(reads.MapKey, {}), (r) => r.collect)
-							const uses = yield* Effect.flatMap(db.execute(reads.Use, {}), (r) => r.collect)
-							const tags = yield* Effect.flatMap(db.execute(reads.Tag, {}), (r) => r.collect)
-							const mappings = yield* Effect.flatMap(
-								db.execute(reads.Mapping, {}),
-								(r) => r.collect
-							)
-							const entryRows = yield* Effect.flatMap(db.execute(reads.Entry, {}), (r) => r.collect)
-							const rows: ReadRows = Arr.map(
-								[
-									Arr.map(mapKeys, (k) => texts([k.mapping, k.text, k.value, k.negative])),
-									Arr.map(uses, (u) => texts([u.id, u.mapping, u.value, u.negative])),
-									Arr.map(tags, (t) => texts([t.id, t.text, t.value])),
-									Arr.map(mappings, (m) => texts([m.id, m.n])),
-									Arr.map(entryRows, (e) => texts([e.mapping, e.at, e.text, e.value, e.negative]))
-								],
-								(relationRows) => Arr.sort(relationRows, Arr.makeOrder(Order.String))
-							)
-							return rows
-						})
-						/** The rows of a query over a relation parameter: a write's source the write cannot prove unique. */
-						const mapKeySource = (name: string) =>
-							query(S).rule((r) => {
-								const rows = r.relation(name, { mapping: pg.integer, text: KeyText })
-								const row = v(rows, "row")
-								return r.match(rows, row).find(row)
-							})
-						const tagSource = (name: string) =>
-							query(S).rule((r) => {
-								const rows = r.relation(name, { id: pg.integer, text: KeyText })
-								const row = v(rows, "row")
-								return r.match(rows, row).find(row)
-							})
-						/** One write's ChangeSet, typed, and the parameters its query binds. */
-						const writeOf = (w: Write, i: number) => {
-							const name = `rows${String(i)}`
-							switch (w.relation) {
-								case "MapKey":
-									return w.source === "query"
-										? {
-												changes:
-													w.edit === "insert"
-														? ChangeSet.empty(S).insert(MapKey, mapKeySource(name))
-														: ChangeSet.empty(S).put(MapKey, mapKeySource(name)),
-												params: { [name]: w.rows }
-											}
-										: {
-												changes:
-													w.edit === "insert"
-														? ChangeSet.empty(S).insert(MapKey, w.rows)
-														: w.edit === "put"
-															? ChangeSet.empty(S).put(MapKey, w.rows)
-															: ChangeSet.empty(S).delete(MapKey, w.rows),
-												params: {}
-											}
-								case "Tag":
-									return w.source === "query"
-										? {
-												changes:
-													w.edit === "insert"
-														? ChangeSet.empty(S).insert(Tag, tagSource(name))
-														: ChangeSet.empty(S).put(Tag, tagSource(name)),
-												params: { [name]: w.rows }
-											}
-										: {
-												changes:
-													w.edit === "insert"
-														? ChangeSet.empty(S).insert(Tag, w.rows)
-														: w.edit === "put"
-															? ChangeSet.empty(S).put(Tag, w.rows)
-															: ChangeSet.empty(S).delete(Tag, w.rows),
-												params: {}
-											}
-								case "Use":
-									return { changes: ChangeSet.empty(S).insert(Use, w.rows), params: {} }
-								case "Mapping":
-									return {
-										changes: ChangeSet.empty(S).insert(
-											Mapping,
-											Arr.map(w.rows, (m) => ({
+							/** The rows of a query over a relation parameter: a write's source the write cannot prove unique. */
+							const mapKeySource = (name: string) =>
+								query(S).rule((r) => {
+									const rows = r.relation(name, { mapping: pg.integer, text: KeyText })
+									const row = v(rows, "row")
+									return r.match(rows, row).find(row)
+								})
+							const tagSource = (name: string) =>
+								query(S).rule((r) => {
+									const rows = r.relation(name, { id: pg.integer, text: KeyText })
+									const row = v(rows, "row")
+									return r.match(rows, row).find(row)
+								})
+							/** One write as a member of the case's stratum, its ChangeSet typed. */
+							const writeOf = (w: Write, i: number): Written => {
+								const name = `rows${String(i)}`
+								switch (w.relation) {
+									case "MapKey":
+										return w.source === "query"
+											? {
+													kind: "query",
+													changes:
+														w.edit === "insert"
+															? ChangeSet.empty(S).insert(MapKey, mapKeySource(name))
+															: ChangeSet.empty(S).put(MapKey, mapKeySource(name)),
+													params: { [name]: w.rows }
+												}
+											: {
+													kind: "array",
+													op: w.edit,
+													relation: w.relation,
+													changes:
+														w.edit === "insert"
+															? ChangeSet.empty(S).insert(MapKey, [])
+															: w.edit === "put"
+																? ChangeSet.empty(S).put(MapKey, [])
+																: ChangeSet.empty(S).delete(MapKey, []),
+													rows: w.rows
+												}
+									case "Tag":
+										return w.source === "query"
+											? {
+													kind: "query",
+													changes:
+														w.edit === "insert"
+															? ChangeSet.empty(S).insert(Tag, tagSource(name))
+															: ChangeSet.empty(S).put(Tag, tagSource(name)),
+													params: { [name]: w.rows }
+												}
+											: {
+													kind: "array",
+													op: w.edit,
+													relation: w.relation,
+													changes:
+														w.edit === "insert"
+															? ChangeSet.empty(S).insert(Tag, [])
+															: w.edit === "put"
+																? ChangeSet.empty(S).put(Tag, [])
+																: ChangeSet.empty(S).delete(Tag, []),
+													rows: w.rows
+												}
+									case "Use":
+										return {
+											kind: "array",
+											op: "insert",
+											relation: w.relation,
+											changes: ChangeSet.empty(S).insert(Use, []),
+											rows: w.rows
+										}
+									case "Mapping":
+										return {
+											kind: "array",
+											op: "insert",
+											relation: w.relation,
+											changes: ChangeSet.empty(S).insert(Mapping, []),
+											rows: Arr.map(w.rows, (m) => ({
 												id: m.id,
 												n: Arr.map(m.entries, (text) => ({ text }))
 											}))
-										),
-										params: {}
-									}
+										}
+								}
 							}
-						}
-						/** The case's writes as one stratum: each write's ChangeSet, joined, and every parameter they bind. */
-						const stratumOf = (writes: Arr.NonEmptyReadonlyArray<Write>) => {
-							const written = Arr.map(writes, writeOf)
-							const [first, ...rest] = written
-							let changes: unknown = first.changes
-							for (const w of rest) {
-								changes = changeSetOver.union(changes, w.changes)
-							}
-							const params: ParamMap = Rec.fromEntries(
-								Arr.flatMap(written, (w) => {
-									const bound: ParamMap = w.params
-									return Rec.toEntries(bound)
-								})
-							)
-							return { changes, params }
-						}
-						const seed = (stored: Stored) =>
-							ChangeSet.empty(S)
-								.insert(MapKey, stored.mapKeys)
-								.insert(Use, stored.uses)
-								.insert(Tag, stored.tags)
-								.insert(
-									Mapping,
-									Arr.map(stored.mappings, (m) => ({
-										id: m.id,
-										n: Arr.map(m.entries, (text) => ({ text }))
-									}))
+							/**
+							 * The case's writes as one stratum, its members in the writes' order: each query write's ChangeSet;
+							 * one array member per op and relation the array writes hold, as a served call supplies one array
+							 * under each op and relation, at the first write of it, its facts every such write's rows in order;
+							 * and every parameter the queries bind.
+							 */
+							const stratumOf = (writes: Arr.NonEmptyReadonlyArray<Write>) => {
+								const written = Arr.map(writes, writeOf)
+								const arrays = Arr.flatMap(written, (w): ReadonlyArray<ArrayWritten> =>
+									w.kind === "array" ? [w] : []
 								)
-						return yield* explore(
-							{
-								suite: "pg/write/generated-key",
-								draw: drawn(caseGen(host)),
-								literal: Formatter.format,
-								oracle: {
-									kind: "specification",
-									name: "the law model's add-wins transition over facts whose generated fields the model computes from their texts"
-								},
-								kept: [
-									{
-										note: "qti-pie's typed map key: two spellings of one integer in one mapping, the second against the stored first",
-										sketch: {
-											stored: {
-												mapKeys: [{ mapping: 1, text: "1" }],
-												uses: [],
-												tags: [],
-												mappings: []
-											},
-											writes: [
-												{
-													relation: "MapKey",
-													edit: "insert",
-													source: "array",
-													rows: [{ mapping: 1, text: "01" }]
-												}
-											]
-										},
-										draws: "",
-										reaches: ["typed key refused against a stored row"]
-									},
-									{
-										note: "two deletions at one tag's id and two additions at another's break Tag's primary key alike, and the refusal may name either pair",
-										sketch: {
-											stored: {
-												mapKeys: [],
-												uses: [],
-												tags: [{ id: 3, text: "0" }],
-												mappings: []
-											},
-											writes: [
-												{
-													relation: "Tag",
-													edit: "insert",
-													source: "array",
-													rows: [{ id: 2, text: "00" }]
-												},
-												{
-													relation: "Tag",
-													edit: "delete",
-													source: "array",
-													rows: [
-														{ id: 3, text: "1" },
-														{ id: 3, text: "0" }
-													]
-												},
-												{
-													relation: "Tag",
-													edit: "insert",
-													source: "array",
-													rows: [{ id: 2, text: "0" }]
-												}
-											]
-										},
-										draws: "",
-										reaches: ["a key broken by deletions and additions alike"]
-									}
-								],
-								runs: 80,
-								shrink: { kind: "bounded", candidates: 100 },
-								concurrency: 1,
-								steerEvery: 16,
-								coverage: required<Feature>(
-									[
-										"typed key refused against a stored row",
-										"typed key refused within the write",
-										"typed key refused for a query's row",
-										"typed key refused for a put",
-										"positive tag refused",
-										"entry key refused",
-										"a reference refused",
-										"two signs of zero held apart",
-										"a typed key freed and taken again",
-										"a key broken by deletions and additions alike",
-										"accepted",
-										"no-change"
-									],
-									{ cases: 120, sense: notesOnly }
-								),
-								caseHang
-							},
-							(drawnCase, c) =>
-								Effect.gen(function* () {
-									const k = aimedCase(drawnCase, c)
-									yield* replaceRows(s.admin, group, [])
-									const seeded = yield* applyRuntime(dbCtx, seed(k.stored), {})
-									const none =
-										k.stored.mapKeys.length +
-											k.stored.uses.length +
-											k.stored.tags.length +
-											k.stored.mappings.length ===
-										0
-									assert.equal(
-										seeded.kind,
-										none ? "no-change" : "accepted",
-										"the stored rows are lawful"
-									)
-									const before = storedState(k.stored)
-									const beforeRows = yield* readState
-									assert.deepEqual(
-										beforeRows,
-										sortedStateRows(host, before),
-										"the stored rows are the model's"
-									)
-									const stratum = stratumOf(k.writes)
-									const applied = yield* Effect.result(
-										applyRuntime(dbCtx, stratum.changes, stratum.params)
-									)
-									if (Result.isFailure(applied)) {
-										return assert.fail(
-											`a write over keys of generated fields is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
+								const slots = Arr.dedupeWith(
+									arrays,
+									(a, b) => a.op === b.op && a.relation === b.relation
+								)
+								const members = Arr.filter(
+									written,
+									(w, i) =>
+										w.kind === "query" ||
+										!Arr.some(
+											Arr.take(written, i),
+											(x) => x.kind === "array" && x.op === w.op && x.relation === w.relation
 										)
-									}
-									const outcome = applied.success
-									const afterRows = yield* readState
-									const expected = expectedOf(host, before, opsOf(k.writes))
-									if (expected.kind === "refused") {
-										if (outcome.kind !== "invariant-rejected") {
+								)
+								const changes = Arr.reduce(members, changeSetOver.empty(S), (joined, w) =>
+									changeSetOver.union(joined, w.changes)
+								)
+								const rowsOf = (op: Edit, relation: Write["relation"]): ReadonlyArray<unknown> =>
+									Arr.flatMap(
+										Arr.filter(arrays, (w) => w.op === op && w.relation === relation),
+										(w: ArrayWritten) => w.rows
+									)
+								const facts = Rec.fromEntries(
+									Arr.map(
+										Arr.dedupe(Arr.map(slots, (s) => s.op)),
+										(op): readonly [Edit, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
+											op,
+											Rec.fromEntries(
+												Arr.map(
+													Arr.filter(slots, (s) => s.op === op),
+													(s): readonly [string, ReadonlyArray<unknown>] => [
+														s.relation,
+														rowsOf(op, s.relation)
+													]
+												)
+											)
+										]
+									)
+								)
+								const params: ParamMap = Rec.fromEntries(
+									Arr.flatMap(written, (w) => (w.kind === "query" ? Rec.toEntries(w.params) : []))
+								)
+								return { changes, facts, params }
+							}
+							return yield* explore(
+								{
+									suite: "pg/write/generated-key",
+									draw: drawn(caseGen(host)),
+									literal: Formatter.format,
+									oracle: {
+										kind: "specification",
+										name: "the law model's add-wins transition over facts whose generated fields the model computes from their texts"
+									},
+									kept: [
+										{
+											note: "qti-pie's typed map key: two spellings of one integer in one mapping, the second against the stored first",
+											sketch: {
+												stored: {
+													mapKeys: [{ mapping: 1, text: "1" }],
+													uses: [],
+													tags: [],
+													mappings: []
+												},
+												writes: [
+													{
+														relation: "MapKey",
+														edit: "insert",
+														source: "array",
+														rows: [{ mapping: 1, text: "01" }]
+													}
+												]
+											},
+											draws: "",
+											reaches: ["typed key refused against a stored row"]
+										},
+										{
+											note: "two deletions at one tag's id and two additions at another's break Tag's primary key alike, and the refusal may name either pair",
+											sketch: {
+												stored: {
+													mapKeys: [],
+													uses: [],
+													tags: [{ id: 3, text: "0" }],
+													mappings: []
+												},
+												writes: [
+													{
+														relation: "Tag",
+														edit: "insert",
+														source: "array",
+														rows: [{ id: 2, text: "00" }]
+													},
+													{
+														relation: "Tag",
+														edit: "delete",
+														source: "array",
+														rows: [
+															{ id: 3, text: "1" },
+															{ id: 3, text: "0" }
+														]
+													},
+													{
+														relation: "Tag",
+														edit: "insert",
+														source: "array",
+														rows: [{ id: 2, text: "0" }]
+													}
+												]
+											},
+											draws: "",
+											reaches: ["a key broken by deletions and additions alike"]
+										}
+									],
+									runs: 80,
+									shrink: { kind: "bounded", candidates: 100 },
+									concurrency: 1,
+									steerEvery: 16,
+									coverage: required<Feature>(
+										[
+											"typed key refused against a stored row",
+											"typed key refused within the write",
+											"typed key refused for a query's row",
+											"typed key refused for a put",
+											"positive tag refused",
+											"entry key refused",
+											"a reference refused",
+											"two signs of zero held apart",
+											"a typed key freed and taken again",
+											"a key broken by deletions and additions alike",
+											"accepted",
+											"no-change"
+										],
+										{ cases: 120, sense: notesOnly }
+									),
+									caseHang
+								},
+								(drawnCase, c) =>
+									Effect.gen(function* () {
+										const k = aimedCase(drawnCase, c)
+										yield* replaceRows(s.admin, group, [])
+										const seeded = yield* db.workload.seed.apply(
+											{
+												insert: {
+													MapKey: k.stored.mapKeys,
+													Use: k.stored.uses,
+													Tag: k.stored.tags,
+													Mapping: Arr.map(k.stored.mappings, (m) => ({
+														id: m.id,
+														n: Arr.map(m.entries, (text) => ({ text }))
+													}))
+												}
+											},
+											{}
+										)
+										const none =
+											k.stored.mapKeys.length +
+												k.stored.uses.length +
+												k.stored.tags.length +
+												k.stored.mappings.length ===
+											0
+										assert.equal(
+											seeded.kind,
+											none ? "no-change" : "accepted",
+											"the stored rows are lawful"
+										)
+										const before = storedState(k.stored)
+										const beforeRows = yield* readState
+										assert.deepEqual(
+											beforeRows,
+											sortedStateRows(host, before),
+											"the stored rows are the model's"
+										)
+										const stratum = stratumOf(k.writes)
+										const served = yield* serve({ stratum: stratum.changes })
+										const ops = member(served, "stratum")
+										const applied = yield* Effect.result(
+											ops.kind === "facts"
+												? ops.ops.apply(stratum.facts, stratum.params)
+												: ops.ops.apply(stratum.params)
+										)
+										if (Result.isFailure(applied)) {
 											return assert.fail(
-												`a write breaking ${Arr.join(
-													Arr.map(expected.violations, (v) => v.law),
-													", "
-												)} is refused, not ${outcome.kind}`
+												`a write over keys of generated fields is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
 											)
 										}
-										assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
-										const named = Arr.map(refusedLaws(outcome.refused), names.reported)
-										const [first] = named
-										const met = Arr.findFirst(expected.violations, (v) => v.law === first)
-										if (Option.isNone(met)) {
-											return assert.fail(
-												`the refusal names ${Arr.join(named, ", ")}, a law the write breaks: ${Arr.join(
-													Arr.map(expected.violations, (v) => v.law),
-													", "
-												)}`
-											)
+										const outcome = applied.success
+										const afterRows = yield* readState
+										const expected = expectedOf(host, before, opsOf(k.writes))
+										if (expected.kind === "refused") {
+											if (outcome.kind !== "invariant-rejected") {
+												return assert.fail(
+													`a write breaking ${Arr.join(
+														Arr.map(expected.violations, (v) => v.law),
+														", "
+													)} is refused, not ${outcome.kind}`
+												)
+											}
+											assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
+											const named = Arr.map(refusedLaws(outcome.refused), names.reported)
+											const [first] = named
+											const met = Arr.findFirst(expected.violations, (v) => v.law === first)
+											if (Option.isNone(met)) {
+												return assert.fail(
+													`the refusal names ${Arr.join(named, ", ")}, a law the write breaks: ${Arr.join(
+														Arr.map(expected.violations, (v) => v.law),
+														", "
+													)}`
+												)
+											}
+											const witness = outcome.witness
+											if (witness.kind === "unreported") {
+												assert.ok(
+													met.value.violators.length === 0 || met.value.law === laws.entryKey,
+													`a refusal by ${met.value.law}, whose violators the write names, reports its key`
+												)
+											} else {
+												assert.ok(
+													Arr.some(
+														met.value.violators,
+														(x) =>
+															x.relation === witness.relation &&
+															sameValues(witness.values, x.values)
+													),
+													`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(met.value.violators)}`
+												)
+											}
+											for (const note of refusalNotes(k, laws, host, before, [met.value])) {
+												c.note(note)
+											}
+											return
 										}
-										const witness = outcome.witness
-										if (witness.kind === "unreported") {
-											assert.ok(
-												met.value.violators.length === 0 || met.value.law === laws.entryKey,
-												`a refusal by ${met.value.law}, whose violators the write names, reports its key`
-											)
-										} else {
-											assert.ok(
-												Arr.some(
-													met.value.violators,
-													(x) =>
-														x.relation === witness.relation && sameValues(witness.values, x.values)
-												),
-												`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(met.value.violators)}`
-											)
-										}
-										for (const note of refusalNotes(k, laws, host, before, [met.value])) {
+										assert.equal(
+											outcome.kind,
+											expected.changed ? "accepted" : "no-change",
+											"accepted where the write changed a row"
+										)
+										assert.deepEqual(
+											afterRows,
+											sortedStateRows(host, expected.state),
+											"the rows after the write are the model's"
+										)
+										for (const note of appliedNotes(k, expected.state, expected.changed)) {
 											c.note(note)
 										}
-										return
-									}
-									assert.equal(
-										outcome.kind,
-										expected.changed ? "accepted" : "no-change",
-										"accepted where the write changed a row"
-									)
-									assert.deepEqual(
-										afterRows,
-										sortedStateRows(host, expected.state),
-										"the rows after the write are the model's"
-									)
-									for (const note of appliedNotes(k, expected.state, expected.changed)) {
-										c.note(note)
-									}
-								})
-						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+									})
+							)
+						})
+					).pipe(Effect.scoped, withLayer(o.served.layer))
 				}).pipe(Effect.scoped)
 			)
 	)
@@ -1323,171 +1414,186 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 						const id = names.column(Label, "id")
 						const text = names.column(Label, "text")
 						const value = names.column(Label, "value")
-						const explored = Effect.gen(function* () {
-							const { ctx: dbCtx } = yield* openDbContext(desk.roles.writer, {})
-							return yield* explore(
-								{
-									suite: "pg/write/generated-key/entry",
-									draw: drawn(labelCaseGen),
-									literal: Formatter.format,
-									oracle: {
-										kind: "specification",
-										name: "a write through Low restated over the drawn labels: its world, its pattern, then each key"
+						/**
+						 * A JavaScript caller's writes through Low, an insert and a put of one label from each call's facts,
+						 * whose text the types would refuse where it is unmatched.
+						 */
+						const lowWrites = {
+							insert: changeSetOver.empty(writer).insert(writer.relations.Low, []),
+							put: changeSetOver.empty(writer).put(writer.relations.Low, [])
+						}
+						const explored = withServedDb(m, desk.roles.writer, {}, ({ serve }) =>
+							Effect.gen(function* () {
+								const served = yield* serve(lowWrites)
+								return yield* explore(
+									{
+										suite: "pg/write/generated-key/entry",
+										draw: drawn(labelCaseGen),
+										literal: Formatter.format,
+										oracle: {
+											kind: "specification",
+											name: "a write through Low restated over the drawn labels: its world, its pattern, then each key"
+										},
+										kept: [],
+										runs: 60,
+										shrink: { kind: "bounded", candidates: 100 },
+										concurrency: 1,
+										steerEvery: 16,
+										coverage: required<LabelFeature>(
+											[
+												"outside Low, its text unmatched",
+												"outside Low",
+												"a text outside the pattern inside Low",
+												"refused by the value key against a label outside Low",
+												"refused by the value key against a label inside Low",
+												"refused by the primary key",
+												"an exact repeat",
+												"stored"
+											],
+											{ cases: 120, sense: notesOnly }
+										),
+										caseHang
 									},
-									kept: [],
-									runs: 60,
-									shrink: { kind: "bounded", candidates: 100 },
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<LabelFeature>(
-										[
-											"outside Low, its text unmatched",
-											"outside Low",
-											"a text outside the pattern inside Low",
-											"refused by the value key against a label outside Low",
-											"refused by the value key against a label inside Low",
-											"refused by the primary key",
-											"an exact repeat",
-											"stored"
-										],
-										{ cases: 120, sense: notesOnly }
-									),
-									caseHang
-								},
-								(c, cx) =>
-									Effect.gen(function* () {
-										yield* clearRows(m.owner, installationGroup(names))
-										if (Arr.isReadonlyArrayNonEmpty(c.stored)) {
-											yield* m.sql(
-												`INSERT INTO ${table} (${id}, ${text}) VALUES ${Arr.join(
-													Arr.map(c.stored, (r) => `(${String(r.id)}, '${r.text}')`),
-													", "
-												)}`
+									(c, cx) =>
+										Effect.gen(function* () {
+											yield* clearRows(m.owner, installationGroup(names))
+											if (Arr.isReadonlyArrayNonEmpty(c.stored)) {
+												yield* m.sql(
+													`INSERT INTO ${table} (${id}, ${text}) VALUES ${Arr.join(
+														Arr.map(c.stored, (r) => `(${String(r.id)}, '${r.text}')`),
+														", "
+													)}`
+												)
+											}
+											const rowsNow = m.owner.values(
+												`SELECT ${id}, ${text}, ${value} FROM ${table} ORDER BY 1`,
+												[]
 											)
-										}
-										const rowsNow = m.owner.values(
-											`SELECT ${id}, ${text}, ${value} FROM ${table} ORDER BY 1`,
-											[]
-										)
-										const before = yield* rowsNow
-										/** A JavaScript caller's write, whose text the types would refuse where it is unmatched. */
-										const changes =
-											c.edit === "insert"
-												? changeSetOver.empty(writer).insert(writer.relations.Low, [sentOf(c)])
-												: changeSetOver.empty(writer).put(writer.relations.Low, [sentOf(c)])
-										const applied = yield* Effect.result(applyRuntime(dbCtx, changes, {}))
-										if (Result.isFailure(applied)) {
-											return assert.fail(
-												`a write through Low is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
+											const before = yield* rowsNow
+											const ops = member(served, c.edit)
+											const facts = { [c.edit]: { Low: [sentOf(c)] } }
+											const applied = yield* Effect.result(
+												ops.kind === "facts" ? ops.ops.apply(facts, {}) : ops.ops.apply({})
 											)
-										}
-										const outcome = applied.success
-										const after = yield* rowsNow
-										const expected = labelExpected(c)
-										switch (expected.kind) {
-											case "outsideOrPattern": {
-												assert.ok(
-													outcome.kind === "outside-world" ||
-														(outcome.kind === "invariant-rejected" &&
-															Arr.every(refusedLaws(outcome.refused), (l) => l.kind === "pattern")),
-													`a label outside Low whose text the pattern refuses is outside the world or the pattern's, not ${outcome.kind}`
+											if (Result.isFailure(applied)) {
+												return assert.fail(
+													`a write through Low is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
 												)
-												assert.deepEqual(after, before, "a refused write changes nothing")
-												cx.note("outside Low, its text unmatched")
-												return
 											}
-											case "outside": {
-												assert.equal(outcome.kind, "outside-world", "a label outside Low")
-												assert.deepEqual(after, before, "outside the world, nothing is written")
-												cx.note("outside Low")
-												return
-											}
-											case "pattern": {
-												if (outcome.kind !== "invariant-rejected") {
-													return assert.fail(`an unmatched text is refused, not ${outcome.kind}`)
-												}
-												assert.deepEqual(
-													Arr.map(refusedLaws(outcome.refused), (l) => l.kind),
-													["pattern"],
-													"the pattern's law"
-												)
-												assert.deepEqual(after, before, "a refused write changes nothing")
-												cx.note("a text outside the pattern inside Low")
-												return
-											}
-											case "unchanged": {
-												assert.equal(outcome.kind, "no-change", "an exact repeat")
-												assert.deepEqual(after, before, "an exact repeat writes nothing")
-												cx.note("an exact repeat")
-												return
-											}
-											case "stored": {
-												assert.equal(outcome.kind, "accepted", "a lawful label is stored")
-												assert.deepEqual(
-													after,
-													Arr.map(
-														Arr.sort(
-															expected.rows,
-															Order.mapInput(Order.Number, (r: TagRow) => r.id)
-														),
-														(r) => [r.id, r.text, valueOf(r.text)]
-													),
-													"the labels after the write"
-												)
-												cx.note("stored")
-												return
-											}
-											case "refused": {
-												if (outcome.kind !== "invariant-rejected") {
-													return assert.fail(
-														`a label breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
+											const outcome = applied.success
+											const after = yield* rowsNow
+											const expected = labelExpected(c)
+											switch (expected.kind) {
+												case "outsideOrPattern": {
+													assert.ok(
+														outcome.kind === "outside-world" ||
+															(outcome.kind === "invariant-rejected" &&
+																Arr.every(
+																	refusedLaws(outcome.refused),
+																	(l) => l.kind === "pattern"
+																)),
+														`a label outside Low whose text the pattern refuses is outside the world or the pattern's, not ${outcome.kind}`
 													)
-												}
-												assert.deepEqual(after, before, "a refused write changes nothing")
-												const [law, ...more] = Arr.map(refusedLaws(outcome.refused), names.reported)
-												assert.deepEqual(more, [], "a key's refusal names its one law")
-												const broken =
-													law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined
-												if (broken === undefined || !expected.laws.includes(broken)) {
-													return assert.fail(
-														`the refusal names ${String(law)}, not one of ${Arr.join(expected.laws, ", ")}`
-													)
-												}
-												assert.deepEqual(
-													outcome.witness,
-													{
-														kind: "key",
-														relation: "Low",
-														values:
-															broken === "primary"
-																? { id: c.written.id }
-																: { value: valueOf(c.written.text) }
-													},
-													"the witness: the key written, in Low's fields, its generated value as PostgreSQL stores it"
-												)
-												if (broken === "primary") {
-													cx.note("refused by the primary key")
+													assert.deepEqual(after, before, "a refused write changes nothing")
+													cx.note("outside Low, its text unmatched")
 													return
 												}
-												const outside = Arr.some(
-													c.stored,
-													(r) =>
-														!inLow(r) &&
-														r.id !== c.written.id &&
-														valueOf(r.text) === valueOf(c.written.text)
-												)
-												cx.note(
-													outside
-														? "refused by the value key against a label outside Low"
-														: "refused by the value key against a label inside Low"
-												)
-												return
+												case "outside": {
+													assert.equal(outcome.kind, "outside-world", "a label outside Low")
+													assert.deepEqual(after, before, "outside the world, nothing is written")
+													cx.note("outside Low")
+													return
+												}
+												case "pattern": {
+													if (outcome.kind !== "invariant-rejected") {
+														return assert.fail(`an unmatched text is refused, not ${outcome.kind}`)
+													}
+													assert.deepEqual(
+														Arr.map(refusedLaws(outcome.refused), (l) => l.kind),
+														["pattern"],
+														"the pattern's law"
+													)
+													assert.deepEqual(after, before, "a refused write changes nothing")
+													cx.note("a text outside the pattern inside Low")
+													return
+												}
+												case "unchanged": {
+													assert.equal(outcome.kind, "no-change", "an exact repeat")
+													assert.deepEqual(after, before, "an exact repeat writes nothing")
+													cx.note("an exact repeat")
+													return
+												}
+												case "stored": {
+													assert.equal(outcome.kind, "accepted", "a lawful label is stored")
+													assert.deepEqual(
+														after,
+														Arr.map(
+															Arr.sort(
+																expected.rows,
+																Order.mapInput(Order.Number, (r: TagRow) => r.id)
+															),
+															(r) => [r.id, r.text, valueOf(r.text)]
+														),
+														"the labels after the write"
+													)
+													cx.note("stored")
+													return
+												}
+												case "refused": {
+													if (outcome.kind !== "invariant-rejected") {
+														return assert.fail(
+															`a label breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
+														)
+													}
+													assert.deepEqual(after, before, "a refused write changes nothing")
+													const [law, ...more] = Arr.map(
+														refusedLaws(outcome.refused),
+														names.reported
+													)
+													assert.deepEqual(more, [], "a key's refusal names its one law")
+													const broken =
+														law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined
+													if (broken === undefined || !expected.laws.includes(broken)) {
+														return assert.fail(
+															`the refusal names ${String(law)}, not one of ${Arr.join(expected.laws, ", ")}`
+														)
+													}
+													assert.deepEqual(
+														outcome.witness,
+														{
+															kind: "key",
+															relation: "Low",
+															values:
+																broken === "primary"
+																	? { id: c.written.id }
+																	: { value: valueOf(c.written.text) }
+														},
+														"the witness: the key written, in Low's fields, its generated value as PostgreSQL stores it"
+													)
+													if (broken === "primary") {
+														cx.note("refused by the primary key")
+														return
+													}
+													const outside = Arr.some(
+														c.stored,
+														(r) =>
+															!inLow(r) &&
+															r.id !== c.written.id &&
+															valueOf(r.text) === valueOf(c.written.text)
+													)
+													cx.note(
+														outside
+															? "refused by the value key against a label outside Low"
+															: "refused by the value key against a label inside Low"
+													)
+													return
+												}
 											}
-										}
-									})
-							)
-						})
-						return yield* Effect.scoped(explored).pipe(withLayer(loginLayer(m, desk)))
+										})
+								)
+							})
+						)
+						return yield* Effect.scoped(explored)
 					})
 				)
 			)
