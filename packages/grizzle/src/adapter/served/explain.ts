@@ -193,7 +193,11 @@ const hostCallOf = (
 	}
 }
 
-/** A change member's program for `call`, each statement planned against empty carriers, rolled back. */
+/**
+ * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
+ * statements, then its read-backs' (change.reads), each read-back's statements as apply's flight sends them behind the
+ * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order.
+ */
 const explainChange = Effect.fn("explainChange")(function* (
 	ctx: ServedDbContext,
 	name: string,
@@ -210,6 +214,11 @@ const explainChange = Effect.fn("explainChange")(function* (
 	if (inputs.kind === "rejected") {
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 	}
+	const readBacks = yield* Effect.mapError(
+		Effect.forEach(change.reads.runs.runs, (run) => programStatements(run.program, inputs)),
+		(reason) => new ReadFailure({ reason })
+	)
+	const backs = Arr.map(Arr.flatten(readBacks), (s) => planned(s.sql, s.params))
 	const skip = inputs.bound.skip
 	const explainedOf = (
 		chunks: Chunks,
@@ -237,7 +246,7 @@ const explainChange = Effect.fn("explainChange")(function* (
 				)
 			}
 		}
-		return Result.succeed(statements)
+		return Result.succeed(Arr.appendAll(statements, backs))
 	}
 	const flights = inputs.bound.flights
 	if (flights.kind === "write") {
@@ -267,10 +276,11 @@ const explainChange = Effect.fn("explainChange")(function* (
  * The estimate-only plan of every statement a loaded member runs for `call` (MemberCall), on a session of `ctx`'s pool:
  * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the Db's role that is rolled back. A read, a key and a paged
  * member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its carriers created and
- * analyzed empty at their places, and a plan that reads before it writes plans its reads, runs them, and plans the
- * writes it fills from their rows in a second flight of the same transaction. Each planned statement is sent as its
- * EXPLAIN, a longer text than the one the application sends, so a statement whose text fits the session's message bound
- * only without EXPLAIN's prefix is refused here at stage resource, where the application sends it.
+ * analyzed empty at their places, then its read-backs behind its writes, and a plan that reads before it writes plans
+ * its reads, runs them, and plans the writes it fills from their rows, and the read-backs, in a second flight of the
+ * same transaction: one plan per plannable statement its apply sends, in the order it sends them. Each planned
+ * statement is sent as its EXPLAIN, a longer text than the one the application sends, so a statement whose text fits the
+ * session's message bound only without EXPLAIN's prefix is refused here at stage resource, where the application sends it.
  */
 export const explainMember = (
 	ctx: ServedDbContext,
