@@ -1,14 +1,20 @@
 /**
  * A containment over Use, migrated with stored rows on PostgreSQL 19 between the forms that hold it: a native foreign key,
  * or the deferred constraint triggers of a rule over a query (physical/ddl/rules.ts), whichever the law model installs.
+ * A rule into a derived relation that is a selection of one stored relation by constants, keyed within it, is lowered
+ * to foreign keys (analysis/theory/laws.ts lowering): a constant column on Use per constant, a UNIQUE over Doc's
+ * columns and constants, and a deferred foreign key, under the rule's one law. An edit of D's definition alone flips the
+ * rule between its two forms under that law.
  *
  * A case draws three versions of one schema, each a shape of what Use(doc) is contained in: a selection of Doc by a kind
- * (`selection`), the same with Extra's nodes as a second arm (`union`) or without them (`negated`), each a derived
- * relation D; Doc itself (`doc`), a stored containment; or nothing (`none`), each version's kind drawn apart; and rows of
- * Doc, Extra and Use, stored after the first version, those of Use its law refuses left out. Each later version is
- * drafted from the snapshot before and applied by the real runner as `grizzle migrate` applies it, the drift check and
- * the installed-catalog checker admitting every apply; or the last two together, as one apply of two pending folders,
- * Use renamed to Usage in the last, so the constraints of the first of them are named otherwise in the target.
+ * (`selection`, lowered), the same with Extra's nodes as a second arm (`union`) or without them (`negated`), each kept
+ * by triggers, each a derived relation D; Doc itself (`doc`), a stored containment; or nothing (`none`), each version's
+ * kind drawn apart; and rows of Doc, Extra and Use, stored after the first version, those of Use its law refuses left
+ * out. Each later version is drafted from the snapshot before and applied by the real runner as `grizzle migrate`
+ * applies it, the drift check and the installed-catalog checker admitting every apply; or the last two together, as one
+ * apply of two pending folders, Use renamed to Usage in the last, so the constraints of the first of them are named
+ * otherwise in the target. The steered phase aims at each flip both ways under one law, applied and refused, at a
+ * lowered rule's constant changed, and at each form added over rows that break it.
  *
  * The oracle is the law restated over the stored rows. A migration applies exactly when the rows keep the law of every
  * version it reaches. A refused one names the folder of the first version whose law the rows break, and never a law but
@@ -301,6 +307,8 @@ type Feature =
 	| "triggers to foreign keys applied over stored rows"
 	| "foreign keys to triggers applied over stored rows"
 	| "a lowered rule's constant changed over stored rows"
+	| "a lowered rule's constant changed over stored rows that break it, refused naming its law"
+	| "triggers to foreign keys over stored rows that break them, refused naming the law"
 	| "a lowered rule added over stored rows that break it, refused naming its law"
 	| "a stored containment added over stored rows that break it, refused naming its law"
 	| "a triggered rule added over stored rows that break it, refused naming its law"
@@ -399,6 +407,26 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 						`the refusal of the target's own folder names the law, not a constraint: ${failure.message}`
 					)
 					const before = at === 0 ? first : Arr.getUnsafe(c.versions, at - 1)
+					const beforePlan = Arr.getUnsafe(drafted, Math.max(0, at - 1)).plan
+					const flipped = Option.exists(ruleLawOf(beforePlan), (id) =>
+						Option.exists(law, (other) => other === id)
+					)
+					if (flipped && lowered(atPlan) && !lowered(beforePlan)) {
+						note(
+							"triggers to foreign keys over stored rows that break them, refused naming the law"
+						)
+					}
+					if (
+						flipped &&
+						lowered(atPlan) &&
+						lowered(beforePlan) &&
+						before.shape === "selection" &&
+						before.kind !== Arr.getUnsafe(c.versions, at).kind
+					) {
+						note(
+							"a lowered rule's constant changed over stored rows that break it, refused naming its law"
+						)
+					}
 					if (before.shape === "none") {
 						note(
 							!lowered(atPlan)
@@ -451,8 +479,10 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					sameLaw &&
 					now &&
 					was &&
+					applied.version.shape === "selection" &&
+					version.shape === "selection" &&
 					applied.version.kind !== version.kind &&
-					stored.uses.length > 0
+					stored.docs.length > 0
 				) {
 					note("a lowered rule's constant changed over stored rows")
 				}
@@ -521,6 +551,28 @@ const addedOver =
 		applied: "each alone"
 	})
 
+/** A case of three versions, the first two `first` and `second`, the second at the first's kind or the other, over `rows`. */
+const pathOver =
+	(
+		first: Shape,
+		second: Shape,
+		constant: "same kind" | "other kind",
+		rows: (kind: Kind) => Rows
+	): Gen<WalkCase> =>
+	(s) => {
+		const kind = s.draw(element(kinds))
+		const other: Kind = kind === 0 ? 1 : 0
+		return {
+			versions: [
+				{ shape: first, kind },
+				{ shape: second, kind: constant === "same kind" ? kind : other },
+				s.draw(versionGen)
+			],
+			rows: rows(kind),
+			applied: "each alone"
+		}
+	}
+
 /** The cases each required situation is aimed at while it is pending (Case.steering). */
 const aims: ReadonlyArray<readonly [Feature, Gen<WalkCase>]> = [
 	[
@@ -530,6 +582,67 @@ const aims: ReadonlyArray<readonly [Feature, Gen<WalkCase>]> = [
 	[
 		"a triggered rule added over stored rows that break it, refused naming its law",
 		(s) => s.draw(addedOver(s.draw(element(["union", "negated"] as const))))
+	],
+	[
+		"a lowered rule added over stored rows that break it, refused naming its law",
+		addedOver("selection")
+	],
+	[
+		"triggers to foreign keys applied over stored rows",
+		pathOver("union", "selection", "same kind", (kind) => ({
+			docs: [
+				[0, kind],
+				[1, kind]
+			],
+			extras: [],
+			uses: [0, 1]
+		}))
+	],
+	[
+		"foreign keys to triggers applied over stored rows",
+		(s) =>
+			s.draw(
+				pathOver(
+					"selection",
+					s.draw(element(["union", "negated"] as const)),
+					"same kind",
+					(kind) => ({
+						docs: [[0, kind]],
+						extras: [],
+						uses: [0]
+					})
+				)
+			)
+	],
+	[
+		"a lowered rule's constant changed over stored rows",
+		pathOver("selection", "selection", "other kind", () => ({
+			docs: [
+				[0, 0],
+				[1, 1]
+			],
+			extras: [],
+			uses: []
+		}))
+	],
+	[
+		"a lowered rule's constant changed over stored rows that break it, refused naming its law",
+		pathOver("selection", "selection", "other kind", (kind) => ({
+			docs: [[0, kind]],
+			extras: [],
+			uses: [0]
+		}))
+	],
+	[
+		"an intermediate folder refused, two pending",
+		(s) => ({
+			...s.draw(addedOver(s.draw(element(["selection", "union", "doc"] as const)))),
+			applied: "the last two together"
+		})
+	],
+	[
+		"triggers to foreign keys over stored rows that break them, refused naming the law",
+		pathOver("union", "selection", "same kind", () => ({ docs: [], extras: [0], uses: [0] }))
 	]
 ]
 
@@ -560,13 +673,19 @@ layer(Substrate.layer)(
 							},
 							coverage: required<Feature>(
 								[
+									"triggers to foreign keys applied over stored rows",
+									"foreign keys to triggers applied over stored rows",
+									"a lowered rule's constant changed over stored rows",
+									"a lowered rule's constant changed over stored rows that break it, refused naming its law",
+									"triggers to foreign keys over stored rows that break them, refused naming the law",
+									"a lowered rule added over stored rows that break it, refused naming its law",
 									"a stored containment added over stored rows that break it, refused naming its law",
 									"a triggered rule added over stored rows that break it, refused naming its law",
 									"an intermediate folder refused, two pending",
 									"a refused write names the law by its foreign key",
 									"a refused write names the law by its trigger"
 								],
-								{ cases: 40, sense: notesOnly }
+								{ cases: 60, sense: notesOnly }
 							),
 							kept: [],
 							runs: 24,
