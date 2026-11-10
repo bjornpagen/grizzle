@@ -1,6 +1,6 @@
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
-import type { ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
+import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 
@@ -47,7 +47,5 @@ const memberPatterns = (member: ServedMember): ReadonlyArray<PatternSource> => {
  * Every pattern a served login's roles read, each with its automaton, parsed once here, at generate (served/forms.ts
  * ServedFile matchers): what its layer judges every refined value by, so a load parses none.
  */
-export const servedMatchers = (
-	roles: ReadonlyArray<ServedRoleForm>
-): ReadonlyArray<ServedMatcher> =>
+export const servedMatchers = (roles: ReadonlyArray<ServedRoleForm>): ServedMatchers =>
 	ProgramPatterns.of(roles.flatMap((role) => role.members.flatMap(memberPatterns))).served()

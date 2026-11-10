@@ -3,8 +3,8 @@ import { type CharSet, has, isAdmittedCodePoint } from "#compiler/scalar/regex/c
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
- * An automaton's runtime half: its form, as nfa.ts buildNfa makes it and a served file carries it (matcher.ts
- * ServedMatcher), and whether a text is in its language, run with no regex IR.
+ * An automaton's runtime half: its form, as nfa.ts buildNfa makes it and a load rebuilds it from the integers a served
+ * file carries (matcher.ts ServedMatcher), and whether a text is in its language, run with no regex IR.
  */
 export type NfaEdge =
 	| { readonly kind: "eps"; readonly to: number }

@@ -7,11 +7,19 @@ import {
 	type ScalarType,
 	textOf
 } from "#compiler/ir/scalar.ts"
+import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
-import { matchFlags, memberOf, type ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
+import { matches, type Nfa, type NfaEdge } from "#compiler/scalar/regex/match.ts"
+import {
+	edgeCode,
+	matchFlags,
+	memberOf,
+	type ServedMatcher,
+	type ServedMatchers
+} from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import { entry } from "#compiler/scalar/regex/table.ts"
 
 /** An admitted pattern parsed: its live node, which a translation's image reads, and its automaton. */
 export interface ParsedPattern {
@@ -126,13 +134,65 @@ export class ProgramPatterns implements PatternAutomata {
 		matches(this.parse({ source, flags: matchFlags }).nfa, text)
 
 	/**
-	 * Each pattern of the table with its automaton, in the order the table first met them: what a served file carries
-	 * of the patterns its types read, so its load builds every matcher without the parser (matcher.ts ServedPatterns).
+	 * Each pattern of the table with its automaton, in the order the table first met them, over one table of the char
+	 * sets their edges step on: what a served file carries of the patterns its types read, so its load builds every
+	 * matcher without the parser (matcher.ts ServedPatterns).
 	 */
-	served(): ReadonlyArray<ServedMatcher> {
-		return [...this.#table].flatMap(([flags, bySource]) =>
-			[...bySource].map(([source, parsed]) => ({ pattern: { source, flags }, nfa: parsed.nfa }))
+	served(): ServedMatchers {
+		const sets = new SetTable()
+		const matchers = [...this.#table].flatMap(([flags, bySource]) =>
+			[...bySource].map(([source, parsed]): ServedMatcher => ({
+				pattern: { source, flags },
+				start: parsed.nfa.start,
+				accept: parsed.nfa.accept,
+				edges: parsed.nfa.edges.map((out) => out.flatMap((e) => [sets.codeOf(e), e.to]))
+			}))
 		)
+		return { sets: sets.sets, matchers }
+	}
+}
+
+/** Whether two char sets are one: a set's interval list is its canonical form (charset.ts CharSet). */
+const sameSet = (a: CharSet, b: CharSet): boolean =>
+	a.length === b.length &&
+	a.every(([lo, hi], i) => {
+		const [otherLo, otherHi] = entry(b, i)
+		return otherLo === lo && otherHi === hi
+	})
+
+/**
+ * The char sets a served file's automata step on, each once, in the order their edges first met them, and the code of
+ * an edge over them (matcher.ts edgeCode): sets are found among those of their interval count, then compared whole.
+ */
+class SetTable {
+	readonly sets: Array<CharSet> = []
+	readonly #byLength = new Map<number, Array<number>>()
+
+	codeOf(e: NfaEdge): number {
+		switch (e.kind) {
+			case "start":
+				return edgeCode.start
+			case "end":
+				return edgeCode.end
+			case "eps":
+				return edgeCode.eps
+			case "set":
+				return edgeCode.set + this.#indexOf(e.set)
+		}
+	}
+
+	#indexOf(set: CharSet): number {
+		const candidates = this.#byLength.get(set.length) ?? []
+		this.#byLength.set(set.length, candidates)
+		for (const at of candidates) {
+			if (sameSet(entry(this.sets, at), set)) {
+				return at
+			}
+		}
+		const at = this.sets.length
+		this.sets.push(set)
+		candidates.push(at)
+		return at
 	}
 }
 

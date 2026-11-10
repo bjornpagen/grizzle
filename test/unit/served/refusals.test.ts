@@ -53,7 +53,7 @@ const fileOf = (refusals: ServedRefusals, rosters: ServedFile["rosters"]): Serve
 	prologue: { fence: trusted("SELECT 1"), enter: trusted("SELECT 2") },
 	session: servedSession,
 	rosters,
-	matchers: [],
+	matchers: { sets: [], matchers: [] },
 	closed: new Map(),
 	above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
 	roles: [{ name: "writer", installed: "base__writer", contexts: [], refusals, members: [] }]

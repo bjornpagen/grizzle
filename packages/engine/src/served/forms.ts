@@ -28,7 +28,7 @@ import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
-import type { ServedMatcher } from "#compiler/scalar/regex/matcher.ts"
+import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import type {
 	ServedReadBack,
 	ServedRoots,
@@ -73,10 +73,11 @@ export interface ServedFile {
 	 */
 	readonly rosters: ReadonlyMap<DeclaredName, RosterCodes>
 	/**
-	 * Every pattern the login's types read, each with its automaton as generate built it (scalar/regex/matcher.ts
-	 * ServedMatcher): what a layer judges every refined value by, so it parses no pattern.
+	 * Every pattern the login's types read, each with its automaton as generate built it, over one table of the char sets
+	 * their edges step on (scalar/regex/matcher.ts ServedMatchers): what a layer judges every refined value by, so it
+	 * parses no pattern.
 	 */
-	readonly matchers: ReadonlyArray<ServedMatcher>
+	readonly matchers: ServedMatchers
 	/**
 	 * Each closed relation the login's writes evaluate, once, by name (runtime/write/fill.ts ClosedTable): every write's
 	 * binding and witness name the ones they read, and a layer prepares each against this table.

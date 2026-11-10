@@ -1,9 +1,10 @@
 /**
- * A served file carries each pattern's automaton as `grizzle generate` built it (scalar/regex/matcher.ts ServedMatcher),
+ * A served file carries each pattern's automaton as `grizzle generate` built it (scalar/regex/matcher.ts ServedMatchers),
  * so a load builds its matchers without the parser: the matchers a compiled table hands a served file
  * (ProgramPatterns.served), written as canonical JSON as the served file is (core/canonical.ts writeCanonicalJson) and
- * read back, are exactly the automata buildNfa makes of the patterns' parses, and the served table (ServedPatterns)
- * judges every drawn text as the compiled table does.
+ * read back, are exactly the automata buildNfa makes of the patterns' parses, their char sets each held once in the
+ * file's table and every one of them stepped on, and the served table (ServedPatterns) judges every drawn text as the
+ * compiled table does.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -12,15 +13,17 @@ import { array, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { type PatternSource, RegexKey, type RegexRef, regexCheck } from "#compiler/ir/scalar.ts"
-import { matchFlags, type ServedMatcher, ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
+import type { NfaEdge } from "#compiler/scalar/regex/match.ts"
+import { matchFlags, type ServedMatchers, ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { exactValue } from "#test/support/equivalence.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, patternOver, stringsOver } from "#test/unit/text/generators.ts"
 
@@ -81,8 +84,18 @@ describe("served matchers", () => {
 								writeCanonicalJson(trusted<Json>(compiled.served())),
 								"the matchers' canonical JSON"
 							)
-							const read = trustedJson<ReadonlyArray<ServedMatcher>>(text)
+							const read = trustedJson<ServedMatchers>(text)
 							const served = ServedPatterns.of(read)
+							const stepped = Arr.flatMap(read.matchers, (matcher) =>
+								Arr.flatMap(served.nfa(matcher.pattern).edges, (out) =>
+									Arr.flatMap(out, (e: NfaEdge) => (e.kind === "set" ? [e.set] : []))
+								)
+							)
+							assert.deepEqual(
+								read.sets,
+								Arr.dedupeWith(stepped, (a, b) => Option.isNone(exactValue(a, b))),
+								"the file's sets: each set an edge steps on, once, in the order the edges first meet them"
+							)
 							for (const pattern of patterns) {
 								const label = `/${pattern.source}/${pattern.flags}`
 								c.note(pattern.flags === matchFlags ? "a pattern under u" : "a pattern under su")

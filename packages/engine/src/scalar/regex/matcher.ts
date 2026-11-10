@@ -1,8 +1,10 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { octetsOf, type PatternSource, type RegexRef } from "#compiler/ir/scalar.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
+import type { CharSet } from "#compiler/scalar/regex/charset.ts"
+import { matches, type Nfa, type NfaEdge } from "#compiler/scalar/regex/match.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import { entry } from "#compiler/scalar/regex/table.ts"
 
 /** The flags every Compute.matches pattern is read under: str.regex's default. */
 export const matchFlags: RegexFlags = "u"
@@ -24,13 +26,58 @@ export const memberOf = (
 }
 
 /**
+ * The code of a served automaton's edge (ServedMatcher edges): `^`, `$` and ε by their own codes, and a step on a char
+ * set by `set` plus the set's index in the file's table (ServedMatchers sets).
+ */
+export const edgeCode = { start: 0, end: 1, eps: 2, set: 3 } as const
+
+/**
  * An admitted pattern and its automaton as `grizzle generate` built it (nfa.ts buildNfa over the pattern's parse), held
- * as data where a served file carries it: its JSON form is the automaton's own records and arrays, so a load reads it
- * back as buildNfa made it and parses nothing (ServedPatterns).
+ * as data where a served file carries it: its start and accepting states, and each state's outgoing edges as integers,
+ * two per edge, its code (edgeCode) and then the state it leads to. A load rebuilds the automaton buildNfa made from
+ * them and parses nothing (ServedPatterns).
  */
 export interface ServedMatcher {
 	readonly pattern: PatternSource
-	readonly nfa: Nfa
+	readonly start: number
+	readonly accept: number
+	readonly edges: ReadonlyArray<ReadonlyArray<number>>
+}
+
+/**
+ * Every automaton a served file carries: each char set their edges step on, once, and each pattern's automaton over
+ * them, in the order the compile's table first met the patterns (scalar/regex/patterns.ts ProgramPatterns served).
+ */
+export interface ServedMatchers {
+	readonly sets: ReadonlyArray<CharSet>
+	readonly matchers: ReadonlyArray<ServedMatcher>
+}
+
+/** The edge of code `code` leading to `to`, its set read from `sets` (ServedMatcher edges). */
+const edgeOf = (sets: ReadonlyArray<CharSet>, code: number, to: number): NfaEdge => {
+	switch (code) {
+		case edgeCode.start:
+			return { kind: "start", to }
+		case edgeCode.end:
+			return { kind: "end", to }
+		case edgeCode.eps:
+			return { kind: "eps", to }
+		default:
+			return { kind: "set", set: entry(sets, code - edgeCode.set), to }
+	}
+}
+
+/** The automaton a served matcher holds, its edges' sets read from `sets`. */
+const nfaOf = (sets: ReadonlyArray<CharSet>, matcher: ServedMatcher): Nfa => {
+	const edges: Array<ReadonlyArray<NfaEdge>> = []
+	for (const flat of matcher.edges) {
+		const out: Array<NfaEdge> = []
+		for (let at = 0; at < flat.length; at += 2) {
+			out.push(edgeOf(sets, entry(flat, at), entry(flat, at + 1)))
+		}
+		edges.push(out)
+	}
+	return { start: matcher.start, accept: matcher.accept, edges }
 }
 
 /** Automata by flags and then source. */
@@ -49,13 +96,13 @@ export class ServedPatterns {
 		this.#table = table
 	}
 
-	/** The table of `matchers`, each pattern by its served automaton. */
-	static of(matchers: Iterable<ServedMatcher>): ServedPatterns {
+	/** The table of `served`, each pattern by its automaton, rebuilt once over the file's sets. */
+	static of(served: ServedMatchers): ServedPatterns {
 		const table = new Map<RegexFlags, Map<string, Nfa>>()
-		for (const { pattern, nfa } of matchers) {
-			const bySource = table.get(pattern.flags) ?? new Map<string, Nfa>()
-			table.set(pattern.flags, bySource)
-			bySource.set(pattern.source, nfa)
+		for (const matcher of served.matchers) {
+			const bySource = table.get(matcher.pattern.flags) ?? new Map<string, Nfa>()
+			table.set(matcher.pattern.flags, bySource)
+			bySource.set(matcher.pattern.source, nfaOf(served.sets, matcher))
 		}
 		return new ServedPatterns(table)
 	}
