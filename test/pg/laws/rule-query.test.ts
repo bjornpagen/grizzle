@@ -22,9 +22,9 @@
  *   transaction commits exactly when the state it leaves keeps every rule. A direct SQL writer's refusal is at COMMIT,
  *   SQLSTATE 23503 for a containment, 23505 for the key and 23514 for the check, naming a trigger the installation's
  *   constraint map maps to a rule the model judges broken, the check's under the name constraintNamesOf gives its rule;
- *   grizzle's db.apply answers `invariant-rejected`, naming rules the model judges broken, its witness `unreported`.
+ *   grizzle's served write answers `invariant-rejected`, naming rules the model judges broken, its witness `unreported`.
  * - **Concurrent writers:** after its serial history, each case opens two direct SQL transactions at SERIALIZABLE, each
- *   taking its snapshot, commits a ChangeSet through grizzle's db.apply while both are open, then runs both SQL
+ *   taking its snapshot, commits a ChangeSet through grizzle's served write while both are open, then runs both SQL
  *   writers' statements, both open before either commits, and reads every table back: the state committed keeps every
  *   rule, whichever of them PostgreSQL refused, by a rule or by a serialization failure.
  *
@@ -66,9 +66,9 @@ import { array, element, type Gen, int, type Weighted, weighted } from "@grizzle
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -83,16 +83,16 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { attempt, momentText, refusalOf, refusalText } from "#test/support/substrate.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 const R = relation("R", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
 const S = relation("S", { id: pg.integer, k: pg.integer, b: pg.integer }, ["id"])
@@ -561,7 +561,7 @@ const opGen: Gen<Op> = weighted<Op>([
 const sqlGen: Gen<ReadonlyArray<Op>> = array(opGen, { min: 1, max: 4 })
 const grizzleGen: Gen<ReadonlyArray<Edit>> = array(weighted(edits), { min: 1, max: 4 })
 
-/** A transaction of the serial history: direct SQL statements, or one ChangeSet grizzle's db.apply writes. */
+/** A transaction of the serial history: direct SQL statements, or one ChangeSet grizzle's served write applies. */
 type Transaction =
 	| { readonly writer: "sql"; readonly ops: ReadonlyArray<Op> }
 	| { readonly writer: "grizzle"; readonly ops: ReadonlyArray<Edit> }
@@ -983,68 +983,41 @@ const added = <K, A>(
 ): ReadonlyArray<readonly [K, A]> => Arr.filter([...after.entries()], ([key]) => !before.has(key))
 
 /**
- * The ChangeSet that takes `before` to `after`, as a grizzle transaction's edits reach it: each row of `after` at a key
- * `before` lacks inserted, each row of `before` at a key `after` lacks deleted. An edit inserts at a fresh key and
- * changes no row, so no key holds a row on both sides that differs.
+ * The facts of the ChangeSet that takes `before` to `after`, as a grizzle transaction's edits reach it: each row of
+ * `after` at a key `before` lacks inserted, each row of `before` at a key `after` lacks deleted. An edit inserts at a
+ * fresh key and changes no row, so no key holds a row on both sides that differs.
  */
-const changesOf = (value: ReturnType<typeof ruleQuery>, before: State, after: State) =>
-	ChangeSet.empty(value)
-		.insert(
-			R,
-			Arr.map(added(before.R, after.R), ([id, r]) => ({ id, k: r.k, a: r.a }))
-		)
-		.insert(
-			S,
-			Arr.map(added(before.S, after.S), ([id, x]) => ({ id, k: x.k, b: x.b }))
-		)
-		.insert(
-			U,
-			Arr.map(added(before.U, after.U), ([id, u]) => ({ id, a: u.a, b: u.b }))
-		)
-		.insert(
-			T,
-			Arr.map(added(before.T, after.T), ([, [a, b]]) => ({ a, b }))
-		)
-		.insert(
-			W,
-			Arr.map(added(before.W, after.W), ([id, w]) => ({ id, k: w.k }))
-		)
-		.insert(
-			V,
-			Arr.map(added(before.V, after.V), ([id]) => ({ id }))
-		)
-		.insert(
-			N,
-			Arr.map(added(before.N, after.N), ([, [form, id]]) => ({ form, id }))
-		)
-		.delete(
-			R,
-			Arr.map(added(after.R, before.R), ([id, r]) => ({ id, k: r.k, a: r.a }))
-		)
-		.delete(
-			S,
-			Arr.map(added(after.S, before.S), ([id, x]) => ({ id, k: x.k, b: x.b }))
-		)
-		.delete(
-			U,
-			Arr.map(added(after.U, before.U), ([id, u]) => ({ id, a: u.a, b: u.b }))
-		)
-		.delete(
-			T,
-			Arr.map(added(after.T, before.T), ([, [a, b]]) => ({ a, b }))
-		)
-		.delete(
-			W,
-			Arr.map(added(after.W, before.W), ([id, w]) => ({ id, k: w.k }))
-		)
-		.delete(
-			V,
-			Arr.map(added(after.V, before.V), ([id]) => ({ id }))
-		)
-		.delete(
-			N,
-			Arr.map(added(after.N, before.N), ([, [form, id]]) => ({ form, id }))
-		)
+const factsOf = (before: State, after: State) => {
+	const edits = (from: State, to: State) => ({
+		R: Arr.map(added(from.R, to.R), ([id, r]) => ({ id, k: r.k, a: r.a })),
+		S: Arr.map(added(from.S, to.S), ([id, x]) => ({ id, k: x.k, b: x.b })),
+		U: Arr.map(added(from.U, to.U), ([id, u]) => ({ id, a: u.a, b: u.b })),
+		T: Arr.map(added(from.T, to.T), ([, [a, b]]) => ({ a, b })),
+		W: Arr.map(added(from.W, to.W), ([id, w]) => ({ id, k: w.k })),
+		V: Arr.map(added(from.V, to.V), ([id]) => ({ id })),
+		N: Arr.map(added(from.N, to.N), ([, [form, id]]) => ({ form, id }))
+	})
+	return { insert: edits(before, after), delete: edits(after, before) }
+}
+
+/** The full role's workload: the ChangeSet that inserts and deletes rows of every stored relation, from its call's facts. */
+const programsOf = (value: ReturnType<typeof ruleQuery>) => ({
+	write: ChangeSet.empty(value)
+		.insert(R, [])
+		.insert(S, [])
+		.insert(U, [])
+		.insert(T, [])
+		.insert(W, [])
+		.insert(V, [])
+		.insert(N, [])
+		.delete(R, [])
+		.delete(S, [])
+		.delete(U, [])
+		.delete(T, [])
+		.delete(W, [])
+		.delete(V, [])
+		.delete(N, [])
+})
 
 /** Whether two versions of a relation hold the same keys. */
 const sameKeys = <K, A>(before: ReadonlyMap<K, A>, after: ReadonlyMap<K, A>): boolean =>
@@ -1086,10 +1059,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							relation: "J3",
 							name: "NoTwoTwo"
 						})
-						const world = fullWorld(value, {})
+						const world = fullWorld(value, programsOf(value))
 						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_query")
-						const context = yield* Layer.build(loginLayer(done, world.server))
-						const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(
+						const served = yield* servedFixture(done, world.server)
+						const context = yield* Layer.build(served.layer)
+						const db = yield* Db.open(served.login.roles.app, {}).pipe(
 							Effect.provideContext(context)
 						)
 						const substrate = yield* Substrate
@@ -1098,11 +1072,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							label: "rule_query_second"
 						})
 						const installation = seat.installed.installation
-						/** The ChangeSet taking `before` to `after`, applied by grizzle's db.apply as the application's login. */
-						const write = (before: State, after: State) => {
-							const changes = changesOf(value, before, after)
-							return apply(dbc, changes, changes.reads, {})
-						}
+						/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
+						const write = (before: State, after: State) =>
+							db.workload.write.apply(factsOf(before, after), {})
 						/** The rule a refusal's trigger reports, through the installation's constraint map. */
 						const refusedRule = (fields: {
 							readonly table: Option.Option<string>
