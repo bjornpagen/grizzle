@@ -607,7 +607,13 @@ const contextCaseGen: Gen<ContextCase> = (source) => {
 }
 
 /** The SQL types a claim may be read as. */
-const claimTypes: ReadonlySet<string> = new Set(["smallint", "integer", "bigint", "boolean"])
+const claimTypes: ReadonlySet<string> = new Set([
+	"smallint",
+	"integer",
+	"bigint",
+	"boolean",
+	"uuid"
+])
 
 /** Whether a field type's description is a claim's: the claim rule over the type, whoever writes the field. */
 const claimDescribed = (t: SketchedField): boolean => {

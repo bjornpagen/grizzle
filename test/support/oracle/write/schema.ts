@@ -874,10 +874,10 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		},
 		sequence: (relation, field) => {
 			const c = Arr.findFirst(tableOf(relation).columns, (x) => x.field === field)
-			if (Option.isNone(c) || c.value.sequence.kind === "none") {
+			if (Option.isNone(c) || c.value.drawn.kind !== "identity") {
 				throw new Error(`${relation}.${field} has no identity sequence`)
 			}
-			return qualified(c.value.sequence.name)
+			return qualified(c.value.drawn.name)
 		},
 		column: (relation, field) => {
 			const c = Arr.findFirst(tableOf(relation).columns, (x) => x.field === field)

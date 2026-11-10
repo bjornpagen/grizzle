@@ -1825,6 +1825,8 @@ class StatementAuditor {
 			case "identity":
 				this.objectName(generated.sequence, "sequence", "generated")
 				return
+			case "uuidv7":
+				return
 			case "stored":
 				this.ddlExpr(generated.expr, tableColumns, "generated")
 				return

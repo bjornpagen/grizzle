@@ -826,6 +826,8 @@ export class Transform {
 				const sequence = this.name(g.sequence, "relation")
 				return sequence === g.sequence ? g : { ...g, sequence }
 			}
+			case "uuidv7":
+				return g
 			case "stored": {
 				const expr = this.expr(g.expr)
 				return expr === g.expr ? g : { ...g, expr }

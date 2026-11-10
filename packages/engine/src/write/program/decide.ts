@@ -23,6 +23,7 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type {
 	Binding,
 	CountedFamily,
@@ -57,7 +58,8 @@ import type {
 	WitnessData,
 	WitnessEntry,
 	WitnessField,
-	WitnessTable
+	WitnessTable,
+	WitnessUnique
 } from "#compiler/runtime/write/witness.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -71,6 +73,7 @@ import type {
 	WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
+import { insertArbitered } from "#compiler/write/insert/unique.ts"
 
 /** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
  * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
@@ -85,7 +88,13 @@ const familyWrittenInFlight = (frontend: WriteFrontend, stratum: StratumAt): boo
 const proposalAt = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId): Proposal => {
 	for (const action of frontend.ir.strata[stratum]?.actions ?? []) {
 		if (action.source.kind !== "described" && action.source.slot === slot) {
-			return action.op === "insert" ? proposalOf(action.info.relation, action.serial) : "every"
+			return action.op === "insert"
+				? proposalOf(
+						action.info.relation,
+						action.serial,
+						insertArbitered(action.info.relation.uniques, action.serial)
+					)
+				: "every"
 		}
 	}
 	return "every"
@@ -649,6 +658,19 @@ const lawChecksOf = (
 	return [...model, ...endpoints]
 }
 
+/** Every unique and exclusion object of a written relation a 23505 or 23P01 can name, each once, by its installed name:
+ * its declared keys, the primary key first, and every other object (witness.ts WitnessUnique). */
+const witnessUniques = (relation: WrittenRelation): ReadonlyArray<WitnessUnique> => {
+	const out: Array<WitnessUnique> = []
+	for (const u of [...relation.uniques.keys, ...relation.uniques.others]) {
+		const fields = witnessFields(u)
+		if (isNonEmpty(fields) && !out.some((o) => o.name === u.name)) {
+			out.push({ name: u.name, fields: mapNonEmpty(fields, (f) => f.name) })
+		}
+	}
+	return out
+}
+
 /** A written relation as the witness judges its rows (witness.ts WitnessTable). */
 const witnessTable = (frontend: WriteFrontend, relation: WrittenRelation): WitnessTable => {
 	const families = frontend.laws.families
@@ -657,6 +679,7 @@ const witnessTable = (frontend: WriteFrontend, relation: WrittenRelation): Witne
 		ident: relation.ident,
 		fields: relation.fields.map(witnessField),
 		keys: relation.keyNames.map((k) => mapNonEmpty(k.fields, (f) => f.name)),
+		uniques: witnessUniques(relation),
 		lawColumns: new Map(
 			families.some((f) => f.member.name === relation.name)
 				? rowLayout(relation, families).columns.flatMap((c) =>

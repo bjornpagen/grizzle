@@ -1037,6 +1037,8 @@ const printGeneration = (g: ColumnGeneration): string => {
 	switch (g.kind) {
 		case "identity":
 			return `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(g.sequence)})`
+		case "uuidv7":
+			return "DEFAULT pg_catalog.uuidv7()"
 		case "stored":
 			return `GENERATED ALWAYS AS (${printExpr(g.expr)}) STORED`
 		case "partial":

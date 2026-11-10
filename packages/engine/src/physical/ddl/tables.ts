@@ -13,6 +13,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { codecOf } from "#compiler/ir/codes.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, NativeOf, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
@@ -80,7 +81,8 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 }
 
 /**
- * A field's column's generation: a serial field's identity, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
+ * A field's column's generation: a serial field's identity, or its `uuidv7()` default for a uuid (ir/desc.ts
+ * serialDraw), a generated field's `GENERATED ALWAYS AS (e) STORED`, its
  * expression lowered over the row's own columns, or none for a field the caller writes and for one the host writes, a
  * family's drawn field or a fold's accumulated one.
  */
@@ -91,7 +93,12 @@ const fieldGeneration = (
 ): ColumnGeneration | undefined => {
 	switch (field.writing.kind) {
 		case "serial":
-			return { kind: "identity", sequence: b.names.sequence(relation.name, field.name) }
+			switch (serialDraw(field.desc)) {
+				case "identity":
+					return { kind: "identity", sequence: b.names.sequence(relation.name, field.name) }
+				case "uuidv7":
+					return { kind: "uuidv7" }
+			}
 		case "generated":
 			return {
 				kind: "stored",

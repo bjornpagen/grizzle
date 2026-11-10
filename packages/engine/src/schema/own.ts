@@ -67,6 +67,7 @@ import {
 	type SchemaRelationDesc,
 	schemaLevelDesc,
 	type SelectionDesc,
+	serialDraw,
 	type SideDesc,
 	type SlotsDesc,
 	type StatementDesc,
@@ -2018,7 +2019,10 @@ class Owner {
 				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
 			)
 			const named = identity.column(field)
-			const sequence = decl.writing.kind === "serial" ? identity.sequence(name, field) : undefined
+			const sequence =
+				decl.writing.kind === "serial" && serialDraw(decl.type) === "identity"
+					? identity.sequence(name, field)
+					: undefined
 			fields[field] = {
 				id: FieldId(name, field),
 				name: field,

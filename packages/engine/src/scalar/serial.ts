@@ -1,8 +1,9 @@
-import type { Column } from "#compiler/core/decoder.ts"
+import { type Column, textColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { serialCarriers } from "#compiler/ir/scalar.ts"
 import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/scalar/registry.ts"
 import { carrierColumn } from "#compiler/scalar/values/convert.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 type SerialName = keyof typeof serialCarriers
 
@@ -44,6 +45,21 @@ const serial = serialDescriptor("serial", carrierColumn("int4"))
 
 const bigserial = serialDescriptor("bigserial", carrierColumn("int8"))
 
+/**
+ * pg.uuidv7: a uuid field PostgreSQL draws for a new row, by its column's default, `uuid NOT NULL DEFAULT
+ * pg_catalog.uuidv7()`. Its type and host value are the uuid's, and it is serial by `writing`, as the integer serials
+ * are: an insert may leave it out, all of a row's serial fields or none, and a value its caller states is written as
+ * it is. It has no identity sequence, so nothing advances it.
+ */
+const uuidv7 = defineField(
+	{},
+	carrierSql.uuid,
+	{ kind: "uuid" },
+	{ writing: "serial", column: textColumn<Uuid>() },
+	SourceLoc("pg.uuidv7", []),
+	bareEnv
+)
+
 /** PostgreSQL's spellings of the family, each the one descriptor it names. */
 export const serialAliases = {
 	smallserial,
@@ -51,5 +67,6 @@ export const serialAliases = {
 	serial,
 	serial4: serial,
 	bigserial,
-	serial8: bigserial
+	serial8: bigserial,
+	uuidv7
 } as const

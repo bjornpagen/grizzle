@@ -34,7 +34,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
+import { type FieldDesc, type RoleWritingKey, serialDraw } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type {
@@ -257,9 +257,11 @@ const readsOf = (
 	return [...read]
 }
 
-/** The serial fields of a stored relation, in heading order. */
+/** The serial fields of a stored relation its identity sequences draw, each with an advance function, in heading order. */
 const serialFields = (relation: TheoryRelation): ReadonlyArray<string> =>
-	relation.fields.filter((c) => c.writing.kind === "serial").map((c) => c.name)
+	relation.fields
+		.filter((c) => c.writing.kind === "serial" && serialDraw(c.desc) === "identity")
+		.map((c) => c.name)
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {

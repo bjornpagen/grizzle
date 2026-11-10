@@ -3,6 +3,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
@@ -58,6 +59,20 @@ const created = (
 			o.kind === kind ? Arr.flatMap(o.ddl, (s) => Option.toArray(name(s))) : []
 		)
 	)
+
+/**
+ * Whether a stored relation's serial field draws by an identity, which its advance function moves, as its declared type
+ * says (ir/desc.ts serialDraw): an integer's, where a pg.uuidv7 field's `uuidv7()` default has no sequence.
+ */
+const drawsIdentity = (installation: Installation, relation: string, field: string): boolean => {
+	const f = Option.getOrThrowWith(
+		Option.flatMap(Rec.get(installation.laws.theory.relations, relation), (r) =>
+			Arr.findFirst(r.heading, (c) => c.name === field)
+		),
+		() => new Error(`the theory holds no field ${relation}.${field}, which the snapshot records`)
+	)
+	return serialDraw(f.desc) === "identity"
+}
 
 const tableOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createTable" ? Option.some(s.table.name) : Option.none()
@@ -308,7 +323,7 @@ export const installedScope = (
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>
-								f.writing === "serial"
+								f.writing === "serial" && drawsIdentity(installation, name, f.name)
 									? [
 											[
 												identifierOf(identity.advance(name, f.name)),

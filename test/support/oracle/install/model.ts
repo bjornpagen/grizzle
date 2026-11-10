@@ -46,10 +46,14 @@ export interface OracleColumn {
 	readonly field: string
 	readonly column: string
 	readonly type: ColumnType
-	/** A serial field is GENERATED ALWAYS AS IDENTITY with its named sequence; any other field has none. */
-	readonly sequence:
+	/**
+	 * How PostgreSQL draws the column's value: an integer serial field's GENERATED ALWAYS AS IDENTITY with its named
+	 * sequence, a pg.uuidv7 field's `uuidv7()` default, and none for any other field.
+	 */
+	readonly drawn:
 		| { readonly kind: "none" }
 		| { readonly kind: "identity"; readonly name: ObjectName }
+		| { readonly kind: "uuidv7" }
 	readonly location: string
 }
 

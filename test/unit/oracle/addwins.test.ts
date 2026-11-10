@@ -571,12 +571,12 @@ describe("generated additions", () => {
 		codes: source.draw(uniqueArray(int(0, 3), (item) => item, { min: 1, max: 2 }, 20))
 	})
 	type Feature =
-		| "a draw repeating a kept fact"
+		| "a kept fact holding the next draw at a generated code"
 		| "a generated addition at a kept key"
 		| "given draws"
 
 	it.effect(
-		"draw past every fact of the state they join and so meet a kept fact's key, or take the values given",
+		"stand for a kept fact at the key they state, draw past every fact of the state they join, or take the values given",
 		(ctx) =>
 			searched(
 				ctx,
@@ -587,7 +587,11 @@ describe("generated additions", () => {
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(
-							["a draw repeating a kept fact", "a generated addition at a kept key", "given draws"],
+							[
+								"a kept fact holding the next draw at a generated code",
+								"a generated addition at a kept key",
+								"given draws"
+							],
 							{ cases: 1000, sense: notesOnly }
 						),
 						kept: [],
@@ -617,12 +621,13 @@ describe("generated additions", () => {
 							/** The first value the sequence would draw, which a kept fact of that code may hold. */
 							const first = called ? at + 1 : at
 							if (Arr.some(kept, (e) => codes.includes(e.code) && e.n === first)) {
-								c.note("a draw repeating a kept fact")
+								c.note("a kept fact holding the next draw at a generated code")
 							}
 							/**
-							 * Drawn from the sequences: a generated addition adds a fact under a value no fact holds, before the stratum
-							 * or after, so one at a kept fact's code is refused by the key, never stood in for by the kept fact, and an
-							 * accepted one re-creates no stored fact.
+							 * Drawn from the sequences: a generated addition at a kept fact's code agrees with it at every field it
+							 * states, its code, so the kept fact stands for it and it draws nothing (insert/unique.ts
+							 * generatedArbiter); any other adds a fact under a value no fact holds, before the stratum or after, and
+							 * re-creates no stored fact.
 							 */
 							const drawnOutcome = applyAddWins(entries, initial, changes, { kind: "sequences" })
 							if (drawnOutcome.kind !== "invariant-rejected") {
@@ -635,10 +640,22 @@ describe("generated additions", () => {
 							}
 							if (Arr.some(kept, (e) => codes.includes(e.code))) {
 								c.note("a generated addition at a kept key")
-								assert.equal(drawnOutcome.kind, "invariant-rejected")
-								if (drawnOutcome.kind === "invariant-rejected") {
-									assert.equal(drawnOutcome.law, wild.lawId("entry_pk"))
+								const state = applied(drawnOutcome).state
+								for (const e of kept) {
+									assert.ok(
+										Arr.some(
+											factsOf(state, "Entry"),
+											(f) => f["code"] === e.code && f["n"] === e.n
+										),
+										`the kept entry ${Formatter.format(e)} stands for its code's generated addition, unchanged`
+									)
 								}
+								assert.equal(
+									factsOf(state, "Entry").length,
+									kept.length +
+										Arr.filter(codes, (code) => !Arr.some(kept, (e) => e.code === code)).length,
+									"a generated addition adds a fact only at a code no kept entry holds"
+								)
 								return
 							}
 							c.note("given draws")

@@ -1446,10 +1446,10 @@ const realizeWith = (
 							const column = Option.getOrUndefined(
 								Arr.findFirst(t.columns, (c) => c.field === field)
 							)
-							if (column?.sequence.kind !== "identity") {
+							if (column?.drawn.kind !== "identity") {
 								return yield* Effect.die(new Error(`${relation}.${field} has no identity sequence`))
 							}
-							return `SELECT pg_catalog.setval(${quoteString(printObjectName(column.sequence.name))}::regclass, ${String(identityFloor(v.spec.base, relation, field))})`
+							return `SELECT pg_catalog.setval(${quoteString(printObjectName(column.drawn.name))}::regclass, ${String(identityFloor(v.spec.base, relation, field))})`
 						})
 				)
 				yield* Effect.catchTag(

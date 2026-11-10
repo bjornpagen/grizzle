@@ -1,3 +1,4 @@
+import { serialDraw } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import {
@@ -21,15 +22,20 @@ import {
 	type WriteStatement
 } from "#compiler/write/insert/statement.ts"
 
-/** The serial fields an addition of class `serial` carries, key-first as every write statement lists them, each an
- * explicit serial value: inserted OVERRIDING SYSTEM VALUE and followed by its sequence advance. Complete facts carry
- * every serial field of their relation, an insertion's or a put's; a generated addition every one it does not draw. */
+/** The identity serial fields an addition of class `serial` carries, key-first as every write statement lists them,
+ * each an explicit serial value: inserted OVERRIDING SYSTEM VALUE and followed by its sequence advance. Complete facts
+ * carry every serial field of their relation, an insertion's or a put's; a generated addition every one it does not
+ * draw. A uuidv7 field's value is no identity's: its column's default only fills it when left out, so a carried one is
+ * written as it is and nothing advances (ir/desc.ts serialDraw). */
 export const explicitSerials = (
 	relation: RelationInfo,
 	serial: SerialClass
 ): ReadonlyArray<LawField> =>
 	keyFirst(relation).filter(
-		(f) => isSerialField(f) && (serial.kind === "complete" || !serial.drawn.includes(f.name))
+		(f) =>
+			isSerialField(f) &&
+			serialDraw(f.desc) === "identity" &&
+			(serial.kind === "complete" || !serial.drawn.includes(f.name))
 	)
 
 interface AdvanceSpec {

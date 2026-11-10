@@ -967,12 +967,14 @@ export interface Merge {
 }
 
 /**
- * How a column is generated: an identity from its sequence; a STORED expression of the row; or a partial projection,
+ * How a column is generated: an identity from its sequence; a uuid by its `DEFAULT pg_catalog.uuidv7()`, the one
+ * default a column has; a STORED expression of the row; or a partial projection,
  * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
  * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
  */
 export type ColumnGeneration =
 	| { readonly kind: "identity"; readonly sequence: ObjectName }
+	| { readonly kind: "uuidv7" }
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
 

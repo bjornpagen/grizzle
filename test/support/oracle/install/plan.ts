@@ -17,7 +17,7 @@ import * as Result from "#compiler/core/result.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { type CodeSlot, type RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
-import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, descText, type FieldDesc, serialDraw } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -25,6 +25,7 @@ import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 
 import type {
 	ColumnDef,
+	ColumnGeneration,
 	Ddl,
 	Expr,
 	GrantObjects,
@@ -320,6 +321,18 @@ const rosterCheck = (names: ObjectName): Expr =>
 		},
 		lit.text("", types.name(false))
 	)
+
+/** The generation of a column PostgreSQL draws: an identity over its sequence, or its `uuidv7()` default. */
+const generationOf = (drawn: OracleColumn["drawn"]): ColumnGeneration | undefined => {
+	switch (drawn.kind) {
+		case "none":
+			return undefined
+		case "identity":
+			return { kind: "identity", sequence: drawn.name }
+		case "uuidv7":
+			return { kind: "uuidv7" }
+	}
+}
 
 /**
  * A contract that only a closed relation's field uses still gets its domain, as the real installer gives it one: a
@@ -735,20 +748,18 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					fieldLocation
 				)
 			}
-			if (!serial) {
-				columns.push({ field, column, type, sequence: { kind: "none" }, location: fieldLocation })
-				continue
-			}
-			const sequence = unwrap(
-				schemaScope.claim(door.sequence(r.name, field).identifier, fieldLocation)
-			)
-			columns.push({
-				field,
-				column,
-				type,
-				sequence: { kind: "identity", name: objectName(schema, sequence) },
-				location: fieldLocation
-			})
+			const drawn: OracleColumn["drawn"] = !serial
+				? { kind: "none" }
+				: serialDraw(fieldDesc) === "uuidv7"
+					? { kind: "uuidv7" }
+					: {
+							kind: "identity",
+							name: objectName(
+								schema,
+								unwrap(schemaScope.claim(door.sequence(r.name, field).identifier, fieldLocation))
+							)
+						}
+			columns.push({ field, column, type, drawn, location: fieldLocation })
 		}
 		checks.set(r.name, tableChecks)
 		const pk = door.primaryKey(r.name).identifier
@@ -1099,8 +1110,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			name: c.column,
 			type: c.type.sql,
 			collation: takesCollation(c.type.sql) ? cUtf8Collation : undefined,
-			generated:
-				c.sequence.kind === "none" ? undefined : { kind: "identity", sequence: c.sequence.name }
+			generated: generationOf(c.drawn)
 		}))
 		if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 			throw new Error(`${table.relation} has no column`)
@@ -1162,7 +1172,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	/** PUBLIC holds nothing on any schema object. */
 	const tableNames = Arr.map(Rec.values(finalTables), (t) => t.name)
 	const sequenceNames = Arr.flatMap(Rec.values(finalTables), (t) =>
-		Arr.flatMap(t.columns, (c) => (c.sequence.kind === "none" ? [] : [c.sequence.name]))
+		Arr.flatMap(t.columns, (c) => (c.drawn.kind === "identity" ? [c.drawn.name] : []))
 	)
 	const constantNames = Arr.map([...rosters.values()], (r) => ({ ...r.names, args: [] }))
 	const domainNames = [
@@ -1221,8 +1231,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  * minimal catalog test/pg/physical holds the real one against:
  *
  * - one PostgreSQL schema;
- * - one table per stored relation, every column NOT NULL, text columns COLLATE pg_catalog.pg_c_utf8, serial fields
- *   GENERATED ALWAYS AS IDENTITY with a named sequence;
+ * - one table per stored relation, every column NOT NULL, text columns COLLATE pg_catalog.pg_c_utf8, integer serial
+ *   fields GENERATED ALWAYS AS IDENTITY with a named sequence, and pg.uuidv7 fields DEFAULT pg_catalog.uuidv7();
  * - PRIMARY KEY from the relation's third argument and UNIQUE from each key(R, fields), with no implicit full-row
  *   UNIQUE;
  * - per roster, its names constant, a zero-argument IMMUTABLE SQL function returning each code's handle in code order

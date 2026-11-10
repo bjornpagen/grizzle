@@ -2,6 +2,7 @@ import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
@@ -76,12 +77,23 @@ export type InsertOf = "insert" | "put"
  */
 export type Proposal = "every" | "unstored"
 
-/** Which requested facts an insert proposes (Proposal): only those at no stored key into a family owner, whose rows
- * carry counts and ends, but for a generated addition, whose key its sequence draws at the insert so that no row stores
- * it; every one into any other relation, whose proposed row is its requested fact. */
-export const proposalOf = (relation: RelationInfo, serial: SerialClass): Proposal =>
-	serial.kind !== "generated" &&
-	relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")
+/** Which requested facts an insert that meets stored facts at an arbiter (`arbitered`, unique.ts insertArbitered)
+ * proposes (Proposal): only those at no stored arbiter key into a family owner, whose rows carry counts and ends, and
+ * for a generated addition that draws an identity field, whose proposed row would take the identity's next value
+ * whether it is inserted or not, so a stored repeat or conflict draws none; every one into any other relation, whose
+ * proposed row is its requested fact, a uuidv7 default drawing nothing a repeat would waste; and every one of a plain
+ * INSERT, a generated addition with no arbiter, whose drawn key no row stores. */
+export const proposalOf = (
+	relation: RelationInfo,
+	serial: SerialClass,
+	arbitered: boolean
+): Proposal =>
+	arbitered &&
+	(relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated") ||
+		(serial.kind === "generated" &&
+			relation.fields.some(
+				(f) => serial.drawn.includes(f.name) && serialDraw(f.desc) === "identity"
+			)))
 		? "unstored"
 		: "every"
 

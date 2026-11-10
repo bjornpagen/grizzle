@@ -1874,11 +1874,22 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 /** The integer types a sequence draws: smallint, integer and bigint. */
 const serialTypes: ReadonlyArray<PgScalarName> = ["smallint", "integer", "bigint"]
 
-/** Whether a field's declaration is no serial or a serial of an integer type, which its sequence draws. */
-const serialDrawn = (d: FieldDecl): boolean =>
-	d.writing.kind !== "serial" || (d.type.kind === "pg" && serialTypes.includes(d.type.type))
+/**
+ * How PostgreSQL draws a serial field of type `desc` for a new row: a uuid by its column's `uuidv7()` default, an
+ * integer from its identity sequence. A serial field is of one of those types (`serialDrawn`).
+ */
+export const serialDraw = (desc: FieldDesc): "identity" | "uuidv7" =>
+	desc.kind === "uuid" ? "uuidv7" : "identity"
 
-const serialCapability = "a serial field of smallint, integer or bigint, which its sequence draws"
+/** Whether a field's declaration is no serial, or a serial of uuid or of an integer type, which PostgreSQL draws
+ * (`serialDraw`). */
+const serialDrawn = (d: FieldDecl): boolean =>
+	d.writing.kind !== "serial" ||
+	d.type.kind === "uuid" ||
+	(d.type.kind === "pg" && serialTypes.includes(d.type.type))
+
+const serialCapability =
+	"a serial field of smallint, integer or bigint, which its sequence draws, or of uuid, which uuidv7() draws"
 
 /** A serial field is of an integer type, which its sequence draws. */
 const fieldDeclShape: S.Shape<FieldDecl> = S.refine(

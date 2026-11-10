@@ -1159,7 +1159,7 @@ const withColumns = (
 			...c,
 			name: nameIn(into)(c.name),
 			generated:
-				generated === undefined || generated.kind === "identity"
+				generated === undefined || generated.kind === "identity" || generated.kind === "uuidv7"
 					? generated
 					: generated.kind === "stored"
 						? { kind: "stored", expr: exprIn(into, generated.expr) }

@@ -34,13 +34,17 @@ interface ProjectedType {
 /** How a column's value is made, as the manifest decides it: the default and the expression are PostgreSQL's deparse. */
 type ProjectedGeneration =
 	| { readonly kind: "given" }
+	| { readonly kind: "default"; readonly expression: string }
 	| { readonly kind: "identity"; readonly always: boolean; readonly sequence: string }
 	| { readonly kind: "computed"; readonly stored: boolean }
 
 const projectGeneration = (g: CatalogGeneration): ProjectedGeneration => {
 	switch (g.kind) {
 		case "given":
-			return { kind: "given" }
+			return Option.match(g.default, {
+				onNone: (): ProjectedGeneration => ({ kind: "given" }),
+				onSome: (expression): ProjectedGeneration => ({ kind: "default", expression })
+			})
 		case "identity":
 			return { kind: "identity", always: g.always, sequence: g.sequence }
 		case "computed":
@@ -305,8 +309,8 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 }
 
 /**
- * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, or GENERATED ALWAYS AS (expr) STORED, a
- * partial projection's expr its CASE.
+ * A column's generation as grizzle declares it: GENERATED ALWAYS AS IDENTITY, the uuidv7() default, as pg_get_expr
+ * spells it, or GENERATED ALWAYS AS (expr) STORED, a partial projection's expr its CASE.
  */
 const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 	if (g === undefined) {
@@ -315,6 +319,8 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 	switch (g.kind) {
 		case "identity":
 			return { kind: "identity", always: true, sequence: `${g.sequence.schema}.${g.sequence.name}` }
+		case "uuidv7":
+			return { kind: "default", expression: "uuidv7()" }
 		case "stored":
 		case "partial":
 			return { kind: "computed", stored: true }

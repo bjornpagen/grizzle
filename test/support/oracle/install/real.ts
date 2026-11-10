@@ -9,7 +9,8 @@ import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compil
 import {
 	admitLoginRoles,
 	type LoginDesc,
-	type SchemaDesc as EngineSchemaDesc
+	type SchemaDesc as EngineSchemaDesc,
+	serialDraw
 } from "#compiler/ir/desc.ts"
 import {
 	baseOf,
@@ -298,10 +299,12 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 				field,
 				column: f.column,
 				type: typeOf(heading.value.type, false),
-				sequence:
-					heading.value.writing.kind === "serial"
-						? { kind: "identity", name: names.sequence(r.name, field) }
-						: { kind: "none" },
+				drawn:
+					heading.value.writing.kind !== "serial"
+						? { kind: "none" }
+						: serialDraw(heading.value.desc) === "identity"
+							? { kind: "identity", name: names.sequence(r.name, field) }
+							: { kind: "uuidv7" },
 				location
 			}
 		})

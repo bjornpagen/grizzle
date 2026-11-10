@@ -3,6 +3,7 @@ import type { Columned } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	DomainOf,
@@ -96,6 +97,8 @@ export interface Pg {
 	readonly serial4: SerialField<number, "integer">
 	readonly bigserial: SerialField<bigint, "bigint">
 	readonly serial8: SerialField<bigint, "bigint">
+	/** pg.uuidv7: a uuid PostgreSQL draws for a new row, its column's `uuidv7()` default; an insert may leave it out. */
+	readonly uuidv7: SerialField<Uuid, "uuid">
 	/** pg.vector(1536): a model-agnostic vector field; the dimension count is an equality-only tag. */
 	readonly vector: <const N extends number>(dimensions: N) => VectorField<N>
 }

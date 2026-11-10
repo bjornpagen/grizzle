@@ -2,7 +2,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import { type RelationDesc, type SchemaDesc, serialDraw } from "#compiler/ir/desc.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type {
@@ -126,7 +126,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			...Arr.flatMap(relations, (r) =>
 				r.kind === "relation"
 					? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]) =>
-							decl.writing.kind === "serial"
+							decl.writing.kind === "serial" && serialDraw(decl.type) === "identity"
 								? [
 										[
 											identifierOf(identity.advance(r.name, field)),

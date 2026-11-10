@@ -52,7 +52,12 @@ import {
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
+import {
+	admitted,
+	admittedText,
+	type Carrier,
+	type CarrierHost
+} from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
 	Law,
@@ -148,16 +153,25 @@ export interface LawCheckData {
 	readonly test: CheckTest
 }
 
+/** A unique or exclusion object of a written relation, as the witness reads it: its installed constraint's name and the
+ * fields a conflict at it names, its compared fields then its span (laws/model/uniques.ts witnessFields), by name. */
+export interface WitnessUnique {
+	readonly name: ConstraintName
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
 /**
  * A relation the ChangeSet writes, as the witness judges its rows: its name and installed table, its fields, its declared
- * keys by their fields' names, the primary key first, the law columns its families draw on it by key with their types,
- * and every CHECK of its table that states laws, the law model's and its spans' endpoint CHECKs.
+ * keys by their fields' names, the primary key first, its unique and exclusion objects, the law columns its families
+ * draw on it by key with their types, and every CHECK of its table that states laws, the law model's and its spans'
+ * endpoint CHECKs.
  */
 export interface WitnessTable {
 	readonly name: string
 	readonly ident: RelationIdent
 	readonly fields: ReadonlyArray<WitnessField>
 	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
+	readonly uniques: ReadonlyArray<WitnessUnique>
 	readonly lawColumns: ReadonlyMap<ColumnKey, ScalarType>
 	readonly checks: ReadonlyArray<LawCheckData>
 }
@@ -309,6 +323,57 @@ type Verdict = "breaks" | "holds" | "unjudged"
 
 /** The unreported witness: no fact the ChangeSet states is one the host finds breaking the law. */
 const unreported: Witness = Object.freeze({ kind: "unreported" })
+
+/**
+ * A refusal by a unique or exclusion object of `relation`, which no single row breaks: the object's laws, which the
+ * classifier names, and as witness the value its statement states at the object's fields where that is one value, every
+ * row the statement writes of `relation` being a stated fact whose value there the host holds and all of them holding
+ * the same one there, as a Start or a save states one fact; else unreported, since the value PostgreSQL met is only in
+ * its message's DETAIL, which grizzle never parses.
+ */
+const uniqueJudgement = (
+	w: Witnessing,
+	rows: StatementFacts["rows"],
+	facts: ReadonlyArray<StatedFact>,
+	relation: WitnessTable,
+	unique: WitnessUnique
+): HostJudgement => {
+	const none: HostJudgement = { witness: unreported, laws: refusedByObject }
+	if (rows !== "every") {
+		return none
+	}
+	let found: { readonly values: Record<string, KeyHost>; readonly texts: string } | undefined
+	for (const fact of facts) {
+		if (fact.relation.ident !== relation.ident) {
+			continue
+		}
+		if (fact.row.kind !== "known") {
+			return none
+		}
+		const values: Record<string, KeyHost> = {}
+		const texts: Array<string> = []
+		for (const name of unique.fields) {
+			const f = fieldOf(relation, name)
+			const raw = hostField(fact.row, f)
+			const spec = carrierSpecOf(f.type, w.codes)
+			const value = raw === undefined ? undefined : keyHost(admitted(spec, raw))
+			if (raw === undefined || value === undefined) {
+				return none
+			}
+			values[name] = value
+			texts.push(admittedText(spec, raw))
+		}
+		const joined = texts.map((t) => `${t.length}:${t}`).join("")
+		if (found === undefined) {
+			found = { values, texts: joined }
+		} else if (found.texts !== joined) {
+			return none
+		}
+	}
+	return found === undefined
+		? none
+		: { witness: keyWitness(relation.name, found.values), laws: refusedByObject }
+}
 
 /** Whether an admitted value is a set's. */
 const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
@@ -1183,8 +1248,16 @@ export const hostJudgement = (
 	at: StatementAt,
 	refuser: Refuser
 ): HostJudgement => {
-	const judging = refuserJudge(w, refuser)
 	const { rows, facts } = statedFacts(w, stated, at)
+	if (refuser.kind === "constraint") {
+		for (const table of w.data.tables) {
+			const unique = table.uniques.find((u) => u.name === refuser.name)
+			if (table.ident === refuser.owner && unique !== undefined) {
+				return uniqueJudgement(w, rows, facts, table, unique)
+			}
+		}
+	}
+	const judging = refuserJudge(w, refuser)
 	const judged = facts.map((fact) => ({ fact, judged: judging.row(fact.relation, fact.row) }))
 	for (const { fact, judged: j } of judged) {
 		if (fact.row.kind === "known" && j.kind === "breaks") {

@@ -108,10 +108,10 @@ export const factStatements = (
 }
 
 /**
- * A column one relation's INSERTs write: a field's, with its sequence where it is serial, or a family's drawn law
- * column, which no sequence draws.
+ * A column one relation's INSERTs write: a field's, with how PostgreSQL draws it where it is serial, or a family's drawn
+ * law column, which PostgreSQL draws by nothing.
  */
-type WrittenColumn = Pick<OracleColumn, "field" | "column" | "type" | "sequence">
+type WrittenColumn = Pick<OracleColumn, "field" | "column" | "type" | "drawn">
 
 /** The rows one relation's INSERTs store: their columns, and each row's values in their order, at its location. */
 interface RelationRows {
@@ -155,7 +155,7 @@ const filledRows = (
 	const columns: Array<WrittenColumn> = []
 	for (const c of filled.columns) {
 		if (c.kind === "law") {
-			columns.push({ field: c.column, column: c.column, type: c.type, sequence: { kind: "none" } })
+			columns.push({ field: c.column, column: c.column, type: c.type, drawn: { kind: "none" } })
 			continue
 		}
 		const column = Arr.findFirst(table.columns, (t) => t.field === c.field)
@@ -204,7 +204,7 @@ const relationStatements = (
 			return Result.err(row.error)
 		}
 		for (const [i, column] of given.columns.entries()) {
-			if (column.sequence.kind !== "identity") {
+			if (column.drawn.kind !== "identity") {
 				continue
 			}
 			const value = sequenceValue(values[i], column.field)
@@ -218,7 +218,7 @@ const relationStatements = (
 		}
 	}
 	const statements: Array<string> = []
-	const serial = Arr.some(given.columns, (c) => c.sequence.kind === "identity")
+	const serial = Arr.some(given.columns, (c) => c.drawn.kind === "identity")
 	const columns = Arr.map(given.columns, (c) => c.column)
 	if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 		return refuse(
@@ -247,9 +247,9 @@ const relationStatements = (
 	for (const column of given.columns) {
 		const max = maxima.get(column.field)
 		const advanced =
-			column.sequence.kind === "none" || max === undefined || max < 1n
+			column.drawn.kind !== "identity" || max === undefined || max < 1n
 				? undefined
-				: emit(advanceSequence(column.sequence.name, max), emptyNameMap)
+				: emit(advanceSequence(column.drawn.name, max), emptyNameMap)
 		if (advanced !== undefined && !advanced.ok) {
 			return Result.err(advanced.error)
 		}

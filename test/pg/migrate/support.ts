@@ -593,11 +593,11 @@ export const identitiesPast = (
 		const substrate = yield* Substrate
 		for (const t of Rec.values(plan.tables)) {
 			for (const c of t.columns) {
-				if (c.sequence.kind !== "identity") {
+				if (c.drawn.kind !== "identity") {
 					continue
 				}
 				const read = yield* substrate.admin.query(
-					`SELECT (SELECT max(${quoteIdent(c.column)}) FROM ${printObjectName(t.name)})::text AS max, (SELECT CASE WHEN s.is_called THEN s.last_value + 1 ELSE s.last_value END FROM ${printObjectName(c.sequence.name)} AS s)::text AS next`,
+					`SELECT (SELECT max(${quoteIdent(c.column)}) FROM ${printObjectName(t.name)})::text AS max, (SELECT CASE WHEN s.is_called THEN s.last_value + 1 ELSE s.last_value END FROM ${printObjectName(c.drawn.name)} AS s)::text AS next`,
 					[]
 				)
 				const [row] = read.rows

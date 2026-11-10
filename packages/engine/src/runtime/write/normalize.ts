@@ -235,6 +235,9 @@ export type BindInput =
 	| {
 			readonly kind: "classed"
 			readonly serial: NonEmptyReadonlyArray<string>
+			/** The fields a generated addition states, each by its carrier's spec: where a complete addition of its stratum
+			 * agrees with it at every one, the two are one fact (`sameKey`). */
+			readonly stated: ReadonlyArray<KeySpec>
 			readonly complete: SlotData
 			readonly generated: SlotData
 			readonly members: NonEmptyReadonlyArray<
@@ -519,6 +522,10 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 				return {
 					kind: "classed",
 					serial: input.serial,
+					stated: input.generated.heading.map((h) => ({
+						field: h.name,
+						spec: carrierSpecOf(h.type, codes)
+					})),
 					complete: input.complete,
 					generated: input.generated,
 					members: mapNonEmpty(input.members, (name) => ({
@@ -636,13 +643,15 @@ const primaryConflict = (stratum: StratumAt, facts: CheckedFacts, fact: NestedFa
 
 /**
  * The first of one relation's facts, in canonical order, sharing a declared key's value with an earlier one of another
- * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it.
+ * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it, and two
+ * entries there one fact where `oneFact` holds of them at that key.
  */
 const keyConflictIn = <I>(
 	stratum: StratumAt,
 	facts: CheckedFacts,
 	order: IdentityOrder<I>,
-	onKey: (key: CheckedKey) => ReadonlyArray<Entry<I>>
+	onKey: (key: CheckedKey) => ReadonlyArray<Entry<I>>,
+	oneFact: (key: CheckedKey, a: Entry<I>, b: Entry<I>) => boolean
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
@@ -651,7 +660,11 @@ const keyConflictIn = <I>(
 		for (const e of onKey(key)) {
 			const k = keyTexts(e.fact)
 			const prior = seen.get(k)
-			if (prior !== undefined && order(prior.identity, e.identity) !== 0) {
+			if (
+				prior !== undefined &&
+				order(prior.identity, e.identity) !== 0 &&
+				!oneFact(key, prior, e)
+			) {
 				return conflictOf(stratum, facts, e.fact, fields, key)
 			}
 			seen.set(k, e)
@@ -660,22 +673,50 @@ const keyConflictIn = <I>(
 	return undefined
 }
 
+/** Two entries of different identities are two facts at every key. */
+const twoFacts = (): boolean => false
+
+/** Whether a span field is among a key's fields: such a key is no generated addition's arbiter. */
+const holdsSpan = (key: CheckedKey): boolean =>
+	key.fields.some(
+		({ spec }) =>
+			spec.carrier === "range4" || spec.carrier === "range8" || spec.carrier === "rangeDate"
+	)
+
 /**
  * Same-key refusal over one stratum's additions of one relation (`normalizeChangeSet`, step 3): the first addition, in
  * canonical order, sharing a declared key's value with an earlier one of another identity, the keys tried primary key
  * first; then the first whose span overlaps an earlier one's at equal scalar fields. A generated addition takes part
- * only on the keys and spans that hold no serial field.
+ * only on the keys and spans that hold no serial field. At such a key with no span, which makes one its arbiter
+ * (insert/unique.ts generatedArbiter), a generated addition and a complete one that agrees with it at every field it
+ * states, `stated`, are one fact: its statement, after the complete one's, meets that row there and is no change.
  */
 const sameKey = <I>(
 	stratum: StratumAt,
 	facts: CheckedFacts,
 	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
+	stated: ReadonlyArray<KeySpec>,
 	complete: ReadonlyArray<Entry<I>>,
 	generated: ReadonlyArray<Entry<I>>
 ): KeyRefusal | undefined => {
-	const keyed = keyConflictIn(stratum, facts, order, ({ fields }) =>
-		fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated]
+	const drawn: ReadonlySet<Entry<I>> = new Set(generated)
+	const statedTexts = keyTextsOf(stated)
+	const oneFact = (key: CheckedKey, a: Entry<I>, b: Entry<I>): boolean => {
+		const bTexts = statedTexts(b.fact)
+		return (
+			drawn.has(a) !== drawn.has(b) &&
+			!holdsSpan(key) &&
+			statedTexts(a.fact).every((text, i) => text === bTexts[i])
+		)
+	}
+	const keyed = keyConflictIn(
+		stratum,
+		facts,
+		order,
+		({ fields }) =>
+			fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated],
+		oneFact
 	)
 	if (keyed !== undefined) {
 		return keyed
@@ -734,6 +775,7 @@ type AdmittedGroup =
 			readonly stratum: StratumAt
 			readonly relation: CheckedFacts
 			readonly serial: ReadonlyArray<string>
+			readonly stated: ReadonlyArray<KeySpec>
 			readonly sets: GroupSets
 			readonly slotOf: ReadonlyMap<keyof GroupSets, SlotData>
 	  }
@@ -829,6 +871,8 @@ export const normalizeChangeSet = (
 		/** The serial fields of the group's classed input, which exclude its generated facts from the keys that read
 		 * them; a group with no classed input has no generated fact. */
 		const serial = enumerated.flatMap((input) => (input.kind === "classed" ? input.serial : []))
+		/** The fields the group's generated facts state, its classed input's; a group with no classed input has none. */
+		const stated = enumerated.flatMap((input) => (input.kind === "classed" ? input.stated : []))
 		for (const input of enumerated) {
 			switch (input.kind) {
 				case "nested": {
@@ -932,13 +976,15 @@ export const normalizeChangeSet = (
 				}
 			}
 		}
-		admittedGroups.push(stopped ?? { kind: "admitted", stratum, relation, serial, sets, slotOf })
+		admittedGroups.push(
+			stopped ?? { kind: "admitted", stratum, relation, serial, stated, sets, slotOf }
+		)
 	}
 	for (const group of admittedGroups) {
 		if (group.kind === "generatedNull") {
 			return Result.ok(group)
 		}
-		const { stratum, relation, serial, sets, slotOf } = group
+		const { stratum, relation, serial, stated, sets, slotOf } = group
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
@@ -948,11 +994,16 @@ export const normalizeChangeSet = (
 				relation,
 				compareFactIdentities,
 				serial,
+				stated,
 				sorted(compareFactIdentities, [...sets.put.values(), ...sets.insert.values()]),
 				sorted(compareFactIdentities, sets.generated.values())
 			) ??
-			keyConflictIn(stratum, relation, compareFactIdentities, (key) =>
-				key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []
+			keyConflictIn(
+				stratum,
+				relation,
+				compareFactIdentities,
+				(key) => (key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []),
+				twoFacts
 			)
 		if (refused !== undefined) {
 			return Result.ok(refused)
@@ -984,6 +1035,7 @@ export const normalizeChangeSet = (
 				stratum,
 				facts,
 				compareTextTuples,
+				[],
 				[],
 				sorted(
 					compareTextTuples,

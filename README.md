@@ -1580,6 +1580,7 @@ schema.
 | `pg.money`                                         | money                                                               | `Money`                                                                |
 | `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                                                  | `number`, `number`, `bigint`                                           |
+| `pg.uuidv7`                                        | uuid, its column's default `uuidv7()`                               | `Uuid`                                                                 |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
@@ -1683,7 +1684,8 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
   `start` its value where the axis begins.
-- **The identity:** a serial field, which an insert may leave out ([Writes](#writes)).
+- **PostgreSQL, drawn:** a serial field, by its identity or its `uuidv7()` default, which an insert may leave out
+  ([Writes](#writes)).
 
 **Generated fields.** A term reads its own row and closed relations ([Closed relations](#closed-relations)). `r` holds
 only the fields the caller writes, so reading a generated, drawn or accumulated field is a type error. Compiling the
@@ -2422,9 +2424,14 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   judged only once every row and parameter of the application encodes: a row or a parameter that does not, a missing
   parameter among them, is its `EncodingFailure`, whatever key the other rows share or generated field they leave
   without a value.
-- **Serial columns** may be left out of an insert's rows, all of a row's or none: the identity draws them for a new
-  row, and equal such rows are one new row. Leaving out only some is an `EncodingFailure`. A table whose every column
-  is serial takes `[{}]`, one new row.
+- **Serial columns**, `pg.serial` and its kin and `pg.uuidv7`, may be left out of an insert's rows, all of a row's or
+  none: PostgreSQL draws them for a new row, an integer from its identity and a uuid by `uuidv7()`, and a value the row
+  states is written as it is. A row that leaves them out is the fact its other fields state. At the first declared key
+  that holds no serial field and no span, a stored row equal to it at every field it states is no change, and one
+  that differs there is `invariant-rejected` on that key; two inserters racing at that key meet there, the later one
+  waiting for the earlier and then reading its row. With no such key, every such row is a new row, and equal such rows
+  are one. Leaving out only some is an `EncodingFailure`. A table whose every column is serial takes `[{}]`, one new
+  row.
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed. A read-back name used twice in one ChangeSet is a type error.
 - **Strata.** Every write in a stratum reads the state before it, so build order means nothing.

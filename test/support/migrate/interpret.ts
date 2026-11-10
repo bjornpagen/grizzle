@@ -113,12 +113,14 @@ type Conversion =
 const unknownExpression: Conversion = { kind: "given", value: () => undefined }
 
 /**
- * What generates a column's values: nothing, its identity sequence, its stored expression, or a partial projection's
- * stored CASE, which is NULL outside its selection.
+ * What generates a column's values: nothing, its identity sequence, its `uuidv7()` default, which fills it only where
+ * an INSERT leaves it out, its stored expression, or a partial projection's stored CASE, which is NULL outside its
+ * selection.
  */
 export type Generation =
 	| { readonly kind: "none" }
 	| { readonly kind: "identity"; readonly sequence: string }
+	| { readonly kind: "uuidv7" }
 	| { readonly kind: "stored"; readonly calls: ReadonlyArray<string> }
 	| { readonly kind: "partial"; readonly calls: ReadonlyArray<string> }
 
@@ -428,6 +430,8 @@ const generationOf = (c: ColumnDef, schema: string): Generation => {
 	switch (c.generated.kind) {
 		case "identity":
 			return { kind: "identity", sequence: c.generated.sequence.name }
+		case "uuidv7":
+			return { kind: "uuidv7" }
 		case "stored":
 			return { kind: "stored", calls: callsOf([c.generated.expr], schema) }
 		case "partial":
@@ -2591,7 +2595,7 @@ class Model {
 			if (c === undefined) {
 				refuse(`column "${a.column}" of relation "${s.table.name}" does not exist (42703)`)
 			}
-			if (c.generation.kind !== "none") {
+			if (c.generation.kind !== "none" && c.generation.kind !== "uuidv7") {
 				refuse(`column "${a.column}" can only be updated to DEFAULT (428C9)`)
 			}
 		}
@@ -3706,6 +3710,8 @@ const generationText = (g: Generation): string => {
 			return ""
 		case "identity":
 			return ` identity ${g.sequence}`
+		case "uuidv7":
+			return " default uuidv7()"
 		case "stored":
 			return " stored"
 		case "partial":

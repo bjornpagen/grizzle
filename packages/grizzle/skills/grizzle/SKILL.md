@@ -643,7 +643,8 @@ The command line's own refusals, by stage:
   the login is the boundary, so give each trust domain its own. A world role holds no privilege on a sequence: an
   identity default needs none, and a writer inserting explicit serial values (`OVERRIDING SYSTEM VALUE`) calls the
   field's advance function, `SELECT <schema>.<advance function>(<largest value inserted>)`, `<schema>` being
-  `schemaNameOf(schema)`, in the same transaction.
+  `schemaNameOf(schema)`, in the same transaction. A `pg.uuidv7` field has no sequence: leave it out for its
+  `uuidv7()` default, or write a uuid as it is.
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
   relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
   is `check`, and a login's or role's role and a role's schema join the schema's name and their own (roleNameOf,

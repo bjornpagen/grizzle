@@ -2582,7 +2582,7 @@ const castsSerial = (
 		(t) =>
 			t.name.schema === p.table.schema &&
 			t.name.name === p.table.name &&
-			Arr.some(t.columns, (c) => c.column === p.column.name && c.sequence.kind === "identity")
+			Arr.some(t.columns, (c) => c.column === p.column.name && c.drawn.kind === "identity")
 	)
 
 /** The SQL a reviewer writes for each placeholder of a migration to `to` (planned under the migrated schema): a serial

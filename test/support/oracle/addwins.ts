@@ -481,8 +481,10 @@ interface RelationStep {
  *   an insert of one key with different payloads, and a candidate-key collision. The witness carries
  *   the law and the key values only.
  * - An addition omits either all of its relation's serial fields or none. One that omits them is a
- *   generated addition: equal ones within a stratum are one requested addition, and each takes fresh
- *   values from the relation's identity sequences. Explicit serial values first advance the sequence past them, as
+ *   generated addition: equal ones within a stratum are one requested addition. Where a declared key holds no serial
+ *   field, one equal at every field it states to a fact of the state its statement meets, after the stratum's
+ *   deletions and complete additions, is that fact and draws nothing; every other takes fresh values from the
+ *   relation's identity sequences. Explicit serial values first advance the sequence past them, as
  *   the realization's setval statement does. A drawn value that would collide on a key containing the serial
  *   field is drawn again: in the realization that collision is a 23505, a TransientFailure whose retry draws fresh
  *   values, so the committed outcome never contains it. So is a drawn value whose fact repeats a fact of the state
@@ -693,7 +695,34 @@ const transition = (
 			}
 		}
 	}
+	/**
+	 * Whether a generated addition repeats a fact its statement meets, the state after the stratum's deletions and
+	 * complete additions: one equal at every field it states, found at its arbiter, the first declared key that holds no
+	 * serial field and no span (insert/unique.ts generatedArbiter). It is that fact, and draws nothing; with no such key every
+	 * generated addition is a new fact.
+	 */
+	const stated = Arr.map(partialHeading, (h) => h.name)
+	const spans: ReadonlySet<string> = new Set(
+		Arr.flatMap(relation.heading, (h) =>
+			h.spec.carrier === "range4" || h.spec.carrier === "range8" || h.spec.carrier === "rangeDate"
+				? [h.name]
+				: []
+		)
+	)
+	const arbitered = Arr.some(
+		allKeys(relation),
+		(k) => !Arr.some(k.fields, (f) => serialSet.has(f) || spans.has(f))
+	)
+	const repeats = (partial: Fact): boolean =>
+		arbitered &&
+		Arr.some(
+			[...after.values()],
+			(fact) => keyIdentity(relation, stated, fact) === keyIdentity(relation, stated, partial)
+		)
 	for (const [id, partial] of sortedEntries(generated)) {
+		if (repeats(partial)) {
+			continue
+		}
 		const admitted = drawGenerated(id, partial)
 		after.set(admitted.identity, admitted.fact)
 		generatedIds.push(admitted.identity)
