@@ -1,0 +1,81 @@
+EVIDENCE: a SERIALIZABLE transaction alone in its database fails with 40001 once SSI summarizes
+
+Run 2026-11-10 on PostgreSQL 19rc1 (REL_19_RC1, 0b8bff042a), aarch64-darwin, Apple clang 21.0.0, meson, -Dcassert=true,
+llvm disabled. The tree carries grizzle's two pin patches (scripts/pg/patches), which touch execGrouping.c, execMain.c,
+nodeModifyTable.c, relcache.c, rel.h, relcache.h and a regression test; none touches predicate.c, heapam.c or the
+isolation tests, so the SSI path below is stock.
+
+1. THE INCIDENT (grizzle's full run at f6f1afbf, cluster on port 5433, several lanes' suites at once)
+   pg/fin/fold-ends, TEST_SEED=1966458093, the steered phase, case 24, a counted family:
+     write 1  insert an owner and ten members
+     write 2  delete six members, re-place the other four, rewrite the owner's count and ends
+     write 3  delete two members, re-place the rest, rewrite the owner             <- 40001
+   Server log ~/.local/var/grizzle/pg19rc1/log/postgresql-2026-11-09.log, lines 1685987-1685990:
+     2026-11-09 04:05:47.638 CST [78794] ERROR:  could not serialize access due to read/write dependencies among transactions
+     2026-11-09 04:05:47.638 CST [78794] DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+     2026-11-09 04:05:47.638 CST [78794] STATEMENT:  WITH RECURSIVE ... DELETE FROM "gz_ends_counted_78467_0_2204522038"."m_max" ...
+   It is the only 40001 the server logged between 04:05:45 and 04:07. Nothing else wrote the file's database: its
+   cases run one at a time, and its other statements each commit before the next apply. The shrinker's 40 replays of
+   the case all passed.
+
+2. THE CAUSE, IN THE SOURCE (19rc1; master has the same order, checked 2026-11-10)
+   src/backend/access/heap/heapam.c, HeapCheckForSerializableConflictOut():
+     9468      htsvResult = HeapTupleSatisfiesVacuum(tuple, TransactionXmin, buffer);
+     9476-9481 RECENTLY_DEAD / DELETE_IN_PROGRESS: visible -> the updater; not visible -> the creator (xmin)
+     9483,9524 an xid older than TransactionXmin is dropped here, before SSI is asked
+   src/backend/storage/lmgr/predicate.c, CheckForSerializableConflictOut():
+     3984-4015 xid not in SerializableXidHash: SerialGetMinConflictCommitSeqNo(xid), then raise "conflict out to old
+               pivot %u" (4000) or "with conflict out to old committed transaction %u" (4008), or set
+               SXACT_FLAG_SUMMARY_CONFLICT_OUT on the reader (4011), with no concurrency test
+     4033-4049 found sxact with a summary conflict out: doom it, or raise "conflict out to old pivot." (4047)
+     4068      only then: if (!XidIsConcurrent(xid)) return
+   predicate.c, the rest of the path:
+     1165      max_serializable_xacts = (MaxBackends + max_prepared_xacts) * 10
+     1735-1745 no free sxact: SummarizeOldestCommittedSxact() (1432), SerialAdd (1464)
+     1840-1852 a new sxact at the same xmin joins SxactGlobalXminCount; 3572 the global xmin moves only at zero
+     3641-3647 a finished sxact is freed only once finishedBefore <= SxactGlobalXmin
+     4154-4158 a committed reader overlaps a writer when the writer's snapshot xmin precedes its finishedBefore
+     4508,4596 the writer has a summary conflict out: "Canceled on identification as a pivot, during write"
+   One transaction holding an xid anywhere in the cluster holds back TransactionXmin for every snapshot, so the
+   deleted versions stay RECENTLY_DEAD (9468), the overlap test at 4156 holds for readers that committed before the
+   writer began, and, while serializable transactions overlap, SxactGlobalXmin never moves, nothing is freed, and
+   every new serializable transaction summarizes the oldest finished one.
+
+3. THE ISOLATION SPEC ON STOCK (serializable-summarized-conflict-out, in the patch)
+   "holder" keeps a serializable transaction with an xid open; "churner" commits serializable transactions until
+   pg_locks shows v1's SIREAD lock on m held by the summarized dummy (pid NULL). The writer runs alone.
+     not ok 135   - serializable-summarized-conflict-out      (134 of 135 isolation tests passed)
+   Against the expected output (the patched behaviour):
+     step w3: DELETE FROM m WHERE id = 2;
+    +ERROR:  could not serialize access due to read/write dependencies among transactions
+     ...
+     step u: SELECT count(*) FROM n;
+    -count
+    ------
+    -    0
+    -(1 row)
+    +ERROR:  could not serialize access due to read/write dependencies among transactions
+   The temporary instance's server log:
+     DETAIL:  Reason code: Canceled on identification as a pivot, during write.     STATEMENT:  DELETE FROM m WHERE id = 2;
+     DETAIL:  Reason code: Canceled on conflict out to old pivot.                   STATEMENT:  SELECT count(*) FROM n;
+   The first is the incident's reason code (4596), the second the found-sxact path (4047).
+
+4. WITH THE PATCH
+   The same spec, with a counter added to the procedure: "summarized after 1400 transactions" in each permutation
+   (the pool is (MaxBackends 136 + max_prepared_xacts 2) * 10 = 1380, probed every 100), and every transaction of both
+   permutations commits; the server logs no error from the writer.
+     src/test/isolation: All 135 tests passed (ok 135 - serializable-summarized-conflict-out).
+     src/test/regress:   All 240 tests passed.
+   Built with assertions, no warning in predicate.c. pgindent (src/tools/pgindent with the in-tree pg_bsd_indent)
+   leaves predicate.c unchanged; git diff --check is clean. The patch applies with git apply --check, no fuzz, to
+   stock 19rc1 and after grizzle's two pin patches.
+
+5. SOUNDNESS
+   XidIsConcurrent(xid) false means the xid finished before the transaction snapshot, so all its writes are in it and
+   the reader has no rw-antidependency to it; every cancellation the patch skips rested on that edge. For such an xid
+   the path without summarization already returns with nothing set (4068). Read adversarially by NEGATION on
+   2026-11-10, which found no schedule the patched function commits that unbounded SSI would cancel: a LIVE invisible
+   version's creator and a visible version's updater are never in the scan snapshot, which is the transaction
+   snapshot or, for RI's PK-side checks, a later one (ri_triggers.c 1828, 2067, 2699), so they stay concurrent; a
+   RECENTLY_DEAD invisible version's creator is non-concurrent only when the scan saw its delete; heapam passes
+   SubTransGetTopmostTransaction and xip holds top-level xids; a prepared transaction is in xip while prepared.

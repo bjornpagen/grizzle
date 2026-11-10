@@ -1,0 +1,62 @@
+To: pgsql-hackers@lists.postgresql.org
+Subject: [PATCH] Decide a serializable conflict out by the snapshot first
+
+Hi,
+
+A SERIALIZABLE transaction with nothing concurrent in its own database
+can fail with 40001 because of load in other databases of the cluster.
+We met it as a single writer applying three transactions in sequence to
+a table nothing else touched: the third failed with
+
+    ERROR:  could not serialize access due to read/write dependencies among transactions
+    DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+
+while other databases ran many short serializable transactions and one
+long transaction held an xid.
+
+HeapCheckForSerializableConflictOut() passes CheckForSerializableConflictOut()
+the creator of every RECENTLY_DEAD version the scan cannot see, and that
+is usually a transaction that committed before the reader's snapshot:
+the version is invisible because its deleter committed first.  The
+ordinary path drops such an xid at XidIsConcurrent().  But when the
+xid's SERIALIZABLEXACT has been summarized, the SLRU branch sets
+SXACT_FLAG_SUMMARY_CONFLICT_OUT on the reader without any concurrency
+test (or raises "with conflict out to old committed transaction"), and
+the reader then fails at its next rw-conflict in.  The found branch has
+the same order: it tests SxactHasSummaryConflictOut() before
+XidIsConcurrent() and raises "conflict out to old pivot".
+
+Summarization needs the sxact pool full of finished transactions, and a
+long xid holder anywhere in the cluster gives that under ordinary load:
+it holds back every snapshot's xmin, so SxactGlobalXmin stays put while
+serializable transactions overlap, nothing is freed, and every new one
+summarizes the oldest finished one.  The same xmin keeps the deleted
+versions RECENTLY_DEAD for the readers.
+
+The attached patch tests XidIsConcurrent() first in
+CheckForSerializableConflictOut(), before the hash or the SLRU is
+consulted, and drops the later duplicate.  A transaction whose writes
+are all in the reader's snapshot is no rw-antidependency, so every
+cancellation the earlier tests made for such an xid lacked its premise;
+for those xids the function now returns what it returns when nothing
+was summarized, and every concurrent xid takes the path it took before.
+heapam already discards xids older than TransactionXmin before calling
+in; this extends the rule to the committed xids between the snapshot's
+xmin and xmax.
+
+The new isolation test serializable-summarized-conflict-out keeps a
+serializable transaction with an xid open, fills the pool until the
+writer's first transactions are summarized, and runs both failing
+paths.  On 19rc1 both permutations fail with 40001; with the patch every
+transaction commits, and the isolation and core regression suites pass
+with assertions enabled.  master has the same code.
+
+I'd appreciate review of the soundness argument above in particular.
+The cases I checked: a visible version's updater, and a LIVE invisible
+version's creator, are never in the scan snapshot, which is the
+transaction snapshot or, for RI's PK-side checks, a later one, so they
+stay concurrent; heapam passes top-level xids, and xip holds them;
+prepared transactions sit in xip while prepared.
+
+Regards,
+Bjorn Pagen

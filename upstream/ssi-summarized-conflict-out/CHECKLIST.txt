@@ -1,0 +1,34 @@
+CHECKLIST: PostgreSQL contribution policy, applied to the summarized conflict-out check
+
+Outcome: a patch for master with an isolation test, to go to pgsql-hackers when the owner chooses. Nothing has been
+sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check the current development branch: master's CheckForSerializableConflictOut() has the same order as
+      REL_19_RC1 (the SLRU branch and the SxactHasSummaryConflictOut test before XidIsConcurrent), read 2026-11-10.
+  [ ] Check whether the problem is already known: the pgsql-hackers and pgsql-bugs archives were not searched by hand.
+      The owner searches "SxactHasSummaryConflictOut", "conflict out to old pivot" and "summarized" "false positive"
+      before sending.
+  [ ] Don't duplicate a discussion: the commitfest search needs a login; the owner repeats it before filing.
+  [x] Mind the release cycle: 19 is between RC1 and RC2. This is a master patch; whether it is a bug fix to
+      back-patch is the list's call, and the email asks.
+
+B. REPORT CONTENT
+  [x] A self-contained reproduction: the isolation spec serializable-summarized-conflict-out, which needs no special
+      configuration: it fills the sxact pool whatever its size and waits until pg_locks shows a summarized lock.
+  [x] Observed and expected behaviour, version and platform: EVIDENCE.txt 3 and 4, and its header.
+  [x] List: pgsql-hackers, since it comes with a patch and is a false serialization failure, not a wrong result.
+  [x] Plain text, no top-posting: email.txt.
+
+C. PATCH SUBMISSION
+  [x] One patch in git format-patch style (v1-0001-...patch). Applies with git apply --check to stock 19rc1; master
+      has the same code but the patch was not applied to a master checkout.
+  [x] Commit message: summary line, the cause, the fix, its soundness and the test.
+  [x] An isolation test, last in isolation_schedule. Fails on stock, passes with the patch (EVIDENCE.txt 3, 4).
+  [x] Builds with assertions (-Dcassert=true), no warning in predicate.c.
+  [x] Passes src/test/isolation (135) and src/test/regress (240).
+  [ ] TAP suites, contrib and the test modules were not run; the cfbot runs them once the commitfest entry exists.
+  [x] pgindent leaves predicate.c unchanged; git diff --check is clean.
+  [x] To be attached, not inlined.
+  [ ] The author line: the owner replaces the GitHub noreply address with his sending address before sending.
+  [ ] A commitfest entry, which the owner makes after the email reaches the archive.
