@@ -365,7 +365,7 @@ export const membersSelection = (f: FamilyShape): ReadonlyArray<ExprDesc> =>
 					kind: "compare",
 					op: "gt",
 					left: { kind: "field", field: f.members.start.name },
-					right: { kind: "literal", value: 0n, type: undefined }
+					right: { kind: "literal", value: 0n }
 				}
 			]
 		: []

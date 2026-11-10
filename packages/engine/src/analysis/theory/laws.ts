@@ -827,7 +827,7 @@ export class LawSides {
 			more: ReadonlyArray<ExprDesc>
 		): ResolvedSide => this.side(scopeOver(f.member.name, [...members, ...more]), terms, loc)
 		const field = (g: LawField): ExprDesc => ({ kind: "field", field: g.name })
-		const zero: ExprDesc = { kind: "literal", value: 0n, type: undefined }
+		const zero: ExprDesc = { kind: "literal", value: 0n }
 		const compare = (op: "eq" | "ne" | "gt", l: ExprDesc, r: ExprDesc): ExprDesc => ({
 			kind: "compare",
 			op,
@@ -858,7 +858,7 @@ export class LawSides {
 				compare("eq", based(t.end), {
 					kind: "compute",
 					fn: "add",
-					args: [based(t.start), { kind: "literal", value: 1n, type: undefined }]
+					args: [based(t.start), { kind: "literal", value: 1n }]
 				})
 			])
 		])
@@ -930,7 +930,7 @@ export class LawSides {
 				befores,
 				x === undefined ? { kind: "one" } : { kind: "value", expr: based(x) },
 				{
-					one: { kind: "literal", value: 1n, type: undefined },
+					one: { kind: "literal", value: 1n },
 					apply: (fn: CombineFn, left, right) => ({ kind: "compute", fn, args: [left, right] })
 				}
 			)

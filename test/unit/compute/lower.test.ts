@@ -123,8 +123,7 @@ describe("lowering in query mode", () => {
 	const numberColumns: Arr.NonEmptyReadonlyArray<string> = ["i", "b", "n", "n52"]
 	const literalOf = (l: UntypedLiteral): ExprDesc => ({
 		kind: "literal",
-		value: l.value,
-		type: undefined
+		value: l.value
 	})
 
 	it.effect(
@@ -225,7 +224,7 @@ describe("lowering in query mode", () => {
 												kind: "compare",
 												op,
 												left: { kind: "var", var: "n" },
-												right: { kind: "literal", value: fraction, type: undefined }
+												right: { kind: "literal", value: fraction }
 											},
 											vars,
 											true,
@@ -379,8 +378,7 @@ describe("a conversion into a contract", () => {
 			params: true,
 			literal: (type, value) => ({
 				kind: "literal",
-				value: typedLiteralDesc(resolveValue(type, value, false), type),
-				type: undefined
+				value: typedLiteralDesc(resolveValue(type, value, false), type)
 			}),
 			param: (_, type) => {
 				const name = `t${declared.size + 1}`
@@ -562,8 +560,7 @@ describe("a combination of two compatible terms", () => {
 		params: false,
 		literal: (type, value) => ({
 			kind: "literal",
-			value: typedLiteralDesc(resolveValue(type, value, false), type),
-			type: undefined
+			value: typedLiteralDesc(resolveValue(type, value, false), type)
 		}),
 		param: () => "unused"
 	}

@@ -65,7 +65,7 @@ const keyArgument = (
 	if (!literal.ok) {
 		return refuse(loc, `${position.field}: ${describeFault(literal.error)}`)
 	}
-	return { kind: "literal", value: literal.value, type: undefined }
+	return { kind: "literal", value: literal.value }
 }
 
 /** A read whose arguments are not one per key position it reads, refused with the count it needs. */

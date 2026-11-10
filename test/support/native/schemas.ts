@@ -250,7 +250,7 @@ export const phiHolds = (phi: Phi, fact: HostFact): boolean => {
 const integerLiteral = (spec: RelationSpec, field: string, value: number): LiteralDesc =>
 	typeOf(spec, field) === "natural" ? BigInt(value) : value
 
-const literalDesc = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value, type: undefined })
+const literalDesc = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value })
 
 const fieldDesc = (field: string): ExprDesc => ({ kind: "field", field })
 

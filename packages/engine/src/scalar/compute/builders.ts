@@ -367,8 +367,7 @@ class Call {
 		}
 		const literal: LiteralExpr = {
 			kind: "literal",
-			value: this.literal(value, anchor),
-			type: undefined
+			value: this.literal(value, anchor)
 		}
 		return { real: literal, ph: this.placeholder(anchor) }
 	}
@@ -751,8 +750,7 @@ const factGuard =
 		const valuePh: ExprDesc = { kind: "base", arg: s.ph }
 		const literal = (constant: unknown): LiteralExpr => ({
 			kind: "literal",
-			value: call.literal(constant, s.type),
-			type: undefined
+			value: call.literal(constant, s.type)
 		})
 		const comparisons = (): ReadonlyArray<readonly [CompareOp, LiteralExpr]> => {
 			switch (kind) {
@@ -807,8 +805,8 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 	}
 	const lo = call.literal(low, s.type)
 	const hi = call.literal(high, s.type)
-	const lowLit: LiteralExpr = { kind: "literal", value: lo, type: undefined }
-	const highLit: LiteralExpr = { kind: "literal", value: hi, type: undefined }
+	const lowLit: LiteralExpr = { kind: "literal", value: lo }
+	const highLit: LiteralExpr = { kind: "literal", value: hi }
 	const real: OpenExpr = { kind: "between", arg: s.real, low: lowLit, high: highLit }
 	const ph: ExprDesc = { kind: "between", arg: s.ph, low: lowLit, high: highLit }
 	call.finishPredicate(real, ph)
@@ -896,8 +894,8 @@ const translation = (
 	to: string
 ): PlainChecked => {
 	const s = call.term(x, what)
-	const f: LiteralExpr = { kind: "literal", value: from, type: undefined }
-	const t: LiteralExpr = { kind: "literal", value: to, type: undefined }
+	const f: LiteralExpr = { kind: "literal", value: from }
+	const t: LiteralExpr = { kind: "literal", value: to }
 	return call.finishPlain(
 		{ kind: "compute", fn: "translate", args: [s.real, f, t] },
 		{ kind: "compute", fn: "translate", args: [s.ph, f, t] }

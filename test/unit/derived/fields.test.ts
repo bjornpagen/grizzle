@@ -95,7 +95,7 @@ const nonNegative: OpenExpr = {
 	kind: "compare",
 	op: "ge",
 	left: { kind: "value" },
-	right: { kind: "literal", value: 0n, type: undefined }
+	right: { kind: "literal", value: 0n }
 }
 
 const contractCaseGen: Gen<ContractCase> = (source) => {

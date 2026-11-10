@@ -93,7 +93,7 @@ import {
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
-const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
+const text = (value: string): ExprDesc => ({ kind: "literal", value })
 const collapsing = (subject: ExprDesc): ExprDesc => ({
 	kind: "compute",
 	fn: "collapse",
@@ -961,7 +961,7 @@ describe("Compute's translate and lowerAscii", () => {
 													kind: "compare",
 													op: "le",
 													left: { kind: "compute", fn: "charLength", args: [{ kind: "value" }] },
-													right: { kind: "literal", value: target.below, type: undefined }
+													right: { kind: "literal", value: target.below }
 												},
 												facts: []
 											}

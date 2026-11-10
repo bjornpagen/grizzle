@@ -29,8 +29,7 @@ import {
 
 const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
 	kind: "literal",
-	value: typedLiteralDesc(literal, type),
-	type: undefined
+	value: typedLiteralDesc(literal, type)
 })
 
 /**

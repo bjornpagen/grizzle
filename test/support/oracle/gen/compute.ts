@@ -432,8 +432,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 
 const literalOf = (carrier: Carrier, n: number): ExprDesc => ({
 	kind: "literal",
-	value: numberLiteral(carrier, n),
-	type: undefined
+	value: numberLiteral(carrier, n)
 })
 
 /** The guard that its subject lies within [-n, n], over a subject of `carrier`. */

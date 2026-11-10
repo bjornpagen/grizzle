@@ -123,7 +123,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 		kind: "compare" as const,
 		op: "gt" as const,
 		left: field("start"),
-		right: { kind: "literal" as const, value: 0n, type: undefined }
+		right: { kind: "literal" as const, value: 0n }
 	}
 	return {
 		name: "Trees",

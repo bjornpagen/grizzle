@@ -18,7 +18,7 @@ export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtens
 })
 
 const value: ExprDesc = { kind: "value" }
-const lit = (v: LiteralDesc): ExprDesc => ({ kind: "literal", value: v, type: undefined })
+const lit = (v: LiteralDesc): ExprDesc => ({ kind: "literal", value: v })
 const field = (name: string): ExprDesc => ({ kind: "field", field: name })
 
 const F = {

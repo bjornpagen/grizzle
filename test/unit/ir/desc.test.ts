@@ -99,8 +99,8 @@ const budget: FieldDesc = {
 	predicate: {
 		kind: "between",
 		arg: { kind: "value" },
-		low: { kind: "literal", value: 0n, type: undefined },
-		high: { kind: "literal", value: dec("1000000"), type: undefined }
+		low: { kind: "literal", value: 0n },
+		high: { kind: "literal", value: dec("1000000") }
 	},
 	facts: []
 }
@@ -127,7 +127,7 @@ const fields: Readonly<Record<string, FieldDecl<object>>> = {
 				fn: "mul",
 				args: [
 					{ kind: "field", field: "priority" },
-					{ kind: "literal", value: 2n, type: undefined }
+					{ kind: "literal", value: 2n }
 				]
 			}
 		}
@@ -213,9 +213,9 @@ const rule: RuleDesc = {
 		},
 		{
 			kind: "allen",
-			left: { kind: "literal", value: { span: { start: 1n, end: 5n } }, type: undefined },
+			left: { kind: "literal", value: { span: { start: 1n, end: 5n } } },
 			mask: 0b1_1111_1111,
-			right: { kind: "literal", value: { span: { start: 3, end: 9 } }, type: undefined }
+			right: { kind: "literal", value: { span: { start: 3, end: 9 } } }
 		}
 	],
 	head: {
@@ -227,15 +227,15 @@ const rule: RuleDesc = {
 			fn: "mul",
 			args: [
 				{ kind: "var", var: "v3" },
-				{ kind: "literal", value: 2n, type: undefined }
+				{ kind: "literal", value: 2n }
 			]
 		},
 		rounded: { kind: "compute", fn: "round", args: [{ kind: "var", var: "v3" }], scale: 1 },
 		flag: {
 			kind: "cond",
 			pred: { kind: "var", var: "v1" },
-			onTrue: { kind: "literal", value: 1, type: undefined },
-			onFalse: { kind: "literal", value: 0, type: undefined }
+			onTrue: { kind: "literal", value: 1 },
+			onFalse: { kind: "literal", value: 0 }
 		},
 		nan: {
 			kind: "literal",
@@ -249,8 +249,7 @@ const rule: RuleDesc = {
 		},
 		probe: {
 			kind: "literal",
-			value: succeeded(VectorText.of(Float32Array.of(0.5, 1, 0.25))),
-			type: undefined
+			value: succeeded(VectorText.of(Float32Array.of(0.5, 1, 0.25)))
 		},
 		spans: {
 			kind: "producer",
@@ -398,7 +397,7 @@ const statements: ReadonlyArray<StatementDesc> = [
 			kind: "compare",
 			op: "gt",
 			left: { kind: "field", field: "priority" },
-			right: { kind: "literal", value: 0, type: undefined }
+			right: { kind: "literal", value: 0 }
 		}
 	},
 	{
@@ -635,8 +634,8 @@ const castsAndSpans: ExprDesc = {
 		},
 		{
 			kind: "pointIn",
-			point: { kind: "literal", value: 4n, type: undefined },
-			span: { kind: "literal", value: { span: { start: 1n, end: 5n } }, type: undefined }
+			point: { kind: "literal", value: 4n },
+			span: { kind: "literal", value: { span: { start: 1n, end: 5n } } }
 		}
 	]
 }
@@ -855,7 +854,7 @@ describe("Descriptions", () => {
 		...budgetRule,
 		head: {
 			budget: { kind: "var", var: "v9" },
-			extra: { kind: "literal", value: 1, type: undefined }
+			extra: { kind: "literal", value: 1 }
 		}
 	}
 	const combined = (input: QueryStageDesc, combinator: Combinator): QueryStageDesc => {
@@ -1405,7 +1404,7 @@ describe("Descriptions", () => {
 										type: Reflect.get(keyed, "type"),
 										writing: {
 											kind: "generated",
-											expr: { kind: "literal", value: 1, type: undefined }
+											expr: { kind: "literal", value: 1 }
 										}
 									}
 								}
@@ -1664,7 +1663,7 @@ describe("Descriptions", () => {
 				name,
 				type: { kind: "pg", type: "integer" }
 			})),
-			map(literal, (value): ExprDesc => ({ kind: "literal", value, type: undefined }))
+			map(literal, (value): ExprDesc => ({ kind: "literal", value }))
 		]
 		if (depth === 0) {
 			return oneOf(leaves)

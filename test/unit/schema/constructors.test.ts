@@ -337,7 +337,7 @@ const Cents = rawContract("Cents", rawPg.bigint, {
 	kind: "compare",
 	op: "ge",
 	left: { kind: "value" },
-	right: { kind: "literal", value: 0n, type: undefined }
+	right: { kind: "literal", value: 0n }
 })
 
 const payloadDescriptor = (type: PayloadType): FieldBase => {
@@ -1452,8 +1452,7 @@ describe("statements", () => {
 	)
 	const literalExpr = (value: LiteralDesc): ExprDesc => ({
 		kind: "literal",
-		value,
-		type: undefined
+		value
 	})
 
 	/** The term an operand builds over the row, and the ExprDesc it records. */

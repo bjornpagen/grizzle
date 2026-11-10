@@ -103,7 +103,7 @@ const lengthContract = (measure: "charLength" | "octetLength", length: number): 
 		kind: "compare",
 		op: "le",
 		left: { kind: "compute", fn: measure, args: [{ kind: "value" }] },
-		right: { kind: "literal", value: length, type: undefined }
+		right: { kind: "literal", value: length }
 	},
 	facts: []
 })

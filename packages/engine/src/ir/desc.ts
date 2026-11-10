@@ -291,7 +291,7 @@ export type GuardDesc =
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| R["leaf"]
 	| ({ readonly kind: "param"; readonly type: R["paramType"] } & R["param"])
-	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type: FieldDesc | undefined }
+	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type?: FieldDesc }
 	| {
 			readonly kind: "compute"
 			readonly fn: Exclude<ComputeFn, ScaledComputeFn>
@@ -832,7 +832,7 @@ const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<strin
 					kind: "compare",
 					op: "eq",
 					left: tag,
-					right: { kind: "literal", value: only, type: undefined }
+					right: { kind: "literal", value: only }
 				}
 			: { kind: "in", arg: tag, values: handles }
 	return { ...a.parent, selection: { conjuncts: [predicate] } }
@@ -1416,10 +1416,9 @@ const exprCases = {
 	value: S.struct({}),
 	parent: S.struct({ column: name }),
 	param: S.struct({ name, type: S.ref("a field descriptor", () => fieldDescShape) }),
-	literal: S.structStated(
+	literal: S.structWith(
 		{ value: literalDescShape },
-		{ type: S.ref("a field descriptor", () => fieldDescShape) },
-		{}
+		{ type: S.ref("a field descriptor", () => fieldDescShape) }
 	),
 	compute: S.tagged("fn", computeCases),
 	cast: S.struct({

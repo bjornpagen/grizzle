@@ -116,7 +116,7 @@ export const fillQuery = (entry: CheckedEntry, input: Heading, loc: SourceLoc): 
 	for (const fixed of entry.fixed) {
 		const value = fixed.value
 		if (value.kind === "literal") {
-			head[fixed.field.name] = { kind: "literal", value: value.value, type: undefined }
+			head[fixed.field.name] = { kind: "literal", value: value.value }
 			continue
 		}
 		const id = `entry_${value.context.name}_${value.field}`

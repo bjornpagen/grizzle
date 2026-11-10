@@ -354,11 +354,9 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 			if (binding === undefined || binding.kind === "column") {
 				return e
 			}
-			return {
-				kind: "literal",
-				value: binding.value,
-				type: binding.kind === "literal" ? binding.field.desc : undefined
-			}
+			return binding.kind === "literal"
+				? { kind: "literal", value: binding.value, type: binding.field.desc }
+				: { kind: "literal", value: binding.value }
 		}
 		case "param":
 		case "literal":
@@ -457,7 +455,7 @@ export const adoptedLiteral = (
 			kind: "compare",
 			op: "eq",
 			left: { kind: "var", var: "c" },
-			right: { kind: "literal", value, type: undefined }
+			right: { kind: "literal", value }
 		},
 		env("query", { c: { kind: "column", type } }, sink().emit, baseParams)
 	)

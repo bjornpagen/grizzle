@@ -207,7 +207,7 @@ const predicateGen: Gen<PredicateCase> = (source) => {
 	}
 }
 
-const literalExpr = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value, type: undefined })
+const literalExpr = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value })
 
 /** A term with VALUE rendered as `leaf`. */
 const render = (t: Term, leaf: ExprDesc): ExprDesc => {
@@ -515,7 +515,7 @@ describe("the ContractLiteral check", () => {
 												kind: "compare",
 												op: "ge",
 												left: { kind: "var", var: "c" },
-												right: { kind: "literal", value: n, type: undefined }
+												right: { kind: "literal", value: n }
 											},
 											vars,
 											true,

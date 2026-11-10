@@ -112,7 +112,7 @@ const operand = (value: unknown, type: TermType | undefined, label: string): Ope
 		type === undefined
 			? untypedLiteral(value, label)
 			: literalFor(type.desc, value, label, type.roster)
-	return { kind: "literal", value: literal, type: undefined }
+	return { kind: "literal", value: literal }
 }
 
 const termOperand = (

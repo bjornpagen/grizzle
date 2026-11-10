@@ -116,7 +116,7 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): string | undefin
 const operand: ExprDesc = { kind: "base", arg: { kind: "field", field: "plane" } }
 
 /** The step one a count adds: the integer 1, of no type of its own until it meets the plane. */
-const one: ExprDesc = { kind: "literal", value: 1n, type: undefined }
+const one: ExprDesc = { kind: "literal", value: 1n }
 
 /**
  * Why the CHECK that proves a fold's after over a plane of type `plane` is no total predicate, as the refusal's

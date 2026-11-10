@@ -280,10 +280,14 @@ const eq = (left: ExprDesc, right: ExprDesc): ExprDesc => ({
 })
 
 /** A literal of no type of its own, which takes the type of the term it meets. */
-type BareLiteral = Extract<ExprDesc, { readonly kind: "literal" }> & { readonly type: undefined }
+type BareLiteral = Extract<ExprDesc, { readonly kind: "literal" }> & { readonly type?: undefined }
 
 /** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
 const isBare = (e: ExprDesc): e is BareLiteral => e.kind === "literal" && e.type === undefined
+
+/** A bare literal under `type`, the type of the column it meets, or as it is where the column has none. */
+const typedAs = (e: BareLiteral, type: FieldDesc | undefined): ExprDesc =>
+	type === undefined ? e : { ...e, type }
 
 /**
  * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
@@ -499,7 +503,7 @@ class Flattener {
 		const head: Record<string, ExprDesc> = {}
 		for (const [name, term] of Object.entries(rule.head)) {
 			const t = this.#headTerm(relation, term)
-			head[name] = mapLeaves(isBare(t) ? { ...t, type: columns(name) } : t, leaves)
+			head[name] = mapLeaves(isBare(t) ? typedAs(t, columns(name)) : t, leaves)
 		}
 		const where: Array<ExprDesc> = []
 		const negated: Array<NegatedArm> = []

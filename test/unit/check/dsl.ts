@@ -47,7 +47,7 @@ export const ref = (relation: string, field: string): ExprDesc => ({
 })
 export const varRef = (id: string): ExprDesc => ({ kind: "var", var: id })
 /** A literal untyped: it takes the type of the slot it meets. */
-export const lit = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value, type: undefined })
+export const lit = (value: LiteralDesc): ExprDesc => ({ kind: "literal", value })
 /** A literal typed by its own descriptor, where an untyped one takes the type of the slot it meets. */
 export const typedLit = (value: LiteralDesc, type: FieldDesc): ExprDesc => ({
 	kind: "literal",

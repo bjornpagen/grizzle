@@ -63,7 +63,7 @@ const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$"
 const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
-const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
+const text = (value: string): ExprDesc => ({ kind: "literal", value })
 const compute = (
 	fn: "matches" | "concat" | "startsWith" | "endsWith",
 	...args: ReadonlyArray<ExprDesc>

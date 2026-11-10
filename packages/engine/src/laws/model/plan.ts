@@ -790,7 +790,7 @@ const coverageKeySentence =
 	"a coverage target needs a `WITHOUT OVERLAPS` key over its span; coalesce the spans, or key them"
 
 /** A literal expression of a small natural, which every comparison of a family's drawn naturals reads. */
-const naturalLiteral = (value: 0n | 1n): ExprDesc => ({ kind: "literal", value, type: undefined })
+const naturalLiteral = (value: 0n | 1n): ExprDesc => ({ kind: "literal", value })
 
 const cmp = (
 	op: "eq" | "ne" | "lt" | "le" | "gt" | "ge",

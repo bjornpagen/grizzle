@@ -79,7 +79,7 @@ const schemaOf = (selected: boolean): SchemaDesc => {
 							kind: "compare",
 							op: "eq",
 							left: field("flag"),
-							right: { kind: "literal", value: true, type: undefined }
+							right: { kind: "literal", value: true }
 						})
 					: on("Member", step),
 				on("Owner", ["id", "joined"])

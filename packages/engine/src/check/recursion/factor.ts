@@ -113,10 +113,7 @@ const exactHead = (h: ResolvedHead, column: ScalarType): ResolvedHead =>
 		: {
 				kind: "compute",
 				fn: "add",
-				args: [
-					h,
-					{ kind: "literal", value: baseOf(column).carrier === "int8" ? 0n : 0, type: undefined }
-				]
+				args: [h, { kind: "literal", value: baseOf(column).carrier === "int8" ? 0n : 0 }]
 			}
 
 /**

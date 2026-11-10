@@ -715,7 +715,7 @@ const checksOf = (schema: GenSchema, extras: Extras): ReadonlyArray<StatementDes
 					kind: "compare",
 					op: c.lower ? "ge" : "le",
 					left: { kind: "field", field: col.name },
-					right: { kind: "literal", value: c.lower ? least : greatest, type: undefined }
+					right: { kind: "literal", value: c.lower ? least : greatest }
 				}
 			}
 		]

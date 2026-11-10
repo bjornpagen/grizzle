@@ -71,7 +71,7 @@ import {
 
 const field = (name: string): TermDesc => ({ kind: "field", field: name })
 const pred = (name: string): TermDesc => ({ kind: "pred", field: name })
-const literal0: ExprDesc = { kind: "literal", value: 0n, type: undefined }
+const literal0: ExprDesc = { kind: "literal", value: 0n }
 const compare = (op: CompareOp, left: ExprDesc, right: ExprDesc): ExprDesc => ({
 	kind: "compare",
 	op,
@@ -677,7 +677,7 @@ describe("riding a family axis (§2.1)", () => {
 	})
 
 	const conjunctOf = (c: Comparison): ExprDesc => {
-		const literal: ExprDesc = { kind: "literal", value: c.literal, type: undefined }
+		const literal: ExprDesc = { kind: "literal", value: c.literal }
 		return c.fieldLeft
 			? compare(c.op, fieldExpr(c.field), literal)
 			: compare(c.op, literal, fieldExpr(c.field))

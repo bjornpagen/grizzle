@@ -140,7 +140,7 @@ const naturalDesc: FieldDesc = {
 		kind: "compare",
 		op: "ge",
 		left: { kind: "value" },
-		right: { kind: "literal", value: 0n, type: undefined }
+		right: { kind: "literal", value: 0n }
 	},
 	facts: ["nonnegative"]
 }
@@ -195,8 +195,7 @@ export const f = {
 export const value: ExprDesc = { kind: "value" }
 export const literal = (v: LiteralDesc): ExprDesc => ({
 	kind: "literal",
-	value: v,
-	type: undefined
+	value: v
 })
 
 /**

@@ -564,8 +564,7 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 			const source = boundSource(value)
 			out[name] = source ?? {
 				kind: "literal",
-				value: untypedLiteral(value, `${label} ${name}`),
-				type: undefined
+				value: untypedLiteral(value, `${label} ${name}`)
 			}
 		}
 	}

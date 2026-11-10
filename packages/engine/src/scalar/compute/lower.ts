@@ -3326,11 +3326,7 @@ class Lowering<R extends Refs> {
 			}
 			case "matches":
 				return {
-					predicate: this.matchesOver(
-						subject,
-						{ kind: "literal", value: guard.pattern, type: undefined },
-						at
-					),
+					predicate: this.matchesOver(subject, { kind: "literal", value: guard.pattern }, at),
 					within: undefined
 				}
 		}

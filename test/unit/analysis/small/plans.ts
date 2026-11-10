@@ -577,7 +577,7 @@ const extend = (plan: Plan, step: Step): Plan => {
 							term: {
 								kind: "compute",
 								fn: "div",
-								args: [arg, { kind: "literal", value: 2, type: undefined }]
+								args: [arg, { kind: "literal", value: 2 }]
 							},
 							variable: undefined,
 							type: "int4"

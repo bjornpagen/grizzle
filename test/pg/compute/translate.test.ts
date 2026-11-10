@@ -66,7 +66,7 @@ import { stringsOver } from "#test/unit/text/generators.ts"
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
-const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
+const text = (value: string): ExprDesc => ({ kind: "literal", value })
 
 /**
  * Tab, LF and CR beside the space they become, twice, so runs of them are common, the ASCII letters and their

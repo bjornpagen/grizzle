@@ -293,10 +293,14 @@ const restatedExpr = (
 				(e.type === undefined ? undefined : descRoster(e.type)) ?? expected,
 				names
 			)
-			const type = e.type === undefined ? undefined : restatedType(e.type, names)
-			return value === undefined || (e.type !== undefined && type === undefined)
-				? undefined
-				: { ...e, value, type }
+			if (value === undefined) {
+				return undefined
+			}
+			if (e.type === undefined) {
+				return { ...e, value }
+			}
+			const type = restatedType(e.type, names)
+			return type === undefined ? undefined : { ...e, value, type }
 		}
 		case "compute": {
 			const roster = rosterFns.has(e.fn) ? (expected ?? firstRoster(e.args, scope)) : undefined

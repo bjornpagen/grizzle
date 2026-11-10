@@ -273,7 +273,7 @@ const boundOf = (atLeastZero: boolean): OpenExpr => ({
 	kind: "compare",
 	op: atLeastZero ? "ge" : "le",
 	left: { kind: "value" },
-	right: { kind: "literal", value: atLeastZero ? 0n : 100n, type: undefined }
+	right: { kind: "literal", value: atLeastZero ? 0n : 100n }
 })
 
 /** The schema of a family's box at a variant, both by their picks. */

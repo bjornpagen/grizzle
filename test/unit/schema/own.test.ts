@@ -376,7 +376,7 @@ describe("conflicting declarations", () => {
 		kind: "compare" as const,
 		op: "ge" as const,
 		left: { kind: "value" as const },
-		right: { kind: "literal" as const, value: n, type: undefined }
+		right: { kind: "literal" as const, value: n }
 	})
 
 	it.effect(
@@ -604,7 +604,7 @@ describe("closed relations", () => {
 														kind: "compare",
 														op: "eq",
 														left: { kind: "field", field: "grade" },
-														right: { kind: "literal", value: s.handle, type: undefined }
+														right: { kind: "literal", value: s.handle }
 													}
 												}
 											]

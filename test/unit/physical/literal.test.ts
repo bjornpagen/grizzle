@@ -244,8 +244,7 @@ describe("a drafted migration's bit strings", () => {
 	/** A set's or a value's literal, its type taken from the term it meets. */
 	const literalOfDesc = (value: LiteralDesc): ExprDesc => ({
 		kind: "literal",
-		value,
-		type: undefined
+		value
 	})
 
 	/** A Compute operation's description. */

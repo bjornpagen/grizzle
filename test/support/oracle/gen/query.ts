@@ -1296,8 +1296,7 @@ class QueryResolver {
 			params: this.config.params && weightOf(this.swarm, "params") > 0,
 			literal: (type, value) => ({
 				kind: "literal",
-				value: typedLiteralDesc(resolveValue(type, value, this.spelling.edge), type),
-				type: undefined
+				value: typedLiteralDesc(resolveValue(type, value, this.spelling.edge), type)
 			}),
 			param: (value, type) => {
 				const name = `t${this.#termParams.size + 1}`

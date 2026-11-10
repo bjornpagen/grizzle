@@ -120,7 +120,7 @@ const visibleFoldSchema: SchemaDesc = schemaOf(
 				kind: "compare",
 				op: "eq",
 				left: { kind: "field", field: "skip" },
-				right: { kind: "literal", value: 0n, type: undefined }
+				right: { kind: "literal", value: 0n }
 			}),
 			end: on("O", ["id", "total"])
 		}

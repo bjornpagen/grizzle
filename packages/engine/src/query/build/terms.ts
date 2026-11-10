@@ -201,7 +201,7 @@ export const literalTerm = <const X extends HeadValue>(
 ): CarriedTerm<X, SqlTag> => {
 	const { sql, conversion } = literalType(value)
 	return carriedTerm(
-		{ kind: "literal", value: untypedLiteral(value, label), type: undefined },
+		{ kind: "literal", value: untypedLiteral(value, label) },
 		{ column: constantColumn(value, conversion), sql }
 	)
 }
@@ -253,7 +253,7 @@ const operand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
 	if (head !== undefined) {
 		throw malformed(label, headOnlyOperand("a scalar operand", head.desc))
 	}
-	return { kind: "literal", value: literalAgainst(anchor, value, label), type: undefined }
+	return { kind: "literal", value: literalAgainst(anchor, value, label) }
 }
 
 /**

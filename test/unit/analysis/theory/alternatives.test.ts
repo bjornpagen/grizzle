@@ -70,7 +70,7 @@ const alternativesSchema = (arms: Assignment, restated: boolean): SchemaDesc => 
 			kind: "compare",
 			op: "eq",
 			left: { kind: "field", field: "tag" },
-			right: { kind: "literal", value: handleOf(firstArmed), type: undefined }
+			right: { kind: "literal", value: handleOf(firstArmed) }
 		}),
 		on(defined(arms[firstArmed]), ["id"])
 	)
@@ -103,7 +103,7 @@ const tagAmong = (handles: ReadonlyArray<string>): ExprDesc => {
 				kind: "compare",
 				op: "eq",
 				left: tag,
-				right: { kind: "literal", value: defined(only), type: undefined }
+				right: { kind: "literal", value: defined(only) }
 			}
 		: { kind: "in", arg: tag, values: handles }
 }

@@ -80,10 +80,8 @@ export interface GuardedTerm {
 const predTerm = (field: string): GuardedTerm => {
 	const x: ExprDesc = { kind: "field", field }
 	return {
-		guard: [
-			{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n, type: undefined } }
-		],
-		term: { kind: "compute", fn: "sub", args: [x, { kind: "literal", value: 1n, type: undefined }] }
+		guard: [{ kind: "compare", op: "gt", left: x, right: { kind: "literal", value: 0n } }],
+		term: { kind: "compute", fn: "sub", args: [x, { kind: "literal", value: 1n }] }
 	}
 }
 

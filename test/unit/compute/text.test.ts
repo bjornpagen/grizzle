@@ -117,7 +117,7 @@ const values = (
 }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
-const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
+const text = (value: string): ExprDesc => ({ kind: "literal", value })
 const compute = (
 	fn: "matches" | "concat" | "startsWith" | "endsWith",
 	...args: ReadonlyArray<ExprDesc>
@@ -577,7 +577,7 @@ describe("Compute's text terms", () => {
 												left: variable(over),
 												right: variable(over)
 											},
-											otherwise: { kind: "literal", value: false, type: undefined }
+											otherwise: { kind: "literal", value: false }
 										}
 							const valid = read(subject, p.pattern)
 							/** The refusal of the faulted term at `path` below the site, for `tag`. */
@@ -727,7 +727,7 @@ describe("Compute's text terms", () => {
 											left: variable(subject),
 											right: text(literal)
 										},
-										otherwise: { kind: "literal", value: false, type: undefined }
+										otherwise: { kind: "literal", value: false }
 									})
 									const error = refused(
 										lowered(guarded(`${longest}${codePointsText([p.point])}`), p.mode),

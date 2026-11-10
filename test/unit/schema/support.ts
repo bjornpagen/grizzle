@@ -78,7 +78,7 @@ export const charLengthAtMost = (n: number): OpenExpr => ({
 	kind: "compare",
 	op: "le",
 	left: { kind: "compute", fn: "charLength", args: [{ kind: "value" }] },
-	right: { kind: "literal", value: n, type: undefined }
+	right: { kind: "literal", value: n }
 })
 
 /** A contract predicate bounding octet_length(VALUE) above, as Compute.octetLength(v).le(n) records it. */
@@ -86,5 +86,5 @@ export const octetLengthAtMost = (n: number): OpenExpr => ({
 	kind: "compare",
 	op: "le",
 	left: { kind: "compute", fn: "octetLength", args: [{ kind: "value" }] },
-	right: { kind: "literal", value: n, type: undefined }
+	right: { kind: "literal", value: n }
 })

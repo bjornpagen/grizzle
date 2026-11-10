@@ -48,7 +48,7 @@ const operandExpr = (operand: unknown, t: ScalarType, label: string): OpenExpr =
 	if (predicateExpr(operand) !== undefined) {
 		throw malformedDescription(captureLoc(label, []), "a scalar operand, not a predicate")
 	}
-	return { kind: "literal", value: literalDescOrThrow(t, operand, label), type: undefined }
+	return { kind: "literal", value: literalDescOrThrow(t, operand, label) }
 }
 
 const compare =

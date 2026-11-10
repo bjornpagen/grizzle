@@ -646,8 +646,7 @@ const lengthOfValue = (measure: LengthMeasure): ExprDesc => ({
 
 const lengthLiteral = (n: number, bigint: boolean): ExprDesc => ({
 	kind: "literal",
-	value: bigint ? BigInt(n) : n,
-	type: undefined
+	value: bigint ? BigInt(n) : n
 })
 
 const conjunctExpr = ({ measure, form: c }: LengthConjunct): ExprDesc => {
@@ -679,7 +678,7 @@ const conjunctExpr = ({ measure, form: c }: LengthConjunct): ExprDesc => {
 				kind: "compare",
 				op: "ne",
 				left: { kind: "value" },
-				right: { kind: "literal", value: "zz", type: undefined }
+				right: { kind: "literal", value: "zz" }
 			}
 	}
 }
