@@ -36,7 +36,7 @@
  * witnesses are required features, among every other kind of answer.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -309,6 +309,35 @@ const judge = (
 	}
 }
 
+/** One learner's start of the sitting (child 1, test 7, attempt 1), its id the database's uuidv7(). */
+const startOf = (note: number): Request => ({ child: 1, test: 7, attempt: 1, note, slot: 1 })
+
+/**
+ * A double Start, pinned: two calls of `learner` start one sitting at (child, test, attempt), each leaving its id to
+ * the database's uuidv7(). Concurrent, the later waits at the arbiter for the earlier and is no change where it states
+ * the same sitting, or refused on the key where it states another; in order, the later meets the committed sitting.
+ */
+const doubleStarts: ReadonlyArray<Kept<Collision, CollisionFeature>> = [
+	{
+		note: "a double Start of one sitting: the later waits for the earlier's in-flight row and is no change, never a 40001",
+		sketch: { mode: "concurrent", stored: [], a: [startOf(0)], b: [startOf(0)] },
+		draws: "",
+		reaches: ["an exact repeat of a row in flight, after waiting"]
+	},
+	{
+		note: "a double Start that states another sitting at the same key: the later waits and is refused on the key",
+		sketch: { mode: "concurrent", stored: [], a: [startOf(0)], b: [startOf(1)] },
+		draws: "",
+		reaches: ["a differing row at the arbiter key in flight, refused after waiting"]
+	},
+	{
+		note: "a double Start in order: the later meets the committed sitting and is no change",
+		sketch: { mode: "sequential", stored: [], a: [startOf(0)], b: [startOf(0)] },
+		draws: "",
+		reaches: ["an exact repeat of a visible row"]
+	}
+]
+
 /** What a call answered: its outcome, or the failure it met. */
 type Ran = Result.Result<ApplyOutcome<unknown>, ApplyError>
 
@@ -441,7 +470,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 							],
 							{ cases: 400, sense: notesOnly }
 						),
-						kept: [],
+						kept: doubleStarts,
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
