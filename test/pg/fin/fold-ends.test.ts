@@ -6,9 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
@@ -47,14 +45,15 @@ import {
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { appliedWith, type CallFacts, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19rc1: what
- * PostgreSQL holds after each `db.apply` is exactly what the host model of the README's family semantics states
- * (test/support/families/ends.ts), and every lawful write is accepted.
+ * PostgreSQL holds after each write, applied as a served member with its call's facts, is exactly what the host model
+ * of the README's family semantics states (test/support/families/ends.ts), and every lawful write is accepted.
  *
  * The space is grizzle's own rosters (ends.ts): every monoid of the closed set over every plane its admission accepts,
  * sets over rosters of one code to nine, in each family kind that folds it, one schema per kind, installed once. A case
@@ -518,64 +517,114 @@ const byFamily = (
 		return Arr.isReadonlyArrayNonEmpty(mine) ? [[g, Arr.map(mine, fact)] as const] : []
 	})
 
-/** The ChangeSet a write is, over the schema value `value`. */
-const changeSetOf = (s: FoldSchema, value: unknown, w: Write): ChangeSetValue => {
-	const empty = ChangeSet.empty(value)
-	const inserted = (cs: ChangeSetValue, members: ReadonlyArray<Stated>) =>
-		Arr.reduce(
+/** One array member a write states: its op, its relation, and the facts its call holds for it. */
+interface ServedSlot {
+	readonly op: "insert" | "put" | "delete"
+	readonly relation: AnyRelation
+	readonly facts: ReadonlyArray<Record<string, unknown>>
+}
+
+/** The array members a write states, over the families of `s`, in its ChangeSet's order. */
+const slotsOf = (s: FoldSchema, w: Write): ReadonlyArray<ServedSlot> => {
+	const each = (op: ServedSlot["op"], members: ReadonlyArray<Stated>): ReadonlyArray<ServedSlot> =>
+		Arr.map(
 			byFamily(s, members, (m) => memberFact(s, m)),
-			cs,
-			(out, [g, facts]) => out.insert(g.member, facts)
+			([g, facts]): ServedSlot => ({ op, relation: g.member, facts })
 		)
 	switch (w.kind) {
 		case "create":
 			return s.kind === "ordered"
-				? empty.insert(
-						s.owner,
-						Arr.map(w.owners, (o) =>
-							Rec.fromEntries([
-								["id", o.id],
-								["label", o.label],
-								...Arr.map(s.groups, (g): readonly [string, unknown] => [
-									g.count,
-									Arr.map(
-										Arr.filter(w.members, (m) => m.monoid === g.monoid && m.member.owner === o.id),
-										(m) => ({ id: m.member.id, ...stepFacts(g, m.member.steps) })
-									)
+				? [
+						{
+							op: "insert",
+							relation: s.owner,
+							facts: Arr.map(w.owners, (o) =>
+								Rec.fromEntries([
+									["id", o.id],
+									["label", o.label],
+									...Arr.map(s.groups, (g): readonly [string, unknown] => [
+										g.count,
+										Arr.map(
+											Arr.filter(
+												w.members,
+												(m) => m.monoid === g.monoid && m.member.owner === o.id
+											),
+											(m) => ({ id: m.member.id, ...stepFacts(g, m.member.steps) })
+										)
+									])
 								])
-							])
-						)
-					)
-				: inserted(
-						empty.insert(
-							s.owner,
-							Arr.map(w.owners, (o) => ({ id: o.id, label: o.label }))
-						),
-						w.members
-					)
+							)
+						}
+					]
+				: [
+						{
+							op: "insert",
+							relation: s.owner,
+							facts: Arr.map(w.owners, (o) => ({ id: o.id, label: o.label }))
+						},
+						...each("insert", w.members)
+					]
 		case "append":
-			return inserted(empty, w.members)
+			return each("insert", w.members)
 		case "relabel":
-			return inserted(empty.put(s.owner, [{ id: w.owner.id, label: w.owner.label }]), w.members)
+			return [
+				{ op: "put", relation: s.owner, facts: [{ id: w.owner.id, label: w.owner.label }] },
+				...each("insert", w.members)
+			]
 		case "remove":
-			return Arr.reduce(
-				byFamily(s, w.members, (m) => memberFact(s, m)),
-				empty,
-				(out, [g, facts]) => out.delete(g.member, facts)
-			)
+			return each("delete", w.members)
 		case "restep":
 		case "move":
-			return Arr.reduce(
-				byFamily(s, w.members, (m) => memberFact(s, m)),
-				empty,
-				(out, [g, facts]) => out.put(g.member, facts)
-			)
+			return each("put", w.members)
 		case "trees":
-			return Arr.reduce(w.trees, empty, (out, t) => {
+			return Arr.map(w.trees, (t): ServedSlot => {
 				const g = groupOf(s, t.monoid)
-				return out.insert(g.member, [treeFact(g, t.root, true)])
+				return { op: "insert", relation: g.member, facts: [treeFact(g, t.root, true)] }
 			})
 	}
+}
+
+/**
+ * A write as the served ChangeSet over the schema value `value` a call applies: one array member per op and relation,
+ * at its first slot, whose facts are every such slot's in order, as its stratum's union holds them; and the call's
+ * facts under each op and relation.
+ */
+const servedOf = (
+	value: unknown,
+	slots: ReadonlyArray<ServedSlot>
+): { readonly changes: ChangeSetValue; readonly facts: CallFacts } => {
+	const held = Arr.dedupeWith(slots, (a, b) => a.op === b.op && a.relation.name === b.relation.name)
+	const changes = Arr.reduce(held, ChangeSet.empty(value), (cs, slot) => {
+		switch (slot.op) {
+			case "insert":
+				return cs.insert(slot.relation, [])
+			case "put":
+				return cs.put(slot.relation, [])
+			case "delete":
+				return cs.delete(slot.relation, [])
+		}
+	})
+	const facts = Rec.fromEntries(
+		Arr.map(
+			Arr.dedupe(Arr.map(held, (h) => h.op)),
+			(op): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
+				op,
+				Rec.fromEntries(
+					Arr.map(
+						Arr.filter(held, (h) => h.op === op),
+						(h): readonly [string, ReadonlyArray<unknown>] => [
+							h.relation.name,
+							Arr.flatMap(
+								Arr.filter(slots, (x) => x.op === op && x.relation.name === h.relation.name),
+								(x: ServedSlot) => x.facts
+							)
+						]
+					)
+				)
+			]
+		)
+	)
+	return { changes, facts }
 }
 
 /** The forms a write takes in each monoid's family it touches. */
@@ -840,11 +889,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								const value = s.value(done.schema)
 								const world = fullWorld(value, {})
 								const seat = yield* seatOfInstalled(done, s.relations, `ends_${kind}`)
-								const context = yield* Layer.build(loginLayer(done, world.server))
-								const { ctx: dbc } = yield* openDbContext(world.server.roles.app, {}).pipe(
-									Effect.provideContext(context)
-								)
-								return { kind, s, done, value, seat, dbc } as const
+								const db = yield* openServedDb(done, world.server.roles.app, {})
+								return { kind, s, done, value, seat, db } as const
 							})
 						)
 						const of = (kind: FamilyKind) =>
@@ -875,8 +921,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									yield* cleared(o.seat, o.s.relations)
 									let state = emptyState
 									for (const w of sketch.writes) {
-										const changes = changeSetOf(o.s, o.value, w)
-										const outcome = yield* apply(o.dbc, changes, changes.reads, {})
+										const served = servedOf(o.value, slotsOf(o.s, w))
+										const members = yield* o.db.serve({ write: served.changes })
+										const outcome = yield* appliedWith(member(members, "write"), served.facts, {})
 										const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
 										if (Arr.isReadonlyArrayNonEmpty(broken)) {
 											const named = judgeRefused(o.s, w, broken, outcome)
