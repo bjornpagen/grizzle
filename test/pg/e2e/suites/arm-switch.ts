@@ -5,7 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
+import { ChangeSet, sameLaw } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { alternatives } from "#compiler/public/schema.ts"
@@ -344,9 +344,14 @@ export const armSwitchSuite = (): void => {
 											}
 											if (kind === "automatic") {
 												assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-												assert.deepEqual(refusedLaws(outcome.refused), [
-													names.described(automaticArm)
-												])
+												const refused = refusedLaws(outcome.refused)
+												assert.ok(
+													refused.length === 1 &&
+														Arr.every(refused, (law) =>
+															sameLaw(law, names.described(automaticArm))
+														),
+													`refused by the Automatic arm's law alone: ${Formatter.format(refused)}`
+												)
 												assert.deepEqual(outcome.witness, { kind: "unreported" })
 												unchanged()
 												c.note(`${w.form} ${kind} rejected`)
