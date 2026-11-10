@@ -60,7 +60,6 @@ import type { BelowSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-import { refusedLaws } from "#test/support/refused.ts"
 /**
  * The features a history's swarm turns on, off or weighs: each writer kind, immediate constraints, a writer copying
  * another's list, and each choice of a planted writer. The sketch
@@ -777,7 +776,7 @@ const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<S
 	}
 	return Effect.succeed({
 		kind: "invariant-rejected",
-		laws: Arr.map(refusedLaws(o.refused), names.reported),
+		laws: Arr.map(o.refused.laws, names.reported),
 		keys: o.witness.kind === "key" ? hostKeys([o.witness]) : []
 	})
 }

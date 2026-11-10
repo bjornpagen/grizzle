@@ -43,7 +43,6 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
-import { refusedLaws } from "#test/support/refused.ts"
 import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -1762,7 +1761,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											if (outcome.kind !== "invariant-rejected") {
 												return
 											}
-											const named = Arr.map(refusedLaws(outcome.refused), (law): LawId =>
+											const named = Arr.map(outcome.refused.laws, (law): LawId =>
 												names.reported(law)
 											)
 											const broken = (law: LawId) => expected.laws.has(law)

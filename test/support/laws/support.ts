@@ -20,7 +20,7 @@ import {
 	role
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
@@ -63,7 +63,6 @@ import {
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
-import { refusedLaws } from "#test/support/refused.ts"
 import {
 	appliedWith,
 	type CallFacts,
@@ -446,8 +445,8 @@ export interface Session {
 	) => Effect.Effect<ApplyOutcome<unknown>, ApplyError | ServedRefusal>
 	/** The committed state, read as the owner, in stateRows' form. */
 	readonly read: Effect.Effect<StateRows, SqlError>
-	/** The LawId of the law an outcome names, read back through the installation's described laws. */
-	readonly reported: (law: Law) => LawId
+	/** The LawId of a law an outcome names, its own, which the installation describes as that law (reportedLawId). */
+	readonly reported: (refused: IdentifiedLaw) => LawId
 }
 
 /**
@@ -505,7 +504,7 @@ const sessionOf = (
 		reset: owner.reset,
 		apply,
 		read: owner.read,
-		reported: (law: Law) => reportedLawId(installed.installation.described, law)
+		reported: (refused: IdentifiedLaw) => reportedLawId(installed.installation.described, refused)
 	}))
 
 /**
@@ -1809,7 +1808,7 @@ const mismatch = (
 	if (outcome.kind !== "invariant-rejected") {
 		return `expected a refusal by one of ${Formatter.format(Arr.map(expected.violations, (v) => v.law))}, got ${Formatter.format(outcome)}`
 	}
-	const laws = Arr.map(refusedLaws(outcome.refused), session.reported)
+	const laws = Arr.map(outcome.refused.laws, session.reported)
 	const violation = Arr.findFirst(expected.violations, (v) => laws.includes(v.law))
 	if (Option.isNone(violation)) {
 		return `refused by ${Arr.join(laws, ", ")}, none of which the final state violates; violated: ${Formatter.format(expected.violations)}`
@@ -1870,7 +1869,7 @@ const outcomeFeatures = (
 			const after = transition(host, state, ops)
 			const violated = Arr.map(violations(host, after), (v) => v.law)
 			return Result.map(
-				refusingLaws(host, Arr.map(refusedLaws(outcome.refused), session.reported), violated),
+				refusingLaws(host, Arr.map(outcome.refused.laws, session.reported), violated),
 				(laws) =>
 					refusalFeatures(host, {
 						laws,

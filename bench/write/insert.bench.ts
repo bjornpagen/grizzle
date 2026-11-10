@@ -598,7 +598,7 @@ export default defineGate({
 					equivalence(
 						"a committed different payload is a conflict, invariant-rejected with the key law",
 						conflict.value.kind === "invariant-rejected" &&
-							Arr.every(refusedLaws(conflict.value.refused), (l) => reported(l) === itemKey),
+							Arr.every(conflict.value.refused.laws, (l) => reported(l) === itemKey),
 						outcomeText(conflict)
 					),
 					equivalence(

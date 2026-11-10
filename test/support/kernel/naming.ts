@@ -58,6 +58,7 @@ import {
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { sameLaw } from "#compiler/public/changeset.ts"
 import type {
 	AnyRelation,
 	AnyRole,
@@ -70,12 +71,11 @@ import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
-import { exactValue } from "#test/support/equivalence.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -267,8 +267,8 @@ export interface Names extends LawNames {
 	readonly installation: Installation
 	/** A law of the installation as an outcome names it (types/changeset Law). */
 	readonly described: (law: LawId) => Law
-	/** The LawId of the law an outcome names: exactly one law of the installation has that description. */
-	readonly reported: (law: Law) => LawId
+	/** The LawId of a law an outcome names: its own, which the installation describes as that law (reportedLawId). */
+	readonly reported: (refused: IdentifiedLaw) => LawId
 	/** The PostgreSQL schema the installation lives in. */
 	readonly schema: string
 	/** A stored, closed or derived relation's table or view, schema-qualified and quoted. */
@@ -897,18 +897,27 @@ const createdOn = (
 const sameList = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
 	Option.isNone(ordered(exact)(a, b))
 
-const sameLaw = (a: Law, b: Law): boolean => Option.isNone(exactValue(a, b))
-
 /**
- * The LawId of the law an outcome names (types/changeset Law), read back through an installation's described laws
- * (physical/install Installation.described): exactly one of them has that description, or the description is a defect.
+ * The LawId of a law an outcome names (types/changeset RefusedLaw), read by its own identity: the installation describes
+ * exactly one law under it (physical/install Installation.described), and that law is the one the outcome describes, as
+ * sameLaw compares two laws; anything else is a defect.
  */
-export const reportedLawId = (described: ReadonlyMap<LawId, Law>, law: Law): LawId =>
-	single(
-		Arr.flatMap([...described], ([id, d]) => (sameLaw(d, law) ? [id] : [])),
+export const reportedLawId = (
+	described: ReadonlyMap<LawId, Law>,
+	refused: IdentifiedLaw
+): LawId => {
+	const [id, law] = single(
+		Arr.filter([...described], ([id]) => id === refused.id),
 		(count) =>
-			`${count} of the installation's laws have the description of the reported ${law.kind} law`
+			`${count} of the installation's laws have the identity ${refused.id} of the reported ${refused.law.kind} law`
 	)
+	if (!sameLaw(law, refused.law)) {
+		throw new Error(
+			`the installation describes ${id} as ${Formatter.format(law)}, where the outcome describes it as ${Formatter.format(refused.law)}`
+		)
+	}
+	return id
+}
 
 /** The one of the installation's text domains that types a column, by its installed table and column. */
 const assignedDomain = (

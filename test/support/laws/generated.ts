@@ -19,7 +19,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { defined } from "#test/support/assert.ts"
 import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -658,7 +658,8 @@ const boxSession = (
 			host,
 			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(p.point.relations, table), ", ")}`, []),
 			apply,
-			reported: (law: Law) => reportedLawId(installed.installation.described, law),
+			reported: (refused: IdentifiedLaw) =>
+				reportedLawId(installed.installation.described, refused),
 			read: Effect.forEach(p.point.relations, (r) => {
 				const texts = Arr.map(r.host.fields, (f) =>
 					namedText(installed.installation, r.host.name, f.name)

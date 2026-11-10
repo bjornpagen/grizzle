@@ -1331,7 +1331,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												)
 											}
 											assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
-											const named = Arr.map(refusedLaws(outcome.refused), names.reported)
+											const named = Arr.map(outcome.refused.laws, names.reported)
 											const [first] = named
 											const met = Arr.findFirst(expected.violations, (v) => v.law === first)
 											if (Option.isNone(met)) {
@@ -1546,10 +1546,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 														)
 													}
 													assert.deepEqual(after, before, "a refused write changes nothing")
-													const [law, ...more] = Arr.map(
-														refusedLaws(outcome.refused),
-														names.reported
-													)
+													const [law, ...more] = Arr.map(outcome.refused.laws, names.reported)
 													assert.deepEqual(more, [], "a key's refusal names its one law")
 													const broken =
 														law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined

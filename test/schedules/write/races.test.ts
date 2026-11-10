@@ -73,7 +73,7 @@ import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
@@ -115,7 +115,6 @@ import { defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { refusedLaws } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
@@ -1074,7 +1073,7 @@ class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: stri
 
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
-	reported: (law: Law) => LawId,
+	reported: (refused: IdentifiedLaw) => LawId,
 	r: Result.Result<Retried<ApplyOutcome<unknown>>, Exclude<ApplyError, TransientFailure>>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
@@ -1086,18 +1085,18 @@ const answerOf = (
 
 /** A write's answer as the model judges it: a refusal names its one law, so a refusal naming several is a failure. */
 const grizzleAnswer = (
-	reported: (law: Law) => LawId,
+	reported: (refused: IdentifiedLaw) => LawId,
 	value: ApplyOutcome<unknown>
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "invariant-rejected": {
-			const [law, ...more] = refusedLaws(value.refused)
+			const [law, ...more] = value.refused.laws
 			return more.length === 0
 				? { kind: "invariant-rejected", law: reported(law) }
 				: {
 						kind: "failed",
-						what: `a refusal naming ${Arr.length(refusedLaws(value.refused))} laws: ${Arr.join(
-							Arr.map(refusedLaws(value.refused), reported),
+						what: `a refusal naming ${Arr.length(value.refused.laws)} laws: ${Arr.join(
+							Arr.map(value.refused.laws, reported),
 							", "
 						)}`
 					}

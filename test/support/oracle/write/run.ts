@@ -1,7 +1,6 @@
 import {
 	Array as Arr,
 	Effect,
-	Formatter,
 	Layer,
 	Option,
 	pipe,
@@ -27,7 +26,6 @@ import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changes
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
 import type { Fact, FactSet, OracleState } from "#test/support/oracle/addwins.ts"
@@ -529,15 +527,11 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
 }
 
 /**
- * A refusal's laws read back to their LawIds through the installation's described laws, how grizzle decided them kept;
- * each law's identity as the refusal names it is the one its description reads back to.
+ * A refusal's laws read by their LawIds, each the installation's law of that identity (reportedLawId), how grizzle
+ * decided them kept.
  */
 const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): RefusedIds => {
-	const id = (r: RefusedLaw): LawId => {
-		const law = reportedLawId(described, r.law)
-		assert.equal(r.id, law, `the identity a refusal names for ${Formatter.format(r.law)}`)
-		return law
-	}
+	const id = (r: RefusedLaw): LawId => reportedLawId(described, r)
 	switch (refused.kind) {
 		case "every":
 		case "first":

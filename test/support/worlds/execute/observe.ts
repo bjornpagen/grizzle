@@ -6,7 +6,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { Law, Witness as GrizzleWitness } from "#compiler/types/changeset/changeset.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import { valueText } from "#test/support/laws/model.ts"
-import { refusedLaws } from "#test/support/refused.ts"
 import { factOfKey } from "#test/support/worlds/execute/host.ts"
 import type {
 	Observation,
@@ -183,11 +182,11 @@ export const applied = (
 				 * A refusal reports several laws only from a foreign key a containment merges into a family's axis
 				 * (fin.md §15 rule 3), and no worlds base states a family: one law, or a defect of the executor.
 				 */
-				const [reported, ...more] = refusedLaws(outcome.refused)
+				const [reported, ...more] = outcome.refused.laws
 				if (more.length > 0) {
 					return yield* Effect.die(
 						new Error(
-							`a worlds refusal reports ${refusedLaws(outcome.refused).length} laws, where no base merges one`
+							`a worlds refusal reports ${outcome.refused.laws.length} laws, where no base merges one`
 						)
 					)
 				}

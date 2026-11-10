@@ -276,7 +276,7 @@ export default defineGate({
 					equivalence(
 						"two facts with one key and different payloads are refused with the key law, never PostgreSQL's error",
 						sameKey.value.kind === "invariant-rejected" &&
-							Arr.every(refusedLaws(sameKey.value.refused), (l) => reported(l) === itemKey) &&
+							Arr.every(sameKey.value.refused.laws, (l) => reported(l) === itemKey) &&
 							(sameKeyWire.kind === "none" ||
 								(sameKeyWire.failure.sqlstate !== "21000" &&
 									sameKeyWire.failure.sqlstate !== "23505")),
