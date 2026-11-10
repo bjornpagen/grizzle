@@ -827,15 +827,60 @@ const ruleDesc = (
 const termHead = (terms: ReadonlyArray<ExprDesc>): Readonly<Record<string, ExprDesc>> =>
 	Object.fromEntries(terms.map((t, i) => [termName(i), t] as const))
 
-/** That no fact of a negated arm agrees with its bindings: an anti-join of the arm, read as an imported query. */
-const absentOf = (n: NegatedArm, loc: SourceLoc): ExprDesc => ({
-	kind: "absent",
-	source: imported(
-		[ruleDesc(n.arm.vars, n.arm.matches.map(matchDesc), n.arm.where, n.arm.head, loc)],
-		loc
-	),
-	bindings: n.bindings
-})
+/**
+ * The negation `n` as an anti-join of one stored or closed relation, where its arm is that relation's facts as they are:
+ * one match, no condition, each column it binds bound to a variable of its own, and a head that renames those
+ * variables. Its bindings are then the negation's composed through the arm's, each heading field's term bound to the
+ * column the field renames, and a column the head does not carry stays unbound, as an anti-join of the relation reads
+ * it. Undefined for any other arm.
+ */
+const relationAbsent = (
+	n: NegatedArm
+): Extract<ExprDesc, { readonly kind: "absent" }> | undefined => {
+	const [match, ...more] = n.arm.matches
+	if (more.length > 0 || n.arm.where.length > 0) {
+		return undefined
+	}
+	const columnOf = new Map<string, string>()
+	for (const [column, bound] of Object.entries(match.bindings)) {
+		if (bound.kind !== "var" || columnOf.has(bound.var)) {
+			return undefined
+		}
+		columnOf.set(bound.var, column)
+	}
+	const renamed = new Map<string, string>()
+	for (const [field, term] of Object.entries(n.arm.head)) {
+		const column = term.kind === "var" ? columnOf.get(term.var) : undefined
+		if (column === undefined) {
+			return undefined
+		}
+		renamed.set(field, column)
+	}
+	const bindings: Record<string, ExprDesc> = {}
+	for (const [field, term] of Object.entries(n.bindings)) {
+		const column = renamed.get(field)
+		if (column === undefined || bindings[column] !== undefined) {
+			return undefined
+		}
+		bindings[column] = term
+	}
+	return { kind: "absent", source: { kind: "relation", name: match.relation }, bindings }
+}
+
+/**
+ * That no fact of a negated arm agrees with its bindings: an anti-join of the one relation the arm reads as it is
+ * (`relationAbsent`), a negation of a stored or closed relation among them, as its definition states it; else an
+ * anti-join of the arm, read as an imported query.
+ */
+const absentOf = (n: NegatedArm, loc: SourceLoc): ExprDesc =>
+	relationAbsent(n) ?? {
+		kind: "absent",
+		source: imported(
+			[ruleDesc(n.arm.vars, n.arm.matches.map(matchDesc), n.arm.where, n.arm.head, loc)],
+			loc
+		),
+		bindings: n.bindings
+	}
 
 /** An arm's conditions as a query states them: its own, then an anti-join of each of its negated arms. */
 const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<ExprDesc> => [
