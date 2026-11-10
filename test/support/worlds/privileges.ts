@@ -12,6 +12,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { termHeadDomain } from "#test/support/worlds/model/host.ts"
+import { rowSecured } from "#test/support/worlds/model/session/catalog.ts"
 import { roleContexts } from "#test/support/worlds/model/session/state.ts"
 import { filterReadsStored, keysOf, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 
@@ -632,7 +633,9 @@ const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<P
  *   the role only after SET ROLE, and never holds the role's privileges as its own; a role is a member of nothing;
  * - each role holds what roleFacts and typeFacts list, and nothing else;
  * - PUBLIC holds nothing on any object of the installation;
- * - row security is enabled, and never forced, on exactly the tables some role writes through a query entry.
+ * - row security is enabled, and never forced, on exactly the tables some role writes only some rows of, through a
+ *   query entry that narrows them (README "where it writes only some rows"), the worlds model's own rule
+ *   (model/session/catalog.ts rowSecured): a table whose every writer holds every row has none.
  * The migration identity owns every object and is no grantee here; its membership in each role it created is its own.
  */
 export const expectedPrivileges = (install: InstallSpec, names: InstalledNames): PrivilegeSet => {
@@ -661,10 +664,13 @@ export const expectedPrivileges = (install: InstallSpec, names: InstalledNames):
 		]
 	})
 	const roles = Arr.flatMap(install.roles, (role) => roleFacts(install, names, role))
-	const secured = Arr.dedupe(
-		Arr.flatMap(install.roles, (role) =>
-			Arr.flatMap(writtenOf(base, role), (w) => (w.kind === "query" ? [w.target] : []))
-		)
+	const secured = Arr.filter(
+		Arr.dedupe(
+			Arr.flatMap(install.roles, (role) =>
+				Arr.flatMap(writtenOf(base, role), (w) => (w.kind === "query" ? [w.target] : []))
+			)
+		),
+		(relation) => rowSecured(install, relation)
 	)
 	const rowSecurity = Arr.map(secured, (relation): PrivilegeFact => ({
 		kind: "row-security",
