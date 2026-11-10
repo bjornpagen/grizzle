@@ -1615,13 +1615,17 @@ const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTerm
 
 const fieldMapShape = S.recordShape(fieldDescShape, name)
 
+/** What a context's fields must be: at least one, each a type a context admits (contextFieldAdmits). */
+const contextFieldsCapability =
+	"a context of at least one field, each text, uuid, boolean, an integer type, a contract over one, or a closed handle"
+
 const contextDescShape: S.Shape<ContextDesc> = S.structStated(
 	{
 		name,
 		fields: S.refine(
 			fieldMapShape,
 			(f) => Object.keys(f).length > 0 && Object.values(f).every(contextFieldAdmits),
-			"a context of at least one field, each text, uuid, boolean, an integer type, a contract over one, or a closed handle"
+			contextFieldsCapability
 		)
 	},
 	{ claim: name },
@@ -1985,6 +1989,35 @@ const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
 		}
 	})
 
+/** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
+const closedFieldsCapability =
+	"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set, vector or bytes"
+
+/** What a closed relation must be beside its fields' own rules: its key, its slots and its rows as one. */
+const closedRelationCapability =
+	"a key of the relation's own closed-id fields, its slots key fields in key order, each row a value of exactly its fields, its key values handles, and no two rows of one key"
+
+const closedKeyShape = S.nonEmptyUniqueStrings("key fields")
+
+const keySlotsShape = S.uniqueArray(
+	S.struct({ field: name, fin: slotsDescShape }),
+	(slot) => slot.field,
+	"slot fields"
+)
+
+/** Whether a closed relation's key is of its own closed-id fields, and its slots key fields in key order. */
+const closedKeyHolds = (
+	key: ReadonlyArray<string>,
+	slots: ReadonlyArray<KeySlotDesc>,
+	closedId: (field: string) => boolean
+): boolean => {
+	if (!key.every(closedId)) {
+		return false
+	}
+	const slotted = slots.map((slot) => key.indexOf(slot.field))
+	return slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))
+}
+
 /** A relation description's shape, a closed relation's decoded as written, its rows not admitted. */
 const atLeastOneField = "a relation with at least one field"
 
@@ -2022,27 +2055,19 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 						fields: S.refine(
 							fieldMapShape,
 							(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
-							"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set, vector or bytes"
+							closedFieldsCapability
 						),
-						key: S.nonEmptyUniqueStrings("key fields"),
-						slots: S.uniqueArray(
-							S.struct({ field: name, fin: slotsDescShape }),
-							(slot) => slot.field,
-							"slot fields"
-						),
+						key: closedKeyShape,
+						slots: keySlotsShape,
 						rows: S.array(S.recordShape(literalDescShape, name))
 					},
 					loc
 				),
 				(c) => {
+					if (!closedKeyHolds(c.key, c.slots, (f) => c.fields[f]?.kind === "closedId")) {
+						return false
+					}
 					const fields = Object.keys(c.fields).toSorted(compareStrings)
-					if (!c.key.every((f) => c.fields[f]?.kind === "closedId")) {
-						return false
-					}
-					const slotted = c.slots.map((slot) => c.key.indexOf(slot.field))
-					if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
-						return false
-					}
 					const keys = new TupleMap<ReadonlyArray<string>, Readonly<Record<string, LiteralDesc>>>()
 					for (const row of c.rows) {
 						const own = Object.keys(row).toSorted(compareStrings)
@@ -2057,7 +2082,7 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 					}
 					return true
 				},
-				"a key of the relation's own closed-id fields, its slots key fields in key order, each row a value of exactly its fields, its key values handles, and no two rows of one key"
+				closedRelationCapability
 			)
 		),
 		derived: S.located(
@@ -2530,6 +2555,94 @@ export const decodeDesc = <K extends DescKind>(
 	kind: K,
 	value: unknown
 ): Result.Result<DescOf<K>, CompileError> => S.decodeWith(descShapes[kind], value, subjects[kind])
+
+/**
+ * A closed relation's Description over its declared name, its fields' decoded types, its caller's key and the slots its
+ * key's fields hold, its rows not yet admitted (schema/relation.ts admitClosedRelation): what its caller wrote held as
+ * a decode of the whole relation holds it, with its refusals at its paths (each field name a declared name, at least
+ * one field and each one a closed relation admits, a key of distinct names, distinct slot fields, a key of the
+ * relation's own closed-id fields whose slots are key fields in key order), and the fields' types as they are.
+ */
+export const closedRelationOver = (
+	relationName: string,
+	fields: Readonly<Record<string, FieldDesc>>,
+	key: unknown,
+	slots: ReadonlyArray<KeySlotDesc>,
+	at: SourceLoc
+): Result.Result<Extract<RelationDesc, { readonly kind: "closedRelation" }>, CompileError> =>
+	Result.map(
+		S.decodeWith(
+			S.refine(
+				S.struct({
+					fields: S.refine(
+						S.recordShape(S.boolean, name),
+						(f) => Object.keys(f).length > 0 && Object.values(f).every((admits) => admits),
+						closedFieldsCapability
+					),
+					key: closedKeyShape,
+					slots: keySlotsShape
+				}),
+				(c) => closedKeyHolds(c.key, c.slots, (f) => fields[f]?.kind === "closedId"),
+				closedRelationCapability
+			),
+			{
+				fields: Object.fromEntries(
+					Object.entries(fields).map(([field, desc]) => [field, closedFieldAdmits(desc)] as const)
+				),
+				key,
+				slots
+			},
+			subjects.relation
+		),
+		(parts) =>
+			builtNode({
+				kind: "closedRelation",
+				name: relationName,
+				fields: Object.freeze({ ...fields }),
+				key: parts.key,
+				slots: parts.slots,
+				rows: Object.freeze([]),
+				loc: at
+			})
+	)
+
+/**
+ * A context's Description over its declared name, its fields' decoded types and its claim object's name
+ * (schema/world.ts admitContext): what its caller wrote held as a decode of the whole context holds it, with its
+ * refusals at its paths (each field name a declared name, at least one field and each one a context admits, a claim
+ * object's declared name), and the fields' types as they are.
+ */
+export const contextOver = (
+	contextName: string,
+	fields: Readonly<Record<string, FieldDesc>>,
+	claim: string | undefined
+): Result.Result<ContextDesc, CompileError> =>
+	Result.map(
+		S.decodeWith(
+			S.structStated(
+				{
+					name,
+					fields: S.refine(
+						S.recordShape(S.boolean, name),
+						(f) => Object.keys(f).length > 0 && Object.values(f).every((admits) => admits),
+						contextFieldsCapability
+					)
+				},
+				{ claim: name },
+				{}
+			),
+			{
+				name: contextName,
+				fields: Object.fromEntries(
+					Object.entries(fields).map(([field, desc]) => [field, contextFieldAdmits(desc)] as const)
+				),
+				claim
+			},
+			subjects.context
+		),
+		(parts): ContextDesc =>
+			Object.freeze({ name: parts.name, fields: Object.freeze({ ...fields }), claim: parts.claim })
+	)
 
 /**
  * A caller's declared name decoded as the part at `keys` of a Description of kind `kind` (S.decodeAt): the refusal a

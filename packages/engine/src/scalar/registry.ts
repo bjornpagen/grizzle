@@ -5,9 +5,9 @@ import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts
 import { defect } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties } from "#compiler/core/record.ts"
+import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { decodeDesc, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -207,8 +207,10 @@ const defineDescriptor = <T extends object, M extends DescriptorMembers, Sql ext
 }
 
 /**
- * Defines a descriptor from its Description: the ScalarType is the registry's reading of `desc` (scalarTypeOf), so a
- * descriptor's two internal forms cannot disagree. Its column is one of its members, which its builder made from its
+ * Defines a descriptor from its Description, which its builder made from the parts it checked as it took them (a
+ * numeric's typmod, a vector's dimensions, a contract's name, base, predicate and facts, a span's endpoint and width, a
+ * roster's name), frozen: the ScalarType is the registry's reading of `desc` (scalarTypeOf), so a descriptor's two
+ * internal forms cannot disagree. Its column is one of its members, which its builder made from its
  * carrier's conversion (values/convert.ts), so the descriptor's host type is the column's. A refusal throws: builders
  * are pure and synchronous, and a malformed constructor argument from a JavaScript caller is a synchronous
  * CompileError.
@@ -225,15 +227,12 @@ export const defineField = <
 	loc: SourceLoc,
 	env: ScalarEnv
 ): T & M & Descriptor<Sql> => {
-	const decoded = decodeDesc("field", desc)
-	if (!decoded.ok) {
-		throw decoded.error
-	}
-	const scalar = scalarTypeOf(decoded.value, env, loc)
+	const frozen = deepFreeze(desc)
+	const scalar = scalarTypeOf(frozen, env, loc)
 	if (!scalar.ok) {
 		throw scalar.error
 	}
-	return defineDescriptor(target, { sql, desc: decoded.value, scalar: scalar.value }, members)
+	return defineDescriptor(target, { sql, desc: frozen, scalar: scalar.value }, members)
 }
 
 export const isOwnedDescriptor = (value: unknown): value is Described =>
@@ -280,9 +279,9 @@ export const registerTextDescriptor = <T extends TextDescriptor>(
 		patterns,
 		language,
 		described: Result.flatMap(
-			Result.flatMap(language, (pattern) => {
+			Result.map(language, (pattern): FieldDesc => {
 				const cut = octets === undefined ? pattern : languageWithin(pattern, octets)
-				return decodeDesc("field", {
+				return deepFreeze({
 					kind: "text",
 					patterns,
 					bytes: languageOctets(cut),

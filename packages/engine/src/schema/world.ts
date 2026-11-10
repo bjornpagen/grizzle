@@ -11,7 +11,7 @@ import {
 	admitLoginRoles,
 	type ContextDesc,
 	contextFieldAdmits,
-	decodeDesc,
+	contextOver,
 	decodeRoleOver,
 	type FieldDesc,
 	heldRelation,
@@ -167,13 +167,13 @@ export const admitContext = (
 		descs[field] = desc
 	}
 	if (options === undefined) {
-		return orThrow(decodeDesc("context", { name: contextName, fields: descs, claim: undefined }))
+		return orThrow(contextOver(contextName, descs, undefined))
 	}
 	if (!isPlainRecord(options) || Object.keys(options).some((k) => k !== "claim")) {
 		throw malformed(label, "options { claim }: the nested claim object the fields are read from")
 	}
 	const claim = requireName(options["claim"], label, "a claim object name")
-	return orThrow(decodeDesc("context", { name: contextName, fields: descs, claim }))
+	return orThrow(contextOver(contextName, descs, claim))
 }
 
 /**

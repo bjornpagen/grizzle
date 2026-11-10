@@ -11,6 +11,8 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
+	builtNode,
+	closedRelationOver,
 	decodeDesc,
 	type DerivedStorage,
 	type ExprDesc,
@@ -600,18 +602,12 @@ export const admitRoster = (
 			"closed(name, handles): two arguments; a closed relation over a roster is closed.relation(name, fields, key, rows)"
 		)
 	}
-	const desc = orThrow(
-		decodeDesc("relation", {
-			kind: "closed",
-			name: rosterName,
-			handles: handleList(handles, label),
-			loc: builderLoc(label, [rosterName])
-		})
-	)
-	if (desc.kind !== "closed") {
-		throw malformed(label, "a relation description of a roster")
-	}
-	return desc
+	return builtNode({
+		kind: "closed",
+		name: rosterName,
+		handles: Object.freeze(handleList(handles, label)),
+		loc: builderLoc(label, [rosterName])
+	})
 }
 
 /**
@@ -784,24 +780,19 @@ export const admitClosedRelation = (
 	const fieldDescs = fieldMap(described)
 	const facts = closedRows(rows, described, key, label)
 	/**
-	 * The description decoded without its rows, which closedRows proved, each a value of exactly the relation's fields
-	 * as literalFor reads it, one per key: decoding them again would prove it twice, and is most of a large relation's
-	 * cost. The description shape's own row check holds of the rows trivially, and the schema's decode reads them again.
+	 * The description over the fields' decoded types, its caller's key and slots decoded as a decode of the whole
+	 * relation decodes them, without its rows, which closedRows proved, each a value of exactly the relation's fields as
+	 * literalFor reads it, one per key.
 	 */
 	const desc = orThrow(
-		decodeDesc("relation", {
-			kind: "closedRelation",
-			name: relationName,
-			fields: fieldDescs,
+		closedRelationOver(
+			relationName,
+			fieldDescs,
 			key,
-			slots: keySlots(descriptors, key, label),
-			rows: [],
-			loc: builderLoc(label, [relationName])
-		})
+			keySlots(descriptors, key, label),
+			builderLoc(label, [relationName])
+		)
 	)
-	if (desc.kind !== "closedRelation") {
-		throw malformed(label, "a relation description of a closed relation")
-	}
 	const admitted = recordAdmitted({ ...desc, rows: facts.rows })
 	return { desc: admitted, described, kept: facts.kept }
 }

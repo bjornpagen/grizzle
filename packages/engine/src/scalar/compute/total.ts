@@ -1,12 +1,11 @@
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateProblems, predicateTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
-import { exprTableShape } from "#compiler/ir/scalar-shape.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import * as S from "#compiler/ir/shape.ts"
 import {
 	exprEmitter,
 	type LeafDesc,
@@ -87,7 +86,7 @@ export const contractPredicateTable = (
 		if (problem !== undefined) {
 			return Result.err(malformedDescription(loc, problem))
 		}
-		const owned = S.conformWith(exprTableShape, table, `contract ${contract} predicate`)
+		const owned = deepFreeze(table)
 		const unproved = unprovedFact(base, owned, facts)
 		return unproved === undefined
 			? Result.ok(owned)
