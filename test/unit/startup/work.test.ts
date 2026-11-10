@@ -6,10 +6,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { resolveConfig } from "#cli/config.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -25,6 +25,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { role } from "#compiler/schema/world.ts"
+import { servedPath } from "#compiler/served/forms.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
@@ -42,7 +43,6 @@ import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -54,18 +54,18 @@ import { upTo } from "#test/support/up-to.ts"
  *   descriptions by name, compared by structure); roles, workloads and the login over it, and every level check they
  *   and every command and layer make, read it again never from a description (contentOfDesc).
  * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
- *   the level's content: schema(...) reads none, and `grizzle generate`, `grizzle check` and DbLayer.make own the
- *   schema once, reading the texts its content carries (schema/own.ts ownBuilt), none again; generate and check hash
- *   each level's fingerprint (core/fingerprint.ts schemaLevel), the snapshot's encoding of it, and the layer hashes
- *   none, owning the schema under the fingerprints the snapshot records (schema/own.ts ownServed); no level check or
- *   program they compile reads a description's text (descText). generate and check compile the installation's basis
- *   once (its law model and closed constants, physical/install/plan.ts installBasis), packing every closed relation's
- *   cells once (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
+ *   the level's content: schema(...) reads none, and `grizzle generate` and `grizzle check` own the schema once,
+ *   reading the texts its content carries (schema/own.ts ownBuilt), none again; they hash each level's fingerprint
+ *   (core/fingerprint.ts schemaLevel), the snapshot's encoding of it; no level check or program they compile reads a
+ *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
+ *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
+ *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
  *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
  *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
  *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs
- *   (adapter/served/login.ts loginRoles), building no DDL. A layer compiling a login in process plans its basis from the
- *   closed constants' names the snapshot records (planBasis), packing no cell, planned once.
+ *   (adapter/served/login.ts loginRoles), building no DDL.
+ * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
+ *   nothing (adapter/pool/served.ts): every count of the layer is zero.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
  * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
@@ -275,15 +275,15 @@ const stepsAt = (size: Size) =>
 			const [, drift] = yield* command("drift")
 			const resolved = yield* resolveConfig(config, `${ws}/${configName}`)
 			const directory = defined(resolved.schemas[0], "the configured schema").directory
-			const text = yield* fs.readFileString(`${directory}/${snapshotFileName}`)
+			const text = yield* fs.readFileString(`${directory}/${servedPath("server")}`)
+			const file = served<typeof server>(trustedJson<unknown>(text), "server")
 			const [, layer] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						compiledDbLayer({
+						DbLayer.make({
 							...offlineConnection,
 							pool: clusterPool,
-							login: server,
-							snapshot: snapshotJson(text)
+							login: file
 						})
 					)
 				),
@@ -363,15 +363,15 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 	layer: {
 		levelContent: 0,
 		contentOfDesc: 0,
-		own: 1,
+		own: 0,
 		schemaLevel: 0,
-		compileLaws: 1,
+		compileLaws: 0,
 		installBasis: 0,
-		planBasis: 1,
+		planBasis: 0,
 		planClosed: 0,
-		plan: 1,
+		plan: 0,
 		installation: 0,
-		loginRoles: 1
+		loginRoles: 0
 	}
 }
 
@@ -389,7 +389,7 @@ const siteNames: ReadonlyArray<Site> = Rec.keys(sites)
 
 layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) => {
 	it.effect(
-		"reads a schema's content once, compiles it once per command and layer, nothing for migrate or drift, and grows linearly",
+		"reads a schema's content once, compiles it once per command, nothing for migrate, drift or the served layer, and grows linearly",
 		(ctx) =>
 			searched(
 				ctx,
