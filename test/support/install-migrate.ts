@@ -4,6 +4,7 @@ import {
 	DateTime,
 	Effect,
 	Option,
+	Path,
 	pipe,
 	Record as Rec,
 	type Scope,
@@ -15,26 +16,34 @@ import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
 import { formatTimestamp } from "#cli/clock.ts"
+import { compileSchema, resolveConfig } from "#cli/config.ts"
+import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import type * as Engine from "#compiler/core/result.ts"
+import * as Engine from "#compiler/core/result.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import { folderName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import type { AnySchema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
+import { defineConfig } from "#index.ts"
+import { offlineOwner } from "#test/pg/cli/support.ts"
 import { installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
 import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { installationSql } from "#test/support/compile.ts"
+import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -42,6 +51,7 @@ import {
 	fromSnapshot,
 	generate,
 	noDeclarations,
+	parsedMigrationName,
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { type Placeholder, review } from "#test/support/migrate/review.ts"
@@ -610,6 +620,111 @@ export const installMigrated = (
 		extensions: options.extensions,
 		ambient: options.ambient,
 		compile: compileInstallation
+	})
+
+/**
+ * A schema installed as `grizzle generate` drafts it with its logins (installGenerated): the installation, which holds
+ * each role at the level its served workload certifies (program/isolation/certification.ts) and keeps each table's
+ * guard by those levels, and each login's served file, projected from the same plan at the same levels (servedFiles),
+ * by the login's declared name.
+ */
+export interface Generated {
+	readonly installed: Installed
+	readonly served: ReadonlyMap<string, unknown>
+}
+
+/** Where a generated installation's configuration stands, for its directories alone: nothing is read from it. */
+const generatedConfig = `${repoRoot}app/grizzle.config.ts`
+
+/**
+ * Installs `build(name)` under a unique schema name `name` in the scope as `grizzle generate` drafts and serves it: its
+ * configuration resolved and compiled as the command line compiles it (cli/config.ts), its first migration drafted from
+ * the empty snapshot with its logins' served workload certified once (cli/generate.ts draftSchema), named, reviewed
+ * and applied by the real runner as installMigrated's is, as an owner login of its own whose sessions start under
+ * `options.ambient`, and each login's served file projected from the same plan (servedFiles). Its catalog is the fresh
+ * install's, since its migration runs the installation's script alone (runsInstallScript); a draft that does not, or
+ * one the command line refuses, is a defect of the setup.
+ */
+export const installGenerated = (
+	build: (name: string) => {
+		readonly schema: AnySchema
+		readonly logins: ReadonlyArray<AnyLogin>
+	},
+	options: { readonly label: string; readonly ambient: AmbientSession }
+): Effect.Effect<Generated, CompileError | SqlError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const name = yield* substrate.schema({ create: false, label: options.label })
+		const declared = build(name)
+		const desc = yield* fromEngine(schemaDescIn(declared.schema))
+		const codes = yield* fromEngine(draftCodes(desc, fromEmpty, noDeclarations))
+		const { draft, entries } = yield* Effect.orDie(
+			Effect.provideService(
+				Effect.gen(function* () {
+					const config = yield* resolveConfig(
+						defineConfig({
+							schemas: [declared.schema],
+							logins: declared.logins,
+							migrations: "migrations",
+							connection: () => offlineOwner
+						}),
+						generatedConfig
+					)
+					const configured = defined(config.schemas[0], "the generated schema's configuration")
+					const compiled = yield* Effect.fromResult(compileSchema(configured))
+					const drafted = yield* draftSchema(
+						compiled,
+						emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
+						[],
+						noDeclarations
+					)
+					const served = yield* servedFiles(compiled, drafted.snapshotFiles, drafted.served)
+					return { draft: drafted, entries: served }
+				}),
+				Path.Path,
+				paths
+			)
+		)
+		const folderAt = yield* fromEngine(
+			folderName(installTimestamp(0), parsedMigrationName(installName))
+		)
+		const reviewed = review(
+			{ ...draft, folder: { name: folderAt, ...draft.folder } },
+			{ losses: "written", value: noPlaceholder }
+		)
+		const folder: FolderSource = {
+			name: folderAt,
+			metaText: draft.folder.metaText,
+			files: reviewed.files
+		}
+		assert.ok(
+			runsInstallScript([folder], draft.installation),
+			"generate's first migration runs the installation's script alone"
+		)
+		const owner = yield* ambientOwner(options.ambient, installedSchemas(draft.installation))
+		yield* applyFolders(owner, substrate.database, draft.snapshot, [folder])
+		const plan = yield* fromEngine(
+			planRealInstall(declared.schema, {
+				installation: identity.schema(parsedSchemaName(name)),
+				owner: substrate.owner.role,
+				logins: declared.logins,
+				extensions: [],
+				codes,
+				compile: () => Engine.ok(draft.installation)
+			})
+		)
+		const installed = yield* installedOf({
+			plan,
+			declared: name,
+			folders: [folder],
+			snapshot: draft.snapshot,
+			ambientOwner: owner
+		})
+		yield* checkInstallation(installed)
+		return {
+			installed,
+			served: new Map(Arr.map(entries, (e) => [e.login, trustedJson<unknown>(e.text)] as const))
+		}
 	})
 
 /**

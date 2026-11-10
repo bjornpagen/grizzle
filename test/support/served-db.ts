@@ -58,26 +58,35 @@ export interface ServedFixture<L> {
 }
 
 /**
- * `login` serving its own workloads over `installed`: its served file (servedJson), served under L's type, and the
- * DbLayer of it on the cluster's connection with the login's password, the test pool and testVerify, in the database
- * the installation was migrated in.
+ * `login` serving the served file `json` over `installed`: the file served under L's type, and the DbLayer of it on the
+ * cluster's connection with the login's password, the test pool and testVerify, in the database the installation was
+ * migrated in.
  */
+export const servedFixtureOf = <L extends AnyLogin>(
+	installed: Installed,
+	login: L,
+	json: unknown
+): ServedFixture<L> => {
+	const file = served<L>(json, login.name)
+	return {
+		login: file,
+		layer: DbLayer.make({
+			...clusterConnection(installed.cluster, installed.database, installed.as(login).password),
+			pool: clusterPool,
+			login: file,
+			verify: testVerify
+		})
+	}
+}
+
+/** `login` serving its own workloads over `installed` (servedFixtureOf), its served file compiled by servedJson. */
 export const servedFixture = <L extends AnyLogin>(
 	installed: Installed,
 	login: L
 ): Effect.Effect<ServedFixture<L>, ServedRefusal> =>
-	Effect.map(servedJson(installed, login, login.workload), (json) => {
-		const file = served<L>(json, login.name)
-		return {
-			login: file,
-			layer: DbLayer.make({
-				...clusterConnection(installed.cluster, installed.database, installed.as(login).password),
-				pool: clusterPool,
-				login: file,
-				verify: testVerify
-			})
-		}
-	})
+	Effect.map(servedJson(installed, login, login.workload), (json) =>
+		servedFixtureOf(installed, login, json)
+	)
 
 /**
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles

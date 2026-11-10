@@ -551,7 +551,7 @@ interface RaceInstall {
 	readonly laws: ReadonlyMap<LawId, HostLaw>
 }
 
-const installRaces = Effect.map(openRig("Platform", racesAt), (rig): RaceInstall => {
+const installRaces = Effect.map(openRig(racesAt), (rig): RaceInstall => {
 	const names = namesOf(rig.installed)
 	return { rig, names, laws: lawsById(names) }
 })

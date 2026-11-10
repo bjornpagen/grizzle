@@ -22,5 +22,7 @@ export const fileText = (path: string): Effect.Effect<string> =>
 export const joinPath = (...segments: ReadonlyArray<string>): string =>
 	Arr.reduce(segments, "", (path, segment) => paths.join(path, segment))
 
+export { paths }
+
 /** The repository's root directory, ending in a slash. */
 export const repoRoot = `${joinPath(import.meta.dirname, "../..")}/`

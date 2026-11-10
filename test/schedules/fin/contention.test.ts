@@ -99,7 +99,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			() =>
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const rig = yield* openRig("Contended", contended)
+					const rig = yield* openRig(contended)
 					const names = namesOf(rig.installed)
 					const family = defined(names.model.families[0], "the family")
 					const owner = names.table(Owner)

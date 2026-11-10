@@ -201,7 +201,7 @@ const plantedPool = (pool: SessionPool, limit: number): SessionPool => ({
 const explored = (staging: Staging) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const rig = yield* openRig("StagedImports", imports)
+		const rig = yield* openRig(imports)
 		const names = namesOf(rig.installed)
 		/** The role's loaded `importPackage` member, as the first writer's layer loaded it from the served file. */
 		const loaded: Array<LoadedMember> = []

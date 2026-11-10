@@ -211,7 +211,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const run = yield* Run
 					const mutableRelation = relationOf(run.seed, mutables, "mutable")
 					const immutableRelation = relationOf(run.seed, immutables, "immutable")
-					const rig = yield* openRig("Platform", racesAt)
+					const rig = yield* openRig(racesAt)
 					const names = namesOf(rig.installed)
 					const actors = yield* openActors(s, {
 						owner: { kind: "psql", as: s.owner },

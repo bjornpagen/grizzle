@@ -242,7 +242,7 @@ const runRace = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const rig = yield* openRig("Bookings", renamed)
+		const rig = yield* openRig(renamed)
 		const names = namesOf(rig.installed)
 		const booking = names.table(Booking)
 		for (const [law, kind, definition] of [

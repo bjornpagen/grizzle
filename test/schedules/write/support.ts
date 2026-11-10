@@ -145,7 +145,7 @@ export const open: Effect.Effect<
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > = Effect.gen(function* () {
-	const rig = yield* openRig("Sched", renamedSched)
+	const rig = yield* openRig(renamedSched)
 	return { rig, names: namesOf(rig.installed) }
 })
 

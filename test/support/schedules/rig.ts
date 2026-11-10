@@ -8,14 +8,15 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
+import { defined } from "#test/support/assert.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { dbRuntime } from "#test/support/runtime-db.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
-import { servedFixture } from "#test/support/served-db.ts"
+import { servedFixtureOf } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -103,18 +104,19 @@ export interface Rig<W extends RigWorlds> {
  * A schedule's installation and its grizzle writers.
  *
  * A schedule's schema and its worlds are declared through the public API as a function of the schema's name, installed
- * under a fresh schema name (roles are cluster-wide; installMigrated adds the residual-law and derived extensions the
- * schema needs), and rebuilt under the installed name, so the Dbs, their ChangeSets and their queries are typed by the
- * schema and its roles themselves. Each grizzle writer opens its role's Db through a DbLayer of its own over the login
+ * under a fresh schema name as `grizzle generate` drafts and serves it (installGenerated: roles are cluster-wide; each
+ * role runs at the level its served workload certifies, and each table keeps its guard by those levels), and rebuilt
+ * under the installed name, so the Dbs, their ChangeSets and their queries are typed by the schema and its roles
+ * themselves. Each grizzle writer opens its role's Db through a DbLayer of its own over the login
  * `server`, exactly as an application does, and its grizzle actor is the one session that Db's pool holds. Direct SQL
  * actors take on the role `direct` through a login of their own, so no direct session is ever mistaken for a writer's.
  * Seeds and constraint rebuilds name tables through the installation, so a caller runs them with `owner` after openRig
  * and before its writers open.
  *
- * Installs build(name) with its logins, rebuilds it under the installed name, and opens the observer.
+ * Installs build(name) with its logins under a fresh name, serves the login `server` from the same draft, and opens the
+ * observer.
  */
 export const openRig = <W extends RigWorlds>(
-	name: string,
 	build: (name: string) => W
 ): Effect.Effect<
 	Rig<W>,
@@ -123,15 +125,19 @@ export const openRig = <W extends RigWorlds>(
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const declared = build(name)
-		const installed = yield* installMigrated(declared.schema, {
-			ambient: ordinarySession,
-			label: "real",
-			logins: [declared.server, declared.psql],
-			extensions: []
-		})
+		const { installed, served } = yield* installGenerated(
+			(name) => {
+				const declared = build(name)
+				return { schema: declared.schema, logins: [declared.server, declared.psql] }
+			},
+			{ label: "real", ambient: ordinarySession }
+		)
 		const worlds = build(installed.declared)
-		const fixture = yield* Effect.orDie(servedFixture<W["server"]>(installed, worlds.server))
+		const fixture = servedFixtureOf<W["server"]>(
+			installed,
+			worlds.server,
+			defined(served.get(worlds.server.name), "the served file of the login server")
+		)
 		const env = yield* exploreEnv(s)
 		/**
 		 * The backends of the writers opened so far: a new writer's actor is the one session of the login beside them.
