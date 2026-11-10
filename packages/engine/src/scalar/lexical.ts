@@ -7,11 +7,8 @@ import {
 	type NumericTypmod,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
-	type Patterns,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
-import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
-import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 /**
@@ -312,17 +309,6 @@ export const formOctets = (target: LexicalTarget): number | undefined => {
 			return undefined
 	}
 }
-
-/**
- * Whether every value of a conjunction's language is a member of a target's lexical form (regex/inclusion.ts): what
- * makes a parse of a value of that language total. The conjunction is a RegexRef's, admitted by the text analysis; every
- * automaton is read from `patterns`.
- */
-export const formIncludes = (
-	conjunction: Patterns,
-	target: LexicalTarget,
-	patterns: PatternAutomata
-): Inclusion => patternIncludes(conjunction, [{ source: formSource(target), flags: "u" }], patterns)
 
 /** A decimal numeral's sign and the digits on each side of its point, at least one digit in all. */
 interface Numeral {

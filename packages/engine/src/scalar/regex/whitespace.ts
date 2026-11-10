@@ -1,13 +1,12 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
+import { xmlWhitespace } from "#compiler/core/text.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import {
 	type CharSet,
 	charSet,
 	complement,
-	has,
 	isEmpty,
 	union
 } from "#compiler/scalar/regex/charset.ts"
@@ -23,35 +22,10 @@ import { alphabetOf, sourceFlags, sourceSet } from "#compiler/scalar/regex/sourc
  *
  * The four white space characters, tab, LF, CR and space.
  */
-const whitespace: CharSet = charSet([
-	[0x09, 0x0a],
-	[0x0d, 0x0d],
-	[0x20, 0x20]
-])
+const whitespace: CharSet = charSet(Array.from(xmlWhitespace, (c) => [c, c] as const))
 
 /** whiteSpace replace's map, as Compute.translate states it: tab, LF and CR, each a space. */
 export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
-
-/**
- * whiteSpace collapse of a text, by code points: each run of white space between two other characters is one space,
- * and a run at either end is nothing.
- */
-export const collapsed = (text: string): string => {
-	const out: Array<number> = []
-	let spaced = false
-	for (const c of codePoints(text)) {
-		if (has(whitespace, c)) {
-			spaced = out.length > 0
-			continue
-		}
-		if (spaced) {
-			out.push(0x20)
-			spaced = false
-		}
-		out.push(c)
-	}
-	return codePointsText(out)
-}
 
 /**
  * The ARE of a run of white space, `[ \t\n\r]+` as the ARE printer spells it (are.ts), which PostgreSQL's

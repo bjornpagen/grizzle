@@ -11,6 +11,7 @@ import {
 	type OperandReading
 } from "#compiler/scalar/compute/registry.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
+import { whitespaceRun } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
@@ -307,7 +308,7 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 		case "endsWith":
 			return textSuffix(args)
 		case "collapse":
-			return collapseText(args, sql.run)
+			return collapseText(args, whitespaceRun)
 		case "parseDouble":
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 		case "parseDecimal":

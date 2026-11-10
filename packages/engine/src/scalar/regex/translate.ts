@@ -73,31 +73,6 @@ export const charMapOf = (from: string, to: string): Result.Result<CharMap, stri
 	return Result.ok(map)
 }
 
-/**
- * PostgreSQL's translate(text, from, to) over any three texts, by code points: a character of text that occurs in from
- * becomes the character of to at the position of its first occurrence there, or nothing where to has no character at
- * that position, and every other character stays.
- */
-export const translated = (text: string, from: string, to: string): string => {
-	const sources = codePoints(from)
-	const targets = codePoints(to)
-	const first = new Map<number, number>()
-	for (const [i, source] of sources.entries()) {
-		if (!first.has(source)) {
-			first.set(source, i)
-		}
-	}
-	const out: Array<number> = []
-	for (const c of codePoints(text)) {
-		const at = first.get(c)
-		const target = at === undefined ? c : targets[at]
-		if (target !== undefined) {
-			out.push(target)
-		}
-	}
-	return codePointsText(out)
-}
-
 /** The image of a set of code points under a map: its code points the map leaves, and the image of each it moves. */
 const imageOfSet = (s: CharSet, map: CharMap): CharSet => {
 	const moved = charSet([...map.keys()].map((c) => [c, c] as const))

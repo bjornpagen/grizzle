@@ -29,7 +29,6 @@ import {
 	textCast
 } from "#compiler/scalar/compute/cast.ts"
 import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
-import { whitespaceRun } from "#compiler/scalar/regex/whitespace.ts"
 
 /**
  * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
@@ -137,9 +136,11 @@ type SqlForm =
 				| "sha256"
 	  }
 	| {
-			/** whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space. */
+			/**
+			 * whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space
+			 * (regex/whitespace.ts whitespaceRun), which the lowering prints.
+			 */
 			readonly kind: "collapse"
-			readonly run: string
 	  }
 
 /**
@@ -730,7 +731,7 @@ const textCollapse: FixedOverload = frozen({
 	fn: "collapse",
 	operands: positional(["text"]),
 	result: "text",
-	sql: { kind: "collapse", run: whitespaceRun },
+	sql: { kind: "collapse" },
 	catalog: {
 		kind: "construct",
 		uses: Object.freeze([opId("regexp_replace(text,text,text,text)"), opId("btrim(text)")])

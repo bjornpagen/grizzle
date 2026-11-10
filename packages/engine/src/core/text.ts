@@ -198,3 +198,52 @@ export const isDecimal = (text: string): boolean => {
 	}
 	return true
 }
+
+/**
+ * PostgreSQL's translate(text, from, to) over any three texts, by code points: a character of text that occurs in from
+ * becomes the character of to at the position of its first occurrence there, or nothing where to has no character at
+ * that position, and every other character stays.
+ */
+export const translated = (text: string, from: string, to: string): string => {
+	const sources = codePoints(from)
+	const targets = codePoints(to)
+	const first = new Map<number, number>()
+	for (const [i, source] of sources.entries()) {
+		if (!first.has(source)) {
+			first.set(source, i)
+		}
+	}
+	const out: Array<number> = []
+	for (const c of codePoints(text)) {
+		const at = first.get(c)
+		const target = at === undefined ? c : targets[at]
+		if (target !== undefined) {
+			out.push(target)
+		}
+	}
+	return codePointsText(out)
+}
+
+/** The four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+` (XML 1.0, §2.3): tab, LF, CR and space. */
+export const xmlWhitespace: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d, 0x20])
+
+/**
+ * whiteSpace collapse of a text, by code points: each run of white space between two other characters is one space,
+ * and a run at either end is nothing.
+ */
+export const collapsed = (text: string): string => {
+	const out: Array<number> = []
+	let spaced = false
+	for (const c of codePoints(text)) {
+		if (xmlWhitespace.has(c)) {
+			spaced = out.length > 0
+			continue
+		}
+		if (spaced) {
+			out.push(0x20)
+			spaced = false
+		}
+		out.push(c)
+	}
+	return codePointsText(out)
+}

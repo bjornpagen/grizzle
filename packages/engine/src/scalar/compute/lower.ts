@@ -186,7 +186,6 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import {
 	decimalTextMaxBytes,
-	formIncludes,
 	formOctets,
 	formSource,
 	type LexicalTarget,
@@ -195,7 +194,7 @@ import {
 } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
-import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import { formIncludes, type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {

@@ -2,6 +2,7 @@ import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePointsText } from "#compiler/core/text.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
+import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { type CharSet, complement, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 import {
 	type CanonicalDfa,
@@ -180,3 +181,14 @@ export const patternIncludes = (
 		mapNonEmpty(inner, (p) => patterns.parse(p).nfa),
 		mapNonEmpty(outer, (p) => patterns.parse(p).nfa)
 	)
+
+/**
+ * Whether every value of a conjunction's language is a member of a target's lexical form (patternIncludes): what
+ * makes a parse of a value of that language total. The conjunction is a RegexRef's, admitted by the text analysis; every
+ * automaton is read from `patterns`.
+ */
+export const formIncludes = (
+	conjunction: Patterns,
+	target: LexicalTarget,
+	patterns: PatternAutomata
+): Inclusion => patternIncludes(conjunction, [{ source: formSource(target), flags: "u" }], patterns)

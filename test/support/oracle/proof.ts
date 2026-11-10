@@ -32,7 +32,8 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { formIncludes, formOctets, parseTargetOf } from "#compiler/scalar/lexical.ts"
+import { formOctets, parseTargetOf } from "#compiler/scalar/lexical.ts"
+import { formIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
