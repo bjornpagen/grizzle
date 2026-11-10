@@ -5,7 +5,7 @@ import { array, element, filter, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -28,7 +28,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const kinds = ["sum", "tuple"] as const
 type KindHandle = (typeof kinds)[number]
@@ -120,6 +119,11 @@ const cellsNamed = (label: string, naming: Naming) =>
 		cellParts,
 		cellTotal
 	])
+
+/** The full role's workload over the cells of `cells`: cells inserted with their parts, both from each call's facts. */
+const programsOf = (cells: ReturnType<typeof cellsNamed>) => ({
+	write: ChangeSet.empty(cells).insert(Cell, []).insert(Part, [])
+})
 
 const rowGen: Gen<Row> = (source) => ({
 	a: source.draw(int(-1, 1)),
@@ -231,22 +235,24 @@ export const everyLawSuite = (): void => {
 						ctx,
 						Effect.gen(function* () {
 							const s = yield* Substrate
+							const forwardCells = cellsNamed("Forward", "forward")
 							const forward = yield* installed(
-								cellsNamed("Forward", "forward"),
+								forwardCells,
 								{},
 								{
 									label: "forward",
 									extensions: [],
-									programs: {}
+									programs: programsOf(forwardCells)
 								}
 							)
+							const backwardCells = cellsNamed("Backward", "backward")
 							const backward = yield* installed(
-								cellsNamed("Backward", "backward"),
+								backwardCells,
 								{},
 								{
 									label: "backward",
 									extensions: [],
-									programs: {}
+									programs: programsOf(backwardCells)
 								}
 							)
 							const installations = { forward, backward } as const
@@ -422,16 +428,14 @@ export const everyLawSuite = (): void => {
 											const o = installations[naming]
 											yield* replaceRows(s.admin, installationGroup(namesOf(o.installed)), [])
 											const outcome = yield* Effect.gen(function* () {
-												const db = yield* compiledOpen(o.server.roles.app, {})
+												const db = yield* Db.open(o.served.login.roles.app, {})
 												if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
+													const storedParts = Arr.flatMap(stored, (st) =>
+														partsOf(st.id, st.cell.parts)
+													)
 													const storing = yield* Effect.result(
-														db.apply(
-															ChangeSet.empty(o.schema)
-																.insert(Cell, storedCells)
-																.insert(
-																	Part,
-																	Arr.flatMap(stored, (st) => partsOf(st.id, st.cell.parts))
-																),
+														db.workload.write.apply(
+															{ insert: { Cell: storedCells, Part: storedParts } },
 															{}
 														)
 													)
@@ -440,22 +444,18 @@ export const everyLawSuite = (): void => {
 														"lawful cells are stored"
 													)
 												}
-												const applied = yield* Effect.result(
-													db.apply(
-														ChangeSet.empty(o.schema)
-															.insert(Cell, cells)
-															.insert(Part, [
-																...partsOf(id, row.parts),
-																...Arr.flatMap(stored, (st) =>
-																	st.parts === "stated again" ? partsOf(st.id, st.cell.parts) : []
-																)
-															]),
-														{}
+												const parts = [
+													...partsOf(id, row.parts),
+													...Arr.flatMap(stored, (st) =>
+														st.parts === "stated again" ? partsOf(st.id, st.cell.parts) : []
 													)
+												]
+												const applied = yield* Effect.result(
+													db.workload.write.apply({ insert: { Cell: cells, Part: parts } }, {})
 												)
 												assert.ok(Result.isSuccess(applied), "the write is an outcome")
 												return applied.success
-											}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+											}).pipe(Effect.scoped, withLayer(o.served.layer))
 											if (!Arr.isReadonlyArrayNonEmpty(broken)) {
 												assert.equal(outcome.kind, "accepted")
 												c.note("accepted")
