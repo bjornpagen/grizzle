@@ -179,7 +179,7 @@ const flightWay = (
 			isNonEmpty(hops) &&
 			(reader.kind === "fold" || reader.kind === "predecessor" || reader.kind === "last") &&
 			lastNonEmpty(hops).member.name === reader.family.member.name &&
-			hops.every((h) => !edited.has(h.member.name))
+			hops.slice(0, -1).every((h) => !edited.has(h.member.name))
 			? { root: { kind: "put", relation: change.relation.name }, hops }
 			: undefined
 	}
