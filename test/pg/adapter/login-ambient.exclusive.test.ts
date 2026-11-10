@@ -12,7 +12,7 @@
  * an ambient session (test/support/ambient.ts), here the database's defaults: the installation's schemas first on the
  * search path or PostgreSQL's own path, and each print setting unset or at a value of its own; whether the login's
  * search_path pin stands or is reset (ALTER ROLE ... RESET search_path); and a program of writes and reads through the
- * login's full role: the texts inserted twice, the second an exact repeat, links into them, perhaps one into no text,
+ * members of the login's full role's served workload, each write's rows its call's facts: the texts inserted twice, the second an exact repeat, links into them, perhaps one into no text,
  * which the containment refuses, amounts put twice over a mutable relation, money and both float widths among their
  * fields, then the links joined to their texts, every amount, the amounts at a money parameter and from a double one,
  * one amount by its key, and every page of the amounts ordered by the double.
@@ -40,12 +40,13 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { paged } from "#compiler/public/workload.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import type { Page, PageCursor } from "#compiler/types/page/page.ts"
@@ -65,7 +66,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const Note = str.regex("^.{0,40}$", "su")
 const TextRelation = relation("Text", { id: uuid, note: Note }, ["id"])
@@ -401,81 +401,92 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 					const o = yield* installed(
 						Shadowed,
 						{},
-						{ label: "login_ambient", extensions: [], programs: {} }
+						{
+							label: "login_ambient",
+							extensions: [],
+							programs: {
+								addTexts: ChangeSet.empty(Shadowed).insert(TextRelation, []),
+								addLinks: ChangeSet.empty(Shadowed).insert(UuidRelation, []),
+								putAmounts: ChangeSet.empty(Shadowed).put(MoneyRelation, []),
+								linkedNotes: query(Shadowed).rule((r) => {
+									const link = v(UuidRelation, "link")
+									const text = v(TextRelation, "text")
+									return r
+										.match(UuidRelation, { id: link.id, text: link.text })
+										.match(TextRelation, { id: link.text, note: text.note })
+										.find({ id: link.id, note: text.note })
+								}),
+								everyAmount: query(Shadowed).rule((r) => {
+									const { id, amount, ratio, exact, flag } = v(MoneyRelation, "money")
+									return r
+										.match(MoneyRelation, { id, amount, ratio, exact, flag })
+										.find({ id, amount, ratio, exact, flag })
+								}),
+								atAmount: query(Shadowed).rule((r) => {
+									const { id, amount } = v(MoneyRelation, "money")
+									return r
+										.match(MoneyRelation, { id, amount })
+										.where(r.eq(amount, r.param("at", pg.money)))
+										.find({ id })
+								}),
+								fromExact: query(Shadowed).rule((r) => {
+									const { id, exact } = v(MoneyRelation, "money")
+									return r
+										.match(MoneyRelation, { id, exact })
+										.where(r.ge(exact, r.param("from", pg["double precision"])))
+										.find({ id, exact })
+								}),
+								byExact: paged(
+									query(Shadowed)
+										.rule((r) => {
+											const { id, amount, ratio, exact } = v(MoneyRelation, "money")
+											return r
+												.match(MoneyRelation, { id, amount, ratio, exact })
+												.find({ id, amount, ratio, exact })
+										})
+										.orderBy(["exact", "desc"])
+								),
+								amount: MoneyRelation
+							}
+						}
 					)
 					const database = o.installed.database
 					const schemas = installedSchemas(o.installed.installation)
 					const login = o.installed.as(o.server).role
-					const linkedNotes = query(o.schema).rule((r) => {
-						const link = v(UuidRelation, "link")
-						const text = v(TextRelation, "text")
-						return r
-							.match(UuidRelation, { id: link.id, text: link.text })
-							.match(TextRelation, { id: link.text, note: text.note })
-							.find({ id: link.id, note: text.note })
-					})
-					const everyAmount = query(o.schema).rule((r) => {
-						const { id, amount, ratio, exact, flag } = v(MoneyRelation, "money")
-						return r
-							.match(MoneyRelation, { id, amount, ratio, exact, flag })
-							.find({ id, amount, ratio, exact, flag })
-					})
-					const atAmount = query(o.schema).rule((r) => {
-						const { id, amount } = v(MoneyRelation, "money")
-						return r
-							.match(MoneyRelation, { id, amount })
-							.where(r.eq(amount, r.param("at", pg.money)))
-							.find({ id })
-					})
-					const fromExact = query(o.schema).rule((r) => {
-						const { id, exact } = v(MoneyRelation, "money")
-						return r
-							.match(MoneyRelation, { id, exact })
-							.where(r.ge(exact, r.param("from", pg["double precision"])))
-							.find({ id, exact })
-					})
-					const byExact = query(o.schema)
-						.rule((r) => {
-							const { id, amount, ratio, exact } = v(MoneyRelation, "money")
-							return r
-								.match(MoneyRelation, { id, amount, ratio, exact })
-								.find({ id, amount, ratio, exact })
-						})
-						.orderBy(["exact", "desc"])
 					/** The program's every outcome and answer, through a Db the login opens on a layer of its own. */
 					const run = (p: Program) =>
 						Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
-							const empty = ChangeSet.empty(o.schema)
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							const texts = Arr.dedupeWith(p.texts, sameId)
 							const links = [
 								...Arr.map(byId(p.links), (l) => ({ id: l.id, text: pickFrom(texts, l.pick).id })),
 								...(p.dangling ? [{ id: danglingLink, text: absentText }] : [])
 							]
 							const writes = [
-								yield* db.apply(empty.insert(TextRelation, texts), {}),
-								yield* db.apply(empty.insert(TextRelation, texts), {}),
-								yield* db.apply(empty.insert(UuidRelation, links), {}),
-								yield* db.apply(empty.put(MoneyRelation, amountFacts(p.amounts)), {}),
-								yield* db.apply(empty.put(MoneyRelation, amountFacts(p.revised)), {})
+								yield* db.workload.addTexts.apply({ insert: { Text: texts } }, {}),
+								yield* db.workload.addTexts.apply({ insert: { Text: texts } }, {}),
+								yield* db.workload.addLinks.apply({ insert: { Uuid: links } }, {}),
+								yield* db.workload.putAmounts.apply({ put: { Money: amountFacts(p.amounts) } }, {}),
+								yield* db.workload.putAmounts.apply({ put: { Money: amountFacts(p.revised) } }, {})
 							]
 							return {
 								writes,
-								linked: yield* (yield* db.execute(linkedNotes, {})).collect,
-								amounts: yield* (yield* db.execute(everyAmount, {})).collect,
-								at: yield* (yield* db.execute(atAmount, { at: Money.of(p.at) })).collect,
-								from: yield* (yield* db.execute(fromExact, { from: p.from })).collect,
-								probed: yield* db.get(MoneyRelation, { id: p.probe }),
+								linked: yield* (yield* db.workload.linkedNotes.execute({})).collect,
+								amounts: yield* (yield* db.workload.everyAmount.execute({})).collect,
+								at: yield* (yield* db.workload.atAmount.execute({ at: Money.of(p.at) })).collect,
+								from: yield* (yield* db.workload.fromExact.execute({ from: p.from })).collect,
+								probed: yield* db.workload.amount.get({ id: p.probe }),
 								pages: yield* walk(
 									(after) =>
 										Option.match(after, {
-											onNone: () => db.page(byExact, {}, { first: p.pageSize }),
-											onSome: (cursor) => db.page(byExact, {}, { first: p.pageSize, after: cursor })
+											onNone: () => db.workload.byExact.page({}, { first: p.pageSize }),
+											onSome: (cursor) =>
+												db.workload.byExact.page({}, { first: p.pageSize, after: cursor })
 										}),
 									Option.none()
 								)
 							}
-						}).pipe(withLayer(Layer.fresh(loginLayer(o.installed, o.server))))
+						}).pipe(withLayer(Layer.fresh(o.served.layer)))
 					return yield* explore(
 						{
 							oracle: { kind: "unstated" },

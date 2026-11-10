@@ -6,11 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { makeDb } from "#adapter/db/db.ts"
 import { memberOps } from "#adapter/db/handles.ts"
-import { compiledOpen, openDbContext, type OpenedDb } from "#adapter/db/open.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { Db } from "#adapter/public/db.ts"
+import { DbLayer } from "#adapter/public/layer.ts"
 import { explainMember } from "#adapter/served/explain.ts"
 import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -23,7 +22,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, assertVariant, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -31,7 +30,6 @@ import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
-import { snapshotValue } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -42,7 +40,7 @@ import {
 	type WireWindow
 } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer, testVerify } from "#test/support/worlds.ts"
+import { testVerify } from "#test/support/worlds.ts"
 
 const readFraming = ["BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY", "COMMIT"] as const
 const writeFraming = ["BEGIN ISOLATION LEVEL SERIALIZABLE", "COMMIT"] as const
@@ -143,20 +141,15 @@ const notesGen: Gen<ReadonlyArray<{ readonly task: number; readonly text: number
 		text: source.draw(int(0, 2))
 	}))
 
-type WriteCallFeature =
-	| "apply"
-	| "compiled apply"
-	| "explain"
-	| "a read-back that attaches"
-	| "nothing to write"
+type WriteCallFeature = "apply" | "explain" | "a read-back that attaches" | "nothing to write"
 
 /**
- * A drawn write call: notes inserted, put or deleted, none among them (a ChangeSet with nothing to write, which still
- * sends its transaction), with or without a read-back, through one of the three forms.
+ * A drawn write call: notes inserted, put or deleted, none among them (a call with nothing to write, which still sends
+ * its transaction), with or without a read-back, applied or explained.
  */
 const writeCallsGen = array(
 	(source) => ({
-		kind: source.draw(element(["apply", "compiled apply", "explain"] as const)),
+		kind: source.draw(element(["apply", "explain"] as const)),
 		op: source.draw(element(["insert", "put", "delete"] as const)),
 		notes: source.draw(notesGen),
 		readBack: source.draw(boolean)
@@ -190,20 +183,20 @@ const refreshesGen = array(boolean, { min: 1, max: 4 })
  *   a present or absent key, a member's explain (adapter/served/explain.ts), and walks of a paged member's page
  *   requests (first, last, after and before an earlier edge, drawn sizes), over a plain read, a heterogeneous union,
  *   fused and pipelined attachments and an ordered page with an attachment;
- * - drawn writes: ChangeSets of note inserts, puts and deletes, with or without a read-back that attaches, through
- *   db.apply, a compiled handle and db.explain; one with nothing to write sends its transaction all the same, its
- *   frame alone, so even it meets the fence;
+ * - drawn writes: a change member of note inserts, puts and deletes, with or without a read-back that attaches, each
+ *   call's facts, applied or explained; a call with nothing to write sends its transaction all the same, its frame
+ *   alone, so even it meets the fence;
  * - drawn programs of refreshes through a refresh member of the workload, each on its view as the last refresh left it
  *   or emptied first as a migration that recreates it leaves it, so the server chooses the plain and the concurrent form, read from pg_class before each
  *   call, and every refresh leaves its view populated;
- * - drawn requests through the login's own layer, its pool's one session tapped: one to three Dbs opened, during which
- *   the wire carries nothing, and a first call of one of them (a get, an execute, an apply with nothing to write), one
- *   round trip in its transaction.
+ * - drawn requests through the login's own served layer, its pool's one session tapped: one to three Dbs opened,
+ *   during which the wire carries nothing, and a first call of one of them (a key's get, a read's execute, an apply of
+ *   a change member with nothing to write), one round trip in its transaction.
  */
 export const roundTripSuite = (): void => {
 	layer(Substrate.layer, { excludeTestServices: true })("one round trip per public call", (it) => {
 		/**
-		 * An opened Db of no workload program whose operations run on a tapped pool of one session, warmed.
+		 * A tapped pool of one session for `credentials`, warmed, which a served Db's members run on.
 		 *
 		 * The session's startup, outside every window.
 		 */
@@ -220,11 +213,6 @@ export const roundTripSuite = (): void => {
 					Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 				)
 				return { pool, tap }
-			})
-		const tapped = <R>(opened: OpenedDb<R, unknown>, credentials: Credentials) =>
-			Effect.map(tappedPool(credentials), ({ pool, tap }) => {
-				const context = { ...opened.ctx, pool }
-				return { db: makeDb<R, unknown>(context, {}), context, tap }
 			})
 
 		it.effect(
@@ -437,7 +425,7 @@ export const roundTripSuite = (): void => {
 		)
 
 		it.effect(
-			"every drawn write, compiled write and EXPLAIN of a ChangeSet is one round trip in its transaction",
+			"every drawn write and EXPLAIN of a change member is one round trip in its transaction",
 			(testContext) =>
 				searched(
 					testContext,
@@ -448,95 +436,106 @@ export const roundTripSuite = (): void => {
 							programs: {}
 						})
 						const s = o.schema
-						return yield* Effect.gen(function* () {
-							const opened = yield* openDbContext(o.server.roles.app, {})
-							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
-							const tasks = [t1, t4, t5] as const
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									suite: "adapter/round-trips writes",
-									draw: drawn(writeCallsGen),
-									literal: Formatter.format,
-									kept: [],
-									runs: 30,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<WriteCallFeature>(
-										[
-											"apply",
-											"compiled apply",
-											"explain",
-											"a read-back that attaches",
-											"nothing to write"
-										],
-										{ cases: 30, sense: notesOnly }
-									),
-									caseHang
-								},
-								(calls, notes) =>
-									Effect.gen(function* () {
-										for (const call of calls) {
-											const facts = Arr.map(call.notes, (n) => ({
-												task: defined(tasks[n.task]),
-												note: `note ${n.text}`
-											}))
-											const plain = ChangeSet.empty(s)
-												.insert(W.TaskNote, call.op === "insert" ? facts : [])
-												.put(W.TaskNote, call.op === "put" ? facts : [])
-												.delete(W.TaskNote, call.op === "delete" ? facts : [])
-											/**
-											 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
-											 */
-											const changes = call.readBack
-												? plain.read("cards", () =>
-														query(s)
-															.rule((r) => {
-																const { id, kind } = v(W.Task, "task")
-																return r.match(W.Task, { id, kind }).find({ id, kind })
-															})
-															.attach(
-																"automatic",
-																(t) =>
-																	query(s).rule((r) => {
-																		const { budget } = v(W.AutomaticTask, "automaticTask")
-																		return r
-																			.match(W.AutomaticTask, { task: t.id, budget })
-																			.find({ budget })
-																	}),
-																arm("kind", "Automatic")
-															)
+						/** The notes a call inserts, puts and deletes, each its own facts, and its read-back. */
+						const plain = ChangeSet.empty(s)
+							.insert(W.TaskNote, [])
+							.put(W.TaskNote, [])
+							.delete(W.TaskNote, [])
+						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+							Effect.gen(function* () {
+								const loaded = yield* load({
+									plain,
+									/**
+									 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
+									 */
+									readBack: plain.read("cards", () =>
+										query(s)
+											.rule((r) => {
+												const { id, kind } = v(W.Task, "task")
+												return r.match(W.Task, { id, kind }).find({ id, kind })
+											})
+											.attach(
+												"automatic",
+												(t) =>
+													query(s).rule((r) => {
+														const { budget } = v(W.AutomaticTask, "automaticTask")
+														return r.match(W.AutomaticTask, { task: t.id, budget }).find({ budget })
+													}),
+												arm("kind", "Automatic")
+											)
+									)
+								})
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const tasks = [t1, t4, t5] as const
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										suite: "adapter/round-trips writes",
+										draw: drawn(writeCallsGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 30,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										coverage: required<WriteCallFeature>(
+											["apply", "explain", "a read-back that attaches", "nothing to write"],
+											{ cases: 30, sense: notesOnly }
+										),
+										caseHang
+									},
+									(calls, notes) =>
+										Effect.gen(function* () {
+											for (const call of calls) {
+												const facts = Arr.map(call.notes, (n) => ({
+													task: defined(tasks[n.task]),
+													note: `note ${n.text}`
+												}))
+												/** The call's facts: the drawn notes under the op it writes, every other op's none. */
+												const called = {
+													insert: { TaskNote: call.op === "insert" ? facts : [] },
+													put: { TaskNote: call.op === "put" ? facts : [] },
+													delete: { TaskNote: call.op === "delete" ? facts : [] }
+												}
+												const change = member(loaded, call.readBack ? "readBack" : "plain")
+												if (call.readBack) {
+													notes.note("a read-back that attaches")
+												}
+												if (call.notes.length === 0) {
+													notes.note("nothing to write")
+												}
+												if (call.kind === "explain") {
+													const seen = yield* observe(
+														tap,
+														explainMember(context, change, {
+															kind: "facts",
+															facts: called,
+															params: {}
+														})
 													)
-												: plain
-											if (call.readBack) {
-												notes.note("a read-back that attaches")
-											}
-											if (call.notes.length === 0) {
-												notes.note("nothing to write")
-											}
-											if (call.kind === "explain") {
-												const seen = yield* observe(tap, db.explain(changes, {}))
-												assertFlights("explain of a ChangeSet", seen.window, 1, [
-													"BEGIN ISOLATION LEVEL SERIALIZABLE",
-													"ROLLBACK"
-												])
-											} else {
-												const handle = yield* db.compile(changes)
-												const seen = yield* observe(
-													tap,
-													Effect.result(
-														call.kind === "apply" ? db.apply(changes, {}) : handle.apply({})
+													assertFlights("explain of a change member", seen.window, 1, [
+														"BEGIN ISOLATION LEVEL SERIALIZABLE",
+														"ROLLBACK"
+													])
+												} else {
+													const ops = memberOps(context, change)
+													assertVariant(
+														ops,
+														"kind",
+														"facts",
+														"a write member takes its call's facts"
 													)
-												)
-												assertFlights(call.kind, seen.window, 1, writeFraming)
+													const seen = yield* observe(tap, Effect.result(ops.ops.apply(called, {})))
+													assertFlights(call.kind, seen.window, 1, writeFraming)
+												}
+												notes.note(call.kind)
 											}
-											notes.note(call.kind)
-										}
-										assert.equal(tap.cancels(), 0)
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+											assert.equal(tap.cancels(), 0)
+										})
+								)
+							})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)
@@ -550,13 +549,16 @@ export const roundTripSuite = (): void => {
 						const o = yield* installed(W.Work, workFacts, {
 							label: "real",
 							extensions: [],
-							programs: {}
+							programs: {
+								task: W.Task,
+								tasksFor: W.workReads(W.Work).automaticTasksFor,
+								nothing: ChangeSet.empty(W.Work)
+							}
 						})
-						const reads = W.workReads(o.schema)
 						const substrate = yield* Substrate
 						const tap = makeTap(substrate.cluster)
-						/** The login's own layer, every byte of its pool's one session through the tap. */
-						const tappedLayer = compiledDbLayer({
+						/** The login's own served layer, every byte of its pool's one session through the tap. */
+						const tappedLayer = DbLayer.make({
 							...clusterConnection(
 								o.installed.cluster,
 								o.installed.database,
@@ -564,14 +566,13 @@ export const roundTripSuite = (): void => {
 							),
 							transport: tap.transport,
 							pool: { ...clusterPool, min: 1, max: 1 },
-							login: o.server,
-							snapshot: snapshotValue(o.installed.snapshot, o.installed.installation),
+							login: o.served.login,
 							verify: testVerify
 						})
 						return yield* Effect.gen(function* () {
 							/** The session's startup, outside every window: a call of a Db opened before the cases. */
-							const warm = yield* compiledOpen(o.server.roles.app, {})
-							yield* warm.get(W.Task, { id: t1 })
+							const warm = yield* Db.open(o.served.login.roles.app, {})
+							yield* warm.workload.task.get({ id: t1 })
 							return yield* explore(
 								{
 									oracle: {
@@ -596,7 +597,7 @@ export const roundTripSuite = (): void => {
 									Effect.gen(function* () {
 										const mark = tap.mark()
 										const dbs = yield* Effect.forEach(Arr.range(1, c.opens), () =>
-											compiledOpen(o.server.roles.app, {})
+											Db.open(o.served.login.roles.app, {})
 										)
 										const opened = tap.since(mark)
 										assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")
@@ -606,16 +607,16 @@ export const roundTripSuite = (): void => {
 										const db = defined(dbs[pickIndex(c.caller, dbs.length)], "an opened Db")
 										switch (c.call) {
 											case "get":
-												yield* db.get(W.Task, { id: c.present ? t1 : tMissing })
+												yield* db.workload.task.get({ id: c.present ? t1 : tMissing })
 												break
 											case "execute":
 												yield* Effect.flatMap(
-													db.execute(reads.automaticTasksFor, { account: a1 }),
+													db.workload.tasksFor.execute({ account: a1 }),
 													(r) => r.collect
 												)
 												break
 											case "apply":
-												yield* db.apply(ChangeSet.empty(o.schema), {})
+												yield* db.workload.nothing.apply({})
 												break
 										}
 										assertFlights(

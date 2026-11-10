@@ -14,14 +14,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
-import { makeDb } from "#adapter/db/db.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import { Db } from "#adapter/public/db.ts"
+import { memberOps } from "#adapter/db/handles.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
+import type { SessionPool } from "#adapter/wire/session.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -29,10 +29,9 @@ import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { type BackendMessage, makeTap } from "#test/support/wire-tap.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * One member of a drawn write: a note for a task with none, the deletion of a note, or another text at a note's task.
@@ -253,9 +252,10 @@ const resolveWrite = (
 /**
  * Interrupted public calls: what an interruption leaves behind, at every point of a call's round trip (README "Transactions and concurrency": Effect interruption is the only cancellation).
  *
- * A case is a call on the worked example's Work, opened as its full role: a write (db.apply of a ChangeSet that
- * inserts, deletes and puts task notes, each member valid against the state it starts from, so it would be accepted) or
- * a read (taskCards, its attachments fused into its one statement), and a point in its round trip: the tap's gate holds
+ * A case is a call on the worked example's Work, opened as its full role through its login's served file: a write (the
+ * apply of a change member that inserts, deletes and puts task notes, each a call's facts, each member valid against
+ * the state it starts from, so it would be accepted) or a read (taskCards' member, its attachments fused into its one
+ * statement), and a point in its round trip: the tap's gate holds
  * the server's bytes once a number of backend messages (ReadyForQuery messages, or any) have reached the client. The
  * number is drawn against the call's own traffic, which one run of the call on a session of its own measures first (a
  * write's notes put back after it): inside the call's messages, at its last one, or past its end, where the call
@@ -304,8 +304,14 @@ const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch
 		? { ...sketch, call: "write", blocker: "none", point: { ...sketch.point, arm: "beyond" } }
 		: sketch
 
-/** The search: the Work installed once, a Db opened on it whose context every case's tapped pools reuse, and the
- * cases. */
+/** A change member of array members, applied with the call's facts. */
+const applyFacts = (change: ServedOps<unknown>, facts: unknown) => {
+	assertVariant(change, "kind", "facts", "the write's member takes its call's facts")
+	return change.ops.apply(facts, {})
+}
+
+/** The search: the Work installed once, a Db opened on it whose context and members every case's tapped pools reuse,
+ * and the cases. */
 const interruptCases = Effect.gen(function* () {
 	const s = yield* Substrate
 	const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [], programs: {} })
@@ -317,9 +323,24 @@ const interruptCases = Effect.gen(function* () {
 	const writerRole = o.installed.as(o.server).role
 	const reads = W.workReads(o.schema)
 	let serial = 0
-	const { ctx: context } = yield* Effect.scoped(
-		withLayer(openDbContext(o.server.roles.app, {}), loginLayer(o.installed, o.server))
+	const { context, members } = yield* Effect.scoped(
+		withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+			Effect.map(
+				load({
+					write: ChangeSet.empty(o.schema)
+						.insert(W.TaskNote, [])
+						.delete(W.TaskNote, [])
+						.put(W.TaskNote, []),
+					cards: reads.taskCards,
+					task: W.Task
+				}),
+				(loaded) => ({ context: ctx, members: loaded })
+			)
+		)
 	)
+	/** A member's operations over `pool`. */
+	const on = (pool: SessionPool, name: string) =>
+		memberOps({ ...context, pool }, member(members, name))
 	const notesNow = Effect.map(
 		s.admin.queryValues(
 			`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,
@@ -363,25 +384,23 @@ const interruptCases = Effect.gen(function* () {
 					})
 					yield* restore
 					/**
-					 * The call on a Db of the full role over `pool`; an uncaught failure of an uninterrupted
+					 * The call through the members of the full role over `pool`; an uncaught failure of an uninterrupted
 					 * one is a defect the exit check reports.
 					 */
-					const callOn = (db: Db<typeof o.app, unknown>) =>
+					const callOn = (pool: SessionPool) =>
 						sketch.call === "write"
 							? Effect.orDie(
 									Effect.asVoid(
-										db.apply(
-											ChangeSet.empty(o.schema)
-												.insert(W.TaskNote, write.inserts)
-												.delete(W.TaskNote, write.deletes)
-												.put(W.TaskNote, write.puts),
-											{}
-										)
+										applyFacts(on(pool, "write"), {
+											insert: { TaskNote: write.inserts },
+											delete: { TaskNote: write.deletes },
+											put: { TaskNote: write.puts }
+										})
 									)
 								)
 							: Effect.orDie(
 									Effect.asVoid(
-										Effect.flatMap(db.execute(reads.taskCards, { account: a1 }), (r) => r.collect)
+										Effect.flatMap(on(pool, "cards").ops.execute({ account: a1 }), (r) => r.collect)
 									)
 								)
 					/** A tapped pool of one fresh session, warmed, so a window holds one call's traffic alone. */
@@ -395,7 +414,7 @@ const interruptCases = Effect.gen(function* () {
 						yield* Effect.scoped(
 							Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
 						)
-						return { tap, pool, db: makeDb<typeof o.app, unknown>({ ...context, pool }, {}) }
+						return { tap, pool }
 					})
 					/**
 					 * The call's own backend messages, from one uninterrupted run on a session of its own; a write's
@@ -405,15 +424,15 @@ const interruptCases = Effect.gen(function* () {
 						Effect.gen(function* () {
 							const measuring = yield* tappedDb
 							const mark = measuring.tap.mark()
-							yield* callOn(measuring.db)
+							yield* callOn(measuring.pool)
 							return measuring.tap.since(mark).backend
 						})
 					)
 					if (sketch.call === "write") {
 						yield* restore
 					}
-					const { tap, pool, db } = yield* tappedDb
-					const call = callOn(db)
+					const { tap, pool } = yield* tappedDb
+					const call = callOn(pool)
 					/**
 					 * The owner's lock: on a note the write deletes or puts, or on the task of a note it inserts.
 					 */
@@ -555,7 +574,7 @@ const interruptCases = Effect.gen(function* () {
 					}
 					const leased = yield* pool.leased
 					assert.equal(leased, 0, "the pool has no session leased")
-					const probe = yield* db.get(W.Task, { id: t1 })
+					const probe = yield* on(pool, "task").ops.get({ id: t1 })
 					assert.ok(Option.isSome(probe), "the next call succeeds")
 				})
 			)

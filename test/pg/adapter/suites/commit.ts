@@ -4,8 +4,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { TransientFailure } from "#adapter/errors/execution.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -17,7 +17,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** What the concurrent transaction does with what the apply read and wrote, and how it ends. */
 const concurrentKinds = ["nothing", "writes the read", "reads the written", "both"] as const
@@ -49,8 +48,8 @@ const changed = "changed"
  * and commits nothing; the caller's second call of the same apply commits, reading the state the concurrent transaction
  * committed. Interruption is suites/interrupt.ts's.
  *
- * The worked example's Work installs, every law native. The apply copies t1's note to t3 through a described
- * member, so it reads t1's note and writes t3's. TaskNote's reference to Task is a deferred foreign key, so the note's
+ * The worked example's Work installs, every law native, its full world's workload holding the apply as a change
+ * member. The apply copies t1's note to t3 through a described member, so it reads t1's note and writes t3's. TaskNote's reference to Task is a deferred foreign key, so the note's
  * insert checks its task at COMMIT, with FOR KEY SHARE on the task row: an owner session holding FOR UPDATE on that row
  * makes the apply's COMMIT wait, observed by the lock barrier without sleeping (the planted precondition, so COMMIT is
  * where the apply meets the concurrent work). While it waits, a concurrent SERIALIZABLE transaction in the app's world
@@ -77,7 +76,21 @@ export const commitSuite = (): void => {
 							const o = yield* installed(W.Work, workFacts, {
 								label: "real",
 								extensions: [],
-								programs: {}
+								programs: {
+									/** A described member over a stored relation: a note at the target task copying the source's note. */
+									copy: ChangeSet.empty(W.Work).insert(
+										W.TaskNote,
+										query(W.Work).rule((r) => {
+											const { note } = v(W.TaskNote, "taskNote")
+											return r
+												.match(W.TaskNote, {
+													task: r.param("source", W.TaskNote.fields.task),
+													note
+												})
+												.find({ task: r.param("target", W.TaskNote.fields.task), note })
+										})
+									)
+								}
 							})
 							const s = yield* Substrate
 							const names = namesOf(o.installed)
@@ -86,16 +99,6 @@ export const commitSuite = (): void => {
 							const notes = names.table(W.TaskNote)
 							const task = names.column(W.TaskNote, "task")
 							const noteColumn = names.column(W.TaskNote, "note")
-							/**
-							 * A described member over a stored relation: a note at the target task copying the source's note.
-							 */
-							const copyNote = query(o.schema).rule((r) => {
-								const { note } = v(W.TaskNote, "taskNote")
-								return r
-									.match(W.TaskNote, { task: r.param("source", W.TaskNote.fields.task), note })
-									.find({ task: r.param("target", W.TaskNote.fields.task), note })
-							})
-							const changes = ChangeSet.empty(o.schema).insert(W.TaskNote, copyNote)
 							const noteOf = (id: string) =>
 								Effect.map(tableState(o.installed, W.TaskNote), (rows) =>
 									Arr.map(
@@ -110,7 +113,7 @@ export const commitSuite = (): void => {
 								 *
 								 * workFacts' notes: t1's as stored, none at t3.
 								 */
-								const db = yield* compiledOpen(o.server.roles.app, {})
+								const db = yield* Db.open(o.served.login.roles.app, {})
 								return yield* exhaust(
 									{
 										box: { kind: "unstated" },
@@ -145,7 +148,7 @@ export const commitSuite = (): void => {
 												label: "concurrent"
 											})
 											const applying = yield* Effect.forkChild(
-												db.apply(changes, { source: t1, target: t3 })
+												db.workload.copy.apply({ source: t1, target: t3 })
 											)
 											/**
 											 * The apply read t1's note and wrote t3's, and its COMMIT waits on the deferred reference's
@@ -220,13 +223,13 @@ export const commitSuite = (): void => {
 											}
 											const refusedNote = yield* noteOf(t3)
 											assert.deepEqual(refusedNote, [])
-											const again = yield* db.apply(changes, { source: t1, target: t3 })
+											const again = yield* db.workload.copy.apply({ source: t1, target: t3 })
 											assert.equal(again.kind, "accepted")
 											const retriedNote = yield* noteOf(t3)
 											assert.deepEqual(retriedNote, [read])
 										})
 								)
-							}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+							}).pipe(Effect.scoped, withLayer(o.served.layer))
 						}).pipe(Effect.scoped)
 					)
 			)
