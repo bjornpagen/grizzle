@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -16,7 +16,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -43,6 +42,56 @@ const Strata = schema("StrataFamilies", { Club, Member, Doc, Line }, [
 	mutable(Doc)
 ])
 
+/**
+ * The full world's workload: Club 0's and its members' seeds; each edit beside the nested insert of Doc in each
+ * placement, the edit's stratum before the insert's, after it, or the same; and the members, clubs, docs and lines read
+ * back. Each write's array members take each call's facts.
+ */
+const programs = {
+	seedClub: ChangeSet.empty(Strata).insert(Club, []),
+	seedMembers: ChangeSet.empty(Strata).insert(Member, []),
+	deleteFirst: ChangeSet.sequence(
+		ChangeSet.empty(Strata).delete(Member, []),
+		ChangeSet.empty(Strata).insert(Doc, [])
+	),
+	deleteAfter: ChangeSet.sequence(
+		ChangeSet.empty(Strata).insert(Doc, []),
+		ChangeSet.empty(Strata).delete(Member, [])
+	),
+	deleteTogether: ChangeSet.union(
+		ChangeSet.empty(Strata).delete(Member, []),
+		ChangeSet.empty(Strata).insert(Doc, [])
+	),
+	insertFirst: ChangeSet.sequence(
+		ChangeSet.empty(Strata).insert(Member, []),
+		ChangeSet.empty(Strata).insert(Doc, [])
+	),
+	insertAfter: ChangeSet.sequence(
+		ChangeSet.empty(Strata).insert(Doc, []),
+		ChangeSet.empty(Strata).insert(Member, [])
+	),
+	insertTogether: ChangeSet.union(
+		ChangeSet.empty(Strata).insert(Member, []),
+		ChangeSet.empty(Strata).insert(Doc, [])
+	),
+	members: query(Strata).rule((r) => {
+		const { m, club } = v(Member, "member")
+		return r.match(Member, { m, club }).find({ m })
+	}),
+	clubs: query(Strata).rule((r) => {
+		const { id, n } = v(Club, "club")
+		return r.match(Club, { id, n }).find({ id, n })
+	}),
+	lines: query(Strata).rule((r) => {
+		const { id, doc, at, qty } = v(Line, "line")
+		return r.match(Line, { id, doc, at, qty }).find({ id, at })
+	}),
+	docs: query(Strata).rule((r) => {
+		const { id, lines: count } = v(Doc, "doc")
+		return r.match(Doc, { id, lines: count }).find({ id, lines: count })
+	})
+}
+
 type EditKind = "member 1 deleted" | "member 3 inserted"
 type Placement = "the edit first" | "the nested insert first" | "one stratum"
 
@@ -67,27 +116,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const o = yield* installed(
 						Strata,
 						{},
-						{ label: "strata_families", extensions: [], programs: {} }
+						{ label: "strata_families", extensions: [], programs }
 					)
 					const group = installationGroup(namesOf(o.installed))
 					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(o.server.roles.app, {})
-						const members = query(o.schema).rule((r) => {
-							const { m, club } = v(Member, "member")
-							return r.match(Member, { m, club }).find({ m })
-						})
-						const clubs = query(o.schema).rule((r) => {
-							const { id, n } = v(Club, "club")
-							return r.match(Club, { id, n }).find({ id, n })
-						})
-						const lines = query(o.schema).rule((r) => {
-							const { id, doc, at, qty } = v(Line, "line")
-							return r.match(Line, { id, doc, at, qty }).find({ id, at })
-						})
-						const docs = query(o.schema).rule((r) => {
-							const { id, lines: count } = v(Doc, "doc")
-							return r.match(Doc, { id, lines: count }).find({ id, lines: count })
-						})
+						const db = yield* Db.open(o.served.login.roles.app, {})
 						return yield* exhaust(
 							{
 								suite: "pg/write/strata-families",
@@ -106,21 +139,23 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							([edit, placement], c) =>
 								Effect.gen(function* () {
 									yield* replaceRows(s.admin, group, [])
-									const seeded = yield* db.apply(
-										ChangeSet.empty(o.schema).insert(Club, [{ id: 0 }]),
+									const seeded = yield* db.workload.seedClub.apply(
+										{ insert: { Club: [{ id: 0 }] } },
 										{}
 									)
 									assert.equal(seeded.kind, "accepted")
-									const stored = yield* db.apply(
-										ChangeSet.empty(o.schema).insert(Member, [
-											{ m: 1, club: 0 },
-											{ m: 2, club: 0 }
-										]),
+									const stored = yield* db.workload.seedMembers.apply(
+										{
+											insert: {
+												Member: [
+													{ m: 1, club: 0 },
+													{ m: 2, club: 0 }
+												]
+											}
+										},
 										{}
 									)
 									assert.equal(stored.kind, "accepted")
-									const deleted = ChangeSet.empty(o.schema).delete(Member, [{ m: 1, club: 0 }])
-									const inserted = ChangeSet.empty(o.schema).insert(Member, [{ m: 3, club: 0 }])
 									const doc = [
 										{
 											id: uuidOf(1),
@@ -130,23 +165,25 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											]
 										}
 									]
-									const nested = ChangeSet.empty(o.schema).insert(Doc, doc)
-									const write =
-										edit === "member 1 deleted"
-											? placement === "the edit first"
-												? ChangeSet.sequence(deleted, nested)
-												: placement === "the nested insert first"
-													? ChangeSet.sequence(nested, deleted)
-													: ChangeSet.union(deleted, nested)
-											: placement === "the edit first"
-												? ChangeSet.sequence(inserted, nested)
-												: placement === "the nested insert first"
-													? ChangeSet.sequence(nested, inserted)
-													: ChangeSet.union(inserted, nested)
-									const outcome = yield* db.apply(write, {})
+									const deletedFacts = {
+										delete: { Member: [{ m: 1, club: 0 }] },
+										insert: { Doc: doc }
+									}
+									const insertedFacts = { insert: { Member: [{ m: 3, club: 0 }], Doc: doc } }
+									const outcome = yield* edit === "member 1 deleted"
+										? placement === "the edit first"
+											? db.workload.deleteFirst.apply(deletedFacts, {})
+											: placement === "the nested insert first"
+												? db.workload.deleteAfter.apply(deletedFacts, {})
+												: db.workload.deleteTogether.apply(deletedFacts, {})
+										: placement === "the edit first"
+											? db.workload.insertFirst.apply(insertedFacts, {})
+											: placement === "the nested insert first"
+												? db.workload.insertAfter.apply(insertedFacts, {})
+												: db.workload.insertTogether.apply(insertedFacts, {})
 									assert.equal(outcome.kind, "accepted", `${edit}, ${placement}`)
 									const memberRows = yield* Effect.flatMap(
-										db.execute(members, {}),
+										db.workload.members.execute({}),
 										(r) => r.collect
 									)
 									assert.deepEqual(
@@ -157,19 +194,28 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										[...membersAfter(edit)],
 										"the edit's members"
 									)
-									const clubRows = yield* Effect.flatMap(db.execute(clubs, {}), (r) => r.collect)
+									const clubRows = yield* Effect.flatMap(
+										db.workload.clubs.execute({}),
+										(r) => r.collect
+									)
 									assert.deepEqual(
 										Arr.map(clubRows, (row) => ({ id: row.id, n: row.n })),
 										[{ id: 0, n: BigInt(membersAfter(edit).length) }],
 										"Club 0's count"
 									)
-									const docRows = yield* Effect.flatMap(db.execute(docs, {}), (r) => r.collect)
+									const docRows = yield* Effect.flatMap(
+										db.workload.docs.execute({}),
+										(r) => r.collect
+									)
 									assert.deepEqual(
 										Arr.map(docRows, (row) => ({ id: row.id, lines: row.lines })),
 										[{ id: uuidOf(1), lines: 2n }],
 										"Doc 1 and its count"
 									)
-									const lineRows = yield* Effect.flatMap(db.execute(lines, {}), (r) => r.collect)
+									const lineRows = yield* Effect.flatMap(
+										db.workload.lines.execute({}),
+										(r) => r.collect
+									)
 									assert.deepEqual(
 										Arr.sort(
 											Arr.map(lineRows, (row) => `${row.id} ${String(row.at)}`),
@@ -181,7 +227,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									c.note(placement)
 								})
 						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+					}).pipe(Effect.scoped, withLayer(o.served.layer))
 				}).pipe(Effect.scoped)
 			)
 		)
