@@ -247,7 +247,7 @@ export const contractParts = (
 		name: contract,
 		sql: described.sql,
 		base: described,
-		desc: { kind: "contract", name: contract, base: described.desc, predicate: built, facts },
+		desc: { kind: "contract", name: contract, base: described.desc, facts, predicate: built },
 		predicate: built,
 		loc,
 		env: baseEnv(described.scalar)

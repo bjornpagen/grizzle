@@ -284,8 +284,8 @@ export const registerTextDescriptor = <T extends TextDescriptor>(
 				return deepFreeze({
 					kind: "text",
 					patterns,
-					bytes: languageOctets(cut),
-					language: cut
+					language: cut,
+					bytes: languageOctets(cut)
 				})
 			}),
 			(desc): Result.Result<Described, CompileError> =>
