@@ -43,11 +43,10 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
 
@@ -74,7 +73,18 @@ const clubFacts = {
 	]
 } as const
 
-const extensions = { label: "real", extensions: [], programs: {} } as const
+/**
+ * The full role's workload: a member's insert, a club's, and a club's with its members, each from its call's facts.
+ */
+const extensions = {
+	label: "real",
+	extensions: [],
+	programs: {
+		insertMember: ChangeSet.empty(Clubs).insert(Member, []),
+		insertClub: ChangeSet.empty(Clubs).insert(Club, []),
+		insertClubMembers: ChangeSet.empty(Clubs).insert(Club, []).insert(Member, [])
+	}
+} as const
 
 /** Runs `body` with the services `layer` builds, which are released when `body` ends. */
 const withLayer = <A, E, R, ROut, E2>(
@@ -267,10 +277,10 @@ const club = (
  *
  * The Clubs schema (schemas.ts) installs under a fresh schema name, every law native. A writer session in its full
  * world provokes each kind of violation, and PostgreSQL's error fields are read as the server sent them; the same
- * change through db.apply must be refused with the law the host names and the witness the host names: a native
+ * change through a served write must be refused with the law the host names and the witness the host names: a native
  * violation at its statement (a candidate key, a selected side's UNIQUE, a table CHECK, a contract domain, a text
  * refinement domain at Club's code, and the same domain at Member's code), each drawn over values of its own, is raised
- * under the constraint the naming door names for its law, and db.apply reports the law and the key of the fact it
+ * under the constraint the naming door names for its law, and the served write reports the law and the key of the fact it
  * states that breaks it: a unique object's refusal, which the insert protocol finds in its own rows, probing a unique
  * object besides its arbiter, names the requested fact at the object's fields; a CHECK's and a domain's, which
  * PostgreSQL states only in prose, the host names, judging the stated club or member (runtime/write/witness.ts). The
@@ -283,7 +293,7 @@ const club = (
 export const witnessSuite = (): void => {
 	layer(Substrate.layer)("what a law's refusal names, against PostgreSQL 19", (it) => {
 		it.effect(
-			"statement-time native violations are raised under their law's constraint, and db.apply reports the law",
+			"statement-time native violations are raised under their law's constraint, and a served write reports the law",
 			(ctx) =>
 				searched(
 					ctx,
@@ -306,14 +316,14 @@ export const witnessSuite = (): void => {
 							return assert.fail("Seats is a checked contract")
 						}
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							const writer = yield* s.session({
 								...worldSession(o.installed.world(o.app)),
 								label: "writer"
 							})
 							/**
 							 * What each case provokes as the writer, the constraint PostgreSQL must raise it under, and the same
-							 * change through db.apply with the outcome it must have.
+							 * change through a served write with the outcome it must have.
 							 */
 							const provoked = (k: NativeCase) => {
 								switch (k.kind) {
@@ -352,7 +362,7 @@ export const witnessSuite = (): void => {
 															values: { region: "North", number: 1n, code: "alpha" }
 														}
 											),
-											applied: db.apply(ChangeSet.empty(o.schema).insert(Member, [fact]), {})
+											applied: db.workload.insertMember.apply({ insert: { Member: [fact] } }, {})
 										}
 									}
 									case "a selected side's UNIQUE within one input": {
@@ -382,13 +392,16 @@ export const witnessSuite = (): void => {
 												relation: "Member",
 												values: { region: k.club.region, number: k.club.number, code: k.club.code }
 											}),
-											applied: db.apply(
-												ChangeSet.empty(o.schema)
-													.insert(Club, [{ ...k.club, seats: Seats(10) }])
-													.insert(Member, [
-														captainOf(k.ids[0], k.emails[0]),
-														captainOf(k.ids[1], k.emails[1])
-													]),
+											applied: db.workload.insertClubMembers.apply(
+												{
+													insert: {
+														Club: [{ ...k.club, seats: Seats(10) }],
+														Member: [
+															captainOf(k.ids[0], k.emails[0]),
+															captainOf(k.ids[1], k.emails[1])
+														]
+													}
+												},
 												{}
 											)
 										}
@@ -414,7 +427,7 @@ export const witnessSuite = (): void => {
 												relation: "Member",
 												values: { id: k.id }
 											}),
-											applied: db.apply(ChangeSet.empty(o.schema).insert(Member, [fact]), {})
+											applied: db.workload.insertMember.apply({ insert: { Member: [fact] } }, {})
 										}
 									}
 									case "a table CHECK":
@@ -448,10 +461,8 @@ export const witnessSuite = (): void => {
 											 * Outside the contract or the refinement through the unchecked brand constructor, or a
 											 * code of this language read as any string: only PostgreSQL checks them.
 											 */
-											applied: db.apply(
-												ChangeSet.empty(o.schema).insert(Club, [
-													{ ...k.club, seats: Seats(seatsValue) }
-												]),
+											applied: db.workload.insertClub.apply(
+												{ insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } },
 												{}
 											)
 										}
@@ -465,7 +476,7 @@ export const witnessSuite = (): void => {
 									literal: Formatter.format,
 									oracle: {
 										kind: "postgresql",
-										name: "each kind's constraint, read through the naming door, as PostgreSQL raises it, and the outcome db.apply must report"
+										name: "each kind's constraint, read through the naming door, as PostgreSQL raises it, and the outcome a served write must report"
 									},
 									kept: [
 										{
@@ -517,7 +528,7 @@ export const witnessSuite = (): void => {
 										c.note(`refused by ${k.kind}`)
 									})
 							)
-						}).pipe(Effect.scoped, (body) => withLayer(body, loginLayer(o.installed, o.server)))
+						}).pipe(Effect.scoped, (body) => withLayer(body, o.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)
