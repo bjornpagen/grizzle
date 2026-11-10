@@ -1,6 +1,16 @@
 import type * as Interleave from "@grizzle/testing/interleave"
 import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import type { ApplyError, TransientFailure } from "#adapter/errors/execution.ts"
 import { defined } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
@@ -148,6 +158,81 @@ const sameShown = <A>(a: Shown<A>, b: Shown<A>): boolean => {
 	}
 }
 
+/**
+ * A uuid a column's default drew at version 7 (pg.uuidv7), wherever a cell holds it, alone or inside a row's JSON: a value
+ * no serial order fixes, so it is compared up to renaming.
+ */
+const drawnUuid = regex("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+
+/** A cell's text cut around each drawn uuid it holds, every second part one. */
+const drawnParts = (cell: string): ReadonlyArray<string> =>
+	Str.split(cell, regex("([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"))
+
+/** A cell with each drawn uuid it holds given by `name`. */
+const withDrawn = (cell: string | null, name: (drawn: string) => string): string | null =>
+	cell === null
+		? null
+		: Arr.join(
+				Arr.map(drawnParts(cell), (part) => (drawnUuid.test(part) ? name(part) : part)),
+				""
+			)
+
+/** Rows in an order that does not depend on the drawn values they hold. */
+const sortedMasked = (rows: TextRows): TextRows =>
+	Arr.sort(
+		rows,
+		Order.mapInput(Order.String, (row: ReadonlyArray<string | null>) =>
+			Arr.join(
+				Arr.map(row, (cell) => withDrawn(cell, () => "drawn") ?? "\u0001"),
+				"\u0000"
+			)
+		)
+	)
+
+/**
+ * `shown` and `state` with every drawn uuid renamed by the order it first appears in: the sessions of `order` in that
+ * order, each statement's rows sorted with its drawn values masked, then the state's rows sorted the same way. Two
+ * histories that draw different values in the same places rename to the same text, and one value drawn once and read
+ * again keeps one name, so the comparison holds up to a renaming of the drawn values, a bijection, and no further.
+ */
+const renamedDrawn = <A>(
+	order: ReadonlyArray<string>,
+	shown: ReadonlyMap<string, Shown<A>>,
+	state: TextRows
+): { readonly shown: ReadonlyMap<string, Shown<A>>; readonly state: TextRows } => {
+	const names = new Map<string, string>()
+	const renamedRows = (rows: TextRows): TextRows =>
+		Arr.map(sortedMasked(rows), (row) =>
+			Arr.map(row, (cell) =>
+				withDrawn(cell, (drawn) => {
+					const known = names.get(drawn)
+					if (known !== undefined) {
+						return known
+					}
+					const fresh = `drawn #${names.size}`
+					names.set(drawn, fresh)
+					return fresh
+				})
+			)
+		)
+	const renamed = new Map<string, Shown<A>>()
+	for (const session of order) {
+		const one = defined(shown.get(session), `${session}'s showing`)
+		renamed.set(
+			session,
+			one.kind === "direct"
+				? {
+						kind: "direct",
+						outcomes: Arr.map(one.outcomes, (o): StepOutcome =>
+							o._tag === "Ok" ? { ...o, rows: renamedRows(o.rows) } : o
+						)
+					}
+				: one
+		)
+	}
+	return { shown: renamed, state: renamedRows(state) }
+}
+
 const describeShown = <A>(shown: Shown<A>): string => {
 	switch (shown.kind) {
 		case "direct":
@@ -205,7 +290,8 @@ const overlapping = (spans: Interleaving["spans"], session: string): boolean => 
  * The serial reference: the transactions the run placed, each run alone on the real system from the race's initial
  * state, one after another in an order that respects real time, must show what the run showed: each direct
  * transaction's outcomes statement by statement (its rows, or its SQLSTATE on its constraint), each grizzle call's
- * answer, and the state the run left. A transaction is placed when it took effect or failed for a reason of its own: a
+ * answer, and the state the run left, every value a column's default drew (a pg.uuidv7) compared up to renaming
+ * (renamedDrawn), since no serial order fixes it. A transaction is placed when it took effect or failed for a reason of its own: a
  * direct transaction that committed or failed with anything but a transient failure, and every grizzle call, which
  * its caller calls until it answers. A direct transaction that ended by its ROLLBACK as written took no effect and is
  * placed nowhere, and one PostgreSQL aborted as a serialization failure or a deadlock is no outcome of its own: it
@@ -360,12 +446,14 @@ export const runSerialRace = <A, E>(
 				const tried: Array<string> = []
 				for (const order of serialOrders(placed, run.spans)) {
 					const reference = yield* referenceOf(order)
+					const inRun = renamedDrawn(order, shownInRun, state)
+					const alone = renamedDrawn(order, reference.shown, reference.state)
 					const differs = Arr.findFirst(order, (session) => {
-						const alone = defined(reference.shown.get(session), `${session} alone`)
-						const ran = defined(shownInRun.get(session), `${session} in the run`)
-						return !sameShown(ran, alone)
+						const one = defined(alone.shown.get(session), `${session} alone`)
+						const ran = defined(inRun.shown.get(session), `${session} in the run`)
+						return !sameShown(ran, one)
 					})
-					const stateDiffers = sameRows(state, reference.state)
+					const stateDiffers = sameRows(inRun.state, alone.state)
 					if (Option.isNone(differs) && Option.isNone(stateDiffers)) {
 						noteRun({ run, ends, order })
 						return allowed
