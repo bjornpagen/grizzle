@@ -31,7 +31,22 @@ post-beta swarm's fixes for the next release.
   crypto.randomUUID), so the certifier cannot see that one importWrite call writes a test's content whole. edullm's
   learner writes read no Qti (the rotation is the app's computation, checked by native FKs), so the goal does not need
   it. A law enforcing the rotation inside a write would need database-drawn content ids or counted families under the
-  document (a qti-pie change).
+  document (a qti-pie change). The importer itself cannot be proved non-pivot either (the entry below), so learners
+  reach content only through a publication layer.
+- **strict(R), parked (REACH's design, cancelled 2026-11-10):** a declaration that every insertion into R creates its
+  row, so an insertion at an arbiter key a stored row holds is that key's refusal, never absorbed as an exact repeat.
+  The relation carries `RelationInfo.inserts: "repeatable" | "strict"`, with no DDL and nothing to migrate. The arbiter
+  becomes `ON CONFLICT (key) DO SELECT` with no WHERE, and the inserted marker is `old.<key> = new.<key> IS NOT TRUE`
+  (PostgreSQL 19's RETURNING old is null on a row the INSERT inserted), so every row it meets is a conflict. Ownership
+  refuses it over a span primary key, whose exclusion constraint arbitrates by DO NOTHING alone, so no statement tells
+  a row it met from one it made. It was cancelled because it cannot seal pantry's rule triggers, which read a row's
+  siblings rather than its own key (NEGATION). The unfinished work is
+  ~/.cache/grizzle-release/REACH/strict-cancelled.patch.
+- **The QTI importer cannot be proved non-pivot:** pantry's overlays are flat rows, and 30 of its 31 rules read a row's
+  siblings through shared node and package ids, which no seal the certifier holds covers, so pantry's importWrite
+  stays a possible pivot of a dangerous structure (NEGATION, 2026-11-10). The only routes to a proof are nested overlays
+  with a sibling seal (a qti-pie change) or closed groups. Until one lands, learners reach content only through a
+  publication layer, never the importer's live rows.
 
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
