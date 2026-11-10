@@ -6,7 +6,7 @@
  *
  * - **Two implementations agreeing:** the families model (test/support/families/counted.ts `stepPut`, `swapWithLast`)
  *   and the reference fold (fold.ts) state what each edit leaves, every slot and every hidden accumulator, and what
- *   PostgreSQL holds after `db.apply` must be exactly that.
+ *   PostgreSQL holds after the served member's apply must be exactly that.
  * - **PostgreSQL as the judge:** every state the apply leaves holds every installed native, or the apply could not have
  *   committed.
  *
@@ -16,7 +16,7 @@
  * An owner keyed by an id and a span WITHOUT OVERLAPS is put in place: its row updated, never deleted and inserted
  * again, which its members' foreign key and its drawn count and fold end would refuse. Drawn span-keyed owners
  * (test/support/families/generate.ts `spanOwnersGen`), owners sharing an id over disjoint spans among them, are
- * inserted with their counted members through db.apply, one is put with a new label, and PostgreSQL then holds every
+ * inserted with their counted members through a served member, one is put with a new label, and PostgreSQL then holds every
  * owner with its label, count and fold end, and every member, exactly as the families model states them.
  */
 import { layer } from "@effect/vitest"
@@ -27,7 +27,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import {
@@ -59,7 +59,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
 	"id"
@@ -147,6 +146,18 @@ const SpanEdited = schema("fin_span_edits", { SpanOwner, SpanMember }, [
 	mutable(SpanMember)
 ])
 
+/** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
+const editPrograms = {
+	deleteMember: ChangeSet.empty(Edited).delete(Member, []),
+	putMember: ChangeSet.empty(Edited).put(Member, [])
+}
+
+/** The span-keyed owners' workload: their insert with their members, and an owner's put, each from its call's facts. */
+const spanPrograms = {
+	insertOwners: ChangeSet.empty(SpanEdited).insert(SpanOwner, []).insert(SpanMember, []),
+	putOwner: ChangeSet.empty(SpanEdited).put(SpanOwner, [])
+}
+
 /** Span-keyed owners with their families, each owner's label, each member's step value, and the put: one owner's
  * new label, another than its own. */
 interface SpanSketch {
@@ -187,12 +198,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Edited, {}, { label: "edits", extensions: [], programs: {} })
+						const o = yield* installed(
+							Edited,
+							{},
+							{ label: "edits", extensions: [], programs: editPrograms }
+						)
 						const seat = yield* seatOfInstalled(o.installed, ["Owner", "Member"], "edits")
 						const f = foldSeatOf(SPEC, seat)
 						const m = SPEC.monoid
 						const body = Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* exhaust(
 								{
 									suite: "fin/edits",
@@ -233,13 +248,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 										const target = Arr.getUnsafe(members, sketch.edit.at)
 										const fact = { member: target.member, g: 0, x: Number(target.x) }
-										const changes =
-											sketch.edit.kind === "delete"
-												? ChangeSet.empty(o.schema).delete(Member, [fact])
-												: ChangeSet.empty(o.schema).put(Member, [
-														{ ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
-													])
-										yield* db.apply(changes, {})
+										if (sketch.edit.kind === "delete") {
+											yield* db.workload.deleteMember.apply({ delete: { Member: [fact] } }, {})
+										} else {
+											const put = { ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
+											yield* db.workload.putMember.apply({ put: { Member: [put] } }, {})
+										}
 										const read = yield* foldRead(f)
 										const after =
 											sketch.edit.kind === "delete"
@@ -271,9 +285,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 							)
 						})
-						return yield* Effect.flatMap(
-							Layer.build(loginLayer(o.installed, o.server)),
-							(context) => Effect.provideContext(body, context)
+						return yield* Effect.flatMap(Layer.build(o.served.layer), (context) =>
+							Effect.provideContext(body, context)
 						)
 					}).pipe(Effect.scoped)
 				)
@@ -288,7 +301,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const o = yield* installed(
 							SpanEdited,
 							{},
-							{ label: "span_edits", extensions: [], programs: {} }
+							{ label: "span_edits", extensions: [], programs: spanPrograms }
 						)
 						const seat = yield* seatOfInstalled(
 							o.installed,
@@ -296,7 +309,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							"span_edits"
 						)
 						const body = Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									suite: "fin/span-owner-put",
@@ -351,24 +364,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												x: xOf(member)
 											}))
 										)
-										const first = yield* db.apply(
-											ChangeSet.empty(o.schema)
-												.insert(
-													SpanOwner,
-													Arr.map(sketch.owners, (owner, i) => ({
-														id: owner.id,
-														during: owner.during,
-														label: labelOf(i)
-													}))
-												)
-												.insert(SpanMember, members),
+										const owned = Arr.map(sketch.owners, (owner, i) => ({
+											id: owner.id,
+											during: owner.during,
+											label: labelOf(i)
+										}))
+										const first = yield* db.workload.insertOwners.apply(
+											{ insert: { SpanOwner: owned, SpanMember: members } },
 											{}
 										)
 										const target = defined(sketch.owners[sketch.put.at], "the put owner")
-										const outcome = yield* db.apply(
-											ChangeSet.empty(o.schema).put(SpanOwner, [
-												{ id: target.id, during: target.during, label: sketch.put.label }
-											]),
+										const put = { id: target.id, during: target.during, label: sketch.put.label }
+										const outcome = yield* db.workload.putOwner.apply(
+											{ put: { SpanOwner: [put] } },
 											{}
 										)
 										const owners = yield* tableState(o.installed, SpanOwner)
@@ -404,9 +412,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 							)
 						})
-						return yield* Effect.flatMap(
-							Layer.build(loginLayer(o.installed, o.server)),
-							(context) => Effect.provideContext(body, context)
+						return yield* Effect.flatMap(Layer.build(o.served.layer), (context) =>
+							Effect.provideContext(body, context)
 						)
 					}).pipe(Effect.scoped)
 				)
