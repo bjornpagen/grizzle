@@ -7,6 +7,7 @@ import { compileFailure } from "#adapter/apply/run.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { servedHandles } from "#adapter/db/handles.ts"
+import { readHost } from "#adapter/engine.ts"
 import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
 import { type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
@@ -42,11 +43,8 @@ const isWorkloadOf = <R, P>(
 	Reflect.ownKeys(handles).length === names.length &&
 	Arr.every(names, (name) => Reflect.has(handles, name))
 
-/**
- * Whether a value is a served role token, as a JavaScript caller may pass any value: served(...)'s tokens alone hold
- * the kind and the three names a layer is found by.
- */
-export const isServedRole = (value: unknown): value is ServedRole<unknown, unknown> =>
+/** Whether a value holds the kind and the three names a layer is found by, which served(...)'s tokens alone hold. */
+const holdsTokenParts = (value: unknown): boolean =>
 	typeof value === "object" &&
 	value !== null &&
 	"kind" in value &&
@@ -57,6 +55,18 @@ export const isServedRole = (value: unknown): value is ServedRole<unknown, unkno
 	typeof value.login === "string" &&
 	"role" in value &&
 	typeof value.role === "string"
+
+/**
+ * Whether a value is a served role token, as a JavaScript caller may pass any value: served(...)'s tokens alone hold
+ * the kind and the three names a layer is found by. The value is read at the boundary (engine.ts readHost), so a value
+ * whose reading runs the caller's code and throws (a proxy's trap, a getter) is no token, and Db.open refuses it as it
+ * refuses any other, never escaping as a defect.
+ */
+export const isServedRole = (value: unknown): value is ServedRole<unknown, unknown> =>
+	Result.getOrElse(
+		readHost(false, () => Result.succeed(holdsTokenParts(value))),
+		() => false
+	)
 
 /**
  * The layer's verify of a token, called at the boundary: a verify that throws instead of returning its Effect has not
