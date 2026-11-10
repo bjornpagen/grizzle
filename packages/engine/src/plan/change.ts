@@ -31,6 +31,17 @@ export { type BindFrame, inForce, type Transport } from "#compiler/runtime/write
 export type { Unsendable } from "#compiler/write/family/order.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
+export {
+	type ChangeEntry,
+	type ChangeRefused,
+	compileParsed,
+	type CompiledVariants,
+	loginChanges,
+	parsedChange,
+	type RoleChanges
+} from "#compiler/program/workload/change.ts"
+export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
+export type { WorkloadProgram } from "#compiler/program/workload/value.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
 export { type GroupData, type MemberFacts, memberSlots } from "#compiler/runtime/write/normalize.ts"
 export type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"

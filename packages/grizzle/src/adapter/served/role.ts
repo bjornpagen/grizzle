@@ -3,28 +3,23 @@ import type {
 	BindContext,
 	CompileError,
 	Engine,
+	ParsedRole,
 	ProgramDesc,
 	RoleDesc,
-	SchemaArtifacts,
-	SchemaInput
+	SchemaArtifacts
 } from "#compiler/plan/common.ts"
 import type { CompiledTemplate, ExecutionRequest, QueryInput } from "#compiler/plan/read.ts"
 
 /**
- * What a login's compile reads of one role (served/login.ts): the role, its artifacts and its compilation, against
- * which every program of the login's workloads over it compiles, once, at generate and check. Compile time only.
- *
- * A role value, parsed (program/schema.ts parseSchemaInput).
+ * What compiling a program for one role reads: the role, its artifacts and its compilation, against which every
+ * program of the login's workloads over it compiles, once, at generate and check (served/login.ts). Compile time only.
  */
-export type RoleInput = Extract<SchemaInput, { readonly kind: "role" }>
-
-/** What compiling a program for one role reads: the role, its artifacts and its compilation. */
 export interface RoleContext {
 	/**
 	 * The role value, parsed once when the layer was built: every program of its Dbs is checked against it, and a
 	 * program over the base runs on a full role, whose levels hold its base.
 	 */
-	readonly schema: RoleInput
+	readonly schema: ParsedRole
 	/** The base's declared name, from which the PostgreSQL schema and the roles derive. */
 	readonly declared: string
 	/** The role's Description. */

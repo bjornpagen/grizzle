@@ -1,13 +1,27 @@
-import { Array as Arr, Data, Effect, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Data, Effect, Record as Rec, Result } from "effect"
 import { typedContext, type TypedContext } from "#adapter/db/claims.ts"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
-import { fromEngine, rowOptions } from "#adapter/engine.ts"
+import { fromEngine, rowOptions, toResult } from "#adapter/engine.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
-import { compileChangeForm, compileReadForm, compileRowsForm } from "#adapter/served/forms.ts"
+import {
+	boundChangeForm,
+	compileReadForm,
+	compileRowsForm,
+	runtimeEntry
+} from "#adapter/served/forms.ts"
 import { installationWitness } from "#adapter/served/refusals.ts"
-import type { RoleContext, RoleInput, SliceArtifacts } from "#adapter/served/role.ts"
+import type { RoleContext, SliceArtifacts } from "#adapter/served/role.ts"
+import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
-import { type ChangeSetValue, fillContexts } from "#compiler/plan/change.ts"
+import {
+	type ChangeRefused,
+	type CompiledVariants,
+	loginChanges,
+	loginRole,
+	programsOn,
+	type RoleChanges,
+	type WorkloadProgram
+} from "#compiler/plan/change.ts"
 import {
 	type AnyWorkload,
 	baseArtifacts,
@@ -17,23 +31,21 @@ import {
 	type Codebook,
 	codeNames,
 	type CompileError,
+	defect,
 	Engine,
-	levelSchema,
 	type LoginDesc,
 	malformedDescription,
 	ownBuiltLogin,
 	type Owned,
 	ownedEntry,
 	type OwnedLogin,
-	type OwnedRole,
 	parseBuiltSchema,
-	parseSchemaInput,
 	type ProgramDesc,
 	roleArtifacts,
 	type SchemaArtifacts,
 	SourceLoc
 } from "#compiler/plan/common.ts"
-import { keyQuery, templateFor, workloadState } from "#compiler/plan/read.ts"
+import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
 	type PlanBasis,
 	planBasis,
@@ -52,7 +64,7 @@ import {
  * A login's compile refused: the role it was compiling, by its name in the login, the program of the login's workloads
  * that refused, none where the role's own artifacts, contexts or theory did, and the compiler's refusal.
  */
-export class WorkloadRefused extends Data.TaggedError("WorkloadRefused")<{
+class WorkloadRefused extends Data.TaggedError("WorkloadRefused")<{
 	readonly role: string
 	readonly program: string | undefined
 	readonly error: CompileError
@@ -163,56 +175,6 @@ export const ownLoginOver = (
 	base: Owned
 ): Engine.Result<OwnedLogin, CompileError> => ownBuiltLogin(login.desc, base)
 
-/** A login's role value parsed, with the owned role of its login of its name, refused when it is no role of it. */
-const roleOf = (
-	name: string,
-	value: unknown,
-	owned: OwnedLogin
-): Effect.Effect<{ readonly input: RoleInput; readonly owned: OwnedRole }, WorkloadRefused> =>
-	Effect.gen(function* () {
-		const input = yield* Effect.mapError(fromEngine(parseSchemaInput(value)), roleRefused(name))
-		const ownedRole =
-			input.kind === "role"
-				? Arr.findFirst(owned.roles, (r) => r.name === input.desc.name)
-				: Option.none()
-		if (input.kind !== "role" || Option.isNone(ownedRole)) {
-			return yield* roleRefused(name)(
-				malformedDescription(loc, "a login's role built by role(...)")
-			)
-		}
-		return { input, owned: ownedRole.value }
-	})
-
-/** A program of a workload, as the login's compile reads it (program/workload/value.ts). */
-type WorkloadProgram = NonNullable<ReturnType<typeof workloadState>>["programs"][number]
-
-/**
- * The programs of the login's workloads that run on a role, in the workloads' order, each one's programs in its record's
- * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a full
- * role, whose levels hold the base (program/schema.ts levelSchema), and on no partial one. A workload value no
- * workload(...) built is refused.
- */
-const programsOn = (
-	role: RoleInput,
-	workloads: ReadonlyArray<AnyWorkload>
-): Result.Result<ReadonlyArray<WorkloadProgram>, CompileError> =>
-	Result.gen(function* () {
-		const running: Array<ReadonlyArray<WorkloadProgram>> = []
-		for (const workload of workloads) {
-			const state = workloadState(workload)
-			if (state === undefined) {
-				return yield* Result.fail(malformedDescription(loc, "a workload built by workload(...)"))
-			}
-			const over = state.schema
-			const runs =
-				over.kind === "role" ? over.value === role.value : levelSchema(over, role, loc).ok
-			if (runs) {
-				running.push(state.programs)
-			}
-		}
-		return Arr.flatten(running)
-	})
-
 /**
  * The slice of a login's workloads (schema/reach.ts sliceOf): every program of them over each role of the login it runs
  * on (programsOn), but its refreshes, which read no law. A role value no role(...) built, or a workload value no workload(...) built, is refused, as compiling
@@ -225,9 +187,9 @@ export const workloadSlice = (
 	Effect.gen(function* () {
 		const programs: Array<RoleProgram> = []
 		for (const { name, value } of login.roles) {
-			const role = yield* roleOf(name, value, owned)
+			const role = yield* Effect.mapError(fromEngine(loginRole(value, owned)), roleRefused(name))
 			const running = yield* Effect.mapError(
-				Effect.fromResult(programsOn(role.input, login.workload)),
+				fromEngine(programsOn(role.input, login.workload)),
 				roleRefused(name)
 			)
 			for (const program of running) {
@@ -240,36 +202,38 @@ export const workloadSlice = (
 	})
 
 /**
- * The variants of `changes` over the fill contexts `undecided`, the contexts after them already decided to hold or
- * lack a fact, `holding` those that hold one, in the fill contexts' order. The last undecided context splits first and
- * each split compiles its lacking side first, so the forms compile in the order of the subsets of the fill contexts
- * counted with the first context as the lowest digit.
+ * A ChangeSet's variants as its login's change compile made them (program/workload/change.ts loginChanges), each entry
+ * with its runtime's entry built over it, under the codes and witness decoding of the role's artifacts and its bind
+ * context (served/forms.ts runtimeEntry), and its reads decoder bound to its read-backs' layout: a decoder that cannot
+ * bind is the ChangeSet's CompileError. A split's lacking side binds first, the order its variants compiled in.
  */
-const changeVariants = (
+const layerVariants = (
 	role: RoleContext,
-	changes: ChangeSetValue,
-	undecided: ReadonlyArray<string>,
-	holding: ReadonlyArray<string>
+	witness: InstallationWitness,
+	variants: CompiledVariants
 ): Result.Result<ChangeVariants, CompileError> => {
-	if (!Arr.isReadonlyArrayNonEmpty(undecided)) {
-		return Result.map(
-			compileChangeForm(role, changes, changes.reads, new Set(holding)),
-			(form): ChangeVariants => ({ kind: "form", form })
-		)
+	if (variants.kind === "form") {
+		const entry = runtimeEntry(variants.entry, role.artifacts.names.codes, witness, role.bind)
+		return Result.map(boundChangeForm(entry, variants.decoder), (form): ChangeVariants => ({
+			kind: "form",
+			form
+		}))
 	}
-	const context = Arr.lastNonEmpty(undecided)
-	const before = Arr.initNonEmpty(undecided)
 	return Result.gen(function* () {
-		const lacking = yield* changeVariants(role, changes, before, holding)
-		const held = yield* changeVariants(role, changes, before, [context, ...holding])
-		return { kind: "split", context, holding: held, lacking }
+		const lacking = yield* layerVariants(role, witness, variants.lacking)
+		const holding = yield* layerVariants(role, witness, variants.holding)
+		return { kind: "split", context: variants.context, holding, lacking }
 	})
 }
 
-/** The form of one program of a role's workload, compiled for the role. */
+/**
+ * The form of one program of a role's workload, compiled for the role: a ChangeSet's from its variants as the login's
+ * change compile made them, `changes`, the role's members, whose witness decoding is `witness`.
+ */
 const programForm = (
 	role: RoleContext,
-	owned: OwnedRole,
+	changes: RoleChanges,
+	witness: InstallationWitness,
 	program: WorkloadProgram
 ): Result.Result<WorkloadForm, CompileError> => {
 	switch (program.kind) {
@@ -297,11 +261,15 @@ const programForm = (
 			)
 		}
 		case "changeSet": {
-			const fill = fillContexts(owned.writes, program.desc.changeSet)
-			return Result.map(
-				changeVariants(role, program.value, fill, []),
-				(variants): WorkloadForm => ({ name: program.name, kind: "change", variants })
-			)
+			const compiled = changes.members.get(program.name)
+			if (compiled === undefined) {
+				throw defect(`the change compile of program ${program.name}, which runs on its role`)
+			}
+			return Result.map(layerVariants(role, witness, compiled), (variants): WorkloadForm => ({
+				name: program.name,
+				kind: "change",
+				variants
+			}))
 		}
 		case "refresh":
 			return Result.map(
@@ -317,22 +285,26 @@ const programForm = (
 
 /**
  * The workload of a role: every program of the login's workloads that runs on the role (programsOn), compiled once for
- * the role. A program that does not compile for the role is WorkloadRefused naming it, and so is a workload value no
- * workload(...) built, naming none.
+ * the role, its ChangeSets' variants its login's change compile's, `changes`. A program that does not compile for the
+ * role is WorkloadRefused naming it, and so is a workload value no workload(...) built, naming none.
  */
 const compileRoleWorkload = (
 	name: string,
 	role: RoleContext,
-	owned: OwnedRole,
+	changes: RoleChanges,
+	witness: InstallationWitness,
 	workloads: ReadonlyArray<AnyWorkload>
 ): Result.Result<ReadonlyArray<WorkloadForm>, WorkloadRefused> =>
 	Result.gen(function* () {
 		const forms: Array<WorkloadForm> = []
-		const running = yield* Result.mapError(programsOn(role.schema, workloads), roleRefused(name))
+		const running = yield* Result.mapError(
+			toResult(programsOn(role.schema, workloads)),
+			roleRefused(name)
+		)
 		for (const program of running) {
 			forms.push(
 				yield* Result.mapError(
-					programForm(role, owned, program),
+					programForm(role, changes, witness, program),
 					(error) => new WorkloadRefused({ role: name, program: program.name, error })
 				)
 			)
@@ -374,16 +346,17 @@ export interface LayerRole extends RoleContext {
 }
 
 /**
- * One role of the login, parsed, its artifacts read over the login's (program/schema.ts roleArtifacts) and the programs
- * of the login's workloads over it compiled, its decoders bound under `bind`: a role or program that does not compile is
- * WorkloadRefused. A program compiles against the role's artifacts over the login's slice when that slice holds its own
- * (schema/reach.ts within), and else against the role's artifacts over its own slice: either reads, of each relation the
- * program names, exactly what the installation's law model states.
+ * One role of the login, its value parsed and its artifacts read over the login's as its login's change compile read
+ * them, `changes` (program/workload/change.ts RoleChanges), and the programs of the login's workloads over it compiled,
+ * its ChangeSets' variants the change compile's, its decoders bound under `bind`: a role or program that does not
+ * compile is WorkloadRefused. A program compiles against the role's artifacts over the login's slice when that slice
+ * holds its own (schema/reach.ts within), and else against the role's artifacts over its own slice: either reads, of
+ * each relation the program names, exactly what the installation's law model states.
  */
 const layerRole = (
 	name: string,
 	value: unknown,
-	owned: OwnedLogin,
+	changes: RoleChanges,
 	layer: LayerArtifacts,
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
@@ -391,14 +364,10 @@ const layerRole = (
 ): Effect.Effect<LayerRole, WorkloadRefused> =>
 	Effect.gen(function* () {
 		const refused = roleRefused(name)
-		const { input, owned: ownedRole } = yield* roleOf(name, value, owned)
+		const { input, owned: ownedRole, artifacts } = changes
 		if (typeof value !== "object" || value === null) {
 			return yield* refused(malformedDescription(loc, "a login's role built by role(...)"))
 		}
-		const artifacts = yield* Effect.mapError(
-			fromEngine(roleArtifacts(ownedRole, layer.artifacts)),
-			refused
-		)
 		const theory = theoryRole(artifacts)
 		if (theory === undefined) {
 			return yield* refused(malformedDescription(loc, "a login's role built by role(...)"))
@@ -407,7 +376,7 @@ const layerRole = (
 		const programArtifacts = (
 			program: ProgramDesc
 		): Engine.Result<SliceArtifacts, CompileError> => {
-			const slice = sliceOf(owned.base, [{ role: ownedRole, program }])
+			const slice = sliceOf(ownedRole.base, [{ role: ownedRole, program }])
 			return within(slice, layer.slice)
 				? Engine.ok(own)
 				: Engine.map(
@@ -434,26 +403,64 @@ const layerRole = (
 			bind
 		}
 		const contexts = yield* Effect.mapError(fromEngine(typedContexts(artifacts)), refused)
-		const forms = yield* Effect.fromResult(compileRoleWorkload(name, role, ownedRole, workload))
+		const forms = yield* Effect.fromResult(
+			compileRoleWorkload(name, role, changes, own.witness, workload)
+		)
 		return { ...role, value, theory, contexts, workload: forms }
 	})
 
+/** A login's change compile refused, as its compile names a refusal (WorkloadRefused). */
+const changeRefused = (refused: ChangeRefused): WorkloadRefused => new WorkloadRefused(refused)
+
 /**
- * Every role of a login, each parsed, its artifacts read over the login's artifacts `layer` and every program of the
- * login's workloads over it compiled (layerRole): the one compilation of a login's programs, which `grizzle generate`
- * commits and `grizzle check` compares. Nothing here owns or installs the base again: the login is owned over the base's
- * Owned (ownLoginOver) and every role reads the one installation. A role or program that does not compile is
- * WorkloadRefused. Every role reads the one installation's codes, so the roles share one bind context, each roster's
- * names in code order.
+ * Every role of a login, each with its change members compiled over the login's artifacts `artifacts`
+ * (program/workload/change.ts loginChanges), by its name in the login: what the login's compile reads of each role
+ * (plannedLoginRoles).
+ */
+export const loginChangesOver = (
+	login: BuiltLogin,
+	owned: OwnedLogin,
+	artifacts: SchemaArtifacts
+): Effect.Effect<ReadonlyMap<string, RoleChanges>, WorkloadRefused> =>
+	Effect.mapError(
+		fromEngine(loginChanges({ roles: login.roles, workload: login.workload, owned, artifacts })),
+		changeRefused
+	)
+
+/**
+ * Every role of a login, each read over the login's artifacts `layer` with its change members as `changes` compiled
+ * them (loginChangesOver), and every program of the login's workloads over it compiled (layerRole): the one compilation
+ * of a login's programs, which `grizzle generate` commits and `grizzle check` compares. Nothing here owns or installs
+ * the base again: the login is owned over the base's Owned (ownLoginOver) and every role reads the one installation. A
+ * role or program that does not compile is WorkloadRefused. Every role reads the one installation's codes, so the roles
+ * share one bind context, each roster's names in code order.
+ */
+export const plannedLoginRoles = (
+	login: BuiltLogin,
+	changes: ReadonlyMap<string, RoleChanges>,
+	layer: LayerArtifacts,
+	above: LawsAbove
+): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> => {
+	const bind: BindContext = { options: rowOptions, names: codeNames(layer.artifacts.names.codes) }
+	return Effect.forEach(login.roles, ({ name, value }) => {
+		const role = changes.get(name)
+		if (role === undefined) {
+			throw defect(`the change compile of role ${name}, a role of its login`)
+		}
+		return layerRole(name, value, role, layer, login.workload, bind, above)
+	})
+}
+
+/**
+ * Every role of a login compiled over the login's artifacts `layer` (plannedLoginRoles), its change members compiled
+ * over them first (loginChangesOver).
  */
 export const loginRoles = (
 	login: BuiltLogin,
 	owned: OwnedLogin,
 	layer: LayerArtifacts,
 	above: LawsAbove
-): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> => {
-	const bind: BindContext = { options: rowOptions, names: codeNames(layer.artifacts.names.codes) }
-	return Effect.forEach(login.roles, ({ name, value }) =>
-		layerRole(name, value, owned, layer, login.workload, bind, above)
+): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
+	Effect.flatMap(loginChangesOver(login, owned, layer.artifacts), (changes) =>
+		plannedLoginRoles(login, changes, layer, above)
 	)
-}

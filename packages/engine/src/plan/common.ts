@@ -135,6 +135,7 @@ export {
 	type BuiltSchema,
 	levelSchema,
 	parseBuiltSchema,
+	type ParsedRole,
 	parseSchemaInput,
 	type Raisable,
 	raisableOf,

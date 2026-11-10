@@ -39,6 +39,7 @@ export {
 	noTransactionMarker,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
+export { derivedFacts } from "#compiler/deploy/snapshot/build.ts"
 export { workloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
@@ -46,7 +47,8 @@ export { type Installation, installationOver } from "#compiler/physical/install/
 export {
 	accessDrift,
 	accessDriftText,
-	compileWorkload
+	compileWorkload,
+	servedWorkload
 } from "#compiler/program/workload/compile.ts"
 export { servedRosters } from "#compiler/program/served.ts"
 export { servedDifference, type ServedPart, servedPartText } from "#compiler/served/difference.ts"

@@ -1,14 +1,15 @@
 import { Array as Arr, Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
-	artifactsOver,
+	artifactsUnder,
 	type BuiltLogin,
 	type LayerRole,
-	loginRoles,
-	type WorkloadRefused
+	loginChangesOver,
+	plannedLoginRoles
 } from "#adapter/served/login.ts"
 import { type LeveledRole, servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
+import type { ChangeRefused, RoleChanges } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	Engine,
@@ -20,7 +21,6 @@ import {
 import { servedText, type UnservedMember } from "#compiler/plan/migration.ts"
 import {
 	everySlice,
-	planBasis,
 	type ServedFile,
 	type ServedSnapshot,
 	servedSnapshot
@@ -73,7 +73,7 @@ const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
 })
 
 /** A refusal of the login's compile, at the role and the program it names (adapter/served/login.ts). */
-const atRole = (refused: WorkloadRefused): ServedRefusal => ({
+export const atRole = (refused: ChangeRefused): ServedRefusal => ({
 	place:
 		refused.program === undefined
 			? { kind: "role", role: refused.role }
@@ -89,18 +89,19 @@ const atRole = (refused: WorkloadRefused): ServedRefusal => ({
  * `login` compiles under `snapshot`, the JSON value of the snapshot.json it is committed beside, as an import of the
  * file yields it, read as DbLayer.make read it (deploy/snapshot/served.ts servedSnapshot) over the login's base's level,
  * the last of its own levels: its recorded codes and the laws of the levels above the login's base. Every role of the
- * login compiles over `artifacts`, the installation's own, compiled under those codes over every relation
- * (program/schema.ts baseArtifacts, the one law model generate compiles), every program of the login's workloads that
- * runs on the role once: a program compiles over the whole installation's artifacts exactly as over its slice's, so no
- * law model is compiled for the login. A role's refusals are cut to what its programs' writes can raise
- * (served/project.ts).
+ * login compiles over `artifacts`, its base's, compiled under those codes over every relation (program/schema.ts
+ * baseArtifacts), every program of the login's workloads that runs on the role once: a program compiles over the whole
+ * installation's artifacts exactly as over its slice's, so no law model is compiled for the login. Its ChangeSets are
+ * the login's change compile's, `changes`, compiled once over the same artifacts (program/workload/change.ts
+ * loginChanges). A role's refusals are cut to what its programs' writes can raise (served/project.ts).
  * generate and check both compile from the snapshot.json text the draft lays out, so the drafted snapshot and the
  * committed one are one input, and a login compiles to one served file.
  */
 const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown,
-	artifacts: SchemaArtifacts
+	artifacts: SchemaArtifacts,
+	changes: ReadonlyMap<string, RoleChanges>
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -108,7 +109,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	)
 	const layer = { slice: everySlice(login.owned.base), artifacts, over: () => Engine.ok(artifacts) }
 	const roles = yield* Effect.mapError(
-		loginRoles(login.login, login.owned, layer, lawsAbove(served)),
+		plannedLoginRoles(login.login, changes, layer, lawsAbove(served)),
 		atRole
 	)
 	return { login: login.login.desc, snapshot: served, roles: leveled(roles) }
@@ -133,15 +134,17 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
 }, Effect.mapError(atLogin))
 
 /**
- * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over the
- * installation's artifacts `artifacts` (compileServed, then `servedEntryOf`).
+ * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over its base's
+ * artifacts `artifacts`, its ChangeSets as `changes` compiled them over those artifacts (compileServed, then
+ * `servedEntryOf`).
  */
 export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
-	artifacts: SchemaArtifacts
+	artifacts: SchemaArtifacts,
+	changes: ReadonlyMap<string, RoleChanges>
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(compileServed(login, snapshot, artifacts), servedEntryOf)
+	Effect.flatMap(compileServed(login, snapshot, artifacts, changes), servedEntryOf)
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
@@ -159,26 +162,20 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		atLogin
 	)
 	const base = login.owned.base
-	const derived = served.derived
-	const artifacts = yield* Effect.mapError(
-		fromEngine(
-			Engine.flatMap(
-				planBasis(base, served.codes, everySlice(base), derived.closed, derived.textDomains, {
-					kind: "recorded",
-					cycles: derived.fkCycles
-				}),
-				artifactsOver
-			)
-		),
+	const { artifacts } = yield* Effect.mapError(
+		fromEngine(artifactsUnder(base, served.codes, served.derived, everySlice(base))),
 		atLogin
 	)
-	return yield* compileServed(login, snapshot, artifacts)
+	const changes = yield* Effect.mapError(
+		loginChangesOver(login.login, login.owned, artifacts),
+		atRole
+	)
+	return yield* compileServed(login, snapshot, artifacts, changes)
 })
 
 /**
- * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`): what a login over a
- * level below its configured schema's compiles over in generate and check (cli/generate.ts servedFiles), and an
- * application's test's compile (adapter/public/compile.ts compileServed).
+ * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`): an application's test's
+ * compile (adapter/public/compile.ts compileServed).
  */
 export const snapshotServedEntry = (
 	login: ServedInput,

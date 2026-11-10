@@ -51,7 +51,7 @@ type ProgramValue =
  * schema); or a refresh of materialized derived relations, which plans nothing and reads no relation's law, so it has
  * none: the compile resolves its relations against the role that runs it.
  */
-type WorkloadProgram = { readonly name: string } & (
+export type WorkloadProgram = { readonly name: string } & (
 	| ProgramValue
 	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
 	| { readonly kind: "refresh"; readonly relations: NonEmptyReadonlyArray<unknown> }

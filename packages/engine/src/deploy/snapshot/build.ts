@@ -61,14 +61,14 @@ import {
 } from "#compiler/ir/products.ts"
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
-import { statedTheory } from "#compiler/laws/model/model.ts"
-import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
+import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
+import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
-import { levelChain, own } from "#compiler/schema/own.ts"
+import { levelChain, own, type Owned } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
@@ -519,10 +519,23 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
  * each closed relation's constants as readers address them, the installation's plan's, and the foreign key graph's
  * cycles, its law model's, which planned them from every law. */
-export const derivedOf = (installation: Installation): SnapshotDerived => ({
-	closed: installation.closed,
-	fkCycles: installation.laws.fkCycles,
-	textDomains: storedTextDomains(installation.owned, installation.laws.theory)
+export const derivedOf = (installation: Installation): SnapshotDerived =>
+	derivedFacts(installation.owned, installation.closed, installation.laws)
+
+/**
+ * The derived runtime facts of an installation of `owned` whose closed relations' constants are named as `closed` names
+ * them, under its law model `model` (derivedOf): what a level's artifacts compile under besides its codes, from a
+ * snapshot (adapter/served/login.ts artifactsUnder) or, before the snapshot is written, from the basis the installation
+ * is compiled over, so both read the same facts.
+ */
+export const derivedFacts = (
+	owned: Owned,
+	closed: ClosedNames,
+	model: LawModel
+): SnapshotDerived => ({
+	closed,
+	fkCycles: model.fkCycles,
+	textDomains: storedTextDomains(owned, model.theory)
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the

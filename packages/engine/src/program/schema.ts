@@ -195,6 +195,9 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 /** A schema value schema(...) or schema.extend built, parsed: what Db.open is given, read once there. */
 export type BuiltSchema = Extract<SchemaInput, { readonly kind: "built" }>
 
+/** A role value parsed: what a role's programs compile against, and a login's compile reads of each of its roles. */
+export type ParsedRole = Extract<SchemaInput, { readonly kind: "role" }>
+
 /**
  * The built schema a value is, or the refusal of any other value at `loc`: a value no schema builder made, an
  * Owned or a bare SchemaDesc among them. Parsing its result again with parseSchemaInput is the result itself.

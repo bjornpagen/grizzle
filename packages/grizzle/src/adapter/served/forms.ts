@@ -11,24 +11,24 @@ import type { Bound, ReadArtifacts, ReadForm, RowsForm } from "#adapter/reader/r
 import { paramCodecs } from "#adapter/reader/relations.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
+import type { InstallationWitness } from "#adapter/witness/index.ts"
 import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
-	compileWrite,
-	parseChangeSet,
+	type ChangeEntry,
+	compileParsed,
+	parsedChange,
 	type ParsedChangeSet,
 	runnableWrite,
 	type WriteNames
 } from "#compiler/plan/change.ts"
 import {
+	type BindContext,
 	bindGroups,
 	type Codebook,
 	CompileError,
 	CompilePatterns,
 	Engine,
-	levelSchema,
-	malformedDescription,
 	type ParamDecl,
-	parseSchemaInput,
 	prose,
 	type QueryDesc,
 	type RowDecoder,
@@ -287,27 +287,29 @@ export interface CompiledEntry extends CompiledChange {
 }
 
 /**
- * The parsed ChangeSet of a value, or the refusal of a value that is not one, or of one built over a schema that is no
- * level of the Db's schema (program/schema.ts levelSchema), before any SQL.
+ * The runtime's entry of a ChangeSet compiled for a role (program/workload/change.ts ChangeEntry), built once over it
+ * under the installation's codes `codes`: its program as an application runs it, its read-backs and its parameters'
+ * codecs, beside the witness decoding of the artifacts it compiled against and the role's bind context.
  */
-const parsedChange = (
-	role: RoleContext,
-	changes: unknown
-): Result.Result<ParsedChangeSet, CompileError> =>
-	Result.gen(function* () {
-		const change = parseChangeSet(changes)
-		if (change === undefined) {
-			return yield* Result.fail(
-				malformedDescription(
-					SourceLoc("db.apply", []),
-					"a ChangeSet value built by ChangeSet.empty, union or sequence"
-				)
-			)
-		}
-		const carried = yield* toResult(parseSchemaInput(change.over.value))
-		yield* toResult(levelSchema(carried, role.schema, SourceLoc("db.apply", [])))
-		return change
-	})
+export const runtimeEntry = (
+	entry: ChangeEntry,
+	codes: Codebook,
+	witness: InstallationWitness,
+	bind: BindContext
+): CompiledEntry => {
+	const { compiled } = entry
+	return {
+		program: runnableWrite(compiled, codes),
+		compiled,
+		schema: entry.schema,
+		names: entry.names,
+		witness,
+		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
+		codecs: paramCodecs(compiled.params, codes, new CompilePatterns()),
+		bind,
+		change: entry.change
+	}
+}
 
 /** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
  * role's artifacts for it (db/context.ts RoleContext.programArtifacts). */
@@ -318,37 +320,10 @@ const writeEntry = (
 ): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
-		({ artifacts, witness }) => {
-			const world = artifacts.world
-			return Result.map(
-				toResult(
-					compileWrite(
-						world.kind === "role" ? world.checked : artifacts.derived.schema,
-						change.desc,
-						{
-							names: artifacts.names,
-							reads: artifacts.reads,
-							claims: { kind: "facts", present: claims },
-							world:
-								world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
-							laws: artifacts.laws,
-							derived: artifacts.derived
-						}
-					)
-				),
-				(program) => ({
-					program: runnableWrite(program, artifacts.names.codes),
-					compiled: program,
-					schema: artifacts.fingerprint,
-					names: artifacts.names,
-					witness,
-					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), artifacts.names.codes),
-					codecs: paramCodecs(program.params, artifacts.names.codes, new CompilePatterns()),
-					bind: role.bind,
-					change
-				})
+		({ artifacts, witness }) =>
+			Result.map(toResult(compileParsed(artifacts, change, claims)), (entry) =>
+				runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
 			)
-		}
 	)
 
 /**
@@ -361,7 +336,9 @@ export const compiledWrite = (
 	changes: unknown,
 	claims: ReadonlySet<string>
 ): Result.Result<CompiledEntry, CompileError> =>
-	Result.flatMap(parsedChange(role, changes), (change) => writeEntry(role, change, claims))
+	Result.flatMap(toResult(parsedChange(role.schema, changes)), (change) =>
+		writeEntry(role, change, claims)
+	)
 
 /** The change form of `changes` for `role` under `claims`: a ChangeSet that does not compile is its CompileError. */
 export const compileChangeForm = <R>(
@@ -371,9 +348,19 @@ export const compileChangeForm = <R>(
 	claims: ReadonlySet<string>
 ): Result.Result<ChangeForm<R>, CompileError> =>
 	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
-		Result.map(boundReads(compiled, decoder), (bound): ChangeForm<R> => ({
-			entry: compiled,
-			bound,
-			decoder
-		}))
+		boundChangeForm(compiled, decoder)
 	)
+
+/**
+ * The change form of a compiled ChangeSet, its reads decoder `decoder` bound to its read-backs' layout (boundReads): a
+ * decoder that cannot bind is the ChangeSet's CompileError.
+ */
+export const boundChangeForm = <R>(
+	compiled: CompiledEntry,
+	decoder: RowDecoder<R>
+): Result.Result<ChangeForm<R>, CompileError> =>
+	Result.map(boundReads(compiled, decoder), (bound): ChangeForm<R> => ({
+		entry: compiled,
+		bound,
+		decoder
+	}))

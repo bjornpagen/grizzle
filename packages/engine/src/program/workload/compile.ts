@@ -38,6 +38,12 @@ import {
 	type SchemaArtifacts,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
+import {
+	type ChangeLogin,
+	type ChangeRefused,
+	loginChanges,
+	type RoleChanges
+} from "#compiler/program/workload/change.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
@@ -420,6 +426,54 @@ export const compileWorkload = (
 		access,
 		requests: workloadRequests(physical, artifacts.names.vectorSchema)
 	})
+}
+
+/** A login of the installation as generate compiles it (ChangeLogin), by its name. */
+export interface ServedLogin extends ChangeLogin {
+	readonly name: string
+}
+
+/**
+ * The plan of an installation's logins as generate compiles them: their workloads' plan (compileWorkload), and every
+ * role of every login with the ChangeSets of the login's workloads that run on it compiled once over the artifacts its
+ * login's served file compiles over (change.ts loginChanges), by the login's name, then the role's name in it: what each
+ * login's served file projects.
+ */
+export interface ServedWorkloadPlan extends WorkloadPlan {
+	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+}
+
+/** The plan of the logins refused: a program of a workload the checker refuses, or a login's change compile. */
+export type ServedWorkloadRefused =
+	| { readonly kind: "workload"; readonly error: CompileError }
+	| { readonly kind: "login"; readonly login: string; readonly refused: ChangeRefused }
+
+/**
+ * The plan of `logins` over `schema` under the options' artifacts as generate compiles it (ServedWorkloadPlan): their
+ * workloads' plan, then each login's change members, in the logins' order.
+ */
+export const servedWorkload = (
+	logins: ReadonlyArray<ServedLogin>,
+	schema: unknown,
+	options: WorkloadOptions
+): Result.Result<ServedWorkloadPlan, ServedWorkloadRefused> => {
+	const planned = compileWorkload(
+		logins.map((l) => ({ login: l.name, workloads: l.workload })),
+		schema,
+		options
+	)
+	if (!planned.ok) {
+		return Result.err({ kind: "workload", error: planned.error })
+	}
+	const changes = new Map<string, ReadonlyMap<string, RoleChanges>>()
+	for (const login of logins) {
+		const roles = loginChanges(login)
+		if (!roles.ok) {
+			return Result.err({ kind: "login", login: login.name, refused: roles.error })
+		}
+		changes.set(login.name, roles.value)
+	}
+	return Result.ok({ ...planned.value, changes })
 }
 
 /**
