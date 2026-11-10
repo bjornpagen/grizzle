@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	artifactsOver,
@@ -7,7 +7,7 @@ import {
 	loginRoles,
 	type WorkloadRefused
 } from "#adapter/served/login.ts"
-import { servedFileOf } from "#adapter/served/project.ts"
+import { type LeveledRole, servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type CompileError,
@@ -57,8 +57,15 @@ export interface ServedRefusal {
 export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
-	readonly roles: ReadonlyArray<LayerRole>
+	readonly roles: ReadonlyArray<LeveledRole>
 }
+
+/**
+ * Each role of a login's compile at the isolation level its writes begin at: SERIALIZABLE, the level every role holds
+ * until generate certifies it over the installation's writers (analysis/isolation/certify.ts).
+ */
+const leveled = (roles: ReadonlyArray<LayerRole>): ReadonlyArray<LeveledRole> =>
+	Arr.map(roles, (role): LeveledRole => ({ ...role, isolation: "serializable" }))
 
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
 	place: { kind: "login" },
@@ -104,7 +111,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 		loginRoles(login.login, login.owned, layer, lawsAbove(served)),
 		atRole
 	)
-	return { login: login.login.desc, snapshot: served, roles }
+	return { login: login.login.desc, snapshot: served, roles: leveled(roles) }
 })
 
 /**
