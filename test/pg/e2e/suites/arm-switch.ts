@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -22,29 +22,16 @@ import { recordEntryOf } from "#test/support/oracle/pick.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
-/** Work under the name of its installation, the schema the Db opens. */
-type Work = W.WorkNamed<string>
+/** Work as the fixture declares it, the schema the login's workload members are written over. */
+type Work = typeof W.Work
 
-/** The enumerated switch: the parent put and the arm changes as listed members. */
-const switchToManual = (
-	s: Work,
-	p: {
-		readonly taskId: Uuid
-		readonly accountId: Uuid
-		readonly previousBudget: bigint
-		readonly operatorName: string
-	}
-) =>
+/**
+ * Read-backs of what a switch did: the Task facts it removed and added, and the arms, on the empty ChangeSet each form
+ * adds its members to.
+ */
+const withReads = (s: Work) =>
 	ChangeSet.empty(s)
-		.put(W.Task, [{ id: p.taskId, account: p.accountId, kind: "Manual" }])
-		.delete(W.AutomaticTask, [{ task: p.taskId, budget: Cents(p.previousBudget) }])
-		.insert(W.ManualTask, [{ task: p.taskId, operator: p.operatorName }])
-
-/** Read-backs of what a switch did: the Task facts it removed and added, and the arms. */
-const withReads = <P, Writes extends string>(s: Work, changes: ChangeSet<Work, P, Writes>) =>
-	changes
 		.read("tasks", (d) =>
 			query(s)
 				.rule((r) => {
@@ -73,39 +60,43 @@ const withReads = <P, Writes extends string>(s: Work, changes: ChangeSet<Work, P
 			})
 		)
 
-/** The described switch, the members built over the installed schema value. */
+/**
+ * The enumerated switch: the parent put and the arm changes as listed members, array members whose facts each call
+ * gives.
+ */
+const switchToManual = (s: Work) =>
+	withReads(s).put(W.Task, []).delete(W.AutomaticTask, []).insert(W.ManualTask, [])
+
+/** The described switch, its members queries over the stored relations, applied with parameters. */
 const switchToManualDescribed = (s: Work) =>
-	withReads(
-		s,
-		ChangeSet.empty(s)
-			.put(
-				W.Task,
-				query(s).rule((r) => {
-					const { account } = v(W.Task, "task")
-					return r
-						.match(W.Task, { id: r.param("task", W.Task.fields.id), account, kind: "Automatic" })
-						.find({ id: r.param("task", W.Task.fields.id), account, kind: "Manual" })
+	withReads(s)
+		.put(
+			W.Task,
+			query(s).rule((r) => {
+				const { account } = v(W.Task, "task")
+				return r
+					.match(W.Task, { id: r.param("task", W.Task.fields.id), account, kind: "Automatic" })
+					.find({ id: r.param("task", W.Task.fields.id), account, kind: "Manual" })
+			})
+		)
+		.delete(
+			W.AutomaticTask,
+			query(s).rule((r) => {
+				const { budget } = v(W.AutomaticTask, "automaticTask")
+				return r
+					.match(W.AutomaticTask, { task: r.param("task", W.AutomaticTask.fields.task), budget })
+					.find({ task: r.param("task", W.AutomaticTask.fields.task), budget })
+			})
+		)
+		.insert(
+			W.ManualTask,
+			query(s).rule((r) =>
+				r.match(W.Task, { id: r.param("task", W.Task.fields.id), kind: "Automatic" }).find({
+					task: r.param("task", W.ManualTask.fields.task),
+					operator: r.param("operator", W.ManualTask.fields.operator)
 				})
 			)
-			.delete(
-				W.AutomaticTask,
-				query(s).rule((r) => {
-					const { budget } = v(W.AutomaticTask, "automaticTask")
-					return r
-						.match(W.AutomaticTask, { task: r.param("task", W.AutomaticTask.fields.task), budget })
-						.find({ task: r.param("task", W.AutomaticTask.fields.task), budget })
-				})
-			)
-			.insert(
-				W.ManualTask,
-				query(s).rule((r) =>
-					r.match(W.Task, { id: r.param("task", W.Task.fields.id), kind: "Automatic" }).find({
-						task: r.param("task", W.ManualTask.fields.task),
-						operator: r.param("operator", W.ManualTask.fields.operator)
-					})
-				)
-			)
-	)
+		)
 
 type TaskKind = "automatic" | "manual" | "missing"
 type Form = "enumerated" | "described"
@@ -151,7 +142,7 @@ const counts = (relation: string, added: bigint, deleted: bigint, put: bigint) =
  * The worked example's arm switch end to end, in both forms, against a model of the switch, exhausted over its inputs.
  *
  * Work installs with its facts and its alternatives, two native containments per armed handle, and its full role
- * switches a task to manual
+ * switches a task to manual through its login's served workload, each form a member of it
  * (switchToManual). The space is every stored kind of task
  * the facts hold and one no fact holds (t1 automatic in account a1, t4 automatic in a2, t2 manual by Ruth, t7 manual by Sam, and a missing id) ×
  * the form × the operator (Ruth, Sam) × for the enumerated form the previous budget (the stored one, or a stale one):
@@ -181,7 +172,10 @@ export const armSwitchSuite = (): void => {
 					searched(
 						ctx,
 						Effect.gen(function* () {
-							const o = yield* openWork
+							const o = yield* openWork({
+								enumerated: switchToManual(W.Work),
+								described: switchToManualDescribed(W.Work)
+							})
 							const s = yield* Substrate
 							const names = namesOf(o.installed)
 							/** The worked example's alternatives, rebuilt through the builders, which names the same laws. */
@@ -239,7 +233,7 @@ export const armSwitchSuite = (): void => {
 								ManualTask: tableState(o.installed, W.ManualTask)
 							})
 							return yield* Effect.gen(function* () {
-								const db = yield* compiledOpen(o.server.roles.app, {})
+								const db = yield* Db.open(o.served.login.roles.app, {})
 								return yield* exhaust(
 									{
 										box: { kind: "unstated" },
@@ -275,31 +269,23 @@ export const armSwitchSuite = (): void => {
 												onNone: () => a1,
 												onSome: (fact) => fact.account
 											})
+											/** A stale budget is one the task does not hold; a manual or missing task holds none. */
+											const previousBudget = Option.match(budget, {
+												onNone: () => 1500n,
+												onSome: (held) => (w.budget === "stored" ? held.budget : held.budget + 100n)
+											})
 											const outcome = yield* w.form === "enumerated"
-												? db.apply(
-														withReads(
-															o.schema,
-															switchToManual(o.schema, {
-																taskId: w.task,
-																accountId: account,
-																/**
-																 * A stale budget is one the task does not hold; a manual or missing
-																 * task holds none.
-																 */
-																previousBudget: Option.match(budget, {
-																	onNone: () => 1500n,
-																	onSome: (held) =>
-																		w.budget === "stored" ? held.budget : held.budget + 100n
-																}),
-																operatorName: w.operator
-															})
-														),
+												? db.workload.enumerated.apply(
+														{
+															put: { Task: [{ id: w.task, account, kind: "Manual" }] },
+															delete: {
+																AutomaticTask: [{ task: w.task, budget: Cents(previousBudget) }]
+															},
+															insert: { ManualTask: [{ task: w.task, operator: w.operator }] }
+														},
 														{}
 													)
-												: db.apply(switchToManualDescribed(o.schema), {
-														task: w.task,
-														operator: w.operator
-													})
+												: db.workload.described.apply({ task: w.task, operator: w.operator })
 											const after = yield* state
 											/** The facts with the switched task's rows replaced. */
 											const switched = {
@@ -421,7 +407,7 @@ export const armSwitchSuite = (): void => {
 							}).pipe(
 								Effect.scoped,
 								(body) =>
-									Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+									Effect.flatMap(Layer.build(o.served.layer), (context) =>
 										Effect.provideContext(body, context)
 									),
 								Effect.scoped
