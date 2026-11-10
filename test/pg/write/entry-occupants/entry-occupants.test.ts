@@ -15,23 +15,25 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, key, login, on, relation, role, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { servedFixture } from "#test/support/served-db.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer, tokenOf } from "#test/support/worlds.ts"
+import { tokenOf } from "#test/support/worlds.ts"
 
 /**
  * A query entry's write meets every stored fact at every unique object of its target as that object's law.
@@ -85,7 +87,17 @@ const seatsAt = (name: string) => {
 			.find({ id, code, grp, lead, team })
 	})
 	const holder = role(base, "holder", { MySeat: mine }, { write: ["MySeat"] })
-	return { base, holder, desk: login(base, "desk", [holder]) }
+	return {
+		base,
+		holder,
+		desk: login(base, "desk", [holder], {
+			workload: [
+				workload(holder, {
+					insertSeat: ChangeSet.empty(holder).insert(holder.relations.MySeat, [])
+				})
+			]
+		})
+	}
 }
 
 /** A seat as MySeat holds it. */
@@ -223,7 +235,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							declared: () => noDeclarations,
 							observe: noObservation
 						})
-						const { holder, desk } = defined(built[0], "the installed version")
+						const { desk } = defined(built[0], "the installed version")
 						const names = namesOf(m)
 						const lawOf: Readonly<Record<ObjectName, LawId>> = {
 							"primary key": names.primaryKeyLaw(Seat),
@@ -238,9 +250,10 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							),
 							", "
 						)
-						/** ann's Db, opened and used inside the layer of the login that holds her role. */
+						const served = yield* servedFixture(m, desk)
+						/** ann's Db, opened and used inside the layer of the served login that holds her role. */
 						const explored = Effect.gen(function* () {
-							const db = yield* compiledOpen(desk.roles.holder, {
+							const db = yield* Db.open(served.login.roles.holder, {
 								token: tokenOf({ sub: "u_ann" })
 							})
 							return yield* explore(
@@ -292,10 +305,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 											[]
 										)
 										const applied = yield* Effect.result(
-											db.apply(
-												ChangeSet.empty(holder).insert(holder.relations.MySeat, [c.submitted]),
-												{}
-											)
+											db.workload.insertSeat.apply({ insert: { MySeat: [c.submitted] } }, {})
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
@@ -372,7 +382,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									})
 							)
 						})
-						return yield* Effect.scoped(explored).pipe(withLayer(loginLayer(m, desk)))
+						return yield* Effect.scoped(explored).pipe(withLayer(served.layer))
 					})
 				)
 			)
