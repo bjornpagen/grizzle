@@ -2114,8 +2114,8 @@ Three declarations, all in the [example](#example):
 - **`role(schema, name, entries, { write?, refresh? })`**: what one kind of user sees. An entry is a table of the
   schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is a type
   error), `refresh` the derived tables it refreshes. A role is no schema: `role`, `login`, `schema.extend`,
-  `wholeEntriesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
-  error.
+  `wholeEntriesOf`, `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to
+  one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
   owning their workloads, each over the schema, a schema it extends, or one of the login's roles. Every role is in
   exactly one login, under a name other than the login's, and is reached through it by name, `Web.roles.member`. Two
@@ -2821,6 +2821,9 @@ text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, a
 does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the schema fixes. A
 contract only a login's context field names is the login's, never the schema's: PostgreSQL checks a claim against it where a
 statement reads it, and no write is refused by it. Each call compiles the rules, so call it once and keep the list.
+`lawIdsOf(schema)` lists the same rules in the same order, each `{ law, id }` with the `id` a refusal names it by, a
+refused law's own: name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and
+no table of ids of your own. It compiles as `lawsOf` does.
 
 `lawsByStatement(schema)` compiles the rules once and gives a lookup: bind it once,
 `const lawsOfStatement = lawsByStatement(schema)`, then `lawsOfStatement(statement)` lists the rules that statement

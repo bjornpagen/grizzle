@@ -31,6 +31,7 @@ export type {
 	AnyChangeSet,
 	Delta,
 	DeltaSource,
+	IdentifiedLaw,
 	InsertableNameOf,
 	InsertAllRowsOf,
 	KeyHost,

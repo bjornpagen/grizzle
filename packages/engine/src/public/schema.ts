@@ -31,7 +31,7 @@ export {
 	select,
 	tree
 } from "#compiler/schema/api.ts"
-export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
+export { constraintNamesOf, lawIdsOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 export { roleNameOf, schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"

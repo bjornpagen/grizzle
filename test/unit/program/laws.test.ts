@@ -41,6 +41,9 @@
  *
  * constraintNamesOf(schema) gives each check law lawsOf lists the name the installation reports it under on its
  * relation's table, through the same constraint-to-law map.
+ *
+ * lawIdsOf(schema) lists lawsOf's laws in its order, each with an id of its own, and every law the installation's map
+ * reports, under every id it reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -73,6 +76,7 @@ import {
 	type AnySchema,
 	closed,
 	constraintNamesOf,
+	lawIdsOf,
 	lawsByStatement,
 	lawsOf,
 	type RowScalars,
@@ -94,7 +98,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import { type ColumnDef, type ObjectName, tableConstraints } from "#compiler/sql/ast.ts"
 import { regexField } from "#compiler/text/field.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
@@ -641,31 +645,34 @@ const reportsCheckAs = (
  * generated law of each column the script creates, which a NOT NULL violation reports. Each as often as an object
  * reports it.
  */
-const reportable = (installation: Installation): ReadonlyArray<Law> => {
+const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> => {
 	const map = keyLawsOf(installation)
 	const installed = (name: ObjectName): boolean => map.schemas.has(name.schema)
-	const native = (owner: ConstraintOwner, constraint: string): ReadonlyArray<Law> => {
+	const native = (owner: ConstraintOwner, constraint: string): ReadonlyArray<IdentifiedLaw> => {
 		const found = map.lawsOf(admittedIdentifier(constraint), owner)
 		return found === undefined
 			? []
-			: [...Arr.map(found.laws, (l) => l.described), ...Arr.map(found.uses, (u) => u.law.described)]
+			: [
+					...Arr.map(found.laws, (l) => ({ law: l.described, id: l.law })),
+					...Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
+				]
 	}
-	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<Law> =>
+	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<IdentifiedLaw> =>
 		installed(table)
 			? native({ kind: "table", name: admittedIdentifier(table.name) }, constraint)
 			: []
-	const ofColumn = (table: ObjectName, column: ColumnDef): ReadonlyArray<Law> =>
+	const ofColumn = (table: ObjectName, column: ColumnDef): ReadonlyArray<IdentifiedLaw> =>
 		installed(table)
 			? Option.toArray(
 					Option.map(
 						Option.fromNullishOr(
 							map.generatedOf(admittedIdentifier(table.name), admittedIdentifier(column.name))
 						),
-						(refused) => refused.law
+						(refused) => ({ law: refused.law, id: refused.id })
 					)
 				)
 			: []
-	const created = Arr.flatMap(installation.statements, (s): ReadonlyArray<Law> => {
+	const created = Arr.flatMap(installation.statements, (s): ReadonlyArray<IdentifiedLaw> => {
 		switch (s.kind) {
 			case "createTable":
 				return [
@@ -673,7 +680,7 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 					...Arr.flatMap(s.columns, (column) => ofColumn(s.table, column))
 				]
 			case "alterTable":
-				return Arr.flatMap(s.actions, (a): ReadonlyArray<Law> => {
+				return Arr.flatMap(s.actions, (a): ReadonlyArray<IdentifiedLaw> => {
 					switch (a.kind) {
 						case "addColumn":
 						case "addColumnPlaceholder":
@@ -757,7 +764,10 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 				return []
 		}
 	})
-	return [...created, ...Arr.map([...map.raised.values()], (l) => l.described)]
+	return [
+		...created,
+		...Arr.map([...map.raised.values()], (l) => ({ law: l.described, id: l.law }))
+	]
 }
 
 /** The owned statements a statement value is: a mirrors' two containments, any other statement itself. */
@@ -909,7 +919,8 @@ describe("lawsOf", () => {
 							const laws = lawsOf(subject)
 							const installation = installationOf(subject, { kind: "declared" })
 							const names = installationNamesOf(installation)
-							const reported = reportable(installation)
+							const identified = reportable(installation)
+							const reported = Arr.map(identified, (r) => r.law)
 							const constraintNameOf = constraintNamesOf(subject)
 							for (const law of laws) {
 								if (law.kind === "check") {
@@ -943,6 +954,20 @@ describe("lawsOf", () => {
 								assert.ok(
 									Arr.some(laws, (l) => sameLaw(law, l)),
 									`lawsOf lists the ${law.kind} law the installation can report: ${Formatter.format(law)}`
+								)
+							}
+							const ids = lawIdsOf(subject)
+							const listed: ReadonlyArray<Law> = Arr.map(ids, (l) => l.law)
+							assert.deepEqual(listed, laws, "lawIdsOf lists lawsOf's laws, in its order")
+							assert.equal(
+								new Set(Arr.map(ids, (l) => l.id)).size,
+								ids.length,
+								"lawIdsOf gives every law an id of its own"
+							)
+							for (const r of identified) {
+								assert.ok(
+									Arr.some(ids, (l) => l.id === r.id && sameLaw(l.law, r.law)),
+									`lawIdsOf gives the ${r.law.kind} law the installation reports under ${r.id} that id: ${Formatter.format(r.law)}`
 								)
 							}
 

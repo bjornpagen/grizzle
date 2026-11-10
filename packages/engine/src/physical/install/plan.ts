@@ -41,6 +41,7 @@ import {
 	contractDigest,
 	type FieldPatternLaw,
 	fieldPatternLaws,
+	patternLawId,
 	planTextDomains,
 	storedTextDomains,
 	type TextColumnUse,
@@ -213,7 +214,7 @@ const canonicalUse = (a: DomainUse, b: DomainUse): number =>
 
 /**
  * Each structural text domain's constraint, with the law of every stored field it types (fieldPatternLaws), each
- * described as its field spells its pattern and identified by identity.patternLaw, and each field's column with that
+ * described as its field spells its pattern and identified by patternLawId, and each field's column with that
  * law, which a violation on that column reports, in canonical use order (table identifier, then column identifier). The
  * law model plans no text domain, so the installation that names them lists them. A field's domain is the planned one
  * of its pattern's key (planTextDomains), which types its column: patterns of one membership share one, named by the
@@ -239,7 +240,7 @@ const textDomainConstraintLaws = (
 						table: relation.ident,
 						column: field.column,
 						law: Object.freeze({
-							law: identifierOf(identity.patternLaw(domain.named, relation.name, field.name)),
+							law: patternLawId(domain.named, { relation, field }),
 							described: law
 						})
 					})

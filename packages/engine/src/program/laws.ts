@@ -1,17 +1,18 @@
 import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { StatementDesc } from "#compiler/ir/desc.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
-import { fieldPatternLaws } from "#compiler/physical/ddl/domains.ts"
+import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { parseBuiltSchema } from "#compiler/program/schema.ts"
 import { canonicalStatementText, ownBuilt } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
 /** A law at its position in lawsOf's list. */
@@ -27,13 +28,13 @@ interface CheckName {
 }
 
 /**
- * A schema's laws, derived once from its law model: every law in the schema's canonical order of laws, each owned
- * statement's laws, by the statement's canonical text (Owned.statementAt), each at its position in that order, none for
- * a statement that states no law, and each check law with the name of every constraint or trigger that discharges it.
- * The one derivation lawsOf, lawsByStatement and constraintNamesOf read.
+ * A schema's laws, derived once from its law model: every law in the schema's canonical order of laws with its
+ * identity, each owned statement's laws, by the statement's canonical text (Owned.statementAt), each at its position in
+ * that order, none for a statement that states no law, and each check law with the name of every constraint or trigger
+ * that discharges it. The one derivation lawsOf, lawIdsOf, lawsByStatement and constraintNamesOf read.
  */
 interface SchemaLaws {
-	readonly laws: ReadonlyArray<Law>
+	readonly laws: ReadonlyArray<IdentifiedLaw>
 	readonly byStatement: ReadonlyMap<string, ReadonlyArray<PlacedLaw>>
 	readonly checks: ReadonlyArray<CheckName>
 }
@@ -54,22 +55,41 @@ const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
 /**
  * The theory's laws in theory order, each described as an outcome describes it, each owned statement's beside it as
  * its normalization merged them (analysis/theory/laws.ts KeptLaw); then each stored field's pattern law and each
- * generated field's law, which no statement states.
+ * generated field's law, which no statement states. Each with the identity a refusal names it by: a theory law's own,
+ * a pattern law's under the text domain its pattern's key is planned as (planTextDomains, patternLawId), as the
+ * installation identifies it, and a generated field's.
  */
 const schemaLaws = (model: LawModel): SchemaLaws => {
 	const theory = model.theory.laws.map((law, position) => ({
 		placed: Object.freeze({ position, law: lawDescription(law) }),
+		id: law.id,
 		statements: law.statements
 	}))
+	const domains = new Map(
+		planTextDomains(model.owned, model.theory, []).map((p) => [p.key, p.domain.named] as const)
+	)
 	const stated = Map.groupBy(
 		theory.flatMap((t) => t.statements.map((statement) => ({ statement, placed: t.placed }))),
 		(s) => s.statement
 	)
 	return {
 		laws: Object.freeze([
-			...theory.map((t) => t.placed.law),
-			...fieldPatternLaws(model).map((p) => p.law),
-			...generatedFieldLaws([...model.relations.values()].map((r) => r.relation)).map((g) => g.law)
+			...theory.map((t): IdentifiedLaw => Object.freeze({ law: t.placed.law, id: t.id })),
+			...fieldPatternLaws(model).map((p): IdentifiedLaw =>
+				Object.freeze({
+					law: p.law,
+					id: patternLawId(
+						defined(
+							domains.get(p.regex.key),
+							"planTextDomains plans every stored field's pattern key"
+						),
+						p
+					)
+				})
+			),
+			...generatedFieldLaws([...model.relations.values()].map((r) => r.relation)).map(
+				(g): IdentifiedLaw => Object.freeze({ law: g.law, id: g.id })
+			)
 		]),
 		byStatement: new Map(
 			[...model.owned.statementAt].map(([text, statement]) => [
@@ -103,7 +123,18 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
  * compiles the schema's laws.
  */
 export const lawsOf = (schema: AnySchema): ReadonlyArray<Law> =>
-	schemaLaws(lawModelOf(schema, "lawsOf")).laws
+	Object.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))
+
+/**
+ * lawIdsOf(schema): every law lawsOf(schema) lists, in its order, each with its identity (types/changeset
+ * IdentifiedLaw), the `id` a refusal's RefusedLaw names it by: a theory law's LawId, a stored field's pattern law's
+ * LawId under the text domain its pattern is installed as, and a generated field's GeneratedLawId. An application that
+ * names the laws it handles keys its names by these ids and reads a refusal's laws by their ids, with no search and no
+ * table of ids of its own. Read from the derivation lawsOf reads, so the two list one sequence of laws. It throws as
+ * lawsOf throws; each call compiles the schema's laws.
+ */
+export const lawIdsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw> =>
+	schemaLaws(lawModelOf(schema, "lawIdsOf")).laws
 
 /** What a statement given to lawsByStatement's lookup must be. */
 const aStatedStatement =

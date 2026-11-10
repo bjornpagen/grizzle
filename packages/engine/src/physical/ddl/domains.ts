@@ -10,7 +10,7 @@ import {
 	identifierOf,
 	identity
 } from "#compiler/core/identity.ts"
-import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
+import type { ConstraintName, DomainName, Identifier } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -173,6 +173,17 @@ export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw
 					]
 		})
 	)
+
+/**
+ * The identity of the pattern law of `p`'s field under `domain`, the text domain its pattern's key is planned as
+ * (planTextDomains): what a violation of that domain's CHECK on the field's column reports, what lawIdsOf gives the law
+ * and the one place it is minted.
+ */
+export const patternLawId = (
+	domain: Identity<"textDomain">,
+	p: Pick<FieldPatternLaw, "relation" | "field">
+): Identifier<"patternLaw"> =>
+	identifierOf(identity.patternLaw(domain, p.relation.name, p.field.name))
 
 /** A column outside the stored relations that an installer extension types by a text refinement: a derived relation's
  * view column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its
