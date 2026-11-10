@@ -267,7 +267,7 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "matches":
 		case "translate":
 		case "collapse":
-		case "regexpReplace":
+		case "replace":
 		case "btrim":
 		case "parseDouble":
 		case "parseDecimal":

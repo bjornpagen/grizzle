@@ -45,15 +45,22 @@ import { stringsOver } from "#test/unit/text/generators.ts"
 /**
  * Compute.translate and Compute.lowerAscii on PostgreSQL 19, against the host.
  *
- * 1. The SQL a check holds for a drawn map and for lowerAscii, `translate(v, from, to)`, over a batch of texts that mix
- *    ASCII, Latin-1, BMP and supplementary code points in one round trip: PostgreSQL's answer must be the reference
- *    evaluator's character by character, and lowerAscii's must leave every character but A to Z as it was.
+ * 1. The SQL a check holds for a drawn map, `translate(v, from, to)`, for lowerAscii, for collapse and for
+ *    replaceWhitespace, over a batch of texts that mix ASCII, Latin-1, BMP and supplementary code points in one round
+ *    trip: PostgreSQL's answer must be the reference evaluator's character by character, lowerAscii's must leave every
+ *    character but A to Z as it was, and collapse's, its chain of replace calls, must be XML Schema's (core/text.ts
+ *    collapsed) over runs of each of the four white space characters, of three or more among them, at either end and
+ *    beside supplementary code points.
  * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space, fold a
  *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
  *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
  *    drawn row inserted. Every row is admitted, and its generated fields hold the host's values. No key holds a
  *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
  *    it compiles), so neither relation keys one.
+ *
+ * Planted bug: collapse's SQL without its step that turns each tab before a space into two tabs
+ * (lower/conservative/expr/ops.ts collapseText), so a run of three or more white space characters keeps more than one
+ * space.
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
@@ -91,6 +98,12 @@ type SqlFeature =
 	| "a character deleted"
 	| "a run of white space folded"
 	| "white space trimmed at an end"
+	| "a run of three or more folded"
+	| "a tab in a run"
+	| "an LF in a run"
+	| "a CR in a run"
+	| "a space in a run"
+	| "a supplementary character beside white space"
 
 const sqlCase: Gen<SqlCase> = (source) => {
 	const from = Arr.dedupe(source.draw(array(element(alphabet), { min: 0, max: 4 })))
@@ -105,6 +118,13 @@ const sqlCase: Gen<SqlCase> = (source) => {
 
 /** Whether a code point is one of XML's four white space characters. */
 const isXmlSpace = (c: number): boolean => c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20
+
+/** The note of each white space character other than the space, met in a run. */
+const runNotes: ReadonlyMap<number, SqlFeature> = new Map<number, SqlFeature>([
+	[0x09, "a tab in a run"],
+	[0x0a, "an LF in a run"],
+	[0x0d, "a CR in a run"]
+])
 
 /** The text PostgreSQL prints a host value as. */
 const printed = (value: unknown): string => String(value)
@@ -137,7 +157,13 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								"a repeated character read by its first",
 								"a character deleted",
 								"a run of white space folded",
-								"white space trimmed at an end"
+								"white space trimmed at an end",
+								"a run of three or more folded",
+								"a tab in a run",
+								"an LF in a run",
+								"a CR in a run",
+								"a space in a run",
+								"a supplementary character beside white space"
 							],
 							{ cases: 40, sense: notesOnly }
 						),
@@ -223,6 +249,19 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								}
 								if (isXmlSpace(points[0] ?? 0) || isXmlSpace(points.at(-1) ?? 0)) {
 									k.note("white space trimmed at an end")
+								}
+								for (const [i, cp] of points.entries()) {
+									const before = isXmlSpace(points[i - 1] ?? 0)
+									const after = isXmlSpace(points[i + 1] ?? 0)
+									if (isXmlSpace(cp) && (before || after)) {
+										k.note(runNotes.get(cp) ?? "a space in a run")
+									}
+									if (isXmlSpace(cp) && before && after) {
+										k.note("a run of three or more folded")
+									}
+									if (cp > 0xffff && (before || after)) {
+										k.note("a supplementary character beside white space")
+									}
 								}
 								assert.equal(
 									row[4],

@@ -56,7 +56,6 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	starts_with: "row",
 	right: "row",
 	translate: "row",
-	regexp_replace: "row",
 	btrim: "row",
 	ltrim: "row",
 	rtrim: "row",

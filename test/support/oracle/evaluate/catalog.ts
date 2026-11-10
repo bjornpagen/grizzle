@@ -87,7 +87,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 			return firstOperand(op.operands) === "numeric" ? "estimated" : "database"
 		case "cosineDistance":
 		case "complement":
-		case "regexpReplace":
+		case "replace":
 		case "btrim":
 		case "sha256":
 			return "database"
@@ -660,7 +660,7 @@ const catalogApply = (
 			return typeof a === "boolean" ? Result.succeed(!a) : mismatch(op)
 		case "cosineDistance":
 		case "complement":
-		case "regexpReplace":
+		case "replace":
 		case "btrim":
 		case "sha256":
 			return declined(op, "database", "PostgreSQL alone evaluates it")

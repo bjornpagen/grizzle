@@ -76,9 +76,9 @@ import {
  *   map is a member of the operand's, which ECMAScript's own test of both patterns decides; and an operand whose
  *   pattern bounds its length keeps the bound.
  * - the refusals: a fault planted in a valid translation or collapse, one for each refusal (a map of two lengths, a
- *   repeated character of from, a character no text holds, a term as from or to, a subject that is no text or unbounded
- *   in a query, each at the builder too), each by its reason and the place it states, and the term without its fault
- *   compiles.
+ *   repeated character of from, a character no text holds, a term as from or to, a subject that is no text, each at the
+ *   builder too, and a translation's subject unbounded in a query, which a collapse of the same subject compiles), each
+ *   by its reason and the place it states, and the term without its fault compiles.
  * - casts by inclusion: a translated finite language, its image exactly its members mapped, cast into a drawn text
  *   type compiles exactly when ECMAScript's test of the target holds of every image member; a contract's predicate,
  *   which no language proves, refuses the cast; a collapse is cast into the collapsed texts; any text is no refined
@@ -496,8 +496,12 @@ describe("Compute's translate and lowerAscii", () => {
 		"a subject that is no text at the builder"
 	]
 
-	/** The faults of a map, which only a translation states. */
-	const mapFaults: ReadonlySet<Fault> = new Set<Fault>([
+	/**
+	 * The faults only a translation meets: its map's, and a subject unbounded in a query, which a collapse reads by
+	 * replace alone.
+	 */
+	const translateFaults: ReadonlySet<Fault> = new Set<Fault>([
+		"an unbounded subject in a query",
 		"a to shorter than from",
 		"a to longer than from",
 		"a repeated character of from",
@@ -528,7 +532,7 @@ describe("Compute's translate and lowerAscii", () => {
 		const fault = source.draw(element(faults))
 		return {
 			fault,
-			term: mapFaults.has(fault)
+			term: translateFaults.has(fault)
 				? "translate"
 				: source.draw(element(["translate", "collapse"] as const)),
 			mode: source.draw(element(["check", "query"] as const)),
@@ -657,6 +661,7 @@ describe("Compute's translate and lowerAscii", () => {
 								case "an unbounded subject in a query":
 									refusedWith(termOver("v"), "query", "UnsupportedOperation", [p.term])
 									compiles(termOver("v"), "check")
+									compiles(collapsing(variable("v")), "query")
 									break
 								case "a map of two lengths at the builder":
 								case "a repeated character at the builder":

@@ -2456,10 +2456,10 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * In a query, the refusal of a regex read, `~` or regexp_replace, over a text whose pattern does not bound its bytes
-	 * within regexTextMaxBytes: PostgreSQL's regex engine widens its subject to four bytes for every byte before it
-	 * matches and refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field reads
-	 * any text, and its write fails on a longer one.
+	 * In a query, the refusal of a regex read, `~`, over a text whose pattern does not bound its bytes within
+	 * regexTextMaxBytes: PostgreSQL's regex engine widens its subject to four bytes for every byte before it matches and
+	 * refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field reads any text,
+	 * and its write fails on a longer one.
 	 */
 	regexReadable(what: string, subject: Lowered, at: SourceLoc): void {
 		const bytes = textOf(subject.nominal)?.byteBound
@@ -2644,12 +2644,9 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * Compute.collapse(x), XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at
-	 * either end, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`. The node computes text; the term is text of a
-	 * language holding the image of x's, exactly where it is cheap to state, within x's byte bound (collapseType).
-	 * PostgreSQL's regex engine widens x to four bytes a byte before it matches, and refuses past 1 GB, and a read never
-	 * fails on a value, so a query collapses only an x whose type bounds its bytes within regexTextMaxBytes; a check or
-	 * generated field collapses any text, and its write fails on a longer one. A builder types the term as text of no
-	 * pattern.
+	 * either end, by replace alone (registry.ts textCollapse), defined on every text, so a query collapses any text as a
+	 * check does. The node computes text; the term is text of a language holding the image of x's, exactly where it is
+	 * cheap to state, within x's byte bound (collapseType). A builder types the term as text of no pattern.
 	 */
 	collapse(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
 		const x = this.term(subjectDesc, childLoc(at, 0))
@@ -2661,7 +2658,6 @@ class Lowering<R extends Refs> {
 			)
 		}
 		const text = textOf(x.nominal)
-		this.regexReadable("Compute.collapse", x, at)
 		const op = this.overload("collapse", [x.actual], at)
 		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
 		return this.env.mode === "build" || text === undefined

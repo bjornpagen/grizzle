@@ -668,15 +668,15 @@ const pgWcharBytes = published({
 /**
  * The longest text, in UTF-8 bytes, PostgreSQL's regex engine reads: before it matches, it widens the text into one
  * pg_wchar per byte and one more, and refuses an allocation past MaxAllocSize ("invalid memory alloc request size"). So
- * a query runs regexp_replace, which Compute.collapse is, only over an operand whose pattern bounds its bytes within
- * this, and a check or generated column that collapses a longer text fails its write.
+ * a query matches by ~, which Compute.matches is, only an operand whose pattern bounds its bytes within this, and a
+ * check or generated column that matches a longer text fails its write.
  */
 export const regexTextMaxBytes = derived({
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
-	scope: "the subject text of one regexp_replace call, or of one match by ~",
+	scope: "the subject text of one match by ~",
 	from: [maxAllocSize, pgWcharBytes],
-	derivation: `replace_text_regexp allocates "data = (pg_wchar *) palloc((src_text_len + 1) * sizeof(pg_wchar));" over its subject's src_text_len bytes (${postgresSource}/src/backend/utils/adt/varlena.c#L3368, verified 2026-11-06), as RE_execute does for ~, "data = palloc_array(pg_wchar, dat_len + 1);" (${postgresSource}/src/backend/utils/adt/regexp.c#L332), and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar), rounded down`,
+	derivation: `RE_execute allocates "data = palloc_array(pg_wchar, dat_len + 1);" over its subject's dat_len bytes for ~ (${postgresSource}/src/backend/utils/adt/regexp.c#L332, verified 2026-11-06), and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar), rounded down`,
 	compute: ([alloc, wide]) => Math.floor(alloc.value / wide.value) - 1
 })
 

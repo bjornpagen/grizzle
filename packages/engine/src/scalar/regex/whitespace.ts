@@ -1,8 +1,6 @@
-import { defect } from "#compiler/core/invariant.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { xmlWhitespace } from "#compiler/core/text.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import {
 	type CharSet,
 	charSet,
@@ -10,7 +8,7 @@ import {
 	isEmpty,
 	union
 } from "#compiler/scalar/regex/charset.ts"
-import { type LiveNode, RegexBuilder, type RegexNode, set } from "#compiler/scalar/regex/ir.ts"
+import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { alphabetOf, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
@@ -26,18 +24,6 @@ const whitespace: CharSet = charSet(Array.from(xmlWhitespace, (c) => [c, c] as c
 
 /** whiteSpace replace's map, as Compute.translate states it: tab, LF and CR, each a space. */
 export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
-
-/**
- * The ARE of a run of white space, `[ \t\n\r]+` as the ARE printer spells it (are.ts), which PostgreSQL's
- * regexp_replace reads in collapse's SQL, `btrim(regexp_replace(x, run, ' ', 'g'))`.
- */
-export const whitespaceRun: string = ((): string => {
-	const run: RegexNode = new RegexBuilder().repeat(set(whitespace), 1, "unbounded")
-	if (run.kind === "never") {
-		throw defect("a run of white space, a language with a member")
-	}
-	return toAre(run)
-})()
 
 /** Whether a node is one class repeated freely and anchored at both ends, `^[A]*$`: every text over A. */
 const isFreeOver = (node: LiveNode): boolean => {

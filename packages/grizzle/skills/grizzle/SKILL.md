@@ -554,9 +554,9 @@ The command line's own refusals, by stage:
   translation and a concatenation keep their operands' byte bound, a translation to wider characters by the most its
   image can take, so a `str.bytes` text normalized from one casts back into it:
   `generated(Key, Compute.cast(Compute.lowerAscii(Compute.collapse(row.lang)), Key))` for `lang` a `Key`. A query's
-  `Compute.matches` and `Compute.collapse`, like its translate, need a pattern that bounds the subject's length:
-  PostgreSQL's regex engine widens its subject fourfold. Fold an ordered family's texts with `Monoid.concat`, naming its
-  `(before, after)` pair, and write each member's separator into its own step value; type the accumulators by a
+  `Compute.matches`, like its translate, needs a pattern that bounds the subject's length: PostgreSQL's regex engine
+  widens its subject fourfold. A collapse reads any text. Fold an ordered family's texts with `Monoid.concat`, naming
+  its `(before, after)` pair, and write each member's separator into its own step value; type the accumulators by a
   bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text and an unbounded one
   is UnrepresentableKey. The step may be any text, a generated piece at a byte bound among them,
   `generated(T, Compute.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for

@@ -279,7 +279,6 @@ export const builtinFunctionNames = [
 	"starts_with",
 	"right",
 	"translate",
-	"regexp_replace",
 	"btrim",
 	"ltrim",
 	"rtrim",

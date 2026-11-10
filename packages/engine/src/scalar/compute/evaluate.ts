@@ -526,7 +526,7 @@ const apply = (
 			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
 		case "sha256":
 			return isBytes(a) ? Result.ok(a.digest) : mismatch(op)
-		case "regexpReplace":
+		case "replace":
 		case "btrim":
 			return unsupported(`${op.fn} alone, which only collapse's SQL reads`)
 		case "parseDouble": {
@@ -911,8 +911,8 @@ const nullAware = (
 		case "parseDouble":
 		case "power":
 		case "quot":
-		case "regexpReplace":
 		case "rem":
+		case "replace":
 		case "right":
 		case "round":
 		case "sha256":

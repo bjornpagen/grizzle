@@ -134,13 +134,7 @@ type SqlForm =
 				| "parseDouble"
 				| "parseDecimal"
 				| "sha256"
-	  }
-	| {
-			/**
-			 * whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space
-			 * (regex/whitespace.ts whitespaceRun), which the lowering prints.
-			 */
-			readonly kind: "collapse"
+				| "collapse"
 	  }
 
 /**
@@ -180,7 +174,7 @@ type CatalogRef =
  * The Compute operation a native node serves (computeNodes), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
- * right serves only the suffix test, endsWith.
+ * right serves only the suffix test, endsWith, and replace and btrim only the whiteSpace collapse.
  */
 export type NativeFn =
 	| "add"
@@ -216,7 +210,7 @@ export type NativeFn =
 	| "matches"
 	| "translate"
 	| "collapse"
-	| "regexpReplace"
+	| "replace"
 	| "btrim"
 	| "parseDouble"
 	| "parseDecimal"
@@ -723,9 +717,13 @@ const textSuffix: FixedOverload = frozen({
 })
 
 /**
- * whiteSpace collapse, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`: each run of white space one space, then the
- * spaces at either end trimmed. Both functions are IMMUTABLE, and a bracket of four literal characters reads no
- * collation, so it is one value wherever it stands, a generated column among them.
+ * whiteSpace collapse: each run of white space one space, then the spaces at either end trimmed, by replace alone
+ * (lower/conservative/expr/ops.ts collapseText): tab, LF and CR each a space; then each pair of spaces a space and a
+ * tab, each tab before a space two tabs, and every tab deleted, which leaves one space of each run, since the first
+ * step left no tab of the text's own; then btrim. replace never lengthens a text here and allocates nothing past its
+ * operand's bytes, so the collapse is defined on every text, in a query as in a check. Both functions are IMMUTABLE
+ * and compare bytes under pg_c_utf8, a deterministic collation, so it is one value wherever it stands, a generated
+ * column among them.
  */
 const textCollapse: FixedOverload = frozen({
 	fn: "collapse",
@@ -734,7 +732,7 @@ const textCollapse: FixedOverload = frozen({
 	sql: { kind: "collapse" },
 	catalog: {
 		kind: "construct",
-		uses: Object.freeze([opId("regexp_replace(text,text,text,text)"), opId("btrim(text)")])
+		uses: Object.freeze([opId("replace(text,text,text)"), opId("btrim(text)")])
 	},
 	volatility: "immutable",
 	totality: total,
@@ -1059,10 +1057,10 @@ const catalogOverloads = {
 	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
 	"endsWith:text": textSuffix,
 	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
-	"regexp_replace(text,text,text,text)": fnCall(
-		"regexpReplace",
-		"regexp_replace",
-		["text", "text", "text", "text"],
+	"replace(text,text,text)": fnCall(
+		"replace",
+		"replace",
+		["text", "text", "text"],
 		"text",
 		total,
 		"value"

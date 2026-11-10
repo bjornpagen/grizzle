@@ -11,7 +11,6 @@ import {
 	type OperandReading
 } from "#compiler/scalar/compute/registry.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
-import { whitespaceRun } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
@@ -167,22 +166,23 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 		: undefined
 }
 
+/** `replace(x, from, to)` over two text literals. */
+const replaced = (x: Expr, from: string, to: string): Expr =>
+	call("replace", [x, lit.text(from, types.text), lit.text(to, types.text)])
+
 /**
- * whiteSpace collapse (scalar/compute/registry.ts textCollapse): every run of white space one space, `run` its ARE,
- * then the spaces at either end trimmed, `btrim(regexp_replace(x, run, ' ', 'g'))`.
+ * whiteSpace collapse (scalar/compute/registry.ts textCollapse) by replace alone, `x` read once: tab, LF and CR each a
+ * space; each pair of spaces a space and a tab, each tab before a space two tabs, and every tab deleted, so each run of
+ * spaces is its first; then the spaces at either end trimmed by btrim.
  */
-const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined => {
+const collapseText = (args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [x] = args
-	return args.length === 1 && x !== undefined
-		? call("btrim", [
-				call("regexp_replace", [
-					x,
-					lit.text(run, types.text),
-					lit.text(" ", types.text),
-					lit.text("g", types.text)
-				])
-			])
-		: undefined
+	if (args.length !== 1 || x === undefined) {
+		return undefined
+	}
+	const spaced = replaced(replaced(replaced(x, "\t", " "), "\n", " "), "\r", " ")
+	const marked = replaced(replaced(spaced, "  ", " \t"), "\t ", "\t\t")
+	return call("btrim", [replaced(marked, "\t", "")])
 }
 
 /**
@@ -308,7 +308,7 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 		case "endsWith":
 			return textSuffix(args)
 		case "collapse":
-			return collapseText(args, whitespaceRun)
+			return collapseText(args)
 		case "parseDouble":
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 		case "parseDecimal":

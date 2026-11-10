@@ -226,7 +226,7 @@ const exactIn = (
 		case "matches":
 		case "translate":
 		case "collapse":
-		case "regexpReplace":
+		case "replace":
 		case "btrim":
 		case "parseDouble":
 		case "parseDecimal":

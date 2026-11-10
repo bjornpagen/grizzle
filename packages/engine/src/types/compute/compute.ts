@@ -1090,12 +1090,11 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
-	 * XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at either end,
-	 * `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`, IMMUTABLE. Compilation reads the result as text of a language
-	 * holding its values within x's length and byte bounds, which it never lengthens: exactly the image of x's where it
-	 * is cheap to state, and otherwise more. Admitted in contract predicates, row checks and generated fields; in a query
-	 * only over a text whose type bounds it within 268,435,454 bytes, since PostgreSQL's regex engine widens its operand
-	 * to four bytes a byte.
+	 * XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at either end, by
+	 * PostgreSQL's replace and btrim, IMMUTABLE and defined on every text. Compilation reads the result as text of a
+	 * language holding its values within x's length and byte bounds, which it never lengthens: exactly the image of x's
+	 * where it is cheap to state, and otherwise more. Admitted in contract predicates, row checks, generated fields and
+	 * queries, over any text.
 	 */
 	collapse<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
