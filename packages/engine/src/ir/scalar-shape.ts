@@ -247,7 +247,6 @@ const rosterShape: S.Shape<Roster> = S.plain({
 			return S.refuse(path, "a roster, a closed relation's name and its handles")
 		}
 		yield* rosterParts.parse({ closed: value.closed, handles: value.handles }, path)
-		path.asIs.add(value)
 		return value
 	}
 })

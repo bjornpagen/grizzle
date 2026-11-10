@@ -19,9 +19,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
@@ -278,35 +277,6 @@ const placed = (
 }
 
 /**
- * What conformWith gives for a value: the value it keeps or decodes, or the message of the defect it raises. The shape is
- * read as the shape of any value, the value standing in for one a builder made exactly so.
- */
-const anyShape: S.Shape<unknown> = shape
-const conformed = (
-	value: unknown
-): { readonly kind: "kept" | "copy"; readonly out: unknown } | string => {
-	const conformedValue = Result.try(() => S.conformWith(anyShape, value, "v"))
-	if (Result.isSuccess(conformedValue)) {
-		const out = conformedValue.success
-		return { kind: out === value ? "kept" : "copy", out }
-	}
-	if (Error.isError(conformedValue.failure)) {
-		return conformedValue.failure.message
-	}
-	throw conformedValue.failure
-}
-
-/** The defect conformWith raises for a value decodeWith refuses with `failure`. */
-const defectOf = (failure: CompileError): string =>
-	`grizzle internal invariant: a value this package built has its shape: ${failure.message}`
-
-/**
- * One way a built value meets conformWith: in its decoded form, with an optional member stated undefined (which its
- * decoded copy leaves out), or broken at one site as the decode's population breaks it.
- */
-type ConformFeature = "kept" | "stated undefined" | `broken: ${Break}`
-
-/**
  * Planted: every break of a list of one labelled point, which holds a site of every kind, its picks the break's group
  * among the kinds and its first site there, since a drawn value and pick meet some breaks a few times a run.
  */
@@ -385,103 +355,6 @@ describe("shapes", () => {
 									formatLoc(refusalLoc(refused(result, "MalformedDescription"))),
 									locationOf(broken.outcome.at)
 								)
-							}
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"conform a built value as decode answers it: kept as it is when in decoded form, else decoded or the defect",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "unstated" },
-						suite: "unit/ir/shape-conform",
-						literal: Formatter.format,
-						draw: drawn((source) => ({
-							live: source.draw(liveGen),
-							kind: source.draw(pickGen),
-							site: source.draw(pickGen),
-							way: source.draw(element([0, 1, 2] as const))
-						})),
-						kept: Arr.map(breakNames, (name) => ({
-							note: name,
-							sketch: { ...plantedBreak(name), way: 2 as const },
-							draws: "",
-							reaches: [`broken: ${name}` as const]
-						})),
-						runs: 300,
-						shrink: completeShrink,
-						coverage: required<ConformFeature>(
-							[
-								"kept",
-								"stated undefined",
-								"broken: null",
-								"broken: unknown key",
-								"broken: symbol key refused",
-								"broken: symbol key passed over",
-								"broken: hole",
-								"broken: unknown tag",
-								"broken: missing member",
-								"broken: class instance"
-							],
-							{ cases: 300, sense: notesOnly }
-						),
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					({ live, kind, site, way }, c) =>
-						Effect.sync(() => {
-							const decoded = succeeded(S.decodeWith(shape, live, "v"))
-							if (way === 0) {
-								c.note("kept")
-								const fresh = structuredClone(live)
-								assert.deepEqual(conformed(fresh), { kind: "kept", out: fresh })
-								assert.ok(Object.isFrozen(fresh))
-								assert.deepEqual(succeeded(S.decodeWith(anyShape, fresh, "v")), fresh)
-								return
-							}
-							if (way === 1) {
-								/**
-								 * Every point's optional label stated undefined, which the decoded copy leaves out: conformWith gives that
-								 * copy, unless the value holds no point.
-								 */
-								const stated =
-									decoded.kind === "point"
-										? { ...decoded, label: undefined }
-										: decoded.kind === "list"
-											? {
-													...decoded,
-													items: Arr.map(decoded.items, (p) => ({ ...p, label: undefined }))
-												}
-											: { ...decoded }
-								const copy = succeeded(S.decodeWith(shape, stated, "v"))
-								if (
-									stated.kind === "mark" ||
-									(stated.kind === "list" && stated.items.length === 0)
-								) {
-									assert.deepEqual(conformed(stated), { kind: "kept", out: stated })
-									return
-								}
-								c.note("stated undefined")
-								assert.deepEqual(conformed(stated), { kind: "copy", out: copy })
-								return
-							}
-							const broken = pickFrom(
-								pickFrom(nonEmpty(breaksOf(live), "a live value's breaks"), kind),
-								site
-							)
-							c.note(`broken: ${broken.break}`)
-							const result = S.decodeWith(shape, broken.value, "v")
-							const answer = conformed(broken.value)
-							if (!result.ok) {
-								assert.equal(answer, defectOf(result.error))
-							} else {
-								assert.deepEqual(answer, { kind: "copy", out: result.value })
 							}
 						})
 				)
@@ -839,8 +712,6 @@ const cyclic = (form: Form, length: number, back: number): unknown => {
 	return arrays[0]
 }
 
-type Reader = "decodeWith" | "conformWith"
-
 /**
  * The levels a recursion of one frame per container holds on the small stack: at 160 KB, a recursion over a list of
  * 1,000 elements overflows (the testing library's SMALL_STACK).
@@ -858,11 +729,10 @@ const containers: Gen<number> = weighted([
 ])
 
 const formGen = element<Form>(["chain", "nested array"])
-const readerGen = element<Reader>(["decodeWith", "conformWith"])
 
-/** What a nested or cyclic value's case reached: its reader and form, and its containers against the small stack. */
+/** What a nested or cyclic value's case reached: its form, and its containers against the small stack. */
 type NestingFeature =
-	| `${Reader} ${Form}`
+	| Form
 	| "no container"
 	| "within a small stack's recursion"
 	| "past a small stack's recursion"
@@ -878,76 +748,65 @@ const depthFeature = (n: number): NestingFeature =>
 			: "within a small stack's recursion"
 
 describe("a value nested through a recursive shape", () => {
-	it.effect(
-		"decode and conform at any depth, the call stack no deeper for it: a fresh copy decoded, a built value kept",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/ir/shape-depth",
-						literal: Formatter.format,
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(
-										weighted([
-											[1, constant(0)],
-											[6, containers]
-										])
-									),
-									source.draw(formGen),
-									source.draw(readerGen)
-								] as const
-						),
-						runs: 12,
-						shrink: completeShrink,
-						coverage: required<NestingFeature>(
+	it.effect("decode at any depth, the call stack no deeper for it: a fresh copy decoded", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/ir/shape-depth",
+					literal: Formatter.format,
+					draw: drawn(
+						(source) =>
 							[
-								"decodeWith chain",
-								"decodeWith nested array",
-								"conformWith chain",
-								"conformWith nested array",
-								"no container",
-								"within a small stack's recursion",
-								"past a small stack's recursion"
-							],
-							{ cases: 40, sense: notesOnly }
-						),
-						kept: [],
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "specification",
-							name: "the value's own construction: its form and its depth"
-						}
-					},
-					([depth, form, reader], c) =>
-						Effect.sync(() => {
-							c.note(`${reader} ${form}`)
-							c.note(depthFeature(depth))
-							const value = built(form, depth)
-							const shape = formShape(form)
-							if (reader === "decodeWith") {
-								const decoded = succeeded(S.decodeWith(shape, value, "v"))
-								assert.equal(depthOf(form, decoded), depth)
-								assert.equal(
-									decoded === value,
-									depth === 0 && form === "nested array",
-									"every container decodes to a fresh copy, and an integer to itself"
-								)
-								return
-							}
-							assert.equal(S.conformWith(shape, value, "v"), value)
-							assert.ok(Object.isFrozen(value), "a value conformWith keeps is frozen")
-						})
-				)
+								source.draw(
+									weighted([
+										[1, constant(0)],
+										[6, containers]
+									])
+								),
+								source.draw(formGen)
+							] as const
+					),
+					runs: 12,
+					shrink: completeShrink,
+					coverage: required<NestingFeature>(
+						[
+							"chain",
+							"nested array",
+							"no container",
+							"within a small stack's recursion",
+							"past a small stack's recursion"
+						],
+						{ cases: 40, sense: notesOnly }
+					),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang,
+					oracle: {
+						kind: "specification",
+						name: "the value's own construction: its form and its depth"
+					}
+				},
+				([depth, form], c) =>
+					Effect.sync(() => {
+						c.note(form)
+						c.note(depthFeature(depth))
+						const value = built(form, depth)
+						const decoded = succeeded(S.decodeWith(formShape(form), value, "v"))
+						assert.equal(depthOf(form, decoded), depth)
+						assert.equal(
+							decoded === value,
+							depth === 0 && form === "nested array",
+							"every container decodes to a fresh copy, and an integer to itself"
+						)
+					})
 			)
+		)
 	)
 
 	it.effect(
-		"refuse a value that holds itself as a cycle where it meets itself, decoded or conformed, however long the cycle",
+		"refuse a value that holds itself as a cycle where it meets itself, however long the cycle",
 		(ctx) =>
 			searched(
 				ctx,
@@ -967,18 +826,15 @@ describe("a value nested through a recursive shape", () => {
 										[1, int(0, length - 1)]
 									])
 								),
-								source.draw(formGen),
-								source.draw(readerGen)
+								source.draw(formGen)
 							] as const
 						}),
 						runs: 12,
 						shrink: completeShrink,
 						coverage: required<NestingFeature>(
 							[
-								"decodeWith chain",
-								"decodeWith nested array",
-								"conformWith chain",
-								"conformWith nested array",
+								"chain",
+								"nested array",
 								"within a small stack's recursion",
 								"past a small stack's recursion",
 								"a cycle back to its root",
@@ -996,9 +852,9 @@ describe("a value nested through a recursive shape", () => {
 							name: "the cycle's own construction: the path from its root back to itself"
 						}
 					},
-					([length, back, form, reader], c) =>
+					([length, back, form], c) =>
 						Effect.sync(() => {
-							c.note(`${reader} ${form}`)
+							c.note(form)
 							c.note(depthFeature(length))
 							c.note(
 								back === 0
@@ -1008,18 +864,14 @@ describe("a value nested through a recursive shape", () => {
 										: "a cycle back to a container between"
 							)
 							const value = cyclic(form, length, back)
-							const shape = formShape(form)
-							const refusal = refused(S.decodeWith(shape, value, "v"), "MalformedDescription")
+							const refusal = refused(
+								S.decodeWith(formShape(form), value, "v"),
+								"MalformedDescription"
+							)
 							assert.deepEqual(
 								refusalLoc(refusal).path,
 								Arr.map(indices(length), () => stepOf(form))
 							)
-							if (reader === "conformWith") {
-								assert.throws(
-									() => S.conformWith(shape, value, "v"),
-									(e) => Error.isError(e) && e.message === defectOf(refusal)
-								)
-							}
 						})
 				)
 			)

@@ -10,7 +10,6 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { hostRead } from "#compiler/core/host.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isCapturedStack, parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
@@ -77,12 +76,6 @@ class DecodePath {
 	 * share is read once under each.
 	 */
 	readonly onPath = new Set<object>()
-
-	/**
-	 * The objects the decode answered as they are rather than as copies it built: an interned instance, which a value is
-	 * its own decoded form at only by being (conformWith).
-	 */
-	readonly asIs = new WeakSet<object>()
 
 	constructor(subject: string) {
 		this.subject = subject
@@ -232,8 +225,8 @@ const drive = <A>(step: Step<A>): A => {
  *
  * Decoding is idempotent: every container shape returns a fresh frozen copy built only from its fields' decoded values,
  * and every check it makes reads only the decoded value, so decoding that copy again with the same shape accepts it and
- * yields an equal fresh copy, key order included. A shape recognises its own output only through `recognized`, which
- * answers an object it decoded before as that object; every other decode reads the whole value.
+ * yields an equal fresh copy, key order included. Every decode reads the whole value: a value already decoded is held
+ * by its decoded type, and nothing that holds that type decodes it again.
  */
 export interface Shape<A> {
 	/** What the shape accepts, for diagnostics. */
@@ -364,83 +357,6 @@ export const decodeAt = <A>(
 		return key === undefined ? shape.parse(value, path) : path.at(key, stepAt(from + 1))
 	}
 	return decodeOn(() => stepAt(0), path)
-}
-
-/**
- * The decoded form of `value`, a value of the decoded type that this package's own code built: what decodeWith gives
- * for it, up to key order. A value that is its own decoded form (ownForm) is kept as it is, frozen throughout; any other
- * is its decoded copy. A refusal, at the first offending value in parse's order as decodeWith names it, is the
- * builder's defect, never a refusal of anyone's input.
- */
-export const conformWith = <A>(shape: Shape<A>, value: A, what: string): A => {
-	const path = new DecodePath(what)
-	const decoded = decodeOn(() => shape.parse(value, path), path)
-	if (!decoded.ok) {
-		throw defect(`a value this package built has its shape: ${decoded.error.message}`)
-	}
-	return ownForm(value, decoded.value, path.asIs) ? value : decoded.value
-}
-
-/**
- * Whether `value` is its own decoded form `decoded`, its copy under one decode, `asIs` the objects that decode answered
- * as they are; when it is, every array and plain object in it is frozen. It is when every container in it holds what the
- * copy's container at its place holds, key order aside: an array of Array's own prototype with the same items; a plain
- * object with no symbol key and the same own keys, each with the same member, so a member stated undefined that the
- * copy leaves out, or one the copy states and the value leaves out, is not. A primitive, or an object the decode
- * answered as it is (an interned instance), is the copy's member exactly when it is that very member; an object of
- * another prototype is a carrier the decode parsed from its canonical payload (canonicalParsed), whose own decoded form
- * is a value of the same class, since a carrier spells its payload from what the payload parses back to. A value the
- * decode accepted holds no cycle, so the walk ends; the pairs still to compare wait on a stack on the heap.
- */
-const ownForm = (value: unknown, decoded: unknown, asIs: WeakSet<object>): boolean => {
-	const pending: Array<readonly [unknown, unknown]> = [[value, decoded]]
-	const containers: Array<object> = []
-	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-		const [own, copy] = pair
-		if (Object.is(own, copy)) {
-			continue
-		}
-		if (typeof own !== "object" || own === null || typeof copy !== "object" || copy === null) {
-			return false
-		}
-		if (asIs.has(copy)) {
-			return false
-		}
-		if (isList(copy)) {
-			if (
-				!isList(own) ||
-				Object.getPrototypeOf(own) !== Array.prototype ||
-				own.length !== copy.length
-			) {
-				return false
-			}
-			containers.push(own)
-			for (const [i, item] of copy.entries()) {
-				pending.push([own[i], item])
-			}
-		} else if (isPlainObject(copy)) {
-			if (!isPlainObject(own) || Object.getOwnPropertySymbols(own).length > 0) {
-				return false
-			}
-			const keys = Object.keys(copy)
-			if (Object.keys(own).length !== keys.length) {
-				return false
-			}
-			containers.push(own)
-			for (const key of keys) {
-				if (!Object.hasOwn(own, key)) {
-					return false
-				}
-				pending.push([own[key], copy[key]])
-			}
-		} else if (Object.getPrototypeOf(own) !== Object.getPrototypeOf(copy)) {
-			return false
-		}
-	}
-	for (const container of containers) {
-		Object.freeze(container)
-	}
-	return true
 }
 
 /**
@@ -721,7 +637,7 @@ export const normalized = <A, B>(shape: Shape<A>, normalize: (value: A) => B): S
 
 /**
  * A value of a fixed set of interned instances, decoded to the one instance its parts name, so equal values are one
- * value. The decode answers the instance as it is, so a value is its own decoded form exactly when it is that instance.
+ * value.
  */
 export const interned = <P, A extends object>(
 	parts: Shape<P>,
@@ -730,34 +646,9 @@ export const interned = <P, A extends object>(
 	plain({
 		expected: parts.expected,
 		parse: function* (value, path) {
-			const one = instance(yield* parts.parse(value, path))
-			path.asIs.add(one)
-			return one
+			return instance(yield* parts.parse(value, path))
 		}
 	})
-
-/**
- * `shape`, answering an object it decoded before as that very object. A decoded value is a fixed point of its shape at
- * any place: every check reads only the value, and every located node already carries its location. So a value built
- * around parts the shape already decoded is read only in its new parts, with the refusals and the result a whole
- * decode gives, and its decoded parts are shared rather than copied. The shape registers its own outputs alone, in a
- * WeakMap, which holds nothing alive and is never enumerated.
- */
-export const recognized = <A extends object>(shape: Shape<A>): Shape<A> => {
-	const outputs = new WeakMap<object, A>()
-	return plain({
-		expected: shape.expected,
-		parse: function* (value, path) {
-			const known = typeof value === "object" && value !== null ? outputs.get(value) : undefined
-			if (known !== undefined) {
-				return known
-			}
-			const out = yield* shape.parse(value, path)
-			outputs.set(out, out)
-			return out
-		}
-	})
-}
 
 /** The decoded items of an array, in order, frozen. */
 function* itemsOf<A>(
@@ -1303,8 +1194,8 @@ export const ref = <A>(expected: string, shape: () => Shape<A>): Shape<A> =>
  * A value implementing the canonical protocol with the given tag, parsed from its payload into the carrier `parse`
  * makes of a payload its grammar admits: the IR holds its literals parsed, whichever reviver its decode was given. A
  * carrier spells its payload from the fields that payload parses back to (ir/carriers.ts), so a value already of the
- * carrier's class is its own decoded form (conformWith), and any other value carrying the payload, such as
- * scalar/values' Money, decodes to the carrier.
+ * carrier's class decodes to itself, and any other value carrying the payload, such as scalar/values' Money, decodes
+ * to the carrier.
  */
 export const canonicalParsed = <A>(
 	tag: string,

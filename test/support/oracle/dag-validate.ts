@@ -2145,17 +2145,22 @@ export const dagProblems = (table: DagTable): ReadonlyArray<DagProblem> => {
 }
 
 /**
- * The decoded form of a table this package's own code built (shape.ts conformWith): the shape stage's checks over every
- * node and expression, in place, with no copy. A table it builds that breaks the shape is a defect of its builder.
+ * The decoded form of a table this package's own code built (shape.ts decodeWith): the shape stage's checks over every
+ * node and expression. A table it builds that breaks the shape is a defect of its builder.
  */
-const conformed = (table: DagTable): DagTable =>
-	S.conformWith(dagTableShape, table, "relational DAG")
+const conformed = (table: DagTable): DagTable => {
+	const decoded = S.decodeWith(dagTableShape, table, "relational DAG")
+	if (!decoded.ok) {
+		throw defect(`a value this package built has its shape: ${decoded.error.message}`)
+	}
+	return decoded.value
+}
 
 /**
  * The DAG validator.
  *
- * A DAG is checked over its outside form (dag.ts toTable) in two stages. The shape stage conforms the table strictly
- * (dagTableShape, shape.ts conformWith): every node has a heading, every field has its declared form, no property is
+ * A DAG is checked over its outside form (dag.ts toTable) in two stages. The shape stage decodes the table strictly
+ * (dagTableShape, shape.ts decodeWith): every node has a heading, every field has its declared form, no property is
  * unknown. The semantic stage checks what a shape cannot:
  *
  * - labels are unique: one node and one expression per label (toTable refuses two under one);

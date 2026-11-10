@@ -1336,9 +1336,8 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 )
 
 /**
- * A field descriptor's Description, answering one it decoded before as it stands (S.recognized): defineField decodes
- * each descriptor's once, and every description that holds the descriptor's, a closed relation's fields, a context's, a
- * parameter's type, reads it without proving it again.
+ * A field descriptor's Description as a caller's Description holds one. A descriptor's own is its builder's, frozen
+ * (scalar/registry.ts defineField), and a Description its builder makes over descriptors holds theirs as they are.
  */
 const fieldDescShape: S.Shape<FieldDesc> = S.ref("a field descriptor", () => fieldDescBody)
 
@@ -1536,58 +1535,56 @@ const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTer
 )
 
 /** The decoder fieldDescShape refers to (S.ref). */
-const fieldDescBody: S.Shape<FieldDesc> = S.recognized(
-	S.tagged("kind", {
-		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
-		numeric: S.refine(
-			S.struct({ precision: S.integer, scale: S.integer }),
-			(f) =>
-				f.precision >= 1 &&
-				f.precision <= numericMaxPrecision.value &&
-				f.scale >= numericMinScale.value &&
-				f.scale <= numericMaxScale.value,
-			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
-		),
-		uuid: S.struct({}),
-		bytes: S.struct({}),
-		text: S.refine(
-			S.structStated(
-				{ patterns: patternsShape, language: textLanguageShape },
-				{ bytes: S.nonNegativeInteger },
-				{}
-			),
-			(t) => t.bytes === languageOctets(t.language),
-			"a text's byte bound, the one its language enforces"
-		),
-		contract: S.structStated(
-			{
-				name,
-				base: fieldDescShape,
-				facts: S.refine(
-					S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
-					factsSorted,
-					"a contract's facts sorted, each once"
-				)
-			},
-			{ predicate: exprDescShape },
+const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
+	pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
+	numeric: S.refine(
+		S.struct({ precision: S.integer, scale: S.integer }),
+		(f) =>
+			f.precision >= 1 &&
+			f.precision <= numericMaxPrecision.value &&
+			f.scale >= numericMinScale.value &&
+			f.scale <= numericMaxScale.value,
+		`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
+	),
+	uuid: S.struct({}),
+	bytes: S.struct({}),
+	text: S.refine(
+		S.structStated(
+			{ patterns: patternsShape, language: textLanguageShape },
+			{ bytes: S.nonNegativeInteger },
 			{}
 		),
-		span: S.structStated(
-			{ endpoint: fieldDescShape },
-			{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
-			{}
-		),
-		closedId: S.struct({ roster: name }),
-		bits: S.struct({ roster: name }),
-		vector: S.struct({
-			dimensions: S.refine(
-				S.positiveInteger,
-				(n) => n <= vectorMaxDimensions.value,
-				`1..${vectorMaxDimensions.value} dimensions`
+		(t) => t.bytes === languageOctets(t.language),
+		"a text's byte bound, the one its language enforces"
+	),
+	contract: S.structStated(
+		{
+			name,
+			base: fieldDescShape,
+			facts: S.refine(
+				S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
+				factsSorted,
+				"a contract's facts sorted, each once"
 			)
-		})
+		},
+		{ predicate: exprDescShape },
+		{}
+	),
+	span: S.structStated(
+		{ endpoint: fieldDescShape },
+		{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
+		{}
+	),
+	closedId: S.struct({ roster: name }),
+	bits: S.struct({ roster: name }),
+	vector: S.struct({
+		dimensions: S.refine(
+			S.positiveInteger,
+			(n) => n <= vectorMaxDimensions.value,
+			`1..${vectorMaxDimensions.value} dimensions`
+		)
 	})
-)
+})
 
 /** The decoder bindingsDescShape refers to (S.ref). */
 const bindingsDescBody: S.Shape<BindingsDesc> = S.recordShape(exprDescShape, S.nonEmptyString)
@@ -1676,23 +1673,21 @@ const attachDescShape: S.Shape<AttachDesc> = S.located(
 const ruleDescShape: S.Shape<RuleDesc> = S.ref("a rule", () => ruleDescBody)
 
 /** The decoder ruleDescShape refers to (S.ref). */
-const ruleDescBody: S.Shape<RuleDesc> = S.recognized(
-	S.located(
-		S.structWith(
-			{
-				vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
-				matches: S.array(matchDescShape),
-				where: S.array(exprDescShape),
-				head: S.recordShape(headTermDescShape, S.nonEmptyString),
-				interiors: S.uniqueArray(
-					S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
-					(i) => i.id,
-					"interior ids"
-				),
-				attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
-			},
-			loc
-		)
+const ruleDescBody: S.Shape<RuleDesc> = S.located(
+	S.structWith(
+		{
+			vars: S.uniqueArray(varDescShape, (v) => v.id, "variable ids"),
+			matches: S.array(matchDescShape),
+			where: S.array(exprDescShape),
+			head: S.recordShape(headTermDescShape, S.nonEmptyString),
+			interiors: S.uniqueArray(
+				S.struct({ id: name, arms: S.nonEmptyArray(ruleDescShape) }),
+				(i) => i.id,
+				"interior ids"
+			),
+			attach: S.uniqueArray(attachDescShape, (a) => a.name, "attachment names")
+		},
+		loc
 	)
 )
 
@@ -1733,49 +1728,47 @@ const arms = S.nonEmptyArray(ruleDescShape)
 const queryStageShape: S.Shape<QueryStageDesc> = S.ref("a query stage", () => queryStageBody)
 
 /** The decoder queryStageShape refers to (S.ref). */
-const queryStageBody: S.Shape<QueryStageDesc> = S.recognized(
-	S.tagged("kind", {
-		rules: S.located(S.structWith({ arms }, loc)),
-		recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
-		union: S.refine(
-			notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
-			(u) => u.input.kind !== "rules",
-			"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
+const queryStageBody: S.Shape<QueryStageDesc> = S.tagged("kind", {
+	rules: S.located(S.structWith({ arms }, loc)),
+	recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
+	union: S.refine(
+		notOrdered(S.located(S.structWith({ input: stageInput, arms }, loc)), "rule"),
+		(u) => u.input.kind !== "rules",
+		"a union over a query other than the builder's rules; consecutive rule calls are one rules stage"
+	),
+	attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
+	named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
+	order: notOrdered(
+		S.located(
+			S.structWith(
+				{
+					input: stageInput,
+					order: S.refine(
+						S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
+						(o) => o.length > 0,
+						"a nonempty order"
+					)
+				},
+				loc
+			)
 		),
-		attach: notOrdered(S.struct({ input: stageInput, attach: attachDescShape }), "attach"),
-		named: notOrdered(S.located(S.structWith({ input: stageInput, name }, loc)), "named"),
-		order: notOrdered(
-			S.located(
-				S.structWith(
-					{
-						input: stageInput,
-						order: S.refine(
-							S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
-							(o) => o.length > 0,
-							"a nonempty order"
-						)
-					},
-					loc
-				)
-			),
-			"orderBy"
-		),
-		take: S.refine(
-			S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
-			(t) => t.input.kind === "order",
-			"take applied to an Ordered, the result of orderBy"
-		),
-		approx: notOrdered(
-			S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
-			"approximateNearest"
-		)
-	})
-)
+		"orderBy"
+	),
+	take: S.refine(
+		S.located(S.structWith({ input: stageInput, take: takeDescShape }, loc)),
+		(t) => t.input.kind === "order",
+		"take applied to an Ordered, the result of orderBy"
+	),
+	approx: notOrdered(
+		S.located(S.structWith({ input: stageInput, by: name, take: S.positiveInteger }, loc)),
+		"approximateNearest"
+	)
+})
 
 const queryDescShape: S.Shape<QueryDesc> = S.ref("a query description", () => queryDescBody)
 
 /** The decoder queryDescShape refers to (S.ref). */
-const queryDescBody: S.Shape<QueryDesc> = S.recognized(S.struct({ stage: queryStageShape }))
+const queryDescBody: S.Shape<QueryDesc> = S.struct({ stage: queryStageShape })
 
 /** A query that is a Query, not an Ordered: a match source, a ChangeSet member, a derived definition. */
 const unorderedQueryShape: S.Shape<QueryDesc> = S.refine(

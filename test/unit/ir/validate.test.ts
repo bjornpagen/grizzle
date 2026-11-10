@@ -16,7 +16,7 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type DagTable, type RelKind, relKinds } from "#compiler/ir/rel.ts"
-import { conformWith, decodeWith, type Shape } from "#compiler/ir/shape.ts"
+import { decodeWith } from "#compiler/ir/shape.ts"
 import { assert, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -91,40 +91,8 @@ const answered = <A>(f: () => A): Result.Result<A, string> => {
 }
 
 /**
- * A DAG's shape conformed as this package's own code builds one (shape.ts conformWith), read through the shape of any
- * value: what a builder that made exactly this value would meet. Its answer is the value it keeps or decodes, or the
+ * A DAG grizzle's own code built, as validateDag answers it: shaped first, then validated, a broken rule being the
  * defect it raises.
- */
-const anyShape: Shape<unknown> = dagTableShape
-const conformed = (value: unknown): Result.Result<unknown, string> =>
-	answered(() => conformWith(anyShape, value, "relational DAG"))
-
-/**
- * conformWith answers as decodeWith does: a value decodeWith refuses is the builder's defect naming exactly that
- * refusal, and any other comes back equal to its decoded copy, as the value itself, now frozen, or as that copy.
- */
-const conformsAsDecoded = (value: unknown): void => {
-	const decoded = decodeWith(dagTableShape, value, "relational DAG")
-	const kept = conformed(value)
-	if (!decoded.ok) {
-		assert.deepEqual(
-			kept,
-			Result.err(
-				`grizzle internal invariant: a value this package built has its shape: ${decoded.error.message}`
-			)
-		)
-		return
-	}
-	assert.ok(kept.ok, `conformWith refuses what decodeWith accepts: ${!kept.ok ? kept.error : ""}`)
-	assert.deepEqual(kept.value, decoded.value)
-	if (kept.value === value) {
-		assert.ok(Object.isFrozen(value))
-	}
-}
-
-/**
- * A DAG grizzle's own code built, as validateDag answers it: shaped first (a value the shape refuses is conformWith's
- * defect, which conformsAsDecoded checks), then validated, a broken rule being the defect it raises.
  */
 const validation = (value: unknown): Result.Result<DagTable, string> => {
 	const shaped = decodeWith(dagTableShape, value, "relational DAG")
@@ -137,7 +105,6 @@ const validation = (value: unknown): Result.Result<DagTable, string> => {
  * nothing back. Either way a builder that made it meets the decode's answer.
  */
 const judged = (c: Corrupted<unknown, DagRefusal, DagRule>): DagTable | undefined => {
-	conformsAsDecoded(c.value)
 	const answer = validation(c.value)
 	if (c.kind === "live") {
 		assert.ok(answer.ok, `a valid DAG is refused: ${!answer.ok ? answer.error : ""}`)
@@ -214,7 +181,7 @@ describe("validateDag", () => {
 						caseHang,
 						oracle: {
 							kind: "second-implementation",
-							name: "each corruption's rule restated over the table, and the shape decoder against conformWith"
+							name: "each corruption's rule restated over the table"
 						}
 					},
 					([table, choice], n) =>
